@@ -34,11 +34,14 @@ pub(super) struct LivedDraft {
     canon: Vec<String>,
 }
 
+/// What a day left her with about one person.
+type Impression = (String, String, i8, Option<(String, String)>);
+
 pub(super) struct ReflectDraft {
     reflection: String,
     /// `(who, impression, feel, a rewritten account of them)`. The account
     /// is `(what is known from shared places, what they said in private)`.
-    people: Vec<(String, String, i8, Option<(String, String)>)>,
+    people: Vec<Impression>,
     /// `(hours from now, what, about)`.
     intentions: Vec<(f64, String, Option<String>)>,
     canon: Vec<String>,
