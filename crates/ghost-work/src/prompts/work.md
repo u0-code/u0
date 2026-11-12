@@ -20,7 +20,7 @@
 - `shell` runs bash without a terminal. Never start anything that waits for a keypress: no editors, pagers, REPLs or prompts. Pass `-y`, `--yes`, `DEBIAN_FRONTEND=noninteractive` and the like; send pagers to `cat`.
 - The working directory carries over between `shell` calls. Exported variables and shell functions do not.
 - Output is cut in the middle when it is long. Ask for what you need (`grep`, `head`, `tail`, `wc`) instead of printing everything.
-- Commands are stopped after their timeout (120 seconds unless you say otherwise). For builds, downloads and training raise `timeout`; for servers and anything that must keep running use `background` and check on it.
+- Commands are stopped after their timeout (120 seconds unless you say otherwise). Anything that may take longer than a couple of minutes (builds, installs, downloads, training, test suites) and anything that must keep running (servers) goes in the `background`: it becomes a numbered job that is never cut off, and `shell` with `job` waits for it and shows what it printed. While a job runs you can do other things.
 - Use `write` and `edit` for file contents. Heredocs and `echo` mangle quotes, backslashes and dollar signs.
 
 # Finishing

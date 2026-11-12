@@ -30,6 +30,8 @@ pub struct Desk {
     pub machine: Arc<dyn Machine>,
     cwd: Mutex<Option<String>>,
     jobs: AtomicU32,
+    /// Sets this desk's files in `/tmp` apart from every other desk's.
+    tag: String,
 }
 
 impl Desk {
@@ -38,6 +40,13 @@ impl Desk {
             machine,
             cwd: Mutex::new(None),
             jobs: AtomicU32::new(0),
+            tag: format!(
+                "{:x}{:x}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.subsec_nanos())
+            ),
         })
     }
 

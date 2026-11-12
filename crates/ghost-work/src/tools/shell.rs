@@ -27,6 +27,59 @@ impl Shell {
     }
 }
 
+impl Shell {
+    /// Wait for a background job, up to `secs`, and report what it printed
+    /// since the last look.
+    async fn look_at(&self, job: u64, secs: u64) -> Outcome {
+        let dir = format!("/tmp/ghost-{}-job-{job}", self.desk.tag);
+        // One script does the waiting, so a slow job costs one call, not a
+        // loop of them. `seen` remembers how far the log has been read.
+        let script = format!(
+            "d={dir}; [ -f $d/log ] || {{ echo \"there is no job {job}\"; exit 3; }}\n\
+             n=0; while [ ! -f $d/status ] && [ $n -lt {} ]; do sleep 0.5; n=$((n+1)); done\n\
+             from=$(cat $d/seen 2>/dev/null || echo 0); size=$(wc -c < $d/log | tr -d ' ')\n\
+             tail -c +$((from+1)) $d/log; echo $size > $d/seen\n\
+             if [ -f $d/status ]; then printf '\\n{WHERE}done:%s\\n' \"$(cat $d/status)\"; else printf '\\n{WHERE}running\\n'; fi",
+            secs * 2
+        );
+        let out = match self
+            .desk
+            .exec(&script, None, Duration::from_secs(secs + 30))
+            .await
+        {
+            Ok(out) => out,
+            Err(e) => return Outcome::fail(format!("could not look at job {job}: {e}")),
+        };
+        let Some(at) = out.text.rfind(WHERE) else {
+            return Outcome::fail(out.text.trim().to_owned());
+        };
+        let state = out.text[at + WHERE.len()..].trim();
+        let printed = out.text[..at].trim_end();
+        let mut output = clip(printed, 5000, 9000);
+        if output.is_empty() {
+            output.push_str("(nothing new printed)");
+        }
+        let failed = match state.strip_prefix("done:") {
+            Some("0") => {
+                let _ = write!(output, "\n[job {job} finished]");
+                false
+            }
+            Some(code) => {
+                let _ = write!(output, "\n[job {job} finished with exit {code}]");
+                true
+            }
+            None => {
+                let _ = write!(
+                    output,
+                    "\n[job {job} is still running after {secs}s. Look again later, or get on with something else.]"
+                );
+                false
+            }
+        };
+        Outcome { output, failed }
+    }
+}
+
 #[async_trait]
 impl Tool for Shell {
     fn spec(&self) -> ToolSpec {
@@ -38,29 +91,35 @@ impl Tool for Shell {
              Long output is cut in the middle, so prefer commands that print what you need.",
             json!({
                 "command": {"type": "string", "description": "The bash command or script to run."},
-                "timeout": {"type": "integer", "description": "Seconds before the command is stopped. Default 120, at most 3600."},
-                "background": {"type": "boolean", "description": "Start the command and return at once, for servers and anything long-running. Its output goes to a log file whose path is returned."},
+                "timeout": {"type": "integer", "description": "Seconds before the command is stopped, or, with `job`, how long to wait for it. Default 120, at most 3600."},
+                "background": {"type": "boolean", "description": "Start the command as a job and return at once, for servers, builds, downloads and anything else that takes long. The reply gives the job's number."},
+                "job": {"type": "integer", "description": "Instead of running a command: wait for the background job with this number to finish, for up to `timeout` seconds, and return what it has printed since you last looked. Says whether it is still running or how it exited."},
             }),
-            &["command"],
+            &[],
         )
     }
 
     async fn call(&self, args: &Value) -> Outcome {
-        let command = match text(args, "command") {
-            Ok(c) => c,
-            Err(refusal) => return refusal,
-        };
         let secs = args["timeout"]
             .as_u64()
             .unwrap_or(DEFAULT_TIMEOUT)
             .clamp(1, MAX_TIMEOUT);
+        if let Some(job) = args["job"].as_u64() {
+            return self.look_at(job, secs).await;
+        }
+        let command = match text(args, "command") {
+            Ok(c) => c,
+            Err(refusal) => return refusal,
+        };
 
         if args["background"].as_bool() == Some(true) {
             let n = self.desk.jobs.fetch_add(1, Ordering::Relaxed) + 1;
-            let log = format!("/tmp/ghost-job-{n}.log");
+            let dir = format!("/tmp/ghost-{}-job-{n}", self.desk.tag);
+            // When the job ends, however it ends, its exit status is left
+            // beside its log, so a later look can tell done from running.
             let script = format!(
-                "nohup bash -c {} > {log} 2>&1 &\necho \"started in the background: pid $!, output in {log}\"",
-                quote(command)
+                "rm -rf {dir}; mkdir -p {dir}\nnohup bash -c {} > {dir}/log 2>&1 < /dev/null &\necho \"started as job {n} (pid $!). Look at it with shell {{\\\"job\\\": {n}}}; its output is in {dir}/log\"",
+                quote(&format!("trap 'echo $? > {dir}/status' EXIT\n{command}"))
             );
             return match self.desk.exec(&script, None, Duration::from_secs(30)).await {
                 Ok(out) => Outcome {
@@ -102,7 +161,7 @@ impl Tool for Shell {
         if output.len() < printed.trim_end().len() {
             // Too long to show whole. Keep all of it where it can be searched.
             let n = self.desk.jobs.fetch_add(1, Ordering::Relaxed) + 1;
-            let path = format!("/tmp/ghost-out-{n}.txt");
+            let path = format!("/tmp/ghost-{}-out-{n}.txt", self.desk.tag);
             let saved = self
                 .desk
                 .exec(
@@ -187,19 +246,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_background_job_keeps_running() {
+    async fn a_background_job_can_be_waited_for() {
         let dir = tempfile::tempdir().unwrap();
         let sh = shell(dir.path());
         let started = sh
-            .call(&json!({"command": "sleep 1; echo finished > marker", "background": true}))
+            .call(&json!({"command": "echo one; sleep 1.5; echo two; exit 4", "background": true}))
             .await;
+        assert!(!started.failed, "{}", started.output);
+        let n: u64 = started
+            .output
+            .split("job ")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .expect("the reply names the job");
+
+        // A short look while it is still going: what it has printed so far.
+        let early = sh.call(&json!({"job": n, "timeout": 1})).await;
+        assert!(early.output.starts_with("one"), "{}", early.output);
+        assert!(early.output.contains("still running"), "{}", early.output);
+
+        // A longer look waits for it to end and shows only what is new.
+        let late = sh.call(&json!({"job": n, "timeout": 20})).await;
+        assert!(late.failed);
+        assert!(late.output.starts_with("two"), "{}", late.output);
         assert!(
-            started.output.contains("started in the background"),
+            late.output
+                .ends_with(&format!("[job {n} finished with exit 4]")),
             "{}",
-            started.output
+            late.output
         );
-        tokio::time::sleep(Duration::from_millis(1800)).await;
-        let seen = sh.call(&json!({"command": "cat marker"})).await;
-        assert_eq!(seen.output, "finished");
+
+        let none = sh.call(&json!({"job": 999})).await;
+        assert!(
+            none.failed && none.output.contains("there is no job 999"),
+            "{}",
+            none.output
+        );
     }
 }
