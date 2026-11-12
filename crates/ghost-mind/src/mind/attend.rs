@@ -498,6 +498,11 @@ impl Mind {
                     if !text.is_empty() {
                         let reply_to = match reply_to {
                             Some(seq) => self.platform_id(place, seq)?,
+                            // A public reply has to hang off something: the
+                            // newest message she read, unless she chose one.
+                            None if place.kind == PlaceKind::Public && bubbles.is_empty() => {
+                                self.platform_id(place, job.upto)?
+                            }
                             None => None,
                         };
                         bubbles.push_back(Bubble { text, reply_to });

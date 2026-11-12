@@ -616,4 +616,46 @@ async fn scrolling_mostly_ends_in_nothing_and_sometimes_in_a_post() {
     );
     // Only what she engaged with entered her journal.
     assert_eq!(rig.kinds().iter().filter(|k| **k == "heard").count(), 1);
+
+    // The next time she picks up her phone the same posts are still there.
+    // She has seen them and has posted enough: no brain call, no second like.
+    let fetches = |r: &Rig| r.body.count(|a| matches!(a, Act::Fetch { .. }));
+    rig.until(|r| fetches(r) == 2).await;
+    assert_eq!(rig.think.calls(), 1);
+    assert_eq!(rig.body.count(|a| matches!(a, Act::React { .. })), 1);
+}
+
+#[tokio::test]
+async fn in_public_her_messages_hang_off_each_other() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.then(
+        r#"{"actions":[{"do":"say","text":"i walk past it most mornings"},{"do":"say","text":"where did you hear that"}]}"#,
+    );
+    let mut mention = dm("mei", "tweet-9", "@lin is the teahouse really closing?");
+    mention.place = Place {
+        id: "thread-9".into(),
+        kind: PlaceKind::Public,
+        name: None,
+    };
+    rig.hear(mention, t0);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    let replies: Vec<Option<String>> = rig
+        .body
+        .acts
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|(_, act)| match act {
+            Act::Send { reply_to, .. } => Some(reply_to.clone()),
+            _ => None,
+        })
+        .collect();
+    // The first answers their post; the second continues her own.
+    assert_eq!(replies[0].as_deref(), Some("tweet-9"));
+    assert!(
+        replies[1]
+            .as_deref()
+            .is_some_and(|id| id.starts_with("out-"))
+    );
 }

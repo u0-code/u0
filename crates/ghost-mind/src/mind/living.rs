@@ -300,6 +300,20 @@ impl Mind {
                 ))
             })
             .collect::<Vec<_>>();
+        // Her own words, so claims she made about her life can become canon.
+        let said: Vec<String> = journal
+            .of_kinds_after(&["said"], since_seq)?
+            .into_iter()
+            .rev()
+            .take(40)
+            .filter_map(|e| match e.event {
+                Event::Said { text, .. } => Some(format!("- {}", actions::clip(&text, 200))),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
@@ -338,6 +352,14 @@ impl Mind {
                         "(nobody)".to_owned()
                     } else {
                         cards.join("\n")
+                    },
+                ),
+                (
+                    "said",
+                    if said.is_empty() {
+                        "(nothing)".to_owned()
+                    } else {
+                        said.join("\n")
                     },
                 ),
             ],

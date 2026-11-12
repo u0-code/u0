@@ -302,6 +302,8 @@ pub struct Mind {
     reflecting: bool,
     /// Channels with a scroll in flight.
     browsing: HashSet<String>,
+    /// Posts she has already scrolled past, per channel. Bounded.
+    scrolled: HashMap<String, VecDeque<String>>,
 }
 
 impl Mind {
@@ -339,6 +341,7 @@ impl Mind {
             living: None,
             reflecting: false,
             browsing: HashSet::new(),
+            scrolled: HashMap::new(),
         };
         (mind, MindHandle { tx, entries })
     }

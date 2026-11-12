@@ -8,7 +8,11 @@
 use std::collections::VecDeque;
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_core::{journal::Event, memory::PlaceState, social};
+use ghost_core::{
+    journal::Event,
+    memory::PlaceState,
+    social::{self, PlaceKind},
+};
 use tracing::warn;
 
 use super::{Mind, Outcome, after, attend::Thinking};
@@ -30,6 +34,9 @@ pub(super) struct Speaking {
     upto: i64,
     bubbles: VecDeque<Bubble>,
     step: Step,
+    /// In a public thread a message has to hang off another one, so each
+    /// bubble after the first answers the one before it.
+    chain: bool,
 }
 
 enum Step {
@@ -72,6 +79,7 @@ impl Mind {
                 upto: job.upto,
                 bubbles,
                 step: Step::Reading { until },
+                chain: place.kind == PlaceKind::Public,
             },
         );
     }
@@ -95,6 +103,7 @@ impl Mind {
                 upto,
                 bubbles: VecDeque::from([bubble]),
                 step: Step::Reading { until: now },
+                chain: true,
             },
         );
     }
@@ -202,6 +211,7 @@ impl Mind {
                 return Ok(());
             }
         };
+        let sent_as = acted.id.clone();
         self.record(Event::Said {
             channel,
             place: place_id,
@@ -211,7 +221,12 @@ impl Mind {
         })?;
         let next = self.agenda.speaking.get_mut(key).and_then(|s| {
             s.bubbles.pop_front();
-            s.bubbles.front().cloned()
+            let chain = s.chain;
+            let next = s.bubbles.front_mut()?;
+            if chain && next.reply_to.is_none() {
+                next.reply_to = sent_as;
+            }
+            Some(next.clone())
         });
         let Some(next) = next else {
             self.agenda.speaking.remove(key);

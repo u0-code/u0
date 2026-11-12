@@ -96,7 +96,7 @@ mod tests {
 
     const ME: UserId = UserId::new(99);
 
-    fn message(extra: serenity::json::Value) -> Message {
+    fn message(extra: &serenity::json::Value) -> Message {
         let mut base = json!({
             "id": "500",
             "channel_id": "300",
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn a_direct_message_is_for_her() {
-        let m = inbound(&message(json!({})), ME, None).unwrap();
+        let m = inbound(&message(&json!({})), ME, None).unwrap();
         assert_eq!(m.place.kind, PlaceKind::Direct);
         assert_eq!((m.place.id.as_str(), m.id.as_str()), ("300", "500"));
         assert_eq!(m.from.name, "Hao Ran");
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn in_a_server_only_mentions_and_replies_are_for_her() {
         let guild = json!({"guild_id": "700", "member": {"nick": "hao", "roles": [], "joined_at": "2026-01-01T00:00:00+00:00", "deaf": false, "mute": false}});
-        let plain = inbound(&message(guild.clone()), ME, Some("general".into())).unwrap();
+        let plain = inbound(&message(&guild), ME, Some("general".into())).unwrap();
         assert_eq!(plain.place.kind, PlaceKind::Group);
         assert_eq!(plain.place.name.as_deref(), Some("#general"));
         assert_eq!(plain.from.name, "hao");
@@ -145,7 +145,7 @@ mod tests {
         let mut mention = guild.clone();
         mention["content"] = json!("<@99> what do you think");
         mention["mentions"] = json!([her()]);
-        let mention = inbound(&message(mention), ME, None).unwrap();
+        let mention = inbound(&message(&mention), ME, None).unwrap();
         assert!(mention.addressed);
         assert_eq!(mention.text, "@Lin what do you think");
 
@@ -157,14 +157,14 @@ mod tests {
             "tts": false, "mention_everyone": false, "mentions": [], "mention_roles": [],
             "attachments": [], "embeds": [], "pinned": false, "type": 0
         });
-        let reply = inbound(&message(reply), ME, None).unwrap();
+        let reply = inbound(&message(&reply), ME, None).unwrap();
         assert!(reply.addressed);
         assert_eq!(reply.reply_to.as_deref(), Some("400"));
     }
 
     #[test]
     fn attachments_are_named_and_noise_is_dropped() {
-        let picture = message(json!({"content": "", "attachments": [{
+        let picture = message(&json!({"content": "", "attachments": [{
             "id": "1", "filename": "teahouse.jpg", "size": 10, "url": "https://x/y", "proxy_url": "https://x/y",
             "content_type": "image/jpeg"
         }]}));
@@ -173,9 +173,9 @@ mod tests {
             "[image teahouse.jpg]"
         );
         // Her own message echoed back by the gateway.
-        assert!(inbound(&message(json!({"author": her()})), ME, None).is_none());
+        assert!(inbound(&message(&json!({"author": her()})), ME, None).is_none());
         // A member-joined system message.
-        assert!(inbound(&message(json!({"type": 7, "content": ""})), ME, None).is_none());
-        assert!(inbound(&message(json!({"content": "   "})), ME, None).is_none());
+        assert!(inbound(&message(&json!({"type": 7, "content": ""})), ME, None).is_none());
+        assert!(inbound(&message(&json!({"content": "   "})), ME, None).is_none());
     }
 }

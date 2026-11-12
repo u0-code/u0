@@ -4,6 +4,8 @@
 //! journal item by item; she keeps one line about what she took away, plus
 //! whatever she actually engaged with.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::Completion;
 use ghost_core::{
@@ -21,6 +23,8 @@ use crate::{
 
 /// How many posts she looks at in one scroll.
 const SCROLL: u32 = 20;
+/// How many scrolled-past posts she remembers per channel.
+const REMEMBERED: usize = 500;
 
 impl Mind {
     /// When she next picks up her phone to scroll, if any channel has a feed.
@@ -64,6 +68,12 @@ impl Mind {
         let system = self.self_prompt(now)?;
         let (brain, body, max_tokens) =
             (self.think.clone(), self.body.clone(), self.cfg.max_tokens);
+        let seen: HashSet<String> = self
+            .scrolled
+            .get(&channel)
+            .map(|ids| ids.iter().cloned().collect())
+            .unwrap_or_default();
+        let may_post = posted < self.cfg.posts_per_day as usize;
         self.browsing.insert(channel.clone());
         self.budget.spend(now);
         self.jobs.spawn(async move {
@@ -76,13 +86,26 @@ impl Mind {
                     },
                 )
                 .await;
-            let items = match fetched {
-                Ok(acted) => acted.items,
+            // Only what she has not scrolled past before.
+            let items: Vec<Incoming> = match fetched {
+                Ok(acted) => acted
+                    .items
+                    .into_iter()
+                    .filter(|item| !seen.contains(&item.id))
+                    .collect(),
                 Err(e) => {
                     warn!("{channel}: could not load the timeline: {e}");
                     Vec::new()
                 }
             };
+            if items.is_empty() && !may_post {
+                // Nothing new and nothing left to say today: she puts it down.
+                return Outcome::Browsed {
+                    channel,
+                    items,
+                    result: Ok(Deliberation::default()),
+                };
+            }
             let listing = if items.is_empty() {
                 "(nothing new)".to_owned()
             } else {
@@ -130,6 +153,11 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<()> {
         self.browsing.remove(channel);
+        let scrolled = self.scrolled.entry(channel.to_owned()).or_default();
+        scrolled.extend(items.iter().map(|item| item.id.clone()));
+        while scrolled.len() > REMEMBERED {
+            scrolled.pop_front();
+        }
         let deliberation = match result {
             Ok(d) => d,
             Err(e) => {
@@ -169,7 +197,10 @@ impl Mind {
                         continue;
                     };
                     let key = social::key(channel, &target.place.id);
-                    if self.agenda.speaking.contains_key(&key) || text.trim().is_empty() {
+                    if self.agenda.speaking.contains_key(&key)
+                        || text.trim().is_empty()
+                        || self.ghost.memory().replied_to(&key, &target.id)?
+                    {
                         continue;
                     }
                     // What she replies to becomes part of her record; the rest
