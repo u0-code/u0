@@ -58,6 +58,11 @@ struct Args {
     #[arg(long, default_value = "DEEPSEEK_API_KEY")]
     api_key_env: String,
 
+    /// Give the worker `search` and `fetch`. Search uses `DEEPSEEK_API_KEY`,
+    /// `BRAVE_API_KEY` or `SEARXNG_URL`, whichever is set first.
+    #[arg(long)]
+    web: bool,
+
     #[arg(long, default_value_t = 200)]
     max_steps: u32,
     #[arg(long, default_value_t = 60)]
@@ -144,7 +149,14 @@ async fn main() -> anyhow::Result<()> {
 
     let worker = Worker {
         brain,
-        tools: tools::standard(machine.clone(), &undertaking),
+        tools: if args.web {
+            tools::with_web(
+                tools::standard(machine.clone(), &undertaking),
+                &tools::WebConfig::from_env(),
+            )
+        } else {
+            tools::standard(machine.clone(), &undertaking)
+        },
         undertaking,
         limits: Limits {
             max_steps: args.max_steps,

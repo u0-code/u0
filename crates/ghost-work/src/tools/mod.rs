@@ -8,12 +8,14 @@
 mod files;
 mod record;
 mod shell;
+mod web;
 
 use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
 pub use record::{Done, Handoff, Note, Plan};
 pub use shell::Shell;
+pub use web::{Fetch, Search, Source, WebConfig};
 
 use crate::{
     machine::{Machine, Output, quote},
@@ -102,6 +104,17 @@ pub fn standard(machine: Arc<dyn Machine>, undertaking: &Arc<Undertaking>) -> To
         .with(Plan::new(undertaking.clone()))
         .with(Note::new(undertaking.clone()))
         .with(Done::new(undertaking.clone()))
+}
+
+/// Add the web to a toolbox: `search` if there is somewhere to search, and
+/// `fetch` always.
+#[must_use]
+pub fn with_web(tools: Toolbox, config: &WebConfig) -> Toolbox {
+    let tools = match &config.search {
+        Some(source) => tools.with(Search::new(source.clone())),
+        None => tools,
+    };
+    tools.with(Fetch::new(config.reader_key.clone()))
 }
 
 #[cfg(test)]
