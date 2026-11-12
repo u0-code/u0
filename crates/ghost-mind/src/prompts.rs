@@ -21,6 +21,8 @@ pub struct Prompts {
     pub reflect: String,
     /// `browse.md`: scrolling a feed.
     pub browse: String,
+    /// `gate.md`: reading a post over before it goes out.
+    pub gate: String,
 }
 
 impl Prompts {
@@ -33,6 +35,7 @@ impl Prompts {
             lived: include_str!("../prompts/lived.md").to_owned(),
             reflect: include_str!("../prompts/reflect.md").to_owned(),
             browse: include_str!("../prompts/browse.md").to_owned(),
+            gate: include_str!("../prompts/gate.md").to_owned(),
         }
     }
 
@@ -49,6 +52,7 @@ impl Prompts {
             ("lived.md", &mut prompts.lived),
             ("reflect.md", &mut prompts.reflect),
             ("browse.md", &mut prompts.browse),
+            ("gate.md", &mut prompts.gate),
         ] {
             match fs::read_to_string(dir.join(name)) {
                 Ok(text) => *slot = text,

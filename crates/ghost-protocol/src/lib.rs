@@ -252,6 +252,8 @@ pub enum Capability {
     Post,
     /// Fetch a timeline.
     Feed,
+    /// Report how her posts are doing and how many follow her.
+    Metrics,
 }
 
 /// Someone on a channel.
@@ -348,6 +350,8 @@ pub enum Action {
         feed: Feed,
         limit: u32,
     },
+    /// How are her recent posts doing? Answered in [`Acted::measure`].
+    Measure,
 }
 
 impl Action {
@@ -360,6 +364,7 @@ impl Action {
             Self::Read { .. } => Capability::Read,
             Self::Post { .. } => Capability::Post,
             Self::Fetch { .. } => Capability::Feed,
+            Self::Measure => Capability::Metrics,
         }
     }
 }
@@ -373,6 +378,34 @@ pub struct Acted {
     /// What a `fetch` brought back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<Inbound>,
+    /// What a `measure` brought back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measure: Option<Measure>,
+}
+
+/// Her public standing on a channel, as the platform counts it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Measure {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub followers: Option<u64>,
+    /// Her recent posts, newest first.
+    #[serde(default)]
+    pub posts: Vec<PostStats>,
+}
+
+/// How one post is doing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostStats {
+    /// The platform's id for the post.
+    pub id: String,
+    #[serde(default)]
+    pub likes: u64,
+    #[serde(default)]
+    pub replies: u64,
+    #[serde(default)]
+    pub reposts: u64,
+    #[serde(default)]
+    pub views: u64,
 }
 
 /// Params of [`method::JOURNAL_READ`].
@@ -417,7 +450,7 @@ mod tests {
             1,
             &Acted {
                 id: Some("m1".into()),
-                items: vec![],
+                ..Acted::default()
             },
         );
         assert_eq!(ok.into_result::<Acted>().unwrap().id.as_deref(), Some("m1"));

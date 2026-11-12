@@ -151,6 +151,7 @@ impl Platform for Term {
                 Ok(Acted {
                     id: Some(self.id()),
                     items: Vec::new(),
+                    measure: None,
                 })
             }
             Action::Typing { .. } => {

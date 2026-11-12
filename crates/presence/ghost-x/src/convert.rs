@@ -3,7 +3,7 @@
 //! A public thread is one place: `tweet:<conversation id>`. A direct message
 //! conversation is another: `dm:<conversation id>`.
 
-use ghost_link::protocol::{Actor, Inbound, Place, PlaceKind};
+use ghost_link::protocol::{Actor, Inbound, Measure, Place, PlaceKind, PostStats};
 use serde_json::Value;
 
 /// What each lookup asks X to include, so posts arrive with their authors.
@@ -149,11 +149,65 @@ pub fn post_limit(text: &str) -> usize {
     if wide { 140 } else { 280 }
 }
 
+/// Her standing on X from two reads: her own user object and her recent
+/// posts, each with `public_metrics`.
+pub fn measure(me: &Value, posts: &Value) -> Measure {
+    let count = |v: &Value| v.as_u64().unwrap_or(0);
+    Measure {
+        followers: me["data"]["public_metrics"]["followers_count"].as_u64(),
+        posts: posts["data"]
+            .as_array()
+            .map(|posts| {
+                posts
+                    .iter()
+                    .filter_map(|post| {
+                        let m = &post["public_metrics"];
+                        Some(PostStats {
+                            id: post["id"].as_str()?.to_owned(),
+                            likes: count(&m["like_count"]),
+                            replies: count(&m["reply_count"]),
+                            // A quote is a repost with something added.
+                            reposts: count(&m["retweet_count"]) + count(&m["quote_count"]),
+                            views: count(&m["impression_count"]),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn standing_is_read_from_public_metrics() {
+        let me = json!({"data": {"id": "99", "public_metrics": {"followers_count": 412, "following_count": 80}}});
+        let posts = json!({"data": [
+            {"id": "2001", "text": "the door on kuixinglou street", "public_metrics":
+                {"like_count": 31, "reply_count": 4, "retweet_count": 5, "quote_count": 2, "impression_count": 2900}},
+            {"id": "2000", "text": "no metrics on this one"},
+            {"text": "no id"},
+        ]});
+        let m = measure(&me, &posts);
+        assert_eq!(m.followers, Some(412));
+        assert_eq!(m.posts.len(), 2);
+        assert_eq!(
+            m.posts[0],
+            PostStats {
+                id: "2001".into(),
+                likes: 31,
+                replies: 4,
+                reposts: 7,
+                views: 2900
+            }
+        );
+        assert_eq!(m.posts[1].likes, 0);
+        assert_eq!(measure(&json!({}), &json!({})), Measure::default());
+    }
 
     fn page() -> Value {
         json!({

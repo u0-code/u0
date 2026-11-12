@@ -48,6 +48,7 @@ pub fn can(c: wire::Capability) -> Can {
         wire::Capability::Read => Can::Read,
         wire::Capability::Post => Can::Post,
         wire::Capability::Feed => Can::Feed,
+        wire::Capability::Metrics => Can::Metrics,
     }
 }
 
@@ -73,6 +74,7 @@ pub fn action(act: Act) -> wire::Action {
             },
             limit,
         },
+        Act::Measure => wire::Action::Measure,
     }
 }
 
@@ -80,5 +82,19 @@ pub fn acted(a: wire::Acted) -> Acted {
     Acted {
         id: a.id,
         items: a.items.into_iter().map(incoming).collect(),
+        measure: a.measure.map(|m| ghost_mind::Measure {
+            followers: m.followers,
+            posts: m
+                .posts
+                .into_iter()
+                .map(|p| ghost_core::journal::PostStats {
+                    id: p.id,
+                    likes: p.likes,
+                    replies: p.replies,
+                    reposts: p.reposts,
+                    views: p.views,
+                })
+                .collect(),
+        }),
     }
 }

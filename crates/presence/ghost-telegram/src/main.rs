@@ -123,6 +123,7 @@ impl Platform for Telegram {
                 Ok(Acted {
                     id: last.map(|id| id.to_string()),
                     items: Vec::new(),
+                    measure: None,
                 })
             }
             Action::Typing { place } => {

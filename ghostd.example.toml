@@ -39,13 +39,50 @@ weather = true
 # that have a feed. [0, 0] turns scrolling off.
 posts_per_day = 3
 browse_minutes = [45, 150]
+# What she does in public beyond posting. Both are off by default because of
+# what platforms allow an automated account: X forbids automated likes, and
+# allows automated replies only to people who wrote to the account first.
+# Replies to mentions always work. Turn these on only where the platform's
+# rules, or its written approval, let you.
+public_likes = false
+public_replies = false
+# Read every post over before it goes out, as herself: for anything she was
+# told in private, anything that contradicts what is true of her, and whether
+# it is worth posting at all. One extra call to the `tick` brain per post.
+gate = true
+# Hours between asking a channel how her posts are doing. 0 is never.
+measure_hours = 12
 # A directory of prompt templates overriding the ones in ghost-mind/prompts.
 # prompts = "prompts"
+
+# Taking things on: work that needs more than one thought, done in sittings
+# in her own time. It needs a brain that can run tools: any API provider, or
+# the claude-code relay.
+[mind.work]
+enabled = true
+# Where her shell and files are. Without one she can look things up and think
+# and nothing else, which is the safe default.
+#   "docker:<container>"  a running container. Use this on a server.
+#   "local:<directory>"   a directory under her own, on this machine, as you.
+#                         Not a sandbox: only for a machine that is hers.
+# machine = "docker:ghost-lin"
+# workdir = "/home/lin"
+# Let her search and read the web while working. Search uses DEEPSEEK_API_KEY,
+# BRAVE_API_KEY or SEARXNG_URL, whichever is set first.
+web = true
+# One sitting is at most this many steps or minutes. Between sittings she
+# rests, and after max_sittings she lets the thing go.
+sitting_steps = 40
+sitting_minutes = 15
+rest_minutes = 10
+max_sittings = 12
+# Things she will take on in a day.
+per_day = 4
 
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"
-model = "claude-sonnet-5"
+model = "claude-sonnet-5-5"
 
 # Any OpenAI-compatible endpoint. Reads OPENAI_API_KEY by default.
 [providers.openai]

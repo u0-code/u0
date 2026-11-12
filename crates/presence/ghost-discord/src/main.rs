@@ -148,6 +148,7 @@ impl Platform for Discord {
                 Ok(Acted {
                     id: last,
                     items: Vec::new(),
+                    measure: None,
                 })
             }
             Action::Typing { place } => {

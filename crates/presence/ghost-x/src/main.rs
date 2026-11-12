@@ -258,6 +258,7 @@ impl Platform for Account {
                 Ok(Acted {
                     id,
                     items: Vec::new(),
+                    measure: None,
                 })
             }
             // On X a reaction is a like, whatever the emoji.
@@ -269,6 +270,7 @@ impl Platform for Account {
             Action::Post { text } => Ok(Acted {
                 id: self.post(&text, None).await?,
                 items: Vec::new(),
+                measure: None,
             }),
             Action::Fetch { feed, limit } => {
                 let mut query: Vec<(&str, String)> = convert::TWEET_FIELDS
@@ -290,6 +292,33 @@ impl Platform for Account {
                 Ok(Acted {
                     id: None,
                     items: convert::posts(&page, &self.me, addressed),
+                    measure: None,
+                })
+            }
+            Action::Measure => {
+                // Her own account, then her own recent posts. Both are
+                // reads of what she owns, the cheapest kind on X.
+                let me: Value = self
+                    .x
+                    .get(
+                        &format!("/2/users/{}", self.me),
+                        &[("user.fields", "public_metrics".to_owned())],
+                    )
+                    .await?;
+                let posts: Value = self
+                    .x
+                    .get(
+                        &format!("/2/users/{}/tweets", self.me),
+                        &[
+                            ("tweet.fields", "public_metrics".to_owned()),
+                            ("exclude", "retweets".to_owned()),
+                            ("max_results", "20".to_owned()),
+                        ],
+                    )
+                    .await?;
+                Ok(Acted {
+                    measure: Some(convert::measure(&me, &posts)),
+                    ..Acted::default()
                 })
             }
             other => anyhow::bail!("this adapter cannot {:?} on x", other.needs()),
@@ -346,6 +375,7 @@ async fn main() -> anyhow::Result<()> {
             Capability::React,
             Capability::Post,
             Capability::Feed,
+            Capability::Metrics,
         ],
     };
     let account = Account {

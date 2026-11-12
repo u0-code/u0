@@ -17,7 +17,7 @@ pub mod mind;
 pub mod prompts;
 pub mod senses;
 
-pub use body::{Act, Acted, Body, Can, Feed, Incoming};
+pub use body::{Act, Acted, Body, Can, Feed, Incoming, Measure};
 pub use config::{MindConfig, WorkConfig};
 pub use mind::{Mind, MindHandle, Parts, Question, Workshop};
 pub use prompts::Prompts;

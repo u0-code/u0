@@ -11,6 +11,7 @@ mod attend;
 mod browse;
 mod context;
 mod living;
+mod public;
 mod reach;
 mod speak;
 #[cfg(test)]
@@ -229,6 +230,17 @@ enum Outcome {
         text: String,
         result: std::result::Result<Acted, String>,
     },
+    /// A channel said how her posts are doing.
+    Measured {
+        channel: String,
+        result: std::result::Result<Acted, String>,
+    },
+    /// A post was read over and not sent.
+    Held {
+        channel: String,
+        text: String,
+        why: String,
+    },
     /// A sitting of work ended.
     Worked {
         id: String,
@@ -326,6 +338,9 @@ pub struct Mind {
     workshop: Workshop,
     /// The sitting in progress, if she is at one.
     working: Option<work::Working>,
+    /// Channels that have been asked how her posts are doing and have not
+    /// answered yet.
+    measuring: HashSet<String>,
     /// When this body started running.
     started: DateTime<Utc>,
     /// Places with a deliberation in flight.
@@ -373,6 +388,7 @@ impl Mind {
             jobs: JoinSet::new(),
             workshop: parts.workshop,
             working: None,
+            measuring: HashSet::new(),
             rng: Rng::new(),
             started: Utc::now(),
             thinking: HashSet::new(),
@@ -532,6 +548,8 @@ impl Mind {
                 text,
                 result,
             } => self.on_posted(channel, text, result),
+            Outcome::Measured { channel, result } => self.on_measured(&channel, result),
+            Outcome::Held { channel, text, why } => self.on_held(&channel, &text, &why),
             Outcome::Worked {
                 id,
                 before,

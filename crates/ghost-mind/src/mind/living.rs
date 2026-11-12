@@ -41,6 +41,8 @@ pub(super) struct ReflectDraft {
     /// `(hours from now, what, about)`.
     intentions: Vec<(f64, String, Option<String>)>,
     canon: Vec<String>,
+    /// `(lesson, the seq of the one it replaces)`.
+    lessons: Vec<(String, Option<i64>)>,
 }
 
 impl Mind {
@@ -370,6 +372,7 @@ impl Mind {
                     },
                 ),
                 ("intentions", meant),
+                ("public", self.public_review(now)?),
                 (
                     "said",
                     if said.is_empty() {
@@ -448,6 +451,7 @@ impl Mind {
             )?;
         }
         self.register(draft.canon, "reflection")?;
+        self.learn(draft.lessons)?;
         self.refresh_intentions()
     }
 
@@ -567,6 +571,7 @@ fn reflect_draft(v: &Value) -> Result<ReflectDraft> {
         people,
         intentions,
         canon: strings(&v["canon"]),
+        lessons: super::public::lessons(&v["lessons"]),
     })
 }
 

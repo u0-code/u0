@@ -31,6 +31,8 @@ pub enum Can {
     Read,
     Post,
     Feed,
+    /// Report how her posts are doing and how many follow her.
+    Metrics,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +68,15 @@ pub enum Act {
         feed: Feed,
         limit: u32,
     },
+    /// Ask how her recent posts are doing.
+    Measure,
+}
+
+/// What a channel reports about her public standing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Measure {
+    pub followers: Option<u64>,
+    pub posts: Vec<ghost_core::journal::PostStats>,
 }
 
 /// What came of an act.
@@ -75,6 +86,8 @@ pub struct Acted {
     pub id: Option<String>,
     /// What a `Fetch` brought back.
     pub items: Vec<Incoming>,
+    /// What a `Measure` brought back.
+    pub measure: Option<Measure>,
 }
 
 #[async_trait]

@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct MindConfig {
     /// The pace she lives at. `1.0` is human. `0.1` is good for a demo. `0`
     /// removes every wait and lets her answer in her sleep; development only.
@@ -21,6 +22,19 @@ pub struct MindConfig {
     /// Minutes between phone sessions on channels with a feed, as `[min, max]`.
     /// `[0, 0]` turns scrolling off.
     pub browse_minutes: [u32; 2],
+    /// Like posts while scrolling. Off by default: X forbids automated
+    /// likes, and a like from her is one.
+    pub public_likes: bool,
+    /// Reply in public to posts that were not addressed to her. Off by
+    /// default: X allows automated replies only to people who wrote to the
+    /// account first. Replies to mentions are not affected.
+    pub public_replies: bool,
+    /// Read a post over before it goes out: for anything learned in
+    /// private, anything that contradicts what is true of her, and whether
+    /// it is worth posting at all.
+    pub gate: bool,
+    /// Hours between asking a channel how her posts are doing. `0` is never.
+    pub measure_hours: u32,
     /// Run the life engine: plan days, live through them, reflect at night.
     pub live: bool,
     /// Look up the real weather where she lives when planning a day.
@@ -85,6 +99,10 @@ impl Default for MindConfig {
             calls_per_hour: 120,
             posts_per_day: 3,
             browse_minutes: [45, 150],
+            public_likes: false,
+            public_replies: false,
+            gate: true,
+            measure_hours: 12,
             live: true,
             weather: true,
             prompts: None,

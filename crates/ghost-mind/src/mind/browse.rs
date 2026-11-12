@@ -15,7 +15,11 @@ use ghost_core::{
 };
 use tracing::{debug, warn};
 
-use super::{Mind, Outcome, speak::Bubble};
+use super::{
+    Mind, Outcome,
+    public::{Verdict, gate},
+    speak::Bubble,
+};
 use crate::{
     Act, Acted, Can, Error, Feed, Incoming, Result,
     actions::{self, Action, Deliberation, clip},
@@ -53,6 +57,7 @@ impl Mind {
             return Ok(());
         }
         let channel = feeds[self.rng.usize(..feeds.len())].clone();
+        self.measure_if_due(&channel, now)?;
         let posted = self.posted_today(now)?;
         let allowance = if posted >= self.cfg.posts_per_day as usize {
             "That is enough for one day; do not post again today."
@@ -64,6 +69,23 @@ impl Mind {
             ("channel", channel.clone()),
             ("posted", posted.to_string()),
             ("allowance", allowance.to_owned()),
+            ("actions", self.scrolling_actions()),
+            (
+                "standing",
+                Some(self.standing_lines(&channel, now)?)
+                    .filter(|lines| !lines.is_empty())
+                    .map_or_else(String::new, |lines| {
+                        format!("\nHow what you posted here has done:\n{lines}\n")
+                    }),
+            ),
+            (
+                "craft",
+                Some(self.craft_lines()?)
+                    .filter(|lines| !lines.is_empty())
+                    .map_or_else(String::new, |lines| {
+                        format!("\nWhat you have learned about posting:\n{lines}\n")
+                    }),
+            ),
         ];
         let system = self.self_prompt(now)?;
         let (brain, body, max_tokens) =
@@ -145,6 +167,23 @@ impl Mind {
         Ok(())
     }
 
+    /// The actions offered while scrolling, beyond posting and doing
+    /// nothing. What a platform forbids an automated account is not offered.
+    fn scrolling_actions(&self) -> String {
+        let mut out = String::new();
+        if self.cfg.public_likes {
+            out.push_str(
+                "- {\"do\":\"react\",\"to\":<i number>,\"emoji\":\"❤\"}\n  Like a post.\n",
+            );
+        }
+        if self.cfg.public_replies {
+            out.push_str(
+                "- {\"do\":\"say\",\"reply_to\":<i number>,\"text\":\"...\"}\n  Reply publicly to a post. Rare.\n",
+            );
+        }
+        out
+    }
+
     pub(super) fn on_browsed(
         &mut self,
         channel: &str,
@@ -171,7 +210,7 @@ impl Mind {
             match action {
                 Action::React { to, emoji } => {
                     let Some(target) = item(to) else { continue };
-                    if !self.can(channel, Can::React) {
+                    if !self.cfg.public_likes || !self.can(channel, Can::React) {
                         continue;
                     }
                     self.fire(
@@ -197,6 +236,10 @@ impl Mind {
                         continue;
                     };
                     let key = social::key(channel, &target.place.id);
+                    if !self.cfg.public_replies {
+                        debug!("{channel}: replying to posts not addressed to her is turned off");
+                        continue;
+                    }
                     if self.agenda.speaking.contains_key(&key)
                         || text.trim().is_empty()
                         || self.ghost.memory().replied_to(&key, &target.id)?
@@ -246,8 +289,25 @@ impl Mind {
                     }
                     posted += 1;
                     let body = self.body.clone();
+                    // Read it over first, as herself, for what must not go out.
+                    let check = if self.cfg.gate {
+                        Some((self.tick.clone(), self.gate_request(channel, &text, now)?))
+                    } else {
+                        None
+                    };
                     let channel = channel.to_owned();
                     self.jobs.spawn(async move {
+                        let text = match check {
+                            Some((brain, request)) => {
+                                match gate(brain.as_ref(), &request, text.clone()).await {
+                                    Verdict::Post(text) => text,
+                                    Verdict::Drop(why) => {
+                                        return Outcome::Held { channel, text, why };
+                                    }
+                                }
+                            }
+                            None => text,
+                        };
                         let result = body.act(&channel, Act::Post { text: text.clone() }).await;
                         Outcome::Posted {
                             channel,
