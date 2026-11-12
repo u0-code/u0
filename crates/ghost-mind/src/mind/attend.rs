@@ -23,6 +23,8 @@ use crate::{
 
 /// How long after she speaks somewhere she is still "in" that conversation.
 const ENGAGED_FOR: Duration = Duration::minutes(3);
+/// How many other conversations she gets to once her phone is in her hand.
+const PHONE_SITTING: usize = 4;
 /// Most she will say per hour in a place where only automated accounts talk.
 const AUTOMATED_SAYS_PER_HOUR: i64 = 6;
 /// How many times a brain may ask to recall before it has to answer.
@@ -216,6 +218,9 @@ impl Mind {
             return Ok(());
         }
         let addressed = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        if addressed {
+            self.phone_in_hand(&place.key, now)?;
+        }
         self.ponder(
             Thinking {
                 place: place.key.clone(),
@@ -229,6 +234,35 @@ impl Mind {
             &place,
             now,
         )
+    }
+
+    /// She has picked her phone up to look at something meant for her.
+    /// Nobody answers one conversation and then puts the phone down with
+    /// three others waiting: whatever else was written to her is looked at
+    /// in the same sitting, the people closest to her first, instead of each
+    /// conversation waiting out a clock of its own. Group chatter that was
+    /// not addressed to her keeps its own time.
+    fn phone_in_hand(&mut self, looking_at: &str, now: DateTime<Utc>) -> Result<()> {
+        let soon = after(now, self.tempo.settle() * 4);
+        let mut waiting = Vec::new();
+        for (key, attend) in &self.agenda.attend {
+            if key == looking_at || !attend.addressed || attend.due <= soon {
+                continue;
+            }
+            let Some(place) = self.ghost.memory().place(key)? else {
+                continue;
+            };
+            waiting.push((self.patience(&place, now)?, key.clone()));
+        }
+        waiting.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        // One after another, with a moment between: she is still one person.
+        for (turn, (_, key)) in (1u32..).zip(waiting.into_iter().take(PHONE_SITTING)) {
+            let due = after(now, self.tempo.settle() * (8 * turn));
+            if let Some(attend) = self.agenda.attend.get_mut(&key) {
+                attend.due = attend.due.min(due);
+            }
+        }
+        Ok(())
     }
 
     fn only_bots_talking(&self, place: &PlaceState) -> Result<bool> {

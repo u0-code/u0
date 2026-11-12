@@ -1114,3 +1114,42 @@ async fn she_sees_how_her_posts_did_and_keeps_what_she_learns() {
             .contains("a single door or window, said plainly")
     );
 }
+
+#[tokio::test]
+async fn with_her_phone_in_her_hand_she_gets_to_everyone_who_wrote() {
+    // Mid-morning she is not looking at her phone much, so a stranger's
+    // message would normally wait a good while.
+    let t0 = at(10, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("stranger-a", "1", "hello, is this lin?"), t0);
+    rig.hear(
+        dm("stranger-b", "2", "hi, quick question"),
+        t0 + Duration::seconds(1),
+    );
+    let (a, b) = (
+        rig.mind.agenda.attend["t:stranger-a"].due,
+        rig.mind.agenda.attend["t:stranger-b"].due,
+    );
+    let (first, second, later) = if a <= b {
+        ("t:stranger-a", "t:stranger-b", b)
+    } else {
+        ("t:stranger-b", "t:stranger-a", a)
+    };
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"yes"}]}"#);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"go on"}]}"#);
+
+    // She looks at the first when its time comes. The other one is now due
+    // within the same sitting, whatever its own clock said.
+    let looked = rig.until(|r| r.think.calls() == 1).await;
+    assert!(rig.mind.thinking.contains(first) || rig.kinds().contains(&"read"));
+    let pulled = rig.mind.agenda.attend[second].due;
+    assert!(pulled <= later, "never later than it would have been");
+    assert!(
+        pulled - looked <= Duration::seconds(60),
+        "the second conversation is looked at {} after the first",
+        pulled - looked
+    );
+    rig.until(|r| r.body.sent().len() == 2).await;
+}
