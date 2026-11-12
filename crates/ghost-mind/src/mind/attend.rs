@@ -352,8 +352,13 @@ impl Mind {
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
-            let notes = self.with_provenance(memory.notes(&person.key, 8)?, &place.key)?;
-            cards.push(narrate::person_card(person, &standing, &notes, now));
+            let (account, notes) = self.known_of(person, place, 8)?;
+            let mut card = narrate::person_card(person, &standing, &[], now);
+            card.push_str(&account);
+            for note in &notes {
+                card.push_str(&format!("\n  · {}", note.text));
+            }
+            cards.push(card);
         }
         // What she already means to do here, so she does not resolve to do it twice.
         let keys: Vec<String> = people.iter().map(|p| p.key.clone()).collect();

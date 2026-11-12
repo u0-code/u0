@@ -21,7 +21,7 @@ use crate::{
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -139,6 +139,16 @@ pub struct Undertaking {
     pub summary: Option<String>,
     pub sittings: i64,
     pub last_at: DateTime<Utc>,
+}
+
+/// Her standing account of someone, as last put in order.
+#[derive(Debug, Clone, Serialize)]
+pub struct Profile {
+    /// The seq of the entry that wrote it. Notes after this are newer.
+    pub seq: i64,
+    pub at: DateTime<Utc>,
+    pub shared: String,
+    pub private: String,
 }
 
 /// Something she has learned about her craft and not since replaced.
@@ -433,6 +443,17 @@ impl Memory {
                         params![channel, post.id, seq, at, n(post.likes), n(post.replies), n(post.reposts), n(post.views)],
                     )?;
                 }
+            }
+            Event::Profiled {
+                person,
+                shared,
+                private,
+            } => {
+                tx.execute(
+                    "INSERT INTO profiles (person, seq, at, shared, private) VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(person) DO UPDATE SET seq = ?2, at = ?3, shared = ?4, private = ?5",
+                    params![person, seq, at, shared, private],
+                )?;
             }
             Event::Learned { lesson, replaces } => {
                 if let Some(old) = replaces {
@@ -748,6 +769,32 @@ impl Memory {
     ///
     /// Terms of three or more characters go through the trigram index; shorter
     /// ones (common in Chinese) fall back to a substring scan.
+    /// Her standing account of someone, if she has put one in order.
+    pub fn profile(&self, person: &str) -> Result<Option<Profile>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT seq, at, shared, private FROM profiles WHERE person = ?1",
+                [person],
+                |r| {
+                    Ok(Profile {
+                        seq: r.get(0)?,
+                        at: time_at(r, 1)?,
+                        shared: r.get(2)?,
+                        private: r.get(3)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Notes about someone written after entry `after`, oldest first.
+    pub fn notes_after(&self, person: &str, after: i64, limit: usize) -> Result<Vec<Note>> {
+        let mut notes = self.notes(person, limit)?;
+        notes.retain(|n| n.seq > after);
+        Ok(notes)
+    }
+
     /// What she has taken on, most recently touched first. `open` leaves out
     /// what has ended.
     pub fn undertakings(&self, open: bool, limit: usize) -> Result<Vec<Undertaking>> {
@@ -1079,6 +1126,10 @@ CREATE TABLE IF NOT EXISTS undertakings (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, brief TEXT NOT NULL,
     asked_by TEXT, place TEXT, outcome TEXT, summary TEXT,
     sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS profiles (
+    person TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL,
+    shared TEXT NOT NULL, private TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS craft (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, lesson TEXT NOT NULL,
@@ -1421,5 +1472,48 @@ mod tests {
         assert_eq!(other[0].place.key, "t:g");
         assert_eq!((other[0].heard, other[0].said), (1, 1));
         assert_eq!(other[0].last.text, "not yet");
+    }
+
+    #[test]
+    fn a_profile_replaces_the_one_before_and_dates_the_notes() {
+        let (_, m) = fold(vec![
+            heard("a", PlaceKind::Direct, "a", "1", "hi", true),
+            Event::Noted {
+                about: "t:a".into(),
+                text: "designs buildings".into(),
+                place: None,
+            },
+            Event::Profiled {
+                person: "t:a".into(),
+                shared: "An architect.".into(),
+                private: String::new(),
+            },
+            Event::Noted {
+                about: "t:a".into(),
+                text: "is leaving the institute".into(),
+                place: Some("t:a".into()),
+            },
+            Event::Profiled {
+                person: "t:a".into(),
+                shared: "An architect, careful with words.".into(),
+                private: "Leaving the institute; has told nobody.".into(),
+            },
+            Event::Noted {
+                about: "t:a".into(),
+                text: "likes the plane trees".into(),
+                place: None,
+            },
+        ]);
+        let profile = m.profile("t:a").unwrap().unwrap();
+        assert_eq!(profile.shared, "An architect, careful with words.");
+        assert!(profile.private.starts_with("Leaving"));
+        let since: Vec<String> = m
+            .notes_after("t:a", profile.seq, 10)
+            .unwrap()
+            .into_iter()
+            .map(|n| n.text)
+            .collect();
+        assert_eq!(since, ["likes the plane trees"]);
+        assert!(m.profile("t:nobody").unwrap().is_none());
     }
 }

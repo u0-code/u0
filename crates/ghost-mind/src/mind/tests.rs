@@ -1153,3 +1153,64 @@ async fn with_her_phone_in_her_hand_she_gets_to_everyone_who_wrote() {
     );
     rig.until(|r| r.body.sent().len() == 2).await;
 }
+
+#[tokio::test]
+async fn what_she_knows_of_someone_is_split_by_where_she_learned_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"hey"}]}"#);
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    // Before sleep she puts what she knows of Wen in order.
+    let people = vec![rig.mind.ghost.memory().person("t:wen").unwrap().unwrap()];
+    let draft = super::living::reflect_draft(&serde_json::json!({
+        "reflection": "A quiet day.",
+        "people": [{"who": "wen", "impression": "", "feel": 0, "account": {
+            "shared": "An architect at the design institute. Dry, exact.",
+            "private": "Is about to quit and has told nobody."
+        }}]
+    }))
+    .unwrap();
+    rig.mind.on_reflected(&people, Ok(draft), t0).unwrap();
+
+    // Alone with her, she has all of it.
+    let t1 = t0 + Duration::hours(1);
+    rig.hear(dm("wen", "2", "you around?"), t1);
+    rig.until(|r| r.think.calls() == 2).await;
+    let private = rig.think.last_prompt();
+    assert!(
+        private.contains("What you know of them: An architect at the design institute."),
+        "{private}"
+    );
+    assert!(
+        private.contains("What they have told you in private: Is about to quit"),
+        "{private}"
+    );
+
+    // In a group with her, only the part that is for everyone, and the
+    // knowledge that there is more.
+    let t2 = t1 + Duration::hours(1);
+    rig.hear(
+        group(
+            "streets",
+            "wen",
+            "3",
+            "lin, did you see the new line 30 station?",
+            true,
+        ),
+        t2,
+    );
+    rig.until(|r| r.think.calls() == 3).await;
+    let shared = rig.think.last_prompt();
+    assert!(
+        shared.contains("What you know of them: An architect at the design institute."),
+        "{shared}"
+    );
+    assert!(!shared.contains("about to quit"), "{shared}");
+    assert!(
+        shared.contains("They have told you more in private. None of it is for here."),
+        "{shared}"
+    );
+}

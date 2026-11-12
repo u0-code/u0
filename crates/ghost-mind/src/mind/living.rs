@@ -36,8 +36,9 @@ pub(super) struct LivedDraft {
 
 pub(super) struct ReflectDraft {
     reflection: String,
-    /// `(who, impression, feel)`.
-    people: Vec<(String, String, i8)>,
+    /// `(who, impression, feel, a rewritten account of them)`. The account
+    /// is `(what is known from shared places, what they said in private)`.
+    people: Vec<(String, String, i8, Option<(String, String)>)>,
     /// `(hours from now, what, about)`.
     intentions: Vec<(f64, String, Option<String>)>,
     canon: Vec<String>,
@@ -334,8 +335,26 @@ impl Mind {
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
-            let mut card =
-                narrate::person_card(person, &standing, &memory.notes(&person.key, 4)?, now);
+            // Alone with her thoughts, she sees all of what she knows.
+            let profile = memory.profile(&person.key)?;
+            let since = profile.as_ref().map_or(0, |p| p.seq);
+            let mut card = narrate::person_card(
+                person,
+                &standing,
+                &memory.notes_after(&person.key, since, 12)?,
+                now,
+            );
+            if let Some(profile) = profile {
+                card.push_str(&format!(
+                    "\n  your account of them so far: {}{}",
+                    profile.shared.trim(),
+                    if profile.private.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n  told to you in private: {}", profile.private.trim())
+                    }
+                ));
+            }
             if let Some(direct) = &person.direct {
                 let lines: Vec<_> = memory
                     .thread(direct, 12)?
@@ -423,8 +442,15 @@ impl Mind {
         self.record(Event::Reflected {
             text: draft.reflection,
         })?;
-        for (who, impression, feel) in draft.people {
+        for (who, impression, feel, account) in draft.people {
             let Some(person) = find(&who) else { continue };
+            if let Some((shared, private)) = account {
+                self.record(Event::Profiled {
+                    person: person.key.clone(),
+                    shared,
+                    private,
+                })?;
+            }
             if feel != 0 {
                 self.record(Event::Felt {
                     toward: person.key.clone(),
@@ -540,7 +566,7 @@ fn lived_draft(v: &Value) -> Result<LivedDraft> {
     })
 }
 
-fn reflect_draft(v: &Value) -> Result<ReflectDraft> {
+pub(super) fn reflect_draft(v: &Value) -> Result<ReflectDraft> {
     let reflection = text(&v["reflection"]);
     if reflection.is_empty() {
         return Err(Error::Parse("no reflection".into()));
@@ -550,10 +576,13 @@ fn reflect_draft(v: &Value) -> Result<ReflectDraft> {
     let people = list("people")
         .iter()
         .map(|p| {
+            let shared = text(&p["account"]["shared"]);
+            let private = text(&p["account"]["private"]);
             (
                 text(&p["who"]),
                 text(&p["impression"]),
                 p["feel"].as_f64().unwrap_or(0.0).round().clamp(-2.0, 2.0) as i8,
+                (!shared.is_empty() || !private.is_empty()).then_some((shared, private)),
             )
         })
         .filter(|(who, ..)| !who.is_empty())
@@ -611,7 +640,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             draft.people,
-            vec![("Haoran".into(), "asks real questions".into(), 2)]
+            vec![("Haoran".into(), "asks real questions".into(), 2, None)]
         );
         assert_eq!(draft.intentions.len(), 1);
         assert!(reflect_draft(&json!({"reflection": ""})).is_err());

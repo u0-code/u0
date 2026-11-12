@@ -114,6 +114,7 @@ fn describe(event: &Event, tz: Tz) -> String {
             followers.map_or_else(String::new, |f| format!(", {f} followers"))
         ),
         Event::Learned { lesson, .. } => flat(lesson),
+        Event::Profiled { person, shared, .. } => format!("{person}: {}", flat(shared)),
     }
 }
 

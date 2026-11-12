@@ -18,8 +18,9 @@ limits.
     python3 bench/polyglot.py --out runs --report
 
 `--agent claude` points Claude Code at DeepSeek's Anthropic-compatible
-endpoint, with its own configuration directory under `--out`, so it does not
-touch your login or settings.
+endpoint, and `--agent codex` points Codex at DeepSeek's Responses API. Each
+gets its own configuration directory under `--out`, so neither touches your
+login or settings. For Codex, "steps" counts commands run and files changed.
 """
 
 import argparse
@@ -112,6 +113,41 @@ def run_claude(args, ws: Path, home: Path, task: str):
     }
 
 
+def run_codex(args, ws: Path, home: Path, task: str):
+    env = dict(os.environ)
+    env["CODEX_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    provider = ('model_providers.deepseek={name="DeepSeek",base_url="https://api.deepseek.com",'
+                'env_key="DEEPSEEK_API_KEY",wire_api="responses"}')
+    out = subprocess.run(
+        [args.codex_bin, "exec", "--json", "--skip-git-repo-check", "-C", str(ws),
+         "-s", "workspace-write", "-m", args.model,
+         "-c", 'model_provider="deepseek"', "-c", provider, task],
+        cwd=ws, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        timeout=MAX_MINUTES * 60 + 120,
+    )
+    (home.parent / "agent.log").write_text(out.stderr + "\n" + out.stdout[-6000:])
+    steps = read = cached = wrote = 0
+    ended = "no turn"
+    for line in out.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = event.get("type")
+        if kind == "item.completed" and event["item"].get("type") in ("command_execution", "file_change", "mcp_tool_call"):
+            steps += 1
+        elif kind == "turn.completed":
+            ended = "success"
+            usage = event.get("usage", {})
+            read += usage.get("input_tokens", 0)
+            cached += usage.get("cached_input_tokens", 0)
+            wrote += usage.get("output_tokens", 0)
+        elif kind in ("turn.failed", "error"):
+            ended = "error"
+    return {"ended": ended, "steps": steps, "read": read, "cached": cached, "wrote": wrote}
+
+
 def grade(exercise: Path, ws: Path, meta) -> bool:
     for name in meta["test"]:
         shutil.copy(exercise / name, ws / name)
@@ -134,6 +170,8 @@ def one(args, exercise: Path):
     try:
         if args.agent == "ghost":
             run = run_ghost(args, ws, base / "state", task)
+        elif args.agent == "codex":
+            run = run_codex(args, ws, base / "codex-home", task)
         else:
             run = run_claude(args, ws, base / "claude-home", task)
     except subprocess.TimeoutExpired:
@@ -185,10 +223,11 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--bench", help="a checkout of Aider-AI/polyglot-benchmark")
     p.add_argument("--out", required=True)
-    p.add_argument("--agent", choices=["ghost", "claude"])
+    p.add_argument("--agent", choices=["ghost", "claude", "codex"])
     p.add_argument("--model", default="deepseek-flash")
     p.add_argument("--ghost-bin", default=os.environ.get("GHOST_WORK_BIN", "target/release/ghost-work"))
     p.add_argument("--claude-bin", default="claude")
+    p.add_argument("--codex-bin", default="codex")
     p.add_argument("--jobs", type=int, default=3)
     p.add_argument("--only", nargs="*", help="exercise names; default is all of them")
     p.add_argument("--report", action="store_true", help="print the table of what has been run")

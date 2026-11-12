@@ -85,6 +85,46 @@ impl Mind {
             .collect()
     }
 
+    /// What she knows of someone, for a place: her standing account of
+    /// them and the notes written since. Outside the private conversation
+    /// with that person, the part they told her alone is left out, and she
+    /// is told only that there is one.
+    pub(super) fn known_of(
+        &self,
+        person: &ghost_core::memory::Person,
+        here: &PlaceState,
+        limit: usize,
+    ) -> Result<(String, Vec<Note>)> {
+        let memory = self.ghost.memory();
+        let profile = memory.profile(&person.key)?;
+        let since = profile.as_ref().map_or(0, |p| p.seq);
+        let notes =
+            self.with_provenance(memory.notes_after(&person.key, since, limit)?, &here.key)?;
+        let Some(profile) = profile else {
+            return Ok((String::new(), notes));
+        };
+        let alone_with_them =
+            here.kind == PlaceKind::Direct && person.direct.as_deref() == Some(here.key.as_str());
+        let mut text = String::new();
+        if !profile.shared.trim().is_empty() {
+            text.push_str(&format!(
+                "\n  What you know of them: {}",
+                profile.shared.trim()
+            ));
+        }
+        if !profile.private.trim().is_empty() {
+            if alone_with_them {
+                text.push_str(&format!(
+                    "\n  What they have told you in private: {}",
+                    profile.private.trim()
+                ));
+            } else {
+                text.push_str("\n  (They have told you more in private. None of it is for here.)");
+            }
+        }
+        Ok((text, notes))
+    }
+
     /// The rest of her life at this moment, for the top of a conversation:
     /// what she has taken on, and what has been going on in other places.
     /// Empty when there is nothing to say.

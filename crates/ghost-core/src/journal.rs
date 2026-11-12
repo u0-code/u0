@@ -192,6 +192,17 @@ pub enum Event {
         #[serde(default)]
         posts: Vec<PostStats>,
     },
+    /// She put what she knows of someone in order: a short account that
+    /// replaces the one before it. What she could have learned where others
+    /// were present is kept apart from what they told her alone.
+    Profiled {
+        person: String,
+        /// What she knows of them from shared and public places.
+        shared: String,
+        /// What they told her in private. Never for use anywhere else.
+        #[serde(default)]
+        private: String,
+    },
     /// Something she worked out about her own craft: what she does well in
     /// public, what falls flat, what to try. Replaces an earlier lesson when
     /// she has changed her mind.
@@ -250,6 +261,7 @@ impl Event {
             Self::Concluded { .. } => "concluded",
             Self::Measured { .. } => "measured",
             Self::Learned { .. } => "learned",
+            Self::Profiled { .. } => "profiled",
         }
     }
 }
