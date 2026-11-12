@@ -122,6 +122,10 @@ pub enum Event {
     Noted {
         about: String,
         text: String,
+        /// The place she was in when she learned it, so that what was said
+        /// in private is not later repeated somewhere else.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
     },
     /// Something she means to do later.
     Intended {
@@ -151,6 +155,62 @@ pub enum Event {
         fact: String,
         source: String,
     },
+    /// She took something on: a piece of work that will take more than one
+    /// thought. `id` names its directory.
+    Undertook {
+        id: String,
+        brief: String,
+        /// Who it is for, if anyone asked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asked_by: Option<String>,
+        /// Where they asked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+    },
+    /// One sitting of work on an undertaking.
+    Worked {
+        id: String,
+        /// Where she got to, in her own words.
+        summary: String,
+        steps: u32,
+    },
+    /// An undertaking ended: `finished`, `blocked`, `gave_up` or `dropped`.
+    Concluded {
+        id: String,
+        outcome: String,
+        summary: String,
+    },
+    /// What a channel reported about how her public posts are doing.
+    Measured {
+        channel: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        followers: Option<u64>,
+        #[serde(default)]
+        posts: Vec<PostStats>,
+    },
+    /// Something she worked out about her own craft: what she does well in
+    /// public, what falls flat, what to try. Replaces an earlier lesson when
+    /// she has changed her mind.
+    Learned {
+        lesson: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replaces: Option<i64>,
+    },
+}
+
+/// How one public post is doing, as the platform counts it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostStats {
+    /// The platform's id for the post.
+    pub id: String,
+    #[serde(default)]
+    pub likes: u64,
+    #[serde(default)]
+    pub replies: u64,
+    #[serde(default)]
+    pub reposts: u64,
+    #[serde(default)]
+    pub views: u64,
 }
 
 impl Event {
@@ -176,6 +236,11 @@ impl Event {
             Self::Left { .. } => "left",
             Self::Reflected { .. } => "reflected",
             Self::Canon { .. } => "canon",
+            Self::Undertook { .. } => "undertook",
+            Self::Worked { .. } => "worked",
+            Self::Concluded { .. } => "concluded",
+            Self::Measured { .. } => "measured",
+            Self::Learned { .. } => "learned",
         }
     }
 }

@@ -571,6 +571,7 @@ impl Mind {
                         self.record(Event::Noted {
                             about: person.key,
                             text,
+                            place: Some(place.key.clone()),
                         })?;
                         did.push("noted something".to_owned());
                     }

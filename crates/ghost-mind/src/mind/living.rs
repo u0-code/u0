@@ -433,6 +433,7 @@ impl Mind {
                 self.record(Event::Noted {
                     about: person.key.clone(),
                     text: impression,
+                    place: None,
                 })?;
             }
         }

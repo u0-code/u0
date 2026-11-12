@@ -86,7 +86,7 @@ fn describe(event: &Event, tz: Tz) -> String {
             }
         }
         Event::Felt { toward, delta, why } => format!("{delta:+} toward {toward}: {}", flat(why)),
-        Event::Noted { about, text } => format!("{about}: {}", flat(text)),
+        Event::Noted { about, text, .. } => format!("{about}: {}", flat(text)),
         Event::Intended { due, what, .. } => format!(
             "by {}: {}",
             due.with_timezone(&tz).format("%m-%d %H:%M"),
@@ -95,6 +95,25 @@ fn describe(event: &Event, tz: Tz) -> String {
         Event::Settled { intention, outcome } => format!("#{intention}: {}", flat(outcome)),
         Event::Left { person, why } => format!("{person}: {}", flat(why)),
         Event::Canon { fact, source } => format!("{} [{source}]", flat(fact)),
+        Event::Undertook { id, brief, .. } => format!("[{id}] {}", flat(brief)),
+        Event::Worked { id, summary, steps } => {
+            format!("[{id}] {steps} steps: {}", flat(summary))
+        }
+        Event::Concluded {
+            id,
+            outcome,
+            summary,
+        } => format!("[{id}] {outcome}: {}", flat(summary)),
+        Event::Measured {
+            channel,
+            followers,
+            posts,
+        } => format!(
+            "[{channel}] {} posts measured{}",
+            posts.len(),
+            followers.map_or_else(String::new, |f| format!(", {f} followers"))
+        ),
+        Event::Learned { lesson, .. } => flat(lesson),
     }
 }
 
