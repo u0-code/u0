@@ -228,7 +228,7 @@ impl Tool for Done {
         // first claim of success is answered with the task itself.
         if outcome == undertaking::Outcome::Finished {
             let brief = self.undertaking.update(|state| {
-                (!std::mem::replace(&mut state.checked, true)).then(|| state.brief.clone())
+                (!std::mem::replace(&mut state.checked, true)).then(|| state.task_text())
             });
             if let Some(brief) = brief {
                 return Outcome::ok(format!(

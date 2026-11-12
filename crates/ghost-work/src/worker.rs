@@ -280,7 +280,7 @@ pub fn system_prompt(who: &str, machine: &str, limits: &Limits) -> String {
 /// What a sitting opens with: the task alone the first time, and the task
 /// with what was left behind every time after.
 pub fn opening_text(state: &crate::undertaking::State) -> String {
-    let task = format!("<task>\n{}\n</task>", state.brief.trim());
+    let task = format!("<task>\n{}\n</task>", state.task_text());
     if state.steps == 0 {
         return task;
     }
@@ -418,7 +418,7 @@ impl Worker {
             items: vec![Item::user(format!(
                 "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
                  <recent_output>\n{}\n</recent_output>",
-                state.brief.trim(),
+                state.task_text(),
                 finish.summary,
                 finish.evidence,
                 shown.join("\n\n")
@@ -570,6 +570,16 @@ impl Worker {
             }
             if started.elapsed().as_secs() >= self.limits.max_seconds {
                 return self.report(Ended::OutOfTime);
+            }
+            // Whatever was added to the task from outside since the last
+            // step is put in front of the worker before it goes on.
+            for added in self.undertaking.take_added() {
+                tracing::info!("added to the task: {}", preview(&added, 160));
+                items.push(Item::user(format!(
+                    "Something has been added to the task while you were working:\n\n{added}\n\n\
+                     It extends or adjusts what was asked; it does not replace it. \
+                     Take it into account from here, and update the plan if it changes what is left to do."
+                )));
             }
 
             let mut extra = Usage::default();
@@ -890,6 +900,32 @@ mod tests {
             if text.contains("nothing printed shows its content")))
         );
         assert_eq!(seen.iter().filter(|t| t.tools.is_empty()).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn something_added_mid_work_reaches_the_worker_before_its_next_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("shell", json!({"command": "echo first"})),
+            calls("done", json!({"outcome": "gave_up", "summary": "enough"})),
+        ];
+        let (worker, brain) = worker(dir.path(), script, Limits::default());
+        // Added by someone with their own handle on the same directory.
+        Undertaking::open(dir.path().join("state"), None)
+            .unwrap()
+            .add("also make it say hi twice")
+            .unwrap();
+        worker.run().await;
+        let seen = brain.seen.lock().unwrap();
+        assert!(matches!(seen[0].items.last(), Some(Item::User { text })
+            if text.contains("also make it say hi twice") && text.contains("does not replace it")));
+        assert!(
+            worker
+                .undertaking
+                .state()
+                .task_text()
+                .ends_with("Added later: also make it say hi twice")
+        );
     }
 
     #[test]

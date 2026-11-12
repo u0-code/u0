@@ -6,6 +6,10 @@ solution left out. An agent is told to implement the solution from the
 instructions. When it stops, the exercise's own tests are put back and run.
 Passing means every test passes.
 
+As in the benchmark's own protocol there are two tries. An agent that failed
+is shown what the tests printed (not the tests) and may fix its solution:
+`--retry`. The report gives the pass rate at the first try and within two.
+
 Runs on this machine, with no container: the agent's commands run as you, in
 a scratch directory. Both agents are given the same task text and the same
 limits.
@@ -15,6 +19,7 @@ limits.
     python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent ghost
     python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent claude \
         --claude-bin /path/to/claude
+    python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent ghost --retry
     python3 bench/polyglot.py --out runs --report
 
 `--agent claude` points Claude Code at DeepSeek's Anthropic-compatible
@@ -39,8 +44,20 @@ Read `.docs/instructions.md`{append}. Implement the solution in {files}. Keep th
 
 There are tests for this exercise that you cannot see. They will be run against your file after you stop, and every one of them has to pass. Work out from the instructions what the edge cases are and make sure your implementation handles them."""
 
+SECOND = """This directory holds a programming exercise that you, or someone before you, already attempted: the solution is in {files}, and the instructions are in `.docs/`.
+
+The exercise's tests were run against it and did not all pass. This is what they printed:
+
+```
+{output}
+```
+
+Fix the solution so that every test passes. The test file itself is not available to you; work from what the output shows about the calls being made and the values expected. Keep to the Python standard library."""
+
 MAX_STEPS = 60
 MAX_MINUTES = 8
+# How much of a failed test run the second attempt is shown.
+SHOWN = 6000
 
 
 def prepare(exercise: Path, ws: Path):
@@ -161,15 +178,12 @@ def grade(exercise: Path, ws: Path, meta) -> bool:
     return out.returncode == 0
 
 
-def one(args, exercise: Path):
-    base = Path(args.out).resolve() / args.agent / exercise.name
-    ws = base / "ws"
-    meta = prepare(exercise, ws)
-    task = task_for(ws, meta)
+def attempt(args, base: Path, ws: Path, task: str, tag: str):
+    """Run the agent once on `task`. Never raises: a broken run is a result."""
     started = time.time()
     try:
         if args.agent == "ghost":
-            run = run_ghost(args, ws, base / "state", task)
+            run = run_ghost(args, ws, base / f"state{tag}", task)
         elif args.agent == "codex":
             run = run_codex(args, ws, base / "codex-home", task)
         else:
@@ -178,11 +192,51 @@ def one(args, exercise: Path):
         run = {"ended": "timeout", "steps": 0, "read": 0, "cached": 0, "wrote": 0}
     except (json.JSONDecodeError, KeyError) as e:
         run = {"ended": f"no report: {e}", "steps": 0, "read": 0, "cached": 0, "wrote": 0}
-    run.update(name=exercise.name, agent=args.agent, seconds=round(time.time() - started, 1),
-               passed=grade(exercise, ws, meta))
-    print(f"{'pass' if run['passed'] else 'FAIL'}  {run['name']:<28} {run['seconds']:>6}s  "
-          f"{run['steps']:>3} steps  {run['ended']}", flush=True)
+    run["seconds"] = round(time.time() - started, 1)
     return run
+
+
+def show(row):
+    first = "pass" if row["passed1"] else "FAIL"
+    second = "" if row["passed1"] or "tries" not in row or row["tries"] < 2 else (
+        "  then pass" if row["passed"] else "  then FAIL")
+    print(f"{first}{second:<11} {row['name']:<28} {row['seconds']:>6}s  {row['steps']:>3} steps  {row['ended']}",
+          flush=True)
+
+
+def one(args, exercise: Path):
+    base = Path(args.out).resolve() / args.agent / exercise.name
+    ws = base / "ws"
+    meta = prepare(exercise, ws)
+    row = attempt(args, base, ws, task_for(ws, meta), "")
+    ok = grade(exercise, ws, meta)
+    row.update(name=exercise.name, agent=args.agent, passed1=ok, passed=ok, tries=1)
+    show(row)
+    return row
+
+
+def second(args, exercise: Path, row):
+    """The second try of the benchmark's protocol: the agent is shown what
+    the tests printed, not the tests, and may fix its solution."""
+    base = Path(args.out).resolve() / args.agent / exercise.name
+    ws = base / "ws"
+    meta = json.loads((exercise / ".meta" / "config.json").read_text())["files"]
+    output = (base / "tests.log").read_text()
+    if len(output) > SHOWN:
+        output = output[: SHOWN // 2] + "\n[...]\n" + output[-SHOWN // 2:]
+    # The tests go away again before the agent looks.
+    for name in meta["test"]:
+        (ws / name).unlink(missing_ok=True)
+    files = ", ".join(f"`{name}`" for name in meta["solution"])
+    again = attempt(args, base, ws, SECOND.format(files=files, output=output), "2")
+    row = dict(row)
+    row["passed"] = grade(exercise, ws, meta)
+    row["tries"] = 2
+    for key in ("seconds", "steps", "read", "cached", "wrote"):
+        row[key] = round(row[key] + again[key], 1)
+    row["ended"] = again["ended"]
+    show(row)
+    return row
 
 
 # USD per million tokens, deepseek-flash off-peak, for the cost column.
@@ -200,20 +254,25 @@ def report(out: Path):
         return
     names = sorted({name for agent in rows.values() for name in agent})
     agents = sorted(rows)
+
+    def cell(r):
+        if r is None:
+            return "-"
+        if r.get("passed1", r["passed"]):
+            return "pass"
+        return "2nd try" if r["passed"] else "FAIL"
+
     print(f"{'exercise':<28} " + " ".join(f"{a:>10}" for a in agents))
     for name in names:
-        cells = []
-        for a in agents:
-            r = rows[a].get(name)
-            cells.append(f"{'-' if r is None else ('pass' if r['passed'] else 'FAIL'):>10}")
-        print(f"{name:<28} " + " ".join(cells))
+        print(f"{name:<28} " + " ".join(f"{cell(rows[a].get(name)):>10}" for a in agents))
     print()
     for a in agents:
         rs = list(rows[a].values())
         n = len(rs)
         cost = sum(r["cached"] * PRICE["cached"] + (r["read"] - r["cached"]) * PRICE["fresh"]
                    + r["wrote"] * PRICE["wrote"] for r in rs) / 1e6
-        print(f"{a}: {sum(r['passed'] for r in rs)}/{n} passed, "
+        print(f"{a}: {sum(r.get('passed1', r['passed']) for r in rs)}/{n} at the first try, "
+              f"{sum(r['passed'] for r in rs)}/{n} within two, "
               f"{sum(r['seconds'] for r in rs) / n:.0f}s and {sum(r['steps'] for r in rs) / n:.1f} steps per exercise, "
               f"{sum(r['read'] for r in rs) / n / 1000:.0f}k tokens read ({sum(r['cached'] for r in rs) * 100 // max(1, sum(r['read'] for r in rs))}% cached) "
               f"and {sum(r['wrote'] for r in rs) / n / 1000:.1f}k written per exercise, ${cost:.2f} in all")
@@ -231,6 +290,8 @@ def main():
     p.add_argument("--jobs", type=int, default=3)
     p.add_argument("--only", nargs="*", help="exercise names; default is all of them")
     p.add_argument("--report", action="store_true", help="print the table of what has been run")
+    p.add_argument("--retry", action="store_true",
+                   help="give the agent its second try on the exercises it failed")
     args = p.parse_args()
     out = Path(args.out).resolve()
     if args.report:
@@ -242,9 +303,20 @@ def main():
     if args.only:
         exercises = [e for e in exercises if e.name in args.only]
     (out / args.agent).mkdir(parents=True, exist_ok=True)
+    path = out / args.agent / "results.jsonl"
     with concurrent.futures.ThreadPoolExecutor(args.jobs) as pool:
-        results = list(pool.map(lambda e: one(args, e), exercises))
-    with open(out / args.agent / "results.jsonl", "w") as f:
+        if args.retry:
+            by_name = {e.name: e for e in exercises}
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            for row in rows:
+                row.setdefault("passed1", row["passed"])
+                row.setdefault("tries", 1)
+            todo = [r for r in rows if not r["passed"] and r["tries"] < 2 and r["name"] in by_name]
+            redone = {r["name"]: r for r in pool.map(lambda r: second(args, by_name[r["name"]], r), todo)}
+            results = [redone.get(r["name"], r) for r in rows]
+        else:
+            results = list(pool.map(lambda e: one(args, e), exercises))
+    with open(path, "w") as f:
         for row in results:
             f.write(json.dumps(row) + "\n")
     report(out)

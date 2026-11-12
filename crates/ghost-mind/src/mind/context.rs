@@ -213,6 +213,7 @@ impl Mind {
              Take on something that needs real work {means}: finding something out properly, making something, checking something. \
              It is not done in this reply. You will work on it in your own time and come back with what you found. \
              Write the brief as a complete instruction to yourself, with everything needed to do it without this conversation in front of you. \
+             If you have already taken something on for them and they add to it or change it, use this again with just what is new: it is added to what you are doing. \
              Leave out \"for\" when it is for yourself. Only for things you want to do or have agreed to do: nobody is owed your afternoon. \
              Say something as well, the way you would.\n"
         )

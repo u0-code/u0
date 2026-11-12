@@ -83,6 +83,10 @@ pub struct State {
     /// Files written or edited most recently, newest last.
     #[serde(default)]
     pub touched: Vec<String>,
+    /// Things added to the task after it began, in order. The brief itself
+    /// never changes; these extend it.
+    #[serde(default)]
+    pub additions: Vec<String>,
     /// The session of a command-line agent that has been stepping this
     /// work, so its next sitting can pick its own context back up.
     #[serde(default)]
@@ -95,6 +99,15 @@ pub struct State {
 }
 
 impl State {
+    /// What was asked, with whatever was added to it since.
+    pub fn task_text(&self) -> String {
+        let mut text = self.brief.trim().to_owned();
+        for added in &self.additions {
+            text.push_str(&format!("\n\nAdded later: {}", added.trim()));
+        }
+        text
+    }
+
     /// The plan as the worker should see it.
     pub fn plan_text(&self) -> String {
         if self.plan.is_empty() {
@@ -264,6 +277,45 @@ impl Undertaking {
         }
     }
 
+    /// Add something to the task from outside, while it may be under way.
+    /// It goes into a file beside the state, because whoever is working on
+    /// this may be another process; the worker picks it up before its next
+    /// step.
+    pub fn add(&self, text: &str) -> io::Result<()> {
+        use std::io::Write as _;
+        let mut inbox = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.dir.join("inbox.jsonl"))?;
+        writeln!(
+            inbox,
+            "{}",
+            serde_json::Value::String(text.trim().to_owned())
+        )
+    }
+
+    /// Take what has been added since the last look, and make it part of
+    /// the task.
+    pub fn take_added(&self) -> Vec<String> {
+        let path = self.dir.join("inbox.jsonl");
+        let taken = path.with_extension("taken");
+        // Renamed first, so that something added during the read is not lost.
+        if fs::rename(&path, &taken).is_err() {
+            return Vec::new();
+        }
+        let added: Vec<String> = fs::read_to_string(&taken)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<String>(line).ok())
+            .filter(|text| !text.is_empty())
+            .collect();
+        let _ = fs::remove_file(&taken);
+        if !added.is_empty() {
+            self.update(|state| state.additions.extend(added.iter().cloned()));
+        }
+        added
+    }
+
     /// Append one line to the step log.
     pub fn log(&self, line: &serde_json::Value) {
         use std::io::Write as _;
@@ -320,6 +372,25 @@ mod tests {
         assert_eq!(
             shown,
             "(8 older notes are not shown)\n- fact number 8\n- fact number 9"
+        );
+    }
+
+    #[test]
+    fn what_is_added_from_outside_becomes_part_of_the_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = Undertaking::open(dir.path(), Some("find when it closes")).unwrap();
+        // Someone else, with their own handle on the same directory.
+        let outside = Undertaking::open(dir.path(), None).unwrap();
+        outside.add("weekends too").unwrap();
+        outside.add("and whether it takes bookings").unwrap();
+        assert_eq!(
+            worker.take_added(),
+            ["weekends too", "and whether it takes bookings"]
+        );
+        assert!(worker.take_added().is_empty(), "taken once");
+        assert_eq!(
+            worker.state().task_text(),
+            "find when it closes\n\nAdded later: weekends too\n\nAdded later: and whether it takes bookings"
         );
     }
 

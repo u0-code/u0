@@ -85,6 +85,27 @@ impl Mind {
             return Ok(Some("this body has nothing to work with".into()));
         }
         let memory = self.ghost.memory();
+        // More about something she is already doing for the same person is
+        // added to it, not started as a second thing.
+        if let Some(person) = asked_by
+            && let Some(open) = memory
+                .undertakings(true, 20)?
+                .into_iter()
+                .find(|u| u.asked_by.as_deref() == Some(person.key.as_str()))
+        {
+            let dir = self.ghost.dir().join("work").join(&open.id);
+            return Ok(
+                match Undertaking::open(dir, Some(&open.brief)).and_then(|u| u.add(brief)) {
+                    Ok(()) => {
+                        info!("added to {}: {}", open.id, clip(brief, 80));
+                        None
+                    }
+                    Err(e) => Some(format!(
+                        "it could not be added to what she is already doing: {e}"
+                    )),
+                },
+            );
+        }
         if memory.undertaken_since(now - Duration::hours(24))? >= i64::from(self.cfg.work.per_day) {
             return Ok(Some("she has taken on enough for one day".into()));
         }
