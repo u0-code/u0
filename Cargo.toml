@@ -9,6 +9,8 @@ members = [
     "crates/ghostd",
     "crates/presence/ghost-term",
     "crates/presence/ghost-telegram",
+    "crates/presence/ghost-discord",
+    "crates/presence/ghost-onebot",
 ]
 
 [workspace.package]
@@ -29,6 +31,8 @@ too_many_lines = "allow"
 match_same_arms = "allow"
 format_push_string = "allow"
 trivially_copy_pass_by_ref = "allow"
+# Adapters mirror the field names of the platforms they talk to.
+struct_field_names = "allow"
 
 [profile.release]
 lto = "thin"

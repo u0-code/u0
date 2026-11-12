@@ -13,6 +13,7 @@
 
 pub mod presence;
 pub mod socket;
+pub mod text;
 
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;

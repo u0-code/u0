@@ -15,6 +15,7 @@ use clap::Parser;
 use ghost_link::{
     presence::{self, Link, Platform, Uplink},
     protocol::{Acted, Action, Capability},
+    text,
 };
 use serde_json::{Value, json};
 use tracing::{info, warn};
@@ -31,7 +32,7 @@ const LONG_POLL: u64 = 50;
     about = "Carries a ghost on Telegram."
 )]
 struct Args {
-    /// The bot token from @BotFather.
+    /// The bot token from `@BotFather`.
     #[arg(long, env = "TELEGRAM_BOT_TOKEN", hide_env_values = true)]
     bot_token: String,
     /// The daemon's address.
@@ -105,7 +106,7 @@ impl Platform for Telegram {
             } => {
                 let chat = chat_id(&place)?;
                 let mut last = None;
-                for (i, part) in convert::chunks(&text, convert::MESSAGE_LIMIT)
+                for (i, part) in text::chunks(&text, convert::MESSAGE_LIMIT)
                     .into_iter()
                     .enumerate()
                 {
