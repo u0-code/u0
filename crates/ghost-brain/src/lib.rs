@@ -7,6 +7,7 @@
 pub mod anthropic;
 pub mod cli;
 pub mod config;
+pub mod discover;
 mod http;
 pub mod openai;
 pub mod step;

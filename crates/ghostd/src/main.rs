@@ -64,10 +64,13 @@ enum Cmd {
     },
     /// Verify her seal and the whole hash chain.
     Verify { dir: PathBuf },
-    /// List configured brains; with --probe, ask each for one word.
+    /// List configured brains; with --probe, ask each for one word; with
+    /// --discover, look for what this machine could think with instead.
     Brains {
         #[arg(long)]
         probe: bool,
+        #[arg(long, conflicts_with = "probe")]
+        discover: bool,
         #[arg(long)]
         config: Option<PathBuf>,
     },
@@ -125,7 +128,8 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Status { dir } => status(&dir),
         Cmd::Journal { dir, last } => journal(&dir, last),
         Cmd::Verify { dir } => verify(&dir),
-        Cmd::Brains { probe, config } => brains(probe, config.as_deref()).await,
+        Cmd::Brains { discover: true, .. } => discover().await,
+        Cmd::Brains { probe, config, .. } => brains(probe, config.as_deref()).await,
         Cmd::Watch { daemon, last } => watch(daemon, last).await,
         Cmd::Agenda { daemon } => {
             let agenda = daemon.console().await?.agenda().await?;
@@ -307,6 +311,25 @@ async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
         print(value);
     }
     eprintln!("the daemon went away");
+    Ok(())
+}
+
+/// Say what this machine could think with, as configuration to paste.
+async fn discover() -> anyhow::Result<()> {
+    let found = ghost_brain::discover::discover().await;
+    if found.is_empty() {
+        println!("Nothing found. Set an API key in the environment (DEEPSEEK_API_KEY,");
+        println!("ANTHROPIC_API_KEY, OPENAI_API_KEY), install the claude or codex CLI,");
+        println!("or start Ollama.");
+        return Ok(());
+    }
+    for f in &found {
+        println!("# {}", f.what);
+        if !f.works {
+            println!("# It can answer, but cannot run tools yet: use it to talk, not to work.");
+        }
+        println!("{}", f.toml());
+    }
     Ok(())
 }
 
