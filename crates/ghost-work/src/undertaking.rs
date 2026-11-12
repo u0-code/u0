@@ -70,6 +70,10 @@ pub struct State {
     pub brief: String,
     pub plan: Vec<PlanStep>,
     pub notes: Vec<Note>,
+    /// What the worker wrote for itself the last time its context was
+    /// cleared. One document, replaced each time.
+    #[serde(default)]
+    pub handoff: Option<String>,
     pub finish: Option<Finish>,
     /// The worker has been made to check its work once already.
     pub checked: bool,
@@ -102,15 +106,27 @@ impl State {
             .join("\n")
     }
 
-    pub fn notes_text(&self) -> String {
+    /// The newest notes that fit in `budget` characters, oldest first.
+    pub fn notes_text(&self, budget: usize) -> String {
         if self.notes.is_empty() {
             return "(no notes yet)".to_owned();
         }
-        self.notes
-            .iter()
-            .map(|n| format!("- {}", n.text.trim()))
-            .collect::<Vec<_>>()
-            .join("\n")
+        let mut kept = Vec::new();
+        let mut used = 0;
+        for note in self.notes.iter().rev() {
+            let line = format!("- {}", note.text.trim());
+            if !kept.is_empty() && used + line.len() > budget {
+                break;
+            }
+            used += line.len();
+            kept.push(line);
+        }
+        let left_out = self.notes.len() - kept.len();
+        kept.reverse();
+        if left_out > 0 {
+            kept.insert(0, format!("({left_out} older notes are not shown)"));
+        }
+        kept.join("\n")
     }
 }
 
@@ -242,8 +258,24 @@ mod tests {
         let state = again.state();
         assert_eq!(state.brief, "build the thing", "the brief does not change");
         assert_eq!(state.plan_text(), "[x] 1. look around");
-        assert_eq!(state.notes_text(), "- python is 3.12");
+        assert_eq!(state.notes_text(1000), "- python is 3.12");
         assert_eq!(again.transcript().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn only_the_newest_notes_are_shown_when_there_are_many() {
+        let mut state = State::default();
+        for i in 0..10 {
+            state.notes.push(Note {
+                at: Utc::now(),
+                text: format!("fact number {i}"),
+            });
+        }
+        let shown = state.notes_text(40);
+        assert_eq!(
+            shown,
+            "(8 older notes are not shown)\n- fact number 8\n- fact number 9"
+        );
     }
 
     #[test]

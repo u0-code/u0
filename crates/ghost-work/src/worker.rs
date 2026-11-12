@@ -30,6 +30,7 @@ use serde_json::{Value, json};
 
 use crate::{
     tool::Toolbox,
+    tools::{Handoff, Plan},
     undertaking::{Outcome, Undertaking},
 };
 
@@ -42,13 +43,18 @@ Continue. If you were writing a large file, write it in several smaller pieces."
 const REPEATING: &str = "You have made the same call three times and got the same result. \
 It will not change. Stop and think about what that result is telling you, then do something different.";
 const HANDOFF: &str = "Your context is almost full and is about to be cleared. \
-You will continue this work with only the task, the plan and your notes in front of you. \
-Right now: use `note` to record everything you will need (what is done, what you learned, \
-exact paths and commands, what you were in the middle of, what to do next), and `plan` to \
-bring the plan up to date. Do nothing else in this step.";
+You will continue this work with only the task, the plan, your handoff and your latest notes in front of you. \
+Right now, call `handoff` once with a single document that stands on its own: what is finished and checked, \
+what is in progress and exactly where you stopped, the exact paths and commands that matter, what you learned \
+that was not obvious, and the next few actions in order. It replaces any earlier handoff, so carry forward \
+whatever from the earlier one still matters. Keep it under about 500 words. Also bring `plan` up to date. \
+Do nothing else in this step.";
 
-/// The recent items that folding leaves untouched.
-const KEEP_RECENT: usize = 12;
+/// How many of the newest items are left whole when old output is dropped:
+/// tried in turn, each tighter than the last.
+const KEEP_RECENT: [usize; 3] = [12, 6, 3];
+/// The share of the notes a new sitting is shown, in characters.
+const NOTES_SHOWN: usize = 2500;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -206,9 +212,15 @@ impl Worker {
         } else {
             format!("{}\n\n", self.who.trim())
         };
+        let budget = format!(
+            "You have at most {} steps and about {} minutes. That is enough to work carefully and not enough to wander.",
+            self.limits.max_steps,
+            (self.limits.max_seconds / 60).max(1)
+        );
         PROMPT
             .replace("{who}", &who)
             .replace("{machine}", self.machine.trim())
+            .replace("{budget}", &budget)
     }
 
     /// What a sitting starts from: the task alone the first time, and the
@@ -219,16 +231,29 @@ impl Worker {
         if state.steps == 0 {
             return vec![Item::user(task)];
         }
+        let handoff = state.handoff.as_deref().map_or_else(String::new, |h| {
+            format!("<handoff>\n{}\n</handoff>\n\n", h.trim())
+        });
         vec![Item::user(format!(
             "{task}\n\n\
              You have already been working on this, and your earlier context is gone. \
              This is what you left for yourself.\n\n\
-             <plan>\n{}\n</plan>\n\n<notes>\n{}\n</notes>\n\n\
+             <plan>\n{}\n</plan>\n\n{handoff}<notes>\n{}\n</notes>\n\n\
              Do not start over. First look at the current state of the environment, which holds \
-             whatever you already did. Then carry on from where the plan stands.",
+             whatever you already did. Then carry on from where you stopped.",
             state.plan_text(),
-            state.notes_text()
+            state.notes_text(NOTES_SHOWN)
         ))]
+    }
+
+    /// The size at which a sitting is folded: the configured budget, or
+    /// enough room above where the sitting started to get something done,
+    /// whichever is larger. Without the second part a long task statement
+    /// or handoff would have every step folding the one before it.
+    fn ceiling(&self, base: u64) -> u64 {
+        self.limits
+            .context_tokens
+            .max(base + self.limits.context_tokens / 2)
     }
 
     async fn run_calls(&self, calls: &[Call], items: &mut Vec<Item>) -> (Vec<Value>, String) {
@@ -266,30 +291,41 @@ impl Worker {
         (logged, signature)
     }
 
-    /// Make room. Old output goes first; if that is not enough, the worker
-    /// writes a handoff and the transcript starts again from the record.
+    /// Make room. Old output goes first, in tightening rounds; if that is
+    /// not enough, the worker writes a handoff and the transcript starts
+    /// again from the record. Returns what the handoff cost, and the size
+    /// of the new sitting's opening if one began.
     async fn fold(
         &self,
         items: &mut Vec<Item>,
         system: &str,
         gauge: &mut Gauge,
+        ceiling: u64,
         forced: bool,
-    ) -> Usage {
+    ) -> (Usage, Option<u64>) {
         let mut spent = Usage::default();
-        let freed = shed(items, if forced { 4 } else { KEEP_RECENT });
+        let mut freed = 0;
         gauge.measured = None;
+        for keep in KEEP_RECENT {
+            freed += shed(items, keep);
+            if gauge.tokens(items) * 10 <= ceiling * 6 {
+                break;
+            }
+        }
         let after = gauge.tokens(items);
         tracing::info!(
             "folded: dropped {freed} characters of old output, about {after} tokens remain"
         );
-        if !forced && after * 10 <= self.limits.context_tokens * 6 {
-            return spent;
+        if !forced && after * 10 <= ceiling * 6 {
+            return (spent, None);
         }
 
         // A handoff, unless the context is already too full to ask for one.
         if !forced {
             items.push(Item::user(HANDOFF));
-            let record = self.tools.only(&["note", "plan"]);
+            let record = Toolbox::new()
+                .with(Handoff::new(self.undertaking.clone()))
+                .with(Plan::new(self.undertaking.clone()));
             let turn = Turn {
                 system: system.to_owned(),
                 items: items.clone(),
@@ -310,8 +346,11 @@ impl Worker {
         self.undertaking.update(|state| state.sittings += 1);
         *items = self.opening();
         gauge.measured = None;
-        tracing::info!("a new sitting begins from the plan and the notes");
-        spent
+        let base = gauge.tokens(items);
+        tracing::info!(
+            "a new sitting begins from the plan and the handoff, at about {base} tokens"
+        );
+        (spent, Some(base))
     }
 
     fn report(&self, ended: Ended) -> Report {
@@ -352,6 +391,9 @@ impl Worker {
             .filter(|items| !items.is_empty())
             .unwrap_or_else(|| self.opening());
 
+        // Where this sitting started, in tokens. A transcript picked up from
+        // disk counts as starting from the task alone.
+        let mut base = gauge.tokens(&self.opening());
         let mut idle = 0;
         let mut last_signature = String::new();
         let mut repeats = 0;
@@ -367,10 +409,12 @@ impl Worker {
             }
 
             let mut extra = Usage::default();
-            // A sitting that has only just begun has nothing to fold, however
-            // large the task and the notes are.
-            if items.len() > 1 && gauge.tokens(&items) > self.limits.context_tokens {
-                extra = self.fold(&mut items, &system, &mut gauge, false).await;
+            if items.len() > 1 && gauge.tokens(&items) > self.ceiling(base) {
+                let (spent, began) = self
+                    .fold(&mut items, &system, &mut gauge, self.ceiling(base), false)
+                    .await;
+                extra = spent;
+                base = began.unwrap_or(base);
             }
 
             let asked = Instant::now();
@@ -388,7 +432,10 @@ impl Worker {
                     // without asking the model for anything, and go again.
                     overflowed = true;
                     tracing::warn!("the model said the context is too long; folding hard");
-                    self.fold(&mut items, &system, &mut gauge, true).await;
+                    let (_, began) = self
+                        .fold(&mut items, &system, &mut gauge, self.ceiling(base), true)
+                        .await;
+                    base = began.unwrap_or(base);
                     continue;
                 }
                 Err(e) => {
@@ -623,8 +670,8 @@ mod tests {
         let mut script: Vec<Step> = (0..2)
             .map(|i| calls("shell", json!({"command": format!("echo {big}{i}")})))
             .collect();
-        // Asked for a handoff, it leaves a note; then it finishes.
-        script.push(calls("note", json!({"text": "the file goes in hi.txt"})));
+        // Asked for a handoff, it writes one; then it finishes.
+        script.push(calls("handoff", json!({"text": "the file goes in hi.txt"})));
         script.push(calls(
             "done",
             json!({"outcome": "blocked", "summary": "enough"}),

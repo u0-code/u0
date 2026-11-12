@@ -12,7 +12,7 @@ mod shell;
 use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
-pub use record::{Done, Note, Plan};
+pub use record::{Done, Handoff, Note, Plan};
 pub use shell::Shell;
 
 use crate::{

@@ -107,7 +107,7 @@ impl Tool for Note {
     fn spec(&self) -> ToolSpec {
         spec(
             "note",
-            "Write down something you would not want to find out twice: a path, a version, a command that worked, a decision and its reason, a dead end. Notes survive when older context is dropped; tool output does not.",
+            "Write down one thing you would not want to find out twice: a path, a version, a command that worked, a decision and its reason, a dead end. A line or two. Notes survive when older context is dropped; tool output does not.",
             json!({
                 "text": {"type": "string", "description": "The fact, stated so it makes sense on its own later."},
             }),
@@ -131,6 +131,44 @@ impl Tool for Note {
             state.notes.len()
         });
         Outcome::ok(format!("noted ({count} so far)"))
+    }
+}
+
+/// Offered only when a context is about to be cleared.
+pub struct Handoff {
+    undertaking: Arc<Undertaking>,
+}
+
+impl Handoff {
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
+    }
+}
+
+#[async_trait]
+impl Tool for Handoff {
+    fn spec(&self) -> ToolSpec {
+        spec(
+            "handoff",
+            "Write the one document you will continue from once your context is cleared. It replaces any earlier handoff, so it has to stand on its own.",
+            json!({
+                "text": {"type": "string", "description": "What is finished and checked, what is in progress and exactly where it stopped, the paths and commands that matter, what was not obvious, and the next actions in order."},
+            }),
+            &["text"],
+        )
+    }
+
+    async fn call(&self, args: &Value) -> Outcome {
+        let words = match text(args, "text") {
+            Ok(t) => t.trim(),
+            Err(refusal) => return refusal,
+        };
+        if words.is_empty() {
+            return Outcome::fail("the handoff is empty");
+        }
+        self.undertaking
+            .update(|state| state.handoff = Some(words.to_owned()));
+        Outcome::ok("kept")
     }
 }
 

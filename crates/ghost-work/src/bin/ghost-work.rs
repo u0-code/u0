@@ -8,7 +8,7 @@
 //! Run it again with the same `--state` to pick up where it stopped. The
 //! report is printed to stdout as JSON; progress goes to stderr.
 
-use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool};
+use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
 
 use anyhow::{Context, bail};
 use clap::Parser;
@@ -43,6 +43,9 @@ struct Args {
     /// User to run as inside the container.
     #[arg(long, requires = "docker")]
     user: Option<String>,
+    /// A variable to set for every command in the container, as NAME=value.
+    #[arg(long = "docker-env", requires = "docker")]
+    docker_env: Vec<String>,
 
     /// `openai` (any compatible server) or `anthropic`.
     #[arg(long, default_value = "openai")]
@@ -95,7 +98,8 @@ async fn main() -> anyhow::Result<()> {
         (_, Some(container)) => Arc::new(
             Docker::new(container.clone())
                 .workdir(args.workdir.clone())
-                .user(args.user.clone()),
+                .user(args.user.clone())
+                .env(args.docker_env.clone()),
         ),
         (Some(dir), None) => {
             std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
@@ -124,6 +128,20 @@ async fn main() -> anyhow::Result<()> {
         other => bail!("unknown kind {other:?}: use openai or anthropic"),
     };
 
+    // A first look around, so the first steps are not spent finding out
+    // which system this is and what is in the directory.
+    let mut place = machine.describe();
+    let look = "uname -srm 2>/dev/null; echo \"user: $(whoami 2>/dev/null)\"; echo \"directory: $PWD\"; ls -la 2>/dev/null | head -40";
+    match machine.exec(look, None, Duration::from_secs(30)).await {
+        Ok(out) if !out.text.trim().is_empty() => {
+            place.push_str("\n\nWhen this run started it looked like this:\n\n```\n");
+            place.push_str(out.text.trim());
+            place.push_str("\n```");
+        }
+        Ok(_) => {}
+        Err(e) => bail!("the machine cannot be reached: {e}"),
+    }
+
     let worker = Worker {
         brain,
         tools: tools::standard(machine.clone(), &undertaking),
@@ -136,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
             temperature: args.temperature,
         },
         who: String::new(),
-        machine: machine.describe(),
+        machine: place,
         pause: Arc::new(AtomicBool::new(false)),
     };
     let report = worker.run().await;

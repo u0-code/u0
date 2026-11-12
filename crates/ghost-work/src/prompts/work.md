@@ -13,6 +13,8 @@
 
 {machine}
 
+{budget}
+
 - `shell` runs bash without a terminal. Never start anything that waits for a keypress: no editors, pagers, REPLs or prompts. Pass `-y`, `--yes`, `DEBIAN_FRONTEND=noninteractive` and the like; send pagers to `cat`.
 - The working directory carries over between `shell` calls. Exported variables and shell functions do not.
 - Output is cut in the middle when it is long. Ask for what you need (`grep`, `head`, `tail`, `wc`) instead of printing everything.

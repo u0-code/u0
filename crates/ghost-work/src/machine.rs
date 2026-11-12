@@ -192,6 +192,7 @@ pub struct Docker {
     container: String,
     workdir: Option<String>,
     user: Option<String>,
+    env: Vec<String>,
 }
 
 impl Docker {
@@ -200,7 +201,15 @@ impl Docker {
             container: container.into(),
             workdir: None,
             user: None,
+            env: Vec::new(),
         }
+    }
+
+    /// Variables every command is given, each as `NAME=value`.
+    #[must_use]
+    pub fn env(mut self, env: Vec<String>) -> Self {
+        self.env = env;
+        self
     }
 
     #[must_use]
@@ -237,6 +246,9 @@ impl Machine for Docker {
         }
         if let Some(user) = &self.user {
             command.args(["-u", user]);
+        }
+        for pair in &self.env {
+            command.args(["-e", pair]);
         }
         command
             .arg(&self.container)
