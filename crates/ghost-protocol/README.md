@@ -13,8 +13,12 @@ A connection opens with a `hello` request declaring a role.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `memory.people`, `journal.read`, `journal.subscribe` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `journal.read`, `journal.place`, `journal.subscribe` | answers, then `journal.entry` notifications |
 
 There is no method that edits her identity or removes a journal entry.
+
+A browser may connect only from a page served on the same machine, from the
+desktop console, or from an origin the daemon lists. Native clients send no
+origin and are not asked.
 
 The console payloads mirror the core's serialized types and are not frozen yet.

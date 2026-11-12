@@ -215,6 +215,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
             presences,
             token,
             card,
+            origins: cfg.listen.origins.clone(),
         }),
     ));
 

@@ -20,12 +20,16 @@ use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, MindHandle, Question};
 use ghost_protocol::{
-    Action, Capability, Frame, GhostCard, Hello, Inbound, JournalRead, PROTOCOL, PresenceHello,
-    Role, Typing, Welcome, code, method,
+    Action, Capability, Frame, GhostCard, Hello, Inbound, JournalRead, PROTOCOL, PlaceRead,
+    PresenceHello, Role, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{broadcast::error::RecvError, mpsc, oneshot},
+};
+use tokio_tungstenite::tungstenite::{
+    handshake::server::{ErrorResponse, Request, Response},
+    http::StatusCode,
 };
 use tracing::{debug, info, warn};
 
@@ -106,6 +110,8 @@ pub struct Shared {
     pub presences: Arc<Presences>,
     pub token: Option<String>,
     pub card: GhostCard,
+    /// Web origins allowed to connect, beyond this machine's own.
+    pub origins: Vec<String>,
 }
 
 /// Accept connections until the task is dropped.
@@ -133,7 +139,32 @@ async fn connection(
     peer: SocketAddr,
     shared: Arc<Shared>,
 ) -> anyhow::Result<()> {
-    let ws = tokio_tungstenite::accept_async(stream).await?;
+    // A browser says which page opened the socket. Without this check any
+    // web page the operator visits could read her journal on localhost.
+    let origins = shared.origins.clone();
+    // The callback's signature, large error and all, is tungstenite's.
+    #[allow(clippy::result_large_err)]
+    let ws = tokio_tungstenite::accept_hdr_async(
+        stream,
+        move |request: &Request, response: Response| {
+            let origin = request
+                .headers()
+                .get("origin")
+                .and_then(|v| v.to_str().ok());
+            if origin.is_none_or(|origin| origin_allowed(origin, &origins)) {
+                Ok(response)
+            } else {
+                warn!(
+                    "{peer}: refused a connection from {}",
+                    origin.unwrap_or_default()
+                );
+                let mut refusal = ErrorResponse::new(Some("origin not allowed".to_owned()));
+                *refusal.status_mut() = StatusCode::FORBIDDEN;
+                Err(refusal)
+            }
+        },
+    )
+    .await?;
     let (mut sink, mut stream) = ws.split();
 
     let Some(first) = tokio::time::timeout(HELLO_WITHIN, recv(&mut stream)).await?? else {
@@ -196,6 +227,28 @@ async fn connection(
     // Let the writer flush whatever is queued, then end with the connection.
     let _ = tokio::time::timeout(Duration::from_secs(2), writer).await;
     Ok(())
+}
+
+/// Whether a web page at `origin` may connect. Native clients send no origin
+/// and are not asked. Pages served from this machine, and the desktop app's
+/// own webview, are allowed; anything else has to be listed.
+fn origin_allowed(origin: &str, extra: &[String]) -> bool {
+    if origin.starts_with("tauri://") || extra.iter().any(|allowed| allowed == origin) {
+        return true;
+    }
+    let Some((scheme, rest)) = origin.split_once("://") else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.split_once(']'))
+        .map_or_else(
+            || host.rsplit_once(':').map_or(host, |(h, _)| h),
+            |(h, _)| h,
+        );
+    matches!(scheme, "http" | "https")
+        && matches!(host, "localhost" | "127.0.0.1" | "::1" | "tauri.localhost")
 }
 
 /// A presence: register its channel, feed what it hears to the mind, and
@@ -312,6 +365,19 @@ where
             Some(method::STATUS) => Question::Status,
             Some(method::AGENDA) => Question::Agenda,
             Some(method::PEOPLE) => Question::People,
+            Some(method::IDENTITY) => Question::Identity,
+            Some(method::CANON) => Question::Canon,
+            Some(method::PLACES) => Question::Places,
+            Some(method::JOURNAL_PLACE) => match frame.params::<PlaceRead>() {
+                Ok(read) => Question::Thread {
+                    place: read.place,
+                    limit: read.limit as usize,
+                },
+                Err(e) => {
+                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
+                    continue;
+                }
+            },
             Some(method::JOURNAL_READ) => match frame.params::<JournalRead>() {
                 Ok(read) => Question::Journal {
                     from: read.from,
@@ -363,5 +429,37 @@ where
         if out.send(reply).await.is_err() {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_allowed;
+
+    #[test]
+    fn only_local_pages_and_listed_origins_may_connect() {
+        let none: [String; 0] = [];
+        for ok in [
+            "http://localhost:5173",
+            "http://127.0.0.1:1420",
+            "http://[::1]:8080",
+            "tauri://localhost",
+            "https://tauri.localhost",
+        ] {
+            assert!(origin_allowed(ok, &none), "{ok}");
+        }
+        for bad in [
+            "https://evil.example",
+            "http://localhost.evil.example",
+            "http://127.0.0.1.evil.example:80",
+            "file://",
+            "null",
+        ] {
+            assert!(!origin_allowed(bad, &none), "{bad}");
+        }
+        assert!(origin_allowed(
+            "https://console.example",
+            &["https://console.example".to_owned()]
+        ));
     }
 }

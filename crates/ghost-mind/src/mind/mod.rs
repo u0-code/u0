@@ -76,6 +76,14 @@ pub enum Question {
     Agenda,
     /// Everyone she knows and where she stands with them.
     People,
+    /// Her birth certificate and its seal.
+    Identity,
+    /// What is true about her life, oldest first.
+    Canon,
+    /// Every place she is in, most recently active first.
+    Places,
+    /// The journal entries that belong to one place, oldest first.
+    Thread { place: String, limit: usize },
     /// Journal entries from seq `from` on. Zero or less counts back from the
     /// newest entry.
     Journal { from: i64, limit: usize },

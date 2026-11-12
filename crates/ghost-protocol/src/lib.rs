@@ -46,6 +46,16 @@ pub mod method {
     pub const AGENDA: &str = "mind.agenda";
     /// Console → daemon request. No params.
     pub const PEOPLE: &str = "memory.people";
+    /// Console → daemon request. No params. Her sealed birth certificate.
+    pub const IDENTITY: &str = "ghost.identity";
+    /// Console → daemon request. No params. What is true about her life.
+    pub const CANON: &str = "memory.canon";
+    /// Console → daemon request. No params. Every place she is in.
+    pub const PLACES: &str = "memory.places";
+    /// Console → daemon request. Params [`PlaceRead`](super::PlaceRead). The
+    /// journal entries that belong to one place: what was said there and
+    /// what she made of it.
+    pub const JOURNAL_PLACE: &str = "journal.place";
     /// Console → daemon request. Params [`JournalRead`](super::JournalRead).
     pub const JOURNAL_READ: &str = "journal.read";
     /// Console → daemon request. No params. Afterwards the daemon sends a
@@ -367,6 +377,14 @@ pub struct Acted {
 pub struct JournalRead {
     /// First seq to return. Zero or less counts back from the newest entry.
     pub from: i64,
+    pub limit: u32,
+}
+
+/// Params of [`method::JOURNAL_PLACE`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaceRead {
+    /// A place key, `channel:id`.
+    pub place: String,
     pub limit: u32,
 }
 

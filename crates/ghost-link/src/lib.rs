@@ -110,6 +110,30 @@ impl Console {
         self.conn.call(method::PEOPLE, &()).await
     }
 
+    /// Her sealed birth certificate.
+    pub async fn identity(&mut self) -> anyhow::Result<Value> {
+        self.conn.call(method::IDENTITY, &()).await
+    }
+
+    /// What is true about her life, oldest first.
+    pub async fn canon(&mut self) -> anyhow::Result<Value> {
+        self.conn.call(method::CANON, &()).await
+    }
+
+    /// Every place she is in, most recently active first.
+    pub async fn places(&mut self) -> anyhow::Result<Value> {
+        self.conn.call(method::PLACES, &()).await
+    }
+
+    /// The journal entries that belong to one place, oldest first.
+    pub async fn thread(&mut self, place: &str, limit: u32) -> anyhow::Result<Vec<Value>> {
+        let params = ghost_protocol::PlaceRead {
+            place: place.to_owned(),
+            limit,
+        };
+        self.conn.call(method::JOURNAL_PLACE, &params).await
+    }
+
     /// Journal entries starting at `from`. Negative counts back from the end.
     pub async fn journal(&mut self, from: i64, limit: u32) -> anyhow::Result<Vec<Value>> {
         self.conn

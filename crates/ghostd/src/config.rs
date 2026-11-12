@@ -47,6 +47,9 @@ pub struct Listen {
     pub addr: String,
     /// Environment variable holding the token clients must present.
     pub token_env: String,
+    /// Web origins allowed to connect besides pages served from this
+    /// machine and the desktop console, e.g. `https://console.example`.
+    pub origins: Vec<String>,
 }
 
 impl Default for Listen {
@@ -54,6 +57,7 @@ impl Default for Listen {
         Self {
             addr: ghost_protocol::DEFAULT_ADDR.to_owned(),
             token_env: "GHOSTD_TOKEN".to_owned(),
+            origins: Vec::new(),
         }
     }
 }

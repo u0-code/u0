@@ -1,0 +1,22 @@
+[package]
+name = "ghost-console"
+description = "The desktop shell of the Ghost console."
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HappyFox001/Ghost"
+rust-version = "1.89"
+
+# The console is its own build: the daemon's workspace stays free of a GUI
+# toolkit, and `cargo build` at the repository root does not need a frontend.
+[workspace]
+
+[lib]
+name = "ghost_console"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

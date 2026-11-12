@@ -16,6 +16,9 @@ tick = "anthropic"
 [listen]
 addr = "127.0.0.1:7437"
 token_env = "GHOSTD_TOKEN"
+# Web pages allowed to connect besides ones served from this machine and the
+# desktop console. Only needed when hosting the web console somewhere else.
+# origins = ["https://console.example"]
 
 [mind]
 # The pace she lives at. 1.0 is human: she notices messages after seconds or

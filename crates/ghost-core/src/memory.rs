@@ -329,6 +329,15 @@ impl Memory {
             .optional()?)
     }
 
+    /// Every place she has been in, most recently active first.
+    pub fn places(&self) -> Result<Vec<PlaceState>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "{PLACE_SELECT} ORDER BY MAX(p.last_in_seq, p.last_out_seq) DESC"
+        ))?;
+        let rows = stmt.query_map([], row_to_place)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Every place with something she has not looked at.
     pub fn places_unread(&self) -> Result<Vec<PlaceState>> {
         let mut stmt = self
