@@ -62,6 +62,8 @@ Inbound ──► ghostd ──► Signal::Heard ──► Mind（唯一写者�
 | 记不清很久以前的事 | `recall`：brain 提出查询，Mind 搜她的记忆（FTS5 trigram，中文可用），带着结果再想一次，最多两轮 |
 | 她说过的关于自己的话要自洽 | `canon`：她说出口的新事实登记进正典账本，之后每次都在情境里 |
 | 群里不是每句都接 | 未点名消息走便宜模型，提示词默认沉默，并告知她最近在这个群主动说了几次 |
+| 同一件事立两次念头 | 情境里列出她对这个人已有的念头；同一个人十二小时内的重复念头直接丢弃 |
+| 把计划当成已经发生的事 | 当天计划里每个时间块标注是已过、正在进行还是还没到 |
 | 主动联系 | 只来自 `Intended`（她自己立的念头，或睡前反思产生的）。`will` 限流：对方没回就不再追 |
 | 睡觉、忙 | 生活引擎给出当前活动和 reach，直接决定注意延迟 |
 | 同一条消息被平台重投 | 按 (place, platform_id) 去重 |
@@ -110,13 +112,15 @@ gone ← estranged ← cooling ← stranger → acquaintance → friend → clos
 
 ghostd 不认识任何平台。适配器是独立进程，用 `ghost-link` 连上来，声明自己的能力：
 
-| 适配器 | 平台接口 | 能力 |
-|---|---|---|
-| `ghost-term` | 终端 | send, typing。开发和本地聊天用 |
-| `ghost-telegram` | Bot API 长轮询 | send, typing, react |
-| `ghost-discord` | Gateway + REST | send, typing, react |
-| `ghost-onebot` | OneBot v11 正向 WebSocket（QQ） | send, typing |
-| `ghost-x` | X API v2，OAuth 1.0a | send, react(like), post, feed |
+| 适配器 | 平台接口 | 能力 | 验证到哪一步 |
+|---|---|---|---|
+| `ghost-term` | 终端 | send, typing, react | 真实运行 |
+| `ghost-telegram` | Bot API 长轮询 | send, typing, react | 对本地假 Bot API 全链路 |
+| `ghost-discord` | Gateway + REST（serenity） | send, typing, react | 仅消息转换的单元测试 |
+| `ghost-onebot` | OneBot v11 正向 WebSocket（QQ） | send, typing | 对本地假 OneBot 服务端全链路 |
+| `ghost-x` | X API v2，OAuth 1.0a | send, react(like), post, feed | 签名对官方示例；对本地假 X API 全链路 |
+
+**四个平台适配器都还没有在真实平台上用真实账号运行过。** 第一次接真账号应当视为一次测试。
 
 合规上的两条线：
 

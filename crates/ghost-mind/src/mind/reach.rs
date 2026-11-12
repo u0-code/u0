@@ -34,6 +34,53 @@ impl Mind {
         Ok(())
     }
 
+    /// Set an intention, unless she already holds one for the same person or
+    /// place around the same time. Returns whether it was recorded.
+    pub(super) fn intend(
+        &mut self,
+        due: DateTime<Utc>,
+        what: String,
+        about: Option<String>,
+        place: Option<String>,
+    ) -> Result<bool> {
+        let held = self.ghost.memory().open_intentions()?.iter().any(|open| {
+            let same = match (&about, &open.about) {
+                (Some(a), Some(b)) => a == b,
+                _ => place.is_some() && place == open.place,
+            };
+            same && (open.due - due).abs() < Duration::hours(12)
+        });
+        if held {
+            debug!("already means to: {what}");
+            return Ok(false);
+        }
+        self.record(Event::Intended {
+            due,
+            what,
+            about,
+            place,
+        })?;
+        Ok(true)
+    }
+
+    /// What she already means to do that concerns a place or the people in it.
+    pub(super) fn intentions_about(
+        &self,
+        place: &str,
+        people: &[String],
+    ) -> Result<Vec<Intention>> {
+        Ok(self
+            .ghost
+            .memory()
+            .open_intentions()?
+            .into_iter()
+            .filter(|i| {
+                i.place.as_deref() == Some(place)
+                    || i.about.as_ref().is_some_and(|a| people.contains(a))
+            })
+            .collect())
+    }
+
     /// An intention has come due. Decide whether this is a moment she could
     /// act on it, and if so, look at the place it belongs to.
     pub(super) fn pursue(&mut self, now: DateTime<Utc>) -> Result<()> {

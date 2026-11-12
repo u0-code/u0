@@ -117,8 +117,17 @@ impl Scene<'_> {
                 .blocks
                 .iter()
                 .map(|b| {
+                    // A plan is not a memory: say what is behind her, what
+                    // is now, and leave the rest as still to come.
+                    let when = if b.to <= self.now {
+                        " (earlier)"
+                    } else if b.from <= self.now {
+                        " (now)"
+                    } else {
+                        " (still to come)"
+                    };
                     format!(
-                        "- {}–{} {}",
+                        "- {}–{} {}{when}",
                         b.from.with_timezone(&tz).format("%H:%M"),
                         b.to.with_timezone(&tz).format("%H:%M"),
                         b.what

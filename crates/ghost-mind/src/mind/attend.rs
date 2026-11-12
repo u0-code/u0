@@ -304,6 +304,27 @@ impl Mind {
             let notes = memory.notes(&person.key, 8)?;
             cards.push(narrate::person_card(person, &standing, &notes, now));
         }
+        // What she already means to do here, so she does not resolve to do it twice.
+        let keys: Vec<String> = people.iter().map(|p| p.key.clone()).collect();
+        let pursuing = match &job.why {
+            Why::Intention(intention) => Some(intention.seq),
+            Why::Unread => None,
+        };
+        let meant: Vec<String> = self
+            .intentions_about(&place.key, &keys)?
+            .into_iter()
+            .filter(|i| Some(i.seq) != pursuing)
+            .map(|i| {
+                format!(
+                    "- by {}: {}",
+                    i.due.with_timezone(&tz).format("%m-%d %H:%M"),
+                    i.what
+                )
+            })
+            .collect();
+        if !meant.is_empty() {
+            cards.push(format!("\nYou already mean to:\n{}", meant.join("\n")));
+        }
 
         let addressed = match (place.kind, place.unread_addressed > 0) {
             (PlaceKind::Direct, _) => {
@@ -536,13 +557,14 @@ impl Mind {
                 }),
                 Action::Later { minutes, why } => {
                     let about = self.resolve(place, None)?.map(|p| p.key);
-                    self.record(Event::Intended {
-                        due: now + minutes_from(minutes.clamp(1.0, 7.0 * 24.0 * 60.0)),
-                        what: format!("get back to this conversation: {why}"),
+                    if self.intend(
+                        now + minutes_from(minutes.clamp(1.0, 7.0 * 24.0 * 60.0)),
+                        format!("get back to this conversation: {why}"),
                         about,
-                        place: Some(place.key.clone()),
-                    })?;
-                    did.push("put it off".to_owned());
+                        Some(place.key.clone()),
+                    )? {
+                        did.push("put it off".to_owned());
+                    }
                 }
                 Action::Note { about, text } => {
                     if let Some(person) = self.resolve(place, about.as_deref())? {
@@ -573,13 +595,14 @@ impl Mind {
                         .as_ref()
                         .and_then(|p| p.direct.clone())
                         .unwrap_or_else(|| place.key.clone());
-                    self.record(Event::Intended {
-                        due: now + minutes_from(hours.clamp(0.25, 24.0 * 30.0) * 60.0),
+                    if self.intend(
+                        now + minutes_from(hours.clamp(0.25, 24.0 * 30.0) * 60.0),
                         what,
-                        about: person.map(|p| p.key),
-                        place: Some(target),
-                    })?;
-                    did.push("made a note to self".to_owned());
+                        person.map(|p| p.key),
+                        Some(target),
+                    )? {
+                        did.push("made a note to self".to_owned());
+                    }
                 }
                 Action::Canon { fact } => {
                     self.record(Event::Canon {

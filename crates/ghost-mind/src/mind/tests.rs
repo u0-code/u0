@@ -529,6 +529,25 @@ async fn she_comes_back_to_things_on_her_own() {
 }
 
 #[tokio::test]
+async fn she_does_not_resolve_to_do_the_same_thing_twice() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let intend = r#"{"actions":[{"do":"say","text":"good luck"},{"do":"intend","hours":26,"what":"ask how the interview went"}]}"#;
+    rig.think.then(intend);
+    rig.think.then(intend);
+    rig.hear(dm("haoran", "1", "interview tomorrow at 3"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    rig.hear(
+        dm("haoran", "2", "really hoping it goes well"),
+        t0 + Duration::minutes(5),
+    );
+    rig.until(|r| r.body.sent().len() == 2).await;
+    assert_eq!(rig.mind.ghost.memory().open_intentions().unwrap().len(), 1);
+    // The second time she looked, she could see what she already meant to do.
+    assert!(rig.think.last_prompt().contains("You already mean to:"));
+}
+
+#[tokio::test]
 async fn her_day_is_planned_and_lived_without_anyone_asking() {
     let t0 = at(9, 0);
     let mut rig = Rig::new(

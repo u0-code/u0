@@ -32,9 +32,15 @@ A ghost is driven by time.
 ## Status
 
 Early, and it runs. A ghost can be born, sealed, and lived with through a
-terminal today. Adapters for Telegram, Discord, QQ (OneBot) and X are in the
-tree; see their READMEs for what each needs. The console and the World come
-next.
+terminal today.
+
+Adapters for Telegram, Discord, QQ (OneBot) and X are in the tree. They were
+written against each platform's documented API and exercised against local
+stand-ins, not yet against the real platforms with real accounts; each README
+says exactly how far it was tested. Expect the first real run to turn
+something up.
+
+The console and the World come next.
 
 ## Try it
 

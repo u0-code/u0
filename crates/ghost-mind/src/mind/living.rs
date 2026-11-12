@@ -314,6 +314,21 @@ impl Mind {
             .into_iter()
             .rev()
             .collect();
+        let open = memory.open_intentions()?;
+        let meant = if open.is_empty() {
+            "(nothing)".to_owned()
+        } else {
+            open.iter()
+                .map(|i| {
+                    format!(
+                        "- by {}: {}",
+                        i.due.with_timezone(&tz).format("%m-%d %H:%M"),
+                        i.what
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
@@ -354,6 +369,7 @@ impl Mind {
                         cards.join("\n")
                     },
                 ),
+                ("intentions", meant),
                 (
                     "said",
                     if said.is_empty() {
@@ -422,12 +438,12 @@ impl Mind {
         }
         for (hours, what, about) in draft.intentions.into_iter().take(2) {
             let person = about.as_deref().and_then(find);
-            self.record(Event::Intended {
-                due: now + minutes_from(hours.clamp(1.0, 24.0 * 14.0) * 60.0),
+            self.intend(
+                now + minutes_from(hours.clamp(1.0, 24.0 * 14.0) * 60.0),
                 what,
-                about: person.map(|p| p.key.clone()),
-                place: person.and_then(|p| p.direct.clone()),
-            })?;
+                person.map(|p| p.key.clone()),
+                person.and_then(|p| p.direct.clone()),
+            )?;
         }
         self.register(draft.canon, "reflection")?;
         self.refresh_intentions()
