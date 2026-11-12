@@ -27,12 +27,45 @@ A ghost is driven by time.
   back on before sleep. That is where what she says about her day comes from,
   and where her reasons to write first come from.
 
-[`docs/LIVING.md`](docs/LIVING.md) describes the mechanism.
+- She can do things, not only say them. In a conversation she may decide to
+  take something on: look something up properly, make something, check
+  something. She works on it in sittings, in her own time, with a shell in a
+  sandbox and the web, and comes back with what she found. The loop that does
+  this is built to run for hours and to be stopped anywhere.
+- She is one person across platforms. Every conversation opens with the rest of
+  her day: what she has taken on, what has been going on elsewhere. What she
+  knows carries where she learned it, and what was said to her in private does
+  not turn up in a group or in a post.
+- In public she posts, sees how her posts did, and writes down what that taught
+  her in her own words. Her certificate is sealed; her craft is what changes.
+
+[`docs/LIVING.md`](docs/LIVING.md) describes how she lives.
+[`docs/WORK.md`](docs/WORK.md) describes how she works, and every interface.
+[`docs/STUDY.md`](docs/STUDY.md) is what was learned from Codex and Claude Code.
+[`docs/ACCESS.md`](docs/ACCESS.md) lists every outside service she needs, where
+to get it, and what each platform allows an automated account.
+
+## What she thinks with
+
+Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
+installed on the machine. `ghostd brains --discover` finds what is there.
+
+| Brain | Talking | Working |
+|---|---|---|
+| OpenAI-compatible API (DeepSeek, OpenRouter, Ollama...) | yes | her own loop |
+| Anthropic API | yes | her own loop |
+| Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
+| Codex CLI | yes | the CLI steps, with her tools and its shell off |
+
+With a CLI, Ghost never reads its credentials: whatever account it is signed
+in to is what answers. Read the provider's terms before running a ghost other
+people talk to on a personal subscription; an API key is the safe choice.
 
 ## Status
 
 Early, and it runs. A ghost can be born, sealed, and lived with through a
-terminal today.
+terminal today, on DeepSeek or through an installed Claude Code or Codex.
+Taking things on has been run end to end with all three.
 
 Adapters for Telegram, Discord, QQ (OneBot) and X are in the tree. They were
 written against each platform's documented API and exercised against local
@@ -75,13 +108,15 @@ not start: *this is not her*.
 ```
 crates/ghost-core      identity, journal, derived memory, clock, tempo, will. No network.
 crates/ghost-brain     model providers behind one trait. Knows nothing of ghosts.
-crates/ghost-mind      the actor that lives: attention, deliberation, speaking, her day.
+crates/ghost-work      the loop she does things with: tools, a machine, state that outlives a context.
+crates/ghost-mind      the actor that lives: attention, deliberation, speaking, her day, her work.
 crates/ghost-protocol  wire types of the Ghost Protocol (JSON-RPC over WebSocket).
 crates/ghost-link      protocol client: the runner adapters use, and a console client.
 crates/ghostd          the daemon: runs one ghost, serves the protocol.
 crates/presence/*      channel adapters. Each is its own binary.
 ghosts/_template       a birth certificate to copy.
 ghostd.example.toml    body configuration. Never lives in a ghost directory.
+bench/                 how the loop is measured against other agents.
 docs/                  design documents (Chinese, for now).
 ```
 
