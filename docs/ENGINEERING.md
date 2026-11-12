@@ -23,9 +23,9 @@
 ```
 
 - **ghostd 不认识任何通道**。Telegram、Discord、X、电话都是外部进程，通过协议连进来。ghostd 里没有 telegram 这个词。
-- **Console 不是和她聊天的地方**，是后台：看她的日记、记忆、话头、通道健康，出生一个新 Ghost，连接远程 ghostd。它和 ghost CLI 是同一个协议的两张脸。
+- **Console 是桌面端**：左侧是这台机器上所有 Ghost 的列表，点进去是你和她的对话，输入框里可以换她用的模型；也在这里出生一个新 Ghost。它对 ghostd 来说只是两个普通的协议客户端（一个 console，一个 presence），没有任何特权。
 - **一个 Ghost 是磁盘上的一个目录**。拷走目录就是搬家。目录是人，二进制是身体。
-- 本地模式：Console 内嵌 ghostd（Tauri sidecar 或直接链接核心 crate）。服务器模式：ghostd 单独跑，Console 远程连。两者协议相同，Console 不知道区别。
+- 本地模式：桌面外壳里的 keeper 为每个 Ghost 起一个独立的 ghostd 进程（各占一个端口），窗口关掉她们照常运行。服务器模式：ghostd 单独跑，Console 远程连。两者协议相同。
 
 这是 LSP 的模型：一个协议，任意客户端，任意语言。要写一个微信适配器，不需要懂 Rust，只需要会说 JSON-RPC。
 
@@ -152,7 +152,7 @@ trait Brain: Send + Sync {
 2. **Brain**：四种 provider。✅
 3. **Mind + Protocol + 终端通道**：见 [LIVING.md](LIVING.md)。议程、注意、动作、说话状态机、生活引擎、主动联系、刷信息流；JSON-RPC 服务端；`ghost-link`；`ghost-term`。✅
 4. **平台适配器**：Telegram、Discord、OneBot（QQ）、X。
-5. **Console**（Tauri + React）✅。只做三件事：诞生（填写并封印出生证明）、此刻（她的时间和一天）、记录（她的 journal 排成一份账）。桌面外壳里的 keeper 负责在本机出生、配置身体、叫醒和休息。设计说明见 `console/README.md`。
+5. **Console**（Tauri + React）✅。深色的 Codex 式外壳，多角色：左侧角色列表（收起后是一列头像），中间是对话（她的话、你的话，以及她心里的步骤：隔了多久才读、想了什么、选择不说），输入框里切换她用的模型，右侧是她此刻的状态、一天的安排和你们之间的关系。桌面外壳里的 keeper 负责出生、模型、头像，以及每个 Ghost 各自的 daemon。设计稿在 `docs/design/console-v3.html`，说明见 `console/README.md`。
 6. **World**：第二个 Ghost，Ghost 之间的协议。
 
 > 第 1 到 7 节是最初的设计。实现过程中 crate 划分有调整（多了 `ghost-mind` 和 `ghost-link`，协议走 TCP 上的 WebSocket），以 LIVING.md 第 8 节和各 crate 的 README 为准。

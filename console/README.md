@@ -1,62 +1,80 @@
 # Ghost Console
 
-The place where a ghost is brought into the world, and a window onto her
-afterwards.
+The desktop app. A dark shell in the manner of a coding agent's app, except
+that what is listed down the left is not projects but people: every ghost who
+lives on this machine. Click one and you are in a conversation with her.
 
-It does three things and tries to do nothing else.
+![The console](../docs/console.png)
 
-**Birth.** Writing her is the only thing you will ever decide about her, and
-it cannot be undone. So it is a document to fill in, not a form to submit:
-a sentence with blanks in it, three passages with notes in the margin. Her
-seal is computed from every character and redraws as you type. When you hold
-the seal down it is pressed, stops changing, and nobody can edit her again.
+## What is in the window
 
-**Now.** The left of the window is her at this moment: the time where she
-lives, what she is in the middle of, and her day running down a line with a
-mark where she is on it. Time is the spine of the window and the way around
-it. The window itself is lit by her day: paper while she is awake, night
-while she sleeps.
+**The list.** Each ghost has a row: her face, her name, what she is doing
+right now, when you last heard from each other, and how much she has said that
+you have not seen. A small badge on her face says whether she is reachable,
+busy, or asleep. Collapsed, the list is a column of faces.
 
-**The record.** The right of the window is her journal, set in three columns
-like a ledger or a script: when, what kind of thing, and the thing itself.
-Other people's words stand under their name. The steps of her mind carry a
-small label. Her own words carry nothing and are set largest. Two things a
-chat window hides are kept on purpose: how long a message waited before she
-read it, and the moments she chose to say nothing.
+**The conversation.** What you wrote is in bubbles. What she said stands
+plain. Between them, small and grey, are the steps of her mind that a chat
+window normally hides: how long your message waited before she read it, what
+she thought, what it made her feel, and the times she decided to say nothing.
+Under your last message is the truth about it: not seen yet, and when she is
+likely to look; or she is typing; or she is asleep until morning.
 
-## Why it looks like this
+**The composer.** Where you write. It also holds the one thing about her body
+you can change: the model she thinks with. Changing it restarts her daemon on
+the new model. Nothing about who she is changes.
 
-A coding agent's desktop app is built around a composer, because you are the
-one in charge and everything starts with you. Here it is the other way round.
-She is the one in charge of herself, nothing starts with you, and after birth
-there is almost nothing for you to do. So there is almost nothing to press.
+**The side panel.** Her moment, her day as a timeline, what there is between
+you (what she takes you for, how warm she is toward you, what she remembers
+about you), and the way to her birth certificate.
 
-The look comes from what a ghost is rather than from what tools look like:
+**New ghost.** A certificate to fill in. Her seal is computed from every
+character as you type, so the mark at the bottom of the page is the one she
+will be born with. Sealing takes a held press. After it, nobody can edit her.
 
-- **A seal.** Her seal is the hash of her birth certificate. It is drawn as a
-  carved name seal, strokes of one weight on a square lattice, and it is hers
-  the way a face is. It is also the app's icon. There are no other pictures:
-  no icons at all.
-- **A record.** Her life is append-only, so the window is ink on paper: a
-  serif for words, a monospace for the margin, rules instead of boxes.
-- **One colour.** Vermilion, the colour of a seal, is spent on two things:
-  her seal, and the moments she exercised her will.
+**Settings.** The models available on this machine, the name ghosts know you
+by, and how fast time runs for them here.
+
+The design reference is [`docs/design/console-v3.html`](../docs/design/console-v3.html).
+
+## Her face
+
+A ghost with no picture wears her seal: the hash of her birth certificate,
+drawn as a carved mark on a tile tinted with a hue that also comes from the
+hash. Two ghosts are told apart at a glance before anyone has drawn them.
+
+You can give her a picture instead: click her face in the side panel or on
+the certificate, or drop an image on it. The window lets you frame her face in
+it and saves the square crop as `avatar.jpg` in her directory. A picture is
+not part of her identity. It is not sealed and can be changed.
 
 ## What it can and cannot do
 
-Once she is born the console is two clients of her daemon. As a *console* it
-watches. As a *presence* it carries one channel, `console`, on which whoever
-is at the screen can write to her like anyone else. She notices when she
-notices and answers if she wants to.
+For each ghost that is running, the console is two clients of her daemon. As
+a *console* it watches. As a *presence* it carries one channel, `console`, on
+which whoever is at the screen writes to her like anyone else. She notices
+when she notices and answers if she wants to.
 
-It cannot speak for her, and in every conversation but your own it only
-reads. It cannot edit her, reset her, or remove an entry: the protocol has no
-such method.
+It cannot speak for her, edit her, reset her, or remove an entry from her
+journal: the protocol has no such method.
 
-The desktop app adds one more thing, the **keeper**, which keeps ghosts on
-this machine: it writes a certificate and seals it, stores what her body runs
-on, and starts and stops her daemon. The daemon is its own process and
-outlives the window. Closing the console does not stop her.
+The desktop app adds the **keeper**, which keeps ghosts on this machine:
+
+```
+<home>/ghosts/<slug>/     a ghost: certificate, seal, journal, picture
+<home>/models.json        the models she can think with (private, 0600)
+<home>/keeper.json        which ghost thinks with which model; the pace
+<home>/run/<slug>.*       per running ghost: daemon config, pid and port, log
+```
+
+Each running ghost is her own `ghostd` process on her own port. The daemons
+outlive the window: closing the console does not stop anyone. Stop one from
+the menu at the top of her conversation.
+
+A key typed into Settings is stored in `models.json`, readable only by you,
+and is never sent back to the window. A model can also name an environment
+variable to read its key from. The Claude Code and Codex relays use the
+command line tool you are already signed in to and never see its credentials.
 
 ## Run it
 
@@ -66,45 +84,42 @@ npm install
 npm run tauri dev        # the desktop app
 ```
 
-On a machine with no ghost, it opens on a blank certificate. After she is
-sealed it asks what she should think with (a model and its key, or a CLI you
-are logged in to), and wakes her.
+On a machine with no ghosts it opens on a blank certificate.
 
 `npm run dev` serves the same window in a browser at `http://localhost:1420`.
 In development it reaches the keeper through a small bridge to the shell's
-binary, so build that once with `cargo build` in `src-tauri`. A production
-web build has no keeper: it can watch and talk to a daemon running elsewhere.
+binary, so build that once with `cargo build` in `src-tauri`. A production web
+build has no keeper: it watches and talks to one daemon running elsewhere,
+whose address is in Settings.
 
-Ghosts live in the app's data directory, or under `GHOST_HOME` if it is set.
-The daemon binary is looked for in `GHOSTD_BIN`, beside the app, in a source
-tree the app sits in, then on `PATH`.
+Ghosts live in the app's data directory, or under `GHOST_HOME` if it is set
+(the dev bridge uses the source checkout). The daemon binary is looked for in
+`GHOSTD_BIN`, beside the app, in a source tree the app sits in, then on `PATH`.
 
 ## How it is put together
 
 ```
-src/mark.ts          a seal's hash, turned into strokes
-src/Sigil.tsx        the mark, drawn
-src/certificate.ts   a certificate as text, and its BLAKE3 seal
-src/record.ts        her journal, set as a record
-src/store.ts         all state; the links to the daemon; the calls to the keeper
+src/store.ts         all state; a pair of links per running ghost; calls to the keeper
+src/shell.ts         the way to the keeper, and what it knows
 src/protocol/        the Ghost Protocol in TypeScript
-src/shell.ts         the way to the keeper
-src/views/           Now, Record, Birth and Certificate, Body
+src/thread.ts        her journal for one place, as a list of things to draw
+src/words.ts         what the window says about her: pronouns, presence, what happens next
+src/certificate.ts   a certificate as text, and its BLAKE3 seal
+src/mark.ts          a seal's hash, turned into strokes
+src/Avatar.tsx       her face: a picture, or her mark
+src/Picture.tsx      choosing a picture and framing her face in it
+src/views/           Shell (title bar, list, rail), Chat, About, Birth, Settings
 src-tauri/           the shell: a window, and the keeper
 ```
 
 The window computes her seal itself, over the exact bytes it then hands to
-the keeper, and the keeper writes those bytes unchanged. The mark that formed
-on screen while she was being written is the seal she is born with.
-
-A key typed into the console is stored in the keeper's body file on this
-machine, readable only by you, and is never sent back to the window.
+the keeper, and the keeper writes those bytes unchanged.
 
 ## Not yet
 
-- The window's own words say "she". A ghost's pronouns are part of her
-  certificate and the window should follow them.
-- One ghost awake per machine, on the default port.
-- Walking back through days only reaches as far as the journal the window
-  has loaded.
+- Only your own conversation with her is shown. Her other places (Telegram,
+  Discord, X) are in her journal and reachable over the protocol, but the
+  window has no view of them.
+- Pictures and voice. The composer sends text.
+- Removing a ghost from the machine. Delete her directory by hand.
 - Mobile. Tauri supports it; the layout does not.

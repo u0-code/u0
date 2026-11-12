@@ -10,6 +10,6 @@
 /ghostd.toml
 .claude/
 # What the console's keeper writes when a source checkout is its home.
-/ghostd.log
-/ghostd.pid
-/body.json
+/run
+/models.json
+/keeper.json

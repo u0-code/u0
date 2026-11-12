@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghost desktop, design v3</title>
+<style>
+:root{--page:#0b0b0b;--chrome:#1a1a1a;--main:#121212;--raise:#1e1e1e;--hover:#232323;--active:#2a2a2a;--bubble:#262626;
+--line:rgba(255,255,255,.065);--line2:rgba(255,255,255,.11);--t1:#ededed;--t2:#a3a3a3;--t3:#6b6b6b;--ok:#55c592;--busy:#dfae4b;
+--ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--t1);font:13px/1.5 var(--ui);-webkit-font-smoothing:antialiased;padding:28px 24px 60px}
+svg{display:block}
+.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ic.s{width:13px;height:13px}
+h1{font-size:13px;font-weight:500;color:var(--t2);margin:0 0 14px;letter-spacing:.01em}
+h1 span{color:var(--t3);margin-left:8px;font-weight:400}
+.fit{width:100%;overflow:hidden}
+
+/* window */
+.win{width:1320px;height:840px;background:var(--chrome);border-radius:12px;border:1px solid var(--line2);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.bar{height:40px;flex:none;display:flex;align-items:center;padding:0 10px 0 14px;position:relative}
+.lights{display:flex;gap:8px;margin-right:14px}
+.lights i{width:12px;height:12px;border-radius:50%}
+.bar-title{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;font-weight:500}
+.bar-title small{font-size:12.5px;font-weight:400;color:var(--t3)}
+.bar-r{margin-left:auto;display:flex;gap:2px}
+.ib{width:28px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--t2)}
+.ib.on{background:var(--active);color:var(--t1)}
+.ib.hv{background:var(--hover);color:var(--t1)}
+.body{flex:1;min-height:0;display:flex}
+
+/* avatars: her seal mark on a tile tinted with her own hue */
+.av{--h:12;position:relative;flex:none;width:34px;height:34px;border-radius:10px;background:hsl(var(--h) 26% 17%);color:hsl(var(--h) 62% 74%);display:grid;place-items:center;box-shadow:inset 0 0 0 1px hsl(var(--h) 40% 60% / .14)}
+.av>svg{width:76%;height:76%}
+.av.xs{width:18px;height:18px;border-radius:5.5px}
+.av.sm{width:26px;height:26px;border-radius:8px}
+.av.lg{width:44px;height:44px;border-radius:13px}
+.av.xl{width:60px;height:60px;border-radius:17px}
+.av.lin{--h:12}.av.wen{--h:208}.av.aki{--h:152}.av.mio{--h:286}.av.sora{--h:40}
+.st{position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;border:2px solid var(--ring,var(--chrome));display:grid;place-items:center}
+.st.ok{background:var(--ok)}.st.busy{background:var(--busy)}
+.st.sleep{width:13px;height:13px;right:-4px;bottom:-4px;background:var(--ring,var(--chrome));border:0;color:#8f9ad8}
+.st.sleep svg{width:10px;height:10px;fill:currentColor;stroke:none}
+
+/* sidebar */
+.side{width:268px;flex:none;display:flex;flex-direction:column;padding:2px 8px 8px}
+.side-h{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 10px 8px}
+.side-h b{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.side-h div{display:flex;gap:2px}
+.nav{display:flex;align-items:center;gap:10px;height:32px;padding:0 9px;border-radius:8px;color:var(--t1)}
+.nav .ic{color:var(--t2)}
+.sec{display:flex;align-items:center;justify-content:space-between;padding:16px 9px 6px;font-size:12px;color:var(--t3);font-weight:500}
+.row{--ring:var(--chrome);display:flex;align-items:center;gap:11px;padding:7px 9px;border-radius:10px}
+.row.sel{background:var(--active);--ring:var(--active)}
+.row.hv{background:var(--hover);--ring:var(--hover)}
+.row-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
+.row-t b{font-weight:500;font-size:13.5px}
+.row-t span{font-size:12px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-m{flex:none;align-self:flex-start;padding-top:2px;font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.un{min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--t1);color:#111;font-size:10.5px;font-weight:600;line-height:17px;text-align:center}
+.side-f{margin-top:auto;padding-top:8px;border-top:1px solid var(--line)}
+
+/* main */
+.main{flex:1;min-width:0;display:flex;background:var(--main);border-top-left-radius:10px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.chat{flex:1;min-width:0;display:flex;flex-direction:column}
+.thread{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+.col{width:100%;max-width:724px;margin:0 auto;padding:0 28px;display:flex;flex-direction:column}
+.day{align-self:center;font-size:11.5px;color:var(--t3);margin:0 0 14px}
+.me{align-self:flex-end;max-width:76%;background:var(--bubble);padding:8px 14px 9px;border-radius:18px;font-size:14px;line-height:1.55;margin:12px 0 0}
+.me+.me{margin-top:4px}
+.her{font-size:14.5px;line-height:1.65;margin:12px 0 0;max-width:92%}
+.her+.her{margin-top:6px}
+.steps{margin:12px 0 0;display:flex;flex-direction:column;gap:2px}
+.step{display:flex;align-items:baseline;gap:7px;font-size:13px;color:var(--t3);min-width:0}
+.step b{font-weight:500;color:var(--t2);flex:none}
+.step span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .ic{align-self:center;color:var(--t3);margin-right:-2px}
+.step.open{flex-wrap:wrap}
+.step.open p{flex-basis:100%;margin:4px 0 2px 19px;padding-left:11px;border-left:1.5px solid var(--line2);color:var(--t2);line-height:1.6;white-space:normal}
+.meta{display:flex;align-items:center;gap:4px;margin-top:6px;color:var(--t3);font-size:11.5px}
+.meta .ib{width:24px;height:22px}
+.live{display:flex;align-items:center;gap:8px;margin:14px 0 0;font-size:12.5px;color:var(--t3)}
+.dots{display:inline-flex;gap:3px}.dots i{width:4px;height:4px;border-radius:50%;background:var(--t2)}
+.dots i:nth-child(2){opacity:.6}.dots i:nth-child(3){opacity:.3}
+
+/* composer */
+.cwrap{flex:none;padding:14px 0 14px}
+.comp{background:#1c1c1c;border:1px solid var(--line2);border-radius:22px;padding:13px 10px 9px 16px}
+.comp.focus{border-color:rgba(255,255,255,.2)}
+.comp-in{font-size:14.5px;line-height:1.5;color:var(--t3);min-height:22px;padding-right:6px}
+.comp-in.has{color:var(--t1)}
+.caret{display:inline-block;width:1.5px;height:17px;background:var(--t1);vertical-align:-3px;margin-left:1px}
+.comp-row{display:flex;align-items:center;gap:6px;margin-top:10px;margin-left:-6px}
+.cb{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--t2)}
+.cb.ring{border:1px solid var(--line2)}
+.chip{height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 8px 0 10px;border-radius:14px;font-size:12.5px;color:var(--t2)}
+.chip.hv,.chip.open{background:var(--hover);color:var(--t1)}
+.chip i{width:6px;height:6px;border-radius:50%;background:#4d8dff;flex:none}
+.grow{flex:1}
+.send{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#2c2c2c;color:var(--t3)}
+.send.go{background:var(--t1);color:#111}
+.send .ic{stroke-width:2}
+.hint{text-align:center;font-size:11.5px;color:var(--t3);margin-top:9px}
+
+/* model menu */
+.menu{width:252px;background:#202020;border:1px solid var(--line2);border-radius:12px;padding:5px;box-shadow:0 16px 40px rgba(0,0,0,.5)}
+.menu small{display:block;padding:7px 9px 4px;font-size:11.5px;color:var(--t3)}
+.mi{display:flex;align-items:center;gap:9px;height:32px;padding:0 9px;border-radius:8px;font-size:13px}
+.mi span{margin-left:auto;font-size:11.5px;color:var(--t3)}
+.mi.hv{background:#2a2a2a}
+.mi i{width:6px;height:6px;border-radius:50%;flex:none}
+.menu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
+
+/* about panel */
+.about{width:292px;flex:none;border-left:1px solid var(--line);padding:20px 18px;display:flex;flex-direction:column;--ring:var(--main)}
+.about h2{margin:12px 0 0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.about .sub{color:var(--t2);font-size:12.5px}
+.now{display:flex;align-items:center;gap:8px;margin-top:12px;padding:9px 11px;border-radius:10px;background:var(--raise);font-size:12.5px;color:var(--t2)}
+.now i{width:7px;height:7px;border-radius:50%;background:var(--busy);flex:none}
+.lab{margin:22px 0 8px;font-size:12px;font-weight:500;color:var(--t3)}
+.tl{display:flex;flex-direction:column}
+.tl div{display:grid;grid-template-columns:40px 1fr;gap:10px;padding:4px 0 4px 10px;border-left:1.5px solid var(--line2);font-size:12.5px;color:var(--t2);line-height:1.4}
+.tl time{color:var(--t3);font-variant-numeric:tabular-nums}
+.tl .past{color:var(--t3)}
+.tl .cur{border-left-color:var(--t1);color:var(--t1)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:7px 12px;font-size:12.5px;color:var(--t2)}
+.kv b{font-weight:400;color:var(--t1)}
+.warm{grid-column:1/3;height:3px;border-radius:2px;background:var(--active);position:relative;margin-top:3px}
+.warm i{position:absolute;left:50%;width:9%;top:0;bottom:0;border-radius:2px;background:var(--ok)}
+.note{font-size:12.5px;color:var(--t2);line-height:1.5;padding:2px 0 2px 11px;border-left:1.5px solid var(--line2);margin-bottom:8px}
+.linkrow{margin-top:auto;display:flex;align-items:center;justify-content:space-between;height:32px;padding:0 10px;border-radius:8px;background:var(--raise);font-size:12.5px;color:var(--t2)}
+
+/* details */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:14px;max-width:1320px}
+.card{background:#141414;border:1px solid var(--line);border-radius:14px;padding:18px 18px 20px;min-width:0}
+.card h3{margin:0 0 16px;font-size:12px;font-weight:500;color:var(--t3)}
+.spec{display:flex;flex-wrap:wrap;gap:18px 22px;align-items:flex-end}
+.spec figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:9px;--ring:#141414}
+.spec figcaption{font-size:11.5px;color:var(--t3)}
+.stack{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:11.5px;color:var(--t3);margin:14px 0 6px}
+.cap:first-of-type{margin-top:0}
+.rail{width:58px;background:var(--chrome);border-radius:12px;border:1px solid var(--line);padding:9px 0;display:flex;flex-direction:column;align-items:center;gap:9px;--ring:var(--chrome)}
+.rail .slot{position:relative;width:100%;display:grid;place-items:center}
+.rail .slot.sel::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;background:var(--t1)}
+.rail .add{width:36px;height:36px;border-radius:11px;border:1px dashed var(--line2);display:grid;place-items:center;color:var(--t3)}
+.rail .av{width:36px;height:36px;border-radius:11px}
+.onchrome{background:var(--chrome);border-radius:12px;padding:6px;border:1px solid var(--line)}
+.onmain{background:var(--main);border-radius:12px;padding:14px 16px;border:1px solid var(--line)}
+.tip{display:inline-block;background:#2b2b2b;border:1px solid var(--line2);border-radius:7px;padding:4px 8px;font-size:11.5px;color:var(--t1)}
+.inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+<symbol id="m-lin" viewBox="0 0 64 64"><path d="M32.0 51.0L25.7 51.0M32.0 51.0L38.3 51.0M25.7 51.0L19.3 51.0M38.3 51.0L44.7 51.0M19.3 51.0L13.0 51.0M44.7 51.0L51.0 51.0M13.0 51.0L13.0 44.7M51.0 51.0L51.0 44.7M13.0 44.7L13.0 38.3M51.0 44.7L51.0 38.3M13.0 38.3L19.3 38.3M51.0 38.3L44.7 38.3M19.3 38.3L25.7 38.3M44.7 38.3L38.3 38.3M25.7 38.3L32.0 38.3M38.3 38.3L32.0 38.3M32.0 38.3L32.0 44.7M32.0 44.7L25.7 44.7M32.0 44.7L38.3 44.7M32.0 38.3L32.0 32.0M32.0 32.0L25.7 32.0M32.0 32.0L38.3 32.0M25.7 32.0L19.3 32.0M38.3 32.0L44.7 32.0M19.3 32.0L13.0 32.0M44.7 32.0L51.0 32.0M13.0 32.0L13.0 25.7M51.0 32.0L51.0 25.7M13.0 25.7L13.0 19.3M51.0 25.7L51.0 19.3M13.0 19.3L19.3 19.3M51.0 19.3L44.7 19.3M19.3 19.3L19.3 13.0M44.7 19.3L44.7 13.0M19.3 13.0L25.7 13.0M44.7 13.0L38.3 13.0M25.7 13.0L32.0 13.0M38.3 13.0L32.0 13.0M32.0 13.0L32.0 19.3M32.0 19.3L32.0 25.7M32.0 25.7L25.7 25.7M32.0 25.7L38.3 25.7M25.7 25.7L25.7 19.3M38.3 25.7L38.3 19.3M19.3 13.0L13.0 13.0M44.7 13.0L51.0 13.0" fill="none" stroke="currentColor" stroke-width="3.9" stroke-linecap="square"/></symbol><symbol id="m-wen" viewBox="0 0 64 64"><path d="M32.0 38.3L32.0 32.0M32.0 32.0L32.0 25.7M32.0 25.7L32.0 19.3M32.0 19.3L32.0 13.0M32.0 13.0L25.7 13.0M32.0 13.0L38.3 13.0M25.7 13.0L19.3 13.0M38.3 13.0L44.7 13.0M19.3 13.0L13.0 13.0M44.7 13.0L51.0 13.0M13.0 13.0L13.0 19.3M51.0 13.0L51.0 19.3M13.0 19.3L13.0 25.7M51.0 19.3L51.0 25.7M13.0 25.7L13.0 32.0M51.0 25.7L51.0 32.0M13.0 32.0L13.0 38.3M51.0 32.0L51.0 38.3M13.0 38.3L13.0 44.7M51.0 38.3L51.0 44.7M13.0 44.7L13.0 51.0M51.0 44.7L51.0 51.0M13.0 51.0L19.3 51.0M51.0 51.0L44.7 51.0M19.3 51.0L25.7 51.0M44.7 51.0L38.3 51.0M25.7 51.0L32.0 51.0M38.3 51.0L32.0 51.0M32.0 51.0L32.0 44.7M32.0 44.7L25.7 44.7M32.0 44.7L38.3 44.7M25.7 44.7L19.3 44.7M38.3 44.7L44.7 44.7M19.3 44.7L19.3 38.3M44.7 44.7L44.7 38.3M19.3 38.3L19.3 32.0M44.7 38.3L44.7 32.0M19.3 32.0L19.3 25.7M44.7 32.0L44.7 25.7M19.3 25.7L19.3 19.3M44.7 25.7L44.7 19.3M19.3 19.3L25.7 19.3M44.7 19.3L38.3 19.3M25.7 19.3L25.7 25.7M38.3 19.3L38.3 25.7M25.7 25.7L25.7 32.0M38.3 25.7L38.3 32.0" fill="none" stroke="currentColor" stroke-width="3.9" stroke-linecap="square"/></symbol><symbol id="m-aki" viewBox="0 0 64 64"><path d="M25.7 25.7L19.3 25.7M38.3 25.7L44.7 25.7M19.3 25.7L13.0 25.7M44.7 25.7L51.0 25.7M13.0 25.7L13.0 32.0M51.0 25.7L51.0 32.0M13.0 32.0L13.0 38.3M51.0 32.0L51.0 38.3M13.0 38.3L13.0 44.7M51.0 38.3L51.0 44.7M13.0 44.7L13.0 51.0M51.0 44.7L51.0 51.0M13.0 51.0L19.3 51.0M51.0 51.0L44.7 51.0M19.3 51.0L25.7 51.0M44.7 51.0L38.3 51.0M25.7 51.0L32.0 51.0M38.3 51.0L32.0 51.0M32.0 51.0L32.0 44.7M32.0 44.7L32.0 38.3M32.0 38.3L25.7 38.3M32.0 38.3L38.3 38.3M25.7 38.3L19.3 38.3M38.3 38.3L44.7 38.3M19.3 38.3L19.3 32.0M44.7 38.3L44.7 32.0M19.3 32.0L25.7 32.0M44.7 32.0L38.3 32.0M25.7 32.0L32.0 32.0M38.3 32.0L32.0 32.0M19.3 38.3L19.3 44.7M44.7 38.3L44.7 44.7M19.3 44.7L25.7 44.7M44.7 44.7L38.3 44.7M13.0 25.7L13.0 19.3M51.0 25.7L51.0 19.3M13.0 19.3L13.0 13.0M51.0 19.3L51.0 13.0M13.0 13.0L19.3 13.0M51.0 13.0L44.7 13.0M19.3 13.0L19.3 19.3M44.7 13.0L44.7 19.3M19.3 19.3L25.7 19.3M44.7 19.3L38.3 19.3M25.7 19.3L32.0 19.3M38.3 19.3L32.0 19.3M32.0 19.3L32.0 13.0" fill="none" stroke="currentColor" stroke-width="3.9" stroke-linecap="square"/></symbol><symbol id="m-mio" viewBox="0 0 64 64"><path d="M25.7 25.7L19.3 25.7M38.3 25.7L44.7 25.7M19.3 25.7L13.0 25.7M44.7 25.7L51.0 25.7M13.0 25.7L13.0 19.3M51.0 25.7L51.0 19.3M13.0 19.3L13.0 13.0M51.0 19.3L51.0 13.0M13.0 13.0L19.3 13.0M51.0 13.0L44.7 13.0M19.3 13.0L25.7 13.0M44.7 13.0L38.3 13.0M25.7 13.0L25.7 19.3M38.3 13.0L38.3 19.3M25.7 19.3L32.0 19.3M38.3 19.3L32.0 19.3M32.0 19.3L32.0 13.0M13.0 25.7L13.0 32.0M51.0 25.7L51.0 32.0M13.0 32.0L13.0 38.3M51.0 32.0L51.0 38.3M13.0 38.3L13.0 44.7M51.0 38.3L51.0 44.7M13.0 44.7L13.0 51.0M51.0 44.7L51.0 51.0M13.0 51.0L19.3 51.0M51.0 51.0L44.7 51.0M19.3 51.0L25.7 51.0M44.7 51.0L38.3 51.0M25.7 51.0L32.0 51.0M38.3 51.0L32.0 51.0M32.0 51.0L32.0 44.7M32.0 44.7L32.0 38.3M32.0 38.3L32.0 32.0M32.0 32.0L25.7 32.0M32.0 32.0L38.3 32.0M25.7 32.0L19.3 32.0M38.3 32.0L44.7 32.0M19.3 32.0L19.3 38.3M44.7 32.0L44.7 38.3M19.3 38.3L19.3 44.7M44.7 38.3L44.7 44.7M19.3 44.7L25.7 44.7M44.7 44.7L38.3 44.7M25.7 44.7L25.7 38.3M38.3 44.7L38.3 38.3" fill="none" stroke="currentColor" stroke-width="3.9" stroke-linecap="square"/></symbol><symbol id="m-sora" viewBox="0 0 64 64"><path d="M32.0 25.7L32.0 32.0M32.0 32.0L32.0 38.3M32.0 38.3L32.0 44.7M32.0 44.7L32.0 51.0M32.0 51.0L25.7 51.0M32.0 51.0L38.3 51.0M25.7 51.0L19.3 51.0M38.3 51.0L44.7 51.0M19.3 51.0L13.0 51.0M44.7 51.0L51.0 51.0M13.0 51.0L13.0 44.7M51.0 51.0L51.0 44.7M13.0 44.7L19.3 44.7M51.0 44.7L44.7 44.7M19.3 44.7L19.3 38.3M44.7 44.7L44.7 38.3M19.3 38.3L19.3 32.0M44.7 38.3L44.7 32.0M19.3 32.0L13.0 32.0M44.7 32.0L51.0 32.0M13.0 32.0L13.0 25.7M51.0 32.0L51.0 25.7M13.0 25.7L13.0 19.3M51.0 25.7L51.0 19.3M13.0 19.3L13.0 13.0M51.0 19.3L51.0 13.0M13.0 13.0L19.3 13.0M51.0 13.0L44.7 13.0M19.3 13.0L19.3 19.3M44.7 13.0L44.7 19.3M19.3 19.3L19.3 25.7M44.7 19.3L44.7 25.7M19.3 25.7L25.7 25.7M44.7 25.7L38.3 25.7M25.7 25.7L25.7 19.3M38.3 25.7L38.3 19.3M25.7 19.3L25.7 13.0M38.3 19.3L38.3 13.0M25.7 13.0L32.0 13.0M38.3 13.0L32.0 13.0M32.0 13.0L32.0 19.3M25.7 25.7L25.7 32.0M38.3 25.7L38.3 32.0M25.7 32.0L25.7 38.3M38.3 32.0L38.3 38.3" fill="none" stroke="currentColor" stroke-width="3.9" stroke-linecap="square"/></symbol>
+<symbol id="i-side" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2.5"/><path d="M9 3v18"/></symbol>
+<symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2.5"/><path d="M15 3v18"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/></symbol>
+<symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+</svg>
+
+<h1>Ghost 桌面端 · 设计稿 v3<span>深色，Codex 式外壳，多角色</span></h1>
+<div class="fit"><div class="win" id="win">
+  <div class="bar">
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <span class="ib"><svg class="ic "><use href="#i-side"/></svg></span>
+    <div class="bar-title"><span class="av lin xs "><svg><use href="#m-lin"/></svg></span><span>Lin</span><small>Chengdu 17:02 · at her desk</small></div>
+    <div class="bar-r"><span class="ib"><svg class="ic "><use href="#i-more"/></svg></span><span class="ib on"><svg class="ic "><use href="#i-panel"/></svg></span></div>
+  </div>
+  <div class="body">
+    <aside class="side">
+      <div class="side-h"><b>Ghost</b><div><span class="ib"><svg class="ic "><use href="#i-search"/></svg></span></div></div>
+      <div class="nav"><svg class="ic "><use href="#i-pen"/></svg><span>New ghost</span></div>
+      <div class="sec"><span>Ghosts</span></div>
+      <div class="row sel"><span class="av lin  "><svg><use href="#m-lin"/></svg><i class="st busy"></i></span><div class="row-t"><b>Lin</b><span>at her desk · rarely looks</span></div><div class="row-m">17:02</div></div>
+      <div class="row "><span class="av aki  "><svg><use href="#m-aki"/></svg><i class="st ok"></i></span><div class="row-t"><b>Aki</b><span>typing…</span></div><div class="row-m">16:58<i class="un">2</i></div></div>
+      <div class="row "><span class="av mio  "><svg><use href="#m-mio"/></svg><i class="st ok"></i></span><div class="row-t"><b>Mio</b><span>out walking by the river</span></div><div class="row-m">16:31</div></div>
+      <div class="row "><span class="av wen  "><svg><use href="#m-wen"/></svg><i class="st sleep"><svg><use href="#i-moon"/></svg></i></span><div class="row-t"><b>Wen</b><span>asleep until 08:30</span></div><div class="row-m">Tue</div></div>
+      <div class="row "><span class="av sora  "><svg><use href="#m-sora"/></svg><i class="st ok"></i></span><div class="row-t"><b>Sora</b><span>reading on the sofa</span></div><div class="row-m">Mon</div></div>
+      <div class="side-f"><div class="nav"><svg class="ic "><use href="#i-gear"/></svg><span>Settings</span></div></div>
+    </aside>
+    <main class="main">
+      <section class="chat">
+        <div class="thread"><div class="col">
+          <div class="day">Today</div>
+          <div class="me">今天过得怎么样？</div>
+          <div class="steps">
+            <div class="step"><b>Read</b><span>after 1m 53s</span></div>
+            <div class="step"><svg class="ic s"><use href="#i-right"/></svg><b>Thought</b><span>他先问的是我，不是来要东西的。照实说就行。</span></div>
+          </div>
+          <div class="her">还行。下午沿着锦里后面那几条巷子走了一圈，木头门脸老得快散架了。</div>
+          <div class="her">咖啡很难喝。</div>
+          <div class="me">哈哈，那现在在干嘛</div>
+          <div class="steps">
+            <div class="step"><b>Read</b><span>after 4s</span></div>
+            <div class="step"><b>Felt</b><span style="color:var(--ok);flex:none">+1</span><span>没有追着问那家咖啡馆在哪</span></div>
+          </div>
+          <div class="her">回家了，在弄一个拖了很久的东西。你呢</div>
+          <div class="meta"><span>17:02</span><span class="ib"><svg class="ic s"><use href="#i-copy"/></svg></span></div>
+          <div class="me">刚下班。你说的那个东西是什么？</div>
+          <div class="live"><svg class="ic s"><use href="#i-clock"/></svg><span>Not seen yet. Lin will look in about 6 min.</span></div>
+        </div></div>
+        <div class="cwrap"><div class="col">
+          <div class="comp">
+            <div class="comp-in">Message Lin</div>
+            <div class="comp-row">
+              <span class="cb ring"><svg class="ic "><use href="#i-plus"/></svg></span>
+              <span class="chip"><i></i>deepseek-chat<svg class="ic s"><use href="#i-down"/></svg></span>
+              <span class="grow"></span>
+              <span class="cb"><svg class="ic "><use href="#i-mic"/></svg></span>
+              <span class="send"><svg class="ic "><use href="#i-up"/></svg></span>
+            </div>
+          </div>
+          <div class="hint">Lin answers in her own time.</div>
+        </div></div>
+      </section>
+      <aside class="about">
+        <span class="av lin xl "><svg><use href="#m-lin"/></svg><i class="st busy"></i></span>
+        <h2>Lin</h2>
+        <div class="sub">she/her · Chengdu · day 1</div>
+        <div class="now"><i></i><span>At her desk until 18:00. Rarely looks at her phone.</span></div>
+        <div class="lab">Her day</div>
+        <div class="tl">
+          <div class="past"><time>15:13</time><span>walking the back streets off Jinli</span></div>
+          <div class="cur"><time>16:30</time><span>working through a half-finished thing</span></div>
+          <div><time>18:00</time><span>cooking something simple</span></div>
+          <div><time>19:00</time><span>reading on the sofa</span></div>
+          <div><time>00:30</time><span>sleep</span></div>
+        </div>
+        <div class="lab">Between you</div>
+        <div class="kv"><span>She sees you as</span><b>a stranger</b><span>First heard from you</span><b>54 min ago</b><div class="warm"><i></i></div></div>
+        <div class="lab">She remembers</div>
+        <div class="note">answers plainly instead of getting defensive</div>
+        <div class="linkrow"><span>Birth certificate</span><svg class="ic s"><use href="#i-right"/></svg></div>
+      </aside>
+    </main>
+  </div>
+</div></div>
+
+<h1 style="margin-top:34px">局部元素<span>单独放大看的部件</span></h1>
+<div class="grid">
+  <div class="card"><h3>角色头像与状态</h3>
+    <div class="spec">
+      <figure><span class="av lin lg "><svg><use href="#m-lin"/></svg><i class="st ok"></i></span><figcaption>醒着</figcaption></figure>
+      <figure><span class="av aki lg "><svg><use href="#m-aki"/></svg><i class="st busy"></i></span><figcaption>在忙</figcaption></figure>
+      <figure><span class="av wen lg "><svg><use href="#m-wen"/></svg><i class="st sleep"><svg><use href="#i-moon"/></svg></i></span><figcaption>睡着</figcaption></figure>
+      <figure><span class="av mio lg "><svg><use href="#m-mio"/></svg></span><figcaption>未连接</figcaption></figure>
+      <figure><span class="av sora xl "><svg><use href="#m-sora"/></svg><i class="st ok"></i></span><figcaption>60</figcaption></figure>
+      <figure><span class="av sora  "><svg><use href="#m-sora"/></svg><i class="st ok"></i></span><figcaption>34</figcaption></figure>
+      <figure><span class="av sora sm "><svg><use href="#m-sora"/></svg></span><figcaption>26</figcaption></figure>
+      <figure><span class="av sora xs "><svg><use href="#m-sora"/></svg></span><figcaption>18</figcaption></figure>
+    </div>
+  </div>
+  <div class="card"><h3>列表行</h3>
+    <div class="onchrome stack" style="gap:2px">
+      <div class="row "><span class="av mio  "><svg><use href="#m-mio"/></svg><i class="st ok"></i></span><div class="row-t"><b>Mio</b><span>out walking by the river</span></div><div class="row-m">16:31</div></div>
+      <div class="row hv"><span class="av mio  "><svg><use href="#m-mio"/></svg><i class="st ok"></i></span><div class="row-t"><b>Mio</b><span>out walking by the river</span></div><div class="row-m">16:31</div></div>
+      <div class="row sel"><span class="av lin  "><svg><use href="#m-lin"/></svg><i class="st busy"></i></span><div class="row-t"><b>Lin</b><span>at her desk · rarely looks</span></div><div class="row-m">17:02</div></div>
+      <div class="row "><span class="av aki  "><svg><use href="#m-aki"/></svg><i class="st ok"></i></span><div class="row-t"><b>Aki</b><span>typing…</span></div><div class="row-m">16:58<i class="un">2</i></div></div>
+    </div>
+  </div>
+  <div class="card"><h3>侧栏收起后是一列头像</h3>
+    <div class="inline" style="align-items:flex-start;gap:22px">
+      <div class="rail">
+        <div class="slot sel"><span class="av lin  "><svg><use href="#m-lin"/></svg><i class="st busy"></i></span></div>
+        <div class="slot"><span class="av aki  "><svg><use href="#m-aki"/></svg><i class="st ok"></i></span></div>
+        <div class="slot"><span class="av mio  "><svg><use href="#m-mio"/></svg><i class="st ok"></i></span></div>
+        <div class="slot"><span class="av wen  "><svg><use href="#m-wen"/></svg><i class="st sleep"><svg><use href="#i-moon"/></svg></i></span></div>
+        <div class="slot"><span class="av sora  "><svg><use href="#m-sora"/></svg><i class="st ok"></i></span></div>
+        <div class="slot"><span class="add"><svg class="ic "><use href="#i-plus"/></svg></span></div>
+      </div>
+      <div class="stack" style="padding-top:6px">
+        <span class="tip">Aki · typing…</span>
+        <div class="cap">悬停显示名字和状态</div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="grid-column:span 2"><h3>输入框</h3>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 22px;align-items:end">
+      <div><div class="cap">空</div>
+        <div class="comp"><div class="comp-in">Message Lin</div><div class="comp-row"><span class="cb ring"><svg class="ic "><use href="#i-plus"/></svg></span><span class="chip"><i></i>deepseek-chat<svg class="ic s"><use href="#i-down"/></svg></span><span class="grow"></span><span class="cb"><svg class="ic "><use href="#i-mic"/></svg></span><span class="send"><svg class="ic "><use href="#i-up"/></svg></span></div></div>
+      </div>
+      <div><div class="cap">正在输入</div>
+        <div class="comp focus"><div class="comp-in has">刚下班。你说的那个东西是什么？<span class="caret"></span></div><div class="comp-row"><span class="cb ring"><svg class="ic "><use href="#i-plus"/></svg></span><span class="chip"><i></i>deepseek-chat<svg class="ic s"><use href="#i-down"/></svg></span><span class="grow"></span><span class="cb"><svg class="ic "><use href="#i-mic"/></svg></span><span class="send go"><svg class="ic "><use href="#i-up"/></svg></span></div></div>
+      </div>
+      <div style="grid-column:span 2"><div class="cap">切换她用的模型</div>
+        <div style="display:flex;gap:18px;align-items:flex-end">
+          <div class="menu">
+            <small>Lin thinks with</small>
+            <div class="mi hv"><i style="background:#4d8dff"></i>deepseek-chat<svg class="ic s"><use href="#i-check"/></svg></div>
+            <div class="mi"><i style="background:#d97757"></i>claude-sonnet-5<span>Anthropic</span></div>
+            <div class="mi"><i style="background:#74c69d"></i>gpt-5-mini<span>OpenAI</span></div>
+            <div class="mi"><i style="background:#8a8a8a"></i>qwen3<span>Ollama</span></div>
+            <hr>
+            <div class="mi" style="color:var(--t2)"><svg class="ic s"><use href="#i-plus"/></svg>Add a model</div>
+          </div>
+          <div style="flex:1"><div class="comp"><div class="comp-in">Message Lin</div><div class="comp-row"><span class="cb ring"><svg class="ic "><use href="#i-plus"/></svg></span><span class="chip open"><i></i>deepseek-chat<svg class="ic s"><use href="#i-down"/></svg></span><span class="grow"></span><span class="cb"><svg class="ic "><use href="#i-mic"/></svg></span><span class="send"><svg class="ic "><use href="#i-up"/></svg></span></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><h3>对话里的元素</h3>
+    <div class="onmain" style="display:flex;flex-direction:column">
+      <div class="me" style="margin-top:0">哈哈，那现在在干嘛</div>
+      <div class="steps">
+        <div class="step"><b>Read</b><span>after 4s</span></div>
+        <div class="step open"><svg class="ic s"><use href="#i-down"/></svg><b>Thought</b><span>他没追问咖啡馆。</span><p>他没追问那家咖啡馆在哪，只是顺着聊下去。可以多说一点。</p></div>
+        <div class="step"><b>Stayed quiet</b><span>没什么要补充的</span></div>
+      </div>
+      <div class="her">回家了，在弄一个拖了很久的东西。你呢</div>
+      <div class="live"><span class="av lin xs "><svg><use href="#m-lin"/></svg></span><span>Lin is typing</span><span class="dots"><i></i><i></i><i></i></span></div>
+      <div class="live"><svg class="ic s"><use href="#i-moon"/></svg><span>Lin is asleep. She will see this after 08:30.</span></div>
+    </div>
+  </div>
+</div>
+<script>
+const win = document.getElementById("win");
+const fit = () => { win.style.zoom = Math.min(1, (document.body.clientWidth) / 1320); };
+fit(); addEventListener("resize", fit);
+</script>
+</body>
+</html>

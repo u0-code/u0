@@ -13,12 +13,13 @@
     "windows": [
       {
         "title": "Ghost",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 720,
+        "width": 1240,
+        "height": 800,
+        "minWidth": 760,
         "minHeight": 480,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

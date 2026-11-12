@@ -40,8 +40,9 @@ stand-ins, not yet against the real platforms with real accounts; each README
 says exactly how far it was tested. Expect the first real run to turn
 something up.
 
-The [console](console/) gives birth to a ghost, keeps her running on your
-machine, and shows her life as a record. The World comes next.
+The [console](console/) is the desktop app: every ghost on your machine in a
+list down the left, a conversation with whichever one you click, and the model
+she thinks with a click away. The World comes next.
 
 ## Try it
 
@@ -60,7 +61,7 @@ In another terminal, talk to her:
 ```
 
 Or skip the terminal entirely. The console opens on a blank birth certificate,
-seals it, wakes her, and then shows her day and her record as they are written:
+seals it, wakes her, and puts you in a conversation with her:
 
 ```bash
 cd console && npm install && npm run tauri dev

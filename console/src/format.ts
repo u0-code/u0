@@ -1,8 +1,6 @@
 // Small formatting helpers. Times are shown in her timezone, not the
 // reader's: this is a window onto her day.
 
-import type { PlaceRow, Reach, Stage } from "./protocol/types";
-
 export function clock(at: string, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(at));
 }
@@ -19,11 +17,6 @@ export function day(at: string, timeZone?: string): string {
 /** `2026-11-12`, the calendar day in a timezone. */
 export function dayKey(at: string, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(at));
-}
-
-/** A day key as a date at noon UTC, safe to format in any timezone as that day. */
-export function noonOf(key: string): string {
-  return `${key}T12:00:00Z`;
 }
 
 /** How long ago, in a word or two. */
@@ -53,34 +46,4 @@ export function span(from: string, to: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
-}
-
-export function lastActive(row: PlaceRow): string | null {
-  const { last_in_at, last_out_at } = row.place;
-  if (!last_in_at) return last_out_at;
-  if (!last_out_at) return last_in_at;
-  return last_in_at > last_out_at ? last_in_at : last_out_at;
-}
-
-/** What someone is to her, as the end of "… is ___ to her". */
-export const STANDING: Record<Stage, string> = {
-  gone: "someone she has left",
-  estranged: "someone she has pulled far away from",
-  cooling: "someone she is cooling toward",
-  stranger: "a stranger",
-  acquaintance: "an acquaintance",
-  friend: "a friend",
-  close: "close",
-};
-
-/** What an activity leaves of her attention. */
-export const REACH: Record<Reach, string> = {
-  free: "her phone is in her hand",
-  glance: "she glances at her phone now and then",
-  busy: "she is occupied and rarely looks",
-  away: "she is not looking at her phone",
-};
-
-export function capital(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
 }
