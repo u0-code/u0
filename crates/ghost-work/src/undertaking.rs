@@ -83,6 +83,10 @@ pub struct State {
     /// Files written or edited most recently, newest last.
     #[serde(default)]
     pub touched: Vec<String>,
+    /// The session of a command-line agent that has been stepping this
+    /// work, so its next sitting can pick its own context back up.
+    #[serde(default)]
+    pub session: Option<String>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,

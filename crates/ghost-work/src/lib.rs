@@ -11,7 +11,9 @@
 //!
 //! The design is in `docs/WORK.md`.
 
+pub mod claude;
 pub mod machine;
+pub mod mcp;
 pub mod tool;
 pub mod tools;
 pub mod undertaking;

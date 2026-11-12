@@ -37,16 +37,21 @@ struct Step { text, calls: Vec<Call>, stop: End|Calls|Length, usage: {input, cac
 
 模型名和"怎么到达它"是两个轴：
 
-| 运行时 | 到达方式 | `complete` | `step` | 状态 |
+| 运行时 | 到达方式 | 对话（`complete`） | 做事 | 状态 |
 |---|---|---|---|---|
-| `openai` | 任何 OpenAI 兼容的 HTTP 接口（DeepSeek、OpenRouter、Ollama…） | ✅ | ✅ 已在 DeepSeek 上实测 | 已实现 |
-| `anthropic` | Anthropic Messages API | ✅ | ✅ 未对真实 API 测过（没有 key） | 已实现 |
-| `claude-code` | 本机已登录的 `claude`，子进程 | ✅ | ⬜ 常驻子进程 + 把 Ghost 的工具经本地 MCP 桥交给它 | 已规范 |
-| `codex` | 本机已登录的 `codex` | ✅ | ⬜ `codex app-server`（stdio 上的 JSON-RPC） | 已规范 |
+| `openai` | 任何 OpenAI 兼容的 HTTP 接口（DeepSeek、OpenRouter、Ollama…） | ✅ | ✅ 自己的循环（`step`），已在 DeepSeek 上实测 | 已实现 |
+| `anthropic` | Anthropic Messages API | ✅ | ✅ 自己的循环，未对真实 API 测过（没有 key） | 已实现 |
+| `claude-code` | 本机的 `claude`，子进程 | ✅ 关掉它自带的工具，一次调用约 300 token | ✅ 由 CLI 推进每一步，工具是 Ghost 的（经本地 MCP 服务端），已实测 | 已实现 |
+| `codex` | 本机的 `codex` | ✅ | ⬜ `codex app-server` 的 `dynamicTools`，见 `STUDY.md` | 已规范 |
 
-CLI 运行时的规则（参照 OpenClaw 的做法）：复用本机已登录的 CLI，不读它的凭证；系统提示是 Ghost 的；CLI 自带的文件和 shell 工具关掉，只暴露 Ghost 的工具；权限判断留在 Ghost。走 CLI 时工具调用之间的内层循环在 CLI 里，所以 Ghost 的长程结构必须建立在外层（一件事、交接、落盘），不依赖掌控每一步。
+两种"做事"的方式：
 
-发现（未实现）：`ghostd brains` 列出本机可用的运行时：PATH 上的 `claude` / `codex` 及其登录状态、环境里的 key、本地的 Ollama。
+- **自己的循环**（`ghost_work::Worker`）：每一步都是一次 `Brain::step`，上下文怎么折叠、何时交接、完成后的独立审查都由 Ghost 掌控。
+- **CLI 推进**（`ghost_work::claude`）：`claude` 以无头模式启动，`--tools ""` 关掉全部内置工具，只挂一个 MCP 服务端，就是 `ghost-work --serve-mcp`。系统提示、工具、落盘的"一件事"都是 Ghost 的；CLI 贡献的是它登录的那个模型，以及工具调用之间的推进。代价是上下文由 CLI 自己压缩，没有独立审查那一步。
+
+CLI 运行时的规则（参照 OpenClaw 的做法）：复用本机已登录的 CLI，不读它的凭证；不加载运营者自己的 CLAUDE.md、记忆和 MCP 服务端，那些是运营者的，不是她的。
+
+发现 ✅：`ghostd brains --discover` 列出本机可用的运行时（环境里的 key、PATH 上的 `claude` / `codex`、本地的 Ollama），并给出可直接粘贴进 `ghostd.toml` 的配置块。
 
 ## 3. 机器（`ghost-work::machine`）✅ 已实现
 
@@ -117,20 +122,29 @@ ghost-work --task-file task.md --state ./run1 --docker <容器名> --workdir /ap
 # 同一个 --state 再跑一次，就是接着做
 ```
 
-## 7. 接入 Mind ⬜ 已规范，未实现
+## 7. 接入 Mind ✅ 已实现
 
-- 新的 journal 事件：`Undertook { id, brief, origin }`、`Worked { id, sitting, summary }`、`Finished { id, outcome, summary }`。journal 只经过 Mind 写，一坐是派出去的异步任务，结果以 `Outcome` 回到 actor。
-- 一件事有来源：她自己的追求，或者别人请她帮忙（她可以拒绝）。
-- 一坐占着她的时候，她的 reach 是 busy，消息照常堆积；需要打断时置 `pause`，一步结束后停下，状态都在盘上。
-- 现在"一次返回一组 JSON 动作"的 deliberation 改成同一个循环：工具是 `say`、`react`、`silence`、`later`、`note`、`feel`、`recall`…，预算很小。
+- **动作 `undertake`**：对话里她可以决定接下一件需要真正动手的事。它成为 journal 里的 `Undertook { id, brief, asked_by, place }` 和 `work/<id>/` 目录。
+- **一坐一坐地做**：每一坐是一次有上限的循环（默认 40 步或 15 分钟），作为异步任务派出去，结果以 `Outcome::Worked` 回到 actor。journal 仍然只有 Mind 在写。每坐结束记 `Worked`，了结时记 `Concluded { outcome, summary }`。
+- **一次只做一件事**：一坐进行中她是 busy，消息等得更久。真去看手机时，先让这一坐在当前这步之后停下（状态都在盘上），看完、说完，再回来接着做。
+- **做完去告诉对方**：了结后生成一条 `owed` 的念头。"答应了回来说结果"不算追着人发消息，所以不受"对方没回就不再追"的限制。说不说、怎么说，仍然是到时候她自己决定。
+- **意志之下的底线**：她自己决定接不接。代码只守两条：有 shell 的情况下，请她做事的人至少得是朋友；每天接的事有上限。
+- **机器**：`[mind.work] machine = "docker:<容器>"` 或 `"local:<目录>"`。不配就没有 shell，她只能查资料和思考。
+- **没有做的**：对话本身仍然是"一次返回一组动作"，没有改成工具循环。原因是这样对只会答话的大脑（CLI 的对话通道）也成立；需要查东西再回答时，她用 `recall` 多想一轮，需要动手时用 `undertake`。
 
-## 8. 注意力与上下文 ⬜ 只有方向
+## 8. 注意力与上下文
 
-- 同一时刻一个前台活动（聊天、刷、做事、休息），其余都是通知，按显著性排队。
-- "看手机"是一次跨平台的分拣。
-- 上下文分层组装，每层有预算：自我、此刻、工作记忆（跨平台的近况）、场景、检索。
-- 记忆是层级的派生视图：journal → 对话片段摘要 → 每日反思 → 每个人的档案。
-- 每条记忆带出处和"谁知道"。私下听到的不进公开场合，也不转给别人。
+已实现 ✅：
+
+- **今天的其他事**：每次看一个对话，开头都带着她此刻的全貌：手上接了什么、做到哪了、最近几小时其他地方（跨平台）发生了什么、有多少没读。
+- **出处**：每条笔记记着是在哪里知道的，回忆出来的内容也带着出处。来自别的私聊的笔记，在其他场合出现时标着"这是私下告诉你的"，并明确要求不复述、不表现出知情。
+- **做事时的注意力**：见第 7 节。
+
+只有方向 ⬜：
+
+- "看手机"作为一次跨平台的统一分拣（现在仍然是每个地方各自到点，只是互相看得见）。
+- 记忆的层级视图：对话片段摘要、每个人的档案。现在有的是每日反思和逐条笔记。
+- 跨平台认人：别人声称"我是另一个平台上的某某"不可信，需要反向验证，仍未解决。
 
 ## 9. 手艺与公开生活 ⬜ 只有方向
 

@@ -259,53 +259,64 @@ fn preview(text: &str, max: usize) -> String {
     }
 }
 
+/// The working instructions, with who is working and where filled in.
+pub fn system_prompt(who: &str, machine: &str, limits: &Limits) -> String {
+    let who = if who.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{}\n\n", who.trim())
+    };
+    let budget = format!(
+        "You have at most {} steps and about {} minutes. That is enough to work carefully and not enough to wander.",
+        limits.max_steps,
+        (limits.max_seconds / 60).max(1)
+    );
+    PROMPT
+        .replace("{who}", &who)
+        .replace("{machine}", machine.trim())
+        .replace("{budget}", &budget)
+}
+
+/// What a sitting opens with: the task alone the first time, and the task
+/// with what was left behind every time after.
+pub fn opening_text(state: &crate::undertaking::State) -> String {
+    let task = format!("<task>\n{}\n</task>", state.brief.trim());
+    if state.steps == 0 {
+        return task;
+    }
+    let handoff = state.handoff.as_deref().map_or_else(String::new, |h| {
+        format!("<handoff>\n{}\n</handoff>\n\n", h.trim())
+    });
+    let touched = if state.touched.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<files_you_last_changed>\n{}\n</files_you_last_changed>\n\n",
+            state.touched.join("\n")
+        )
+    };
+    format!(
+        "{task}\n\n\
+         You have already been working on this, and your earlier context is gone. \
+         This is what you left for yourself.\n\n\
+         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n\
+         Clearing your context is routine and does not end the task. Do not start over. \
+         First look at the current state of the environment, which holds \
+         whatever you already did. Then carry on from where you stopped.",
+        state.plan_text(),
+        state.notes_text(NOTES_SHOWN)
+    )
+}
+
 impl Worker {
     fn system(&self) -> String {
-        let who = if self.who.trim().is_empty() {
-            String::new()
-        } else {
-            format!("{}\n\n", self.who.trim())
-        };
-        let budget = format!(
-            "You have at most {} steps and about {} minutes. That is enough to work carefully and not enough to wander.",
-            self.limits.max_steps,
-            (self.limits.max_seconds / 60).max(1)
-        );
-        PROMPT
-            .replace("{who}", &who)
-            .replace("{machine}", self.machine.trim())
-            .replace("{budget}", &budget)
+        system_prompt(&self.who, &self.machine, &self.limits)
     }
 
     /// What a sitting starts from: the task alone the first time, and the
     /// task with what was left behind every time after.
     fn opening(&self) -> Vec<Item> {
-        let state = self.undertaking.state();
-        let task = format!("<task>\n{}\n</task>", state.brief.trim());
-        if state.steps == 0 {
-            return vec![Item::user(task)];
-        }
-        let handoff = state.handoff.as_deref().map_or_else(String::new, |h| {
-            format!("<handoff>\n{}\n</handoff>\n\n", h.trim())
-        });
-        let touched = if state.touched.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<files_you_last_changed>\n{}\n</files_you_last_changed>\n\n",
-                state.touched.join("\n")
-            )
-        };
-        vec![Item::user(format!(
-            "{task}\n\n\
-             You have already been working on this, and your earlier context is gone. \
-             This is what you left for yourself.\n\n\
-             <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n\
-             Clearing your context is routine and does not end the task. Do not start over. First look at the current state of the environment, which holds \
-             whatever you already did. Then carry on from where you stopped.",
-            state.plan_text(),
-            state.notes_text(NOTES_SHOWN)
-        ))]
+        vec![Item::user(opening_text(&self.undertaking.state()))]
     }
 
     /// The size at which a sitting is folded: the configured budget, or

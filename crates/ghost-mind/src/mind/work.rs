@@ -18,13 +18,17 @@ use std::sync::{
 };
 
 use chrono::{DateTime, Duration, Utc};
+use ghost_brain::{CliAgent, CliKind};
 use ghost_core::{
     journal::Event,
     life::Phase,
     memory::{Person, PlaceState},
     will::{self, Stage},
 };
-use ghost_work::{Ended, Limits, Report, Undertaking, Worker, tools};
+use ghost_work::{
+    Ended, Limits, Report, Undertaking, Worker, claude, tools,
+    worker::{opening_text, system_prompt},
+};
 use tracing::{info, warn};
 
 use super::{Mind, Outcome};
@@ -42,18 +46,30 @@ pub(super) struct Working {
     pub pause: Arc<AtomicBool>,
 }
 
+/// What moves a sitting from one step to the next.
+enum Stepper {
+    /// Our own loop, over a brain that can take tools.
+    Own(Arc<dyn ghost_brain::Brain>),
+    /// A command-line agent that brings its loop and is given our tools.
+    Cli(CliAgent),
+}
+
 impl Mind {
-    /// The brain she works with, if she has one that can.
-    fn work_brain(&self) -> Option<Arc<dyn ghost_brain::Brain>> {
-        [&self.think, &self.tick]
-            .into_iter()
-            .find(|b| b.works())
-            .cloned()
+    /// How she would work, if she can in this body.
+    fn stepper(&self) -> Option<Stepper> {
+        if let Some(brain) = [&self.think, &self.tick].into_iter().find(|b| b.works()) {
+            return Some(Stepper::Own(brain.clone()));
+        }
+        self.workshop.runner.as_ref()?;
+        self.think
+            .cli()
+            .filter(|agent| agent.kind == CliKind::Claude)
+            .map(Stepper::Cli)
     }
 
     /// Whether taking things on is possible at all in this body.
     pub(super) fn can_work(&self) -> bool {
-        self.cfg.work.enabled && self.work_brain().is_some()
+        self.cfg.work.enabled && self.stepper().is_some()
     }
 
     /// She decided to take something on. Returns why not, if it is refused.
@@ -109,7 +125,7 @@ impl Mind {
         if self.working.is_some() {
             return Ok(());
         }
-        let Some(brain) = self.work_brain().filter(|_| self.cfg.work.enabled) else {
+        let Some(stepper) = self.stepper().filter(|_| self.cfg.work.enabled) else {
             return Ok(());
         };
         let moment = self.life.moment(self.ghost.journal(), now)?;
@@ -167,36 +183,82 @@ impl Mind {
             ),
         };
         let pause = Arc::new(AtomicBool::new(false));
-        let worker = Worker {
-            brain,
-            tools: tools::with_web(tools, &self.workshop.web),
-            undertaking,
-            limits: Limits {
-                max_steps: self.cfg.work.sitting_steps,
-                max_seconds: u64::from(self.cfg.work.sitting_minutes) * 60,
-                context_tokens: self.cfg.work.context_tokens,
-                ..Limits::default()
-            },
-            who: format!("{}\n\n{WHO}", self.self_prompt(now)?),
-            machine: place,
-            pause: pause.clone(),
+        let limits = Limits {
+            max_steps: self.cfg.work.sitting_steps,
+            max_seconds: u64::from(self.cfg.work.sitting_minutes) * 60,
+            context_tokens: self.cfg.work.context_tokens,
+            ..Limits::default()
         };
+        let who = format!("{}\n\n{WHO}", self.self_prompt(now)?);
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working = Some(Working {
             id: next.id.clone(),
-            pause,
+            pause: pause.clone(),
         });
         let id = next.id;
-        self.jobs.spawn(async move {
-            let report = worker.run().await;
-            let progress = worker.undertaking.state().progress();
-            Outcome::Worked {
-                id,
-                before,
-                report,
-                progress,
+        match stepper {
+            Stepper::Own(brain) => {
+                let worker = Worker {
+                    brain,
+                    tools: tools::with_web(tools, &self.workshop.web),
+                    undertaking,
+                    limits,
+                    who,
+                    machine: place,
+                    pause,
+                };
+                self.jobs.spawn(async move {
+                    let report = worker.run().await;
+                    let progress = worker.undertaking.state().progress();
+                    Outcome::Worked {
+                        id,
+                        before,
+                        report,
+                        progress,
+                    }
+                });
             }
-        });
+            Stepper::Cli(agent) => {
+                // The agent is handed her tools by a server it starts itself.
+                let mut tool_server = vec![
+                    self.workshop
+                        .runner
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                    "--serve-mcp".to_owned(),
+                    "--state".to_owned(),
+                    // Absolute: the agent starts the server from elsewhere.
+                    undertaking
+                        .dir()
+                        .canonicalize()
+                        .unwrap_or_else(|_| undertaking.dir().to_path_buf())
+                        .display()
+                        .to_string(),
+                ];
+                tool_server.extend(self.workshop.runner_args.iter().cloned());
+                let seat = claude::Seat {
+                    agent,
+                    system: system_prompt(&who, &place, &limits),
+                    opening: opening_text(&undertaking.state()),
+                    undertaking,
+                    tool_server,
+                    max_turns: limits.max_steps,
+                    max_seconds: limits.max_seconds,
+                    stop: pause,
+                };
+                self.jobs.spawn(async move {
+                    let report = claude::sit(&seat).await;
+                    let progress = seat.undertaking.state().progress();
+                    Outcome::Worked {
+                        id,
+                        before,
+                        report,
+                        progress,
+                    }
+                });
+            }
+        }
         Ok(())
     }
 

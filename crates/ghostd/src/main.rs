@@ -360,6 +360,38 @@ fn workshop(
             ),
         },
     };
+    // What the same choices look like as arguments to `ghost-work`, which
+    // serves her tools to a brain that is a command-line agent.
+    let mut runner_args = match cfg.machine.as_deref().map(str::trim) {
+        None | Some("" | "none") => vec!["--no-machine".to_owned()],
+        Some(spec) => match spec.split_once(':') {
+            Some(("docker", container)) => {
+                let mut args = vec!["--docker".to_owned(), container.to_owned()];
+                if let Some(dir) = &cfg.workdir {
+                    args.extend(["--workdir".to_owned(), dir.clone()]);
+                }
+                args
+            }
+            Some((_, dir)) => {
+                let dir = ghost_dir.join(if dir.is_empty() { "home" } else { dir });
+                vec![
+                    "--local".to_owned(),
+                    dir.canonicalize()?.display().to_string(),
+                ]
+            }
+            None => Vec::new(),
+        },
+    };
+    if cfg.web {
+        runner_args.push("--web".to_owned());
+    }
+    // Looked for where it was told to be, then beside this program.
+    let runner = std::env::var_os("GHOST_WORK_BIN")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            let beside = std::env::current_exe().ok()?.with_file_name("ghost-work");
+            beside.exists().then_some(beside)
+        });
     Ok(ghost_mind::Workshop {
         machine,
         web: if cfg.web {
@@ -367,6 +399,8 @@ fn workshop(
         } else {
             WebConfig::default()
         },
+        runner,
+        runner_args,
     })
 }
 

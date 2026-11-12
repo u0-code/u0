@@ -78,6 +78,12 @@ pub struct Workshop {
     pub machine: Option<Arc<dyn ghost_work::Machine>>,
     /// How she reaches the web.
     pub web: ghost_work::tools::WebConfig,
+    /// The `ghost-work` program, for a brain that is a command-line agent:
+    /// it is what serves her tools to that agent.
+    pub runner: Option<std::path::PathBuf>,
+    /// The arguments that tell `ghost-work` about the same machine and web
+    /// access as above.
+    pub runner_args: Vec<String>,
 }
 
 /// Something an observer can ask a running mind.

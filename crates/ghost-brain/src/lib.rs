@@ -148,6 +148,22 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A command-line agent that brings its own loop, and can be handed tools
+/// of ours to run it with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliAgent {
+    pub kind: CliKind,
+    /// The program to run.
+    pub program: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliKind {
+    Claude,
+    Codex,
+}
+
 /// Something that can think for her.
 ///
 /// Every brain can answer a [`Completion`]: text in, text out. A brain that
@@ -169,6 +185,13 @@ pub trait Brain: Send + Sync {
     /// One step of work. The default refuses.
     async fn step(&self, _turn: &Turn) -> Result<Step> {
         Err(Error::NoTools(self.label()))
+    }
+
+    /// If this brain is a command-line agent, how to start it. Such an
+    /// agent cannot take a [`Turn`], but it can be given our tools and left
+    /// to step through a piece of work itself.
+    fn cli(&self) -> Option<CliAgent> {
+        None
     }
 }
 

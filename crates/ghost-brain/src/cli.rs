@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::process::Command;
 
-use crate::{Brain, Completion, Error, Reply, Result};
+use crate::{Brain, CliAgent, CliKind, Completion, Error, Reply, Result};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -40,6 +40,14 @@ impl Brain for ClaudeCode {
         format!("claude-code/{}", self.model.as_deref().unwrap_or("default"))
     }
 
+    fn cli(&self) -> Option<CliAgent> {
+        Some(CliAgent {
+            kind: CliKind::Claude,
+            program: self.program.clone(),
+            model: self.model.clone(),
+        })
+    }
+
     async fn complete(&self, req: &Completion) -> Result<Reply> {
         let mut args: Vec<OsString> = vec![
             "-p".into(),
@@ -49,6 +57,13 @@ impl Brain for ClaudeCode {
             "1".into(),
             "--system-prompt".into(),
             req.system.clone().into(),
+            // She is asked for words, not work. With its own tools left on
+            // the CLI sends thousands of tokens of tool definitions with
+            // every call, and may reach for one instead of answering.
+            "--tools".into(),
+            "".into(),
+            "--strict-mcp-config".into(),
+            "--disable-slash-commands".into(),
         ];
         if let Some(m) = &self.model {
             args.push("--model".into());
@@ -178,6 +193,10 @@ async fn run(
     for key in env_remove {
         cmd.env_remove(key);
     }
+    // Whoever runs her keeps notes and instructions for their own sessions.
+    // Those are theirs, not hers, and must not leak into who she is.
+    cmd.env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1")
+        .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
