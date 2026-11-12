@@ -1,0 +1,38 @@
+use std::path::PathBuf;
+
+use thiserror::Error;
+
+/// Everything that can go wrong inside the core.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// The certificate on disk no longer matches the seal she was born with.
+    /// There is no flag to override this.
+    #[error("this is not her: {0}")]
+    NotHer(String),
+
+    #[error("{0} already holds a ghost; a ghost is born once")]
+    AlreadyBorn(PathBuf),
+
+    #[error("no birth certificate at {0}")]
+    NoSeed(PathBuf),
+
+    #[error("birth certificate is malformed: {0}")]
+    BadSeed(String),
+
+    #[error("journal chain broken at seq {seq}: {reason}")]
+    BrokenChain { seq: i64, reason: String },
+
+    #[error("journal at {0} does not exist")]
+    NoJournal(PathBuf),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Db(#[from] rusqlite::Error),
+
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

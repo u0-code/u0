@@ -1,0 +1,24 @@
+[package]
+name = "ghostd"
+description = "The Ghost daemon: runs one ghost, hosts the Ghost Protocol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ghostd"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive"] }
+ghost-core = { path = "../ghost-core" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[lints]
+workspace = true

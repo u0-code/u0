@@ -1,0 +1,9 @@
+/target
+*.db
+*.db-wal
+*.db-shm
+/ghosts/*
+!/ghosts/_template
+/derived
+.env
+.DS_Store
