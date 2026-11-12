@@ -30,6 +30,7 @@ export class Link {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private open = false;
+  private refused = false;
 
   constructor(
     private readonly url: string,
@@ -93,6 +94,7 @@ export class Link {
         },
         (error: Error & { code?: number }) => {
           const code = error.code ?? 0;
+          this.refused = true;
           this.onState({ is: "refused", why: error.message, code });
           // A wrong token or protocol will be just as wrong next time.
           if (code === UNAUTHORIZED || code === VERSION) this.stopped = true;
@@ -111,13 +113,16 @@ export class Link {
     };
     ws.onclose = () => {
       const wasOpen = this.open;
+      const refused = this.refused;
       this.open = false;
+      this.refused = false;
       for (const waiter of this.waiting.values()) waiter.reject(new Error("connection closed"));
       this.waiting.clear();
       if (this.ws === ws) this.ws = null;
       if (this.stopped) return;
+      // A refusal has already been reported; do not paper over it.
       if (wasOpen) this.onState({ is: "closed", why: "the daemon went away" });
-      else this.onState({ is: "closed", why: "cannot reach the daemon" });
+      else if (!refused) this.onState({ is: "closed", why: "cannot reach the daemon" });
       this.again();
     };
   }

@@ -39,6 +39,9 @@ pub mod method {
     /// Daemon → presence request. Params [`Action`](super::Action), result
     /// [`Acted`](super::Acted).
     pub const ACT: &str = "presence.act";
+    /// Daemon → presence notification. No params. A newer presence has
+    /// registered this channel; this one has been replaced and should stop.
+    pub const DISPLACED: &str = "presence.displaced";
 
     /// Console → daemon request. No params.
     pub const STATUS: &str = "ghost.status";
@@ -76,7 +79,7 @@ pub mod code {
     pub const UNAUTHORIZED: i64 = -32001;
     /// The client speaks a protocol version the daemon does not.
     pub const VERSION: i64 = -32002;
-    /// Another presence already holds this channel.
+    /// Unused since the newest presence for a channel replaces the older one.
     pub const CHANNEL_TAKEN: i64 = -32003;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;

@@ -152,7 +152,7 @@ trait Brain: Send + Sync {
 2. **Brain**：四种 provider。✅
 3. **Mind + Protocol + 终端通道**：见 [LIVING.md](LIVING.md)。议程、注意、动作、说话状态机、生活引擎、主动联系、刷信息流；JSON-RPC 服务端；`ghost-link`；`ghost-term`。✅
 4. **平台适配器**：Telegram、Discord、OneBot（QQ）、X。
-5. **Console**（Tauri + React）：第一版 ✅。观看（状态、对话、人物、议程、实时 journal）和以自己的身份跟她说话。尚未做：从应用里启动本地 daemon、出生新 Ghost。见 `console/README.md`。
+5. **Console**（Tauri + React）✅。只做三件事：诞生（填写并封印出生证明）、此刻（她的时间和一天）、记录（她的 journal 排成一份账）。桌面外壳里的 keeper 负责在本机出生、配置身体、叫醒和休息。设计说明见 `console/README.md`。
 6. **World**：第二个 Ghost，Ghost 之间的协议。
 
 > 第 1 到 7 节是最初的设计。实现过程中 crate 划分有调整（多了 `ghost-mind` 和 `ghost-link`，协议走 TCP 上的 WebSocket），以 LIVING.md 第 8 节和各 crate 的 README 为准。

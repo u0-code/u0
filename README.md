@@ -40,8 +40,8 @@ stand-ins, not yet against the real platforms with real accounts; each README
 says exactly how far it was tested. Expect the first real run to turn
 something up.
 
-The [console](console/) is a first version: it watches and talks, and does not
-yet manage a local daemon. The World comes next.
+The [console](console/) gives birth to a ghost, keeps her running on your
+machine, and shows her life as a record. The World comes next.
 
 ## Try it
 
@@ -59,8 +59,8 @@ In another terminal, talk to her:
 ./target/release/ghost-term --as yourname
 ```
 
-Or open the console, which shows every conversation she is in, what she made of
-each message, and what she is about to do, and lets you talk to her yourself:
+Or skip the terminal entirely. The console opens on a blank birth certificate,
+seals it, wakes her, and then shows her day and her record as they are written:
 
 ```bash
 cd console && npm install && npm run tauri dev

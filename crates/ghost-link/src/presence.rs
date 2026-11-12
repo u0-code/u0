@@ -127,6 +127,12 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
                             }
                         }
                         frame = recv(&mut stream) => match frame {
+                            Ok(Some(frame)) if frame.method.as_deref() == Some(method::DISPLACED) => {
+                                // A newer presence carries this channel now.
+                                // Reconnecting would only take it back.
+                                listener.abort();
+                                anyhow::bail!("a newer presence took over the {} channel", link.channel);
+                            }
                             Ok(Some(frame)) => answer(&frame, &platform, &done_tx),
                             Ok(None) => break 'connected anyhow!("it closed the connection"),
                             Err(e) => break 'connected e,

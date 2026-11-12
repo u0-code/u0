@@ -25,7 +25,7 @@ use ghost_protocol::{
 };
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{broadcast::error::RecvError, mpsc, oneshot},
+    sync::{Notify, broadcast::error::RecvError, mpsc, oneshot},
 };
 use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse, Request, Response},
@@ -43,6 +43,10 @@ const ACT_WITHIN: Duration = Duration::from_secs(45);
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Frame>>>>;
 
 struct Presence {
+    /// Which connection this is, so a replaced one cannot unregister its successor.
+    id: u64,
+    /// Signalled when a newer presence takes this channel.
+    displaced: Arc<Notify>,
     out: mpsc::Sender<Frame>,
     pending: Pending,
     can: Vec<Capability>,
@@ -271,29 +275,40 @@ async fn carry<S>(
 {
     let channel = hello.channel;
     let pending: Pending = Pending::default();
-    let registered = shared.presences.channels.lock().is_ok_and(|mut channels| {
-        if channels.contains_key(&channel) {
-            return false;
-        }
+    // The newest presence for a channel carries it. Whoever held it before is
+    // told and let go: a window left open, or an adapter that was restarted,
+    // must not be able to hold a channel against its replacement.
+    let id = shared.presences.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let displaced = Arc::new(Notify::new());
+    let Ok(replaced) = shared.presences.channels.lock().map(|mut channels| {
         channels.insert(
             channel.clone(),
             Presence {
+                id,
+                displaced: displaced.clone(),
                 out: out.clone(),
                 pending: pending.clone(),
                 can: hello.can.clone(),
             },
-        );
-        true
-    });
-    if !registered {
-        let message = format!("another presence already carries {channel}");
+        )
+    }) else {
         let _ = out
-            .send(Frame::err(hello_id, code::CHANNEL_TAKEN, message))
+            .send(Frame::err(
+                hello_id,
+                code::INTERNAL,
+                "the daemon is in a bad way",
+            ))
             .await;
         return;
+    };
+    if let Some(old) = replaced {
+        let _ = old.out.send(Frame::notify(method::DISPLACED, &())).await;
+        old.displaced.notify_one();
+        info!("{channel} taken over from {peer}");
+    } else {
+        info!("{channel} connected from {peer}");
     }
     let _ = out.send(welcome).await;
-    info!("{channel} connected from {peer}");
     let can = hello.can.into_iter().map(wire::can).collect();
     let _ = shared
         .mind
@@ -301,7 +316,12 @@ async fn carry<S>(
         .await;
 
     loop {
-        let frame = match recv(stream).await {
+        let frame = tokio::select! {
+            frame = recv(stream) => frame,
+            // Replaced: say nothing more and let the connection close.
+            () = displaced.notified() => break,
+        };
+        let frame = match frame {
             Ok(Some(frame)) => frame,
             Ok(None) => break,
             Err(e) => {
@@ -341,11 +361,18 @@ async fn carry<S>(
         }
     }
 
-    if let Ok(mut channels) = shared.presences.channels.lock() {
-        channels.remove(&channel);
+    // Only the connection that still holds the channel may give it up.
+    let held = shared.presences.channels.lock().is_ok_and(|mut channels| {
+        let mine = channels.get(&channel).is_some_and(|p| p.id == id);
+        if mine {
+            channels.remove(&channel);
+        }
+        mine
+    });
+    if held {
+        info!("{channel} disconnected");
+        let _ = shared.mind.offline(&channel).await;
     }
-    info!("{channel} disconnected");
-    let _ = shared.mind.offline(&channel).await;
 }
 
 /// A console: answer its questions and, if asked, stream her journal.
