@@ -7,3 +7,4 @@
 /derived
 .env
 .DS_Store
+/ghostd.toml

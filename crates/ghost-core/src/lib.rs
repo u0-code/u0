@@ -17,6 +17,7 @@ pub mod ghost;
 pub mod identity;
 pub mod journal;
 pub mod life;
+pub mod narrate;
 
 pub use error::{Error, Result};
 pub use ghost::Ghost;

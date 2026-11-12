@@ -15,8 +15,11 @@ path = "src/main.rs"
 anyhow = "1.0.104"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
+ghost-brain = { version = "0.0.1", path = "../ghost-brain" }
 ghost-core = { path = "../ghost-core" }
+serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 

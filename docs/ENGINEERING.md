@@ -124,20 +124,32 @@ birth.create {dir, seed}        → 出生一个新 Ghost（只在 ghostd 未绑
 ## 7. Brain
 
 ```rust
-trait Brain {
-    async fn complete(&self, req: Completion) -> Result<Reply>;
-    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+#[async_trait]
+trait Brain: Send + Sync {
+    fn label(&self) -> String;
+    async fn complete(&self, req: &Completion) -> Result<Reply>;
 }
 ```
 
-两个实现：Anthropic（主）、OpenAI 兼容（覆盖本地模型和其他厂商）。模型配置在 ghostd 的配置里，**不在 ghost.toml 里**。模型不是她。
+四种实现，配置在 `ghostd.toml` 的 `[providers.*]` 里，**不在 ghost.toml 里**。模型不是她。
 
-两档：`think`（对话、反思，前沿模型）和 `tick`（生活引擎日常，便宜模型）。
+| kind | 走什么 | 认证 |
+|---|---|---|
+| `anthropic` | Anthropic Messages API | `ANTHROPIC_API_KEY` |
+| `openai` | 任何 OpenAI 兼容的 `/chat/completions`，含 DeepSeek、OpenRouter、Moonshot、Ollama、vLLM | `OPENAI_API_KEY` 或自定义 |
+| `claude-code` | 把官方 `claude` CLI 当子进程跑（`claude -p --output-format json`） | CLI 自己的登录态 |
+| `codex` | 把官方 `codex` CLI 当子进程跑（`codex exec -s read-only -o <file>`，空目录） | CLI 自己的登录态 |
+
+两个 CLI 转接的原则：**只驱动官方二进制，不碰它们存储的凭证**。抠 OAuth token 直接打 API 的做法违反两家的订阅条款，Anthropic 已经封过这么干的第三方工具。子进程转接走的是官方文档里的非交互模式，用你自己的订阅做实验没问题，给别人用的 Ghost 应该跑在 API key 上。
+
+两档：`think`（对话、反思）和 `tick`（生活引擎日常），各指向一个 provider。`ghostd brains --probe` 会让每个 provider 说一个词，用来确认接通。
+
+**narrate**（在 ghost-core 里）负责把身份、时间、最近的经历、和这个人的对话线程组装成 brain 的输入。模板是 `crates/ghost-core/prompts/self.md`，可以用 `[brain].self_template` 换掉。模板属于身体，不属于人：它是 brain 读证书的方式，证书本身仍然封印。
 
 ## 8. 建造顺序（每一步可单独推送）
 
-1. **骨架**：workspace、ghost-core 的 identity + journal、`ghostd birth` / `ghostd run`（只 tick 和打日志）。她出生了，她的日志在走。
-2. **Brain + narrate**：接 Anthropic，`ghostd say "..."` 能在 CLI 里和她说话并写入 journal。
+1. **骨架**：workspace、ghost-core 的 identity + journal、`ghostd birth` / `ghostd run`（只 tick 和打日志）。她出生了，她的日志在走。✅
+2. **Brain + narrate**：四种 provider，`ghostd say` 能在 CLI 里和她说话并写入 journal。✅
 3. **Protocol + ghost-telegram**：她住进 Telegram。
 4. **Life**：作息、日计划、睡眠周期反思。她会先开口。
 5. **Will**：忽略 / 稍后 / 回复，关系状态机。

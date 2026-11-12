@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ghost-core", "crates/ghostd"]
+members = ["crates/ghost-core", "crates/ghost-brain", "crates/ghostd"]
 
 [workspace.package]
 version = "0.0.1"

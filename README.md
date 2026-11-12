@@ -12,9 +12,12 @@ history.
 
 ## Status
 
-Early. `v0.0.1` can give birth to a ghost, seal her, keep her clock going, and
-refuse to run her if her certificate has been edited. The brain, the channels,
-the console and the world come next, in that order. See [`docs/`](docs/).
+Early. `v0.0.1` can give birth to a ghost, seal her, keep her clock going,
+refuse to run her if her certificate has been edited, and let you say one thing
+to her from the terminal through any of four brains (Anthropic, any
+OpenAI-compatible API, or a relay through the `claude` or `codex` CLI). The
+channels, the console and the world come next, in that order. See
+[`docs/`](docs/).
 
 ## Try it
 
@@ -34,13 +37,23 @@ In another shell:
 ./target/release/ghostd verify ghosts/lin
 ```
 
+Talk to her:
+
+```bash
+cp ghostd.example.toml ghostd.toml   # pick a brain, set its key in your env
+./target/release/ghostd brains --probe
+./target/release/ghostd say ghosts/lin --as you "hey. who are you?"
+```
+
 Now edit `ghosts/lin/ghost.toml` and run her again. She will not start.
 
 ## Layout
 
 ```
-crates/ghost-core   identity, journal, life, will. No network.
+crates/ghost-core   identity, journal, life, narrate. No network.
+crates/ghost-brain  model providers behind one trait. Knows nothing of ghosts.
 crates/ghostd       the daemon. Runs one ghost, hosts the Ghost Protocol.
+ghostd.example.toml which brains she runs on. Body config, never in a ghost dir.
 ghosts/_template    a birth certificate to copy.
 docs/               product and engineering design (Chinese, for now).
 ```

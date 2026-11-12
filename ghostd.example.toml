@@ -1,0 +1,45 @@
+# ghostd.toml: which brains she runs on.
+#
+# Copy to ./ghostd.toml or ~/.config/ghost/ghostd.toml. This file is about the
+# body, not the person: it never lives inside a ghost directory.
+
+[brain]
+# Provider used for conversation and reflection.
+think = "anthropic"
+# Provider used for the life engine's routine ticks. Cheap is fine.
+tick = "anthropic"
+# Longest reply she may write.
+max_tokens = 400
+# Optional: a different self.md template than the one shipped in ghost-core.
+# self_template = "prompts/self.md"
+
+# Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
+[providers.anthropic]
+kind = "anthropic"
+model = "claude-sonnet-5"
+
+# Any OpenAI-compatible endpoint. Reads OPENAI_API_KEY by default.
+[providers.openai]
+kind = "openai"
+model = "gpt-5-mini"
+
+# The same kind reaches OpenRouter, DeepSeek, Moonshot, Groq, Ollama, vLLM...
+[providers.ollama]
+kind = "openai"
+model = "qwen3"
+base_url = "http://localhost:11434/v1"
+api_key = "ollama"
+
+# Relay through the Claude Code CLI you are already logged into.
+# Runs `claude -p` as a subprocess. For your own experiments only.
+[providers.claude-code]
+kind = "claude-code"
+model = "sonnet"
+timeout_secs = 120
+
+# Relay through the Codex CLI you are already logged into.
+# Runs `codex exec` in a read-only sandbox in an empty directory.
+[providers.codex]
+kind = "codex"
+# model = "gpt-5-codex"
+timeout_secs = 120

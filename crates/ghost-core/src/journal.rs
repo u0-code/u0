@@ -187,6 +187,22 @@ impl Journal {
         Ok(entry)
     }
 
+    /// The last `n` entries whose kind is one of `kinds`, oldest first.
+    pub fn last_n_of(&self, kinds: &[&str], n: usize) -> Result<Vec<Entry>> {
+        let placeholders = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let limit = i64::try_from(n).unwrap_or(i64::MAX);
+        let sql = format!(
+            "SELECT seq, at, kind, payload, prev_hash, hash FROM events WHERE kind IN ({placeholders}) ORDER BY seq DESC LIMIT {limit}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt
+            .query_map(rusqlite::params_from_iter(kinds.iter()), row_to_entry)?
+            .map(|r| r.map_err(Error::from))
+            .collect::<Result<Vec<_>>>()?;
+        rows.reverse();
+        Ok(rows)
+    }
+
     /// Read up to `limit` entries starting at `from_seq` (inclusive).
     pub fn read(&self, from_seq: i64, limit: usize) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(

@@ -1,23 +1,30 @@
 //! `ghostd`: runs one ghost.
 //!
-//! v0 keeps her clock going and prints her journal. The Ghost Protocol server,
-//! the brain, and the channels arrive in later steps; the shape of this binary
-//! does not change: load her, verify her, tick her.
+//! v0 keeps her clock going, prints her journal, and lets you say one thing to
+//! her from the terminal. The Ghost Protocol server and the channels arrive in
+//! later steps; the shape of this binary does not change: load her, verify
+//! her, tick her.
+
+mod config;
 
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use ghost_brain::{Completion, Message};
 use ghost_core::{
     Ghost,
     journal::{Entry, Event},
     life::{Life, Phase},
+    narrate::{Scene, Speaker, thread},
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+use crate::config::Config;
 
 #[derive(Parser)]
 #[command(name = "ghostd", version, about = "Runs one ghost.")]
@@ -47,6 +54,24 @@ enum Cmd {
     },
     /// Verify her seal and the whole hash chain.
     Verify { dir: PathBuf },
+    /// Say something to her from the terminal. Both sides go in her journal.
+    Say {
+        dir: PathBuf,
+        text: String,
+        /// Who is speaking.
+        #[arg(long = "as", default_value = "someone")]
+        from: String,
+        /// Path to ghostd.toml.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// List configured brains; with --probe, ask each for one word.
+    Brains {
+        #[arg(long)]
+        probe: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -56,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with_target(false)
+        .with_writer(std::io::stderr)
         .init();
 
     match Cli::parse().cmd {
@@ -64,6 +90,13 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Status { dir } => status(&dir),
         Cmd::Journal { dir, last } => journal(&dir, last),
         Cmd::Verify { dir } => verify(&dir),
+        Cmd::Say {
+            dir,
+            text,
+            from,
+            config,
+        } => say(&dir, &from, &text, config.as_deref()).await,
+        Cmd::Brains { probe, config } => brains(probe, config.as_deref()).await,
     }
 }
 
@@ -165,6 +198,113 @@ fn verify(dir: &Path) -> anyhow::Result<()> {
     let ghost = Ghost::open(dir)?;
     let n = ghost.journal().verify()?;
     println!("seal ok, chain ok, {n} entries");
+    Ok(())
+}
+
+/// One exchange over the `cli` channel. What they said is journaled before
+/// the brain is asked, so a failed call still leaves a trace of being spoken to.
+async fn say(dir: &Path, from: &str, text: &str, config: Option<&Path>) -> anyhow::Result<()> {
+    const CHANNEL: &str = "cli";
+    let (cfg, cfg_path) = Config::load(config)?;
+    let brain = cfg.think()?;
+    debug!("config {} brain {}", cfg_path.display(), brain.label());
+    let template = cfg.self_template()?;
+
+    let mut ghost = Ghost::open(dir)?;
+    let life = Life::new(ghost.identity());
+    let now = Utc::now();
+    life.tick(ghost.journal_mut(), now)?;
+    ghost.journal_mut().append_at(
+        now,
+        Event::Heard {
+            channel: CHANNEL.into(),
+            from: from.into(),
+            text: text.into(),
+        },
+    )?;
+
+    let recent = ghost
+        .journal()
+        .last_n_of(&["lived", "planned", "reflected", "woke", "slept"], 12)?;
+    let exchange = ghost.journal().last_n_of(&["heard", "said"], 60)?;
+    let scene = Scene {
+        identity: ghost.identity(),
+        clock: life.clock(),
+        now,
+        person: from,
+        channel: CHANNEL,
+        recent: &recent,
+    };
+    let system = scene.system_prompt(&template);
+    let messages = thread(&exchange, from)
+        .into_iter()
+        .map(|t| match t.speaker {
+            Speaker::Them => Message::user(t.text),
+            Speaker::Her => Message::assistant(t.text),
+        })
+        .collect();
+    let req = Completion {
+        system,
+        messages,
+        max_tokens: cfg.brain.max_tokens,
+        temperature: None,
+    };
+
+    let started = Instant::now();
+    let reply = brain
+        .complete(&req)
+        .await
+        .with_context(|| format!("brain {}", brain.label()))?;
+    debug!(
+        "{} replied in {:.1}s ({:?} in, {:?} out)",
+        reply.model,
+        started.elapsed().as_secs_f32(),
+        reply.input_tokens,
+        reply.output_tokens
+    );
+    ghost.journal_mut().append(Event::Said {
+        channel: CHANNEL.into(),
+        to: from.into(),
+        text: reply.text.clone(),
+    })?;
+    println!("{}", reply.text);
+    Ok(())
+}
+
+async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
+    let (cfg, path) = Config::load(config)?;
+    println!("config    {}", path.display());
+    println!("think     {}", cfg.brain.think);
+    println!("tick      {}", cfg.brain.tick);
+    println!();
+    for (name, pc) in &cfg.providers {
+        let built = pc.build();
+        let label = match &built {
+            Ok(b) => b.label(),
+            Err(e) => format!("unavailable: {e}"),
+        };
+        println!("{name:<14} {:<12} {label}", pc.kind());
+        if !probe {
+            continue;
+        }
+        let Ok(brain) = built else { continue };
+        let req = Completion {
+            system: "Reply with exactly one word.".into(),
+            messages: vec![Message::user("Say hello.")],
+            max_tokens: 16,
+            temperature: None,
+        };
+        let started = Instant::now();
+        match brain.complete(&req).await {
+            Ok(r) => println!(
+                "{:<14} ok  {:.1}s  {:?}",
+                "",
+                started.elapsed().as_secs_f32(),
+                r.text
+            ),
+            Err(e) => println!("{:<14} err {e}", ""),
+        }
+    }
     Ok(())
 }
 

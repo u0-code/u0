@@ -1,0 +1,24 @@
+[package]
+name = "ghost-brain"
+description = "Model providers for Ghost: Anthropic, OpenAI-compatible, and relays through the Claude Code and Codex CLIs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait = "0.1.92"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["process", "time", "fs", "rt"] }
+tracing = "0.1.44"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+toml = "1.2.1"
