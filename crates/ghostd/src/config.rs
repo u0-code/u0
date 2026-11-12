@@ -85,6 +85,34 @@ impl Listen {
 }
 
 impl Config {
+    /// Whether there is a configuration file to load: one named explicitly,
+    /// or one in the usual places.
+    pub fn exists(explicit: Option<&Path>) -> bool {
+        explicit.is_some() || candidates().iter().any(|p| p.exists())
+    }
+
+    /// A configuration for a machine with no configuration file: every
+    /// default, and the first thing found here that she can think with.
+    /// Returns the configuration and what it settled on.
+    pub fn from_found(found: &[ghost_brain::discover::Found]) -> anyhow::Result<(Self, String)> {
+        // A suggestion with a blank to fill in cannot be used as it stands.
+        let usable = found
+            .iter()
+            .find(|f| !f.config.iter().any(|line| line.starts_with("model = \"\"")))
+            .context(
+                "no ghostd.toml, and nothing here to think with: set DEEPSEEK_API_KEY or \
+                 ANTHROPIC_API_KEY, install the claude or codex CLI, or start Ollama",
+            )?;
+        let text = format!(
+            "[brain]\nthink = \"{0}\"\ntick = \"{0}\"\n\n{1}",
+            usable.name,
+            usable.toml()
+        );
+        let cfg: Self =
+            toml::from_str(&text).context("build a configuration from what was found")?;
+        Ok((cfg, usable.what.clone()))
+    }
+
     pub fn load(explicit: Option<&Path>) -> anyhow::Result<(Self, PathBuf)> {
         let path = match explicit {
             Some(p) => p.to_path_buf(),
@@ -136,4 +164,36 @@ fn candidates() -> Vec<PathBuf> {
         v.push(Path::new(&home).join(".config/ghost").join(FILE));
     }
     v
+}
+
+#[cfg(test)]
+mod found_tests {
+    use ghost_brain::discover::Found;
+
+    use super::*;
+
+    fn found(name: &str, config: &[&str]) -> Found {
+        Found {
+            name: name.into(),
+            what: format!("{name} is here"),
+            config: config.iter().map(|&l| l.to_owned()).collect(),
+            works: true,
+        }
+    }
+
+    #[test]
+    fn with_no_file_she_thinks_with_the_first_thing_that_is_ready() {
+        let here = [
+            found(
+                "openai",
+                &[r#"kind = "openai""#, r#"model = "" # the model to use"#],
+            ),
+            found("claude-code", &[r#"kind = "claude-code""#]),
+        ];
+        let (cfg, what) = Config::from_found(&here).unwrap();
+        assert_eq!(cfg.brain.think, "claude-code");
+        assert_eq!(cfg.brain.tick, "claude-code");
+        assert_eq!(what, "claude-code is here");
+        assert!(Config::from_found(&[]).is_err());
+    }
 }

@@ -48,7 +48,9 @@ to get it, and what each platform allows an automated account.
 ## What she thinks with
 
 Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
-installed on the machine. `ghostd brains --discover` finds what is there.
+installed on the machine. `ghostd brains --discover` finds what is there, and
+with no `ghostd.toml` at all the daemon starts on the first of them that is
+ready: a key in the environment, then an installed `claude` or `codex`.
 
 | Brain | Talking | Working |
 |---|---|---|

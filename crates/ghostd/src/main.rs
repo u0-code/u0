@@ -157,7 +157,14 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
 }
 
 async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
-    let (cfg, cfg_path) = Config::load(config)?;
+    let (cfg, cfg_path) = if Config::exists(config) {
+        Config::load(config)?
+    } else {
+        // Nothing was written down for this machine. Use what is on it.
+        let (cfg, what) = Config::from_found(&ghost_brain::discover::discover().await)?;
+        info!("no ghostd.toml: {what}");
+        (cfg, PathBuf::from("(none)"))
+    };
     let token = cfg.listen.token()?;
     let ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
     let seed = ghost.identity().seed();
