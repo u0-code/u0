@@ -378,6 +378,19 @@ impl Memory {
             .is_some())
     }
 
+    /// Whether the message with this channel id in this place is one she sent.
+    pub fn is_hers(&self, place: &str, platform_id: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM messages WHERE place = ?1 AND platform_id = ?2 AND dir = 'out' LIMIT 1",
+                params![place, platform_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// How many messages she has sent in a place since `since`.
     pub fn said_since(&self, place: &str, since: DateTime<Utc>) -> Result<i64> {
         Ok(self.conn.query_row(

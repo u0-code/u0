@@ -8,6 +8,7 @@ members = [
     "crates/ghost-link",
     "crates/ghostd",
     "crates/presence/ghost-term",
+    "crates/presence/ghost-telegram",
 ]
 
 [workspace.package]

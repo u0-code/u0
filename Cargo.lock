@@ -580,6 +580,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghost-telegram"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "ghost-link",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ghost-term"
 version = "0.0.1"
 dependencies = [

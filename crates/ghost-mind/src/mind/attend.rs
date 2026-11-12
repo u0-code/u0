@@ -78,6 +78,13 @@ impl Mind {
             debug!("{place_key}: from someone she has left");
             return Ok(());
         }
+        // A reply to something she said is meant for her, whether or not the
+        // channel could tell.
+        let addressed = m.addressed
+            || match &m.reply_to {
+                Some(id) => self.ghost.memory().is_hers(&place_key, id)?,
+                None => false,
+            };
         self.record(Event::Heard {
             channel: channel.to_owned(),
             place: m.place,
@@ -85,7 +92,7 @@ impl Mind {
             id: m.id,
             text: m.text,
             reply_to: m.reply_to,
-            addressed: m.addressed,
+            addressed,
         })?;
         self.schedule_attend(&place_key, now)
     }

@@ -37,7 +37,7 @@ Actions, in the order you would do them:
 - {"do":"intend","hours":<n>,"what":"...","about":"<name>"}
   Something you mean to do or ask later, such as finding out how their interview went.
 - {"do":"canon","fact":"..."}
-  You just said something new and concrete about your own life. Register it so you stay consistent.
+  Required whenever a message of yours states something about your own life, habits or history that is not already listed as true: a place you go, a thing you own, something you did. Write the fact down in one plain sentence so you say the same thing next month.
 - {"do":"recall","query":"<a few words>"}
   You need to remember something older before answering. Use this alone; you will be asked again with what you find.
 - {"do":"leave","why":"..."}

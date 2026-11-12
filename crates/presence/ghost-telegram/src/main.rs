@@ -1,0 +1,183 @@
+//! `ghost-telegram`: carries a ghost on Telegram.
+//!
+//! Uses the Bot API with long polling, so it needs no public address. The
+//! account is a bot: Telegram labels it as one, which is the disclosure the
+//! charter asks for, and people have to write to her first.
+
+mod api;
+mod convert;
+
+use std::{sync::Arc, time::Duration};
+
+use anyhow::Context;
+use async_trait::async_trait;
+use clap::Parser;
+use ghost_link::{
+    presence::{self, Link, Platform, Uplink},
+    protocol::{Acted, Action, Capability},
+};
+use serde_json::{Value, json};
+use tracing::{info, warn};
+
+use crate::api::{ApiError, Bot, Update, User};
+
+/// Seconds Telegram holds a `getUpdates` call open when nothing is new.
+const LONG_POLL: u64 = 50;
+
+#[derive(Parser)]
+#[command(
+    name = "ghost-telegram",
+    version,
+    about = "Carries a ghost on Telegram."
+)]
+struct Args {
+    /// The bot token from @BotFather.
+    #[arg(long, env = "TELEGRAM_BOT_TOKEN", hide_env_values = true)]
+    bot_token: String,
+    /// The daemon's address.
+    #[arg(long, default_value_t = ghost_link::default_url())]
+    url: String,
+    /// The daemon's token, if it has one.
+    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+    /// The channel name to register as.
+    #[arg(long, default_value = "telegram")]
+    channel: String,
+    /// Base URL of the Bot API, for a self-hosted server.
+    #[arg(long, default_value = "https://api.telegram.org")]
+    api_base: String,
+}
+
+struct Telegram {
+    bot: Bot,
+    me: User,
+}
+
+#[async_trait]
+impl Platform for Telegram {
+    async fn listen(&self, up: Uplink) -> anyhow::Result<()> {
+        let mut offset = 0i64;
+        let mut stumbles = 0u32;
+        loop {
+            let params = json!({
+                "offset": offset,
+                "timeout": LONG_POLL,
+                "allowed_updates": ["message"],
+            });
+            match self.bot.call::<Vec<Update>>("getUpdates", &params).await {
+                Ok(updates) => {
+                    stumbles = 0;
+                    for update in updates {
+                        offset = offset.max(update.update_id + 1);
+                        if let Some(inbound) = update
+                            .message
+                            .as_ref()
+                            .and_then(|m| convert::inbound(m, &self.me))
+                        {
+                            up.inbound(inbound).await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if let Some(api) = e.downcast_ref::<ApiError>() {
+                        match api.code {
+                            // The token was revoked. Nothing to retry.
+                            401 | 404 => return Err(e),
+                            409 => warn!("another process is polling this bot; only one can"),
+                            _ => warn!("{api}"),
+                        }
+                    } else {
+                        warn!("{e:#}");
+                    }
+                    stumbles = (stumbles + 1).min(6);
+                    tokio::time::sleep(Duration::from_secs(1 << stumbles)).await;
+                }
+            }
+        }
+    }
+
+    async fn act(&self, action: Action) -> anyhow::Result<Acted> {
+        match action {
+            Action::Send {
+                place,
+                text,
+                reply_to,
+            } => {
+                let chat = chat_id(&place)?;
+                let mut last = None;
+                for (i, part) in convert::chunks(&text, convert::MESSAGE_LIMIT)
+                    .into_iter()
+                    .enumerate()
+                {
+                    let mut params = json!({"chat_id": chat, "text": part});
+                    if let (0, Some(id)) =
+                        (i, reply_to.as_deref().and_then(|r| r.parse::<i64>().ok()))
+                    {
+                        params["reply_parameters"] =
+                            json!({"message_id": id, "allow_sending_without_reply": true});
+                    }
+                    let sent: Value = self.bot.call("sendMessage", &params).await?;
+                    last = sent["message_id"].as_i64();
+                }
+                Ok(Acted {
+                    id: last.map(|id| id.to_string()),
+                    items: Vec::new(),
+                })
+            }
+            Action::Typing { place } => {
+                let params = json!({"chat_id": chat_id(&place)?, "action": "typing"});
+                self.bot.call::<Value>("sendChatAction", &params).await?;
+                Ok(Acted::default())
+            }
+            Action::React { place, to, emoji } => {
+                let params = json!({
+                    "chat_id": chat_id(&place)?,
+                    "message_id": to.parse::<i64>().context("message id")?,
+                    "reaction": [{"type": "emoji", "emoji": emoji}],
+                });
+                // Telegram only allows a fixed set of emoji; anything else is refused.
+                self.bot
+                    .call::<Value>("setMessageReaction", &params)
+                    .await?;
+                Ok(Acted::default())
+            }
+            other => anyhow::bail!("telegram bots cannot {:?}", other.needs()),
+        }
+    }
+}
+
+fn chat_id(place: &str) -> anyhow::Result<i64> {
+    place
+        .parse()
+        .with_context(|| format!("{place:?} is not a telegram chat id"))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+    let args = Args::parse();
+
+    let bot = Bot::new(&args.api_base, &args.bot_token)?;
+    let me: User = bot
+        .call("getMe", &json!({}))
+        .await
+        .context("log in to telegram")?;
+    info!(
+        "on telegram as @{}",
+        me.username.as_deref().unwrap_or(&me.first_name)
+    );
+    let link = Link {
+        url: args.url,
+        token: args.token,
+        channel: args.channel,
+        me: Some(convert::actor(&me)),
+        can: vec![Capability::Send, Capability::Typing, Capability::React],
+    };
+    presence::run(Arc::new(Telegram { bot, me }), link).await
+}
