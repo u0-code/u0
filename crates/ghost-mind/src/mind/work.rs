@@ -324,6 +324,10 @@ impl Mind {
             outcome: outcome.to_owned(),
             summary: summary.clone(),
         })?;
+        // What a review of her own writing came to becomes part of her craft.
+        if id.starts_with(super::public::REVIEW) && outcome == "finished" {
+            self.learn(super::public::conclusions(&summary))?;
+        }
         // If someone asked, she means to tell them. How and whether is
         // decided when the moment comes, like any other intention.
         if let Some(u) = undertaking

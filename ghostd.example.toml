@@ -78,6 +78,10 @@ rest_minutes = 10
 max_sittings = 12
 # Things she will take on in a day.
 per_day = 4
+# Days between the times she sits down, unasked, to look at how her public
+# writing is going and decide what to try next. 0 is never. Needs a channel
+# that reports how her posts are doing, and at least five posts to look at.
+review_days = 7
 
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]

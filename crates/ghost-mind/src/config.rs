@@ -71,6 +71,10 @@ pub struct WorkConfig {
     pub per_day: u32,
     /// The size at which a sitting's context is folded, in tokens.
     pub context_tokens: u64,
+    /// Days between the times she sits down to look at how her public
+    /// writing is going. `0` is never. Needs a channel that reports how
+    /// her posts are doing, and a few posts to look at.
+    pub review_days: u32,
 }
 
 impl Default for WorkConfig {
@@ -86,6 +90,7 @@ impl Default for WorkConfig {
             max_sittings: 12,
             per_day: 4,
             context_tokens: 60_000,
+            review_days: 7,
         }
     }
 }

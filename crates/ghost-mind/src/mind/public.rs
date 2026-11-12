@@ -19,6 +19,62 @@ use crate::{
     actions::{self, clip},
 };
 
+/// The start of the id of an undertaking that is a review of her own
+/// public writing.
+pub(super) const REVIEW: &str = "review-";
+/// How many measured posts make a review worth sitting down to.
+const REVIEW_NEEDS: usize = 5;
+
+const REVIEW_BRIEF: &str = "Sit down and look honestly at how your public writing is going. Nobody asked for this; it is for you.
+
+# How what you posted has done
+
+{standing}
+
+# What you have learned about posting so far
+
+{craft}
+
+# What you care about
+
+{cares}
+
+Do three things.
+
+1. Look at your own posts above. Which ones did people answer or pass on, as opposed to merely scroll past? What do those have in common: the subject, the length, how they open, how concrete they are? Which fell flat, and why do you think so? A handful of posts is thin evidence; say so where it is.
+
+2. Look outward. Find three to five people who write in public about the things you care about and are read for it. Read a good number of their recent posts. Notice what they choose to write about, how long they write, how they begin, what they leave out. You are not looking for a formula to copy. You are looking for what being read by the right people looks like, so that you can find your own way to it.
+
+3. Decide what you will do differently this week: at most two things, each small and concrete enough that you will know whether you did it.
+
+Write what you found in `review.md`. Then finish, and write your summary in exactly this form, because it is what you will see the next time you sit down to write:
+
+LESSON: <one sentence you now hold about your own writing, that you could act on>
+LESSON: <a second, only if you have one>
+TRY: <one concrete thing you will do differently this week>
+TRY: <a second, only if you have one>
+
+Nothing here is about chasing numbers. What you want is to be read by people who care about the same things.";
+
+/// The lessons and intentions in a review's summary: its `LESSON:` and
+/// `TRY:` lines.
+pub(super) fn conclusions(summary: &str) -> Vec<(String, Option<i64>)> {
+    summary
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim().trim_start_matches(['-', '*', ' ']);
+            if let Some(lesson) = line.strip_prefix("LESSON:") {
+                Some(lesson.trim().to_owned())
+            } else {
+                line.strip_prefix("TRY:")
+                    .map(|what| format!("This week, try: {}", what.trim()))
+            }
+        })
+        .filter(|text| text.len() > 12)
+        .map(|text| (text, None))
+        .collect()
+}
+
 /// How a draft came out of being read over.
 pub(super) enum Verdict {
     /// Send this text. It may have been revised.
@@ -258,6 +314,70 @@ impl Mind {
                 replaces: replaces.filter(|seq| held.contains(seq)),
             })?;
         }
+        Ok(())
+    }
+
+    /// On waking: is it time to sit down and look at how her public writing
+    /// is going? If so she takes it on herself, like anything else.
+    pub(super) fn consider_review(&mut self, now: DateTime<Utc>) -> Result<()> {
+        if self.cfg.work.review_days == 0 || !self.can_work() {
+            return Ok(());
+        }
+        let memory = self.ghost.memory();
+        let since = now - Duration::days(i64::from(self.cfg.work.review_days));
+        let reviewed_lately = memory
+            .undertakings(false, 60)?
+            .iter()
+            .any(|u| u.id.starts_with(REVIEW) && u.at > since);
+        if reviewed_lately {
+            return Ok(());
+        }
+        let mut standing = Vec::new();
+        let mut measured = 0;
+        let channels: Vec<String> = self
+            .channels
+            .iter()
+            .filter(|(_, c)| c.can.contains(&Can::Metrics))
+            .map(|(name, _)| name.clone())
+            .collect();
+        for channel in &channels {
+            measured += memory.standings(channel, 30)?.len();
+            let lines = self.standing_lines(channel, now)?;
+            if !lines.is_empty() {
+                standing.push(lines);
+            }
+        }
+        if measured < REVIEW_NEEDS {
+            return Ok(());
+        }
+        let craft = self.craft_lines()?;
+        let cares = self.ghost.identity().seed().cares_about.join(", ");
+        let brief = REVIEW_BRIEF
+            .replace("{standing}", &standing.join("\n"))
+            .replace(
+                "{craft}",
+                if craft.is_empty() {
+                    "(nothing yet)"
+                } else {
+                    &craft
+                },
+            )
+            .replace(
+                "{cares}",
+                if cares.is_empty() {
+                    "(you have not said)"
+                } else {
+                    &cares
+                },
+            );
+        info!("time to look at how her public writing is going");
+        self.record(Event::Undertook {
+            id: format!("{REVIEW}{}", now.format("%Y%m%d")),
+            brief,
+            asked_by: None,
+            place: None,
+        })?;
+        self.agenda.work.get_or_insert(now + Duration::minutes(30));
         Ok(())
     }
 

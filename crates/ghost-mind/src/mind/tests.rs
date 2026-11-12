@@ -1214,3 +1214,102 @@ async fn what_she_knows_of_someone_is_split_by_where_she_learned_it() {
         "{shared}"
     );
 }
+
+#[tokio::test]
+async fn once_a_week_she_looks_at_how_her_writing_is_going() {
+    let t0 = at(9, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.mind
+        .on_signal(
+            Signal::Online {
+                channel: "t".into(),
+                me: None,
+                can: vec![Can::Post, Can::Feed, Can::Metrics],
+            },
+            t0,
+        )
+        .unwrap();
+    // A brain that can work, with nothing queued yet.
+    rig.think
+        .hands
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    // Nothing to look at yet: she does not sit down to it.
+    rig.mind.consider_review(t0).unwrap();
+    assert!(!rig.kinds().contains(&"undertook"));
+
+    // Six posts and how they did.
+    for i in 0..6u64 {
+        rig.mind
+            .record(Event::Posted {
+                channel: "t".into(),
+                id: Some(format!("p{i}")),
+                text: format!("post number {i} about a doorway"),
+            })
+            .unwrap();
+    }
+    rig.mind
+        .record(Event::Measured {
+            channel: "t".into(),
+            followers: Some(300),
+            posts: (0..6u64)
+                .map(|i| ghost_core::journal::PostStats {
+                    id: format!("p{i}"),
+                    likes: i * 5,
+                    replies: i,
+                    ..Default::default()
+                })
+                .collect(),
+        })
+        .unwrap();
+    rig.mind.consider_review(t0).unwrap();
+    let review = &rig.mind.ghost.memory().undertakings(true, 5).unwrap()[0];
+    assert!(review.id.starts_with("review-"));
+    assert!(review.asked_by.is_none());
+    assert!(
+        review
+            .brief
+            .contains("\"post number 5 about a doorway\": 25 likes, 5 replies"),
+        "{}",
+        review.brief
+    );
+    // And not again the same week.
+    rig.mind.consider_review(t0 + Duration::days(2)).unwrap();
+    assert_eq!(
+        rig.mind
+            .ghost
+            .memory()
+            .undertakings(false, 5)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // What it comes to is kept as craft.
+    let done = |evidence: &str| {
+        serde_json::json!({"outcome": "finished", "evidence": evidence, "summary":
+            "Looked at six posts and four writers.\nLESSON: one doorway, described plainly, is what people answer\nTRY: post one photograph-sized observation a day instead of a thread"})
+    };
+    rig.think
+        .then_call("done", done("read review.md back just now"));
+    rig.think.then_call(
+        "done",
+        done("read review.md back just now; it has all three parts"),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let craft: Vec<String> = rig
+        .mind
+        .ghost
+        .memory()
+        .craft(5)
+        .unwrap()
+        .into_iter()
+        .map(|l| l.lesson)
+        .collect();
+    assert_eq!(
+        craft,
+        [
+            "one doorway, described plainly, is what people answer",
+            "This week, try: post one photograph-sized observation a day instead of a thread"
+        ]
+    );
+}

@@ -64,6 +64,7 @@ impl Mind {
                 self.reflect(now)?;
             } else {
                 self.plan_failures = 0;
+                self.consider_review(now)?;
             }
         }
         let moment = self.life.moment(self.ghost.journal(), now)?;
