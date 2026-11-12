@@ -216,6 +216,18 @@ impl Tool for Edit {
             ));
         }
         let found = content.matches(old).count();
+        if found == 0
+            && let Some(updated) = replace_loosely(&content, old, new)
+        {
+            // The text is there but for whitespace at the ends of lines,
+            // which nobody can see. Take it.
+            return match store(&self.desk, path, &updated).await {
+                Ok(()) => Outcome::ok(format!(
+                    "edited {path} (1 replacement; trailing whitespace differed from `old`)"
+                )),
+                Err(refusal) => refusal,
+            };
+        }
         if found == 0 {
             // The commonest miss is indentation. Say so when that is all it is.
             let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -247,10 +259,57 @@ impl Tool for Edit {
     }
 }
 
+/// Replace `old` with `new` where `old` matches a run of whole lines except
+/// for whitespace at the ends of lines. Only when there is exactly one such
+/// place.
+fn replace_loosely(content: &str, old: &str, new: &str) -> Option<String> {
+    let want: Vec<&str> = old
+        .trim_end_matches('\n')
+        .lines()
+        .map(str::trim_end)
+        .collect();
+    if want.is_empty() || want.iter().all(|l| l.is_empty()) {
+        return None;
+    }
+    let lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let matches: Vec<usize> = (0..=lines.len().saturating_sub(want.len()))
+        .filter(|&at| {
+            lines[at..at + want.len()]
+                .iter()
+                .zip(&want)
+                .all(|(have, want)| have.trim_end() == *want)
+        })
+        .collect();
+    let [at] = matches.as_slice() else {
+        return None;
+    };
+    let mut out: String = lines[..*at].concat();
+    out.push_str(new);
+    // Keep the line break the replaced run ended with.
+    if lines[at + want.len() - 1].ends_with('\n') && !new.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&lines[at + want.len()..].concat());
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::machine::Local;
+
+    #[test]
+    fn an_edit_forgives_whitespace_nobody_can_see() {
+        let content = "def f():   \n    return 1\t\n\ndef g():\n    return 1\n";
+        let updated =
+            replace_loosely(content, "def f():\n    return 1", "def f():\n    return 2").unwrap();
+        assert_eq!(
+            updated,
+            "def f():\n    return 2\n\ndef g():\n    return 1\n"
+        );
+        // Still refuses when it would have to guess which place was meant.
+        assert!(replace_loosely(content, "    return 1", "    return 3").is_none());
+    }
 
     fn desk(dir: &std::path::Path) -> Arc<Desk> {
         Desk::new(Arc::new(Local::new(dir)))

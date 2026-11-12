@@ -762,7 +762,7 @@ async fn she_takes_something_on_does_it_and_comes_back_with_it() {
     );
     rig.think.then_call(
         "done",
-        serde_json::json!({"outcome": "finished", "summary": "It closes at nine on weekdays.", "evidence": "the park's page"}),
+        serde_json::json!({"outcome": "finished", "summary": "It closes at nine on weekdays.", "evidence": "the park's own page lists 21:00 for weekdays"}),
     );
     rig.hear(
         dm("wen", "1", "do you know when the heming tea house closes?"),

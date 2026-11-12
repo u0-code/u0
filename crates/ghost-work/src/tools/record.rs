@@ -217,6 +217,12 @@ impl Tool for Done {
             .unwrap_or_default()
             .trim()
             .to_owned();
+        let checked = self.undertaking.state().checked;
+        if outcome == undertaking::Outcome::Finished && checked && evidence.chars().count() < 20 {
+            return Outcome::fail(
+                "`finished` needs evidence: for each requirement, the command you ran just now and what it showed.",
+            );
+        }
 
         // The commonest way to fail is to stop one check too early. The
         // first claim of success is answered with the task itself.
@@ -289,7 +295,7 @@ mod tests {
         );
         assert!(u.state().finish.is_none());
         let second = done
-            .call(&json!({"outcome": "finished", "summary": "wrote it", "evidence": "cat a.txt -> hi"}))
+            .call(&json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat a.txt` just now, it printed hi"}))
             .await;
         assert_eq!(second.output, "recorded");
         assert_eq!(

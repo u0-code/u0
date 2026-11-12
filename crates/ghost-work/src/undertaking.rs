@@ -77,6 +77,12 @@ pub struct State {
     pub finish: Option<Finish>,
     /// The worker has been made to check its work once already.
     pub checked: bool,
+    /// A reviewer has looked at a claim of being finished once already.
+    #[serde(default)]
+    pub audited: bool,
+    /// Files written or edited most recently, newest last.
+    #[serde(default)]
+    pub touched: Vec<String>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,

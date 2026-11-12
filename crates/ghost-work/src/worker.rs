@@ -50,6 +50,22 @@ that was not obvious, and the next few actions in order. It replaces any earlier
 whatever from the earlier one still matters. Keep it under about 500 words. Also bring `plan` up to date. \
 Do nothing else in this step.";
 
+const INTERRUPTED: &str = "This did not finish: the work was interrupted while it ran. \
+It may have partly happened. Look at the current state before doing it again.";
+
+const AUDITOR: &str = "You are reviewing someone's claim that a task is finished. You see the task, \
+their summary and evidence, and what their most recent commands actually printed. You cannot run \
+anything. Decide whether the task as written is demonstrably complete.\n\n\
+Be strict about what the task literally asks for: names, paths, formats, exact output, things \
+that must be running. A requirement with no direct evidence in the printed output counts as \
+unproven. A claim contradicted by the output counts as false. Do not ask for more than the task \
+asks for, and do not fail work for style.\n\n\
+Answer with PASS or FAIL as the first word. After FAIL, list each unproven or failed requirement \
+in one line each, saying what would prove it. After PASS, nothing more is needed.";
+
+/// How much of the recent transcript the reviewer is shown, in characters.
+const AUDIT_SHOWN: usize = 14_000;
+
 /// How many of the newest items are left whole when old output is dropped:
 /// tried in turn, each tighter than the last.
 const KEEP_RECENT: [usize; 3] = [12, 6, 3];
@@ -67,6 +83,9 @@ pub struct Limits {
     /// Output tokens per step.
     pub max_output: u32,
     pub temperature: Option<f32>,
+    /// Have a claim of being finished looked at by a reviewer who sees only
+    /// the task, the evidence and the recent output.
+    pub audit: bool,
 }
 
 impl Default for Limits {
@@ -77,6 +96,7 @@ impl Default for Limits {
             context_tokens: 60_000,
             max_output: 8192,
             temperature: None,
+            audit: true,
         }
     }
 }
@@ -183,6 +203,40 @@ fn shed(items: &mut [Item], keep: usize) -> usize {
     before - chars(items)
 }
 
+/// Make a transcript picked up from disk whole again: every call the model
+/// made has to have a result, even if the process died before one came.
+fn mend(items: &mut Vec<Item>) {
+    let Some(at) = items
+        .iter()
+        .rposition(|item| matches!(item, Item::Assistant { .. }))
+    else {
+        return;
+    };
+    let Item::Assistant { calls, .. } = &items[at] else {
+        return;
+    };
+    let answered: Vec<&str> = items[at + 1..]
+        .iter()
+        .filter_map(|item| match item {
+            Item::Result { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<Item> = calls
+        .iter()
+        .filter(|c| !answered.contains(&c.id.as_str()))
+        .map(|c| Item::Result {
+            id: c.id.clone(),
+            name: c.name.clone(),
+            output: INTERRUPTED.to_owned(),
+            failed: true,
+        })
+        .collect();
+    // Results belong directly after the calls, before anything said since.
+    let after = at + 1 + answered.len();
+    items.splice(after..after, missing);
+}
+
 fn too_long(error: &ghost_brain::Error) -> bool {
     let ghost_brain::Error::Api {
         status: 400, body, ..
@@ -234,12 +288,20 @@ impl Worker {
         let handoff = state.handoff.as_deref().map_or_else(String::new, |h| {
             format!("<handoff>\n{}\n</handoff>\n\n", h.trim())
         });
+        let touched = if state.touched.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<files_you_last_changed>\n{}\n</files_you_last_changed>\n\n",
+                state.touched.join("\n")
+            )
+        };
         vec![Item::user(format!(
             "{task}\n\n\
              You have already been working on this, and your earlier context is gone. \
              This is what you left for yourself.\n\n\
-             <plan>\n{}\n</plan>\n\n{handoff}<notes>\n{}\n</notes>\n\n\
-             Do not start over. First look at the current state of the environment, which holds \
+             <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n\
+             Clearing your context is routine and does not end the task. Do not start over. First look at the current state of the environment, which holds \
              whatever you already did. Then carry on from where you stopped.",
             state.plan_text(),
             state.notes_text(NOTES_SHOWN)
@@ -281,6 +343,17 @@ impl Worker {
                 "{}\u{1f}{}\u{1f}{}\u{1e}",
                 call.name, call.args, outcome.output
             ));
+            if !outcome.failed
+                && matches!(call.name.as_str(), "write" | "edit")
+                && let Some(path) = call.args["path"].as_str()
+            {
+                self.undertaking.update(|state| {
+                    state.touched.retain(|p| p != path);
+                    state.touched.push(path.to_owned());
+                    let extra = state.touched.len().saturating_sub(8);
+                    state.touched.drain(..extra);
+                });
+            }
             items.push(Item::Result {
                 id: call.id.clone(),
                 name: call.name.clone(),
@@ -289,6 +362,79 @@ impl Worker {
             });
         }
         (logged, signature)
+    }
+
+    /// Ask a reviewer whether the work is demonstrably finished. Returns
+    /// what it cost and, if the reviewer was not convinced, why.
+    async fn audit(&self, items: &[Item]) -> (Usage, Option<String>) {
+        let state = self.undertaking.state();
+        let Some(finish) = &state.finish else {
+            return (Usage::default(), None);
+        };
+        // The newest calls and what they printed, oldest first, within a
+        // budget: what was actually seen, as opposed to what is claimed.
+        let mut shown: Vec<String> = Vec::new();
+        let mut used = 0;
+        let mut calls: std::collections::HashMap<&str, &Call> = std::collections::HashMap::new();
+        for item in items {
+            if let Item::Assistant { calls: made, .. } = item {
+                calls.extend(made.iter().map(|c| (c.id.as_str(), c)));
+            }
+        }
+        for item in items.iter().rev() {
+            let Item::Result {
+                id, name, output, ..
+            } = item
+            else {
+                continue;
+            };
+            if matches!(name.as_str(), "plan" | "note" | "done") {
+                continue;
+            }
+            let asked = calls
+                .get(id.as_str())
+                .map_or_else(String::new, |c| preview(&c.args.to_string(), 300));
+            let block = format!("$ {name} {asked}\n{}", crate::tools::clip(output, 500, 900));
+            if used + block.len() > AUDIT_SHOWN {
+                break;
+            }
+            used += block.len();
+            shown.push(block);
+        }
+        shown.reverse();
+        let turn = Turn {
+            system: AUDITOR.to_owned(),
+            items: vec![Item::user(format!(
+                "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
+                 <recent_output>\n{}\n</recent_output>",
+                state.brief.trim(),
+                finish.summary,
+                finish.evidence,
+                shown.join("\n\n")
+            ))],
+            tools: Vec::new(),
+            max_tokens: 1200,
+            temperature: self.limits.temperature,
+        };
+        match self.brain.step(&turn).await {
+            Ok(step) => {
+                let verdict = step.text.trim();
+                let passed = verdict
+                    .trim_start_matches(|c: char| !c.is_alphabetic())
+                    .to_uppercase()
+                    .starts_with("PASS");
+                tracing::info!("reviewer: {}", preview(verdict, 200));
+                (
+                    step.usage,
+                    (!passed && !verdict.is_empty()).then(|| verdict.to_owned()),
+                )
+            }
+            Err(e) => {
+                // No reviewer is not a reason to hold finished work back.
+                tracing::warn!("the review could not be done: {e}");
+                (Usage::default(), None)
+            }
+        }
     }
 
     /// Make room. Old output goes first, in tightening rounds; if that is
@@ -390,6 +536,7 @@ impl Worker {
             .transcript()
             .filter(|items| !items.is_empty())
             .unwrap_or_else(|| self.opening());
+        mend(&mut items);
 
         // Where this sitting started, in tokens. A transcript picked up from
         // disk counts as starting from the task alone.
@@ -490,12 +637,37 @@ impl Worker {
                 }
             }
 
-            let finish = self.undertaking.update(|state| {
+            let mut finish = self.undertaking.update(|state| {
                 state.steps += 1;
                 state.usage.add(usage);
                 state.seconds += asked.elapsed().as_secs_f64();
                 state.finish.clone()
             });
+            // A claim of being finished gets one outside look.
+            if self.limits.audit
+                && finish
+                    .as_ref()
+                    .is_some_and(|f| f.outcome == Outcome::Finished)
+                && !self.undertaking.state().audited
+            {
+                let (spent, objection) = self.audit(&items).await;
+                self.undertaking.update(|state| {
+                    state.audited = true;
+                    state.usage.add(spent);
+                    if objection.is_some() {
+                        state.finish = None;
+                    }
+                });
+                if let Some(objection) = objection {
+                    finish = None;
+                    items.push(Item::user(format!(
+                        "Your claim that this is finished was read by a reviewer who saw the task, your evidence \
+                         and what your recent commands printed. They were not convinced:\n\n{objection}\n\n\
+                         Deal with each point: fix what is wrong, and show what was right by running the check \
+                         that proves it. Then call `done` again."
+                    )));
+                }
+            }
             self.undertaking.log(&json!({
                 "at": chrono::Utc::now().to_rfc3339(),
                 "step": n,
@@ -623,10 +795,17 @@ mod tests {
             calls("shell", json!({"command": "cat hi.txt"})),
             calls(
                 "done",
-                json!({"outcome": "finished", "summary": "wrote it", "evidence": "cat shows hi"}),
+                json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat hi.txt` just now, it printed hi"}),
             ),
         ];
-        let (worker, brain) = worker(dir.path(), script, Limits::default());
+        let (worker, brain) = worker(
+            dir.path(),
+            script,
+            Limits {
+                audit: false,
+                ..Limits::default()
+            },
+        );
         let report = worker.run().await;
         assert_eq!(report.ended, Ended::Finished);
         assert_eq!(report.steps, 4);
@@ -645,6 +824,88 @@ mod tests {
         // The log has one line per step.
         let log = std::fs::read_to_string(dir.path().join("state/log.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_reviewer_can_send_finished_work_back_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let done = |evidence: &str| {
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wrote it", "evidence": evidence}),
+            )
+        };
+        let script = vec![
+            calls("write", json!({"path": "hi.txt", "content": "hello\n"})),
+            done("I wrote the file with the write tool"),
+            done("I wrote the file with the write tool"),
+            says("FAIL\n- hi.txt must say hi: nothing printed shows its content"),
+            calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
+            done("cat hi.txt printed hi, checked just now"),
+        ];
+        let (worker, brain) = worker(
+            dir.path(),
+            script,
+            Limits {
+                audit: true,
+                ..Limits::default()
+            },
+        );
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Finished);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("hi.txt")).unwrap(),
+            "hi\n"
+        );
+
+        let seen = brain.seen.lock().unwrap();
+        // The reviewer saw the task and the output, and had no tools.
+        let review = seen
+            .iter()
+            .find(|t| t.tools.is_empty())
+            .expect("a review happened");
+        assert!(matches!(&review.items[0], Item::User { text }
+            if text.contains("make hi.txt say hi") && text.contains("$ write")));
+        // Its objection reached the worker, and it was only asked once.
+        assert!(
+            seen.iter()
+                .any(|t| matches!(t.items.last(), Some(Item::User { text })
+            if text.contains("nothing printed shows its content")))
+        );
+        assert_eq!(seen.iter().filter(|t| t.tools.is_empty()).count(), 1);
+    }
+
+    #[test]
+    fn a_transcript_cut_off_mid_step_is_made_whole() {
+        let call = |id: &str| Call {
+            id: id.into(),
+            name: "shell".into(),
+            args: json!({"command": "make"}),
+        };
+        let mut items = vec![
+            Item::user("task"),
+            Item::Assistant {
+                text: String::new(),
+                calls: vec![call("a"), call("b")],
+                carry: None,
+            },
+            Item::Result {
+                id: "a".into(),
+                name: "shell".into(),
+                output: "ok".into(),
+                failed: false,
+            },
+        ];
+        mend(&mut items);
+        assert_eq!(items.len(), 4);
+        assert!(
+            matches!(&items[3], Item::Result { id, failed: true, output, .. }
+            if id == "b" && output.contains("interrupted"))
+        );
+        // Nothing to do when it is already whole.
+        let before = items.clone();
+        mend(&mut items);
+        assert_eq!(items, before);
     }
 
     #[tokio::test]

@@ -74,6 +74,9 @@ struct Args {
     max_output: u32,
     #[arg(long)]
     temperature: Option<f32>,
+    /// Accept the worker's own word that it is finished, without a review.
+    #[arg(long)]
+    no_audit: bool,
 }
 
 #[tokio::main]
@@ -164,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
             context_tokens: args.context_tokens,
             max_output: args.max_output,
             temperature: args.temperature,
+            audit: !args.no_audit,
         },
         who: String::new(),
         machine: place,

@@ -99,6 +99,27 @@ impl Tool for Shell {
         }
 
         let mut output = clip(printed.trim_end(), 5000, 9000);
+        if output.len() < printed.trim_end().len() {
+            // Too long to show whole. Keep all of it where it can be searched.
+            let n = self.desk.jobs.fetch_add(1, Ordering::Relaxed) + 1;
+            let path = format!("/tmp/ghost-out-{n}.txt");
+            let saved = self
+                .desk
+                .exec(
+                    &format!("cat > {path}"),
+                    Some(printed.as_bytes().to_vec()),
+                    Duration::from_secs(30),
+                )
+                .await
+                .is_ok_and(|saved| saved.ok());
+            if saved {
+                let _ = write!(
+                    output,
+                    "\n[the whole output, {} lines, is in {path}: search it with grep or read part of it with sed]",
+                    printed.lines().count()
+                );
+            }
+        }
         if out.dropped > 0 {
             let _ = write!(output, "\n[{} bytes of output were dropped]", out.dropped);
         }
