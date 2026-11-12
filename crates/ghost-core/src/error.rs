@@ -13,6 +13,10 @@ pub enum Error {
     #[error("{0} already holds a ghost; a ghost is born once")]
     AlreadyBorn(PathBuf),
 
+    /// Another process is running this ghost. One body at a time.
+    #[error("{0} is already awake in another process")]
+    Busy(PathBuf),
+
     #[error("no birth certificate at {0}")]
     NoSeed(PathBuf),
 

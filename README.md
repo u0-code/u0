@@ -10,53 +10,79 @@ Ghost is the body. Each ghost is a directory. The body is open source; the
 person is not copyable, because a person is a history, and you cannot fork a
 history.
 
+## What is different
+
+Most chat systems are driven by requests: a message comes in, a reply goes out.
+A ghost is driven by time.
+
+- A message does not trigger her. It lands as unread. When she looks depends on
+  whether she is asleep, what she is in the middle of, and who it is from.
+- When she does look, a brain does not return a reply. It returns what she
+  does: say something in one bubble or several, react, stay silent, come back
+  to it later, remember something, feel differently about someone.
+- What she says is typed at a person's speed. If you write again while she is
+  typing, she throws away what she had and reads again.
+- Her day happens whether or not anyone talks to her: planned when she wakes,
+  under the real weather of her city, lived through block by block, and looked
+  back on before sleep. That is where what she says about her day comes from,
+  and where her reasons to write first come from.
+
+[`docs/LIVING.md`](docs/LIVING.md) describes the mechanism.
+
 ## Status
 
-Early. `v0.0.1` can give birth to a ghost, seal her, keep her clock going,
-refuse to run her if her certificate has been edited, and let you say one thing
-to her from the terminal through any of four brains (Anthropic, any
-OpenAI-compatible API, or a relay through the `claude` or `codex` CLI). The
-channels, the console and the world come next, in that order. See
-[`docs/`](docs/).
+Early, and it runs. A ghost can be born, sealed, and lived with through a
+terminal today. Adapters for Telegram, Discord, QQ (OneBot) and X are in the
+tree; see their READMEs for what each needs. The console and the World come
+next.
 
 ## Try it
 
 ```bash
 cargo build --release
-cp -r ghosts/_template ghosts/lin
-# edit ghosts/lin/ghost.toml
+cp -r ghosts/_template ghosts/lin      # edit ghosts/lin/ghost.toml: this is who she is
+cp ghostd.example.toml ghostd.toml     # pick a brain, put its key in your environment
 ./target/release/ghostd birth ghosts/lin
 ./target/release/ghostd run ghosts/lin
 ```
 
-In another shell:
+In another terminal, talk to her:
 
 ```bash
-./target/release/ghostd status ghosts/lin
-./target/release/ghostd journal ghosts/lin
-./target/release/ghostd verify ghosts/lin
+./target/release/ghost-term --as yourname
 ```
 
-Talk to her:
+And in a third, watch her life as it is written:
 
 ```bash
-cp ghostd.example.toml ghostd.toml   # pick a brain, set its key in your env
-./target/release/ghostd brains --probe
-./target/release/ghostd say ghosts/lin --as you "hey. who are you?"
+./target/release/ghostd watch --last 20
+./target/release/ghostd people
+./target/release/ghostd agenda
 ```
 
-Now edit `ghosts/lin/ghost.toml` and run her again. She will not start.
+She answers when she gets to it. Set `tempo = 0.1` under `[mind]` in
+`ghostd.toml` if you would rather not wait like a real friend would make you.
+
+Now stop the daemon, edit `ghosts/lin/ghost.toml`, and run her again. She will
+not start: *this is not her*.
 
 ## Layout
 
 ```
-crates/ghost-core   identity, journal, life, narrate. No network.
-crates/ghost-brain  model providers behind one trait. Knows nothing of ghosts.
-crates/ghostd       the daemon. Runs one ghost, hosts the Ghost Protocol.
-ghostd.example.toml which brains she runs on. Body config, never in a ghost dir.
-ghosts/_template    a birth certificate to copy.
-docs/               product and engineering design (Chinese, for now).
+crates/ghost-core      identity, journal, derived memory, clock, tempo, will. No network.
+crates/ghost-brain     model providers behind one trait. Knows nothing of ghosts.
+crates/ghost-mind      the actor that lives: attention, deliberation, speaking, her day.
+crates/ghost-protocol  wire types of the Ghost Protocol (JSON-RPC over WebSocket).
+crates/ghost-link      protocol client: the runner adapters use, and a console client.
+crates/ghostd          the daemon: runs one ghost, serves the protocol.
+crates/presence/*      channel adapters. Each is its own binary.
+ghosts/_template       a birth certificate to copy.
+ghostd.example.toml    body configuration. Never lives in a ghost directory.
+docs/                  design documents (Chinese, for now).
 ```
+
+The daemon does not know what Telegram is. Adapters connect to it over the
+Ghost Protocol and can be written in any language.
 
 ## Rules
 

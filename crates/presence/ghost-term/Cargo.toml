@@ -1,0 +1,20 @@
+[package]
+name = "ghost-term"
+description = "A presence in your terminal. The reference adapter, and the simplest way to talk to a ghost you are running."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+ghost-link = { path = "../../ghost-link" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[lints]
+workspace = true

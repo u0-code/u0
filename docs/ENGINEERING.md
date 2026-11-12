@@ -148,14 +148,14 @@ trait Brain: Send + Sync {
 
 ## 8. 建造顺序（每一步可单独推送）
 
-1. **骨架**：workspace、ghost-core 的 identity + journal、`ghostd birth` / `ghostd run`（只 tick 和打日志）。她出生了，她的日志在走。✅
-2. **Brain + narrate**：四种 provider，`ghostd say` 能在 CLI 里和她说话并写入 journal。✅
-3. **Protocol + ghost-telegram**：她住进 Telegram。
-4. **Life**：作息、日计划、睡眠周期反思。她会先开口。
-5. **Will**：忽略 / 稍后 / 回复，关系状态机。
-6. **Memory 派生**：正典账本、关系表、检索。
-7. **Console**（Tauri）：后台可视化。
-8. **World**：第二个 Ghost，Ghost 之间的协议。
+1. **骨架**：workspace、ghost-core 的 identity + journal、`ghostd birth` / `ghostd run`。✅
+2. **Brain**：四种 provider。✅
+3. **Mind + Protocol + 终端通道**：见 [LIVING.md](LIVING.md)。议程、注意、动作、说话状态机、生活引擎、主动联系、刷信息流；JSON-RPC 服务端；`ghost-link`；`ghost-term`。✅
+4. **平台适配器**：Telegram、Discord、OneBot（QQ）、X。
+5. **Console**（Tauri）：后台可视化。
+6. **World**：第二个 Ghost，Ghost 之间的协议。
+
+> 第 1 到 7 节是最初的设计。实现过程中 crate 划分有调整（多了 `ghost-mind` 和 `ghost-link`，协议走 TCP 上的 WebSocket），以 LIVING.md 第 8 节和各 crate 的 README 为准。
 
 ## 9. 工程规矩
 

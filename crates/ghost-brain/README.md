@@ -20,4 +20,5 @@ take its answer. That keeps you inside each vendor's terms. They are for
 experimenting on your own subscription, not for serving other people.
 
 **Is not:** aware of ghosts. This crate has never heard of a journal. It takes a
-system prompt and some turns and returns text.
+system prompt and some turns and returns text. Callers that need structure ask
+for JSON in the prompt; providers that can enforce it do.

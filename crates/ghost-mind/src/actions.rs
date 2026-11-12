@@ -1,0 +1,290 @@
+//! What a brain hands back: not a reply, a set of things she does.
+//!
+//! The format is plain JSON in the text of a completion, so it works on any
+//! provider, including the CLI relays. Parsing is deliberately forgiving:
+//! models wrap JSON in prose and code fences, write numbers as strings, and
+//! invent fields. Anything unusable is dropped rather than failing the whole
+//! deliberation.
+
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
+use tracing::debug;
+
+/// One thing she decides to do.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "do", rename_all = "snake_case")]
+pub enum Action {
+    /// Send one message bubble.
+    Say {
+        text: String,
+        #[serde(default, deserialize_with = "opt_reference")]
+        reply_to: Option<i64>,
+    },
+    /// React to a message.
+    React {
+        #[serde(deserialize_with = "reference")]
+        to: i64,
+        emoji: String,
+    },
+    /// Read it and say nothing.
+    Silence {
+        #[serde(default)]
+        why: String,
+    },
+    /// Come back to this conversation later, on her own.
+    Later {
+        #[serde(deserialize_with = "number")]
+        minutes: f64,
+        #[serde(default)]
+        why: String,
+    },
+    /// Keep something about a person.
+    Note {
+        #[serde(default)]
+        about: Option<String>,
+        text: String,
+    },
+    /// A shift in how she feels about someone.
+    Feel {
+        #[serde(default)]
+        toward: Option<String>,
+        #[serde(deserialize_with = "number")]
+        delta: f64,
+        #[serde(default)]
+        why: String,
+    },
+    /// Something to do or ask later.
+    Intend {
+        #[serde(deserialize_with = "number")]
+        hours: f64,
+        what: String,
+        #[serde(default)]
+        about: Option<String>,
+    },
+    /// A new hard fact about her own life.
+    Canon { fact: String },
+    /// Search her memory, then think again.
+    Recall { query: String },
+    /// End a relationship.
+    Leave {
+        #[serde(default)]
+        why: String,
+    },
+    /// Post publicly, to no one in particular.
+    Post { text: String },
+}
+
+/// The outcome of one look at something.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Deliberation {
+    /// One private line. Journaled as the reason for whatever she did.
+    pub thought: String,
+    pub actions: Vec<Action>,
+}
+
+impl Deliberation {
+    /// The memory query she asked for, if she asked for one.
+    pub fn recall(&self) -> Option<&str> {
+        self.actions.iter().find_map(|a| match a {
+            Action::Recall { query } if !query.trim().is_empty() => Some(query.as_str()),
+            _ => None,
+        })
+    }
+}
+
+/// Read a deliberation out of whatever a brain wrote.
+pub fn parse(text: &str) -> Result<Deliberation, String> {
+    let Some(value) = object(text) else {
+        // No JSON at all. A short plain answer is most likely just what she
+        // would say, from a model that ignored the format.
+        let plain = text.trim();
+        if !plain.is_empty() && plain.chars().count() <= 600 && !plain.contains('{') {
+            return Ok(Deliberation {
+                thought: String::new(),
+                actions: vec![Action::Say {
+                    text: plain.to_owned(),
+                    reply_to: None,
+                }],
+            });
+        }
+        return Err(format!("no JSON object in: {}", clip(text, 200)));
+    };
+    let thought = value["thought"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let raw = match &value["actions"] {
+        Value::Array(items) => items.clone(),
+        Value::Null if value.get("do").is_some() => vec![value.clone()],
+        Value::Null => Vec::new(),
+        other => return Err(format!("\"actions\" is not a list: {other}")),
+    };
+    let actions = raw
+        .into_iter()
+        .filter_map(
+            |item| match serde_json::from_value::<Action>(item.clone()) {
+                Ok(action) => Some(action),
+                Err(e) => {
+                    debug!("dropping an action she cannot take: {e}: {item}");
+                    None
+                }
+            },
+        )
+        .collect();
+    Ok(Deliberation { thought, actions })
+}
+
+/// The first complete JSON object in `text`, if there is one.
+pub fn object(text: &str) -> Option<Value> {
+    let bytes = text.as_bytes();
+    let mut start = text.find('{')?;
+    loop {
+        if let Some(end) = matching_brace(bytes, start)
+            && let Ok(value @ Value::Object(_)) = serde_json::from_str(&text[start..=end])
+        {
+            return Some(value);
+        }
+        start += 1 + text[start + 1..].find('{')?;
+    }
+}
+
+fn matching_brace(bytes: &[u8], start: usize) -> Option<usize> {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for (i, &b) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            match b {
+                _ if escaped => escaped = false,
+                b'\\' => escaped = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+pub(crate) fn clip(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        out.push('…');
+    }
+    out
+}
+
+/// A message reference: `12`, `"12"`, `"m12"`, `"[i3]"`.
+fn reference<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    as_reference(&Value::deserialize(d)?).ok_or_else(|| serde::de::Error::custom("not a reference"))
+}
+
+fn opt_reference<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    Ok(as_reference(&Value::deserialize(d)?))
+}
+
+fn as_reference(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok(),
+        _ => None,
+    }
+}
+
+/// A number, however the model chose to write it.
+fn number<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    match Value::deserialize(d)? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().trim_start_matches('+').parse().ok(),
+        _ => None,
+    }
+    .ok_or_else(|| serde::de::Error::custom("not a number"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_clean_object() {
+        let d = parse(
+            r#"{"thought":"hm","actions":[{"do":"say","text":"hey"},{"do":"say","text":"what's up","reply_to":"m12"},{"do":"react","to":12,"emoji":"👍"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(d.thought, "hm");
+        assert_eq!(d.actions.len(), 3);
+        assert_eq!(
+            d.actions[1],
+            Action::Say {
+                text: "what's up".into(),
+                reply_to: Some(12)
+            }
+        );
+    }
+
+    #[test]
+    fn digs_json_out_of_prose_and_fences() {
+        let text = "Sure, here you go {not json}:\n```json\n{\"thought\": \"a } in a string\", \"actions\": [{\"do\": \"silence\"}]}\n```\nDone.";
+        let d = parse(text).unwrap();
+        assert_eq!(d.thought, "a } in a string");
+        assert_eq!(d.actions, vec![Action::Silence { why: String::new() }]);
+    }
+
+    #[test]
+    fn drops_what_it_cannot_use_and_keeps_the_rest() {
+        let d = parse(
+            r#"{"actions":[{"do":"dance"},{"do":"feel","delta":"+2","toward":"Haoran"},{"do":"later","minutes":"90"},{"do":"react","emoji":"x"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(d.actions.len(), 2);
+        assert!(
+            matches!(&d.actions[0], Action::Feel { delta, .. } if (*delta - 2.0).abs() < f64::EPSILON)
+        );
+        assert!(
+            matches!(&d.actions[1], Action::Later { minutes, .. } if (*minutes - 90.0).abs() < f64::EPSILON)
+        );
+    }
+
+    #[test]
+    fn a_bare_action_and_an_empty_list_both_work() {
+        let d = parse(r#"{"do":"say","text":"ok"}"#).unwrap();
+        assert_eq!(d.actions.len(), 1);
+        let d = parse(r#"{"thought":"nothing to add","actions":[]}"#).unwrap();
+        assert!(d.actions.is_empty());
+    }
+
+    #[test]
+    fn plain_text_is_what_she_says() {
+        let d = parse("yeah, I'm around").unwrap();
+        assert_eq!(
+            d.actions,
+            vec![Action::Say {
+                text: "yeah, I'm around".into(),
+                reply_to: None
+            }]
+        );
+        assert!(parse("").is_err());
+        assert!(parse("{\"thought\": \"cut off").is_err());
+    }
+
+    #[test]
+    fn recall_is_surfaced() {
+        let d = parse(r#"{"actions":[{"do":"recall","query":"interview"}]}"#).unwrap();
+        assert_eq!(d.recall(), Some("interview"));
+    }
+}

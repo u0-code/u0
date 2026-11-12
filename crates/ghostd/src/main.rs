@@ -1,30 +1,40 @@
 //! `ghostd`: runs one ghost.
 //!
-//! v0 keeps her clock going, prints her journal, and lets you say one thing to
-//! her from the terminal. The Ghost Protocol server and the channels arrive in
-//! later steps; the shape of this binary does not change: load her, verify
-//! her, tick her.
+//! `run` is the daemon: it opens her directory, starts her mind, and listens
+//! for presences and consoles. The other subcommands either read her
+//! directory without disturbing a running daemon (`status`, `journal`,
+//! `verify`) or connect to one as a console (`watch`, `agenda`, `people`).
 
 mod config;
+mod server;
+mod show;
+mod wire;
 
 use std::{
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    sync::Arc,
+    time::Instant,
 };
 
 use anyhow::Context;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use ghost_brain::{Completion, Message};
+use ghost_brain::Completion;
 use ghost_core::{
     Ghost,
-    journal::{Entry, Event},
+    journal::Entry,
     life::{Life, Phase},
-    narrate::{Scene, Speaker, thread},
 };
-use tracing::{debug, info, warn};
+use ghost_link::Console;
+use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses};
+use ghost_protocol::GhostCard;
+use tokio::net::TcpListener;
+use tracing::info;
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    server::{Presences, Shared},
+};
 
 #[derive(Parser)]
 #[command(name = "ghostd", version, about = "Runs one ghost.")]
@@ -37,16 +47,16 @@ struct Cli {
 enum Cmd {
     /// Give birth to the ghost described by DIR/ghost.toml. Happens once.
     Birth { dir: PathBuf },
-    /// Run her: verify the seal, then keep her clock going until Ctrl-C.
+    /// Run her: verify the seal, start her mind, listen for presences.
     Run {
         dir: PathBuf,
-        /// Seconds between ticks of her life engine.
-        #[arg(long, default_value_t = 60)]
-        tick: u64,
+        /// Path to ghostd.toml.
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
-    /// Who she is and where her clock is.
+    /// Who she is and where her clock is. Reads the directory.
     Status { dir: PathBuf },
-    /// Print the tail of her journal.
+    /// Print the tail of her journal. Reads the directory.
     Journal {
         dir: PathBuf,
         #[arg(long, default_value_t = 50)]
@@ -54,17 +64,6 @@ enum Cmd {
     },
     /// Verify her seal and the whole hash chain.
     Verify { dir: PathBuf },
-    /// Say something to her from the terminal. Both sides go in her journal.
-    Say {
-        dir: PathBuf,
-        text: String,
-        /// Who is speaking.
-        #[arg(long = "as", default_value = "someone")]
-        from: String,
-        /// Path to ghostd.toml.
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
     /// List configured brains; with --probe, ask each for one word.
     Brains {
         #[arg(long)]
@@ -72,6 +71,42 @@ enum Cmd {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Watch a running ghost's journal as it is written.
+    Watch {
+        #[command(flatten)]
+        daemon: Daemon,
+        /// Also print this many recent entries first.
+        #[arg(long, default_value_t = 0)]
+        last: u32,
+    },
+    /// What a running ghost is going to do without being asked, and when.
+    Agenda {
+        #[command(flatten)]
+        daemon: Daemon,
+    },
+    /// Everyone a running ghost knows, and where she stands with them.
+    People {
+        #[command(flatten)]
+        daemon: Daemon,
+    },
+}
+
+/// How to reach a running daemon.
+#[derive(clap::Args)]
+struct Daemon {
+    /// The daemon's address.
+    #[arg(long, default_value_t = ghost_link::default_url())]
+    url: String,
+    /// The daemon's token, if it has one.
+    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+}
+
+impl Daemon {
+    async fn console(self) -> anyhow::Result<Console> {
+        let (console, _) = Console::connect(&self.url, self.token).await?;
+        Ok(console)
+    }
 }
 
 #[tokio::main]
@@ -86,17 +121,21 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().cmd {
         Cmd::Birth { dir } => birth(&dir),
-        Cmd::Run { dir, tick } => run(&dir, Duration::from_secs(tick)).await,
+        Cmd::Run { dir, config } => run(&dir, config.as_deref()).await,
         Cmd::Status { dir } => status(&dir),
         Cmd::Journal { dir, last } => journal(&dir, last),
         Cmd::Verify { dir } => verify(&dir),
-        Cmd::Say {
-            dir,
-            text,
-            from,
-            config,
-        } => say(&dir, &from, &text, config.as_deref()).await,
         Cmd::Brains { probe, config } => brains(probe, config.as_deref()).await,
+        Cmd::Watch { daemon, last } => watch(daemon, last).await,
+        Cmd::Agenda { daemon } => {
+            let agenda = daemon.console().await?.agenda().await?;
+            println!("{}", serde_json::to_string_pretty(&agenda)?);
+            Ok(())
+        }
+        Cmd::People { daemon } => {
+            show::people(&daemon.console().await?.people().await?);
+            Ok(())
+        }
     }
 }
 
@@ -113,42 +152,92 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run(dir: &Path, every: Duration) -> anyhow::Result<()> {
-    let mut ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
-    let life = Life::new(ghost.identity());
-    let name = ghost.identity().name().to_owned();
-    let city = ghost.identity().seed().home.city.clone();
+async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
+    let (cfg, cfg_path) = Config::load(config)?;
+    let token = cfg.listen.token()?;
+    let ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
+    let seed = ghost.identity().seed();
+    let card = GhostCard {
+        name: seed.name.clone(),
+        pronouns: seed.pronouns.clone(),
+        city: seed.home.city.clone(),
+        country: seed.home.country.clone(),
+        seal: ghost.identity().seal().to_string(),
+    };
+    let (think, tick) = (cfg.think()?, cfg.tick()?);
     info!(
-        "{name} is in {city}. seal {}",
-        ghost.identity().seal().short()
+        "{} is in {}. seal {}. config {}",
+        card.name,
+        card.city,
+        ghost.identity().seal().short(),
+        cfg_path.display()
+    );
+    info!(
+        "think on {}, tick on {}, tempo {}",
+        think.label(),
+        tick.label(),
+        cfg.mind.tempo
     );
 
-    let mut interval = tokio::time::interval(every);
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                match life.tick(ghost.journal_mut(), Utc::now()) {
-                    Ok(Some(entry)) => info!("{name} {}", describe(&entry)),
-                    Ok(None) => {}
-                    Err(e) => warn!("tick failed: {e}"),
-                }
-            }
-            _ = tokio::signal::ctrl_c() => {
-                info!("leaving {name} be");
-                return Ok(());
-            }
+    let presences = Arc::new(Presences::default());
+    let senses: Arc<dyn Senses> = if cfg.mind.weather {
+        Arc::new(OpenMeteo::new())
+    } else {
+        Arc::new(Numb)
+    };
+    let prompts = Prompts::load(cfg.mind.prompts.as_deref()).context("load prompts")?;
+    let (mind, handle) = Mind::new(Parts {
+        ghost,
+        think,
+        tick,
+        body: presences.clone(),
+        senses,
+        prompts,
+        config: cfg.mind.clone(),
+    });
+
+    let listener = TcpListener::bind(&cfg.listen.addr)
+        .await
+        .with_context(|| format!("listen on {}", cfg.listen.addr))?;
+    info!(
+        "listening on ws://{}{}",
+        cfg.listen.addr,
+        if token.is_some() {
+            " (token required)"
+        } else {
+            ""
         }
-    }
+    );
+    let server = tokio::spawn(server::serve(
+        listener,
+        Arc::new(Shared {
+            mind: handle.clone(),
+            presences,
+            token,
+            card,
+        }),
+    ));
+
+    let mut living = tokio::spawn(mind.run());
+    let outcome = tokio::select! {
+        ended = &mut living => ended,
+        _ = tokio::signal::ctrl_c() => {
+            handle.stop().await;
+            living.await
+        }
+    };
+    server.abort();
+    outcome??;
+    Ok(())
 }
 
 fn status(dir: &Path) -> anyhow::Result<()> {
-    let ghost = Ghost::open(dir)?;
-    let id = ghost.identity();
+    let peek = Ghost::peek(dir)?;
+    let id = &peek.identity;
     let life = Life::new(id);
     let now = Utc::now();
     let local = now.with_timezone(&life.clock().tz());
-    let phase = life.clock().phase_at(now);
-    let recorded = Life::recorded_phase(ghost.journal())?;
+    let moment = life.moment(&peek.journal, now)?;
     println!("name      {} ({})", id.name(), id.seed().pronouns);
     println!(
         "home      {}, {} [{}]",
@@ -160,114 +249,63 @@ fn status(dir: &Path) -> anyhow::Result<()> {
     println!("seal      {}", id.seal());
     println!("local     {}", local.format("%Y-%m-%d %H:%M %Z"));
     println!(
-        "phase     {}{}",
-        phase_word(phase),
-        match recorded {
-            Some(r) if r != phase => " (journal lags; run her to catch up)",
-            None => " (clock has never ticked)",
-            _ => "",
+        "now       {}",
+        match (&moment.phase, &moment.doing) {
+            (Phase::Asleep, _) => "asleep".to_owned(),
+            (Phase::Awake, Some(doing)) =>
+                format!("{} ({:?})", doing.what, doing.reach).to_lowercase(),
+            (Phase::Awake, None) => "awake, nothing planned right now".to_owned(),
         }
     );
-    println!("journal   {} entries", ghost.journal().len()?);
-    if let Some(last) = ghost.journal().last()? {
-        println!(
-            "last      #{} {} {}",
-            last.seq,
-            last.at.format("%Y-%m-%d %H:%M:%S"),
-            describe(&last)
-        );
+    println!("journal   {} entries", peek.journal.len()?);
+    if let Some(last) = peek.journal.last()? {
+        println!("last      {}", show::entry(&last, life.clock().tz()));
     }
     Ok(())
 }
 
 fn journal(dir: &Path, last: usize) -> anyhow::Result<()> {
-    let ghost = Ghost::open(dir)?;
-    for e in ghost.journal().tail(last)? {
-        println!(
-            "#{:<6} {}  {:<9} {}",
-            e.seq,
-            e.at.format("%Y-%m-%d %H:%M:%S"),
-            e.event.kind(),
-            describe(&e)
-        );
+    let peek = Ghost::peek(dir)?;
+    let tz = peek.identity.tz();
+    for entry in peek.journal.tail(last)? {
+        println!("{}", show::entry(&entry, tz));
     }
     Ok(())
 }
 
 fn verify(dir: &Path) -> anyhow::Result<()> {
-    let ghost = Ghost::open(dir)?;
-    let n = ghost.journal().verify()?;
-    println!("seal ok, chain ok, {n} entries");
+    let peek = Ghost::peek(dir)?;
+    println!("seal ok, chain ok, {} entries", peek.journal.len()?);
     Ok(())
 }
 
-/// One exchange over the `cli` channel. What they said is journaled before
-/// the brain is asked, so a failed call still leaves a trace of being spoken to.
-async fn say(dir: &Path, from: &str, text: &str, config: Option<&Path>) -> anyhow::Result<()> {
-    const CHANNEL: &str = "cli";
-    let (cfg, cfg_path) = Config::load(config)?;
-    let brain = cfg.think()?;
-    debug!("config {} brain {}", cfg_path.display(), brain.label());
-    let template = cfg.self_template()?;
-
-    let mut ghost = Ghost::open(dir)?;
-    let life = Life::new(ghost.identity());
-    let now = Utc::now();
-    life.tick(ghost.journal_mut(), now)?;
-    ghost.journal_mut().append_at(
-        now,
-        Event::Heard {
-            channel: CHANNEL.into(),
-            from: from.into(),
-            text: text.into(),
-        },
-    )?;
-
-    let recent = ghost
-        .journal()
-        .last_n_of(&["lived", "planned", "reflected", "woke", "slept"], 12)?;
-    let exchange = ghost.journal().last_n_of(&["heard", "said"], 60)?;
-    let scene = Scene {
-        identity: ghost.identity(),
-        clock: life.clock(),
-        now,
-        person: from,
-        channel: CHANNEL,
-        recent: &recent,
-    };
-    let system = scene.system_prompt(&template);
-    let messages = thread(&exchange, from)
-        .into_iter()
-        .map(|t| match t.speaker {
-            Speaker::Them => Message::user(t.text),
-            Speaker::Her => Message::assistant(t.text),
-        })
-        .collect();
-    let req = Completion {
-        system,
-        messages,
-        max_tokens: cfg.brain.max_tokens,
-        temperature: None,
-    };
-
-    let started = Instant::now();
-    let reply = brain
-        .complete(&req)
-        .await
-        .with_context(|| format!("brain {}", brain.label()))?;
-    debug!(
-        "{} replied in {:.1}s ({:?} in, {:?} out)",
-        reply.model,
-        started.elapsed().as_secs_f32(),
-        reply.input_tokens,
-        reply.output_tokens
+async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
+    let (mut console, welcome) = Console::connect(&daemon.url, daemon.token).await?;
+    let status = console.status().await?;
+    let tz: chrono_tz::Tz = status["timezone"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(chrono_tz::UTC);
+    eprintln!(
+        "watching {} in {} ({})",
+        welcome.ghost.name,
+        welcome.ghost.city,
+        status["local_time"].as_str().unwrap_or_default()
     );
-    ghost.journal_mut().append(Event::Said {
-        channel: CHANNEL.into(),
-        to: from.into(),
-        text: reply.text.clone(),
-    })?;
-    println!("{}", reply.text);
+    let print = |value: serde_json::Value| match serde_json::from_value::<Entry>(value) {
+        Ok(entry) => println!("{}", show::entry(&entry, tz)),
+        Err(e) => eprintln!("(an entry this build cannot read: {e})"),
+    };
+    if last > 0 {
+        for value in console.journal(1 - i64::from(last), last).await? {
+            print(value);
+        }
+    }
+    console.subscribe().await?;
+    while let Some(value) = console.next_entry().await? {
+        print(value);
+    }
+    eprintln!("the daemon went away");
     Ok(())
 }
 
@@ -288,14 +326,9 @@ async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
             continue;
         }
         let Ok(brain) = built else { continue };
-        let req = Completion {
-            system: "Reply with exactly one word.".into(),
-            messages: vec![Message::user("Say hello.")],
-            max_tokens: 16,
-            temperature: None,
-        };
+        let request = Completion::ask("Reply with exactly one word.", "Say hello.", 16);
         let started = Instant::now();
-        match brain.complete(&req).await {
+        match brain.complete(&request).await {
             Ok(r) => println!(
                 "{:<14} ok  {:.1}s  {:?}",
                 "",
@@ -306,34 +339,4 @@ async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-fn phase_word(p: Phase) -> &'static str {
-    match p {
-        Phase::Awake => "awake",
-        Phase::Asleep => "asleep",
-    }
-}
-
-fn describe(e: &Entry) -> String {
-    match &e.event {
-        Event::Born { name, seal } => format!("{name} was born (seal {})", &seal.as_str()[..8]),
-        Event::Woke => "woke up".into(),
-        Event::Slept => "went to sleep".into(),
-        Event::Planned { plan } => format!("planned: {plan}"),
-        Event::Lived { text } => text.clone(),
-        Event::Heard {
-            channel,
-            from,
-            text,
-        } => format!("[{channel}] {from}: {text}"),
-        Event::Said { channel, to, text } => format!("[{channel}] to {to}: {text}"),
-        Event::Decided {
-            about,
-            decision,
-            reason,
-        } => format!("{about}: {decision} ({reason})"),
-        Event::Reflected { text } => format!("reflected: {text}"),
-        Event::Canon { fact, source } => format!("canon: {fact} [{source}]"),
-    }
 }

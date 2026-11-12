@@ -1,4 +1,5 @@
-# ghostd.toml: which brains she runs on.
+# ghostd.toml: which brains she runs on, where the daemon listens, and how she
+# paces herself.
 #
 # Copy to ./ghostd.toml or ~/.config/ghost/ghostd.toml. This file is about the
 # body, not the person: it never lives inside a ghost directory.
@@ -6,12 +7,38 @@
 [brain]
 # Provider used for conversation and reflection.
 think = "anthropic"
-# Provider used for the life engine's routine ticks. Cheap is fine.
+# Provider used for the routine ticks of her day and for skimming chatter
+# nobody addressed to her. Cheap is fine.
 tick = "anthropic"
-# Longest reply she may write.
-max_tokens = 400
-# Optional: a different self.md template than the one shipped in ghost-core.
-# self_template = "prompts/self.md"
+
+# Where presences and consoles connect. Listening beyond 127.0.0.1 requires a
+# token in the named environment variable.
+[listen]
+addr = "127.0.0.1:7437"
+token_env = "GHOSTD_TOKEN"
+
+[mind]
+# The pace she lives at. 1.0 is human: she notices messages after seconds or
+# minutes depending on what she is doing, and types at a person's speed.
+# 0.1 is good for a demo. 0 removes every wait and lets her answer in her
+# sleep; use it only while developing.
+tempo = 1.0
+# Longest thing a brain may write back for one deliberation, in tokens.
+max_tokens = 700
+# How many messages of a conversation she sees when she looks at it.
+thread_window = 40
+# Ceiling on brain calls per hour. 0 means no ceiling.
+calls_per_hour = 120
+# Run the life engine: plan her days, live through them, reflect at night.
+live = true
+# Look up the real weather where she lives (open-meteo.com, no key).
+weather = true
+# Most public posts in a day, and minutes between phone sessions on channels
+# that have a feed. [0, 0] turns scrolling off.
+posts_per_day = 3
+browse_minutes = [45, 150]
+# A directory of prompt templates overriding the ones in ghost-mind/prompts.
+# prompts = "prompts"
 
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
@@ -23,7 +50,15 @@ model = "claude-sonnet-5"
 kind = "openai"
 model = "gpt-5-mini"
 
-# The same kind reaches OpenRouter, DeepSeek, Moonshot, Groq, Ollama, vLLM...
+# The same kind reaches DeepSeek, OpenRouter, Moonshot, Groq, Ollama, vLLM...
+[providers.deepseek]
+kind = "openai"
+model = "deepseek-chat"
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"
+# Ask the server to enforce JSON output. Leave off for servers that reject it.
+json_mode = true
+
 [providers.ollama]
 kind = "openai"
 model = "qwen3"

@@ -1,16 +1,20 @@
-//! `ghostd.toml`: which brains she runs on. This is body configuration and
-//! lives outside the ghost directory, because the model is not her.
+//! `ghostd.toml`: which brains she runs on, where the daemon listens, and how
+//! she paces herself. This is body configuration and lives outside the ghost
+//! directory, because none of it is her.
 //!
 //! Search order: `--config`, `$GHOSTD_CONFIG`, `./ghostd.toml`,
 //! `~/.config/ghost/ghostd.toml`.
 
 use std::{
     collections::BTreeMap,
+    net::SocketAddr,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, bail};
 use ghost_brain::{Brain, config::ProviderConfig};
+use ghost_mind::MindConfig;
 use serde::Deserialize;
 
 pub const FILE: &str = "ghostd.toml";
@@ -21,6 +25,10 @@ pub struct Config {
     pub brain: Tiers,
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderConfig>,
+    #[serde(default)]
+    pub listen: Listen,
+    #[serde(default)]
+    pub mind: MindConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,17 +36,48 @@ pub struct Config {
 pub struct Tiers {
     /// Provider name for conversation and reflection.
     pub think: String,
-    /// Provider name for the life engine's routine ticks.
+    /// Provider name for the routine ticks of her day.
     pub tick: String,
-    /// Longest reply she may write, in tokens.
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
-    /// Override the shipped `self.md` template with this file.
-    pub self_template: Option<PathBuf>,
 }
 
-fn default_max_tokens() -> u32 {
-    400
+/// Where presences and consoles connect.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Listen {
+    pub addr: String,
+    /// Environment variable holding the token clients must present.
+    pub token_env: String,
+}
+
+impl Default for Listen {
+    fn default() -> Self {
+        Self {
+            addr: ghost_protocol::DEFAULT_ADDR.to_owned(),
+            token_env: "GHOSTD_TOKEN".to_owned(),
+        }
+    }
+}
+
+impl Listen {
+    /// The token clients must present, if one is set. Listening beyond this
+    /// machine without one is refused.
+    pub fn token(&self) -> anyhow::Result<Option<String>> {
+        let token = std::env::var(&self.token_env)
+            .ok()
+            .filter(|t| !t.trim().is_empty());
+        let local = self
+            .addr
+            .parse::<SocketAddr>()
+            .is_ok_and(|a| a.ip().is_loopback());
+        if token.is_none() && !local {
+            bail!(
+                "listening on {} without a token; set {} or listen on 127.0.0.1",
+                self.addr,
+                self.token_env
+            );
+        }
+        Ok(token)
+    }
 }
 
 impl Config {
@@ -66,7 +105,7 @@ impl Config {
         Ok((cfg, path))
     }
 
-    pub fn brain(&self, name: &str) -> anyhow::Result<Box<dyn Brain>> {
+    pub fn brain(&self, name: &str) -> anyhow::Result<Arc<dyn Brain>> {
         let cfg = self
             .providers
             .get(name)
@@ -74,15 +113,12 @@ impl Config {
         cfg.build().with_context(|| format!("provider {name:?}"))
     }
 
-    pub fn think(&self) -> anyhow::Result<Box<dyn Brain>> {
+    pub fn think(&self) -> anyhow::Result<Arc<dyn Brain>> {
         self.brain(&self.brain.think)
     }
 
-    pub fn self_template(&self) -> anyhow::Result<String> {
-        match &self.brain.self_template {
-            Some(p) => std::fs::read_to_string(p).with_context(|| format!("read {}", p.display())),
-            None => Ok(ghost_core::narrate::DEFAULT_SELF_TEMPLATE.to_owned()),
-        }
+    pub fn tick(&self) -> anyhow::Result<Arc<dyn Brain>> {
+        self.brain(&self.brain.tick)
     }
 }
 

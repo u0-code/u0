@@ -1,13 +1,21 @@
 [workspace]
 resolver = "3"
-members = ["crates/ghost-core", "crates/ghost-brain", "crates/ghostd"]
+members = [
+    "crates/ghost-core",
+    "crates/ghost-brain",
+    "crates/ghost-mind",
+    "crates/ghost-protocol",
+    "crates/ghost-link",
+    "crates/ghostd",
+    "crates/presence/ghost-term",
+]
 
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HappyFox001/Ghost"
-rust-version = "1.85"
+rust-version = "1.89"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -15,6 +23,11 @@ pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 must_use_candidate = "allow"
+# Tables and event folds read better whole than split to satisfy a line count.
+too_many_lines = "allow"
+match_same_arms = "allow"
+format_push_string = "allow"
+trivially_copy_pass_by_ref = "allow"
 
 [profile.release]
 lto = "thin"

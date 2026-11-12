@@ -48,16 +48,41 @@ pub struct Completion {
     pub messages: Vec<Message>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
+    /// The caller expects a single JSON object back. Providers that can
+    /// enforce this do; the rest rely on the prompt.
+    pub json: bool,
 }
 
 impl Completion {
-    /// Flatten the exchange into one prompt, for providers that only take a
-    /// single string. `them` and `her` label the two sides.
+    /// One instruction, one answer.
+    pub fn ask(system: impl Into<String>, prompt: impl Into<String>, max_tokens: u32) -> Self {
+        Self {
+            system: system.into(),
+            messages: vec![Message::user(prompt)],
+            max_tokens,
+            temperature: None,
+            json: false,
+        }
+    }
+
+    #[must_use]
+    pub fn expecting_json(mut self) -> Self {
+        self.json = true;
+        self
+    }
+
+    /// Flatten the request into one prompt, for providers that only take a
+    /// single string. A lone user message passes through as written; a longer
+    /// exchange is laid out with `them` and `her` labelling the two sides.
     pub fn transcript(&self, them: &str, her: &str) -> String {
         let mut out = String::new();
         if !self.system.trim().is_empty() {
             out.push_str(self.system.trim());
             out.push_str("\n\n");
+        }
+        if let [only] = self.messages.as_slice() {
+            out.push_str(only.text.trim());
+            return out;
         }
         out.push_str("<conversation>\n");
         for m in &self.messages {
@@ -140,10 +165,17 @@ mod tests {
             ],
             max_tokens: 10,
             temperature: None,
+            json: false,
         };
         let t = c.transcript("someone", "Lin");
         assert!(t.starts_with("Be Lin."));
         assert!(t.contains("[someone]: hi\n[Lin]: hey\n[someone]: ?"));
         assert!(t.ends_with("Output only the message text."));
+    }
+
+    #[test]
+    fn a_lone_message_passes_through() {
+        let c = Completion::ask("Be Lin.", "What now?", 10);
+        assert_eq!(c.transcript("them", "you"), "Be Lin.\n\nWhat now?");
     }
 }

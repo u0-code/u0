@@ -1,0 +1,534 @@
+//! The actor.
+//!
+//! One task owns the ghost and is the only thing that writes her journal. It
+//! waits on three things: a signal from outside, the outcome of a job it sent
+//! off (a brain call, a send), or the next moment on its agenda. Nothing in
+//! here blocks on a network call; anything slow is spawned and comes back as
+//! an [`Outcome`].
+
+mod ask;
+mod attend;
+mod browse;
+mod living;
+mod reach;
+mod speak;
+#[cfg(test)]
+mod tests;
+
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+    time::Duration as StdDuration,
+};
+
+use chrono::{DateTime, Duration, Utc};
+use fastrand::Rng;
+use ghost_brain::Brain;
+use ghost_core::{
+    Ghost,
+    journal::{Entry, Event},
+    life::Life,
+    narrate::{self, Scene},
+    social::{self, Actor},
+    tempo::Tempo,
+};
+use serde_json::Value;
+use tokio::{
+    sync::{broadcast, mpsc, oneshot},
+    task::JoinSet,
+};
+use tracing::{info, warn};
+
+use self::{
+    attend::Thinking,
+    living::{LivedDraft, PlanDraft, ReflectDraft},
+    speak::{Bubble, Speaking},
+};
+use crate::{
+    Act, Acted, Body, Can, Error, Incoming, MindConfig, Prompts, Result, Senses,
+    actions::Deliberation,
+};
+
+/// How long the loop sleeps when nothing at all is scheduled.
+const IDLE: StdDuration = StdDuration::from_secs(3600);
+/// A gap in the journal longer than this is recorded as dormancy.
+const DORMANT_AFTER: Duration = Duration::minutes(10);
+
+/// Everything a mind is assembled from.
+pub struct Parts {
+    pub ghost: Ghost,
+    /// The brain for conversation and reflection.
+    pub think: Arc<dyn Brain>,
+    /// The brain for routine ticks of her day.
+    pub tick: Arc<dyn Brain>,
+    pub body: Arc<dyn Body>,
+    pub senses: Arc<dyn Senses>,
+    pub prompts: Prompts,
+    pub config: MindConfig,
+}
+
+/// Something an observer can ask a running mind.
+#[derive(Debug, Clone)]
+pub enum Question {
+    /// Who she is and what she is in the middle of.
+    Status,
+    /// What is scheduled, and when.
+    Agenda,
+    /// Everyone she knows and where she stands with them.
+    People,
+    /// Journal entries from seq `from` on. Zero or less counts back from the
+    /// newest entry.
+    Journal { from: i64, limit: usize },
+}
+
+enum Signal {
+    Heard {
+        channel: String,
+        message: Incoming,
+    },
+    Typing {
+        channel: String,
+        place: String,
+    },
+    Online {
+        channel: String,
+        me: Option<Actor>,
+        can: Vec<Can>,
+    },
+    Offline {
+        channel: String,
+    },
+    Ask {
+        question: Question,
+        answer: oneshot::Sender<Value>,
+    },
+    Stop,
+}
+
+/// The outside world's handle on a running mind. Cheap to clone.
+#[derive(Clone)]
+pub struct MindHandle {
+    tx: mpsc::Sender<Signal>,
+    entries: broadcast::Sender<Entry>,
+}
+
+impl MindHandle {
+    /// A message reached her on `channel`.
+    pub async fn heard(&self, channel: &str, message: Incoming) -> Result<()> {
+        self.send(Signal::Heard {
+            channel: channel.to_owned(),
+            message,
+        })
+        .await
+    }
+
+    /// Someone is typing in a place. She waits a little longer before looking.
+    pub async fn typing(&self, channel: &str, place: &str) -> Result<()> {
+        self.send(Signal::Typing {
+            channel: channel.to_owned(),
+            place: place.to_owned(),
+        })
+        .await
+    }
+
+    /// A channel became reachable. `me` is who she is there.
+    pub async fn online(&self, channel: &str, me: Option<Actor>, can: Vec<Can>) -> Result<()> {
+        self.send(Signal::Online {
+            channel: channel.to_owned(),
+            me,
+            can,
+        })
+        .await
+    }
+
+    pub async fn offline(&self, channel: &str) -> Result<()> {
+        self.send(Signal::Offline {
+            channel: channel.to_owned(),
+        })
+        .await
+    }
+
+    pub async fn ask(&self, question: Question) -> Result<Value> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Ask { question, answer }).await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// Every journal entry, as it is written.
+    pub fn watch(&self) -> broadcast::Receiver<Entry> {
+        self.entries.subscribe()
+    }
+
+    pub async fn stop(&self) {
+        let _ = self.tx.send(Signal::Stop).await;
+    }
+
+    async fn send(&self, signal: Signal) -> Result<()> {
+        self.tx.send(signal).await.map_err(|_| Error::Stopped)
+    }
+}
+
+/// What a spawned job brings back.
+enum Outcome {
+    Thought {
+        job: Thinking,
+        result: Result<Deliberation>,
+    },
+    Sent {
+        place: String,
+        bubble: Bubble,
+        result: std::result::Result<Acted, String>,
+    },
+    Planned {
+        day: chrono::NaiveDate,
+        weather: Option<String>,
+        result: Result<PlanDraft>,
+    },
+    Lived {
+        block: u32,
+        result: Result<LivedDraft>,
+    },
+    Reflected {
+        people: Vec<ghost_core::memory::Person>,
+        result: Result<ReflectDraft>,
+    },
+    Browsed {
+        channel: String,
+        items: Vec<Incoming>,
+        result: Result<Deliberation>,
+    },
+    Posted {
+        channel: String,
+        text: String,
+        result: std::result::Result<Acted, String>,
+    },
+    /// A fire-and-forget act finished.
+    Done,
+}
+
+struct Channel {
+    me: Option<Actor>,
+    can: Vec<Can>,
+}
+
+struct Attend {
+    due: DateTime<Utc>,
+    /// Scheduled because something was meant for her.
+    addressed: bool,
+}
+
+/// Everything that will happen without anyone asking.
+#[derive(Default)]
+struct Agenda {
+    /// Places she will look at, and when.
+    attend: HashMap<String, Attend>,
+    /// Places where she is in the middle of saying something.
+    speaking: HashMap<String, Speaking>,
+    /// The next time her day needs attention.
+    life: Option<DateTime<Utc>>,
+    /// The next time an intention comes due.
+    intention: Option<DateTime<Utc>>,
+    /// The next time she picks up her phone to scroll.
+    phone: Option<DateTime<Utc>>,
+}
+
+impl Agenda {
+    fn next_due(&self) -> Option<DateTime<Utc>> {
+        self.attend
+            .values()
+            .map(|a| a.due)
+            .chain(self.speaking.values().filter_map(Speaking::due))
+            .chain(self.life)
+            .chain(self.intention)
+            .chain(self.phone)
+            .min()
+    }
+}
+
+/// A ceiling on brain calls per hour.
+struct Budget {
+    cap: u32,
+    spent: VecDeque<DateTime<Utc>>,
+}
+
+impl Budget {
+    fn allow(&mut self, now: DateTime<Utc>) -> bool {
+        while self
+            .spent
+            .front()
+            .is_some_and(|at| now - *at > Duration::hours(1))
+        {
+            self.spent.pop_front();
+        }
+        self.cap == 0 || self.spent.len() < self.cap as usize
+    }
+
+    fn spend(&mut self, now: DateTime<Utc>) {
+        self.spent.push_back(now);
+    }
+}
+
+pub struct Mind {
+    ghost: Ghost,
+    life: Life,
+    cfg: MindConfig,
+    tempo: Tempo,
+    prompts: Prompts,
+    think: Arc<dyn Brain>,
+    tick: Arc<dyn Brain>,
+    body: Arc<dyn Body>,
+    senses: Arc<dyn Senses>,
+    rx: mpsc::Receiver<Signal>,
+    entries: broadcast::Sender<Entry>,
+    channels: HashMap<String, Channel>,
+    agenda: Agenda,
+    jobs: JoinSet<Outcome>,
+    rng: Rng,
+    budget: Budget,
+    /// When this body started running.
+    started: DateTime<Utc>,
+    /// Places with a deliberation in flight.
+    thinking: HashSet<String>,
+    /// Consecutive failed deliberations per place.
+    retries: HashMap<String, u8>,
+    /// Intentions with a deliberation in flight.
+    pursuing: HashSet<i64>,
+    /// Intentions put off until a later moment.
+    held: HashMap<i64, DateTime<Utc>>,
+    planning: bool,
+    plan_failures: u8,
+    /// The block whose `Lived` entry is being written.
+    living: Option<u32>,
+    reflecting: bool,
+    /// Channels with a scroll in flight.
+    browsing: HashSet<String>,
+}
+
+impl Mind {
+    pub fn new(parts: Parts) -> (Self, MindHandle) {
+        let (tx, rx) = mpsc::channel(1024);
+        let (entries, _) = broadcast::channel(1024);
+        let life = Life::new(parts.ghost.identity());
+        let mind = Self {
+            life,
+            tempo: Tempo::new(parts.config.tempo),
+            budget: Budget {
+                cap: parts.config.calls_per_hour,
+                spent: VecDeque::new(),
+            },
+            ghost: parts.ghost,
+            cfg: parts.config,
+            prompts: parts.prompts,
+            think: parts.think,
+            tick: parts.tick,
+            body: parts.body,
+            senses: parts.senses,
+            rx,
+            entries: entries.clone(),
+            channels: HashMap::new(),
+            agenda: Agenda::default(),
+            jobs: JoinSet::new(),
+            rng: Rng::new(),
+            started: Utc::now(),
+            thinking: HashSet::new(),
+            retries: HashMap::new(),
+            pursuing: HashSet::new(),
+            held: HashMap::new(),
+            planning: false,
+            plan_failures: 0,
+            living: None,
+            reflecting: false,
+            browsing: HashSet::new(),
+        };
+        (mind, MindHandle { tx, entries })
+    }
+
+    /// Live until told to stop. Returns only on `stop` or a storage failure.
+    pub async fn run(mut self) -> Result<()> {
+        self.begin(Utc::now())?;
+        loop {
+            let wait = self.agenda.next_due().map_or(IDLE, |due| {
+                (due - Utc::now()).to_std().unwrap_or_default().min(IDLE)
+            });
+            tokio::select! {
+                signal = self.rx.recv() => match signal {
+                    None | Some(Signal::Stop) => break,
+                    Some(signal) => self.on_signal(signal, Utc::now())?,
+                },
+                Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => match done {
+                    Ok(outcome) => self.on_outcome(outcome, Utc::now())?,
+                    Err(e) => warn!("a job fell over: {e}"),
+                },
+                () = tokio::time::sleep(wait) => self.on_time(Utc::now())?,
+            }
+        }
+        info!("{} is left be", self.ghost.identity().name());
+        Ok(())
+    }
+
+    /// Pick her life back up: note any gap, then rebuild the agenda from what
+    /// the journal says is unread and undone.
+    fn begin(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.started = now;
+        if let Some(last) = self.ghost.journal().last()?
+            && now - last.at > DORMANT_AFTER
+            && !matches!(last.event, Event::Born { .. })
+        {
+            self.record(Event::Dormant { since: last.at })?;
+        }
+        // Settle whether she is awake before anything else can happen.
+        self.live(now)?;
+        self.refresh_intentions()
+    }
+
+    fn on_signal(&mut self, signal: Signal, now: DateTime<Utc>) -> Result<()> {
+        match signal {
+            Signal::Heard { channel, message } => self.hear(&channel, message, now)?,
+            Signal::Typing { channel, place } => {
+                let floor = after(now, self.tempo.settle() * 2);
+                if let Some(attend) = self.agenda.attend.get_mut(&social::key(&channel, &place)) {
+                    attend.due = attend.due.max(floor);
+                }
+            }
+            Signal::Online { channel, me, can } => {
+                info!(
+                    "{channel} is reachable{}",
+                    me.as_ref()
+                        .map(|m| format!(" as {}", m.handle.as_deref().unwrap_or(&m.name)))
+                        .unwrap_or_default()
+                );
+                self.channels.insert(channel.clone(), Channel { me, can });
+                for place in self.ghost.memory().places_unread()? {
+                    if place.channel == channel {
+                        self.schedule_attend(&place.key, now)?;
+                    }
+                }
+                if self.agenda.phone.is_none() {
+                    self.agenda.phone = self.next_phone(now);
+                }
+                self.refresh_intentions()?;
+            }
+            Signal::Offline { channel } => {
+                info!("{channel} is out of reach");
+                self.channels.remove(&channel);
+            }
+            Signal::Ask { question, answer } => {
+                let _ = answer.send(self.answer(&question, now)?);
+            }
+            Signal::Stop => {}
+        }
+        Ok(())
+    }
+
+    fn on_time(&mut self, now: DateTime<Utc>) -> Result<()> {
+        let due = |at: Option<DateTime<Utc>>| at.is_some_and(|at| at <= now);
+        if due(self.agenda.life) {
+            self.live(now)?;
+        }
+        let places: Vec<String> = self
+            .agenda
+            .attend
+            .iter()
+            .filter(|(_, a)| a.due <= now)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for place in places {
+            self.attend(&place, now)?;
+        }
+        let speaking: Vec<String> = self
+            .agenda
+            .speaking
+            .iter()
+            .filter(|(_, s)| s.due().is_some_and(|at| at <= now))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for place in speaking {
+            self.speak(&place, now)?;
+        }
+        if due(self.agenda.intention) {
+            self.pursue(now)?;
+        }
+        if due(self.agenda.phone) {
+            self.browse(now)?;
+        }
+        Ok(())
+    }
+
+    fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
+        match outcome {
+            Outcome::Thought { job, result } => self.on_thought(job, result, now),
+            Outcome::Sent {
+                place,
+                bubble,
+                result,
+            } => self.on_sent(&place, bubble, result, now),
+            Outcome::Planned {
+                day,
+                weather,
+                result,
+            } => self.on_planned(day, weather, result, now),
+            Outcome::Lived { block, result } => self.on_lived(block, result, now),
+            Outcome::Reflected { people, result } => self.on_reflected(&people, result, now),
+            Outcome::Browsed {
+                channel,
+                items,
+                result,
+            } => self.on_browsed(&channel, &items, result, now),
+            Outcome::Posted {
+                channel,
+                text,
+                result,
+            } => self.on_posted(channel, text, result),
+            Outcome::Done => Ok(()),
+        }
+    }
+
+    /// Write into her journal and tell anyone watching.
+    fn record(&mut self, event: Event) -> Result<Entry> {
+        let entry = self.ghost.record(event)?;
+        let _ = self.entries.send(entry.clone());
+        Ok(entry)
+    }
+
+    /// Do something on a channel without waiting to hear how it went.
+    fn fire(&mut self, channel: &str, act: Act) {
+        let body = self.body.clone();
+        let channel = channel.to_owned();
+        self.jobs.spawn(async move {
+            if let Err(e) = body.act(&channel, act).await {
+                warn!("{channel}: {e}");
+            }
+            Outcome::Done
+        });
+    }
+
+    fn can(&self, channel: &str, what: Can) -> bool {
+        self.channels
+            .get(channel)
+            .is_some_and(|c| c.can.contains(&what))
+    }
+
+    /// Who she is and what moment this is, as a system prompt.
+    fn self_prompt(&self, now: DateTime<Utc>) -> Result<String> {
+        let journal = self.ghost.journal();
+        let moment = self.life.moment(journal, now)?;
+        let day = self.life.today(journal, now)?;
+        let recent = journal.last_n_of(&["lived", "reflected", "posted", "dormant"], 10)?;
+        let canon = self.ghost.memory().canon(40)?;
+        let scene = Scene {
+            identity: self.ghost.identity(),
+            clock: self.life.clock(),
+            now,
+            moment: &moment,
+            day: day.as_ref(),
+            recent: &recent,
+            canon: &canon,
+        };
+        Ok(narrate::fill(&self.prompts.this, &scene.pairs()))
+    }
+}
+
+/// `now` plus a std duration, without overflowing.
+fn after(now: DateTime<Utc>, wait: StdDuration) -> DateTime<Utc> {
+    now + Duration::from_std(wait).unwrap_or_else(|_| Duration::days(365))
+}

@@ -5,6 +5,9 @@
 //! is not a security boundary (anyone with the file can rewrite it), it is an
 //! honesty boundary: tampering has to be deliberate, and it leaves a mark the
 //! World can later detect.
+//!
+//! The [`Event`] enum is a forever format. Add variants and optional fields;
+//! never rename or remove.
 
 use std::path::Path;
 
@@ -12,14 +15,20 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Result, identity::Seal};
+use crate::{
+    Error, Result,
+    identity::Seal,
+    life::Block,
+    social::{Actor, Place},
+};
 
 /// File name of the journal inside a ghost directory.
 pub const JOURNAL_FILE: &str = "journal.db";
 
 const GENESIS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const COLUMNS: &str = "seq, at, kind, payload, prev_hash, hash";
 
-/// Something that happened to her.
+/// Something that happened to her, or something she did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Event {
@@ -28,33 +37,110 @@ pub enum Event {
         name: String,
         seal: Seal,
     },
+    /// Her body was not running between `since` and this entry.
+    Dormant {
+        since: DateTime<Utc>,
+    },
     Woke,
     Slept,
-    /// What she intends to do with a day.
+    /// What she intends to do with a day. `day` is the local date she woke on.
     Planned {
-        plan: String,
+        day: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weather: Option<String>,
+        blocks: Vec<Block>,
     },
-    /// Something she experienced, written by the life engine.
+    /// Something she experienced. `block` indexes the day's plan when the
+    /// experience is how a planned block actually went.
     Lived {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        block: Option<u32>,
     },
-    /// Someone said something to her.
+    /// A message reached her. She has not necessarily looked at it yet.
     Heard {
         channel: String,
-        from: String,
+        place: Place,
+        from: Actor,
+        /// The channel's own id for the message.
+        id: String,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+        /// It was meant for her: a direct message, a mention, or a reply.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        addressed: bool,
     },
-    /// She said something to someone.
+    /// She looked at a place and saw everything up to journal entry `upto`.
+    Read {
+        channel: String,
+        place: String,
+        upto: i64,
+    },
+    /// She sent a message.
     Said {
         channel: String,
+        place: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+    },
+    /// She reacted to a message.
+    Reacted {
+        channel: String,
+        place: String,
         to: String,
+        emoji: String,
+    },
+    /// She posted something publicly, to no one in particular.
+    Posted {
+        channel: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         text: String,
     },
-    /// A decision her will made, and why.
+    /// What she took away from scrolling a feed.
+    Saw {
+        channel: String,
+        text: String,
+    },
+    /// A decision she made, and why.
     Decided {
         about: String,
         decision: String,
         reason: String,
+    },
+    /// A shift in how she feels about someone. `toward` is a person key.
+    Felt {
+        toward: String,
+        delta: i8,
+        why: String,
+    },
+    /// Something about a person worth keeping. `about` is a person key.
+    Noted {
+        about: String,
+        text: String,
+    },
+    /// Something she means to do later.
+    Intended {
+        due: DateTime<Utc>,
+        what: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+    },
+    /// An intention was carried out or dropped. `intention` is its seq.
+    Settled {
+        intention: i64,
+        outcome: String,
+    },
+    /// She ended a relationship. There is no event that undoes this.
+    Left {
+        person: String,
+        why: String,
     },
     /// A reflection from her sleep cycle.
     Reflected {
@@ -71,13 +157,23 @@ impl Event {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Born { .. } => "born",
+            Self::Dormant { .. } => "dormant",
             Self::Woke => "woke",
             Self::Slept => "slept",
             Self::Planned { .. } => "planned",
             Self::Lived { .. } => "lived",
             Self::Heard { .. } => "heard",
+            Self::Read { .. } => "read",
             Self::Said { .. } => "said",
+            Self::Reacted { .. } => "reacted",
+            Self::Posted { .. } => "posted",
+            Self::Saw { .. } => "saw",
             Self::Decided { .. } => "decided",
+            Self::Felt { .. } => "felt",
+            Self::Noted { .. } => "noted",
+            Self::Intended { .. } => "intended",
+            Self::Settled { .. } => "settled",
+            Self::Left { .. } => "left",
             Self::Reflected { .. } => "reflected",
             Self::Canon { .. } => "canon",
         }
@@ -115,7 +211,7 @@ impl Journal {
             return Err(Error::NoJournal(path.to_path_buf()));
         }
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self { conn })
     }
 
@@ -162,29 +258,39 @@ impl Journal {
         Ok(self.len()? == 0)
     }
 
+    /// The seq of the newest entry, or 0.
+    pub fn last_seq(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT COALESCE(MAX(seq), 0) FROM events", [], |r| r.get(0))?)
+    }
+
     pub fn first(&self) -> Result<Option<Entry>> {
-        self.one(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events ORDER BY seq ASC LIMIT 1",
-        )
+        self.one(&format!(
+            "SELECT {COLUMNS} FROM events ORDER BY seq ASC LIMIT 1"
+        ))
     }
 
     pub fn last(&self) -> Result<Option<Entry>> {
-        self.one(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events ORDER BY seq DESC LIMIT 1",
-        )
+        self.one(&format!(
+            "SELECT {COLUMNS} FROM events ORDER BY seq DESC LIMIT 1"
+        ))
+    }
+
+    pub fn entry(&self, seq: i64) -> Result<Option<Entry>> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM events WHERE seq = ?1"),
+                [seq],
+                row_to_entry,
+            )
+            .optional()?)
     }
 
     /// The most recent entry whose kind is one of `kinds`.
     pub fn last_of(&self, kinds: &[&str]) -> Result<Option<Entry>> {
-        let placeholders = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events WHERE kind IN ({placeholders}) ORDER BY seq DESC LIMIT 1"
-        );
-        let mut stmt = self.conn.prepare(&sql)?;
-        let entry = stmt
-            .query_row(rusqlite::params_from_iter(kinds.iter()), row_to_entry)
-            .optional()?;
-        Ok(entry)
+        Ok(self.last_n_of(kinds, 1)?.pop())
     }
 
     /// The last `n` entries whose kind is one of `kinds`, oldest first.
@@ -192,7 +298,7 @@ impl Journal {
         let placeholders = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let limit = i64::try_from(n).unwrap_or(i64::MAX);
         let sql = format!(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events WHERE kind IN ({placeholders}) ORDER BY seq DESC LIMIT {limit}"
+            "SELECT {COLUMNS} FROM events WHERE kind IN ({placeholders}) ORDER BY seq DESC LIMIT {limit}"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt
@@ -203,11 +309,23 @@ impl Journal {
         Ok(rows)
     }
 
+    /// Entries of the given kinds with `seq > after`, oldest first.
+    pub fn of_kinds_after(&self, kinds: &[&str], after: i64) -> Result<Vec<Entry>> {
+        let placeholders = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT {COLUMNS} FROM events WHERE seq > {after} AND kind IN ({placeholders}) ORDER BY seq ASC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        stmt.query_map(rusqlite::params_from_iter(kinds.iter()), row_to_entry)?
+            .map(|r| r.map_err(Error::from))
+            .collect()
+    }
+
     /// Read up to `limit` entries starting at `from_seq` (inclusive).
     pub fn read(&self, from_seq: i64, limit: usize) -> Result<Vec<Entry>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events WHERE seq >= ?1 ORDER BY seq ASC LIMIT ?2",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM events WHERE seq >= ?1 ORDER BY seq ASC LIMIT ?2"
+        ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = stmt.query_map(params![from_seq, limit], row_to_entry)?;
         rows.map(|r| r.map_err(Error::from)).collect()
@@ -215,7 +333,7 @@ impl Journal {
 
     /// The last `n` entries, oldest first.
     pub fn tail(&self, n: usize) -> Result<Vec<Entry>> {
-        let total = self.len()?;
+        let total = self.last_seq()?;
         let n = i64::try_from(n).unwrap_or(i64::MAX);
         let from = (total - n + 1).max(1);
         self.read(from, usize::try_from(n).unwrap_or(usize::MAX))
@@ -223,9 +341,9 @@ impl Journal {
 
     /// Walk the whole chain and recompute every hash. Returns the length.
     pub fn verify(&self) -> Result<i64> {
-        let mut stmt = self.conn.prepare(
-            "SELECT seq, at, kind, payload, prev_hash, hash FROM events ORDER BY seq ASC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare(&format!("SELECT {COLUMNS} FROM events ORDER BY seq ASC"))?;
         let mut rows = stmt.query([])?;
         let mut expected_prev = GENESIS.to_owned();
         let mut expected_seq = 1;
@@ -266,16 +384,21 @@ impl Journal {
     fn one(&self, sql: &str) -> Result<Option<Entry>> {
         Ok(self.conn.query_row(sql, [], row_to_entry).optional()?)
     }
+
+    #[cfg(test)]
+    pub(crate) fn in_memory() -> Self {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        Self { conn }
+    }
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
     let at: String = row.get(1)?;
     let payload: String = row.get(3)?;
-    let at = DateTime::parse_from_rfc3339(&at)
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
-        })?
-        .with_timezone(&Utc);
+    let at = parse_stamp(&at).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     let event: Event = serde_json::from_str(&payload).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
     })?;
@@ -288,8 +411,13 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
     })
 }
 
-fn stamp(at: &DateTime<Utc>) -> String {
+/// The canonical text form of a timestamp. Sorts lexicographically.
+pub(crate) fn stamp(at: &DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+pub(crate) fn parse_stamp(s: &str) -> std::result::Result<DateTime<Utc>, chrono::ParseError> {
+    DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&Utc))
 }
 
 /// `blake3(prev_hash ‖ seq ‖ at ‖ kind ‖ payload)`, hex.
@@ -323,62 +451,71 @@ BEGIN SELECT RAISE(ABORT, 'journal is append-only'); END;
 mod tests {
     use super::*;
 
-    fn fresh() -> Journal {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(SCHEMA).unwrap();
-        Journal { conn }
+    fn lived(text: &str) -> Event {
+        Event::Lived {
+            text: text.into(),
+            block: None,
+        }
     }
 
     #[test]
     fn chain_links_and_verifies() {
-        let mut j = fresh();
+        let mut j = Journal::in_memory();
         let a = j.append(Event::Woke).unwrap();
-        let b = j
-            .append(Event::Lived {
-                text: "rain".into(),
-            })
-            .unwrap();
+        let b = j.append(lived("rain")).unwrap();
         assert_eq!(a.seq, 1);
         assert_eq!(a.prev_hash, GENESIS);
         assert_eq!(b.prev_hash, a.hash);
         assert_eq!(j.verify().unwrap(), 2);
         assert_eq!(j.last().unwrap().unwrap(), b);
+        assert_eq!(j.entry(1).unwrap().unwrap(), a);
     }
 
     #[test]
     fn storage_refuses_rewrites() {
-        let mut j = fresh();
+        let mut j = Journal::in_memory();
         j.append(Event::Woke).unwrap();
-        let upd = j.conn.execute("UPDATE events SET kind = 'slept'", []);
-        assert!(upd.is_err());
-        let del = j.conn.execute("DELETE FROM events", []);
-        assert!(del.is_err());
+        assert!(
+            j.conn
+                .execute("UPDATE events SET kind = 'slept'", [])
+                .is_err()
+        );
+        assert!(j.conn.execute("DELETE FROM events", []).is_err());
         assert_eq!(j.len().unwrap(), 1);
     }
 
     #[test]
-    fn last_of_filters_by_kind() {
-        let mut j = fresh();
+    fn filters_by_kind() {
+        let mut j = Journal::in_memory();
         j.append(Event::Woke).unwrap();
-        j.append(Event::Lived { text: "x".into() }).unwrap();
+        j.append(lived("x")).unwrap();
         j.append(Event::Slept).unwrap();
-        j.append(Event::Lived { text: "y".into() }).unwrap();
+        j.append(lived("y")).unwrap();
         let e = j.last_of(&["woke", "slept"]).unwrap().unwrap();
         assert_eq!(e.event, Event::Slept);
         assert!(j.last_of(&["canon"]).unwrap().is_none());
+        let after = j.of_kinds_after(&["lived"], 2).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].seq, 4);
     }
 
     #[test]
     fn tail_returns_newest_in_order() {
-        let mut j = fresh();
+        let mut j = Journal::in_memory();
         for i in 0..5 {
-            j.append(Event::Lived {
-                text: i.to_string(),
-            })
-            .unwrap();
+            j.append(lived(&i.to_string())).unwrap();
         }
         let t = j.tail(2).unwrap();
         assert_eq!(t.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![4, 5]);
         assert_eq!(j.tail(100).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn optional_fields_stay_out_of_the_payload() {
+        let e = lived("x");
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"kind":"lived","data":{"text":"x"}}"#
+        );
     }
 }

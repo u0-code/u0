@@ -16,6 +16,8 @@ pub struct OpenAi {
     /// `max_completion_tokens` for `OpenAI`'s newer models, `max_tokens` for
     /// most compatible servers. Chosen from the base URL unless overridden.
     max_tokens_param: String,
+    /// Send `response_format: json_object` when the caller expects JSON.
+    json_mode: bool,
 }
 
 impl OpenAi {
@@ -24,6 +26,7 @@ impl OpenAi {
         model: String,
         base_url: Option<String>,
         max_tokens_param: Option<String>,
+        json_mode: bool,
     ) -> Self {
         let base_url = base_url
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned())
@@ -42,6 +45,7 @@ impl OpenAi {
             model,
             base_url,
             max_tokens_param,
+            json_mode,
         }
     }
 }
@@ -65,6 +69,9 @@ impl Brain for OpenAi {
             "messages": messages,
         });
         body[&self.max_tokens_param] = json!(req.max_tokens);
+        if req.json && self.json_mode {
+            body["response_format"] = json!({"type": "json_object"});
+        }
         if let Some(t) = req.temperature {
             body["temperature"] = json!(t);
         }

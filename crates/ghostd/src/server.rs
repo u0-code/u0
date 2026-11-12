@@ -1,0 +1,367 @@
+//! The Ghost Protocol, server side.
+//!
+//! Each connection says hello and is then either a presence or a console.
+//! Presences are also her [`Body`]: when the mind acts on a channel, the
+//! request goes to whichever presence registered that channel and the mind
+//! waits for the platform's answer.
+
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+
+use async_trait::async_trait;
+use futures_util::StreamExt;
+use ghost_link::socket::{recv, send};
+use ghost_mind::{Act, Acted, Body, MindHandle, Question};
+use ghost_protocol::{
+    Action, Capability, Frame, GhostCard, Hello, Inbound, JournalRead, PROTOCOL, PresenceHello,
+    Role, Typing, Welcome, code, method,
+};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::{broadcast::error::RecvError, mpsc, oneshot},
+};
+use tracing::{debug, info, warn};
+
+use crate::wire;
+
+/// How long a client has to say hello.
+const HELLO_WITHIN: Duration = Duration::from_secs(10);
+/// How long a presence has to carry out an action.
+const ACT_WITHIN: Duration = Duration::from_secs(45);
+
+type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Frame>>>>;
+
+struct Presence {
+    out: mpsc::Sender<Frame>,
+    pending: Pending,
+    can: Vec<Capability>,
+}
+
+/// The presences currently connected, keyed by channel. This is her body.
+#[derive(Default)]
+pub struct Presences {
+    channels: Mutex<HashMap<String, Presence>>,
+    next_id: AtomicU64,
+}
+
+#[async_trait]
+impl Body for Presences {
+    async fn act(&self, channel: &str, act: Act) -> Result<Acted, String> {
+        let action: Action = wire::action(act);
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let (out, pending) = {
+            let channels = self.channels.lock().map_err(|e| e.to_string())?;
+            let presence = channels
+                .get(channel)
+                .ok_or_else(|| format!("{channel} is not connected"))?;
+            if !presence.can.contains(&action.needs()) {
+                return Err(format!("{channel} cannot {:?}", action.needs()));
+            }
+            presence
+                .pending
+                .lock()
+                .map_err(|e| e.to_string())?
+                .insert(id, reply_tx);
+            (presence.out.clone(), presence.pending.clone())
+        };
+        let forget = || {
+            if let Ok(mut pending) = pending.lock() {
+                pending.remove(&id);
+            }
+        };
+        if out
+            .send(Frame::request(id, method::ACT, &action))
+            .await
+            .is_err()
+        {
+            forget();
+            return Err(format!("{channel} went away"));
+        }
+        let frame = match tokio::time::timeout(ACT_WITHIN, reply_rx).await {
+            Ok(Ok(frame)) => frame,
+            Ok(Err(_)) => return Err(format!("{channel} went away")),
+            Err(_) => {
+                forget();
+                return Err(format!("{channel} did not answer in time"));
+            }
+        };
+        frame
+            .into_result::<ghost_protocol::Acted>()
+            .map(wire::acted)
+            .map_err(|e| e.message)
+    }
+}
+
+/// What every connection needs.
+pub struct Shared {
+    pub mind: MindHandle,
+    pub presences: Arc<Presences>,
+    pub token: Option<String>,
+    pub card: GhostCard,
+}
+
+/// Accept connections until the task is dropped.
+pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
+    loop {
+        match listener.accept().await {
+            Ok((stream, peer)) => {
+                let shared = shared.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = connection(stream, peer, shared).await {
+                        debug!("{peer}: {e:#}");
+                    }
+                });
+            }
+            Err(e) => {
+                warn!("accept failed: {e}");
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
+async fn connection(
+    stream: TcpStream,
+    peer: SocketAddr,
+    shared: Arc<Shared>,
+) -> anyhow::Result<()> {
+    let ws = tokio_tungstenite::accept_async(stream).await?;
+    let (mut sink, mut stream) = ws.split();
+
+    let Some(first) = tokio::time::timeout(HELLO_WITHIN, recv(&mut stream)).await?? else {
+        return Ok(());
+    };
+    let id = first.id.unwrap_or(0);
+    let refuse = |code: i64, message: &str| Frame::err(id, code, message);
+    let (Some(method::HELLO), Ok(hello)) = (first.method.as_deref(), first.params::<Hello>())
+    else {
+        send(&mut sink, &refuse(code::INVALID_REQUEST, "say hello first")).await?;
+        return Ok(());
+    };
+    if hello.protocol != PROTOCOL {
+        let message = format!("this daemon speaks protocol {PROTOCOL}");
+        send(&mut sink, &refuse(code::VERSION, &message)).await?;
+        return Ok(());
+    }
+    if shared.token.is_some() && hello.token != shared.token {
+        send(
+            &mut sink,
+            &refuse(code::UNAUTHORIZED, "wrong or missing token"),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Everything outgoing funnels through one writer.
+    let (out, mut outgoing) = mpsc::channel::<Frame>(256);
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = outgoing.recv().await {
+            if send(&mut sink, &frame).await.is_err() {
+                break;
+            }
+        }
+    });
+    let welcome = Frame::ok(
+        id,
+        &Welcome {
+            protocol: PROTOCOL,
+            ghost: shared.card.clone(),
+        },
+    );
+    match (hello.role, hello.presence) {
+        (Role::Presence, Some(presence)) => {
+            carry(presence, welcome, id, out, &mut stream, &shared, peer).await;
+        }
+        (Role::Presence, None) => {
+            let _ = out
+                .send(refuse(
+                    code::INVALID_PARAMS,
+                    "a presence must describe itself",
+                ))
+                .await;
+        }
+        (Role::Console, _) => {
+            let _ = out.send(welcome).await;
+            watch(out, &mut stream, &shared).await;
+        }
+    }
+    // Let the writer flush whatever is queued, then end with the connection.
+    let _ = tokio::time::timeout(Duration::from_secs(2), writer).await;
+    Ok(())
+}
+
+/// A presence: register its channel, feed what it hears to the mind, and
+/// route its answers back to whoever asked.
+async fn carry<S>(
+    hello: PresenceHello,
+    welcome: Frame,
+    hello_id: u64,
+    out: mpsc::Sender<Frame>,
+    stream: &mut S,
+    shared: &Shared,
+    peer: SocketAddr,
+) where
+    S: StreamExt<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    let channel = hello.channel;
+    let pending: Pending = Pending::default();
+    let registered = shared.presences.channels.lock().is_ok_and(|mut channels| {
+        if channels.contains_key(&channel) {
+            return false;
+        }
+        channels.insert(
+            channel.clone(),
+            Presence {
+                out: out.clone(),
+                pending: pending.clone(),
+                can: hello.can.clone(),
+            },
+        );
+        true
+    });
+    if !registered {
+        let message = format!("another presence already carries {channel}");
+        let _ = out
+            .send(Frame::err(hello_id, code::CHANNEL_TAKEN, message))
+            .await;
+        return;
+    }
+    let _ = out.send(welcome).await;
+    info!("{channel} connected from {peer}");
+    let can = hello.can.into_iter().map(wire::can).collect();
+    let _ = shared
+        .mind
+        .online(&channel, hello.me.map(wire::actor), can)
+        .await;
+
+    loop {
+        let frame = match recv(stream).await {
+            Ok(Some(frame)) => frame,
+            Ok(None) => break,
+            Err(e) => {
+                debug!("{channel}: {e:#}");
+                break;
+            }
+        };
+        if frame.is_response() {
+            let waiter = frame
+                .id
+                .and_then(|id| pending.lock().ok().and_then(|mut p| p.remove(&id)));
+            if let Some(waiter) = waiter {
+                let _ = waiter.send(frame);
+            }
+            continue;
+        }
+        match frame.method.as_deref() {
+            Some(method::INBOUND) => match frame.params::<Inbound>() {
+                Ok(message) => {
+                    let _ = shared.mind.heard(&channel, wire::incoming(message)).await;
+                }
+                Err(e) => warn!("{channel}: malformed inbound: {e}"),
+            },
+            Some(method::TYPING) => {
+                if let Ok(typing) = frame.params::<Typing>() {
+                    let _ = shared.mind.typing(&channel, &typing.place).await;
+                }
+            }
+            other => {
+                if let Some(id) = frame.id {
+                    let message = format!("unknown method {other:?}");
+                    let _ = out
+                        .send(Frame::err(id, code::METHOD_NOT_FOUND, message))
+                        .await;
+                }
+            }
+        }
+    }
+
+    if let Ok(mut channels) = shared.presences.channels.lock() {
+        channels.remove(&channel);
+    }
+    info!("{channel} disconnected");
+    let _ = shared.mind.offline(&channel).await;
+}
+
+/// A console: answer its questions and, if asked, stream her journal.
+async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, shared: &Shared)
+where
+    S: StreamExt<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    let mut subscribed = false;
+    while let Ok(Some(frame)) = recv(stream).await {
+        let Some(id) = frame.id else { continue };
+        let question = match frame.method.as_deref() {
+            Some(method::STATUS) => Question::Status,
+            Some(method::AGENDA) => Question::Agenda,
+            Some(method::PEOPLE) => Question::People,
+            Some(method::JOURNAL_READ) => match frame.params::<JournalRead>() {
+                Ok(read) => Question::Journal {
+                    from: read.from,
+                    limit: read.limit as usize,
+                },
+                Err(e) => {
+                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
+                    continue;
+                }
+            },
+            Some(method::JOURNAL_SUBSCRIBE) => {
+                if !subscribed {
+                    subscribed = true;
+                    let mut entries = shared.mind.watch();
+                    let out = out.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            match entries.recv().await {
+                                Ok(entry) => {
+                                    let frame = Frame::notify(method::JOURNAL_ENTRY, &entry);
+                                    if out.send(frame).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Err(RecvError::Lagged(missed)) => {
+                                    debug!("a console fell {missed} entries behind");
+                                }
+                                Err(RecvError::Closed) => break,
+                            }
+                        }
+                    });
+                }
+                let _ = out.send(Frame::ok(id, &serde_json::json!({}))).await;
+                continue;
+            }
+            other => {
+                // Nothing here writes. There is no method that could.
+                let message = format!("unknown method {other:?}");
+                let _ = out
+                    .send(Frame::err(id, code::METHOD_NOT_FOUND, message))
+                    .await;
+                continue;
+            }
+        };
+        let reply = match shared.mind.ask(question).await {
+            Ok(value) => Frame::ok(id, &value),
+            Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
+        };
+        if out.send(reply).await.is_err() {
+            break;
+        }
+    }
+}

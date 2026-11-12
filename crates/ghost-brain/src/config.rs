@@ -43,6 +43,10 @@ pub enum ProviderConfig {
         /// `max_tokens` or `max_completion_tokens`. Guessed from `base_url`
         /// when absent.
         max_tokens_param: Option<String>,
+        /// Ask the server to enforce JSON output when a caller needs it.
+        /// Off by default: not every compatible server accepts the field.
+        #[serde(default)]
+        json_mode: bool,
     },
     ClaudeCode {
         /// Path to the `claude` binary. Default: found on PATH.
@@ -84,14 +88,14 @@ impl ProviderConfig {
     }
 
     /// Instantiate the provider. Fails early on a missing key.
-    pub fn build(&self) -> Result<Box<dyn Brain>> {
+    pub fn build(&self) -> Result<std::sync::Arc<dyn Brain>> {
         Ok(match self {
             Self::Anthropic {
                 model,
                 api_key_env,
                 api_key,
                 base_url,
-            } => Box::new(Anthropic::new(
+            } => std::sync::Arc::new(Anthropic::new(
                 key(api_key.as_ref(), api_key_env)?,
                 model.clone(),
                 base_url.clone(),
@@ -102,17 +106,19 @@ impl ProviderConfig {
                 api_key,
                 base_url,
                 max_tokens_param,
-            } => Box::new(OpenAi::new(
+                json_mode,
+            } => std::sync::Arc::new(OpenAi::new(
                 key(api_key.as_ref(), api_key_env)?,
                 model.clone(),
                 base_url.clone(),
                 max_tokens_param.clone(),
+                *json_mode,
             )),
             Self::ClaudeCode {
                 program,
                 model,
                 timeout_secs,
-            } => Box::new(cli::ClaudeCode::new(
+            } => std::sync::Arc::new(cli::ClaudeCode::new(
                 program.clone(),
                 model.clone(),
                 timeout_secs.map(Duration::from_secs),
@@ -121,7 +127,7 @@ impl ProviderConfig {
                 program,
                 model,
                 timeout_secs,
-            } => Box::new(cli::Codex::new(
+            } => std::sync::Arc::new(cli::Codex::new(
                 program.clone(),
                 model.clone(),
                 timeout_secs.map(Duration::from_secs),
