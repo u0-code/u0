@@ -789,6 +789,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghost-work"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "ghost-brain",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ghost-x"
 version = "0.0.1"
 dependencies = [

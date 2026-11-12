@@ -4,7 +4,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use crate::{Brain, Completion, Error, Reply, Result, Role};
+use crate::{
+    Brain, Call, Completion, Error, Item, Reply, Result, Role, Step, Stop, Turn, Usage, http,
+};
 
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -40,13 +42,79 @@ impl OpenAi {
             }
         });
         Self {
-            client: reqwest::Client::new(),
+            client: http::client(),
             api_key,
             model,
             base_url,
             max_tokens_param,
             json_mode,
         }
+    }
+
+    async fn post(&self, body: &Value) -> Result<(Value, String)> {
+        http::send("openai", || {
+            self.client
+                .post(format!("{}/chat/completions", self.base_url))
+                .bearer_auth(&self.api_key)
+                .json(body)
+        })
+        .await
+    }
+}
+
+/// A working transcript in the wire format.
+fn wire(system: &str, items: &[Item]) -> Vec<Value> {
+    let mut messages = vec![json!({"role": "system", "content": system})];
+    for item in items {
+        match item {
+            Item::User { text } => messages.push(json!({"role": "user", "content": text})),
+            Item::Assistant { text, calls, carry } => {
+                let mut m = json!({"role": "assistant", "content": text});
+                if !calls.is_empty() {
+                    m["tool_calls"] = calls
+                        .iter()
+                        .map(|c| {
+                            // A call whose arguments were not JSON goes back
+                            // as the text the model wrote.
+                            let arguments = match &c.args {
+                                Value::String(raw) => raw.clone(),
+                                other => other.to_string(),
+                            };
+                            json!({
+                                "id": c.id,
+                                "type": "function",
+                                "function": {"name": c.name, "arguments": arguments},
+                            })
+                        })
+                        .collect();
+                }
+                // Servers that think out loud want their thinking handed
+                // back while a run of tool calls is in progress.
+                if let Some(Value::Object(extra)) = carry {
+                    for (k, v) in extra {
+                        m[k] = v.clone();
+                    }
+                }
+                messages.push(m);
+            }
+            Item::Result { id, output, .. } => {
+                messages.push(json!({"role": "tool", "tool_call_id": id, "content": output}));
+            }
+        }
+    }
+    messages
+}
+
+fn usage(v: &Value) -> Usage {
+    let u = &v["usage"];
+    Usage {
+        input: u["prompt_tokens"].as_u64().unwrap_or(0),
+        // DeepSeek reports cache hits at the top level; OpenAI nests them.
+        cached: u["prompt_cache_hit_tokens"]
+            .as_u64()
+            .or_else(|| u["prompt_tokens_details"]["cached_tokens"].as_u64())
+            .unwrap_or(0),
+        output: u["completion_tokens"].as_u64().unwrap_or(0),
     }
 }
 
@@ -76,24 +144,7 @@ impl Brain for OpenAi {
             body["temperature"] = json!(t);
         }
 
-        let resp = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            return Err(Error::Api {
-                provider: "openai".into(),
-                status: status.as_u16(),
-                body: text,
-            });
-        }
-
-        let v: Value = serde_json::from_str(&text)?;
+        let (v, text) = self.post(&body).await?;
         let out = v["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or_default()
@@ -111,5 +162,138 @@ impl Brain for OpenAi {
             input_tokens: v["usage"]["prompt_tokens"].as_u64(),
             output_tokens: v["usage"]["completion_tokens"].as_u64(),
         })
+    }
+
+    fn works(&self) -> bool {
+        true
+    }
+
+    async fn step(&self, turn: &Turn) -> Result<Step> {
+        let mut body = json!({
+            "model": self.model,
+            "messages": wire(&turn.system, &turn.items),
+        });
+        body[&self.max_tokens_param] = json!(turn.max_tokens);
+        if !turn.tools.is_empty() {
+            body["tools"] = turn
+                .tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        },
+                    })
+                })
+                .collect();
+        }
+        if let Some(t) = turn.temperature {
+            body["temperature"] = json!(t);
+        }
+
+        let (v, text) = self.post(&body).await?;
+        let choice = &v["choices"][0];
+        let message = &choice["message"];
+        if !message.is_object() {
+            return Err(Error::Malformed {
+                provider: "openai".into(),
+                detail: format!("no message in {text}"),
+            });
+        }
+        let calls: Vec<Call> = message["tool_calls"]
+            .as_array()
+            .map(|calls| {
+                calls
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let raw = c["function"]["arguments"].as_str().unwrap_or("{}");
+                        let raw = if raw.trim().is_empty() { "{}" } else { raw };
+                        Call {
+                            id: c["id"]
+                                .as_str()
+                                .map_or_else(|| format!("call_{i}"), str::to_owned),
+                            name: c["function"]["name"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned(),
+                            args: serde_json::from_str(raw)
+                                .unwrap_or_else(|_| Value::String(raw.to_owned())),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let stop = if !calls.is_empty() {
+            Stop::Calls
+        } else if choice["finish_reason"].as_str() == Some("length") {
+            Stop::Length
+        } else {
+            Stop::End
+        };
+        let carry = message
+            .get("reasoning_content")
+            .filter(|r| r.as_str().is_some_and(|s| !s.is_empty()))
+            .map(|r| json!({"reasoning_content": r}));
+        Ok(Step {
+            text: message["content"]
+                .as_str()
+                .unwrap_or_default()
+                .trim()
+                .to_owned(),
+            calls,
+            stop,
+            usage: usage(&v),
+            model: v["model"].as_str().unwrap_or(&self.model).to_owned(),
+            carry,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_transcript_goes_on_the_wire_in_order() {
+        let items = vec![
+            Item::user("list the files"),
+            Item::Assistant {
+                text: String::new(),
+                calls: vec![Call {
+                    id: "c1".into(),
+                    name: "shell".into(),
+                    args: json!({"command": "ls"}),
+                }],
+                carry: Some(json!({"reasoning_content": "they want a listing"})),
+            },
+            Item::Result {
+                id: "c1".into(),
+                name: "shell".into(),
+                output: "a.txt".into(),
+                failed: false,
+            },
+        ];
+        let m = wire("sys", &items);
+        assert_eq!(m.len(), 4);
+        assert_eq!(m[0]["role"], "system");
+        assert_eq!(
+            m[2]["tool_calls"][0]["function"]["arguments"],
+            r#"{"command":"ls"}"#
+        );
+        assert_eq!(m[2]["reasoning_content"], "they want a listing");
+        assert_eq!(m[3]["role"], "tool");
+        assert_eq!(m[3]["tool_call_id"], "c1");
+    }
+
+    #[test]
+    fn cache_hits_are_read_from_either_shape() {
+        let deepseek = json!({"usage": {"prompt_tokens": 100, "prompt_cache_hit_tokens": 80, "completion_tokens": 5}});
+        let openai = json!({"usage": {"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 60}, "completion_tokens": 5}});
+        assert_eq!(usage(&deepseek).cached, 80);
+        assert_eq!(usage(&openai).cached, 60);
     }
 }

@@ -1,0 +1,49 @@
+# ghost-work
+
+The loop a ghost does things with: a model that can use tools, a set of
+tools, and state that outlives any one context window.
+
+**Is:** a [`Worker`] that takes a `ghost_brain::Brain`, a `Toolbox` and an
+`Undertaking` and works until the undertaking is finished or something stops
+it. A `Machine` to work on (a local directory, or a Docker container). The
+standard tools: `shell`, `read`, `write`, `edit`, `plan`, `note`, `done`.
+
+**Is not:** a person. It does not know who is working; that is a paragraph
+handed in by whoever starts it. `ghost-mind` is what makes it hers.
+
+What makes it hold up over hours:
+
+- The plan, the notes and the outcome live on disk, and the transcript is
+  saved after every step. Kill the process anywhere; run it again with the
+  same state directory and it carries on.
+- When the transcript nears its budget, old tool output is dropped. If that
+  is not enough the worker writes itself a handoff and starts a fresh sitting
+  from the task, the plan and its notes.
+- Saying "finished" the first time gets the task read back, with an
+  instruction to check each requirement against the real state.
+- Talking without acting, repeating a call, and running low on steps are each
+  said out loud to the model.
+
+## Run one
+
+```bash
+export DEEPSEEK_API_KEY=...
+docker run -d --name sandbox -w /work python:3.12-slim sleep infinity
+cargo run --release -p ghost-work -- \
+  --task "Write fizzbuzz.py and a test for it; run both." \
+  --state ./run1 --docker sandbox --workdir /work
+```
+
+The report is JSON on stdout: why it ended, steps, sittings, tokens (read,
+cached, written) and seconds. `./run1/log.jsonl` has a line per step.
+
+`--local <dir>` works in a directory on this computer instead. That is not a
+sandbox: commands the model writes run as you. Use a container for anything
+you did not write the task for yourself.
+
+Any OpenAI-compatible server works (`--base-url`, `--model`,
+`--api-key-env`); `--kind anthropic` uses the Anthropic API.
+
+The design and the interfaces are in [`docs/WORK.md`](../../docs/WORK.md).
+
+[`Worker`]: src/worker.rs

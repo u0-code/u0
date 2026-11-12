@@ -7,11 +7,15 @@
 pub mod anthropic;
 pub mod cli;
 pub mod config;
+mod http;
 pub mod openai;
+pub mod step;
 
 use std::{fmt::Write as _, time::Duration};
 
 use async_trait::async_trait;
+
+pub use step::{Call, Item, Step, Stop, ToolSpec, Turn, Usage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -129,6 +133,8 @@ pub enum Error {
         status: String,
         stderr: String,
     },
+    #[error("{0} cannot run tools; it can only answer")]
+    NoTools(String),
     #[error("timed out after {0:?}")]
     Timeout(Duration),
     #[error("malformed reply from {provider}: {detail}")]
@@ -141,13 +147,28 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Something that can produce her next message.
+/// Something that can think for her.
+///
+/// Every brain can answer a [`Completion`]: text in, text out. A brain that
+/// is also a runtime for work can take a [`Turn`]: a transcript and a set of
+/// tools, one step at a time. The loop that drives those steps lives
+/// elsewhere; a brain never runs a tool itself.
 #[async_trait]
 pub trait Brain: Send + Sync {
     /// Human-readable, e.g. `anthropic/claude-sonnet-5`.
     fn label(&self) -> String;
 
     async fn complete(&self, req: &Completion) -> Result<Reply>;
+
+    /// Whether [`Brain::step`] is implemented.
+    fn works(&self) -> bool {
+        false
+    }
+
+    /// One step of work. The default refuses.
+    async fn step(&self, _turn: &Turn) -> Result<Step> {
+        Err(Error::NoTools(self.label()))
+    }
 }
 
 #[cfg(test)]

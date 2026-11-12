@@ -3,7 +3,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use crate::{Brain, Completion, Error, Reply, Result, Role};
+use crate::{
+    Brain, Call, Completion, Error, Item, Reply, Result, Role, Step, Stop, Turn, Usage, http,
+};
 
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const VERSION: &str = "2023-06-01";
@@ -18,7 +20,7 @@ pub struct Anthropic {
 impl Anthropic {
     pub fn new(api_key: String, model: String, base_url: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: http::client(),
             api_key,
             model,
             base_url: base_url
@@ -27,6 +29,74 @@ impl Anthropic {
                 .to_owned(),
         }
     }
+
+    async fn post(&self, body: &Value) -> Result<(Value, String)> {
+        http::send("anthropic", || {
+            self.client
+                .post(format!("{}/v1/messages", self.base_url))
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", VERSION)
+                .json(body)
+        })
+        .await
+    }
+}
+
+/// A working transcript in the wire format. Tool results are user turns, and
+/// neighbouring turns of the same role are merged, as the API requires.
+fn wire(items: &[Item]) -> Vec<Value> {
+    let mut messages: Vec<Value> = Vec::new();
+    let mut push = |role: &str, blocks: Vec<Value>| {
+        if let Some(last) = messages.last_mut()
+            && last["role"] == role
+            && let Some(content) = last["content"].as_array_mut()
+        {
+            content.extend(blocks);
+            return;
+        }
+        messages.push(json!({"role": role, "content": blocks}));
+    };
+    for item in items {
+        match item {
+            Item::User { text } => push("user", vec![json!({"type": "text", "text": text})]),
+            Item::Assistant { text, calls, carry } => {
+                let mut blocks = Vec::new();
+                // Thinking blocks come first and go back exactly as received.
+                if let Some(Value::Array(kept)) = carry {
+                    blocks.extend(kept.iter().cloned());
+                }
+                if !text.is_empty() {
+                    blocks.push(json!({"type": "text", "text": text}));
+                }
+                for c in calls {
+                    let input = if c.args.is_object() {
+                        c.args.clone()
+                    } else {
+                        json!({})
+                    };
+                    blocks.push(
+                        json!({"type": "tool_use", "id": c.id, "name": c.name, "input": input}),
+                    );
+                }
+                if blocks.is_empty() {
+                    blocks.push(json!({"type": "text", "text": "(nothing)"}));
+                }
+                push("assistant", blocks);
+            }
+            Item::Result {
+                id, output, failed, ..
+            } => push(
+                "user",
+                vec![json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": output,
+                    "is_error": failed,
+                })],
+            ),
+        }
+    }
+    messages
 }
 
 #[async_trait]
@@ -56,25 +126,7 @@ impl Brain for Anthropic {
             body["temperature"] = json!(t);
         }
 
-        let resp = self
-            .client
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", VERSION)
-            .json(&body)
-            .send()
-            .await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            return Err(Error::Api {
-                provider: "anthropic".into(),
-                status: status.as_u16(),
-                body: text,
-            });
-        }
-
-        let v: Value = serde_json::from_str(&text)?;
+        let (v, text) = self.post(&body).await?;
         let out = v["content"]
             .as_array()
             .map(|parts| {
@@ -97,5 +149,122 @@ impl Brain for Anthropic {
             input_tokens: v["usage"]["input_tokens"].as_u64(),
             output_tokens: v["usage"]["output_tokens"].as_u64(),
         })
+    }
+
+    fn works(&self) -> bool {
+        true
+    }
+
+    async fn step(&self, turn: &Turn) -> Result<Step> {
+        let mut messages = wire(&turn.items);
+        // Cache everything up to the newest message: a loop resends the same
+        // prefix every step, and this is what makes that affordable.
+        if let Some(block) = messages
+            .last_mut()
+            .and_then(|m| m["content"].as_array_mut())
+            .and_then(|c| c.last_mut())
+        {
+            block["cache_control"] = json!({"type": "ephemeral"});
+        }
+        let mut body = json!({
+            "model": self.model,
+            "max_tokens": turn.max_tokens,
+            "system": [{"type": "text", "text": turn.system, "cache_control": {"type": "ephemeral"}}],
+            "messages": messages,
+        });
+        if !turn.tools.is_empty() {
+            body["tools"] = turn
+                .tools
+                .iter()
+                .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.parameters}))
+                .collect();
+        }
+        if let Some(t) = turn.temperature {
+            body["temperature"] = json!(t);
+        }
+
+        let (v, text) = self.post(&body).await?;
+        let Some(blocks) = v["content"].as_array() else {
+            return Err(Error::Malformed {
+                provider: "anthropic".into(),
+                detail: format!("no content in {text}"),
+            });
+        };
+        let mut said = String::new();
+        let mut calls = Vec::new();
+        let mut kept = Vec::new();
+        for block in blocks {
+            match block["type"].as_str() {
+                Some("text") => said.push_str(block["text"].as_str().unwrap_or_default()),
+                Some("tool_use") => calls.push(Call {
+                    id: block["id"].as_str().unwrap_or_default().to_owned(),
+                    name: block["name"].as_str().unwrap_or_default().to_owned(),
+                    args: block["input"].clone(),
+                }),
+                Some("thinking" | "redacted_thinking") => kept.push(block.clone()),
+                _ => {}
+            }
+        }
+        let stop = match v["stop_reason"].as_str() {
+            _ if !calls.is_empty() => Stop::Calls,
+            Some("max_tokens") => Stop::Length,
+            _ => Stop::End,
+        };
+        let u = &v["usage"];
+        let cached = u["cache_read_input_tokens"].as_u64().unwrap_or(0);
+        Ok(Step {
+            text: said.trim().to_owned(),
+            calls,
+            stop,
+            usage: Usage {
+                // The API counts fresh, cache-written and cache-read input
+                // separately; together they are what the model read.
+                input: u["input_tokens"].as_u64().unwrap_or(0)
+                    + u["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                    + cached,
+                cached,
+                output: u["output_tokens"].as_u64().unwrap_or(0),
+            },
+            model: v["model"].as_str().unwrap_or(&self.model).to_owned(),
+            carry: (!kept.is_empty()).then_some(Value::Array(kept)),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn results_merge_into_one_user_turn() {
+        let call = |id: &str| Call {
+            id: id.into(),
+            name: "shell".into(),
+            args: json!({"command": "ls"}),
+        };
+        let result = |id: &str| Item::Result {
+            id: id.into(),
+            name: "shell".into(),
+            output: "ok".into(),
+            failed: false,
+        };
+        let items = vec![
+            Item::user("go"),
+            Item::Assistant {
+                text: "two things".into(),
+                calls: vec![call("a"), call("b")],
+                carry: None,
+            },
+            result("a"),
+            result("b"),
+            Item::user("and now?"),
+        ];
+        let m = wire(&items);
+        assert_eq!(m.len(), 3, "user, assistant, user");
+        assert_eq!(m[1]["content"].as_array().unwrap().len(), 3);
+        let last = m[2]["content"].as_array().unwrap();
+        assert_eq!(last.len(), 3, "two results and the follow-up share a turn");
+        assert_eq!(last[0]["type"], "tool_result");
+        assert_eq!(last[2]["type"], "text");
     }
 }
