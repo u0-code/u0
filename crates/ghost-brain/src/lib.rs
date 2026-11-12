@@ -156,6 +156,9 @@ pub struct CliAgent {
     /// The program to run.
     pub program: String,
     pub model: Option<String>,
+    /// Extra arguments for every run, such as `-c` settings that point the
+    /// Codex CLI at another provider.
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

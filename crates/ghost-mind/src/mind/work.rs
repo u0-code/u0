@@ -26,7 +26,7 @@ use ghost_core::{
     will::{self, Stage},
 };
 use ghost_work::{
-    Ended, Limits, Report, Undertaking, Worker, claude, tools,
+    Ended, Limits, Report, Undertaking, Worker, claude, codex, tools,
     worker::{opening_text, system_prompt},
 };
 use tracing::{info, warn};
@@ -61,10 +61,7 @@ impl Mind {
             return Some(Stepper::Own(brain.clone()));
         }
         self.workshop.runner.as_ref()?;
-        self.think
-            .cli()
-            .filter(|agent| agent.kind == CliKind::Claude)
-            .map(Stepper::Cli)
+        self.think.cli().map(Stepper::Cli)
     }
 
     /// Whether taking things on is possible at all in this body.
@@ -248,7 +245,10 @@ impl Mind {
                     stop: pause,
                 };
                 self.jobs.spawn(async move {
-                    let report = claude::sit(&seat).await;
+                    let report = match seat.agent.kind {
+                        CliKind::Claude => claude::sit(&seat).await,
+                        CliKind::Codex => codex::sit(&seat).await,
+                    };
                     let progress = seat.undertaking.state().progress();
                     Outcome::Worked {
                         id,

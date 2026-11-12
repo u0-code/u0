@@ -12,6 +12,7 @@
 //! The design is in `docs/WORK.md`.
 
 pub mod claude;
+pub mod codex;
 pub mod machine;
 pub mod mcp;
 pub mod tool;

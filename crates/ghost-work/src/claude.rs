@@ -129,6 +129,7 @@ pub async fn sit(seat: &Seat) -> Report {
     if let Some(model) = &seat.agent.model {
         command.args(["--model", model]);
     }
+    command.args(&seat.agent.args);
     if let Some(session) = seat.undertaking.state().session {
         command.args(["--resume", &session]);
     }

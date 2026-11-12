@@ -424,10 +424,16 @@ impl Worker {
                 shown.join("\n\n")
             ))],
             tools: Vec::new(),
-            max_tokens: 1200,
+            // Room for a model that thinks before it answers: thinking is
+            // counted against this too, and a verdict cut off by it is none.
+            max_tokens: self.limits.max_output.max(6000),
             temperature: self.limits.temperature,
         };
         match self.brain.step(&turn).await {
+            Ok(step) if step.text.trim().is_empty() => {
+                tracing::warn!("the reviewer said nothing; the claim stands unreviewed");
+                (step.usage, None)
+            }
             Ok(step) => {
                 let verdict = step.text.trim();
                 let passed = verdict

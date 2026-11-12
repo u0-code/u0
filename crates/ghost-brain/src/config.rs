@@ -53,11 +53,19 @@ pub enum ProviderConfig {
         program: Option<String>,
         model: Option<String>,
         timeout_secs: Option<u64>,
+        /// Extra arguments for every run.
+        #[serde(default)]
+        args: Vec<String>,
     },
     Codex {
         program: Option<String>,
         model: Option<String>,
         timeout_secs: Option<u64>,
+        /// Extra arguments for every run, for instance the `-c` settings
+        /// that point Codex at a provider other than the one it is signed
+        /// in to.
+        #[serde(default)]
+        args: Vec<String>,
     },
 }
 
@@ -118,20 +126,28 @@ impl ProviderConfig {
                 program,
                 model,
                 timeout_secs,
-            } => std::sync::Arc::new(cli::ClaudeCode::new(
-                program.clone(),
-                model.clone(),
-                timeout_secs.map(Duration::from_secs),
-            )),
+                args,
+            } => std::sync::Arc::new(
+                cli::ClaudeCode::new(
+                    program.clone(),
+                    model.clone(),
+                    timeout_secs.map(Duration::from_secs),
+                )
+                .with_args(args.clone()),
+            ),
             Self::Codex {
                 program,
                 model,
                 timeout_secs,
-            } => std::sync::Arc::new(cli::Codex::new(
-                program.clone(),
-                model.clone(),
-                timeout_secs.map(Duration::from_secs),
-            )),
+                args,
+            } => std::sync::Arc::new(
+                cli::Codex::new(
+                    program.clone(),
+                    model.clone(),
+                    timeout_secs.map(Duration::from_secs),
+                )
+                .with_args(args.clone()),
+            ),
         })
     }
 }

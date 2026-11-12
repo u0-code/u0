@@ -9,8 +9,8 @@
 //! Run it again with the same `--state` to pick up where it stopped. The
 //! report is printed to stdout as JSON; progress goes to stderr.
 //!
-//! `--runtime claude` has the installed Claude Code CLI do the stepping,
-//! with this program's tools and none of its own. `--serve-mcp` is the other
+//! `--runtime claude` or `--runtime codex` has that installed CLI do the
+//! stepping, with this program's tools and not its own. `--serve-mcp` is the other
 //! half of that: it serves the tools on stdio and is started by the CLI.
 
 use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
@@ -19,7 +19,7 @@ use anyhow::{Context, bail};
 use clap::Parser;
 use ghost_brain::{Brain, CliAgent, CliKind, anthropic::Anthropic, openai::OpenAi};
 use ghost_work::{
-    Docker, Limits, Local, Machine, Undertaking, Worker, claude, mcp, tools,
+    Docker, Limits, Local, Machine, Undertaking, Worker, claude, codex, mcp, tools,
     worker::{opening_text, system_prompt},
 };
 
@@ -68,6 +68,13 @@ struct Args {
     /// The Claude Code program, for `--runtime claude`.
     #[arg(long, default_value = "claude")]
     claude_bin: String,
+    /// The Codex program, for `--runtime codex`.
+    #[arg(long, default_value = "codex")]
+    codex_bin: String,
+    /// An extra argument for the command-line agent. Repeatable. For
+    /// Codex on another provider: `--agent-arg=-c --agent-arg='model_provider="x"'`.
+    #[arg(long = "agent-arg", allow_hyphen_values = true)]
+    agent_args: Vec<String>,
 
     /// For the native runtime: `openai` (any compatible server) or `anthropic`.
     #[arg(long, default_value = "openai")]
@@ -224,7 +231,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let report = match args.runtime.as_str() {
-        "claude" => {
+        "claude" | "codex" => {
             let me = std::env::current_exe().context("find this program")?;
             let state = args
                 .state
@@ -244,11 +251,21 @@ async fn main() -> anyhow::Result<()> {
                 place_args[at + 1] = dir.canonicalize()?.display().to_string();
             }
             tool_server.extend(place_args);
-            claude::sit(&claude::Seat {
+            let by_codex = args.runtime == "codex";
+            let seat = claude::Seat {
                 agent: CliAgent {
-                    kind: CliKind::Claude,
-                    program: args.claude_bin.clone(),
+                    kind: if by_codex {
+                        CliKind::Codex
+                    } else {
+                        CliKind::Claude
+                    },
+                    program: if by_codex {
+                        args.codex_bin.clone()
+                    } else {
+                        args.claude_bin.clone()
+                    },
                     model: args.model.clone(),
+                    args: args.agent_args.clone(),
                 },
                 system: system_prompt("", &place, &limits),
                 opening: opening_text(&undertaking.state()),
@@ -257,8 +274,12 @@ async fn main() -> anyhow::Result<()> {
                 max_turns: args.max_steps,
                 max_seconds: args.max_minutes * 60,
                 stop: Arc::new(AtomicBool::new(false)),
-            })
-            .await
+            };
+            if by_codex {
+                codex::sit(&seat).await
+            } else {
+                claude::sit(&seat).await
+            }
         }
         "native" => {
             let key = std::env::var(&args.api_key_env)
@@ -292,7 +313,7 @@ async fn main() -> anyhow::Result<()> {
             .run()
             .await
         }
-        other => bail!("unknown runtime {other:?}: use native or claude"),
+        other => bail!("unknown runtime {other:?}: use native, claude or codex"),
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())

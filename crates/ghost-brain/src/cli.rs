@@ -22,6 +22,7 @@ pub struct ClaudeCode {
     program: String,
     model: Option<String>,
     timeout: Duration,
+    extra: Vec<String>,
 }
 
 impl ClaudeCode {
@@ -30,7 +31,15 @@ impl ClaudeCode {
             program: program.unwrap_or_else(|| "claude".into()),
             model,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
+            extra: Vec::new(),
         }
+    }
+
+    /// Extra arguments for every run.
+    #[must_use]
+    pub fn with_args(mut self, args: Vec<String>) -> Self {
+        self.extra = args;
+        self
     }
 }
 
@@ -45,6 +54,7 @@ impl Brain for ClaudeCode {
             kind: CliKind::Claude,
             program: self.program.clone(),
             model: self.model.clone(),
+            args: self.extra.clone(),
         })
     }
 
@@ -65,6 +75,7 @@ impl Brain for ClaudeCode {
             "--strict-mcp-config".into(),
             "--disable-slash-commands".into(),
         ];
+        args.extend(self.extra.iter().map(OsString::from));
         if let Some(m) = &self.model {
             args.push("--model".into());
             args.push(m.clone().into());
@@ -113,6 +124,7 @@ pub struct Codex {
     program: String,
     model: Option<String>,
     timeout: Duration,
+    extra: Vec<String>,
 }
 
 impl Codex {
@@ -121,7 +133,15 @@ impl Codex {
             program: program.unwrap_or_else(|| "codex".into()),
             model,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
+            extra: Vec::new(),
         }
+    }
+
+    /// Extra arguments for every run.
+    #[must_use]
+    pub fn with_args(mut self, args: Vec<String>) -> Self {
+        self.extra = args;
+        self
     }
 }
 
@@ -129,6 +149,15 @@ impl Codex {
 impl Brain for Codex {
     fn label(&self) -> String {
         format!("codex/{}", self.model.as_deref().unwrap_or("default"))
+    }
+
+    fn cli(&self) -> Option<CliAgent> {
+        Some(CliAgent {
+            kind: CliKind::Codex,
+            program: self.program.clone(),
+            model: self.model.clone(),
+            args: self.extra.clone(),
+        })
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
@@ -148,6 +177,18 @@ impl Brain for Codex {
             args.push("-m".into());
             args.push(m.clone().into());
         }
+        // She is asked for words: no shell, no web, no project files.
+        for flag in [
+            "--disable",
+            "shell_tool",
+            "-c",
+            "web_search=\"disabled\"",
+            "-c",
+            "project_doc_max_bytes=0",
+        ] {
+            args.push(flag.into());
+        }
+        args.extend(self.extra.iter().map(OsString::from));
         args.push(req.transcript("them", "you").into());
 
         run(
