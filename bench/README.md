@@ -79,4 +79,16 @@ between agents is not a finding.
 
 ## Results
 
-See [`RESULTS.md`](RESULTS.md).
+The comparison has not been run yet. So far only `ghost-work` has been run,
+on the five development tasks above, and it passed all five. That says the
+loop works and the adapter is wired correctly; it says nothing about how it
+compares.
+
+Known problems on an Apple-silicon laptop:
+
+- `terminus-2` installs tmux in the task container with a fixed 120 second
+  limit. Emulated and held to the task's one CPU, the install takes longer
+  and setup fails. `--override-cpus 4` (for every agent) is the likely fix
+  and is untested.
+- `claude-code` 2.1.20 fails against DeepSeek's endpoint with a tool-result
+  ordering error; 2.1.322 works.
