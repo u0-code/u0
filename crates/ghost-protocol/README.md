@@ -8,7 +8,8 @@ object per text frame.
 **Is not:** the journal format. The two look alike and are kept apart: the
 journal is forever, this is versioned by `PROTOCOL`.
 
-A connection opens with a `hello` request declaring a role.
+A connection opens with a `hello` request declaring a role. `console` is the
+read-only observer role used by CLI tools; it does not refer to a desktop app.
 
 | role | sends | receives |
 |---|---|---|
@@ -22,8 +23,8 @@ against its replacement.
 
 There is no method that edits her identity or removes a journal entry.
 
-A browser may connect only from a page served on the same machine, from the
-desktop console, or from an origin the daemon lists. Native clients send no
+A browser may connect only from a page served on the same machine or from
+an origin the daemon lists. Native clients send no
 origin and are not asked.
 
 The console payloads mirror the core's serialized types and are not frozen yet.

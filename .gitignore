@@ -9,7 +9,7 @@
 .DS_Store
 /ghostd.toml
 .claude/
-# What the console's keeper writes when a source checkout is its home.
+# Local runtime files and existing private configuration.
 /run
 /models.json
 /keeper.json

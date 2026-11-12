@@ -40,10 +40,6 @@ stand-ins, not yet against the real platforms with real accounts; each README
 says exactly how far it was tested. Expect the first real run to turn
 something up.
 
-The [console](console/) is the desktop app: every ghost on your machine in a
-list down the left, a conversation with whichever one you click, and the model
-she thinks with a click away. The World comes next.
-
 ## Try it
 
 ```bash
@@ -58,13 +54,6 @@ In another terminal, talk to her:
 
 ```bash
 ./target/release/ghost-term --as yourname
-```
-
-Or skip the terminal entirely. The console opens on a blank birth certificate,
-seals it, wakes her, and puts you in a conversation with her:
-
-```bash
-cd console && npm install && npm run tauri dev
 ```
 
 From a terminal you can also watch her life as it is written:
@@ -91,7 +80,6 @@ crates/ghost-protocol  wire types of the Ghost Protocol (JSON-RPC over WebSocket
 crates/ghost-link      protocol client: the runner adapters use, and a console client.
 crates/ghostd          the daemon: runs one ghost, serves the protocol.
 crates/presence/*      channel adapters. Each is its own binary.
-console/               the desktop console (Tauri + React). A protocol client like any other.
 ghosts/_template       a birth certificate to copy.
 ghostd.example.toml    body configuration. Never lives in a ghost directory.
 docs/                  design documents (Chinese, for now).

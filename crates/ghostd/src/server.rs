@@ -234,10 +234,10 @@ async fn connection(
 }
 
 /// Whether a web page at `origin` may connect. Native clients send no origin
-/// and are not asked. Pages served from this machine, and the desktop app's
-/// own webview, are allowed; anything else has to be listed.
+/// and are not asked. Pages served from this machine are allowed; anything
+/// else has to be listed.
 fn origin_allowed(origin: &str, extra: &[String]) -> bool {
-    if origin.starts_with("tauri://") || extra.iter().any(|allowed| allowed == origin) {
+    if extra.iter().any(|allowed| allowed == origin) {
         return true;
     }
     let Some((scheme, rest)) = origin.split_once("://") else {
@@ -251,8 +251,7 @@ fn origin_allowed(origin: &str, extra: &[String]) -> bool {
             || host.rsplit_once(':').map_or(host, |(h, _)| h),
             |(h, _)| h,
         );
-    matches!(scheme, "http" | "https")
-        && matches!(host, "localhost" | "127.0.0.1" | "::1" | "tauri.localhost")
+    matches!(scheme, "http" | "https") && matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 /// A presence: register its channel, feed what it hears to the mind, and
@@ -470,12 +469,12 @@ mod tests {
             "http://localhost:5173",
             "http://127.0.0.1:1420",
             "http://[::1]:8080",
-            "tauri://localhost",
-            "https://tauri.localhost",
         ] {
             assert!(origin_allowed(ok, &none), "{ok}");
         }
         for bad in [
+            "tauri://localhost",
+            "https://tauri.localhost",
             "https://evil.example",
             "http://localhost.evil.example",
             "http://127.0.0.1.evil.example:80",

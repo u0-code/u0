@@ -16,16 +16,15 @@
                   └───────────────┬───────────────────┘
                                   │  Ghost Protocol
                                   │  JSON-RPC 2.0 over WebSocket
-          ┌───────────────┬───────┴────────┬─────────────────┐
-          │               │                │                 │
-   ghost-telegram   ghost-discord      Console (Tauri)   ghost CLI
-   (Presence 适配器)  (Presence 适配器)   (后台/控制面)     (运维)
+          ┌───────────────┼─────────────────┐
+          │               │                 │
+   ghost-telegram   ghost-discord       ghost CLI
+   (Presence 适配器)  (Presence 适配器)    (终端 / 运维)
 ```
 
 - **ghostd 不认识任何通道**。Telegram、Discord、X、电话都是外部进程，通过协议连进来。ghostd 里没有 telegram 这个词。
-- **Console 是桌面端**：左侧是这台机器上所有 Ghost 的列表，点进去是你和她的对话，输入框里可以换她用的模型；也在这里出生一个新 Ghost。它对 ghostd 来说只是两个普通的协议客户端（一个 console，一个 presence），没有任何特权。
 - **一个 Ghost 是磁盘上的一个目录**。拷走目录就是搬家。目录是人，二进制是身体。
-- 本地模式：桌面外壳里的 keeper 为每个 Ghost 起一个独立的 ghostd 进程（各占一个端口），窗口关掉她们照常运行。服务器模式：ghostd 单独跑，Console 远程连。两者协议相同。
+- 每个 Ghost 独立运行一个 `ghostd` 进程。本地和远程客户端通过同一协议连接，进程由命令行或服务管理器启动。
 
 这是 LSP 的模型：一个协议，任意客户端，任意语言。要写一个微信适配器，不需要懂 Rust，只需要会说 JSON-RPC。
 
@@ -34,9 +33,8 @@
 选 Rust 的理由，按重要性排：
 
 1. **单二进制即可运行**。`ghostd run ./lin` 就是她在活。没有 venv，没有 pip，没有版本地狱。她要跑好几年，身体得结实。
-2. **Tauri 同源**。Console 是 Tauri，核心是 Rust，本地模式可以把核心直接编进 Console，一个进程。Python 核心做不到这一点，只能当 sidecar 打包，体积和脆弱度都差一截。
-3. **类型系统守规矩**。"不可重置、不可改人格"这种约束在 Rust 里可以用类型表达：`SealedIdentity` 没有 `&mut` 方法。在 Python 里只是一个注释。
-4. **开源形象**。2026 年的开源基础设施项目，Rust 核心是信任信号。
+2. **类型系统守规矩**。"不可重置、不可改人格"这种约束在 Rust 里可以用类型表达：`SealedIdentity` 没有 `&mut` 方法。在 Python 里只是一个注释。
+3. **开源形象**。2026 年的开源基础设施项目，Rust 核心是信任信号。
 
 Rust 的代价和对策：
 
@@ -59,7 +57,6 @@ Ghost/
 │   ├── ghostd/              # 守护进程 + CLI 子命令 (birth / run / status / journal)
 │   └── presence/
 │       └── ghost-telegram/  # 第一个通道适配器，独立二进制
-├── console/                 # Tauri 控制面（第二阶段）
 ├── ghosts/
 │   └── _template/           # 出生证明模板。不是真实 Ghost。
 ├── tools/                   # Python 脚本：评估、回放、研究
@@ -104,7 +101,7 @@ JSON-RPC 2.0，WebSocket，本地默认 unix socket，远程 TCP + token。
 
 客户端分两类，连接时声明：
 - **presence**：通道适配器。能发 `presence.inbound`，会收到 `presence.outbound` 通知。
-- **console**：控制面。能读一切，能 `birth`，不能改身份、不能删事件。协议里**没有**这些方法，不是权限不够，是方法不存在。
+- **console**：只读观察客户端角色，供 `ghostd watch`、`people`、`agenda` 等命令使用；与桌面应用无关。不能修改身份或删除事件，出生由 CLI 的 `birth` 子命令完成。
 
 核心方法（v0）：
 
@@ -152,8 +149,7 @@ trait Brain: Send + Sync {
 2. **Brain**：四种 provider。✅
 3. **Mind + Protocol + 终端通道**：见 [LIVING.md](LIVING.md)。议程、注意、动作、说话状态机、生活引擎、主动联系、刷信息流；JSON-RPC 服务端；`ghost-link`；`ghost-term`。✅
 4. **平台适配器**：Telegram、Discord、OneBot（QQ）、X。
-5. **Console**（Tauri + React）✅。深色的 Codex 式外壳，多角色：左侧角色列表（收起后是一列头像），中间是对话（她的话、你的话，以及她心里的步骤：隔了多久才读、想了什么、选择不说），输入框里切换她用的模型，右侧是她此刻的状态、一天的安排和你们之间的关系。桌面外壳里的 keeper 负责出生、模型、头像，以及每个 Ghost 各自的 daemon。设计稿在 `docs/design/console-v3.html`，说明见 `console/README.md`。
-6. **World**：第二个 Ghost，Ghost 之间的协议。
+5. **World**：第二个 Ghost，Ghost 之间的协议。
 
 > 第 1 到 7 节是最初的设计。实现过程中 crate 划分有调整（多了 `ghost-mind` 和 `ghost-link`，协议走 TCP 上的 WebSocket），以 LIVING.md 第 8 节和各 crate 的 README 为准。
 

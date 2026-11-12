@@ -48,7 +48,7 @@ pub struct Listen {
     /// Environment variable holding the token clients must present.
     pub token_env: String,
     /// Web origins allowed to connect besides pages served from this
-    /// machine and the desktop console, e.g. `https://console.example`.
+    /// machine, e.g. `https://console.example`.
     pub origins: Vec<String>,
 }
 
