@@ -135,6 +135,10 @@ pub enum Event {
         about: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
+        /// She said she would come back with this. Following through on it
+        /// is not chasing.
+        #[serde(default, skip_serializing_if = "is_false")]
+        owed: bool,
     },
     /// An intention was carried out or dropped. `intention` is its seq.
     Settled {
@@ -211,6 +215,11 @@ pub struct PostStats {
     pub reposts: u64,
     #[serde(default)]
     pub views: u64,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Event {

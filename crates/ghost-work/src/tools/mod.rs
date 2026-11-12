@@ -106,6 +106,15 @@ pub fn standard(machine: Arc<dyn Machine>, undertaking: &Arc<Undertaking>) -> To
         .with(Done::new(undertaking.clone()))
 }
 
+/// The record of `undertaking` and nothing else: for work that needs no
+/// machine, such as finding something out.
+pub fn desk(undertaking: &Arc<Undertaking>) -> Toolbox {
+    Toolbox::new()
+        .with(Plan::new(undertaking.clone()))
+        .with(Note::new(undertaking.clone()))
+        .with(Done::new(undertaking.clone()))
+}
+
 /// Add the web to a toolbox: `search` if there is somewhere to search, and
 /// `fetch` always.
 #[must_use]

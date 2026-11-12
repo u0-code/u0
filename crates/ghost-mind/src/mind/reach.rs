@@ -42,13 +42,14 @@ impl Mind {
         what: String,
         about: Option<String>,
         place: Option<String>,
+        owed: bool,
     ) -> Result<bool> {
         let held = self.ghost.memory().open_intentions()?.iter().any(|open| {
             let same = match (&about, &open.about) {
                 (Some(a), Some(b)) => a == b,
                 _ => place.is_some() && place == open.place,
             };
-            same && (open.due - due).abs() < Duration::hours(12)
+            same && open.owed == owed && (open.due - due).abs() < Duration::hours(12)
         });
         if held {
             debug!("already means to: {what}");
@@ -59,6 +60,7 @@ impl Mind {
             what,
             about,
             place,
+            owed,
         })?;
         Ok(true)
     }
@@ -152,8 +154,12 @@ impl Mind {
         else {
             return Ok(Err(Wait::Never("nowhere to say it")));
         };
+        // Coming back with something she said she would is not chasing,
+        // unless she has since left them for good.
         if let Some(person) = memory.person_of_direct(&place.key)?
-            && !will::may_reach_out(&person, &will::standing(&person, now), now)
+            && (person.gone
+                || !intention.owed
+                    && !will::may_reach_out(&person, &will::standing(&person, now), now))
         {
             return Ok(Err(Wait::Never("she does not chase")));
         }

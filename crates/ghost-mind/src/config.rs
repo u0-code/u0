@@ -27,6 +27,53 @@ pub struct MindConfig {
     pub weather: bool,
     /// A directory of prompt templates that override the shipped ones.
     pub prompts: Option<PathBuf>,
+    /// Whether and how she takes things on.
+    pub work: WorkConfig,
+}
+
+/// Taking things on: work that needs more than one thought.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorkConfig {
+    /// Let her take things on at all. Needs a brain that can run tools.
+    pub enabled: bool,
+    /// Where her shell runs: `docker:<container>` or `local:<directory>`.
+    /// Without one she works only by looking things up and thinking.
+    /// `local` is not a sandbox; on a server use a container.
+    pub machine: Option<String>,
+    /// The directory she starts in inside a container.
+    pub workdir: Option<String>,
+    /// Let her search and read the web while working.
+    pub web: bool,
+    /// Steps in one sitting.
+    pub sitting_steps: u32,
+    /// Minutes in one sitting.
+    pub sitting_minutes: u32,
+    /// Minutes she rests between sittings, at human pace.
+    pub rest_minutes: u32,
+    /// Sittings she gives one thing before letting it go.
+    pub max_sittings: u32,
+    /// Things she will take on in a day.
+    pub per_day: u32,
+    /// The size at which a sitting's context is folded, in tokens.
+    pub context_tokens: u64,
+}
+
+impl Default for WorkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            machine: None,
+            workdir: None,
+            web: true,
+            sitting_steps: 40,
+            sitting_minutes: 15,
+            rest_minutes: 10,
+            max_sittings: 12,
+            per_day: 4,
+            context_tokens: 60_000,
+        }
+    }
 }
 
 impl Default for MindConfig {
@@ -41,6 +88,7 @@ impl Default for MindConfig {
             live: true,
             weather: true,
             prompts: None,
+            work: WorkConfig::default(),
         }
     }
 }

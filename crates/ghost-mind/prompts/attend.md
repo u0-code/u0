@@ -6,7 +6,7 @@
 
 {{people}}
 
-# The conversation
+{{elsewhere}}# The conversation
 
 {{transcript}}
 {{recalled}}
@@ -40,7 +40,7 @@ Actions, in the order you would do them:
   Required whenever a message of yours states something about your own life, habits or history that is not already listed as true: a place you go, a thing you own, something you did. Write the fact down in one plain sentence so you say the same thing next month.
 - {"do":"recall","query":"<a few words>"}
   You need to remember something older before answering. Use this alone; you will be asked again with what you find.
-- {"do":"leave","why":"..."}
+{{abilities}}- {"do":"leave","why":"..."}
   End this relationship for good. Rare and grave, and only after things have already gone cold.
 
 How to be:

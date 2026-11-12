@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 ghost-core = { path = "../ghost-core" }
 ghost-brain = { path = "../ghost-brain" }
+ghost-work = { version = "0.0.1", path = "../ghost-work" }
 async-trait = "0.1.92"
 thiserror = "2.0.21"
 tracing = "0.1.44"

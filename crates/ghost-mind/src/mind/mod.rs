@@ -9,11 +9,13 @@
 mod ask;
 mod attend;
 mod browse;
+mod context;
 mod living;
 mod reach;
 mod speak;
 #[cfg(test)]
 mod tests;
+mod work;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -65,6 +67,17 @@ pub struct Parts {
     pub senses: Arc<dyn Senses>,
     pub prompts: Prompts,
     pub config: MindConfig,
+    pub workshop: Workshop,
+}
+
+/// What she has to work with, beyond a brain.
+#[derive(Clone, Default)]
+pub struct Workshop {
+    /// Where her shell and files are. `None` means she can look things up
+    /// and think, and nothing else.
+    pub machine: Option<Arc<dyn ghost_work::Machine>>,
+    /// How she reaches the web.
+    pub web: ghost_work::tools::WebConfig,
 }
 
 /// Something an observer can ask a running mind.
@@ -210,6 +223,14 @@ enum Outcome {
         text: String,
         result: std::result::Result<Acted, String>,
     },
+    /// A sitting of work ended.
+    Worked {
+        id: String,
+        /// Steps the undertaking had taken before this sitting.
+        before: u64,
+        report: ghost_work::Report,
+        progress: String,
+    },
     /// A fire-and-forget act finished.
     Done,
 }
@@ -238,6 +259,8 @@ struct Agenda {
     intention: Option<DateTime<Utc>>,
     /// The next time she picks up her phone to scroll.
     phone: Option<DateTime<Utc>>,
+    /// The next time she sits down to something she has taken on.
+    work: Option<DateTime<Utc>>,
 }
 
 impl Agenda {
@@ -249,6 +272,7 @@ impl Agenda {
             .chain(self.life)
             .chain(self.intention)
             .chain(self.phone)
+            .chain(self.work)
             .min()
     }
 }
@@ -293,6 +317,9 @@ pub struct Mind {
     jobs: JoinSet<Outcome>,
     rng: Rng,
     budget: Budget,
+    workshop: Workshop,
+    /// The sitting in progress, if she is at one.
+    working: Option<work::Working>,
     /// When this body started running.
     started: DateTime<Utc>,
     /// Places with a deliberation in flight.
@@ -338,6 +365,8 @@ impl Mind {
             channels: HashMap::new(),
             agenda: Agenda::default(),
             jobs: JoinSet::new(),
+            workshop: parts.workshop,
+            working: None,
             rng: Rng::new(),
             started: Utc::now(),
             thinking: HashSet::new(),
@@ -389,6 +418,10 @@ impl Mind {
         }
         // Settle whether she is awake before anything else can happen.
         self.live(now)?;
+        // Whatever she had taken on is still hers.
+        if self.can_work() && !self.ghost.memory().undertakings(true, 1)?.is_empty() {
+            self.agenda.work = Some(now + Duration::minutes(1));
+        }
         self.refresh_intentions()
     }
 
@@ -462,6 +495,9 @@ impl Mind {
         if due(self.agenda.phone) {
             self.browse(now)?;
         }
+        if due(self.agenda.work) {
+            self.work(now)?;
+        }
         Ok(())
     }
 
@@ -490,6 +526,12 @@ impl Mind {
                 text,
                 result,
             } => self.on_posted(channel, text, result),
+            Outcome::Worked {
+                id,
+                before,
+                report,
+                progress,
+            } => self.on_worked(&id, before, &report, progress, now),
             Outcome::Done => Ok(()),
         }
     }

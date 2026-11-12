@@ -21,7 +21,7 @@ use crate::{
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -108,6 +108,8 @@ pub struct Intention {
     pub what: String,
     pub about: Option<String>,
     pub place: Option<String>,
+    /// She said she would come back with this.
+    pub owed: bool,
 }
 
 /// Something found by searching her memory.
@@ -347,10 +349,11 @@ impl Memory {
                 what,
                 about,
                 place,
+                owed,
             } => {
                 tx.execute(
-                    "INSERT INTO intentions (seq, due, what, about, place) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![seq, stamp(due), what, about, place],
+                    "INSERT INTO intentions (seq, due, what, about, place, owed) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![seq, stamp(due), what, about, place, owed],
                 )?;
             }
             Event::Settled { intention, .. } => {
@@ -726,7 +729,7 @@ impl Memory {
     /// Intentions not yet settled, soonest first.
     pub fn open_intentions(&self) -> Result<Vec<Intention>> {
         let mut stmt = self.conn.prepare(
-            "SELECT seq, due, what, about, place FROM intentions WHERE settled = 0 ORDER BY due ASC",
+            "SELECT seq, due, what, about, place, owed FROM intentions WHERE settled = 0 ORDER BY due ASC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(Intention {
@@ -735,6 +738,7 @@ impl Memory {
                 what: r.get(2)?,
                 about: r.get(3)?,
                 place: r.get(4)?,
+                owed: r.get(5)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -1065,7 +1069,8 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS notes_person ON notes (person, seq);
 CREATE TABLE IF NOT EXISTS intentions (
     seq INTEGER PRIMARY KEY, due TEXT NOT NULL, what TEXT NOT NULL,
-    about TEXT, place TEXT, settled INTEGER NOT NULL DEFAULT 0
+    about TEXT, place TEXT, settled INTEGER NOT NULL DEFAULT 0,
+    owed INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS canon (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, fact TEXT NOT NULL, source TEXT NOT NULL
@@ -1208,12 +1213,14 @@ mod tests {
                 what: "ask about the interview".into(),
                 about: Some("t:a".into()),
                 place: None,
+                owed: false,
             },
             Event::Intended {
                 due,
                 what: "second".into(),
                 about: None,
                 place: None,
+                owed: false,
             },
             Event::Settled {
                 intention: 1,

@@ -444,6 +444,7 @@ impl Mind {
                 what,
                 person.map(|p| p.key.clone()),
                 person.and_then(|p| p.direct.clone()),
+                false,
             )?;
         }
         self.register(draft.canon, "reflection")?;

@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Brain, Completion};
 use ghost_core::{
     journal::Event,
-    life::Phase,
+    life::{Phase, Reach},
     memory::{Intention, Person, PlaceState},
     narrate,
     social::{self, PlaceKind},
@@ -118,7 +118,12 @@ impl Mind {
         let moment = self.life.moment(self.ghost.journal(), now)?;
         let notice = Notice {
             phase: moment.phase,
-            reach: moment.reach,
+            // At her desk on something of her own, she looks up rarely.
+            reach: if self.working.is_some() {
+                moment.reach.max(Reach::Busy)
+            } else {
+                moment.reach
+            },
             until: (moment.until - now).to_std().unwrap_or_default(),
             engaged: place.last_out_at.is_some_and(|at| now - at < ENGAGED_FOR),
             addressed,
@@ -167,6 +172,18 @@ impl Mind {
         let moment = self.life.moment(self.ghost.journal(), now)?;
         if moment.phase == Phase::Asleep && !self.tempo.instant() {
             return self.schedule_attend(place_key, now);
+        }
+        // One thing at a time. If she is in the middle of a sitting, it is
+        // put down first, and she looks once it has stopped.
+        if self.set_work_aside() {
+            self.agenda.attend.insert(
+                place_key.to_owned(),
+                Attend {
+                    due: now + Duration::seconds(5),
+                    addressed: place.kind == PlaceKind::Direct || place.unread_addressed > 0,
+                },
+            );
+            return Ok(());
         }
         if self.only_bots_talking(&place)?
             && self
@@ -301,7 +318,7 @@ impl Mind {
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
-            let notes = memory.notes(&person.key, 8)?;
+            let notes = self.with_provenance(memory.notes(&person.key, 8)?, &place.key)?;
             cards.push(narrate::person_card(person, &standing, &notes, now));
         }
         // What she already means to do here, so she does not resolve to do it twice.
@@ -356,6 +373,8 @@ impl Mind {
             &self.prompts.attend,
             &[
                 ("where", self.describe_place(place, &people)),
+                ("elsewhere", self.elsewhere(place, now)?),
+                ("abilities", self.abilities()),
                 (
                     "people",
                     if cards.is_empty() {
@@ -435,17 +454,17 @@ impl Mind {
             job.recalled = Some(if hits.is_empty() {
                 format!("You searched your memory for \"{query}\" and found nothing.")
             } else {
-                hits.iter()
-                    .map(|h| {
-                        format!(
-                            "- {} {}",
-                            h.at.map(|at| at.with_timezone(&tz).format("%Y-%m-%d").to_string())
-                                .unwrap_or_default(),
-                            clip(&h.text, 300)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                let mut found = Vec::with_capacity(hits.len());
+                for h in &hits {
+                    found.push(format!(
+                        "- {} {}{}",
+                        h.at.map(|at| at.with_timezone(&tz).format("%Y-%m-%d").to_string())
+                            .unwrap_or_default(),
+                        clip(&h.text, 300),
+                        self.learned_where(h.place.as_deref(), &place.key)?
+                    ));
+                }
+                found.join("\n")
             });
             job.round += 1;
             return self.ponder(job, &place, now);
@@ -562,8 +581,22 @@ impl Mind {
                         format!("get back to this conversation: {why}"),
                         about,
                         Some(place.key.clone()),
+                        true,
                     )? {
                         did.push("put it off".to_owned());
+                    }
+                }
+                Action::Undertake { brief, for_whom } => {
+                    let asker = self.resolve(place, for_whom.as_deref())?;
+                    match self.undertake(&brief, asker.as_ref(), Some(place), now)? {
+                        None => did.push("took something on".to_owned()),
+                        Some(why) => {
+                            self.record(Event::Decided {
+                                about: place.key.clone(),
+                                decision: "did not take it on".into(),
+                                reason: why,
+                            })?;
+                        }
                     }
                 }
                 Action::Note { about, text } => {
@@ -601,6 +634,7 @@ impl Mind {
                         what,
                         person.map(|p| p.key),
                         Some(target),
+                        false,
                     )? {
                         did.push("made a note to self".to_owned());
                     }

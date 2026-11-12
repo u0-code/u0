@@ -106,6 +106,41 @@ impl State {
             .join("\n")
     }
 
+    /// Where the work stands, in a sentence or two: for whoever asks how it
+    /// is going between sittings.
+    pub fn progress(&self) -> String {
+        let done = self
+            .plan
+            .iter()
+            .filter(|s| s.status == Progress::Done)
+            .count();
+        let now = self
+            .plan
+            .iter()
+            .find(|s| s.status == Progress::Doing)
+            .or_else(|| self.plan.iter().find(|s| s.status == Progress::Todo));
+        let mut out = String::new();
+        if !self.plan.is_empty() {
+            out = format!("{done} of {} steps done", self.plan.len());
+            if let Some(step) = now {
+                out.push_str(&format!("; next: {}", step.text));
+            }
+            out.push('.');
+        }
+        if let Some(note) = self.notes.last() {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            let text: String = note.text.chars().take(240).collect();
+            out.push_str(&format!("Latest note: {text}"));
+        }
+        if out.is_empty() {
+            "Started; nothing written down yet.".to_owned()
+        } else {
+            out
+        }
+    }
+
     /// The newest notes that fit in `budget` characters, oldest first.
     pub fn notes_text(&self, budget: usize) -> String {
         if self.notes.is_empty() {

@@ -18,7 +18,7 @@ use ghost_core::{
     social::{Actor, Place, PlaceKind},
 };
 
-use super::{Mind, Parts, Signal};
+use super::{Mind, Parts, Signal, Workshop};
 use crate::{Act, Acted, Body, Can, Incoming, MindConfig, Numb, Prompts};
 
 const SEED: &str = r#"
@@ -39,11 +39,15 @@ wake = "08:30"
 sleep = "00:30"
 "#;
 
-/// A brain that says what it is told to, in order.
+/// A brain that says what it is told to, in order. Given steps, it can
+/// also work.
 #[derive(Default)]
 struct Script {
     replies: Mutex<VecDeque<String>>,
     seen: Mutex<Vec<Completion>>,
+    steps: Mutex<VecDeque<ghost_brain::Step>>,
+    turns: Mutex<Vec<ghost_brain::Turn>>,
+    hands: std::sync::atomic::AtomicBool,
 }
 
 impl Script {
@@ -53,6 +57,23 @@ impl Script {
 
     fn calls(&self) -> usize {
         self.seen.lock().unwrap().len()
+    }
+
+    /// Queue one step of work: a call to a tool.
+    fn then_call(&self, name: &str, args: serde_json::Value) {
+        self.hands.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.steps.lock().unwrap().push_back(ghost_brain::Step {
+            text: String::new(),
+            calls: vec![ghost_brain::Call {
+                id: format!("c-{name}"),
+                name: name.into(),
+                args,
+            }],
+            stop: ghost_brain::Stop::Calls,
+            usage: ghost_brain::Usage::default(),
+            model: "script".into(),
+            carry: None,
+        });
     }
 
     fn last_prompt(&self) -> String {
@@ -81,6 +102,27 @@ impl Brain for Script {
             text,
             ..Reply::default()
         })
+    }
+
+    fn works(&self) -> bool {
+        self.hands.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    async fn step(&self, turn: &ghost_brain::Turn) -> ghost_brain::Result<ghost_brain::Step> {
+        self.turns.lock().unwrap().push(turn.clone());
+        Ok(self
+            .steps
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or(ghost_brain::Step {
+                text: String::new(),
+                calls: vec![],
+                stop: ghost_brain::Stop::End,
+                usage: ghost_brain::Usage::default(),
+                model: "script".into(),
+                carry: None,
+            }))
     }
 }
 
@@ -184,6 +226,7 @@ impl Rig {
             senses: Arc::new(Numb),
             prompts: Prompts::shipped(),
             config,
+            workshop: Workshop::default(),
         });
         mind.begin(now).unwrap();
         mind.on_signal(
@@ -676,5 +719,194 @@ async fn in_public_her_messages_hang_off_each_other() {
         replies[1]
             .as_deref()
             .is_some_and(|id| id.starts_with("out-"))
+    );
+}
+
+fn group(place: &str, from: &str, id: &str, text: &str, addressed: bool) -> Incoming {
+    Incoming {
+        place: Place {
+            id: place.into(),
+            kind: PlaceKind::Group,
+            name: Some("old streets".into()),
+        },
+        from: Actor {
+            id: from.into(),
+            name: from.into(),
+            handle: None,
+            automated: false,
+        },
+        id: id.into(),
+        text: text.into(),
+        reply_to: None,
+        addressed,
+    }
+}
+
+#[tokio::test]
+async fn she_takes_something_on_does_it_and_comes_back_with_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.then(
+        r#"{"thought":"easy enough to check","actions":[
+            {"do":"say","text":"let me look"},
+            {"do":"undertake","brief":"Find out what time the Heming tea house in People's Park closes on weekdays."}]}"#,
+    );
+    // The work itself: she is asked to check once, then it is recorded.
+    rig.think.then_call(
+        "note",
+        serde_json::json!({"text": "the park's own page says 21:00"}),
+    );
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "It closes at nine."}),
+    );
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "It closes at nine on weekdays.", "evidence": "the park's page"}),
+    );
+    rig.hear(
+        dm("wen", "1", "do you know when the heming tea house closes?"),
+        t0,
+    );
+
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let kinds = rig.kinds();
+    let took = kinds.iter().position(|k| *k == "undertook").unwrap();
+    let said = kinds.iter().position(|k| *k == "said").unwrap();
+    let ended = kinds.iter().position(|k| *k == "concluded").unwrap();
+    assert!(took < ended && said < ended, "{kinds:?}");
+
+    // She worked as herself, on the brief, with no shell in this body.
+    {
+        let turns = rig.think.turns.lock().unwrap();
+        assert!(turns[0].system.contains("Lin"));
+        assert!(
+            matches!(&turns[0].items[0], ghost_brain::Item::User { text } if text.contains("Heming tea house"))
+        );
+        assert!(!turns[0].tools.iter().any(|t| t.name == "shell"));
+    }
+
+    // Having finished, she means to tell whoever asked, and does.
+    let u = &rig.mind.ghost.memory().undertakings(false, 5).unwrap()[0];
+    assert_eq!(u.outcome.as_deref(), Some("finished"));
+    assert_eq!(u.asked_by.as_deref(), Some("t:wen"));
+    rig.think
+        .then(r#"{"thought":"tell her","actions":[{"do":"say","text":"nine on weekdays"}]}"#);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    assert_eq!(rig.body.sent(), ["let me look", "nine on weekdays"]);
+    assert!(
+        rig.think
+            .last_prompt()
+            .contains("It closes at nine on weekdays.")
+    );
+}
+
+#[tokio::test]
+async fn a_sitting_is_put_down_when_she_looks_at_her_phone() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think
+        .then_call("note", serde_json::json!({"text": "first thing"}));
+    rig.mind
+        .undertake(
+            "Read up on the history of Kuixinglou street.",
+            None,
+            None,
+            t0,
+        )
+        .unwrap();
+    // She sits down to it.
+    rig.mind.on_time(t0).unwrap();
+    assert!(rig.mind.working.is_some());
+
+    // A message is due while the sitting is still running: looking at it
+    // waits, and the sitting is told to stop.
+    rig.hear(dm("wen", "1", "are you there"), t0);
+    let due = rig.mind.agenda.attend["t:wen"].due;
+    rig.mind.on_time(due).unwrap();
+    assert_eq!(rig.think.calls(), 0, "she has not looked yet");
+    assert!(rig.mind.agenda.attend["t:wen"].due > due);
+
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"here"}]}"#);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let kinds = rig.kinds();
+    let worked = kinds.iter().position(|k| *k == "worked").unwrap();
+    let read = kinds.iter().position(|k| *k == "read").unwrap();
+    assert!(
+        worked < read,
+        "the sitting ended before she read: {kinds:?}"
+    );
+    // The work is still hers, and still open.
+    assert_eq!(
+        rig.mind.ghost.memory().undertakings(true, 5).unwrap().len(),
+        1
+    );
+    assert!(rig.mind.agenda.work.is_some());
+}
+
+#[tokio::test]
+async fn she_carries_her_day_between_places_but_not_what_was_private() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.then(
+        r#"{"thought":"","actions":[
+            {"do":"say","text":"that is a lot to carry"},
+            {"do":"note","about":"wen","text":"her sister is moving to Kunming and she has told nobody"}]}"#,
+    );
+    rig.hear(
+        dm(
+            "wen",
+            "1",
+            "my sister is moving to kunming. i haven't told anyone",
+        ),
+        t0,
+    );
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    // Later, in a group where Wen also is.
+    let t1 = t0 + Duration::minutes(30);
+    rig.hear(
+        group(
+            "streets",
+            "wen",
+            "2",
+            "anyone going to the market on sunday",
+            false,
+        ),
+        t1,
+    );
+    rig.hear(
+        group("streets", "bo", "3", "lin, are you coming?", true),
+        t1,
+    );
+    rig.until(|r| r.think.calls() == 2).await;
+    let prompt = rig.think.last_prompt();
+
+    assert!(prompt.contains("# The rest of your day"), "{prompt}");
+    assert!(
+        prompt.contains("A private chat with wen on t: 1 from them, 1 from you"),
+        "{prompt}"
+    );
+    // The note is there, because she knows it, and marked, because of where
+    // she learned it.
+    assert!(
+        prompt.contains("her sister is moving to Kunming and she has told nobody (they told you this in private)"),
+        "{prompt}"
+    );
+
+    // Back in the private chat, the same note carries no such mark.
+    let t2 = t1 + Duration::hours(1);
+    rig.hear(dm("wen", "4", "thanks for earlier"), t2);
+    rig.until(|r| r.think.calls() == 3).await;
+    let private = rig.think.last_prompt();
+    assert!(private.contains("she has told nobody"));
+    assert!(
+        !private.contains("(they told you this in private)"),
+        "{private}"
+    );
+    assert!(
+        private.contains("The group \"old streets\" on t"),
+        "{private}"
     );
 }

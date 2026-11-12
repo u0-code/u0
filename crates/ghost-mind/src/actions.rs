@@ -72,6 +72,13 @@ pub enum Action {
     },
     /// Post publicly, to no one in particular.
     Post { text: String },
+    /// Take on something that needs real work, to be done in her own time.
+    Undertake {
+        brief: String,
+        /// Who it is for. Absent when it is for herself.
+        #[serde(default, rename = "for")]
+        for_whom: Option<String>,
+    },
 }
 
 /// The outcome of one look at something.

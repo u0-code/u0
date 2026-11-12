@@ -16,7 +16,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ghost_brain::Completion;
@@ -29,7 +29,7 @@ use ghost_link::Console;
 use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses};
 use ghost_protocol::GhostCard;
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     config::Config,
@@ -190,6 +190,18 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         Arc::new(Numb)
     };
     let prompts = Prompts::load(cfg.mind.prompts.as_deref()).context("load prompts")?;
+    let workshop = workshop(&cfg.mind.work, dir)?;
+    if cfg.mind.work.enabled {
+        info!(
+            "work: {}, {}",
+            cfg.mind.work.machine.as_deref().unwrap_or("no machine"),
+            if workshop.web.search.is_some() {
+                "can search the web"
+            } else {
+                "cannot search the web"
+            }
+        );
+    }
     let (mind, handle) = Mind::new(Parts {
         ghost,
         think,
@@ -198,6 +210,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         senses,
         prompts,
         config: cfg.mind.clone(),
+        workshop,
     });
 
     let listener = TcpListener::bind(&cfg.listen.addr)
@@ -312,6 +325,49 @@ async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
     }
     eprintln!("the daemon went away");
     Ok(())
+}
+
+/// What she has to work with, from `[mind.work]`.
+fn workshop(
+    cfg: &ghost_mind::WorkConfig,
+    ghost_dir: &Path,
+) -> anyhow::Result<ghost_mind::Workshop> {
+    use ghost_work::{Docker, Local, Machine, tools::WebConfig};
+    let machine: Option<Arc<dyn Machine>> = match cfg.machine.as_deref().map(str::trim) {
+        None | Some("" | "none") => None,
+        Some(spec) => match spec.split_once(':') {
+            Some(("docker", container)) if !container.is_empty() => Some(Arc::new(
+                Docker::new(container).workdir(cfg.workdir.clone()),
+            )),
+            Some(("local", dir)) => {
+                // Relative to her own directory, and `local:` alone is a
+                // `home` inside it.
+                let dir = if dir.is_empty() {
+                    ghost_dir.join("home")
+                } else {
+                    ghost_dir.join(dir)
+                };
+                std::fs::create_dir_all(&dir)
+                    .with_context(|| format!("create {}", dir.display()))?;
+                warn!(
+                    "her shell runs on this computer, in {}, as you. That is not a sandbox.",
+                    dir.display()
+                );
+                Some(Arc::new(Local::new(dir.canonicalize()?)))
+            }
+            _ => bail!(
+                "work.machine is {spec:?}: use \"docker:<container>\" or \"local:<directory>\""
+            ),
+        },
+    };
+    Ok(ghost_mind::Workshop {
+        machine,
+        web: if cfg.web {
+            WebConfig::from_env()
+        } else {
+            WebConfig::default()
+        },
+    })
 }
 
 /// Say what this machine could think with, as configuration to paste.
