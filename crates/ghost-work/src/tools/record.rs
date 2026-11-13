@@ -272,10 +272,15 @@ impl Tool for Done {
         }
 
         // The commonest way to fail is to stop one check too early. The
-        // first claim of success is answered with the task itself.
+        // first claim of success is answered with the task itself, unless
+        // the worker has already done what that asks for: looked at what it
+        // left after its last change, and said what it saw. Sending that
+        // back costs four or five steps and changes nothing.
         if outcome == undertaking::Outcome::Finished {
+            let shown = evidence.chars().count() >= 20;
             let brief = self.undertaking.update(|state| {
-                (!std::mem::replace(&mut state.checked, true)).then(|| state.task_text())
+                let first = !std::mem::replace(&mut state.checked, true);
+                (first && !(state.looked && shown)).then(|| state.task_text())
             });
             if let Some(brief) = brief {
                 return Outcome::ok(format!(
@@ -365,6 +370,22 @@ mod tests {
             u.state().finish.unwrap().outcome,
             undertaking::Outcome::Finished
         );
+
+        // Having looked at what it left since it last changed anything,
+        // and saying what it saw, it is taken at its word the first time.
+        let (_dir, careful) = undertaking();
+        careful.update(|state| state.looked = true);
+        let once = Done::new(careful.clone())
+            .call(&json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat a.txt` just now, it printed hi"}))
+            .await;
+        assert_eq!(once.output, "recorded");
+        // Having looked but with nothing to show for it, it is not.
+        let (_dir, vague) = undertaking();
+        vague.update(|state| state.looked = true);
+        let back = Done::new(vague.clone())
+            .call(&json!({"outcome": "finished", "summary": "wrote it"}))
+            .await;
+        assert!(back.output.contains("make a.txt say hi"));
 
         let (_dir, other) = undertaking();
         Done::new(other.clone())

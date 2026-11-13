@@ -85,6 +85,11 @@ pub struct State {
     pub finish: Option<Finish>,
     /// The worker has been made to check its work once already.
     pub checked: bool,
+    /// Something was run or read after the last change to a file: the
+    /// worker has looked at what it left, and a claim of being finished
+    /// that comes with evidence need not be sent back to look again.
+    #[serde(default)]
+    pub looked: bool,
     /// A reviewer has looked at a claim of being finished once already.
     #[serde(default)]
     pub audited: bool,

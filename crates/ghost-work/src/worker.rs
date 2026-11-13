@@ -657,6 +657,15 @@ impl Worker {
                 "{}\u{1f}{}\u{1f}{}\u{1e}",
                 call.name, call.args, outcome.output
             ));
+            // Whether the worker has looked at what it left since it last
+            // changed a file: `done` asks.
+            match call.name.as_str() {
+                "write" | "edit" if !outcome.failed => {
+                    self.undertaking.update(|state| state.looked = false);
+                }
+                "shell" | "read" => self.undertaking.update(|state| state.looked = true),
+                _ => {}
+            }
             if !outcome.failed
                 && matches!(call.name.as_str(), "write" | "edit")
                 && let Some(path) = call.args["path"].as_str()
@@ -1384,6 +1393,23 @@ mod tests {
         // The log has one line per step.
         let log = std::fs::read_to_string(dir.path().join("state/log.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 4);
+    }
+
+    #[tokio::test]
+    async fn work_that_was_looked_at_is_not_sent_back_to_be_looked_at_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
+            calls("shell", json!({"command": "cat hi.txt"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat hi.txt` just now, it printed hi"}),
+            ),
+        ];
+        let (worker, _) = worker(dir.path(), script, Limits::default());
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Finished);
+        assert_eq!(report.steps, 3);
     }
 
     #[tokio::test]
