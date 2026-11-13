@@ -23,6 +23,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
 /// connection that has stalled and not a model that is busy.
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// The longest a stream may go quiet once it has begun. A model that is
+/// thinking or writing sends a piece every few milliseconds; on the
+/// benchmark, answers that went quiet partway never resumed, and asking
+/// again got the whole answer in seconds.
+const STREAM_IDLE: Duration = Duration::from_secs(45);
 
 pub(crate) fn client() -> reqwest::Client {
     reqwest::Client::builder()
@@ -124,10 +129,25 @@ pub(crate) async fn ask(
                     .map(Duration::from_secs);
                 // Read whatever comes, and keep what came if the
                 // connection breaks: it says how far the answer got.
+                let streaming = resp
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|v| v.contains("event-stream"));
                 let mut bytes = Vec::new();
                 let mut broken = None;
                 loop {
-                    match resp.chunk().await {
+                    // Before the first piece the model may be reading a
+                    // long context; after it, silence is a stall.
+                    let next = if streaming && !bytes.is_empty() {
+                        match tokio::time::timeout(STREAM_IDLE, resp.chunk()).await {
+                            Ok(next) => next,
+                            Err(_) => break,
+                        }
+                    } else {
+                        resp.chunk().await
+                    };
+                    match next {
                         Ok(Some(chunk)) => {
                             bytes.extend_from_slice(&chunk);
                             // A stream says when it is over. Some servers
