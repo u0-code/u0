@@ -11,6 +11,7 @@ use ghost_core::{
     narrate,
     social::{self, PlaceKind},
     tempo::Notice,
+    when::when,
     will,
 };
 use tracing::{debug, warn};
@@ -457,7 +458,7 @@ impl Mind {
         for person in &people {
             let standing = will::standing(person, now);
             let (account, notes) = self.known_of(person, place, 8)?;
-            let mut card = narrate::person_card(person, &standing, &[], now);
+            let mut card = narrate::person_card(person, &standing, &[], now, self.life.clock());
             card.push_str(&account);
             for note in &notes {
                 card.push_str(&format!("\n  · {}", note.text));
@@ -541,7 +542,7 @@ impl Mind {
                             "What you kept of this conversation before the messages below:\n{}\n\n",
                             d.text
                         )),
-                        narrate::transcript(&lines, place.read_upto, tz)
+                        narrate::transcript(&lines, place.read_upto, self.life.clock(), now)
                     ),
                 ),
                 ("recalled", recalled),
@@ -621,7 +622,7 @@ impl Mind {
         if job.round < RECALL_ROUNDS
             && let Some(query) = deliberation.recall()
         {
-            job.recalled = Some(self.remembered(query, &place)?);
+            job.recalled = Some(self.remembered(query, &place, now)?);
             job.round += 1;
             return self.ponder(job, &place, now);
         }
@@ -629,19 +630,19 @@ impl Mind {
     }
 
     /// What a search of her memory turns up, as she would be told it.
-    fn remembered(&self, query: &str, place: &PlaceState) -> Result<String> {
+    fn remembered(&self, query: &str, place: &PlaceState, now: DateTime<Utc>) -> Result<String> {
         let hits = self.ghost.memory().search(&place.channel, query, 8)?;
         if hits.is_empty() {
             return Ok(format!(
                 "You searched your memory for \"{query}\" and found nothing."
             ));
         }
-        let tz = self.life.clock().tz();
+        let clock = self.life.clock();
         let mut found = Vec::with_capacity(hits.len());
         for h in &hits {
             found.push(format!(
-                "- {} {}{}",
-                h.at.map(|at| at.with_timezone(&tz).format("%Y-%m-%d").to_string())
+                "- {}{}{}",
+                h.at.map(|at| format!("{}: ", narrate::capital(&when(at, now, clock))))
                     .unwrap_or_default(),
                 clip(&h.text, 300),
                 self.learned_where(h.place.as_deref(), &place.key)?
@@ -710,7 +711,7 @@ impl Mind {
                 }
                 Ok(Action::Recall { query }) => {
                     again = true;
-                    (self.remembered(&query, place)?, false)
+                    (self.remembered(&query, place, now)?, false)
                 }
                 Ok(Action::LookUp { query }) => {
                     if self.can_look_up() {

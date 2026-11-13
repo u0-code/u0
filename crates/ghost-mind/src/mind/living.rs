@@ -350,6 +350,7 @@ impl Mind {
                 &standing,
                 &memory.notes_after(&person.key, since, 12)?,
                 now,
+                self.life.clock(),
             );
             if let Some(profile) = profile {
                 card.push_str(&format!(
@@ -371,7 +372,8 @@ impl Mind {
                 if !lines.is_empty() {
                     card.push_str("\n  today:\n    ");
                     card.push_str(
-                        &narrate::transcript(&lines, i64::MAX, tz).replace('\n', "\n    "),
+                        &narrate::transcript(&lines, i64::MAX, self.life.clock(), now)
+                            .replace('\n', "\n    "),
                     );
                 }
             }

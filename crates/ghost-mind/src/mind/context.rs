@@ -9,8 +9,9 @@
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
     memory::{Note, PlaceState},
-    narrate::ago,
+    narrate::capital,
     social::PlaceKind,
+    when::when,
 };
 
 use super::Mind;
@@ -165,7 +166,7 @@ impl Mind {
                 }
                 Some(outcome) if now - u.last_at < FRESH => lines.push(format!(
                     "- {} you {} what you took on{whom} (\"{}\"): {}",
-                    capital(&ago(u.last_at, now)),
+                    capital(&when(u.last_at, now, self.life.clock())),
                     match outcome {
                         "finished" => "finished",
                         "blocked" => "got stuck on",
@@ -191,7 +192,7 @@ impl Mind {
             lines.push(format!(
                 "- {}: {said}, latest {}{unread}.",
                 capital(&self.place_words(&other.place)?),
-                ago(other.last.at, now)
+                when(other.last.at, now, self.life.clock())
             ));
         }
 
@@ -283,12 +284,4 @@ impl Mind {
              Say something as well, the way you would.\n"
         )
     }
-}
-
-fn capital(text: &str) -> String {
-    let mut chars = text.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
-        .unwrap_or_default()
 }

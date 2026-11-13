@@ -16,4 +16,6 @@ Write what you want to keep of all of it: a new note to yourself that replaces t
 
 Cover, briefly and only where there is something to say: who is here and how things stand between you; what has been talked about and what came of it; what you said you would do and what they said they would; anything left open; how it has felt.
 
+Leave out when things happened: no dates, and no "today", "yesterday" or "last week". This note is read again days or weeks from now, and a "yesterday" written today would by then be wrong; the messages around it say when they were.
+
 Plain prose in your own words, under 250 words. No headings, and not a list of every message. Write only the note.

@@ -101,6 +101,11 @@ impl Clock {
         }
     }
 
+    /// A rhythm given directly, for when there is no certificate to read it from.
+    pub fn new(tz: Tz, wake: NaiveTime, sleep: NaiveTime) -> Self {
+        Self { tz, wake, sleep }
+    }
+
     pub fn tz(&self) -> Tz {
         self.tz
     }

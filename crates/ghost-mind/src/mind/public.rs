@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Brain, Completion};
-use ghost_core::{journal::Event, narrate, social::PlaceKind};
+use ghost_core::{journal::Event, narrate, social::PlaceKind, when::when};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
@@ -136,7 +136,6 @@ impl Mind {
     /// recent measured posts. Empty when nothing has been measured.
     pub(super) fn standing_lines(&self, channel: &str, now: DateTime<Utc>) -> Result<String> {
         let memory = self.ghost.memory();
-        let tz = self.life.clock().tz();
         let mut lines = Vec::new();
         let counts = memory.followers(channel, 30)?;
         if let Some((_, latest)) = counts.last() {
@@ -145,14 +144,17 @@ impl Mind {
                 counts.iter().find(|(at, _)| now - *at <= Duration::days(7))
                 && earlier != latest
             {
-                line.push_str(&format!(" ({earlier} {})", narrate::ago(*at, now)));
+                line.push_str(&format!(
+                    " ({earlier} {})",
+                    when(*at, now, self.life.clock())
+                ));
             }
             lines.push(format!("{line}."));
         }
         for post in memory.standings(channel, 8)? {
             lines.push(format!(
                 "- {} \"{}\": {} likes, {} replies, {} reposts{}",
-                post.at.with_timezone(&tz).format("%m-%d"),
+                narrate::capital(&when(post.at, now, self.life.clock())),
                 clip(
                     &post
                         .text
