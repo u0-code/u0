@@ -269,6 +269,16 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sources: Option<Sources>,
     },
+    /// She looked something up on the web, and this is what came back: kept
+    /// so that what she found out is something she knows, and can find
+    /// again, and not only something that was in front of her once.
+    LookedUp {
+        query: String,
+        found: String,
+        /// The place she was in when she looked it up.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+    },
     /// Something she worked out about her own craft: what she does well in
     /// public, what falls flat, what to try. Replaces an earlier lesson when
     /// she has changed her mind.
@@ -366,6 +376,7 @@ kinds! {
     Digested => "digested",
     Pursued => "pursued",
     Practised => "practised",
+    LookedUp => "looked_up",
 }
 
 /// One line of her journal.

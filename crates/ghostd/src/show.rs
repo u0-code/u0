@@ -136,6 +136,10 @@ fn describe(event: &Event, tz: Tz) -> String {
         Event::Linked { one, other } => format!("{one} and {other} are one person"),
         Event::Digested { place, text, .. } => format!("[{place}] {}", flat(text)),
         Event::Profiled { person, shared, .. } => format!("{person}: {}", flat(shared)),
+        Event::LookedUp { query, found, .. } => format!(
+            "\"{query}\": {}",
+            flat(&found.chars().take(200).collect::<String>())
+        ),
     }
 }
 

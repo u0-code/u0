@@ -89,9 +89,17 @@ pub(super) enum Thought {
     Whole(Deliberation),
     /// One turn of tool calls.
     Step(Step),
-    /// What looking things up returned: the call each answer belongs to,
-    /// the answer, and whether it failed.
-    Looked(Vec<(String, String, bool)>),
+    /// What looking things up returned.
+    Looked(Vec<Found>),
+}
+
+/// One look-up: the call it answers, what was asked, what came back, and
+/// whether it failed.
+pub(super) struct Found {
+    pub call: String,
+    pub query: String,
+    pub output: String,
+    pub failed: bool,
 }
 
 /// What made her look.
@@ -616,12 +624,19 @@ impl Mind {
             Thought::Whole(deliberation) => deliberation,
             Thought::Step(step) => return self.on_turn(job, step, &place, now),
             Thought::Looked(found) => {
-                for (id, output, failed) in found {
+                for f in found {
+                    if !f.failed {
+                        self.record(Event::LookedUp {
+                            query: f.query,
+                            found: f.output.clone(),
+                            place: Some(place.key.clone()),
+                        })?;
+                    }
                     job.items.push(Item::Result {
-                        id,
+                        id: f.call,
                         name: "look_up".into(),
-                        output,
-                        failed,
+                        output: f.output,
+                        failed: f.failed,
                     });
                 }
                 return self.go_on(job, &place, now);
@@ -753,9 +768,14 @@ impl Mind {
                 use ghost_work::Tool as _;
                 let search = ghost_work::tools::Search::new(source);
                 let mut found = Vec::with_capacity(searches.len());
-                for (id, query) in searches {
+                for (call, query) in searches {
                     let outcome = search.call(&serde_json::json!({"query": query})).await;
-                    found.push((id, clip(&outcome.output, LOOKED_UP), outcome.failed));
+                    found.push(Found {
+                        call,
+                        query,
+                        output: clip(&outcome.output, LOOKED_UP),
+                        failed: outcome.failed,
+                    });
                 }
                 Outcome::Thought {
                     job: Box::new(job),

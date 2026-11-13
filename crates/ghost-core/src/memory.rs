@@ -293,7 +293,9 @@ fn home(event: &Event) -> Home {
         | Event::Pursued { .. }
         | Event::Practised { .. }
         | Event::Challenged { .. }
-        | Event::Linked { .. } => Home::Global,
+        | Event::Linked { .. }
+        // What she found out is hers, wherever she was when she did.
+        | Event::LookedUp { .. } => Home::Global,
     }
 }
 
@@ -1032,6 +1034,12 @@ impl Shard {
                     params![seq, at, lesson],
                 )?;
                 remember(&tx, seq, &at, "practised", lesson, None)?;
+            }
+            Event::LookedUp { query, found, .. } => {
+                // Kept without a place: it came from the web, not from
+                // anyone she was talking with, so it is nobody's secret.
+                let text = format!("you looked up \"{query}\": {found}");
+                remember(&tx, seq, &at, "looked_up", &text, None)?;
             }
             Event::Learned { lesson, replaces } => {
                 if let Some(old) = replaces {
