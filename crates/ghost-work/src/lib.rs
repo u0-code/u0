@@ -9,7 +9,6 @@
 //! task-solving agent; inside a ghost it is how she does anything that takes
 //! more than one thought.
 //!
-//! The design is in `docs/WORK.md`.
 
 pub mod claude;
 pub mod codex;

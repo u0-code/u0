@@ -18,8 +18,10 @@ use crate::{Error, Result};
 const ATTEMPTS: u32 = 5;
 /// The longest one answer may take from the first byte to the last.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
-/// The longest the connection may stay silent.
-const READ_TIMEOUT: Duration = Duration::from_secs(300);
+/// The longest the connection may stay silent. A stream sends something
+/// every few seconds, thinking included, so a silence this long is a
+/// connection that has stalled and not a model that is busy.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(crate) fn client() -> reqwest::Client {
@@ -126,7 +128,16 @@ pub(crate) async fn ask(
                 let mut broken = None;
                 loop {
                     match resp.chunk().await {
-                        Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+                        Ok(Some(chunk)) => {
+                            bytes.extend_from_slice(&chunk);
+                            // A stream says when it is over. Some servers
+                            // then hold the connection open; there is
+                            // nothing more to wait for.
+                            let tail = &bytes[bytes.len().saturating_sub(64)..];
+                            if tail.windows(6).any(|w| w == b"[DONE]") {
+                                break;
+                            }
+                        }
                         Ok(None) => break,
                         Err(e) => {
                             broken = Some(e);

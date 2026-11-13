@@ -93,11 +93,17 @@ def task_for(ws: Path, meta) -> str:
 def run_ghost(args, ws: Path, state: Path, task: str):
     if state.exists():
         shutil.rmtree(state)
-    out = subprocess.run(
-        [args.ghost_bin, "--task", task, "--state", str(state), "--local", str(ws),
-         "--model", args.model, "--max-steps", str(MAX_STEPS), "--max-minutes", str(MAX_MINUTES)],
-        capture_output=True, text=True, timeout=MAX_MINUTES * 60 + 120,
-    )
+    try:
+        out = subprocess.run(
+            [args.ghost_bin, "--task", task, "--state", str(state), "--local", str(ws),
+             "--model", args.model, "--max-steps", str(MAX_STEPS), "--max-minutes", str(MAX_MINUTES)],
+            capture_output=True, text=True, timeout=MAX_MINUTES * 60 + 120,
+        )
+    except subprocess.TimeoutExpired as e:
+        # What it was doing when it was stopped is the thing worth keeping.
+        log = e.stderr or b""
+        (state.parent / "agent.log").write_text(log if isinstance(log, str) else log.decode("utf-8", "replace"))
+        raise
     (state.parent / "agent.log").write_text(out.stderr)
     report = json.loads(out.stdout)
     usage = report["usage"]

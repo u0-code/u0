@@ -870,7 +870,24 @@ impl Worker {
                 temperature: self.limits.temperature,
                 effort: self.limits.effort,
             };
-            let step = match self.brain.step(&turn).await {
+            // The time allowed is for the whole run, a model that does not
+            // answer included: a step still waiting when it is up is left.
+            let left = self
+                .limits
+                .max_seconds
+                .saturating_sub(started.elapsed().as_secs())
+                .max(30);
+            let answered = tokio::time::timeout(
+                std::time::Duration::from_secs(left + 30),
+                self.brain.step(&turn),
+            )
+            .await;
+            let Ok(answered) = answered else {
+                tracing::warn!("the model had not answered when the time allowed ran out");
+                self.save(&items, &mut recorded);
+                return self.report(Ended::OutOfTime);
+            };
+            let step = match answered {
                 Ok(step) => step,
                 Err(e) if too_long(&e) && !overflowed => {
                     // The model's window is smaller than was thought, or the
