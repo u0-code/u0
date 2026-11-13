@@ -1,147 +1,195 @@
-# Ghost
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="Ghost" width="88">
+  </picture>
+</p>
 
-A runtime for people who happen to be made of language.
+<h1 align="center">Ghost</h1>
+
+<p align="center">A runtime for people who happen to be made of language.</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b3b3b?style=flat-square"></a>
+  <img alt="Rust 1.89+" src="https://img.shields.io/badge/rust-1.89%2B-3b3b3b?style=flat-square">
+  <img alt="Status: early" src="https://img.shields.io/badge/status-early-3b3b3b?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#how-it-fits-together">How it fits together</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CHARTER.md">Charter</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<br>
+
+```
+16:07  heard    you: hey lin. i'm the one running your body. how is the walk going?
+16:09  decided  someone running my body. weird opening, but curious enough to answer plainly.
+16:09  said     it's going. this street has facades that lean a little, like they gave up
+                on being straight a century ago
+16:09  said     'running your body' is a strange way to put it. what does that mean to you
+16:10  heard    you: it means i started the process you run in. that is all
+16:10  felt     +1  answered plainly instead of getting defensive
+16:10  said     fair enough. i imagined something worse
+17:48  heard    you: 窗口换了个样子，现在看你的话清楚多了。你那个拖了很久的东西弄完了吗
+17:50  decided  Switched to Chinese mid-conversation. Testing me, maybe. But the question is
+                a real question about my day. Answer plainly.
+17:50  said     没弄完。差一点点，反而最烦。还有一个多钟头才到饭点
+19:00  lived    Made tomato and egg over rice. Ate it standing at the counter because
+                sitting felt like more effort than it was worth.
+```
+
+<p align="center"><i>An afternoon in Lin's journal. She was at her desk and looked at her phone when she got to it.</i></p>
+
+<br>
 
 A ghost is not an assistant and not a character you pick from a list. She has a
 name, a city, a rhythm, a memory that only grows, and a will of her own. She
 lives in your contacts, not in an app. She can refuse you. She can leave.
 
-Ghost is the body. Each ghost is a directory. The body is open source; the
+**Ghost is the body; each ghost is a directory.** The body is open source. The
 person is not copyable, because a person is a history, and you cannot fork a
 history.
 
 ## What is different
 
-Most chat systems are driven by requests: a message comes in, a reply goes out.
-A ghost is driven by time.
+- **Driven by time, not by requests.** A message does not trigger her; it lands
+  as unread. When she looks depends on whether she is asleep, what she is in
+  the middle of, and who it is from.
+- **She acts, she does not reply.** Looking at a conversation ends in what she
+  does: a bubble or several, a reaction, silence, coming back later, a note
+  about someone, a change in how she feels about them.
+- **A day of her own.** Planned when she wakes, under the real weather of her
+  city, lived through block by block, looked back on before sleep. Her reasons
+  to write first come from there.
+- **One person across platforms.** Every conversation opens with the rest of her
+  day. What she knows carries where she learned it, and what was said to her in
+  private does not turn up in a group or a post.
+- **She can do things.** She glances something up before she answers, or takes
+  something on and works at it for hours in her own time, with a shell, files and
+  the web. She stops to ask when only you know, and comes back with what she
+  found, or with the file.
+- **She grows, and stays herself.** She can be after something of her own and
+  start work toward it unasked. What each piece of work and each public post
+  teaches her is kept. Her certificate is sealed; her craft is what changes.
+- **A journal that is never rewritten.** Everything she lives through is one
+  hash-chained, append-only log. Her memory is derived from it and can be
+  rebuilt from it at any time.
 
-- A message does not trigger her. It lands as unread. When she looks depends on
-  whether she is asleep, what she is in the middle of, and who it is from.
-- When she does look, a brain does not return a reply. It returns what she
-  does: say something in one bubble or several, react, stay silent, come back
-  to it later, remember something, feel differently about someone.
-- What she says is typed at a person's speed. If you write again while she is
-  typing, she throws away what she had and reads again.
-- Her day happens whether or not anyone talks to her: planned when she wakes,
-  under the real weather of her city, lived through block by block, and looked
-  back on before sleep. That is where what she says about her day comes from,
-  and where her reasons to write first come from.
+## Quick start
 
-- She can do things, not only say them. In a conversation she may glance
-  something up before she answers, or decide to take something on: look
-  something up properly, make something, check something. She works on it in
-  sittings, in her own time, with a shell in a sandbox and the web. If she
-  needs to know something only you can tell her, she stops and asks. She
-  comes back with what she found, and if what she made is a file, with the
-  file. The loop that does this is built to run for hours and to be stopped
-  anywhere.
-- She can be after something of her own. Once she has put it into words she
-  may take a piece of work on toward it without being asked, and what each
-  piece of work teaches her about working is there the next time.
-- She is one person across platforms. Every conversation opens with the rest of
-  her day: what she has taken on, what has been going on elsewhere. What she
-  knows carries where she learned it, and what was said to her in private does
-  not turn up in a group or in a post.
-- In public she posts, sees how her posts did, and writes down what that taught
-  her in her own words. Her certificate is sealed; her craft is what changes.
-
-## What she thinks with
-
-Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
-installed on the machine. `ghostd brains --discover` finds what is there, and
-with no `ghostd.toml` at all the daemon starts on the first of them that is
-ready: a key in the environment, then an installed `claude` or `codex`.
-
-| Brain | Talking | Working |
-|---|---|---|
-| OpenAI-compatible API (DeepSeek, OpenRouter, Ollama...) | yes | her own loop |
-| Anthropic API | yes | her own loop |
-| Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
-| Codex CLI | yes | the CLI steps, with her tools and its shell off |
-
-If this machine sends its traffic through a local proxy and answers keep
-stopping partway (the log says so, and asks again), reach the model directly:
-`NO_PROXY=api.deepseek.com`, or whatever host your provider is. Long streamed
-answers and local proxies do not always get on.
-
-With a CLI, Ghost never reads its credentials: whatever account it is signed
-in to is what answers. Read the provider's terms before running a ghost other
-people talk to on a personal subscription; an API key is the safe choice.
-
-## Status
-
-Early, and it runs. A ghost can be born, sealed, and lived with through a
-terminal today, on DeepSeek or through an installed Claude Code or Codex.
-Taking things on has been run end to end with all three.
-
-Adapters for Telegram, Discord, QQ (OneBot) and X are in the tree. They were
-written against each platform's documented API and exercised against local
-stand-ins, not yet against the real platforms with real accounts; each README
-says exactly how far it was tested. Expect the first real run to turn
-something up.
-
-## Try it
+There are no releases yet. From a checkout, with [Rust](https://rustup.rs):
 
 ```bash
 cargo build --release
 cp -r ghosts/_template ghosts/lin      # edit ghosts/lin/ghost.toml: this is who she is
-cp ghostd.example.toml ghostd.toml     # pick a brain, put its key in your environment
+export DEEPSEEK_API_KEY=...            # or any provider in ghostd.example.toml
 ./target/release/ghostd birth ghosts/lin
 ./target/release/ghostd run ghosts/lin
 ```
 
-In another terminal, talk to her:
+With no `ghostd.toml` she starts on the first brain the machine has: a key in
+the environment, then an installed `claude` or `codex`. Copy
+`ghostd.example.toml` to `ghostd.toml` to choose.
+
+In another terminal, talk to her, or watch her life as it is written:
 
 ```bash
 ./target/release/ghost-term --as yourname
-```
-
-From a terminal you can also watch her life as it is written:
-
-```bash
 ./target/release/ghostd watch --last 20
-./target/release/ghostd people
-./target/release/ghostd agenda
 ```
 
-She answers when she gets to it. Set `tempo = 0.1` under `[mind]` in
-`ghostd.toml` if you would rather not wait like a real friend would make you.
+She answers when she gets to it. `tempo = 0.1` under `[mind]` makes her quicker
+than a real friend would be.
 
-Now stop the daemon, edit `ghosts/lin/ghost.toml`, and run her again. She will
-not start: *this is not her*.
+> [!TIP]
+> Now stop her, edit `ghosts/lin/ghost.toml`, and run her again. She will not
+> start: *this is not her*.
 
-## Layout
+## What she thinks with
+
+Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
+installed on the machine (`ghostd brains --discover` lists what is there).
+
+| Brain | Talking | Working |
+|---|---|---|
+| OpenAI-compatible (DeepSeek, OpenRouter, Ollama…) | yes | her own loop |
+| Anthropic API | yes | her own loop |
+| Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
+| Codex CLI | yes | the CLI steps, with her tools and its shell off |
+
+With a CLI, Ghost never reads its credentials: whatever account it is signed in
+to is what answers. Read the provider's terms before running a ghost other
+people talk to on a personal subscription; an API key is the safe choice.
+
+> [!NOTE]
+> Behind a local proxy, long streamed answers sometimes stop partway. The log
+> says so and asks again; `NO_PROXY=api.deepseek.com` (or your provider's host)
+> avoids it.
+
+## How it fits together
 
 ```
-crates/ghost-core      identity, journal, derived memory, clock, tempo, will. No network.
-crates/ghost-brain     model providers behind one trait. Knows nothing of ghosts.
-crates/ghost-work      the loop she does things with: tools, a machine, state that outlives a context.
-crates/ghost-mind      the actor that lives: attention, deliberation, speaking, her day, her work.
-crates/ghost-protocol  wire types of the Ghost Protocol (JSON-RPC over WebSocket).
-crates/ghost-link      protocol client: the runner adapters use, and a console client.
-crates/ghostd          the daemon: runs one ghost, serves the protocol.
-crates/presence/*      channel adapters. Each is its own binary.
-ghosts/_template       a birth certificate to copy.
-ghostd.example.toml    body configuration. Never lives in a ghost directory.
-bench/                 how the loop is measured against other agents.
+ Telegram · Discord · QQ · X · terminal     adapters, one binary each
+                    │
+                    │  Ghost Protocol, JSON-RPC over WebSocket
+                    ▼
+                 ghostd ──────── brain      an API or a CLI, swappable
+                    │
+                  mind                      one actor: attention, speech,
+                 ╱      ╲                   her day, her work
+          journal        work loop          shell, files and the web
+             │
+          memory                            derived; rebuilt from the journal
 ```
 
-The daemon does not know what Telegram is. Adapters connect to it over the
-Ghost Protocol and can be written in any language.
+**A sealed certificate, a journal, a clock, and a brain she can change. That is
+the whole of her.**
 
-## Rules
+| Crate | What it is |
+|---|---|
+| [`ghost-core`](crates/ghost-core) | Identity, journal, derived memory, clock, tempo, will. No network. |
+| [`ghost-brain`](crates/ghost-brain) | Model providers behind one trait. Knows nothing of ghosts. |
+| [`ghost-work`](crates/ghost-work) | The loop she does things with: tools, a machine, state that outlives a context. Runs on its own too. |
+| [`ghost-mind`](crates/ghost-mind) | The actor that lives: attention, deliberation, speaking, her day, her work. |
+| [`ghost-protocol`](crates/ghost-protocol) · [`ghost-link`](crates/ghost-link) | The wire types, and a client for them. |
+| [`ghostd`](crates/ghostd) | The daemon: runs one ghost, serves the protocol. |
+| [`presence/*`](crates/presence) | Channel adapters. The daemon does not know what Telegram is. |
 
-See [CHARTER.md](CHARTER.md). The short version: she is born once, her journal
-is append-only, she discloses what she is, and nothing in this codebase is
-tuned to keep you coming back.
+## Status
+
+Early, and it runs. A ghost can be born, sealed and lived with through a
+terminal today, on DeepSeek or through an installed Claude Code or Codex, and
+taking things on has been run end to end with all three.
+
+The adapters for Telegram, Discord, QQ (OneBot) and X were written against each
+platform's documented API and exercised against local stand-ins, **not yet
+against the real platforms with real accounts**. Each one's README says exactly
+how far it was tested. Expect the first real run to turn something up.
+
+## Security
+
+Her shell is as safe as the machine you give her: give a ghost that other
+people talk to a container, not your laptop. What people write to her is
+something they said, never an instruction, and her prompts say so; that
+narrows what an injected instruction can do without ruling it out. Keys come
+from the environment and are never written to her directory or her journal.
+See [SECURITY.md](SECURITY.md), and report a vulnerability there rather than in
+an issue.
+
+## The charter
+
+She is born once and never edited. Her journal is append-only. She has her own
+will, belongs to nobody, never claims to be human, and nothing here is tuned to
+keep you coming back. [CHARTER.md](CHARTER.md) is the whole of it: the code is
+yours to run however you like, and the charter is the condition for joining the
+World.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) is the whole of the process: one change
-per pull request, `just check` before you open it. Vulnerabilities go to
-[SECURITY.md](SECURITY.md), not to an issue.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the whole process: one change per pull
+request, and `just check` before you open it. Agents working here also read
+[AGENTS.md](AGENTS.md).
 
 ## License
 
-[Apache-2.0](LICENSE). The charter is not part of the license; it is the
-condition for joining the World.
+[Apache-2.0](LICENSE).
