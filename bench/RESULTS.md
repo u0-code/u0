@@ -40,7 +40,18 @@ rates. The second run, below, is with that in place.
 
 ### Second run
 
-Not finished at the time of writing.
+Stopped partway: `ghost-work` on 26 of the 34 exercises, first tries only,
+and no other agent. Not a result, but two things in it are worth keeping.
+
+- With the tests really out of reach (one exercise of the 26 still went and
+  got them), 10 of 26 passed at the first try. The failures are of one kind:
+  the instructions do not say what the tests expect, and it guessed.
+- The reviewer gave no verdict in 11 of the 26 runs. Six times the response
+  could not be read off the connection, five times the model spent its whole
+  output allowance thinking and wrote nothing. One run ended the same way in
+  the loop itself. Requests are not streamed and the allowance (8,192 tokens)
+  was set before these models thought at length; both need to change before
+  this benchmark is run again.
 
 ## A long task, not code
 

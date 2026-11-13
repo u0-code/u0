@@ -42,6 +42,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -386,7 +387,21 @@ def main():
             redone = {r["name"]: r for r in pool.map(lambda r: second(args, by_name[r["name"]], r), todo)}
             results = [redone.get(r["name"], r) for r in rows]
         else:
-            results = list(pool.map(lambda e: one(args, e), exercises))
+            # Each result is written down as it comes, and a run that was
+            # stopped is picked up where it left off.
+            done = {}
+            if path.exists():
+                done = {r["name"]: r for r in map(json.loads, path.read_text().splitlines())}
+            lock = threading.Lock()
+
+            def run(exercise):
+                row = one(args, exercise)
+                with lock, open(path, "a") as f:
+                    f.write(json.dumps(row) + "\n")
+                return row
+
+            todo = [e for e in exercises if e.name not in done]
+            results = list(done.values()) + list(pool.map(run, todo))
     with open(path, "w") as f:
         for row in results:
             f.write(json.dumps(row) + "\n")
