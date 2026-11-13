@@ -1698,3 +1698,253 @@ async fn a_long_conversation_is_kept_as_a_note_and_its_end_word_for_word() {
         .clone();
     assert!(prompt.contains(&shown_from), "nothing falls between");
 }
+
+/// Five days of easy talk: enough for her to count someone a friend.
+fn befriend(rig: &mut Rig, who: &str, before: DateTime<Utc>) {
+    for day in 1..=5 {
+        let when = before - Duration::days(day);
+        let m = dm(who, &format!("old-{day}"), "morning");
+        rig.mind
+            .ghost
+            .record_at(
+                when,
+                Event::Heard {
+                    channel: "t".into(),
+                    place: m.place,
+                    from: m.from,
+                    id: m.id,
+                    text: m.text,
+                    reply_to: None,
+                    addressed: true,
+                },
+            )
+            .unwrap();
+        rig.mind
+            .ghost
+            .record_at(
+                when,
+                Event::Felt {
+                    toward: format!("t:{who}"),
+                    delta: 1,
+                    why: "easy to talk to".into(),
+                },
+            )
+            .unwrap();
+    }
+    let upto = rig
+        .mind
+        .ghost
+        .memory()
+        .place(&format!("t:{who}"))
+        .unwrap()
+        .unwrap()
+        .last_in_seq;
+    rig.mind
+        .ghost
+        .record_at(
+            before - Duration::hours(1),
+            Event::Read {
+                channel: "t".into(),
+                place: who.into(),
+                upto,
+            },
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn she_stops_to_ask_and_goes_on_when_they_answer() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.then(
+        r#"{"thought":"","actions":[
+            {"do":"say","text":"on it"},
+            {"do":"undertake","brief":"Write up when the Heming tea house is open."}]}"#,
+    );
+    rig.think.then_call(
+        "ask",
+        serde_json::json!({"question": "weekdays or weekends?"}),
+    );
+    rig.hear(
+        dm(
+            "wen",
+            "1",
+            "can you write up when the tea house is open? it is for my mum",
+        ),
+        t0,
+    );
+    let asked = rig.until(|r| r.kinds().contains(&"asked")).await;
+
+    // What she works from is her own account of it, and under that what
+    // was actually written to her.
+    let u = rig.mind.ghost.memory().undertakings(true, 5).unwrap()[0].clone();
+    assert!(
+        u.brief
+            .starts_with("Write up when the Heming tea house is open.")
+    );
+    assert!(u.brief.contains("word for word") && u.brief.contains("> can you write up"));
+    assert_eq!(u.waiting.as_deref(), Some("weekdays or weekends?"));
+
+    // She means to put the question to them, and does.
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"weekdays or weekends?"}]}"#);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    assert_eq!(rig.body.sent()[1], "weekdays or weekends?");
+    // While it waits, she is told so whenever she looks at anything.
+    assert!(
+        rig.think
+            .last_prompt()
+            .contains("It waits for their answer")
+    );
+    // And the work is not touched.
+    let worked = rig.think.turns.lock().unwrap().len();
+    rig.pump(asked + Duration::hours(2)).await;
+    assert_eq!(rig.think.turns.lock().unwrap().len(), worked);
+
+    // They answer; she passes it on; the work picks up with it.
+    let answered = asked + Duration::hours(3);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"undertake","brief":"Weekdays."}]}"#);
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "blocked", "summary": "the page is down"}),
+    );
+    rig.hear(dm("wen", "2", "weekdays please"), answered);
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let kinds = rig.kinds();
+    let added = kinds.iter().position(|k| *k == "added").unwrap();
+    assert!(added < kinds.iter().position(|k| *k == "concluded").unwrap());
+    let turns = rig.think.turns.lock().unwrap();
+    assert!(turns.last().unwrap().items.iter().any(|item| matches!(item,
+        ghost_brain::Item::User { text }
+            if text.contains("added to the task") && text.contains("Weekdays.") && text.contains("> weekdays please"))));
+}
+
+#[tokio::test]
+async fn a_question_nobody_answers_does_not_hold_the_work_for_ever() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.then(
+        r#"{"thought":"","actions":[{"do":"undertake","brief":"Write up the tea house hours."}]}"#,
+    );
+    rig.think
+        .then_call("ask", serde_json::json!({"question": "which branch?"}));
+    rig.hear(dm("wen", "1", "write up the tea house hours?"), t0);
+    let asked = rig.until(|r| r.kinds().contains(&"asked")).await;
+
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "blocked", "summary": "assumed the park branch; its page is down"}),
+    );
+    // She has it down to come back to when a day has gone by with no
+    // answer. (Entries are stamped by the real clock, so that day is
+    // counted from the entry and not from the time this test pretends.)
+    rig.pump(asked + Duration::hours(1)).await;
+    rig.pump(asked + Duration::hours(2)).await;
+    let give_up = rig.mind.agenda.work.expect("she means to come back to it");
+    let u = rig.mind.ghost.memory().undertakings(true, 5).unwrap()[0].clone();
+    assert_eq!(give_up, u.asked_at.unwrap() + Duration::hours(24));
+    rig.pump(give_up).await;
+    rig.pump(give_up + Duration::minutes(30)).await;
+    assert!(rig.kinds().contains(&"concluded"), "{:?}", rig.kinds());
+    let turns = rig.think.turns.lock().unwrap();
+    assert!(turns.last().unwrap().items.iter().any(|item| matches!(item,
+        ghost_brain::Item::User { text } if text.contains("No answer came"))));
+}
+
+#[tokio::test]
+async fn what_she_made_is_handed_over_as_a_file() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let desk = tempfile::tempdir().unwrap();
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
+    befriend(&mut rig, "wen", t0);
+    // This channel can take a file.
+    rig.mind
+        .on_signal(
+            Signal::Online {
+                channel: "t".into(),
+                me: Some(Actor {
+                    id: "lin".into(),
+                    name: "Lin".into(),
+                    handle: Some("lin".into()),
+                    automated: true,
+                }),
+                can: vec![Can::Send, Can::Typing, Can::Files],
+            },
+            t0,
+        )
+        .unwrap();
+
+    rig.think.then_turn(
+        "",
+        &[
+            ("say", serde_json::json!({"text": "give me a bit"})),
+            (
+                "undertake",
+                serde_json::json!({"brief": "Write the tea house hours into hours.md."}),
+            ),
+        ],
+    );
+    let made = desk.path().join("hours.md");
+    rig.think.then_call(
+        "write",
+        serde_json::json!({"path": "hours.md", "content": "09:00-21:00\n"}),
+    );
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "It is written up."}),
+    );
+    rig.think.then_call(
+        "done",
+        serde_json::json!({
+            "outcome": "finished", "summary": "It is written up.",
+            "evidence": "cat hours.md printed 09:00-21:00 just now",
+            "files": [made.to_str().unwrap()],
+        }),
+    );
+    rig.hear(
+        dm("wen", "1", "could you write up the tea house hours?"),
+        t0,
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+
+    // Telling them, she is offered a way to hand it over, and uses it.
+    rig.think.then_turn(
+        "",
+        &[(
+            "send_file",
+            serde_json::json!({"file": "hours.md", "text": "here you go"}),
+        )],
+    );
+    rig.until(|r| r.body.count(|a| matches!(a, Act::File { .. })) == 1)
+        .await;
+    {
+        let turns = rig.think.turns.lock().unwrap();
+        let telling = turns.last().unwrap();
+        assert!(telling.tools.iter().any(|t| t.name == "send_file"));
+        assert!(matches!(&telling.items[0],
+            ghost_brain::Item::User { text } if text.contains("hours.md") && text.contains("send_file")));
+    }
+    let acts = rig.body.acts.lock().unwrap();
+    let sent = acts
+        .iter()
+        .find_map(|(_, act)| match act {
+            Act::File {
+                name, data, text, ..
+            } => Some((name.clone(), data.clone(), text.clone())),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(sent.0, "hours.md");
+    assert_eq!(sent.1, b"09:00-21:00\n");
+    assert_eq!(sent.2.as_deref(), Some("here you go"));
+    drop(acts);
+    // And it is in the conversation as something she sent.
+    let thread = rig.mind.ghost.memory().thread("t:wen", 3).unwrap();
+    assert!(
+        thread
+            .iter()
+            .any(|l| l.text == "[file: hours.md] here you go")
+    );
+}

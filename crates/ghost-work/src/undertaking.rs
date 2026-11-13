@@ -62,6 +62,10 @@ pub struct Finish {
     pub summary: String,
     /// How each requirement was checked.
     pub evidence: String,
+    /// The files that are the result, where the result is files: paths as
+    /// the machine knows them.
+    #[serde(default)]
+    pub files: Vec<String>,
     pub at: DateTime<Utc>,
 }
 
@@ -92,6 +96,10 @@ pub struct State {
     /// work, so its next sitting can pick its own context back up.
     #[serde(default)]
     pub session: Option<String>,
+    /// A question the worker put to whoever the work is for. The work
+    /// waits here until something is added to the task from outside.
+    #[serde(default)]
+    pub waiting: Option<String>,
     /// The model once refused a context of about this many tokens. The
     /// transcript is kept well under it from then on.
     #[serde(default)]

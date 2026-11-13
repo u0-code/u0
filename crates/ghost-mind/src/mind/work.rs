@@ -94,10 +94,22 @@ impl Mind {
                 .find(|u| u.asked_by.as_deref() == Some(person.key.as_str()))
         {
             let dir = self.ghost.dir().join("work").join(&open.id);
+            let added = format!(
+                "{brief}{}",
+                match place {
+                    Some(place) => self.their_words(place, person)?,
+                    None => String::new(),
+                }
+            );
             return Ok(
-                match Undertaking::open(dir, Some(&open.brief)).and_then(|u| u.add(brief)) {
+                match Undertaking::open(dir, Some(&open.brief)).and_then(|u| u.add(&added)) {
                     Ok(()) => {
                         info!("added to {}: {}", open.id, clip(brief, 80));
+                        self.record(Event::Added {
+                            id: open.id,
+                            text: added,
+                        })?;
+                        self.agenda.work.get_or_insert(now);
                         None
                     }
                     Err(e) => Some(format!(
@@ -127,9 +139,17 @@ impl Mind {
             }
         }
         let id = format!("{}-{:04x}", now.format("%Y%m%d-%H%M%S"), self.rng.u16(..));
+        // Her own account of what is wanted, and under it what they said.
+        let brief = format!(
+            "{brief}{}",
+            match (place, asked_by) {
+                (Some(place), Some(person)) => self.their_words(place, person)?,
+                _ => String::new(),
+            }
+        );
         self.record(Event::Undertook {
             id,
-            brief: brief.to_owned(),
+            brief,
             asked_by: asked_by.map(|p| p.key.clone()),
             place: place.map(|p| p.key.clone()),
         })?;
@@ -156,9 +176,42 @@ impl Mind {
             self.agenda.work = Some(now + Duration::seconds(30));
             return Ok(());
         }
-        // Whatever has waited longest since it was last touched.
+        // Whatever has waited longest since it was last touched, leaving
+        // aside what is waiting on somebody's answer.
         let open = self.ghost.memory().undertakings(true, 20)?;
-        let Some(next) = open.into_iter().min_by_key(|u| u.last_at) else {
+        let patience = Duration::hours(i64::from(self.cfg.work.ask_hours));
+        let unanswered = open
+            .iter()
+            .find(|u| u.asked_at.is_some_and(|at| now - at >= patience))
+            .cloned();
+        if let Some(stale) = unanswered {
+            // Nobody answered. She goes on without, and says so in the work.
+            let said = "No answer came to your question. Go on with your best judgement, \
+                        and say in your summary what you assumed.";
+            let dir = self.ghost.dir().join("work").join(&stale.id);
+            if let Err(e) = Undertaking::open(dir, Some(&stale.brief)).and_then(|u| u.add(said)) {
+                warn!("cannot go on with {} unanswered: {e}", stale.id);
+            }
+            self.record(Event::Added {
+                id: stale.id,
+                text: said.to_owned(),
+            })?;
+            self.agenda.work = Some(now);
+            return Ok(());
+        }
+        // If all that is left is waiting to be answered, come back when
+        // the first of those has waited long enough.
+        let give_up_at = open
+            .iter()
+            .filter_map(|u| u.asked_at)
+            .min()
+            .map(|at| at + patience);
+        let Some(next) = open
+            .into_iter()
+            .filter(|u| u.waiting.is_none())
+            .min_by_key(|u| u.last_at)
+        else {
+            self.agenda.work = give_up_at;
             return Ok(());
         };
         if next.sittings >= i64::from(self.cfg.work.max_sittings) {
@@ -199,6 +252,13 @@ impl Mind {
                 "You have no computer to run things on for this: only what you can look up and think through."
                     .to_owned(),
             ),
+        };
+        // With someone to ask and her own loop to carry the question, she
+        // can stop and ask.
+        let tools = if next.asked_by.is_some() && matches!(stepper, Stepper::Own(_)) {
+            tools.with(tools::Ask::new(undertaking.clone()))
+        } else {
+            tools
         };
         let pause = Arc::new(AtomicBool::new(false));
         let limits = Limits {
@@ -326,6 +386,37 @@ impl Mind {
                 self.agenda.work = Some(now + Duration::minutes(10).max(rest));
                 return Ok(());
             }
+            Ended::Waiting => {
+                let question = report.asking.clone().unwrap_or_default();
+                info!("{id} waits on an answer: {}", clip(&question, 120));
+                self.record(Event::Worked {
+                    id: id.to_owned(),
+                    summary: progress,
+                    steps,
+                })?;
+                self.record(Event::Asked {
+                    id: id.to_owned(),
+                    question: question.clone(),
+                })?;
+                if let Some(u) = self.ghost.memory().undertaking(id)? {
+                    self.intend(
+                        now + Duration::minutes(1),
+                        format!(
+                            "ask them what you need to know to go on with what you took on (\"{}\"). \
+                             Your question, to put in your own words: {}",
+                            clip(&u.brief, 160),
+                            clip(&question, 600)
+                        ),
+                        u.asked_by,
+                        u.place,
+                        true,
+                    )?;
+                    self.refresh_intentions()?;
+                }
+                // Something else may be waiting to be done meanwhile.
+                self.agenda.work = Some(now + rest);
+                return Ok(());
+            }
             Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused | Ended::Stalled => {
                 self.record(Event::Worked {
                     id: id.to_owned(),
@@ -362,12 +453,32 @@ impl Mind {
                 "blocked" => "You could not finish it",
                 _ => "You gave up on it",
             };
+            // What she made, if it is files, and whether this place can
+            // take a file at all.
+            let made = if report.files.is_empty() {
+                String::new()
+            } else {
+                let can_send = self.workshop.machine.is_some()
+                    && u.place
+                        .as_deref()
+                        .and_then(ghost_core::social::split_key)
+                        .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
+                format!(
+                    " What you made is in: {}. {}",
+                    report.files.join(", "),
+                    if can_send {
+                        "Hand it over with `send_file`."
+                    } else {
+                        "It cannot be sent as a file here, so tell them what is in it."
+                    }
+                )
+            };
             self.intend(
                 now + Duration::minutes(1),
                 format!(
-                    "tell them what came of what you took on (\"{}\"). {how}. What you found: {}",
+                    "tell them what came of what you took on (\"{}\"). {how}. What you found: {}{made}",
                     clip(&u.brief, 160),
-                    clip(&summary, 900)
+                    clip(&summary, 6000)
                 ),
                 u.asked_by,
                 u.place,

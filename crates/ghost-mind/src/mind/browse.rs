@@ -275,6 +275,7 @@ impl Mind {
                         Bubble {
                             text: text.trim().to_owned(),
                             reply_to: Some(target.id),
+                            file: None,
                         },
                         now,
                     );

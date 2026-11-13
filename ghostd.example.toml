@@ -84,6 +84,9 @@ rest_minutes = 10
 max_sittings = 12
 # Things she will take on in a day.
 per_day = 4
+# In the middle of work she can stop and ask whoever it is for. If nobody
+# answers within this many hours she goes on with her own judgement.
+ask_hours = 24
 # How large her working context may grow before it is trimmed, in tokens.
 # Left out, it is most of the model's context window: she keeps what she has
 # seen in front of her for longer, and each step reads more. Set it to cap

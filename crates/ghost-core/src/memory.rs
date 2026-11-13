@@ -21,7 +21,7 @@ use crate::{
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -139,6 +139,10 @@ pub struct Undertaking {
     pub summary: Option<String>,
     pub sittings: i64,
     pub last_at: DateTime<Utc>,
+    /// What she asked whoever it is for, and is waiting to hear.
+    pub waiting: Option<String>,
+    /// When she asked.
+    pub asked_at: Option<DateTime<Utc>>,
 }
 
 /// A proof she is waiting for: `word`, from the account `claimed`.
@@ -430,13 +434,28 @@ impl Memory {
                     params![id, summary, at],
                 )?;
             }
+            Event::Asked { id, question } => {
+                tx.execute(
+                    "UPDATE undertakings SET waiting = ?2, asked_at = ?3, last_at = ?3 WHERE id = ?1",
+                    params![id, question, at],
+                )?;
+            }
+            Event::Added { id, text } => {
+                // Whatever she was waiting to hear, this is it.
+                tx.execute(
+                    "UPDATE undertakings SET waiting = NULL, asked_at = NULL, last_at = ?2 WHERE id = ?1",
+                    params![id, at],
+                )?;
+                remember(&tx, seq, &at, "added", text, None)?;
+            }
             Event::Concluded {
                 id,
                 outcome,
                 summary,
             } => {
                 tx.execute(
-                    "UPDATE undertakings SET outcome = ?2, summary = ?3, last_at = ?4 WHERE id = ?1",
+                    "UPDATE undertakings SET outcome = ?2, summary = ?3, last_at = ?4,
+                     waiting = NULL, asked_at = NULL WHERE id = ?1",
                     params![id, outcome, summary, at],
                 )?;
                 remember(&tx, seq, &at, "concluded", summary, None)?;
@@ -1203,7 +1222,7 @@ fn row_to_hit(r: &rusqlite::Row<'_>) -> rusqlite::Result<Hit> {
 }
 
 const UNDERTAKING_COLUMNS: &str =
-    "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at";
+    "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at, waiting, asked_at";
 
 fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
     Ok(Undertaking {
@@ -1217,6 +1236,8 @@ fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
         summary: r.get(7)?,
         sittings: r.get(8)?,
         last_at: time_at(r, 9)?,
+        waiting: r.get(10)?,
+        asked_at: opt_time_at(r, 11)?,
     })
 }
 
@@ -1260,7 +1281,8 @@ CREATE TABLE IF NOT EXISTS canon (
 CREATE TABLE IF NOT EXISTS undertakings (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, brief TEXT NOT NULL,
     asked_by TEXT, place TEXT, outcome TEXT, summary TEXT,
-    sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL
+    sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL,
+    waiting TEXT, asked_at TEXT
 );
 CREATE TABLE IF NOT EXISTS challenges (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, claimant TEXT NOT NULL,

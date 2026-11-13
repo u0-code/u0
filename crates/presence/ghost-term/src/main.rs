@@ -56,6 +56,9 @@ struct Args {
     /// After input ends, stay this many seconds to hear what she says.
     #[arg(long, default_value_t = 0)]
     linger: u64,
+    /// Where files she sends are saved.
+    #[arg(long, default_value = "received")]
+    files: std::path::PathBuf,
 }
 
 struct Term {
@@ -63,6 +66,7 @@ struct Term {
     group: Option<String>,
     her: String,
     linger: Duration,
+    files: std::path::PathBuf,
     /// Ids for messages in both directions.
     next_id: AtomicU64,
     /// Whether the last thing printed was a typing indicator.
@@ -164,6 +168,34 @@ impl Platform for Term {
                 println!("  ({} reacted {emoji})", self.her);
                 Ok(Acted::default())
             }
+            Action::File {
+                name, data, text, ..
+            } => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+                // Only the last part of the name: where it lands is ours
+                // to say, not the sender's.
+                let name = std::path::Path::new(&name)
+                    .file_name()
+                    .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
+                std::fs::create_dir_all(&self.files)?;
+                let path = self.files.join(&name);
+                std::fs::write(&path, &bytes)?;
+                self.typing_shown.store(false, Ordering::Relaxed);
+                println!(
+                    "{}: [file: {name}, {} bytes, saved to {}]{}",
+                    self.her,
+                    bytes.len(),
+                    path.display(),
+                    text.map(|t| format!(" {t}")).unwrap_or_default()
+                );
+                std::io::stdout().flush()?;
+                Ok(Acted {
+                    id: Some(self.id()),
+                    items: Vec::new(),
+                    measure: None,
+                })
+            }
             other => anyhow::bail!("a terminal cannot {:?}", other.needs()),
         }
     }
@@ -193,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
         group: args.group,
         her: her.clone(),
         linger: Duration::from_secs(args.linger),
+        files: args.files,
         next_id: AtomicU64::new(1),
         typing_shown: AtomicBool::new(false),
     });
@@ -208,7 +241,12 @@ async fn main() -> anyhow::Result<()> {
                 handle: None,
                 automated: true,
             }),
-            can: vec![Capability::Send, Capability::Typing, Capability::React],
+            can: vec![
+                Capability::Send,
+                Capability::Typing,
+                Capability::React,
+                Capability::Files,
+            ],
         },
     )
     .await

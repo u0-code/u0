@@ -166,6 +166,9 @@ pub enum Ended {
     Stalled,
     /// Asked to stop. Everything needed to go on is on disk.
     Paused,
+    /// It asked whoever the work is for a question, and is waiting for
+    /// the answer to be added to the task. The question is in the report.
+    Waiting,
     /// The model could not be reached, or refused.
     Failed(String),
 }
@@ -175,6 +178,10 @@ pub struct Report {
     pub ended: Ended,
     /// The worker's own account of how it went, if it gave one.
     pub summary: String,
+    /// What it is waiting to be told, if it stopped to ask.
+    pub asking: Option<String>,
+    /// The files that are the result, if it finished and the result is files.
+    pub files: Vec<String>,
     /// Totals for the whole undertaking, across runs.
     pub steps: u64,
     pub sittings: u32,
@@ -744,6 +751,12 @@ impl Worker {
         let state = self.undertaking.state();
         Report {
             ended,
+            asking: state.waiting,
+            files: state
+                .finish
+                .as_ref()
+                .map(|f| f.files.clone())
+                .unwrap_or_default(),
             summary: state.finish.map(|f| f.summary).unwrap_or_default(),
             steps: state.steps,
             sittings: state.sittings + 1,
@@ -812,7 +825,15 @@ impl Worker {
             }
             // Whatever was added to the task from outside since the last
             // step is put in front of the worker before it goes on.
-            for added in self.undertaking.take_added() {
+            let added = self.undertaking.take_added();
+            if !added.is_empty() {
+                // Whatever it was waiting to hear, this is the answer.
+                self.undertaking.update(|state| state.waiting = None);
+            } else if self.undertaking.state().waiting.is_some() {
+                self.save(&items, &mut recorded);
+                return self.report(Ended::Waiting);
+            }
+            for added in added {
                 tracing::info!("added to the task: {}", preview(&added, 160));
                 items.push(Item::user(format!(
                     "Something has been added to the task while you were working:\n\n{added}\n\n\
@@ -1466,6 +1487,40 @@ mod tests {
         assert!(worker.budget() < 6000);
         // Every request it went on to make was one the model would take.
         assert_eq!(report.steps, 11);
+    }
+
+    #[tokio::test]
+    async fn a_question_stops_the_work_until_it_is_answered() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("ask", json!({"question": "plain text or markdown?"})),
+            // After the answer.
+            calls("write", json!({"path": "out.md", "content": "# hi\n"})),
+            calls(
+                "done",
+                json!({"outcome": "blocked", "summary": "enough", "files": ["/x/out.md"]}),
+            ),
+        ];
+        let (mut first, brain) = worker(dir.path(), script, Limits::default());
+        first.tools = first.tools.with(tools::Ask::new(first.undertaking.clone()));
+        let report = first.run().await;
+        assert_eq!(report.ended, Ended::Waiting);
+        assert_eq!(report.asking.as_deref(), Some("plain text or markdown?"));
+        assert_eq!(report.steps, 1);
+        // Picked up with no answer, it is still waiting, and asks the
+        // model for nothing.
+        assert_eq!(first.run().await.ended, Ended::Waiting);
+        assert_eq!(brain.seen.lock().unwrap().len(), 1);
+
+        first.undertaking.add("markdown").unwrap();
+        let report = first.run().await;
+        assert_eq!(report.ended, Ended::Blocked);
+        assert_eq!(report.asking, None);
+        assert_eq!(report.files, ["/x/out.md"]);
+        // The answer was in front of it when it went on.
+        let seen = brain.seen.lock().unwrap();
+        assert!(seen[1].items.iter().any(|item| matches!(item,
+            Item::User { text } if text.contains("markdown") && text.contains("added to the task"))));
     }
 
     #[tokio::test]

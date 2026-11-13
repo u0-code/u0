@@ -244,7 +244,13 @@ impl Mind {
             };
             match u.outcome.as_deref() {
                 None => {
-                    let state = if self.working.as_ref().is_some_and(|w| w.id == u.id) {
+                    let state = if let Some(question) = &u.waiting {
+                        format!(
+                            "You stopped to ask them: \"{}\". It waits for their answer. When they give one, \
+                             take it on again with just the answer, so that it reaches the work.",
+                            clip(question, 200)
+                        )
+                    } else if self.working.as_ref().is_some_and(|w| w.id == u.id) {
                         "You were in the middle of it just now.".to_owned()
                     } else if u.sittings == 0 {
                         "You have not started yet.".to_owned()
@@ -301,6 +307,64 @@ impl Mind {
              What someone told you in private is not repeated here, and you do not let on that you know it.\n\n",
             lines.join("\n")
         ))
+    }
+
+    /// What someone here wrote lately, word for word: so that work taken
+    /// on from a conversation starts from what was asked and not only from
+    /// her own account of it.
+    pub(super) fn their_words(
+        &self,
+        place: &PlaceState,
+        person: &ghost_core::memory::Person,
+    ) -> Result<String> {
+        let mut said: Vec<String> = self
+            .ghost
+            .memory()
+            .thread(&place.key, 16)?
+            .into_iter()
+            .filter(|l| l.incoming && l.person.as_deref() == Some(person.key.as_str()))
+            .map(|l| format!("> {}", l.text.replace('\n', "\n> ")))
+            .collect();
+        let from = said.len().saturating_sub(5);
+        said.drain(..from);
+        if said.is_empty() {
+            return Ok(String::new());
+        }
+        Ok(format!(
+            "\n\nWhat {} wrote, word for word:\n{}",
+            person.name,
+            said.join("\n")
+        ))
+    }
+
+    /// The files she made for the people here and has not long finished:
+    /// what she could hand over in this place.
+    pub(super) fn deliverables(&self, place: &PlaceState) -> Result<Vec<String>> {
+        if !self.can(&place.channel, crate::Can::Files) || self.workshop.machine.is_none() {
+            return Ok(Vec::new());
+        }
+        let memory = self.ghost.memory();
+        let here: Vec<String> = memory
+            .people_in(&place.key, 12)?
+            .into_iter()
+            .map(|p| p.key)
+            .chain(memory.person_of_direct(&place.key)?.map(|p| p.key))
+            .collect();
+        let mut files = Vec::new();
+        for u in memory.undertakings(false, 12)? {
+            let theirs = u.place.as_deref() == Some(place.key.as_str())
+                || u.asked_by.as_ref().is_some_and(|who| here.contains(who));
+            if !theirs || u.outcome.as_deref() != Some("finished") {
+                continue;
+            }
+            let dir = self.ghost.dir().join("work").join(&u.id);
+            if let Ok(done) = ghost_work::Undertaking::open(dir, Some(&u.brief))
+                && let Some(finish) = done.state().finish
+            {
+                files.extend(finish.files);
+            }
+        }
+        Ok(files)
     }
 
     /// The actions that exist only in a body that can do them.

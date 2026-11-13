@@ -25,6 +25,18 @@ const TYPING_LASTS: Duration = Duration::seconds(4);
 pub(super) struct Bubble {
     pub text: String,
     pub reply_to: Option<String>,
+    /// A file to hand over with it: its path on her machine.
+    pub file: Option<String>,
+}
+
+/// The largest file she hands over.
+const LARGEST_FILE: u64 = 20 * 1024 * 1024;
+
+/// The last part of a path: what a file is called.
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned())
 }
 
 pub(super) struct Speaking {
@@ -152,13 +164,34 @@ impl Mind {
                 self.set_step(key, Step::Sending);
                 let body = self.body.clone();
                 let place = key.to_owned();
+                let machine = self.workshop.machine.clone();
                 self.jobs.spawn(async move {
-                    let act = Act::Send {
-                        place: place_id,
-                        text: front.text.clone(),
-                        reply_to: front.reply_to.clone(),
+                    let act = match &front.file {
+                        None => Ok(Act::Send {
+                            place: place_id,
+                            text: front.text.clone(),
+                            reply_to: front.reply_to.clone(),
+                        }),
+                        // The file is read off her machine at the moment
+                        // it is sent, so what arrives is what is there.
+                        Some(path) => match &machine {
+                            Some(machine) => machine
+                                .read(path, LARGEST_FILE)
+                                .await
+                                .map(|data| Act::File {
+                                    place: place_id,
+                                    name: file_name(path),
+                                    data,
+                                    text: Some(front.text.clone()).filter(|t| !t.is_empty()),
+                                })
+                                .map_err(|e| format!("{path} could not be read: {e}")),
+                            None => Err(format!("there is no machine to read {path} from")),
+                        },
                     };
-                    let result = body.act(&channel, act).await;
+                    let result = match act {
+                        Ok(act) => body.act(&channel, act).await,
+                        Err(e) => Err(e),
+                    };
                     Outcome::Sent {
                         place,
                         bubble: front,
@@ -216,7 +249,12 @@ impl Mind {
             channel,
             place: place_id,
             id: acted.id,
-            text: bubble.text,
+            text: match &bubble.file {
+                Some(path) => format!("[file: {}] {}", file_name(path), bubble.text)
+                    .trim_end()
+                    .to_owned(),
+                None => bubble.text,
+            },
             reply_to: bubble.reply_to,
         })?;
         let next = self.agenda.speaking.get_mut(key).and_then(|s| {

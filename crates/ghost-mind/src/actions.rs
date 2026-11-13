@@ -83,6 +83,12 @@ pub enum Action {
         #[serde(rename = "as")]
         claimed: String,
     },
+    /// Hand over a file she made. Only where what she does is tool calls.
+    SendFile {
+        file: String,
+        #[serde(default)]
+        text: Option<String>,
+    },
     /// Take on something that needs real work, to be done in her own time.
     Undertake {
         brief: String,
@@ -140,7 +146,7 @@ pub fn from_call(call: &Call) -> Result<Action, String> {
 /// What a brain that takes tools is offered while she looks at a place.
 /// The names and arguments are those of [`Action`], so a call reads straight
 /// into one.
-pub fn tools(work: Option<&str>, look_up: bool) -> Vec<ToolSpec> {
+pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
     let tool = |name: &str, description: &str, properties: Value, required: &[&str]| ToolSpec {
         name: name.to_owned(),
         description: description.to_owned(),
@@ -239,6 +245,17 @@ pub fn tools(work: Option<&str>, look_up: bool) -> Vec<ToolSpec> {
                 "for": text("Who it is for. Leave out when it is for yourself."),
             }),
             &["brief"],
+        ));
+    }
+    if files {
+        tools.push(tool(
+            "send_file",
+            "Hand over a file you made, in this conversation. It arrives as a file, not as text.",
+            json!({
+                "file": text("The file, as it was named to you."),
+                "text": text("A line to go with it, if you have one."),
+            }),
+            &["file"],
         ));
     }
     tools.push(tool(

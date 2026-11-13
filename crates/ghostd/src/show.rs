@@ -96,6 +96,8 @@ fn describe(event: &Event, tz: Tz) -> String {
         Event::Left { person, why } => format!("{person}: {}", flat(why)),
         Event::Canon { fact, source } => format!("{} [{source}]", flat(fact)),
         Event::Undertook { id, brief, .. } => format!("[{id}] {}", flat(brief)),
+        Event::Asked { id, question } => format!("[{id}] {}", flat(question)),
+        Event::Added { id, text } => format!("[{id}] {}", flat(text)),
         Event::Worked { id, summary, steps } => {
             format!("[{id}] {steps} steps: {}", flat(summary))
         }

@@ -51,6 +51,22 @@ pub trait Machine: Send + Sync {
 
     /// A line or two for the worker about where it is.
     fn describe(&self) -> String;
+
+    /// The bytes of a file on the machine, for handing it to someone. A
+    /// file larger than `limit` is refused rather than cut.
+    async fn read(&self, _path: &str, _limit: u64) -> io::Result<Vec<u8>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "files cannot be taken off this machine",
+        ))
+    }
+}
+
+fn too_large(path: &str, limit: u64) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("{path} is larger than {limit} bytes"),
+    )
 }
 
 /// Quote a string for bash.
@@ -178,6 +194,14 @@ impl Machine for Local {
         run(command, stdin, timeout).await
     }
 
+    async fn read(&self, path: &str, limit: u64) -> io::Result<Vec<u8>> {
+        let full = self.root.join(path);
+        if tokio::fs::metadata(&full).await?.len() > limit {
+            return Err(too_large(path, limit));
+        }
+        tokio::fs::read(full).await
+    }
+
     fn describe(&self) -> String {
         format!(
             "You are on a {} machine, in the directory {}. The machine is someone else's, and that \
@@ -264,6 +288,34 @@ impl Machine for Docker {
         Ok(out)
     }
 
+    async fn read(&self, path: &str, limit: u64) -> io::Result<Vec<u8>> {
+        // One byte more than is allowed, to tell a file at the limit from
+        // one over it without bringing all of a large one across.
+        let mut command = Command::new("docker");
+        command.arg("exec");
+        if let Some(dir) = &self.workdir {
+            command.args(["-w", dir]);
+        }
+        if let Some(user) = &self.user {
+            command.args(["-u", user]);
+        }
+        let out = command
+            .arg(&self.container)
+            .args(["head", "-c", &(limit + 1).to_string(), "--", path])
+            .output()
+            .await?;
+        if !out.status.success() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+            ));
+        }
+        if out.stdout.len() as u64 > limit {
+            return Err(too_large(path, limit));
+        }
+        Ok(out.stdout)
+    }
+
     fn describe(&self) -> String {
         format!(
             "You are inside a Linux container{}.",
@@ -283,6 +335,21 @@ mod tests {
     fn quoting_survives_quotes() {
         assert_eq!(quote("a b"), "'a b'");
         assert_eq!(quote("it's"), r"'it'\''s'");
+    }
+
+    #[tokio::test]
+    async fn a_file_can_be_taken_off_the_machine_unless_it_is_too_large() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("out.txt"), "the result").unwrap();
+        let local = Local::new(dir.path());
+        assert_eq!(local.read("out.txt", 100).await.unwrap(), b"the result");
+        let absolute = dir.path().join("out.txt");
+        assert_eq!(
+            local.read(absolute.to_str().unwrap(), 100).await.unwrap(),
+            b"the result"
+        );
+        assert!(local.read("out.txt", 5).await.is_err());
+        assert!(local.read("nothing.txt", 100).await.is_err());
     }
 
     #[tokio::test]

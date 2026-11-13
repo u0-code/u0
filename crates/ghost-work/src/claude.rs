@@ -302,6 +302,12 @@ fn report(undertaking: &Undertaking, ended: Ended) -> Report {
     let state = undertaking.state();
     Report {
         ended,
+        asking: state.waiting,
+        files: state
+            .finish
+            .as_ref()
+            .map(|f| f.files.clone())
+            .unwrap_or_default(),
         summary: state.finish.map(|f| f.summary).unwrap_or_default(),
         steps: state.steps,
         sittings: state.sittings + 1,

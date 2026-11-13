@@ -33,6 +33,8 @@ pub enum Can {
     Feed,
     /// Report how her posts are doing and how many follow her.
     Metrics,
+    /// Take a file and deliver it.
+    Files,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +72,13 @@ pub enum Act {
     },
     /// Ask how her recent posts are doing.
     Measure,
+    /// Hand over a file.
+    File {
+        place: String,
+        name: String,
+        data: Vec<u8>,
+        text: Option<String>,
+    },
 }
 
 /// What a channel reports about her public standing.

@@ -782,6 +782,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.23.1",
  "clap",
  "ghost-link",
  "tokio",
@@ -835,6 +836,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.23.1",
  "chrono",
  "chrono-tz",
  "clap",

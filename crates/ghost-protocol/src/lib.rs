@@ -254,6 +254,8 @@ pub enum Capability {
     Feed,
     /// Report how her posts are doing and how many follow her.
     Metrics,
+    /// Take a file and deliver it to a place.
+    Files,
 }
 
 /// Someone on a channel.
@@ -352,6 +354,15 @@ pub enum Action {
     },
     /// How are her recent posts doing? Answered in [`Acted::measure`].
     Measure,
+    /// Hand over a file, with a line to go with it if she has one.
+    File {
+        place: String,
+        name: String,
+        /// The file's bytes, base64.
+        data: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
 }
 
 impl Action {
@@ -365,6 +376,7 @@ impl Action {
             Self::Post { .. } => Capability::Post,
             Self::Fetch { .. } => Capability::Feed,
             Self::Measure => Capability::Metrics,
+            Self::File { .. } => Capability::Files,
         }
     }
 }

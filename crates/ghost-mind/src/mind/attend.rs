@@ -376,7 +376,11 @@ impl Mind {
             let turn = Turn {
                 system,
                 items: job.items.clone(),
-                tools: actions::tools(self.work_means(), self.can_look_up()),
+                tools: actions::tools(
+                    self.work_means(),
+                    self.can_look_up(),
+                    !self.deliverables(place)?.is_empty(),
+                ),
                 max_tokens: self.cfg.max_tokens,
                 temperature: None,
                 // Talking is not a problem to be worked out at length, and
@@ -871,7 +875,11 @@ impl Mind {
                             }
                             None => None,
                         };
-                        bubbles.push_back(Bubble { text, reply_to });
+                        bubbles.push_back(Bubble {
+                            text,
+                            reply_to,
+                            file: None,
+                        });
                     }
                 }
                 Action::React { to, emoji } => {
@@ -914,6 +922,36 @@ impl Mind {
                 }
                 // Handled before this, as another round of thought.
                 Action::Verify { .. } | Action::LookUp { .. } => {}
+                Action::SendFile { file, text } => {
+                    // By the name she was given, or the end of it.
+                    let wanted = file.trim();
+                    let found = self.deliverables(place)?.into_iter().find(|path| {
+                        path == wanted
+                            || std::path::Path::new(path)
+                                .file_name()
+                                .is_some_and(|n| n.to_string_lossy() == wanted)
+                            || path.ends_with(wanted)
+                    });
+                    match found {
+                        Some(path) => {
+                            bubbles.push_back(Bubble {
+                                text: text.unwrap_or_default().trim().to_owned(),
+                                reply_to: None,
+                                file: Some(path),
+                            });
+                            did.push("sent a file".to_owned());
+                        }
+                        None => {
+                            self.record(Event::Decided {
+                                about: place.key.clone(),
+                                decision: "did not send a file".into(),
+                                reason: format!(
+                                    "there is no file of hers called {wanted} to give here"
+                                ),
+                            })?;
+                        }
+                    }
+                }
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
                     match self.undertake(&brief, asker.as_ref(), Some(place), now)? {

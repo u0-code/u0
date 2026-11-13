@@ -178,6 +178,18 @@ pub enum Event {
         summary: String,
         steps: u32,
     },
+    /// In the middle of an undertaking she needed something from whoever
+    /// it is for, and stopped to ask.
+    Asked {
+        id: String,
+        question: String,
+    },
+    /// Something was added to an undertaking after it began: more of what
+    /// was wanted, or the answer to what she asked.
+    Added {
+        id: String,
+        text: String,
+    },
     /// An undertaking ended: `finished`, `blocked`, `gave_up` or `dropped`.
     Concluded {
         id: String,
@@ -283,6 +295,8 @@ impl Event {
             Self::Canon { .. } => "canon",
             Self::Undertook { .. } => "undertook",
             Self::Worked { .. } => "worked",
+            Self::Asked { .. } => "asked",
+            Self::Added { .. } => "added",
             Self::Concluded { .. } => "concluded",
             Self::Measured { .. } => "measured",
             Self::Learned { .. } => "learned",

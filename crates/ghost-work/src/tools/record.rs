@@ -172,6 +172,51 @@ impl Tool for Handoff {
     }
 }
 
+/// A question for whoever the work is for. Only offered when there is
+/// someone to ask and a way for the answer to come back.
+pub struct Ask {
+    undertaking: Arc<Undertaking>,
+}
+
+impl Ask {
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
+    }
+}
+
+#[async_trait]
+impl Tool for Ask {
+    fn spec(&self) -> ToolSpec {
+        spec(
+            "ask",
+            "Put a question to the person this work is for, and stop until they answer. \
+             Only for what you cannot find out and should not decide alone: a preference, a fact only they have, \
+             a choice between ways that would give them a different result. Never for what you could look up or try. \
+             The answer may take hours, so do everything that does not depend on it first, and ask once, with \
+             everything you need in the one question.",
+            json!({
+                "question": {"type": "string", "description": "The question, as you would put it to them: short, and answerable without having seen your work."},
+            }),
+            &["question"],
+        )
+    }
+
+    async fn call(&self, args: &Value) -> Outcome {
+        let question = match text(args, "question") {
+            Ok(q) => q.trim(),
+            Err(refusal) => return refusal,
+        };
+        if question.is_empty() {
+            return Outcome::fail("the question is empty");
+        }
+        self.undertaking
+            .update(|state| state.waiting = Some(question.to_owned()));
+        Outcome::ok(
+            "Asked. The work stops here until they answer; their answer will be added to the task.",
+        )
+    }
+}
+
 pub struct Done {
     undertaking: Arc<Undertaking>,
 }
@@ -192,6 +237,7 @@ impl Tool for Done {
                 "outcome": {"type": "string", "enum": ["finished", "blocked", "gave_up"]},
                 "summary": {"type": "string", "description": "What was done, or what is in the way, in a few sentences."},
                 "evidence": {"type": "string", "description": "For `finished`: each requirement and how you checked it holds (the command you ran and what it showed)."},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "If what was asked for is one or more files, their absolute paths: these are what gets handed over. Leave out when the result is what you say in the summary."},
             }),
             &["outcome", "summary"],
         )
@@ -246,6 +292,17 @@ impl Tool for Done {
                 outcome,
                 summary: summary.trim().to_owned(),
                 evidence,
+                files: args["files"]
+                    .as_array()
+                    .map(|files| {
+                        files
+                            .iter()
+                            .filter_map(|f| f.as_str().map(str::trim))
+                            .filter(|f| !f.is_empty())
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 at: Utc::now(),
             });
         });

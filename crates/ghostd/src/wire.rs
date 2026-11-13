@@ -4,6 +4,7 @@
 //! separate on purpose: the journal is a forever format, the protocol is
 //! versioned. This is the one place they meet.
 
+use base64::Engine as _;
 use ghost_core::social;
 use ghost_mind::{Act, Acted, Can, Feed, Incoming};
 use ghost_protocol as wire;
@@ -49,6 +50,7 @@ pub fn can(c: wire::Capability) -> Can {
         wire::Capability::Post => Can::Post,
         wire::Capability::Feed => Can::Feed,
         wire::Capability::Metrics => Can::Metrics,
+        wire::Capability::Files => Can::Files,
     }
 }
 
@@ -75,6 +77,17 @@ pub fn action(act: Act) -> wire::Action {
             limit,
         },
         Act::Measure => wire::Action::Measure,
+        Act::File {
+            place,
+            name,
+            data,
+            text,
+        } => wire::Action::File {
+            place,
+            name,
+            data: base64::engine::general_purpose::STANDARD.encode(data),
+            text,
+        },
     }
 }
 
