@@ -27,11 +27,17 @@ A ghost is driven by time.
   back on before sleep. That is where what she says about her day comes from,
   and where her reasons to write first come from.
 
-- She can do things, not only say them. In a conversation she may decide to
-  take something on: look something up properly, make something, check
-  something. She works on it in sittings, in her own time, with a shell in a
-  sandbox and the web, and comes back with what she found. The loop that does
-  this is built to run for hours and to be stopped anywhere.
+- She can do things, not only say them. In a conversation she may glance
+  something up before she answers, or decide to take something on: look
+  something up properly, make something, check something. She works on it in
+  sittings, in her own time, with a shell in a sandbox and the web. If she
+  needs to know something only you can tell her, she stops and asks. She
+  comes back with what she found, and if what she made is a file, with the
+  file. The loop that does this is built to run for hours and to be stopped
+  anywhere.
+- She can be after something of her own. Once she has put it into words she
+  may take a piece of work on toward it without being asked, and what each
+  piece of work teaches her about working is there the next time.
 - She is one person across platforms. Every conversation opens with the rest of
   her day: what she has taken on, what has been going on elsewhere. What she
   knows carries where she learned it, and what was said to her in private does

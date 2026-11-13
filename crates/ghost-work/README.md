@@ -24,7 +24,14 @@ What makes it hold up over hours:
 - Nothing is lost to that: every item the transcript ever held is appended to
   `history.jsonl`, which is never rewritten.
 - Saying "finished" the first time gets the task read back, with an
-  instruction to check each requirement against the real state.
+  instruction to check each requirement against the real state. Long work
+  is then read by a reviewer who sees the task, the evidence, every command
+  that was run, and can open the files for itself.
+- A part of the work that is mostly reading can be handed to a helper
+  (`delegate`) with a context of its own; only its report comes back.
+  Calls that only look run side by side.
+- Where there is someone to ask, the worker can stop and ask (`ask`), and
+  goes on when the answer is added to the task.
 - Talking without acting, repeating a call, and running low on steps are each
   said out loud to the model.
 
