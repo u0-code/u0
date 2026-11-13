@@ -17,8 +17,7 @@ its own key-less defaults otherwise.
 | Agent | How it reaches the model |
 |---|---|
 | `ghost-work` (this repository) | OpenAI-compatible API, the loop on the host, its shell in the task container |
-| `terminus-2` (Harbor's reference agent) | LiteLLM in the Harbor process, a tmux session in the container |
-| `claude-code` | DeepSeek's Anthropic-compatible endpoint |
+| `claude-code` | DeepSeek's Anthropic-compatible endpoint, running inside the task container |
 
 ## Set up
 
@@ -35,29 +34,54 @@ export PYTHONPATH=$PWD/bench
 ```
 
 `--with socksio` is only needed behind a SOCKS proxy. Docker must be running.
-On Apple silicon nearly all task images are amd64 and run emulated, so
-timeouts are doubled for every agent (`--timeout-multiplier 2`) and tool
-installation is given more time (`--agent-setup-timeout-multiplier 3`).
+
+### On Apple silicon
+
+Nearly all task images are amd64 and run emulated. Three things keep a run
+from stalling:
+
+- **Rosetta, and room.** In Docker Desktop turn on "Use Rosetta for x86_64/amd64
+  emulation" and give the machine most of its processors and memory.
+- **More time and more processors for every agent.** `--timeout-multiplier 2
+  --override-cpus 4 --override-memory-mb 4096`. The tasks ask for one
+  processor; emulated, that is not the machine they were timed on.
+- **Do not let an agent install itself in the container.** Harbor's
+  `claude-code` agent installs nodejs with `apt` first, which under emulation
+  did not finish in fourteen minutes. It skips installation when the right
+  version of `claude` is already on the path, so download the Linux binary
+  once on the host and mount it in:
+
+  ```bash
+  V=2.1.322; mkdir -p cc
+  curl -fSL -o cc/claude https://downloads.claude.ai/claude-code-releases/$V/linux-x64/claude
+  chmod +x cc/claude    # check it against $V/manifest.json; images on musl need linux-x64-musl
+  MOUNT='[{"type":"bind","source":"'$PWD'/cc/claude","target":"/usr/local/bin/claude","read_only":true}]'
+  ```
+
+  `ghost-work` needs nothing in the container: its loop runs on the host.
+
+Pull the task images before a run, so that no trial waits on a download.
 
 ## Run
 
 ```bash
-COMMON="-p terminal-bench-2-1/tasks $TASKS -n 2 -k 1 --timeout-multiplier 2 --agent-setup-timeout-multiplier 3 -o jobs"
+COMMON="-p terminal-bench-2-1/tasks $TASKS -n 2 -k 1 --timeout-multiplier 2 --override-cpus 4 --override-memory-mb 4096 -o jobs"
 
 harbor run $COMMON -a oracle --job-name oracle                     # the reference solutions, as a sanity check
 harbor run $COMMON -a ghost_harbor.agent:GhostAgent -m deepseek/deepseek-flash --job-name ghost
-harbor run $COMMON -a terminus-2  -m deepseek/deepseek-flash --job-name terminus2
 harbor run $COMMON -a claude-code -m deepseek/deepseek-flash \
-    --base-url https://api.deepseek.com/anthropic --job-name claude-code
+    --base-url https://api.deepseek.com/anthropic --api-key-name DEEPSEEK_API_KEY \
+    --ak version=$V --mounts "$MOUNT" --job-name claude-code
 ```
 
+An interrupted job is picked up with `harbor jobs resume -p jobs/<job>`.
 `jobs/<job>/result.json` has the pass rate; each trial directory has the
 reward, timings and, for `ghost-work`, `agent/state/log.jsonl` with one line
 per step.
 
 ## Which tasks
 
-Running all 89 for three agents takes most of a day on a laptop. The
+Running all 89 for two agents takes most of a day on a laptop. The
 comparison uses a fixed subset chosen before any agent was run on it:
 
 1. Keep tasks a laptop can run: agent timeout at most 30 minutes, at most 4 GB
