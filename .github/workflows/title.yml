@@ -1,0 +1,25 @@
+# A pull request is squashed into one commit whose subject is its title, so
+# the title is held to the rule for commit subjects (CONTRIBUTING.md).
+name: Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: title
+    # Dependabot names its own pull requests, at whatever length it likes.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the title
+        # Through the environment, never pasted into the script: a title is
+        # whatever its author typed.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/check-subject.sh "$TITLE"
