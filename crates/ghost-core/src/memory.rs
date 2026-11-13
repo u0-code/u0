@@ -445,11 +445,6 @@ impl Memory {
         channel_of(key).and_then(|c| self.channels.get(c))
     }
 
-    /// The global database and every platform's.
-    fn every(&self) -> impl Iterator<Item = &Shard> {
-        std::iter::once(&self.global).chain(self.channels.values())
-    }
-
     // One platform's record: read from that platform's database.
 
     pub fn place(&self, key: &str) -> Result<Option<PlaceState>> {
@@ -656,30 +651,27 @@ impl Memory {
         self.global.undertaken_since(since)
     }
 
-    /// Places other than `except` where something was said since `since`,
-    /// on every platform, most recent first.
+    /// Places on the same platform as `except`, other than it, where
+    /// something was said since `since`, most recent first.
     pub fn elsewhere(
         &self,
         since: DateTime<Utc>,
         except: &str,
         limit: usize,
     ) -> Result<Vec<Elsewhere>> {
-        let mut all = Vec::new();
-        for shard in self.channels.values() {
-            all.extend(shard.elsewhere(since, except, limit)?);
-        }
-        all.sort_by_key(|e| std::cmp::Reverse(e.last.seq));
-        all.truncate(limit);
-        Ok(all)
+        self.shard_of(except)
+            .map_or(Ok(Vec::new()), |s| s.elsewhere(since, except, limit))
     }
 
-    /// Search her memory and the messages on every platform, oldest first. Words of three letters or more are matched as words
+    /// Search her memory, and the messages on platform `channel`, oldest
+    /// first. Words of three letters or more are matched as words
     /// and the best of them kept; shorter ones (most Chinese) are matched
     /// as text and the newest kept.
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+    pub fn search(&self, channel: &str, query: &str, limit: usize) -> Result<Vec<Hit>> {
         let mut ranked: Vec<(f64, Hit)> = Vec::new();
         let mut scanned: Vec<Hit> = Vec::new();
-        for shard in self.every() {
+        let shards = std::iter::once(&self.global).chain(self.channels.get(channel));
+        for shard in shards {
             let (r, s) = shard.search(query, limit)?;
             ranked.extend(r);
             scanned.extend(s);
@@ -1986,14 +1978,14 @@ mod tests {
                 source: "life".into(),
             },
         ]);
-        assert_eq!(m.search("interview", 5).unwrap().len(), 1);
+        assert_eq!(m.search("t", "interview", 5).unwrap().len(), 1);
         // Two characters: below the trigram minimum, found by scan.
-        let tea = m.search("茶馆", 5).unwrap();
+        let tea = m.search("t", "茶馆", 5).unwrap();
         assert_eq!(tea.len(), 1);
         assert_eq!(tea[0].kind, "said");
-        assert_eq!(m.search("豆包 interview", 5).unwrap().len(), 2);
-        assert!(m.search("nothing here", 5).unwrap().is_empty());
-        assert!(m.search("100%_", 5).unwrap().is_empty());
+        assert_eq!(m.search("t", "豆包 interview", 5).unwrap().len(), 2);
+        assert!(m.search("t", "nothing here", 5).unwrap().is_empty());
+        assert!(m.search("t", "100%_", 5).unwrap().is_empty());
     }
 
     #[test]
@@ -2027,7 +2019,7 @@ mod tests {
             },
         ]);
         assert_eq!(m.notes("t:a", 5).unwrap()[0].place.as_deref(), Some("t:a"));
-        let hits = m.search("Kunming", 5).unwrap();
+        let hits = m.search("t", "Kunming", 5).unwrap();
         assert_eq!(hits.len(), 2);
         assert!(hits.iter().all(|h| h.place.as_deref() == Some("t:a")));
     }
@@ -2070,7 +2062,7 @@ mod tests {
         assert!(m.undertakings(true, 5).unwrap().is_empty());
         let done = m.undertaking("u1").unwrap().unwrap();
         assert_eq!(done.outcome.as_deref(), Some("finished"));
-        assert_eq!(m.search("closes at nine", 5).unwrap().len(), 1);
+        assert_eq!(m.search("t", "closes at nine", 5).unwrap().len(), 1);
     }
 
     #[test]
@@ -2158,6 +2150,56 @@ mod tests {
         assert_eq!(other[0].place.key, "t:g");
         assert_eq!((other[0].heard, other[0].said), (1, 1));
         assert_eq!(other[0].last.text, "not yet");
+    }
+
+    #[test]
+    fn a_conversation_sees_its_own_platform_and_the_whole_memory() {
+        let (_, m) = fold(vec![
+            heard(
+                "a",
+                PlaceKind::Direct,
+                "a",
+                "1",
+                "the lantern festival is friday",
+                true,
+            ),
+            on(
+                "qq",
+                heard(
+                    "b",
+                    PlaceKind::Direct,
+                    "b",
+                    "2",
+                    "the lantern shop closed",
+                    true,
+                ),
+            ),
+            Event::Noted {
+                about: "qq:b".into(),
+                text: "runs the lantern stall".into(),
+                place: Some("qq:b".into()),
+            },
+        ]);
+        let texts = |hits: Vec<Hit>| hits.into_iter().map(|h| h.text).collect::<Vec<_>>();
+        // From Telegram: Telegram's messages, and every memory.
+        let from_t = texts(m.search("t", "lantern", 10).unwrap());
+        assert!(from_t.iter().any(|t| t.contains("festival is friday")));
+        assert!(from_t.iter().any(|t| t == "runs the lantern stall"));
+        assert!(!from_t.iter().any(|t| t.contains("shop closed")));
+        // From QQ: the other way round for the messages, the same memory.
+        let from_qq = texts(m.search("qq", "lantern", 10).unwrap());
+        assert!(from_qq.iter().any(|t| t.contains("shop closed")));
+        assert!(from_qq.iter().any(|t| t == "runs the lantern stall"));
+        assert!(!from_qq.iter().any(|t| t.contains("festival is friday")));
+        // What else is going on is what is going on on this platform.
+        let since = Utc::now() - chrono::Duration::hours(1);
+        assert!(
+            m.elsewhere(since, "t:x", 5)
+                .unwrap()
+                .iter()
+                .all(|e| e.place.channel == "t")
+        );
+        assert_eq!(m.elsewhere(since, "qq:x", 5).unwrap().len(), 1);
     }
 
     #[test]

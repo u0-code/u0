@@ -605,10 +605,26 @@ impl Mind {
     /// changes by the hour and goes late in the request, so that a provider
     /// which caches what it has read before can reuse everything ahead of it.
     fn portrait(&self, now: DateTime<Utc>) -> Result<(String, String)> {
+        self.portrait_on(now, None)
+    }
+
+    /// The same, for a moment spent on platform `on`. What she posted is
+    /// that platform's record, so only her posts there are among what she
+    /// has been doing lately; with no platform, none are.
+    fn portrait_on(&self, now: DateTime<Utc>, on: Option<&str>) -> Result<(String, String)> {
         let journal = self.ghost.journal();
         let moment = self.life.moment(journal, now)?;
         let day = self.life.today(journal, now)?;
-        let recent = journal.last_n_of(&["lived", "reflected", "posted", "dormant"], 10)?;
+        let mut recent: Vec<Entry> = journal
+            .last_n_of(&["lived", "reflected", "posted", "dormant"], 30)?
+            .into_iter()
+            .filter(|e| match &e.event {
+                Event::Posted { channel, .. } => on == Some(channel.as_str()),
+                _ => true,
+            })
+            .collect();
+        let extra = recent.len().saturating_sub(10);
+        recent.drain(..extra);
         let canon = self.ghost.memory().canon(40)?;
         let scene = Scene {
             identity: self.ghost.identity(),

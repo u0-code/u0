@@ -87,7 +87,7 @@ impl Mind {
                     }),
             ),
         ];
-        let (system, right_now) = self.portrait(now)?;
+        let (system, right_now) = self.portrait_on(now, Some(&channel))?;
         let (brain, body, max_tokens) =
             (self.think.clone(), self.body.clone(), self.cfg.max_tokens);
         let seen: HashSet<String> = self

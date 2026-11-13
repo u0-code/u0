@@ -76,13 +76,6 @@ pub enum Action {
     },
     /// Post publicly, to no one in particular.
     Post { text: String },
-    /// Someone here says they are a person she knows on another platform.
-    /// Ask for proof instead of taking their word.
-    Verify {
-        /// The name or handle she knows that person by elsewhere.
-        #[serde(rename = "as")]
-        claimed: String,
-    },
     /// Hand over a file she made. Only where what she does is tool calls.
     SendFile {
         file: String,
@@ -107,14 +100,6 @@ pub struct Deliberation {
 }
 
 impl Deliberation {
-    /// Who someone here claims to be elsewhere, if she asked to check.
-    pub fn verify(&self) -> Option<&str> {
-        self.actions.iter().find_map(|a| match a {
-            Action::Verify { claimed } if !claimed.trim().is_empty() => Some(claimed.as_str()),
-            _ => None,
-        })
-    }
-
     /// The memory query she asked for, if she asked for one.
     pub fn recall(&self) -> Option<&str> {
         self.actions.iter().find_map(|a| match a {
@@ -215,12 +200,6 @@ pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
             "Search your memory for something older before answering. You get what you find, and another turn.",
             json!({"query": text("A few words.")}),
             &["query"],
-        ),
-        tool(
-            "verify",
-            "Someone here says they are a person you know from another platform, and you cannot tell from what they say. You are told how to check, and get another turn.",
-            json!({"as": text("The name you know that person by elsewhere.")}),
-            &["as"],
         ),
     ];
     if look_up {

@@ -61,9 +61,10 @@ history.
 - **A day of her own.** Planned when she wakes, under the real weather of her
   city, lived through block by block, looked back on before sleep. Her reasons
   to write first come from there.
-- **One person across platforms.** Every conversation opens with the rest of her
-  day. What she knows carries where she learned it, and what was said to her in
-  private does not turn up in a group or a post.
+- **One memory across platforms.** A conversation is shown that platform's
+  messages and everything she remembers, wherever she learned it. Each memory
+  says where that was, and what was said to her in private is marked as such
+  wherever it comes up.
 - **She can do things.** She glances something up before she answers, or takes
   something on and works at it for hours in her own time, with a shell, files and
   the web. She stops to ask when only you know, and comes back with what she

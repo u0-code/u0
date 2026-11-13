@@ -134,8 +134,6 @@ impl Mind {
                 Some(id) => self.ghost.memory().is_hers(&place_key, id)?,
                 None => false,
             };
-        let proof = (m.place.kind == PlaceKind::Direct)
-            .then(|| (social::key(channel, &m.from.id), m.text.to_lowercase()));
         self.record(Event::Heard {
             channel: channel.to_owned(),
             place: m.place,
@@ -145,9 +143,6 @@ impl Mind {
             reply_to: m.reply_to,
             addressed,
         })?;
-        if let Some((sender, said)) = proof {
-            self.proven(&sender, &said, now)?;
-        }
         self.schedule_attend(&place_key, now)
     }
 
@@ -517,7 +512,7 @@ impl Mind {
             .map(|r| format!("\n# What you remember\n\n{r}\n"))
             .unwrap_or_default();
 
-        let (who, right_now) = self.portrait(now)?;
+        let (who, right_now) = self.portrait_on(now, Some(&place.channel))?;
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
         } else {
@@ -624,14 +619,6 @@ impl Mind {
             }
         };
         if job.round < RECALL_ROUNDS
-            && let Some(claimed) = deliberation.verify()
-        {
-            // She thinks again knowing what came of asking for proof.
-            job.recalled = Some(self.challenge(&place, claimed)?);
-            job.round += 1;
-            return self.ponder(job, &place, now);
-        }
-        if job.round < RECALL_ROUNDS
             && let Some(query) = deliberation.recall()
         {
             job.recalled = Some(self.remembered(query, &place)?);
@@ -643,7 +630,7 @@ impl Mind {
 
     /// What a search of her memory turns up, as she would be told it.
     fn remembered(&self, query: &str, place: &PlaceState) -> Result<String> {
-        let hits = self.ghost.memory().search(query, 8)?;
+        let hits = self.ghost.memory().search(&place.channel, query, 8)?;
         if hits.is_empty() {
             return Ok(format!(
                 "You searched your memory for \"{query}\" and found nothing."
@@ -724,10 +711,6 @@ impl Mind {
                 Ok(Action::Recall { query }) => {
                     again = true;
                     (self.remembered(&query, place)?, false)
-                }
-                Ok(Action::Verify { claimed }) => {
-                    again = true;
-                    (self.challenge(place, &claimed)?, false)
                 }
                 Ok(Action::LookUp { query }) => {
                     if self.can_look_up() {
@@ -921,7 +904,7 @@ impl Mind {
                     }
                 }
                 // Handled before this, as another round of thought.
-                Action::Verify { .. } | Action::LookUp { .. } => {}
+                Action::LookUp { .. } => {}
                 Action::SendFile { file, text } => {
                     // By the name she was given, or the end of it.
                     let wanted = file.trim();
