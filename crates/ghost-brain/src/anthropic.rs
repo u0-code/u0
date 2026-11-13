@@ -15,6 +15,7 @@ pub struct Anthropic {
     api_key: String,
     model: String,
     base_url: String,
+    window: Option<u64>,
 }
 
 impl Anthropic {
@@ -22,12 +23,21 @@ impl Anthropic {
         Self {
             client: http::client(),
             api_key,
+            window: crate::known_window(&model),
             model,
             base_url: base_url
                 .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned())
                 .trim_end_matches('/')
                 .to_owned(),
         }
+    }
+
+    /// Say how large this model's context window is, when it is not one
+    /// this crate knows.
+    #[must_use]
+    pub fn with_window(mut self, window: Option<u64>) -> Self {
+        self.window = window.or(self.window);
+        self
     }
 
     async fn post(&self, body: &Value) -> Result<(Value, String)> {
@@ -153,6 +163,10 @@ impl Brain for Anthropic {
 
     fn works(&self) -> bool {
         true
+    }
+
+    fn window(&self) -> Option<u64> {
+        self.window
     }
 
     async fn step(&self, turn: &Turn) -> Result<Step> {

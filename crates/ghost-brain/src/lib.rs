@@ -190,6 +190,14 @@ pub trait Brain: Send + Sync {
         Err(Error::NoTools(self.label()))
     }
 
+    /// How many tokens one request to this model may hold, input and
+    /// output together, if that is known. A loop that keeps a transcript
+    /// uses it to decide when the transcript has to shrink; `None` means
+    /// assume little.
+    fn window(&self) -> Option<u64> {
+        None
+    }
+
     /// If this brain is a command-line agent, how to start it. Such an
     /// agent cannot take a [`Turn`], but it can be given our tools and left
     /// to step through a piece of work itself.
@@ -198,9 +206,33 @@ pub trait Brain: Send + Sync {
     }
 }
 
+/// The context window of a model this crate has been run against, by name.
+/// Anything else has to say so in its configuration (`context_window`).
+pub(crate) fn known_window(model: &str) -> Option<u64> {
+    let model = model.to_lowercase();
+    if model.starts_with("deepseek-flash") || model.starts_with("deepseek-v4") {
+        // What DeepSeek's `/models` listing declares for these two.
+        Some(1_048_576)
+    } else if model.starts_with("claude-") {
+        Some(200_000)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_are_known_for_what_was_run() {
+        assert_eq!(known_window("deepseek-flash"), Some(1_048_576));
+        assert_eq!(known_window("claude-sonnet-5"), Some(200_000));
+        assert_eq!(known_window("deepseek-v4-pro"), Some(1_048_576));
+        // An older name the listing no longer declares anything for.
+        assert_eq!(known_window("deepseek-chat"), None);
+        assert_eq!(known_window("qwen3"), None);
+    }
 
     #[test]
     fn transcript_labels_both_sides() {

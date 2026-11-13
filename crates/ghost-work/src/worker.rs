@@ -7,10 +7,13 @@
 //! - **State is outside the context.** The plan, the notes and the outcome
 //!   live in the [`Undertaking`], and the transcript is saved after every
 //!   step. The process can stop anywhere and be picked up.
-//! - **Context is folded, not grown.** When the transcript nears its budget,
-//!   old tool output is dropped first. If that is not enough the worker
-//!   writes itself a handoff and starts again from the task, the plan and its
-//!   notes, with nothing else.
+//! - **Context is folded only when it has to be.** The transcript may fill
+//!   most of the model's window. When it nears that, long tool output is
+//!   trimmed first, then old output is dropped; if that is not enough the
+//!   worker writes itself a handoff and goes on from the task, the plan, its
+//!   notes and the last stretch of the transcript, word for word. Nothing
+//!   is lost to this: every item is also appended to a history that is
+//!   never rewritten.
 //! - **Finishing is checked.** Saying "done" the first time gets the task
 //!   read back (see the `done` tool).
 //! - **Stalls are noticed.** Talking without acting, repeating the same call,
@@ -30,8 +33,8 @@ use serde_json::{Value, json};
 
 use crate::{
     tool::Toolbox,
-    tools::{Handoff, Plan},
-    undertaking::{Outcome, Undertaking},
+    tools::{Handoff, clip},
+    undertaking::{Outcome, State, Undertaking},
 };
 
 const PROMPT: &str = include_str!("prompts/work.md");
@@ -42,33 +45,65 @@ const CUT_OFF: &str = "Your last message was cut off by the output limit before 
 Continue. If you were writing a large file, write it in several smaller pieces.";
 const REPEATING: &str = "You have made the same call three times and got the same result. \
 It will not change. Stop and think about what that result is telling you, then do something different.";
-const HANDOFF: &str = "Your context is almost full and is about to be cleared. \
-You will continue this work with only the task, the plan, your handoff and your latest notes in front of you. \
+const HANDOFF: &str = "Your context is almost full, and all of it but the most recent part is about to be cleared. \
+You will continue this work with the task, the plan, your handoff, your latest notes and only the last stretch \
+of this conversation in front of you. \
 Right now, call `handoff` once with a single document that stands on its own: what is finished and checked, \
 what is in progress and exactly where you stopped, the exact paths and commands that matter, what you learned \
 that was not obvious, and the next few actions in order. It replaces any earlier handoff, so carry forward \
 whatever from the earlier one still matters. Keep it under about 500 words. Also bring `plan` up to date. \
 Do nothing else in this step.";
 
-const INTERRUPTED: &str = "This did not finish: the work was interrupted while it ran. \
-It may have partly happened. Look at the current state before doing it again.";
+/// Calls run one after another, so of the calls left without a result when
+/// the work was interrupted only the first can have begun.
+const INTERRUPTED: &str = "This did not finish: the work was interrupted while it ran, and what it did is unknown. \
+It may have partly happened. If it only reads, or doing it twice does no harm, run it again; \
+otherwise look at the current state first.";
+const NOT_STARTED: &str = "This was not run: the work was interrupted before it began. \
+Run it again if it is still needed.";
 
 const AUDITOR: &str = "You are reviewing someone's claim that a task is finished. You see the task, \
-their summary and evidence, and what their most recent commands actually printed. You cannot run \
-anything. Decide whether the task as written is demonstrably complete.\n\n\
-Be strict about what the task literally asks for: names, paths, formats, exact output, things \
-that must be running. A requirement with no direct evidence in the printed output counts as \
-unproven. A claim contradicted by the output counts as false. Do not ask for more than the task \
-asks for, and do not fail work for style.\n\n\
+their summary and evidence, every command they ran in order (without its output), and what their \
+most recent commands actually printed. You cannot run anything. Decide whether the task as written \
+is demonstrably complete.\n\n\
+Be strict about the result the task literally asks for: names, paths, formats, exact output, things \
+that must be running. Such a requirement with no direct evidence in the printed output counts as \
+unproven. A claim contradicted by the output counts as false. A requirement about how the work was \
+to be done (in what order, in how many commands, with which tool) cannot be shown after the fact: \
+judge it from the list of commands, and accept it unless the list contradicts it. Do not ask for \
+more than the task asks for, and do not fail work for style.\n\n\
 Answer with PASS or FAIL as the first word. After FAIL, list each unproven or failed requirement \
 in one line each, saying what would prove it. After PASS, nothing more is needed.";
 
 /// How much of the recent transcript the reviewer is shown, in characters.
 const AUDIT_SHOWN: usize = 14_000;
+/// How much of the list of commands the reviewer is shown, in characters.
+const AUDIT_LEDGER: usize = 10_000;
 
+/// Where a transcript is folded when nothing says and the model's window is
+/// not known: small enough for any model worth working with.
+const UNKNOWN_WINDOW: u64 = 60_000;
+/// Room kept free in a known window beyond what one step may write.
+const HEADROOM: u64 = 65_536;
+/// The model once refused a context it was sent. Stay this far under the
+/// size that was refused, as tenths.
+const UNDER_REFUSAL: u64 = 7;
+/// Folding is done when the transcript is back under this share of the
+/// room between where its sitting started and its ceiling, as tenths: far
+/// enough down that the next fold is a while away.
+const FOLD_TO: u64 = 6;
+
+/// A tool result longer than this many characters is trimmed to its
+/// beginning and end when room is needed, wherever in the transcript it is.
+const PRUNE_OVER: usize = 8192;
+const PRUNE_HEAD: usize = 4096;
+const PRUNE_TAIL: usize = 1024;
 /// How many of the newest items are left whole when old output is dropped:
 /// tried in turn, each tighter than the last.
 const KEEP_RECENT: [usize; 3] = [12, 6, 3];
+/// The share of the ceiling that is carried across a cleared context word
+/// for word, as hundredths: the most recent stretch of the transcript.
+const TAIL_SHARE: u64 = 16;
 /// The share of the notes a new sitting is shown, in characters.
 const NOTES_SHOWN: usize = 2500;
 
@@ -79,7 +114,9 @@ pub struct Limits {
     /// Wall-clock seconds in one run.
     pub max_seconds: u64,
     /// The transcript is folded when it is about to pass this many tokens.
-    pub context_tokens: u64,
+    /// Left unset, that is most of the model's context window, or a small
+    /// fixed size for a model whose window is not known.
+    pub context_tokens: Option<u64>,
     /// Output tokens per step.
     pub max_output: u32,
     pub temperature: Option<f32>,
@@ -93,7 +130,7 @@ impl Default for Limits {
         Self {
             max_steps: 200,
             max_seconds: 3600,
-            context_tokens: 60_000,
+            context_tokens: None,
             max_output: 8192,
             temperature: None,
             audit: true,
@@ -165,6 +202,55 @@ impl Gauge {
             None => ((now + self.fixed) / 3) as u64,
         }
     }
+
+    /// The transcript was made smaller in place. Keep what the last
+    /// measurement said about how many characters make a token here, and
+    /// apply it to the new size.
+    fn reweigh(&mut self, items: &[Item]) {
+        let now = chars(items);
+        if let Some((tokens, then)) = self.measured {
+            let was = (then + self.fixed).max(1) as u128;
+            let scaled = u128::from(tokens) * (now + self.fixed) as u128 / was;
+            self.measured = Some((u64::try_from(scaled).unwrap_or(u64::MAX), now));
+        }
+    }
+}
+
+/// Trim every long tool result but the newest few to its beginning and
+/// end. Returns how many characters that freed.
+fn prune(items: &mut [Item], spare: usize) -> usize {
+    let before = chars(items);
+    let old = items.len().saturating_sub(spare);
+    for item in &mut items[..old] {
+        if let Item::Result { output, .. } = item
+            && output.len() > PRUNE_OVER
+        {
+            *output = clip(output, PRUNE_HEAD, PRUNE_TAIL);
+        }
+    }
+    before - chars(items)
+}
+
+/// The newest stretch of a transcript that fits in `budget` characters and
+/// can stand on its own: it never opens on a result whose call is gone, and
+/// never includes the first item, which is the opening it will follow.
+fn tail_of(items: &[Item], budget: usize) -> Vec<Item> {
+    let mut used = 0;
+    let mut from = items.len();
+    for (i, item) in items.iter().enumerate().skip(1).rev() {
+        used += item.weight();
+        if used > budget {
+            break;
+        }
+        from = i;
+    }
+    while items
+        .get(from)
+        .is_some_and(|item| matches!(item, Item::Result { .. }))
+    {
+        from += 1;
+    }
+    items.get(from..).unwrap_or_default().to_vec()
 }
 
 /// Shorten long strings inside a call's arguments (file contents, mostly).
@@ -225,10 +311,11 @@ fn mend(items: &mut Vec<Item>) {
     let missing: Vec<Item> = calls
         .iter()
         .filter(|c| !answered.contains(&c.id.as_str()))
-        .map(|c| Item::Result {
+        .enumerate()
+        .map(|(nth, c)| Item::Result {
             id: c.id.clone(),
             name: c.name.clone(),
-            output: INTERRUPTED.to_owned(),
+            output: if nth == 0 { INTERRUPTED } else { NOT_STARTED }.to_owned(),
             failed: true,
         })
         .collect();
@@ -279,7 +366,14 @@ pub fn system_prompt(who: &str, machine: &str, limits: &Limits) -> String {
 
 /// What a sitting opens with: the task alone the first time, and the task
 /// with what was left behind every time after.
-pub fn opening_text(state: &crate::undertaking::State) -> String {
+pub fn opening_text(state: &State) -> String {
+    opening_with(state, false)
+}
+
+/// The opening, for a context that was cleared. With `tail`, the last
+/// stretch of the old transcript follows it word for word, and the worker
+/// is told to go on from there instead of finding its feet again.
+fn opening_with(state: &State, tail: bool) -> String {
     let task = format!("<task>\n{}\n</task>", state.task_text());
     if state.steps == 0 {
         return task;
@@ -295,14 +389,27 @@ pub fn opening_text(state: &crate::undertaking::State) -> String {
             state.touched.join("\n")
         )
     };
+    let (before, after) = if tail {
+        (
+            "You have already been working on this. Your context filled up, so all of it but the most \
+             recent part has been cleared. This is what you left for yourself; after this message, the \
+             last stretch of your work follows exactly as it happened.",
+            "Clearing your context is routine and does not end the task. Do not start over and do not \
+             redo what is finished. Treat what is above as settled, and carry on directly from where \
+             the messages below leave off.",
+        )
+    } else {
+        (
+            "You have already been working on this, and your earlier context is gone. \
+             This is what you left for yourself.",
+            "Clearing your context is routine and does not end the task. Do not start over. \
+             First look at the current state of the environment, which holds \
+             whatever you already did. Then carry on from where you stopped.",
+        )
+    };
     format!(
-        "{task}\n\n\
-         You have already been working on this, and your earlier context is gone. \
-         This is what you left for yourself.\n\n\
-         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n\
-         Clearing your context is routine and does not end the task. Do not start over. \
-         First look at the current state of the environment, which holds \
-         whatever you already did. Then carry on from where you stopped.",
+        "{task}\n\n{before}\n\n\
+         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n{after}",
         state.plan_text(),
         state.notes_text(NOTES_SHOWN)
     )
@@ -319,22 +426,55 @@ impl Worker {
         vec![Item::user(opening_text(&self.undertaking.state()))]
     }
 
-    /// The size at which a sitting is folded: the configured budget, or
-    /// enough room above where the sitting started to get something done,
-    /// whichever is larger. Without the second part a long task statement
-    /// or handoff would have every step folding the one before it.
-    fn ceiling(&self, base: u64) -> u64 {
-        self.limits
-            .context_tokens
-            .max(base + self.limits.context_tokens / 2)
+    /// How many tokens the transcript may reach before it is folded: what
+    /// was asked for, or most of the model's window with room left to
+    /// answer in, and in either case well under any size the model has
+    /// already refused.
+    fn budget(&self) -> u64 {
+        let wanted = self.limits.context_tokens.unwrap_or_else(|| {
+            self.brain.window().map_or(UNKNOWN_WINDOW, |window| {
+                let reserved = u64::from(self.limits.max_output) + HEADROOM.min(window / 8);
+                (window * 4 / 5).min(window.saturating_sub(reserved))
+            })
+        });
+        match self.undertaking.state().refused_at {
+            Some(refused) => wanted.min(refused * UNDER_REFUSAL / 10),
+            None => wanted,
+        }
+        .max(4000)
     }
 
-    async fn run_calls(&self, calls: &[Call], items: &mut Vec<Item>) -> (Vec<Value>, String) {
+    /// The size at which a sitting is folded: the budget, or enough room
+    /// above where the sitting started to get something done, whichever is
+    /// larger. Without the second part a long task statement or handoff
+    /// would have every step folding the one before it.
+    fn ceiling(&self, base: u64) -> u64 {
+        let budget = self.budget();
+        budget.max(base + budget / 2)
+    }
+
+    /// Save the transcript, and add whatever in it is new to the history.
+    fn save(&self, items: &[Item], recorded: &mut usize) {
+        if let Some(new) = items.get(*recorded..)
+            && !new.is_empty()
+        {
+            self.undertaking.remember(new);
+        }
+        *recorded = items.len();
+        self.undertaking.save_transcript(items);
+    }
+
+    async fn run_calls(
+        &self,
+        tools: &Toolbox,
+        calls: &[Call],
+        items: &mut Vec<Item>,
+    ) -> (Vec<Value>, String) {
         let mut logged = Vec::new();
         let mut signature = String::new();
         for call in calls {
             let started = Instant::now();
-            let outcome = self.tools.run(call).await;
+            let outcome = tools.run(call).await;
             let ms = started.elapsed().as_millis();
             tracing::info!(
                 "  {}({}) → {}{}",
@@ -413,14 +553,44 @@ impl Worker {
             shown.push(block);
         }
         shown.reverse();
+        // Everything that was run, from the history: the transcript may
+        // have been cleared since, and what was done early is part of what
+        // is being claimed.
+        let mut ledger: Vec<String> = Vec::new();
+        let mut room = AUDIT_LEDGER;
+        let ran: Vec<Call> = self
+            .undertaking
+            .history()
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Assistant { calls, .. } => Some(calls),
+                _ => None,
+            })
+            .flatten()
+            .filter(|c| !matches!(c.name.as_str(), "plan" | "note" | "done" | "handoff"))
+            .collect();
+        for call in ran.iter().rev() {
+            let line = format!("{} {}", call.name, preview(&call.args.to_string(), 160));
+            if line.len() > room {
+                ledger.push(format!(
+                    "({} earlier commands are not listed)",
+                    ran.len() - ledger.len()
+                ));
+                break;
+            }
+            room -= line.len();
+            ledger.push(line);
+        }
+        ledger.reverse();
         let turn = Turn {
             system: AUDITOR.to_owned(),
             items: vec![Item::user(format!(
                 "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
-                 <recent_output>\n{}\n</recent_output>",
+                 <commands_run>\n{}\n</commands_run>\n\n<recent_output>\n{}\n</recent_output>",
                 state.task_text(),
                 finish.summary,
                 finish.evidence,
+                ledger.join("\n"),
                 shown.join("\n\n")
             ))],
             tools: Vec::new(),
@@ -454,45 +624,68 @@ impl Worker {
         }
     }
 
-    /// Make room. Old output goes first, in tightening rounds; if that is
-    /// not enough, the worker writes a handoff and the transcript starts
-    /// again from the record. Returns what the handoff cost, and the size
-    /// of the new sitting's opening if one began.
+    /// Make room. First on a copy: long output is trimmed, then old output
+    /// is dropped in tightening rounds. If that brings the transcript far
+    /// enough down, the copy becomes the transcript. If it does not, the
+    /// transcript is left as it was for one more request, in which the
+    /// worker writes a handoff (`ask`), and then starts again from the
+    /// record and the last stretch of what it was doing, untrimmed.
+    ///
+    /// Returns what the handoff cost, and the size the new sitting starts
+    /// at if one began.
+    #[allow(clippy::too_many_arguments)]
     async fn fold(
         &self,
         items: &mut Vec<Item>,
+        recorded: &mut usize,
         system: &str,
+        tools: &Toolbox,
         gauge: &mut Gauge,
+        base: u64,
         ceiling: u64,
-        forced: bool,
+        ask: bool,
     ) -> (Usage, Option<u64>) {
-        let mut spent = Usage::default();
-        let mut freed = 0;
-        gauge.measured = None;
+        // What the sitting started at cannot be folded away, so the aim is
+        // set in the room above it.
+        let base = base.min(ceiling);
+        let target = base + (ceiling - base) * FOLD_TO / 10;
+        let mut trial = items.clone();
+        let mut trial_gauge = Gauge {
+            measured: gauge.measured,
+            fixed: gauge.fixed,
+        };
+        let mut freed = prune(&mut trial, KEEP_RECENT[2]);
+        trial_gauge.reweigh(&trial);
         for keep in KEEP_RECENT {
-            freed += shed(items, keep);
-            if gauge.tokens(items) * 10 <= ceiling * 6 {
+            if trial_gauge.tokens(&trial) <= target {
                 break;
             }
+            freed += shed(&mut trial, keep);
+            trial_gauge.reweigh(&trial);
         }
-        let after = gauge.tokens(items);
-        tracing::info!(
-            "folded: dropped {freed} characters of old output, about {after} tokens remain"
-        );
-        if !forced && after * 10 <= ceiling * 6 {
-            return (spent, None);
+        let after = trial_gauge.tokens(&trial);
+        if after <= target {
+            tracing::info!(
+                "folded: dropped {freed} characters of old output, about {after} tokens remain"
+            );
+            *items = trial;
+            *gauge = trial_gauge;
+            return (Usage::default(), None);
         }
 
-        // A handoff, unless the context is already too full to ask for one.
-        if !forced {
-            items.push(Item::user(HANDOFF));
-            let record = Toolbox::new()
-                .with(Handoff::new(self.undertaking.clone()))
-                .with(Plan::new(self.undertaking.clone()));
+        // Not enough. The untouched transcript goes to the model once more,
+        // with the same tools as every other step so that the request reads
+        // from the provider's cache up to its last message.
+        self.save(items, recorded);
+        let mut spent = Usage::default();
+        if ask {
+            let asking = Item::user(HANDOFF);
+            let mut shown = items.clone();
+            shown.push(asking.clone());
             let turn = Turn {
                 system: system.to_owned(),
-                items: items.clone(),
-                tools: record.specs(),
+                items: shown,
+                tools: tools.specs(),
                 max_tokens: self.limits.max_output,
                 temperature: self.limits.temperature,
             };
@@ -500,20 +693,33 @@ impl Worker {
                 Ok(step) => {
                     spent = step.usage;
                     for call in &step.calls {
-                        let _ = record.run(call).await;
+                        if matches!(call.name.as_str(), "handoff" | "plan") {
+                            let _ = tools.run(call).await;
+                        }
                     }
+                    self.undertaking.remember(&[asking, step.into_item()]);
                 }
                 Err(e) => tracing::warn!("no handoff could be written: {e}"),
             }
         }
-        self.undertaking.update(|state| state.sittings += 1);
-        *items = self.opening();
-        gauge.measured = None;
-        let base = gauge.tokens(items);
+        let share = if ask { TAIL_SHARE } else { TAIL_SHARE / 2 };
+        let room = usize::try_from(ceiling * share / 100 * 3).unwrap_or(usize::MAX);
+        let tail = tail_of(items, room);
+        let state = self.undertaking.update(|state| {
+            state.sittings += 1;
+            state.clone()
+        });
+        let opening = Item::user(opening_with(&state, !tail.is_empty()));
+        self.undertaking.remember(std::slice::from_ref(&opening));
         tracing::info!(
-            "a new sitting begins from the plan and the handoff, at about {base} tokens"
+            "a new sitting begins from the plan, the handoff and the last {} items",
+            tail.len()
         );
-        (spent, Some(base))
+        *items = vec![opening];
+        items.extend(tail);
+        *recorded = items.len();
+        gauge.measured = None;
+        (spent, Some(gauge.tokens(items)))
     }
 
     fn report(&self, ended: Ended) -> Report {
@@ -539,7 +745,14 @@ impl Worker {
         }
         let started = Instant::now();
         let system = self.system();
-        let specs = self.tools.specs();
+        // The handoff tool is there at every step, not only when it is
+        // wanted: a request whose tools differ from the last one's reads
+        // nothing from the provider's cache.
+        let tools = self
+            .tools
+            .clone()
+            .with(Handoff::new(self.undertaking.clone()));
+        let specs = tools.specs();
         let mut gauge = Gauge {
             measured: None,
             fixed: system.len()
@@ -548,11 +761,19 @@ impl Worker {
                     .map(|s| s.description.len() + s.parameters.to_string().len())
                     .sum::<usize>(),
         };
-        let mut items = self
+        let (mut items, mut recorded) = match self
             .undertaking
             .transcript()
             .filter(|items| !items.is_empty())
-            .unwrap_or_else(|| self.opening());
+        {
+            // What was on disk is in the history already; what mending
+            // adds to it is not.
+            Some(items) => {
+                let known = items.len();
+                (items, known)
+            }
+            None => (self.opening(), 0),
+        };
         mend(&mut items);
 
         // Where this sitting started, in tokens. A transcript picked up from
@@ -584,8 +805,18 @@ impl Worker {
 
             let mut extra = Usage::default();
             if items.len() > 1 && gauge.tokens(&items) > self.ceiling(base) {
+                let ceiling = self.ceiling(base);
                 let (spent, began) = self
-                    .fold(&mut items, &system, &mut gauge, self.ceiling(base), false)
+                    .fold(
+                        &mut items,
+                        &mut recorded,
+                        &system,
+                        &tools,
+                        &mut gauge,
+                        base,
+                        ceiling,
+                        true,
+                    )
                     .await;
                 extra = spent;
                 base = began.unwrap_or(base);
@@ -602,18 +833,38 @@ impl Worker {
             let step = match self.brain.step(&turn).await {
                 Ok(step) => step,
                 Err(e) if too_long(&e) && !overflowed => {
-                    // The guess at the context's size was too low. Make room
-                    // without asking the model for anything, and go again.
+                    // The model's window is smaller than was thought, or the
+                    // guess at the transcript's size was too low. Remember
+                    // the size that was refused, so that the budget stays
+                    // under it from now on, and make room without asking
+                    // the model for anything.
                     overflowed = true;
-                    tracing::warn!("the model said the context is too long; folding hard");
+                    let refused = gauge.tokens(&items);
+                    tracing::warn!(
+                        "the model refused a context of about {refused} tokens; folding under that"
+                    );
+                    self.undertaking.update(|state| {
+                        state.refused_at =
+                            Some(state.refused_at.map_or(refused, |was| was.min(refused)));
+                    });
+                    let ceiling = self.budget();
                     let (_, began) = self
-                        .fold(&mut items, &system, &mut gauge, self.ceiling(base), true)
+                        .fold(
+                            &mut items,
+                            &mut recorded,
+                            &system,
+                            &tools,
+                            &mut gauge,
+                            0,
+                            ceiling,
+                            false,
+                        )
                         .await;
                     base = began.unwrap_or(base);
                     continue;
                 }
                 Err(e) => {
-                    self.undertaking.save_transcript(&items);
+                    self.save(&items, &mut recorded);
                     return self.report(Ended::Failed(e.to_string()));
                 }
             };
@@ -633,14 +884,17 @@ impl Worker {
                     format!(": {}", preview(&said, 160))
                 }
             );
+            // What this step read and wrote is the size of the transcript
+            // now. What a handoff cost before it is not part of that.
+            let size = step.usage.input + step.usage.output;
             items.push(step.into_item());
-            gauge.measured = Some((usage.input + usage.output, chars(&items)));
+            gauge.measured = Some((size, chars(&items)));
 
             let mut logged = Vec::new();
             if calls.is_empty() {
                 idle += 1;
                 if idle >= 3 {
-                    self.undertaking.save_transcript(&items);
+                    self.save(&items, &mut recorded);
                     return self.report(Ended::Stalled);
                 }
                 items.push(Item::user(if why == Stop::Length {
@@ -650,7 +904,7 @@ impl Worker {
                 }));
             } else {
                 idle = 0;
-                let (ran, signature) = self.run_calls(&calls, &mut items).await;
+                let (ran, signature) = self.run_calls(&tools, &calls, &mut items).await;
                 logged = ran;
                 if signature == last_signature {
                     repeats += 1;
@@ -670,7 +924,11 @@ impl Worker {
                 state.seconds += asked.elapsed().as_secs_f64();
                 state.finish.clone()
             });
-            // A claim of being finished gets one outside look.
+            // A claim of being finished gets one outside look. The reviewer
+            // reads the history, so this step has to be in it first.
+            if finish.is_some() {
+                self.save(&items, &mut recorded);
+            }
             if self.limits.audit
                 && finish
                     .as_ref()
@@ -705,7 +963,7 @@ impl Worker {
                 "said": preview(&said, 400),
                 "calls": logged,
             }));
-            self.undertaking.save_transcript(&items);
+            self.save(&items, &mut recorded);
 
             if let Some(finish) = finish {
                 return self.report(match finish.outcome {
@@ -727,7 +985,7 @@ impl Worker {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Mutex, atomic::AtomicU64};
 
     use async_trait::async_trait;
     use ghost_brain::{Completion, Reply, Result, Step};
@@ -736,9 +994,14 @@ mod tests {
     use crate::{machine::Local, tools};
 
     /// A brain that plays back a script, and remembers what it was shown.
+    /// Asked for a handoff, it writes one without spending the script.
     struct Scripted {
         steps: Mutex<Vec<Step>>,
         seen: Mutex<Vec<Turn>>,
+        /// What it says its context window is; 0 for not known.
+        window: AtomicU64,
+        /// It refuses a transcript of more than this many tokens; 0 for never.
+        refuses_over: AtomicU64,
     }
 
     fn says(text: &str) -> Step {
@@ -776,16 +1039,34 @@ mod tests {
         async fn complete(&self, _: &Completion) -> Result<Reply> {
             unreachable!()
         }
+        fn window(&self) -> Option<u64> {
+            Some(self.window.load(Ordering::Relaxed)).filter(|w| *w > 0)
+        }
         async fn step(&self, turn: &Turn) -> Result<Step> {
-            self.seen.lock().unwrap().push(turn.clone());
-            let mut steps = self.steps.lock().unwrap();
-            let mut step = if steps.is_empty() {
-                says("")
-            } else {
-                steps.remove(0)
-            };
             // Like a real model, it reads as much as it is shown.
-            step.usage.input = (chars(&turn.items) / 3).max(100) as u64;
+            let size = (chars(&turn.items) / 3).max(100) as u64;
+            let limit = self.refuses_over.load(Ordering::Relaxed);
+            if limit > 0 && size > limit {
+                return Err(ghost_brain::Error::Api {
+                    provider: "scripted".into(),
+                    status: 400,
+                    body: "This model's maximum context length is less than what was sent".into(),
+                });
+            }
+            self.seen.lock().unwrap().push(turn.clone());
+            let asked_to_hand_off = matches!(turn.items.last(),
+                Some(Item::User { text }) if text.contains("about to be cleared"));
+            let mut step = if asked_to_hand_off {
+                calls("handoff", json!({"text": "the file goes in hi.txt"}))
+            } else {
+                let mut steps = self.steps.lock().unwrap();
+                if steps.is_empty() {
+                    says("")
+                } else {
+                    steps.remove(0)
+                }
+            };
+            step.usage.input = size;
             Ok(step)
         }
     }
@@ -796,6 +1077,8 @@ mod tests {
         let brain = Arc::new(Scripted {
             steps: Mutex::new(script),
             seen: Mutex::new(vec![]),
+            window: AtomicU64::new(0),
+            refuses_over: AtomicU64::new(0),
         });
         let machine = Arc::new(Local::new(dir));
         let worker = Worker {
@@ -893,6 +1176,10 @@ mod tests {
             .expect("a review happened");
         assert!(matches!(&review.items[0], Item::User { text }
             if text.contains("make hi.txt say hi") && text.contains("$ write")));
+        // And everything that was run, from the history and not from what
+        // is left of the transcript.
+        assert!(matches!(&review.items[0], Item::User { text }
+            if text.contains("<commands_run>\nwrite {\"content\":\"hello\\n\"")));
         // Its objection reached the worker, and it was only asked once.
         assert!(
             seen.iter()
@@ -939,7 +1226,7 @@ mod tests {
             Item::user("task"),
             Item::Assistant {
                 text: String::new(),
-                calls: vec![call("a"), call("b")],
+                calls: vec![call("a"), call("b"), call("c")],
                 carry: None,
             },
             Item::Result {
@@ -950,10 +1237,16 @@ mod tests {
             },
         ];
         mend(&mut items);
-        assert_eq!(items.len(), 4);
+        assert_eq!(items.len(), 5);
+        // The first call without a result may have begun; the one after it
+        // cannot have, and is safe to run.
         assert!(
             matches!(&items[3], Item::Result { id, failed: true, output, .. }
-            if id == "b" && output.contains("interrupted"))
+            if id == "b" && output.contains("what it did is unknown"))
+        );
+        assert!(
+            matches!(&items[4], Item::Result { id, failed: true, output, .. }
+            if id == "c" && output.contains("was not run"))
         );
         // Nothing to do when it is already whole.
         let before = items.clone();
@@ -984,14 +1277,12 @@ mod tests {
         let mut script: Vec<Step> = (0..2)
             .map(|i| calls("shell", json!({"command": format!("echo {big}{i}")})))
             .collect();
-        // Asked for a handoff, it writes one; then it finishes.
-        script.push(calls("handoff", json!({"text": "the file goes in hi.txt"})));
         script.push(calls(
             "done",
             json!({"outcome": "blocked", "summary": "enough"}),
         ));
         let limits = Limits {
-            context_tokens: 8000,
+            context_tokens: Some(8000),
             ..Limits::default()
         };
         let (worker, brain) = worker(dir.path(), script, limits);
@@ -1002,16 +1293,141 @@ mod tests {
         let seen = brain.seen.lock().unwrap();
         let at = seen
             .iter()
-            .position(|t| t.tools.len() == 2)
+            .position(|t| matches!(t.items.last(), Some(Item::User { text }) if text.contains("about to be cleared")))
             .expect("a handoff was asked for");
-        assert!(
-            matches!(seen[at].items.last(), Some(Item::User { text }) if text.contains("about to be cleared"))
-        );
-        // The sitting after it starts from the record alone.
+        // Asked with the tools of every other step, and with the transcript
+        // as it was: nothing in front of the request has changed, so the
+        // provider reads it from its cache.
+        let names = |t: &Turn| t.tools.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&seen[at]), names(&seen[0]));
+        assert!(seen[at].items.starts_with(&seen[at - 1].items));
+        // What it had seen last was too large to carry over, so the sitting
+        // after it starts from the record alone.
         let fresh = &seen[at + 1];
         assert_eq!(fresh.items.len(), 1);
         assert!(matches!(&fresh.items[0], Item::User { text }
             if text.contains("the file goes in hi.txt") && text.contains("Do not start over")));
+    }
+
+    #[tokio::test]
+    async fn the_last_stretch_survives_a_cleared_context() {
+        let dir = tempfile::tempdir().unwrap();
+        // Many small steps: nothing in them is long enough to trim or drop.
+        let line = "y".repeat(300);
+        let mut script: Vec<Step> = (0..60)
+            .map(|i| calls("shell", json!({"command": format!("echo {i} {line}")})))
+            .collect();
+        script.push(calls(
+            "done",
+            json!({"outcome": "blocked", "summary": "enough"}),
+        ));
+        let limits = Limits {
+            context_tokens: Some(8000),
+            max_steps: 80,
+            ..Limits::default()
+        };
+        let (worker, brain) = worker(dir.path(), script, limits);
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Blocked);
+        assert!(report.sittings >= 2);
+
+        let seen = brain.seen.lock().unwrap();
+        let at = seen
+            .iter()
+            .position(|t| matches!(t.items.last(), Some(Item::User { text }) if text.contains("about to be cleared")))
+            .expect("a handoff was asked for");
+        let before = &seen[at].items[..seen[at].items.len() - 1];
+        let fresh = &seen[at + 1].items;
+        assert!(matches!(&fresh[0], Item::User { text }
+            if text.contains("the file goes in hi.txt") && text.contains("exactly as it happened")));
+        // After the opening comes the end of what it was doing, unchanged,
+        // beginning with something it did and not with a result cut loose.
+        let tail = &fresh[1..];
+        assert!(tail.len() >= 4, "{} items carried over", tail.len());
+        assert!(matches!(tail[0], Item::Assistant { .. }));
+        assert_eq!(tail, &before[before.len() - tail.len()..]);
+        // And it is a small part of what there was.
+        assert!(tail.len() < before.len() / 2);
+
+        // Nothing was lost: the history holds every step, in order.
+        let history = std::fs::read_to_string(dir.path().join("state/history.jsonl")).unwrap();
+        let commands = history
+            .lines()
+            .filter(|l| l.contains(r#""is":"assistant""#) && l.contains("echo "))
+            .count();
+        assert_eq!(commands, 60);
+    }
+
+    #[test]
+    fn long_output_is_trimmed_before_anything_is_dropped() {
+        let result = |output: String| Item::Result {
+            id: "a".into(),
+            name: "shell".into(),
+            output,
+            failed: false,
+        };
+        let mut items = vec![
+            Item::user("task"),
+            result(format!("START{}END", "z".repeat(30_000))),
+            result("short".into()),
+            result("w".repeat(30_000)),
+        ];
+        let freed = prune(&mut items, 1);
+        assert!(freed > 20_000);
+        let Item::Result { output, .. } = &items[1] else {
+            panic!()
+        };
+        assert!(output.starts_with("START") && output.ends_with("END"));
+        assert!(output.contains("cut from the middle"));
+        assert!(output.chars().count() < PRUNE_OVER);
+        assert!(matches!(&items[2], Item::Result { output, .. } if output == "short"));
+        // The newest is what the worker is looking at: left whole.
+        assert!(matches!(&items[3], Item::Result { output, .. } if output.len() == 30_000));
+        // Trimming what is already trimmed changes nothing.
+        assert_eq!(prune(&mut items, 1), 0);
+    }
+
+    #[tokio::test]
+    async fn the_budget_follows_the_window_and_stays_under_a_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut worker, brain) = worker(dir.path(), vec![], Limits::default());
+        assert_eq!(worker.budget(), UNKNOWN_WINDOW);
+        brain.window.store(1_048_576, Ordering::Relaxed);
+        assert_eq!(worker.budget(), 838_860);
+        brain.window.store(128_000, Ordering::Relaxed);
+        assert_eq!(worker.budget(), 102_400);
+        // A small window keeps room to answer in.
+        brain.window.store(32_000, Ordering::Relaxed);
+        assert_eq!(worker.budget(), 32_000 - 8192 - 4000);
+        worker.limits.context_tokens = Some(50_000);
+        assert_eq!(worker.budget(), 50_000);
+        worker.undertaking.update(|s| s.refused_at = Some(40_000));
+        assert_eq!(worker.budget(), 28_000);
+    }
+
+    #[tokio::test]
+    async fn a_refused_context_is_folded_and_remembered() {
+        let dir = tempfile::tempdir().unwrap();
+        let some = "v".repeat(3000);
+        let mut script: Vec<Step> = (0..10)
+            .map(|i| calls("shell", json!({"command": format!("echo {i} {some}")})))
+            .collect();
+        script.push(calls(
+            "done",
+            json!({"outcome": "blocked", "summary": "enough"}),
+        ));
+        // It thinks it has room for 60,000 tokens. The model takes 6,000.
+        let (worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.refuses_over.store(6000, Ordering::Relaxed);
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Blocked);
+        let refused = worker.undertaking.state().refused_at.expect("remembered");
+        // (The scripted brain writes a long call and reports ten tokens for
+        // it, so the worker's count runs a little under the brain's.)
+        assert!(refused > 4000 && refused < 12_000, "{refused}");
+        assert!(worker.budget() < 6000);
+        // Every request it went on to make was one the model would take.
+        assert_eq!(report.steps, 11);
     }
 
     #[tokio::test]

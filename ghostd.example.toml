@@ -78,6 +78,11 @@ rest_minutes = 10
 max_sittings = 12
 # Things she will take on in a day.
 per_day = 4
+# How large her working context may grow before it is trimmed, in tokens.
+# Left out, it is most of the model's context window: she keeps what she has
+# seen in front of her for longer, and each step reads more. Set it to cap
+# what a long piece of work costs.
+# context_tokens = 200000
 # Days between the times she sits down, unasked, to look at how her public
 # writing is going and decide what to try next. 0 is never. Needs a channel
 # that reports how her posts are doing, and at least five posts to look at.
@@ -107,6 +112,9 @@ kind = "openai"
 model = "qwen3"
 base_url = "http://localhost:11434/v1"
 api_key = "ollama"
+# The model's context window in tokens. Known for DeepSeek's and Anthropic's
+# models; for anything else say it here, or work is paced as if it were small.
+context_window = 40000
 
 # Relay through the Claude Code CLI you are already logged into.
 # Runs `claude -p` as a subprocess. For your own experiments only.

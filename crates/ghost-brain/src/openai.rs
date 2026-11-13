@@ -20,6 +20,7 @@ pub struct OpenAi {
     max_tokens_param: String,
     /// Send `response_format: json_object` when the caller expects JSON.
     json_mode: bool,
+    window: Option<u64>,
 }
 
 impl OpenAi {
@@ -44,11 +45,20 @@ impl OpenAi {
         Self {
             client: http::client(),
             api_key,
+            window: crate::known_window(&model),
             model,
             base_url,
             max_tokens_param,
             json_mode,
         }
+    }
+
+    /// Say how large this model's context window is, when it is not one
+    /// this crate knows.
+    #[must_use]
+    pub fn with_window(mut self, window: Option<u64>) -> Self {
+        self.window = window.or(self.window);
+        self
     }
 
     async fn post(&self, body: &Value) -> Result<(Value, String)> {
@@ -166,6 +176,10 @@ impl Brain for OpenAi {
 
     fn works(&self) -> bool {
         true
+    }
+
+    fn window(&self) -> Option<u64> {
+        self.window
     }
 
     async fn step(&self, turn: &Turn) -> Result<Step> {

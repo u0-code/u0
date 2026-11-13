@@ -8,7 +8,8 @@
 //!
 //! ```text
 //! <dir>/state.json        brief, plan, notes, outcome, running totals
-//! <dir>/transcript.json   the current sitting, saved after every step
+//! <dir>/transcript.json   what the model is shown now, saved after every step
+//! <dir>/history.jsonl     every item the transcript ever held, never rewritten
 //! <dir>/log.jsonl         one line per step: what was called, what it cost
 //! ```
 
@@ -91,6 +92,10 @@ pub struct State {
     /// work, so its next sitting can pick its own context back up.
     #[serde(default)]
     pub session: Option<String>,
+    /// The model once refused a context of about this many tokens. The
+    /// transcript is kept well under it from then on.
+    #[serde(default)]
+    pub refused_at: Option<u64>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,
@@ -275,6 +280,37 @@ impl Undertaking {
         if let Err(e) = saved {
             tracing::warn!("could not save the transcript: {e}");
         }
+    }
+
+    /// Add items to the history: one line each, appended, in the order they
+    /// entered the transcript. The transcript is trimmed and cleared as it
+    /// fills; this is the copy nothing is ever taken out of.
+    pub fn remember(&self, items: &[Item]) {
+        use std::io::Write as _;
+        let written = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.dir.join("history.jsonl"))
+            .and_then(|mut history| {
+                let mut lines = Vec::new();
+                for item in items {
+                    serde_json::to_writer(&mut lines, item).map_err(io::Error::other)?;
+                    lines.push(b'\n');
+                }
+                history.write_all(&lines)
+            });
+        if let Err(e) = written {
+            tracing::warn!("could not add to the history: {e}");
+        }
+    }
+
+    /// Everything the transcript ever held, in order.
+    pub fn history(&self) -> Vec<Item> {
+        fs::read_to_string(self.dir.join("history.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect()
     }
 
     /// Add something to the task from outside, while it may be under way.

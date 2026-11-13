@@ -69,8 +69,11 @@ pub struct WorkConfig {
     pub max_sittings: u32,
     /// Things she will take on in a day.
     pub per_day: u32,
-    /// The size at which a sitting's context is folded, in tokens.
-    pub context_tokens: u64,
+    /// The size at which her working context is folded, in tokens. Left
+    /// out, it is most of the model's context window: the longer she can
+    /// keep what she has seen in front of her, the less she loses, and the
+    /// more each step costs to read.
+    pub context_tokens: Option<u64>,
     /// Days between the times she sits down to look at how her public
     /// writing is going. `0` is never. Needs a channel that reports how
     /// her posts are doing, and a few posts to look at.
@@ -89,7 +92,7 @@ impl Default for WorkConfig {
             rest_minutes: 10,
             max_sittings: 12,
             per_day: 4,
-            context_tokens: 60_000,
+            context_tokens: None,
             review_days: 7,
         }
     }

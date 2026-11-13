@@ -180,7 +180,10 @@ impl Machine for Local {
 
     fn describe(&self) -> String {
         format!(
-            "You are on a {} machine, in the directory {}.",
+            "You are on a {} machine, in the directory {}. The machine is someone else's, and that \
+             directory is the part of it you were given. Do your work inside it. The programs installed \
+             on the machine are yours to run, but do not search, read or change files anywhere else \
+             on it unless the task names a path there.",
             std::env::consts::OS,
             self.root.display()
         )

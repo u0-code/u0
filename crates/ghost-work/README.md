@@ -16,9 +16,13 @@ What makes it hold up over hours:
 - The plan, the notes and the outcome live on disk, and the transcript is
   saved after every step. Kill the process anywhere; run it again with the
   same state directory and it carries on.
-- When the transcript nears its budget, old tool output is dropped. If that
-  is not enough the worker writes itself a handoff and starts a fresh sitting
-  from the task, the plan and its notes.
+- The transcript may fill most of the model's context window. When it nears
+  that, long tool output is trimmed to its head and tail, then old output is
+  dropped. If that is not enough the worker writes itself a handoff and goes
+  on from the task, the plan, its notes and the last stretch of the
+  transcript word for word.
+- Nothing is lost to that: every item the transcript ever held is appended to
+  `history.jsonl`, which is never rewritten.
 - Saying "finished" the first time gets the task read back, with an
   instruction to check each requirement against the real state.
 - Talking without acting, repeating a call, and running low on steps are each

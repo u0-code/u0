@@ -33,6 +33,9 @@ pub enum ProviderConfig {
         /// A literal key. Prefer the environment variable.
         api_key: Option<String>,
         base_url: Option<String>,
+        /// The model's context window in tokens, when it is not one this
+        /// crate knows. Work is paced by it.
+        context_window: Option<u64>,
     },
     Openai {
         model: String,
@@ -47,6 +50,9 @@ pub enum ProviderConfig {
         /// Off by default: not every compatible server accepts the field.
         #[serde(default)]
         json_mode: bool,
+        /// The model's context window in tokens, when it is not one this
+        /// crate knows. Work is paced by it.
+        context_window: Option<u64>,
     },
     ClaudeCode {
         /// Path to the `claude` binary. Default: found on PATH.
@@ -103,11 +109,15 @@ impl ProviderConfig {
                 api_key_env,
                 api_key,
                 base_url,
-            } => std::sync::Arc::new(Anthropic::new(
-                key(api_key.as_ref(), api_key_env)?,
-                model.clone(),
-                base_url.clone(),
-            )),
+                context_window,
+            } => std::sync::Arc::new(
+                Anthropic::new(
+                    key(api_key.as_ref(), api_key_env)?,
+                    model.clone(),
+                    base_url.clone(),
+                )
+                .with_window(*context_window),
+            ),
             Self::Openai {
                 model,
                 api_key_env,
@@ -115,13 +125,17 @@ impl ProviderConfig {
                 base_url,
                 max_tokens_param,
                 json_mode,
-            } => std::sync::Arc::new(OpenAi::new(
-                key(api_key.as_ref(), api_key_env)?,
-                model.clone(),
-                base_url.clone(),
-                max_tokens_param.clone(),
-                *json_mode,
-            )),
+                context_window,
+            } => std::sync::Arc::new(
+                OpenAi::new(
+                    key(api_key.as_ref(), api_key_env)?,
+                    model.clone(),
+                    base_url.clone(),
+                    max_tokens_param.clone(),
+                    *json_mode,
+                )
+                .with_window(*context_window),
+            ),
             Self::ClaudeCode {
                 program,
                 model,
@@ -192,6 +206,7 @@ model = "gpt-5-codex"
             api_key_env: "GHOST_TEST_NO_SUCH_KEY".into(),
             api_key: None,
             base_url: None,
+            context_window: None,
         };
         assert!(matches!(cfg.build(), Err(Error::MissingKey(_))));
     }

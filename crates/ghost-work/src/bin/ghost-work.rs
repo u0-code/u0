@@ -98,8 +98,13 @@ struct Args {
     #[arg(long, default_value_t = 60)]
     max_minutes: u64,
     /// Fold the transcript when it is about to pass this many tokens.
-    #[arg(long, default_value_t = 60_000)]
-    context_tokens: u64,
+    /// Default: most of the model's context window.
+    #[arg(long)]
+    context_tokens: Option<u64>,
+    /// The model's context window in tokens, for a model whose window is
+    /// not known here.
+    #[arg(long)]
+    context_window: Option<u64>,
     #[arg(long, default_value_t = 8192)]
     max_output: u32,
     #[arg(long)]
@@ -291,14 +296,14 @@ async fn main() -> anyhow::Result<()> {
                 .clone()
                 .unwrap_or_else(|| "deepseek-flash".to_owned());
             let brain: Arc<dyn Brain> = match args.kind.as_str() {
-                "openai" => Arc::new(OpenAi::new(
-                    key,
-                    model,
-                    Some(args.base_url.clone()),
-                    None,
-                    false,
-                )),
-                "anthropic" => Arc::new(Anthropic::new(key, model, Some(args.base_url.clone()))),
+                "openai" => Arc::new(
+                    OpenAi::new(key, model, Some(args.base_url.clone()), None, false)
+                        .with_window(args.context_window),
+                ),
+                "anthropic" => Arc::new(
+                    Anthropic::new(key, model, Some(args.base_url.clone()))
+                        .with_window(args.context_window),
+                ),
                 other => bail!("unknown kind {other:?}: use openai or anthropic"),
             };
             Worker {

@@ -150,7 +150,7 @@ impl Tool for Handoff {
     fn spec(&self) -> ToolSpec {
         spec(
             "handoff",
-            "Write the one document you will continue from once your context is cleared. It replaces any earlier handoff, so it has to stand on its own.",
+            "Only when you are told your context is about to be cleared: write the one document you will continue from afterwards. It replaces any earlier handoff, so it has to stand on its own. For things worth keeping at any other time, use `note`.",
             json!({
                 "text": {"type": "string", "description": "What is finished and checked, what is in progress and exactly where it stopped, the paths and commands that matter, what was not obvious, and the next actions in order."},
             }),
