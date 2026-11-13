@@ -109,6 +109,9 @@ struct Args {
     /// is known to manage, up to 32,000.
     #[arg(long)]
     max_output: Option<u32>,
+    /// Work that took fewer steps than this is not reviewed.
+    #[arg(long, default_value_t = 25)]
+    audit_from: u32,
     /// How hard the model thinks at each step: off, low, high or max.
     /// Default: whatever the provider does.
     #[arg(long)]
@@ -193,16 +196,25 @@ async fn main() -> anyhow::Result<()> {
             bail!("say where to work: --local <dir>, --docker <container> or --no-machine")
         }
     };
-    let toolbox = if args.no_machine {
-        tools::desk(&undertaking)
-    } else {
-        tools::standard(machine.clone(), &undertaking)
+    // The tools for a piece of work with its own record: this one, and any
+    // helper it hands part of itself to.
+    let (no_machine, web) = (args.no_machine, args.web);
+    let equip: ghost_work::worker::ToolsFor = {
+        let machine = machine.clone();
+        Arc::new(move |undertaking| {
+            let toolbox = if no_machine {
+                tools::desk(undertaking)
+            } else {
+                tools::standard(machine.clone(), undertaking)
+            };
+            if web {
+                tools::with_web(toolbox, &tools::WebConfig::from_env())
+            } else {
+                toolbox
+            }
+        })
     };
-    let toolbox = if args.web {
-        tools::with_web(toolbox, &tools::WebConfig::from_env())
-    } else {
-        toolbox
-    };
+    let toolbox = equip(&undertaking);
 
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());
@@ -247,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
         },
         temperature: args.temperature,
         audit: !args.no_audit,
+        audit_from: args.audit_from,
     };
 
     let report = match args.runtime.as_str() {
@@ -328,6 +341,7 @@ async fn main() -> anyhow::Result<()> {
                 who: String::new(),
                 machine: place,
                 pause: Arc::new(AtomicBool::new(false)),
+                helpers: Some(equip),
             }
             .run()
             .await

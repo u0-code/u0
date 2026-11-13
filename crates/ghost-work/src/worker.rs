@@ -27,12 +27,13 @@ use std::{
     time::Instant,
 };
 
-use ghost_brain::{Brain, Call, Effort, Item, Stop, Turn, Usage};
+use async_trait::async_trait;
+use ghost_brain::{Brain, Call, Effort, Item, Stop, ToolSpec, Turn, Usage};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    tool::Toolbox,
+    tool::{self, Tool, Toolbox},
     tools::{Handoff, clip},
     undertaking::{Outcome, State, Undertaking},
 };
@@ -67,8 +68,9 @@ Run it again if it is still needed.";
 
 const AUDITOR: &str = "You are reviewing someone's claim that a task is finished. You see the task, \
 their summary and evidence, every command they ran in order (without its output), and what their \
-most recent commands actually printed. You cannot run anything. Decide whether the task as written \
-is demonstrably complete.\n\n\
+most recent commands actually printed. You cannot run anything. If you have a `read` tool, use it to \
+look at the files the task is about for yourself, instead of taking a description of them on trust. \
+Decide whether the task as written is demonstrably complete.\n\n\
 Be strict about the result the task literally asks for: names, paths, formats, exact output, things \
 that must be running. Such a requirement with no direct evidence in the printed output counts as \
 unproven. A claim contradicted by the output counts as false. A requirement about how the work was \
@@ -82,6 +84,16 @@ in one line each, saying what would prove it. After PASS, nothing more is needed
 const AUDIT_SHOWN: usize = 14_000;
 /// How much of the list of commands the reviewer is shown, in characters.
 const AUDIT_LEDGER: usize = 10_000;
+/// How many times the reviewer may look at files before it has to decide.
+const AUDIT_LOOKS: usize = 6;
+/// Tools that only look, and can be run side by side when the model asks
+/// for several at once.
+const SIDE_BY_SIDE: [&str; 4] = ["read", "search", "fetch", "delegate"];
+/// What a helper given part of the work gets to do it in.
+const HELPER_STEPS: u32 = 40;
+const HELPER_SECONDS: u64 = 900;
+/// How much of a helper's report comes back.
+const HELPER_REPORT: usize = 8000;
 
 /// What one step may write when nothing says and nothing is known about
 /// the model.
@@ -137,6 +149,10 @@ pub struct Limits {
     /// Have a claim of being finished looked at by a reviewer who sees only
     /// the task, the evidence and the recent output.
     pub audit: bool,
+    /// Work that took fewer steps than this is not reviewed. On short work
+    /// a second reader has nothing to go on that the first did not, and
+    /// costs a request; on long work it catches what was skipped.
+    pub audit_from: u32,
 }
 
 impl Default for Limits {
@@ -149,6 +165,7 @@ impl Default for Limits {
             effort: None,
             temperature: None,
             audit: true,
+            audit_from: 25,
         }
     }
 }
@@ -203,6 +220,99 @@ pub struct Worker {
     pub machine: String,
     /// Set from outside to stop after the step in progress.
     pub pause: Arc<AtomicBool>,
+    /// How to equip a helper. With this, the worker can hand a
+    /// self-contained part of the work to another worker that has a
+    /// context of its own and reports back in a few paragraphs.
+    pub helpers: Option<ToolsFor>,
+}
+
+/// Builds the tools for work on a given undertaking: the same machine and
+/// the same web, with a record of its own.
+pub type ToolsFor = Arc<dyn Fn(&Arc<Undertaking>) -> Toolbox + Send + Sync>;
+
+/// Part of the work, given to a helper.
+struct Delegate {
+    brain: Arc<dyn Brain>,
+    equip: ToolsFor,
+    parent: Arc<Undertaking>,
+    limits: Limits,
+    machine: String,
+    pause: Arc<AtomicBool>,
+    given: std::sync::atomic::AtomicU32,
+}
+
+#[async_trait]
+impl Tool for Delegate {
+    fn spec(&self) -> ToolSpec {
+        tool::spec(
+            "delegate",
+            "Hand a self-contained part of the work to a helper. It starts with nothing but what you write here, \
+             works in the same place with the same tools, and its report is all you get back: none of what it read \
+             stays with you. Use it for a part that takes a lot of reading or searching whose details you do not \
+             need: surveying a large codebase, reading many pages, checking many files. Several can be given out \
+             in one step and run side by side. Do not use it for the main line of the work, or for anything you \
+             could do in a few steps yourself.",
+            json!({
+                "task": {"type": "string", "description": "A complete instruction: what to find out or do, where to look, and exactly what to report back."},
+            }),
+            &["task"],
+        )
+    }
+
+    async fn call(&self, args: &Value) -> tool::Outcome {
+        let task = match tool::text(args, "task") {
+            Ok(task) => task.trim(),
+            Err(refusal) => return refusal,
+        };
+        if task.is_empty() {
+            return tool::Outcome::fail("the task is empty");
+        }
+        let nth = self.given.fetch_add(1, Ordering::Relaxed) + 1;
+        let dir = self.parent.dir().join("sub").join(nth.to_string());
+        let helper = match Undertaking::open(dir, Some(task)) {
+            Ok(helper) => Arc::new(helper),
+            Err(e) => return tool::Outcome::fail(format!("no helper could be set up: {e}")),
+        };
+        let worker = Worker {
+            brain: self.brain.clone(),
+            tools: (self.equip)(&helper),
+            undertaking: helper.clone(),
+            limits: Limits {
+                max_steps: HELPER_STEPS.min(self.limits.max_steps),
+                max_seconds: HELPER_SECONDS.min(self.limits.max_seconds),
+                // The one who asked is the one who checks.
+                audit: false,
+                ..self.limits.clone()
+            },
+            who: String::new(),
+            machine: self.machine.clone(),
+            pause: self.pause.clone(),
+            helpers: None,
+        };
+        let report = worker.run().await;
+        // What the helper spent is spent on this work.
+        self.parent.update(|state| state.usage.add(report.usage));
+        let said = if report.summary.trim().is_empty() {
+            helper.state().progress()
+        } else {
+            report.summary.trim().to_owned()
+        };
+        let how = match &report.ended {
+            Ended::Finished => "finished".to_owned(),
+            Ended::Blocked => "could not go on".to_owned(),
+            Ended::GaveUp => "gave up".to_owned(),
+            Ended::Failed(why) => format!("failed ({})", preview(why, 160)),
+            _ => "ran out of steps or time before finishing".to_owned(),
+        };
+        tool::Outcome {
+            output: format!(
+                "The helper {how} after {} steps. Its report:\n\n{}",
+                report.steps,
+                clip(&said, HELPER_REPORT / 2, HELPER_REPORT / 2)
+            ),
+            failed: report.ended != Ended::Finished,
+        }
+    }
 }
 
 /// How full the context is, measured where possible and guessed otherwise.
@@ -496,10 +606,39 @@ impl Worker {
     ) -> (Vec<Value>, String) {
         let mut logged = Vec::new();
         let mut signature = String::new();
-        for call in calls {
-            let started = Instant::now();
-            let outcome = tools.run(call).await;
-            let ms = started.elapsed().as_millis();
+        // Several calls that only look are run side by side; anything
+        // that changes something runs alone and in order.
+        let together = calls.len() > 1
+            && calls
+                .iter()
+                .all(|c| SIDE_BY_SIDE.contains(&c.name.as_str()));
+        let mut outcomes: Vec<Option<(tool::Outcome, u128)>> = vec![None; calls.len()];
+        if together {
+            let mut running = tokio::task::JoinSet::new();
+            for (at, call) in calls.iter().enumerate() {
+                let (tools, call) = (tools.clone(), call.clone());
+                running.spawn(async move {
+                    let started = Instant::now();
+                    let outcome = tools.run(&call).await;
+                    (at, outcome, started.elapsed().as_millis())
+                });
+            }
+            while let Some(done) = running.join_next().await {
+                if let Ok((at, outcome, ms)) = done {
+                    outcomes[at] = Some((outcome, ms));
+                }
+            }
+        }
+        for (at, call) in calls.iter().enumerate() {
+            let (outcome, ms) = match outcomes[at].take() {
+                Some(done) => done,
+                None if together => (tool::Outcome::fail("the tool fell over"), 0),
+                None => {
+                    let started = Instant::now();
+                    let outcome = tools.run(call).await;
+                    (outcome, started.elapsed().as_millis())
+                }
+            };
             tracing::info!(
                 "  {}({}) → {}{}",
                 call.name,
@@ -606,48 +745,72 @@ impl Worker {
             ledger.push(line);
         }
         ledger.reverse();
-        let turn = Turn {
-            system: AUDITOR.to_owned(),
-            items: vec![Item::user(format!(
-                "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
-                 <commands_run>\n{}\n</commands_run>\n\n<recent_output>\n{}\n</recent_output>",
-                state.task_text(),
-                finish.summary,
-                finish.evidence,
-                ledger.join("\n"),
-                shown.join("\n\n")
-            ))],
-            tools: Vec::new(),
-            // A verdict needs reading, not long thought, and thinking is
-            // spent from the same allowance as the answer: a reviewer that
-            // thinks it all away has said nothing.
-            max_tokens: self.max_output().max(8000),
-            temperature: self.limits.temperature,
-            effort: Some(Effort::Low),
-        };
-        match self.brain.step(&turn).await {
-            Ok(step) if step.text.trim().is_empty() => {
+        // The reviewer can look at files for itself, where there are
+        // files to look at, and nothing else.
+        let eyes = self.tools.only(&["read"]);
+        let mut seen = vec![Item::user(format!(
+            "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
+             <commands_run>\n{}\n</commands_run>\n\n<recent_output>\n{}\n</recent_output>",
+            state.task_text(),
+            finish.summary,
+            finish.evidence,
+            ledger.join("\n"),
+            shown.join("\n\n")
+        ))];
+        let mut spent = Usage::default();
+        for look in 0..=AUDIT_LOOKS {
+            let turn = Turn {
+                system: AUDITOR.to_owned(),
+                items: seen.clone(),
+                // On its last turn it has nothing to look with, and decides.
+                tools: if look < AUDIT_LOOKS {
+                    eyes.specs()
+                } else {
+                    Vec::new()
+                },
+                // A verdict needs reading, not long thought, and thinking is
+                // spent from the same allowance as the answer: a reviewer
+                // that thinks it all away has said nothing.
+                max_tokens: self.max_output().max(8000),
+                temperature: self.limits.temperature,
+                effort: Some(Effort::Low),
+            };
+            let step = match self.brain.step(&turn).await {
+                Ok(step) => step,
+                Err(e) => {
+                    // No reviewer is not a reason to hold finished work back.
+                    tracing::warn!("the review could not be done: {e}");
+                    return (spent, None);
+                }
+            };
+            spent.add(step.usage);
+            if !step.calls.is_empty() {
+                let calls = step.calls.clone();
+                seen.push(step.into_item());
+                for call in calls {
+                    let outcome = eyes.run(&call).await;
+                    seen.push(Item::Result {
+                        id: call.id,
+                        name: call.name,
+                        output: outcome.output,
+                        failed: outcome.failed,
+                    });
+                }
+                continue;
+            }
+            let verdict = step.text.trim();
+            if verdict.is_empty() {
                 tracing::warn!("the reviewer said nothing; the claim stands unreviewed");
-                (step.usage, None)
+                return (spent, None);
             }
-            Ok(step) => {
-                let verdict = step.text.trim();
-                let passed = verdict
-                    .trim_start_matches(|c: char| !c.is_alphabetic())
-                    .to_uppercase()
-                    .starts_with("PASS");
-                tracing::info!("reviewer: {}", preview(verdict, 200));
-                (
-                    step.usage,
-                    (!passed && !verdict.is_empty()).then(|| verdict.to_owned()),
-                )
-            }
-            Err(e) => {
-                // No reviewer is not a reason to hold finished work back.
-                tracing::warn!("the review could not be done: {e}");
-                (Usage::default(), None)
-            }
+            let passed = verdict
+                .trim_start_matches(|c: char| !c.is_alphabetic())
+                .to_uppercase()
+                .starts_with("PASS");
+            tracing::info!("reviewer: {}", preview(verdict, 200));
+            return (spent, (!passed).then(|| verdict.to_owned()));
         }
+        (spent, None)
     }
 
     /// Make room. First on a copy: long output is trimmed, then old output
@@ -786,6 +949,18 @@ impl Worker {
             .tools
             .clone()
             .with(Handoff::new(self.undertaking.clone()));
+        let tools = match &self.helpers {
+            Some(equip) => tools.with(Delegate {
+                brain: self.brain.clone(),
+                equip: equip.clone(),
+                parent: self.undertaking.clone(),
+                limits: self.limits.clone(),
+                machine: self.machine.clone(),
+                pause: self.pause.clone(),
+                given: std::sync::atomic::AtomicU32::new(0),
+            }),
+            None => tools,
+        };
         let specs = tools.specs();
         let mut gauge = Gauge {
             measured: None,
@@ -994,6 +1169,7 @@ impl Worker {
                 self.save(&items, &mut recorded);
             }
             if self.limits.audit
+                && self.undertaking.state().steps >= u64::from(self.limits.audit_from)
                 && finish
                     .as_ref()
                     .is_some_and(|f| f.outcome == Outcome::Finished)
@@ -1162,6 +1338,7 @@ mod tests {
             who: String::new(),
             machine: "a test directory".into(),
             pause: Arc::new(AtomicBool::new(false)),
+            helpers: None,
         };
         (worker, brain)
     }
@@ -1231,6 +1408,7 @@ mod tests {
             script,
             Limits {
                 audit: true,
+                audit_from: 0,
                 ..Limits::default()
             },
         );
@@ -1242,10 +1420,10 @@ mod tests {
         );
 
         let seen = brain.seen.lock().unwrap();
-        // The reviewer saw the task and the output, and had no tools.
+        // The reviewer saw the task and the output.
         let review = seen
             .iter()
-            .find(|t| t.tools.is_empty())
+            .find(|t| t.system == AUDITOR)
             .expect("a review happened");
         assert!(matches!(&review.items[0], Item::User { text }
             if text.contains("make hi.txt say hi") && text.contains("$ write")));
@@ -1259,7 +1437,7 @@ mod tests {
                 .any(|t| matches!(t.items.last(), Some(Item::User { text })
             if text.contains("nothing printed shows its content")))
         );
-        assert_eq!(seen.iter().filter(|t| t.tools.is_empty()).count(), 1);
+        assert_eq!(seen.iter().filter(|t| t.system == AUDITOR).count(), 1);
     }
 
     #[tokio::test]
@@ -1541,6 +1719,144 @@ mod tests {
         let seen = brain.seen.lock().unwrap();
         assert!(seen[1].items.iter().any(|item| matches!(item,
             Item::User { text } if text.contains("markdown") && text.contains("added to the task"))));
+    }
+
+    #[tokio::test]
+    async fn a_helper_does_part_of_the_work_and_only_its_report_comes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "needle-in-a-file").unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "say what is in a.txt"})),
+            // The helper's own steps.
+            calls("shell", json!({"command": "cat a.txt"})),
+            calls(
+                "done",
+                json!({"outcome": "gave_up", "summary": "it holds one word about a needle"}),
+            ),
+            // Back with the one who asked.
+            calls("done", json!({"outcome": "blocked", "summary": "enough"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        let root = dir.path().to_path_buf();
+        worker.helpers = Some(Arc::new(move |undertaking| {
+            tools::standard(Arc::new(Local::new(&root)), undertaking)
+        }));
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Blocked);
+        assert_eq!(report.steps, 2, "the helper's steps are its own");
+
+        let seen = brain.seen.lock().unwrap();
+        // The helper started from the task it was given and nothing else.
+        assert!(matches!(&seen[1].items[..],
+            [Item::User { text }] if text.contains("say what is in a.txt")));
+        assert!(!seen[1].tools.iter().any(|t| t.name == "delegate"));
+        // What it read stayed with it. Its report came back.
+        let last = &seen.last().unwrap().items;
+        assert!(last.iter().any(|item| matches!(item,
+            Item::Result { name, output, .. }
+                if name == "delegate" && output.contains("one word about a needle"))));
+        assert!(!last.iter().any(|item| item.weight() > 0
+            && matches!(item, Item::Result { output, .. } if output.contains("needle-in-a-file"))));
+        // What it spent is counted with the work it was part of.
+        assert!(report.usage.input >= seen.iter().map(|_| 100).sum::<u64>());
+        assert!(dir.path().join("state/sub/1/state.json").exists());
+    }
+
+    #[tokio::test]
+    async fn calls_that_only_look_are_answered_together_and_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "first").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "second").unwrap();
+        let both = Step {
+            calls: vec![
+                Call {
+                    id: "one".into(),
+                    name: "read".into(),
+                    args: json!({"path": "a.txt"}),
+                },
+                Call {
+                    id: "two".into(),
+                    name: "read".into(),
+                    args: json!({"path": "b.txt"}),
+                },
+            ],
+            stop: Stop::Calls,
+            ..says("")
+        };
+        let script = vec![
+            both,
+            calls("done", json!({"outcome": "blocked", "summary": "enough"})),
+        ];
+        let (worker, brain) = worker(dir.path(), script, Limits::default());
+        assert_eq!(worker.run().await.ended, Ended::Blocked);
+        let seen = brain.seen.lock().unwrap();
+        let answers: Vec<(&str, bool)> = seen[1]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Result { id, output, .. } => Some((
+                    id.as_str(),
+                    output.contains(if id == "one" { "first" } else { "second" }),
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(answers, [("one", true), ("two", true)]);
+    }
+
+    #[tokio::test]
+    async fn short_work_is_not_reviewed_and_a_reviewer_can_look_for_itself() {
+        let done = |evidence: &str| {
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wrote it", "evidence": evidence}),
+            )
+        };
+        let work = || {
+            vec![
+                calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
+                done("wrote it with the write tool just now"),
+                done("cat hi.txt printed hi, checked just now"),
+            ]
+        };
+        // Four steps: nobody is asked to read it over.
+        let dir = tempfile::tempdir().unwrap();
+        let (short, brain) = worker(dir.path(), work(), Limits::default());
+        assert_eq!(short.run().await.ended, Ended::Finished);
+        assert!(
+            !brain
+                .seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|t| t.system == AUDITOR)
+        );
+
+        // Asked to review everything, the reviewer opens the file before
+        // it decides, and has nothing but `read` to do it with.
+        let dir = tempfile::tempdir().unwrap();
+        let mut script = work();
+        script.push(calls("read", json!({"path": "hi.txt"})));
+        script.push(says("PASS"));
+        let limits = Limits {
+            audit_from: 0,
+            ..Limits::default()
+        };
+        let (reviewed, brain) = worker(dir.path(), script, limits);
+        assert_eq!(reviewed.run().await.ended, Ended::Finished);
+        let seen = brain.seen.lock().unwrap();
+        let reviews: Vec<&Turn> = seen.iter().filter(|t| t.system == AUDITOR).collect();
+        assert_eq!(reviews.len(), 2);
+        assert_eq!(
+            reviews[0]
+                .tools
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read"]
+        );
+        assert!(matches!(reviews[1].items.last(),
+            Some(Item::Result { name, output, .. }) if name == "read" && output.contains("hi")));
     }
 
     #[tokio::test]

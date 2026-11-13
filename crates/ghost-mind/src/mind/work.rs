@@ -242,17 +242,24 @@ impl Mind {
             }
         };
         let before = undertaking.state().steps;
-        let (tools, place) = match &self.workshop.machine {
-            Some(machine) => (
-                tools::standard(machine.clone(), &undertaking),
-                machine.describe(),
-            ),
-            None => (
-                tools::desk(&undertaking),
-                "You have no computer to run things on for this: only what you can look up and think through."
-                    .to_owned(),
-            ),
+        let place = match &self.workshop.machine {
+            Some(machine) => machine.describe(),
+            None => "You have no computer to run things on for this: only what you can look up and think through."
+                .to_owned(),
         };
+        // What she works with, for this and for any part of it she hands
+        // to a helper: her machine if she has one, and the web.
+        let equip: ghost_work::worker::ToolsFor = {
+            let (machine, web) = (self.workshop.machine.clone(), self.workshop.web.clone());
+            Arc::new(move |undertaking| {
+                let tools = match &machine {
+                    Some(machine) => tools::standard(machine.clone(), undertaking),
+                    None => tools::desk(undertaking),
+                };
+                tools::with_web(tools, &web)
+            })
+        };
+        let tools = equip(&undertaking);
         // With someone to ask and her own loop to carry the question, she
         // can stop and ask.
         let tools = if next.asked_by.is_some() && matches!(stepper, Stepper::Own(_)) {
@@ -281,12 +288,13 @@ impl Mind {
             Stepper::Own(brain) => {
                 let worker = Worker {
                     brain,
-                    tools: tools::with_web(tools, &self.workshop.web),
+                    tools,
                     undertaking,
                     limits,
                     who,
                     machine: place,
                     pause,
+                    helpers: Some(equip),
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;
