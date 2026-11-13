@@ -1,6 +1,8 @@
-# What `just check` runs. Kept small on purpose: a pull request costs two
-# jobs on Linux. The rest runs where it is cheap to be late: on main after a
-# merge, and once a week.
+# What `just check` runs. Kept small on purpose: the repository is private,
+# so every minute counts against the month's allowance, and a minute on
+# macOS counts ten times. A pull request and a merge cost two jobs on Linux.
+# The tests on macOS and the build with the oldest supported Rust run once a
+# week, or when started by hand.
 name: CI
 
 on:
@@ -11,6 +13,7 @@ on:
   schedule:
     # Mondays, 03:17 UTC. New advisories arrive without anyone pushing.
     - cron: "17 3 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -58,11 +61,11 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
       - uses: crate-ci/typos@276087d9a4f06398b3e04825487805e2d7375888 # v1.52.2
 
-  # Development happens on macOS, so a pull request has been run there
-  # before it is opened. This catches the day that stops being true.
+  # Development happens on macOS, so a change has been run there before it
+  # is opened. This catches the day that stops being true.
   macos:
     name: tests on macOS
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -75,7 +78,7 @@ jobs:
 
   msrv:
     name: builds with the oldest supported Rust
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
