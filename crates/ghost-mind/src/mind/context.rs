@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
+    journal::Sources,
     memory::{Note, PlaceState},
     narrate::capital,
     social::PlaceKind,
@@ -95,6 +96,7 @@ impl Mind {
         person: &ghost_core::memory::Person,
         here: &PlaceState,
         limit: usize,
+        now: DateTime<Utc>,
     ) -> Result<(String, Vec<Note>)> {
         let memory = self.ghost.memory();
         let alone_with_them =
@@ -108,16 +110,19 @@ impl Mind {
         let Some(profile) = profile else {
             return Ok((text, notes));
         };
+        let as_of = profile.sources.map_or_else(String::new, |s| {
+            format!(" (as of {})", when(s.until, now, self.life.clock()))
+        });
         if !profile.shared.trim().is_empty() {
             text.push_str(&format!(
-                "\n  What you know of them: {}",
+                "\n  What you know of them: {}{as_of}",
                 profile.shared.trim()
             ));
         }
         if !profile.private.trim().is_empty() {
             if alone_with_them {
                 text.push_str(&format!(
-                    "\n  What they have told you in private: {}",
+                    "\n  What they have told you in private: {}{as_of}",
                     profile.private.trim()
                 ));
             } else {
@@ -204,6 +209,24 @@ impl Mind {
              What someone told you in private is not repeated here, and you do not let on that you know it.\n\n",
             lines.join("\n")
         ))
+    }
+
+    /// The messages she has in front of her in a place, as the stretch of
+    /// her journal they are: what a note written there was made from.
+    pub(super) fn shown(&self, place: &PlaceState) -> Result<Option<Sources>> {
+        let lines = self
+            .ghost
+            .memory()
+            .thread(&place.key, self.cfg.thread_window.max(1))?;
+        Ok(lines
+            .first()
+            .zip(lines.last())
+            .map(|(first, last)| Sources {
+                from: first.seq,
+                upto: last.seq,
+                since: first.at,
+                until: last.at,
+            }))
     }
 
     /// What someone here wrote lately, word for word: so that work taken

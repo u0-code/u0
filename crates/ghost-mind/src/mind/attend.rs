@@ -457,7 +457,7 @@ impl Mind {
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
-            let (account, notes) = self.known_of(person, place, 8)?;
+            let (account, notes) = self.known_of(person, place, 8, now)?;
             let mut card = narrate::person_card(person, &standing, &[], now, self.life.clock());
             card.push_str(&account);
             for note in &notes {
@@ -539,7 +539,15 @@ impl Mind {
                     format!(
                         "{}{}",
                         kept.map_or_else(String::new, |d| format!(
-                            "What you kept of this conversation before the messages below:\n{}\n\n",
+                            "What you kept of this conversation{} before the messages below:\n{}\n\n",
+                            d.sources.map_or_else(String::new, |s| {
+                                let clock = self.life.clock();
+                                format!(
+                                    ", from {} until {},",
+                                    when(s.since, now, clock),
+                                    when(s.until, now, clock)
+                                )
+                            }),
                             d.text
                         )),
                         narrate::transcript(&lines, place.read_upto, self.life.clock(), now)
@@ -951,10 +959,12 @@ impl Mind {
                 }
                 Action::Note { about, text } => {
                     if let Some(person) = self.resolve(place, about.as_deref())? {
+                        let sources = self.shown(place)?;
                         self.record(Event::Noted {
                             about: person.key,
                             text,
                             place: Some(place.key.clone()),
+                            sources,
                         })?;
                         did.push("noted something".to_owned());
                     }

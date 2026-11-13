@@ -5,10 +5,12 @@
 //! module asks a brain what the day holds and how each part of it went, and
 //! writes the answers into her journal.
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use ghost_brain::{Brain, Completion};
 use ghost_core::{
-    journal::Event,
+    journal::{Event, Sources},
     life::{Block, Day, Phase, Reach},
     memory::Person,
     narrate, will,
@@ -23,6 +25,10 @@ use crate::{Error, Result, actions};
 const HEARTBEAT: Duration = Duration::minutes(30);
 /// How many times planning a day may fail before she goes without a plan.
 const PLAN_RETRIES: u8 = 3;
+/// The most platforms she looks back on in one night, besides her own day.
+const PLATFORMS_AT_NIGHT: usize = 4;
+/// The most people on one platform she looks back on in one night.
+const PEOPLE_PER_PLATFORM: usize = 8;
 
 pub(super) struct PlanDraft {
     blocks: Vec<Block>,
@@ -95,13 +101,32 @@ impl Mind {
         let clock = self.life.clock();
         let local = now.with_timezone(&clock.tz());
         let day = clock.day_of(now);
-        let yesterday = match self.ghost.journal().last_of(&["reflected"])? {
-            Some(entry) => match entry.event {
-                Event::Reflected { text } => text,
-                _ => String::new(),
-            },
-            None => String::new(),
-        };
+        // Everything she looked back on last night: her own day first.
+        let journal = self.ghost.journal();
+        let night = journal.last_of(&["slept"])?.map_or(0, |e| e.seq);
+        let mut looked: Vec<(bool, String)> = journal
+            .of_kinds_after(&["reflected"], night)?
+            .into_iter()
+            .filter_map(|e| match e.event {
+                Event::Reflected {
+                    text,
+                    channel: None,
+                    ..
+                } => Some((false, text)),
+                Event::Reflected {
+                    text,
+                    channel: Some(channel),
+                    ..
+                } => Some((true, format!("On {channel}: {text}"))),
+                _ => None,
+            })
+            .collect();
+        looked.sort_by_key(|(elsewhere, _)| *elsewhere);
+        let yesterday = looked
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect::<Vec<_>>()
+            .join("\n");
         let template = self.prompts.plan.clone();
         let pairs = vec![
             ("date", local.format("%A %Y-%m-%d").to_string()),
@@ -280,20 +305,76 @@ impl Mind {
         Ok(())
     }
 
-    /// Look back on the day as she falls asleep.
-    fn reflect(&mut self, now: DateTime<Utc>) -> Result<()> {
-        if !self.cfg.live || self.reflecting {
+    /// Look back on the day as she falls asleep: once on her own day, and
+    /// once on each platform she talked with people on. Each is a memory of
+    /// its own, kept with the platform it is about and the stretch of her
+    /// journal it was made from, and each is asked about one part of the day
+    /// only, so that what is said in one place is weighed with that place in
+    /// front of her.
+    pub(super) fn reflect(&mut self, now: DateTime<Utc>) -> Result<()> {
+        if !self.cfg.live || self.reflecting > 0 {
             return Ok(());
         }
         let journal = self.ghost.journal();
-        let memory = self.ghost.memory();
-        let tz = self.life.clock().tz();
         let (since_seq, since_at) = journal
             .last_of(&["woke"])?
             .map_or((0, now - Duration::hours(20)), |e| (e.seq, e.at));
-        let lived = journal.of_kinds_after(&["lived", "posted"], since_seq)?;
-        let people: Vec<Person> = memory.people_since(since_at)?.into_iter().take(8).collect();
-        if lived.is_empty() && people.is_empty() {
+        let sources = Sources {
+            from: since_seq,
+            upto: journal.last_seq()?,
+            since: since_at,
+            until: now,
+        };
+        let mut on: BTreeMap<String, Vec<Person>> = BTreeMap::new();
+        for person in self.ghost.memory().people_since(since_at)? {
+            let there = on.entry(person.channel.clone()).or_default();
+            if there.len() < PEOPLE_PER_PLATFORM {
+                there.push(person);
+            }
+        }
+        let channels: Vec<String> = on.keys().cloned().collect();
+        self.reflect_on_herself(&channels, since_seq, sources, now)?;
+        for (channel, people) in on.into_iter().take(PLATFORMS_AT_NIGHT) {
+            self.reflect_on(&channel, people, since_seq, sources, now)?;
+        }
+        Ok(())
+    }
+
+    /// What she means to do, for a night's look back, so she does not
+    /// resolve to do it twice.
+    fn meant(&self) -> Result<String> {
+        let tz = self.life.clock().tz();
+        let open = self.ghost.memory().open_intentions()?;
+        Ok(if open.is_empty() {
+            "(nothing)".to_owned()
+        } else {
+            open.iter()
+                .map(|i| {
+                    format!(
+                        "- by {}: {}",
+                        i.due.with_timezone(&tz).format("%m-%d %H:%M"),
+                        i.what
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
+    /// Her own day: what she did, what she is after, her work and her craft.
+    fn reflect_on_herself(
+        &mut self,
+        channels: &[String],
+        since_seq: i64,
+        sources: Sources,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tz = self.life.clock().tz();
+        let lived = self
+            .ghost
+            .journal()
+            .of_kinds_after(&["lived", "posted"], since_seq)?;
+        if lived.is_empty() && channels.is_empty() {
             return Ok(());
         }
         let today = lived
@@ -310,35 +391,68 @@ impl Mind {
                 ))
             })
             .collect::<Vec<_>>();
+        let talked = if channels.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "You also talked with people today, on {}. Each of those is looked back on by itself; this is for your own day.\n\n",
+                channels.join(", ")
+            )
+        };
+        let prompt = narrate::fill(
+            &self.prompts.reflect,
+            &[
+                ("time", now.with_timezone(&tz).format("%H:%M").to_string()),
+                (
+                    "today",
+                    if today.is_empty() {
+                        "(nothing written down)".to_owned()
+                    } else {
+                        today.join("\n")
+                    },
+                ),
+                ("intentions", self.meant()?),
+                ("talked", talked),
+                ("public", self.public_review(now)?),
+                ("pursuits", self.pursuit_block()?),
+                ("own_work", self.own_work_line(now)?),
+            ],
+        );
+        self.look_back(None, Vec::new(), sources, &prompt, now)
+    }
+
+    /// One platform's part of her day: the people she talked with there and
+    /// what she told them.
+    fn reflect_on(
+        &mut self,
+        channel: &str,
+        people: Vec<Person>,
+        since_seq: i64,
+        sources: Sources,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let journal = self.ghost.journal();
+        let memory = self.ghost.memory();
+        let clock = self.life.clock();
+        let tz = clock.tz();
         // Her own words, so claims she made about her life can become canon.
         let said: Vec<String> = journal
             .of_kinds_after(&["said"], since_seq)?
             .into_iter()
             .rev()
-            .take(40)
             .filter_map(|e| match e.event {
-                Event::Said { text, .. } => Some(format!("- {}", actions::clip(&text, 200))),
+                Event::Said {
+                    channel: there,
+                    text,
+                    ..
+                } if there == channel => Some(format!("- {}", actions::clip(&text, 200))),
                 _ => None,
             })
+            .take(40)
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
             .collect();
-        let open = memory.open_intentions()?;
-        let meant = if open.is_empty() {
-            "(nothing)".to_owned()
-        } else {
-            open.iter()
-                .map(|i| {
-                    format!(
-                        "- by {}: {}",
-                        i.due.with_timezone(&tz).format("%m-%d %H:%M"),
-                        i.what
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
         let mut cards = Vec::with_capacity(people.len());
         for person in &people {
             let standing = will::standing(person, now);
@@ -350,7 +464,7 @@ impl Mind {
                 &standing,
                 &memory.notes_after(&person.key, since, 12)?,
                 now,
-                self.life.clock(),
+                clock,
             );
             if let Some(profile) = profile {
                 card.push_str(&format!(
@@ -367,42 +481,23 @@ impl Mind {
                 let lines: Vec<_> = memory
                     .thread(direct, 12)?
                     .into_iter()
-                    .filter(|l| l.at >= since_at)
+                    .filter(|l| l.at >= sources.since)
                     .collect();
                 if !lines.is_empty() {
                     card.push_str("\n  today:\n    ");
                     card.push_str(
-                        &narrate::transcript(&lines, i64::MAX, self.life.clock(), now)
-                            .replace('\n', "\n    "),
+                        &narrate::transcript(&lines, i64::MAX, clock, now).replace('\n', "\n    "),
                     );
                 }
             }
             cards.push(card);
         }
         let prompt = narrate::fill(
-            &self.prompts.reflect,
+            &self.prompts.reflect_on,
             &[
                 ("time", now.with_timezone(&tz).format("%H:%M").to_string()),
-                (
-                    "today",
-                    if today.is_empty() {
-                        "(nothing written down)".to_owned()
-                    } else {
-                        today.join("\n")
-                    },
-                ),
-                (
-                    "people",
-                    if cards.is_empty() {
-                        "(nobody)".to_owned()
-                    } else {
-                        cards.join("\n")
-                    },
-                ),
-                ("intentions", meant),
-                ("public", self.public_review(now)?),
-                ("pursuits", self.pursuit_block()?),
-                ("own_work", self.own_work_line(now)?),
+                ("channel", channel.to_owned()),
+                ("people", cards.join("\n")),
                 (
                     "said",
                     if said.is_empty() {
@@ -411,32 +506,56 @@ impl Mind {
                         said.join("\n")
                     },
                 ),
+                ("intentions", self.meant()?),
             ],
         );
-        let request = self.framed(now, &prompt)?.expecting_json();
+        self.look_back(Some(channel.to_owned()), people, sources, &prompt, now)
+    }
+
+    fn look_back(
+        &mut self,
+        channel: Option<String>,
+        people: Vec<Person>,
+        sources: Sources,
+        prompt: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let request = self.framed(now, prompt)?.expecting_json();
         let brain = self.think.clone();
-        self.reflecting = true;
+        self.reflecting += 1;
         self.budget.spend(now);
         self.jobs.spawn(async move {
             let result = ask(brain.as_ref(), &request)
                 .await
                 .and_then(|v| reflect_draft(&v));
-            Outcome::Reflected { people, result }
+            Outcome::Reflected {
+                channel,
+                people,
+                sources,
+                result,
+            }
         });
         Ok(())
     }
 
+    /// A look back came back: keep it, with the platform it was about and
+    /// the stretch of her journal it was made from.
     pub(super) fn on_reflected(
         &mut self,
+        channel: Option<&str>,
         people: &[Person],
+        sources: Option<Sources>,
         result: Result<ReflectDraft>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.reflecting = false;
+        self.reflecting = self.reflecting.saturating_sub(1);
         let draft = match result {
             Ok(draft) => draft,
             Err(e) => {
-                warn!("could not look back on the day: {e}");
+                warn!(
+                    "could not look back on {}: {e}",
+                    channel.unwrap_or("the day")
+                );
                 return Ok(());
             }
         };
@@ -451,6 +570,8 @@ impl Mind {
         };
         self.record(Event::Reflected {
             text: draft.reflection,
+            channel: channel.map(str::to_owned),
+            sources,
         })?;
         for (who, impression, feel, account) in draft.people {
             let Some(person) = find(&who) else { continue };
@@ -459,6 +580,7 @@ impl Mind {
                     person: person.key.clone(),
                     shared,
                     private,
+                    sources,
                 })?;
             }
             if feel != 0 {
@@ -473,6 +595,7 @@ impl Mind {
                     about: person.key.clone(),
                     text: impression,
                     place: None,
+                    sources,
                 })?;
             }
         }
@@ -487,9 +610,12 @@ impl Mind {
             )?;
         }
         self.register(draft.canon, "reflection")?;
-        self.learn(draft.lessons)?;
-        self.on_pursuits(draft.pursuits)?;
-        self.start_own_work(&draft.undertake, now)?;
+        // Her craft and what she is after belong to her own day.
+        if channel.is_none() {
+            self.learn(draft.lessons)?;
+            self.on_pursuits(draft.pursuits)?;
+            self.start_own_work(&draft.undertake, now)?;
+        }
         self.refresh_intentions()
     }
 

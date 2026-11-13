@@ -8,7 +8,11 @@
 
 use chrono::{DateTime, Utc};
 use ghost_brain::{Completion, Effort};
-use ghost_core::{journal::Event, memory::PlaceState, narrate};
+use ghost_core::{
+    journal::{Event, Sources},
+    memory::PlaceState,
+    narrate,
+};
 use tracing::{debug, warn};
 
 use super::{Mind, Outcome};
@@ -39,8 +43,18 @@ impl Mind {
             return Ok(());
         };
         let stretch = memory.thread_between(&place.key, after, first_seen - 1, AT_MOST)?;
-        let Some(upto) = stretch.last().map(|l| l.seq) else {
+        let (Some(first), Some(last)) = (stretch.first(), stretch.last()) else {
             return Ok(());
+        };
+        let upto = last.seq;
+        // The new note stands for everything the old one did, and this
+        // stretch besides.
+        let before = kept.as_ref().and_then(|d| d.sources);
+        let sources = Sources {
+            from: before.map_or(first.seq, |s| s.from),
+            upto,
+            since: before.map_or(first.at, |s| s.since),
+            until: last.at,
         };
         if !self.budget.allow(now) {
             return Ok(());
@@ -74,6 +88,7 @@ impl Mind {
             Outcome::Digested {
                 place,
                 upto,
+                sources,
                 result,
             }
         });
@@ -84,6 +99,7 @@ impl Mind {
         &mut self,
         place: &str,
         upto: i64,
+        sources: Sources,
         result: Result<String>,
     ) -> Result<()> {
         self.digesting.remove(place);
@@ -94,6 +110,7 @@ impl Mind {
                     place: place.to_owned(),
                     upto,
                     text: text.trim().to_owned(),
+                    sources: Some(sources),
                 })?;
             }
             Ok(_) => {}

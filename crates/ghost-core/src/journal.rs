@@ -126,6 +126,9 @@ pub enum Event {
         /// in private is not later repeated somewhere else.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
+        /// What she had in front of her when she wrote it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Sources>,
     },
     /// Something she means to do later.
     Intended {
@@ -150,9 +153,14 @@ pub enum Event {
         person: String,
         why: String,
     },
-    /// A reflection from her sleep cycle.
+    /// A reflection from her sleep cycle: on her own day, or, with
+    /// `channel`, on what went on there.
     Reflected {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        channel: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Sources>,
     },
     /// A hard fact about her life, registered in the canon.
     Canon {
@@ -230,6 +238,8 @@ pub enum Event {
         /// What they told her in private. Never for use anywhere else.
         #[serde(default)]
         private: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Sources>,
     },
     /// Something she is after over months, in her own words: a direction,
     /// not a task. It replaces an earlier one when she has changed her
@@ -255,6 +265,9 @@ pub enum Event {
         place: String,
         upto: i64,
         text: String,
+        /// Everything it stands for, the earlier notes it replaces included.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Sources>,
     },
     /// Something she worked out about her own craft: what she does well in
     /// public, what falls flat, what to try. Replaces an earlier lesson when
@@ -264,6 +277,18 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         replaces: Option<i64>,
     },
+}
+
+/// The stretch of her journal a piece of memory was made from: entries
+/// `from` to `upto`, which happened between `since` and `until`. The
+/// entries are still there to be read; this says which ones they were, and
+/// when, so the memory can be dated however far back it is looked at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sources {
+    pub from: i64,
+    pub upto: i64,
+    pub since: DateTime<Utc>,
+    pub until: DateTime<Utc>,
 }
 
 /// How one public post is doing, as the platform counts it.

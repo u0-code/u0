@@ -147,7 +147,16 @@ impl Scene<'_> {
         let rows = self.recent.iter().filter_map(|e| {
             let text = match &e.event {
                 Event::Lived { text, .. } => text.clone(),
-                Event::Reflected { text } => format!("(looking back) {text}"),
+                Event::Reflected {
+                    text,
+                    channel: None,
+                    ..
+                } => format!("(looking back) {text}"),
+                Event::Reflected {
+                    text,
+                    channel: Some(channel),
+                    ..
+                } => format!("(looking back on {channel}) {text}"),
                 Event::Posted { text, .. } => format!("you posted: {text}"),
                 Event::Dormant { since } => format!(
                     "(a blank: nothing from {} until then)",

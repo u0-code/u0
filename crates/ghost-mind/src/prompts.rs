@@ -27,8 +27,10 @@ pub struct Prompts {
     pub plan: String,
     /// `lived.md`: how a stretch of the day actually went.
     pub lived: String,
-    /// `reflect.md`: looking back before sleep.
+    /// `reflect.md`: looking back on her own day before sleep.
     pub reflect: String,
+    /// `reflect_on.md`: looking back on one platform before sleep.
+    pub reflect_on: String,
     /// `browse.md`: scrolling a feed.
     pub browse: String,
     /// `gate.md`: reading a post over before it goes out.
@@ -48,6 +50,7 @@ impl Prompts {
             plan: include_str!("../prompts/plan.md").to_owned(),
             lived: include_str!("../prompts/lived.md").to_owned(),
             reflect: include_str!("../prompts/reflect.md").to_owned(),
+            reflect_on: include_str!("../prompts/reflect_on.md").to_owned(),
             browse: include_str!("../prompts/browse.md").to_owned(),
             gate: include_str!("../prompts/gate.md").to_owned(),
         }
@@ -69,6 +72,7 @@ impl Prompts {
             ("plan.md", &mut prompts.plan),
             ("lived.md", &mut prompts.lived),
             ("reflect.md", &mut prompts.reflect),
+            ("reflect_on.md", &mut prompts.reflect_on),
             ("browse.md", &mut prompts.browse),
             ("gate.md", &mut prompts.gate),
         ] {
