@@ -207,9 +207,18 @@ pub(crate) async fn ask(
                         // Some servers answer 200 with an empty or cut-off
                         // body when they are struggling, and a long answer
                         // can lose its connection. Both are worth another try.
+                        // Where it stopped says what kind of trouble this
+                        // is: a stream that goes quiet in the middle of a
+                        // thought, with the same request answered in
+                        // seconds when asked again, is the connection (a
+                        // local proxy, most often) and not the model.
                         tracing::warn!(
-                            "{provider}: the answer stopped after {} bytes; attempt {attempt} of {ATTEMPTS}",
-                            bytes.len()
+                            "{provider}: the answer stopped after {} bytes and {} pieces ({}); attempt {attempt} of {ATTEMPTS}",
+                            bytes.len(),
+                            events.len(),
+                            broken
+                                .as_ref()
+                                .map_or_else(|| "it went quiet".to_owned(), ToString::to_string),
                         );
                     }
                 }

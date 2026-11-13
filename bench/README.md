@@ -62,6 +62,12 @@ from stalling:
 
 Pull the task images before a run, so that no trial waits on a download.
 
+If the host reaches the internet through a local proxy, exclude the model's
+host from it (`NO_PROXY=api.deepseek.com`) for `ghost-work`, whose loop runs
+on the host. Through one such proxy, one streamed answer in twenty stopped
+partway and had to be asked for again. Agents inside a container do not go
+through the host's proxy.
+
 ## Run
 
 ```bash

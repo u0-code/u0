@@ -59,6 +59,11 @@ ready: a key in the environment, then an installed `claude` or `codex`.
 | Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
 | Codex CLI | yes | the CLI steps, with her tools and its shell off |
 
+If this machine sends its traffic through a local proxy and answers keep
+stopping partway (the log says so, and asks again), reach the model directly:
+`NO_PROXY=api.deepseek.com`, or whatever host your provider is. Long streamed
+answers and local proxies do not always get on.
+
 With a CLI, Ghost never reads its credentials: whatever account it is signed
 in to is what answers. Read the provider's terms before running a ghost other
 people talk to on a personal subscription; an API key is the safe choice.
