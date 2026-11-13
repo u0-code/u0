@@ -1,11 +1,33 @@
 //! What she can recall, derived from the journal.
 //!
-//! Everything in here is a view. The file can be deleted at any time and the
+//! Everything in here is a view. It can be deleted at any time and the
 //! journal will rebuild it: places and what is unread in them, the people she
 //! knows, notes, intentions, the canon of her own life, and a full-text index
 //! for remembering things that are no longer in front of her.
+//!
+//! It is kept in two layers: what was said, per platform, and what she
+//! remembers, in one place.
+//!
+//! ```text
+//! derived/memory/<channel>.db   one platform's record: its places, accounts, messages,
+//!                               read markers, reactions, posts and their counts,
+//!                               what she saw in its feed
+//! derived/memory/global.db      her memory, whole: notes, profiles, digests of
+//!                               conversations, intentions, work, her days, canon,
+//!                               reflections, pursuits, craft, practice
+//! ```
+//!
+//! A memory is not split by platform. It carries where it was formed (a
+//! `channel:id` key on the note, the profile, the digest, the intention) and
+//! is found from anywhere. Which database an event goes to is decided by
+//! `home`. A query about one place's messages reads only that platform's
+//! database; the few that span every platform say so in their names and docs.
 
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    fmt::Write as _,
+    path::{Path, PathBuf},
+};
 
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, params, types::Value};
@@ -18,10 +40,14 @@ use crate::{
 };
 
 /// Where the derived memory lives inside a ghost directory.
-pub const MEMORY_FILE: &str = "derived/memory.db";
+pub const MEMORY_DIR: &str = "derived/memory";
+/// Where it lived before it was kept per platform. Removed when found.
+const LEGACY_FILE: &str = "derived/memory.db";
+/// The database for what belongs to no platform.
+const GLOBAL: &str = "global";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -207,33 +233,479 @@ pub struct Elsewhere {
     pub last: Line,
 }
 
+/// Which database an event belongs in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Home {
+    /// Her memory.
+    Global,
+    /// One platform's record.
+    Channel(String),
+}
+
+/// The platform a `channel:id` key belongs to.
+fn channel_of(key: &str) -> Option<&str> {
+    social::split_key(key).map(|(channel, _)| channel)
+}
+
+/// Which database an event goes to. What was said and done on a platform,
+/// and the accounts there, are that platform's record. Everything she makes
+/// of it, and everything of her own, is her memory.
+fn home(event: &Event) -> Home {
+    match event {
+        Event::Heard { channel, .. }
+        | Event::Read { channel, .. }
+        | Event::Said { channel, .. }
+        | Event::Reacted { channel, .. }
+        | Event::Posted { channel, .. }
+        | Event::Saw { channel, .. }
+        | Event::Measured { channel, .. } => Home::Channel(channel.clone()),
+        // How she stands with an account, and whether she has left it, are
+        // kept with the account.
+        Event::Felt { toward: key, .. } | Event::Left { person: key, .. } => {
+            channel_of(key).map_or(Home::Global, |c| Home::Channel(c.to_owned()))
+        }
+        Event::Noted { .. }
+        | Event::Profiled { .. }
+        | Event::Digested { .. }
+        | Event::Intended { .. }
+        | Event::Settled { .. }
+        | Event::Undertook { .. }
+        | Event::Worked { .. }
+        | Event::Asked { .. }
+        | Event::Added { .. }
+        | Event::Concluded { .. }
+        | Event::Born { .. }
+        | Event::Dormant { .. }
+        | Event::Woke
+        | Event::Slept
+        | Event::Planned { .. }
+        | Event::Lived { .. }
+        | Event::Decided { .. }
+        | Event::Canon { .. }
+        | Event::Reflected { .. }
+        | Event::Learned { .. }
+        | Event::Pursued { .. }
+        | Event::Practised { .. }
+        | Event::Challenged { .. }
+        | Event::Linked { .. } => Home::Global,
+    }
+}
+
+/// The file a platform's database is kept in. A name that is not plain
+/// lowercase letters, digits, `-` and `_`, or that is the global one's, is
+/// written in hex so that no name can stand for another.
+fn file_of(channel: &str) -> String {
+    let plain = !channel.is_empty()
+        && channel != GLOBAL
+        && channel
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
+    if plain {
+        format!("{channel}.db")
+    } else {
+        let mut name = String::from("~");
+        for b in channel.bytes() {
+            let _ = write!(name, "{b:02x}");
+        }
+        name.push_str(".db");
+        name
+    }
+}
+
+/// The platform a database file is for, or `None` for one that is not a
+/// platform's.
+fn channel_of_file(name: &str) -> Option<String> {
+    let stem = name.strip_suffix(".db")?;
+    if stem == GLOBAL {
+        return None;
+    }
+    match stem.strip_prefix('~') {
+        Some(hex) => {
+            let bytes: Option<Vec<u8>> = (0..hex.len())
+                .step_by(2)
+                .map(|i| {
+                    hex.get(i..i + 2)
+                        .and_then(|h| u8::from_str_radix(h, 16).ok())
+                })
+                .collect();
+            String::from_utf8(bytes?).ok()
+        }
+        None => Some(stem.to_owned()),
+    }
+}
+
+/// Everything she can recall, kept per platform.
 pub struct Memory {
-    conn: Connection,
+    /// Where the databases are; `None` keeps them in memory.
+    dir: Option<PathBuf>,
+    global: Shard,
+    channels: BTreeMap<String, Shard>,
 }
 
 impl Memory {
-    /// Open the derived store under `dir`, creating or rebuilding its schema.
+    /// Open the derived store under `dir`, creating or rebuilding it.
     pub fn open(dir: &Path) -> Result<Self> {
-        let path = dir.join(MEMORY_FILE);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let root = dir.join(MEMORY_DIR);
+        // From before memory was kept per platform. It is only a view.
+        for legacy in [
+            LEGACY_FILE,
+            "derived/memory.db-wal",
+            "derived/memory.db-shm",
+        ] {
+            let path = dir.join(legacy);
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
         }
-        let conn = Connection::open(&path)?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        let conn = if version == SCHEMA_VERSION || version == 0 {
-            conn
-        } else {
-            // An older shape. It is only a view: throw it away.
-            drop(conn);
-            std::fs::remove_file(&path)?;
-            Connection::open(&path)?
-        };
-        Self::prepare(conn)
+        std::fs::create_dir_all(&root)?;
+        let global = root.join(format!("{GLOBAL}.db"));
+        let version: i64 =
+            Connection::open(&global)?.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version != SCHEMA_VERSION && version != 0 {
+            // An older shape. It is only a view: throw all of it away.
+            std::fs::remove_dir_all(&root)?;
+            std::fs::create_dir_all(&root)?;
+        }
+        let mut channels = BTreeMap::new();
+        for entry in std::fs::read_dir(&root)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(channel) = channel_of_file(&name) {
+                channels.insert(channel, Shard::open(&entry.path())?);
+            }
+        }
+        Ok(Self {
+            global: Shard::open(&root.join(format!("{GLOBAL}.db")))?,
+            dir: Some(root),
+            channels,
+        })
     }
 
     /// A store that lives only as long as the value. For tests and tools.
     pub fn in_memory() -> Result<Self> {
-        Self::prepare(Connection::open_in_memory()?)
+        Ok(Self {
+            dir: None,
+            global: Shard::prepare(Connection::open_in_memory()?)?,
+            channels: BTreeMap::new(),
+        })
+    }
+
+    /// The platforms she has a memory of.
+    pub fn channels(&self) -> impl Iterator<Item = &str> {
+        self.channels.keys().map(String::as_str)
+    }
+
+    /// The seq of the last journal entry folded in.
+    pub fn last_seq(&self) -> Result<i64> {
+        self.global.last_seq()
+    }
+
+    /// Fold in every journal entry not yet seen. Returns how many.
+    pub fn catch_up(&mut self, journal: &Journal) -> Result<u64> {
+        let mut applied = 0;
+        loop {
+            let batch = journal.read(self.last_seq()? + 1, 500)?;
+            if batch.is_empty() {
+                return Ok(applied);
+            }
+            for entry in &batch {
+                self.apply(entry)?;
+                applied += 1;
+            }
+        }
+    }
+
+    /// Fold one journal entry into the database it belongs in. The global
+    /// database records it last, so an entry interrupted half way is folded
+    /// again on the next start, and a database that already has it skips it.
+    pub fn apply(&mut self, entry: &Entry) -> Result<()> {
+        match home(&entry.event) {
+            Home::Global => self.global.fold(entry),
+            Home::Channel(channel) => {
+                self.channel_mut(&channel)?.fold(entry)?;
+                self.global.mark(entry.seq)
+            }
+        }
+    }
+
+    /// A platform's database, made the first time something happens there.
+    fn channel_mut(&mut self, channel: &str) -> Result<&mut Shard> {
+        if !self.channels.contains_key(channel) {
+            let shard = match &self.dir {
+                Some(root) => Shard::open(&root.join(file_of(channel)))?,
+                None => Shard::prepare(Connection::open_in_memory()?)?,
+            };
+            self.channels.insert(channel.to_owned(), shard);
+        }
+        Ok(self.channels.get_mut(channel).expect("inserted just above"))
+    }
+
+    /// The database a `channel:id` key's platform keeps, if it has one.
+    fn shard_of(&self, key: &str) -> Option<&Shard> {
+        channel_of(key).and_then(|c| self.channels.get(c))
+    }
+
+    /// The global database and every platform's.
+    fn every(&self) -> impl Iterator<Item = &Shard> {
+        std::iter::once(&self.global).chain(self.channels.values())
+    }
+
+    // One platform's record: read from that platform's database.
+
+    pub fn place(&self, key: &str) -> Result<Option<PlaceState>> {
+        self.shard_of(key).map_or(Ok(None), |s| s.place(key))
+    }
+
+    /// The last `limit` messages in a place, oldest first.
+    pub fn thread(&self, place: &str, limit: usize) -> Result<Vec<Line>> {
+        self.shard_of(place)
+            .map_or(Ok(Vec::new()), |s| s.thread(place, limit))
+    }
+
+    /// What she kept of the earlier part of a conversation, if she has.
+    pub fn digest(&self, place: &str) -> Result<Option<Digest>> {
+        self.global.digest(place)
+    }
+
+    /// The messages in a place after entry `after` and up to `upto`, oldest
+    /// first, and no more than `limit` of them.
+    pub fn thread_between(
+        &self,
+        place: &str,
+        after: i64,
+        upto: i64,
+        limit: usize,
+    ) -> Result<Vec<Line>> {
+        self.shard_of(place).map_or(Ok(Vec::new()), |s| {
+            s.thread_between(place, after, upto, limit)
+        })
+    }
+
+    /// How many messages a place holds after entry `after`.
+    pub fn lines_after(&self, place: &str, after: i64) -> Result<i64> {
+        self.shard_of(place)
+            .map_or(Ok(0), |s| s.lines_after(place, after))
+    }
+
+    /// Whether a message with this channel id has already reached her here.
+    pub fn knows_message(&self, place: &str, platform_id: &str) -> Result<bool> {
+        self.shard_of(place)
+            .map_or(Ok(false), |s| s.knows_message(place, platform_id))
+    }
+
+    /// Whether the message with this channel id in this place is one she sent.
+    pub fn is_hers(&self, place: &str, platform_id: &str) -> Result<bool> {
+        self.shard_of(place)
+            .map_or(Ok(false), |s| s.is_hers(place, platform_id))
+    }
+
+    /// Whether she has already answered this message.
+    pub fn replied_to(&self, place: &str, platform_id: &str) -> Result<bool> {
+        self.shard_of(place)
+            .map_or(Ok(false), |s| s.replied_to(place, platform_id))
+    }
+
+    /// How many messages she has sent in a place since `since`.
+    pub fn said_since(&self, place: &str, since: DateTime<Utc>) -> Result<i64> {
+        self.shard_of(place)
+            .map_or(Ok(0), |s| s.said_since(place, since))
+    }
+
+    pub fn person(&self, key: &str) -> Result<Option<Person>> {
+        self.shard_of(key).map_or(Ok(None), |s| s.person(key))
+    }
+
+    /// The person on the other side of a private place.
+    pub fn person_of_direct(&self, place: &str) -> Result<Option<Person>> {
+        self.shard_of(place)
+            .map_or(Ok(None), |s| s.person_of_direct(place))
+    }
+
+    /// The people most recently heard in a place, most recent first.
+    pub fn people_in(&self, place: &str, limit: usize) -> Result<Vec<Person>> {
+        self.shard_of(place)
+            .map_or(Ok(Vec::new()), |s| s.people_in(place, limit))
+    }
+
+    /// Notes about someone, oldest first.
+    pub fn notes(&self, person: &str, limit: usize) -> Result<Vec<Note>> {
+        self.global.notes(person, limit)
+    }
+
+    /// Her standing account of someone, if she has written one.
+    pub fn profile(&self, person: &str) -> Result<Option<Profile>> {
+        self.global.profile(person)
+    }
+
+    /// Notes about someone written after entry `after`, oldest first.
+    pub fn notes_after(&self, person: &str, after: i64, limit: usize) -> Result<Vec<Note>> {
+        self.global.notes_after(person, after, limit)
+    }
+
+    /// Follower counts on a channel as they were reported, oldest first.
+    pub fn followers(&self, channel: &str, limit: usize) -> Result<Vec<(DateTime<Utc>, i64)>> {
+        self.channels
+            .get(channel)
+            .map_or(Ok(Vec::new()), |s| s.followers(channel, limit))
+    }
+
+    /// Her measured posts on a channel, newest first.
+    pub fn standings(&self, channel: &str, limit: usize) -> Result<Vec<Standing>> {
+        self.channels
+            .get(channel)
+            .map_or(Ok(Vec::new()), |s| s.standings(channel, limit))
+    }
+
+    // Her memory: read from the global database, whichever platform a
+    // memory was formed on.
+
+    pub fn canon(&self, limit: usize) -> Result<Vec<Fact>> {
+        self.global.canon(limit)
+    }
+
+    /// What she has learned about her craft and still holds, oldest first.
+    pub fn craft(&self, limit: usize) -> Result<Vec<Lesson>> {
+        self.global.craft(limit)
+    }
+
+    /// What she is after over months and has not let go of, oldest first.
+    pub fn pursuits(&self, limit: usize) -> Result<Vec<Lesson>> {
+        self.global.pursuits(limit)
+    }
+
+    /// What doing things has taught her about doing things, oldest first.
+    pub fn practice(&self, limit: usize) -> Result<Vec<Lesson>> {
+        self.global.practice(limit)
+    }
+
+    pub fn challenges_to(&self, claimed: &str, since: DateTime<Utc>) -> Result<Vec<Challenge>> {
+        self.global.challenges_to(claimed, since)
+    }
+
+    pub fn linked(&self, key: &str) -> Result<Vec<String>> {
+        self.global.linked(key)
+    }
+
+    // Across every platform. Each of these reads every database.
+
+    /// The message with this journal seq, wherever it was.
+    pub fn line(&self, seq: i64) -> Result<Option<(String, Line)>> {
+        for shard in self.channels.values() {
+            if let Some(found) = shard.line(seq)? {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Every place on every platform, most recently active first.
+    pub fn places(&self) -> Result<Vec<PlaceState>> {
+        let mut all = Vec::new();
+        for shard in self.channels.values() {
+            all.extend(shard.places()?);
+        }
+        all.sort_by_key(|p| std::cmp::Reverse(p.last_in_seq.max(p.last_out_seq)));
+        Ok(all)
+    }
+
+    /// Every place on every platform with something she has not looked at.
+    pub fn places_unread(&self) -> Result<Vec<PlaceState>> {
+        let mut all = Vec::new();
+        for shard in self.channels.values() {
+            all.extend(shard.places_unread()?);
+        }
+        Ok(all)
+    }
+
+    /// Everyone heard from since `since`, on every platform, most recent first.
+    pub fn people_since(&self, since: DateTime<Utc>) -> Result<Vec<Person>> {
+        let mut all = Vec::new();
+        for shard in self.channels.values() {
+            all.extend(shard.people_since(since)?);
+        }
+        all.sort_by_key(|p| std::cmp::Reverse(p.last_at));
+        Ok(all)
+    }
+
+    /// Everyone she knows, on every platform, most recent first.
+    pub fn people(&self) -> Result<Vec<Person>> {
+        let mut all = Vec::new();
+        for shard in self.channels.values() {
+            all.extend(shard.people()?);
+        }
+        all.sort_by_key(|p| std::cmp::Reverse(p.last_at));
+        Ok(all)
+    }
+
+    /// What she means to do and has not done, soonest first.
+    pub fn open_intentions(&self) -> Result<Vec<Intention>> {
+        self.global.open_intentions()
+    }
+
+    /// What she has taken on, most recently touched first.
+    pub fn undertakings(&self, open: bool, limit: usize) -> Result<Vec<Undertaking>> {
+        self.global.undertakings(open, limit)
+    }
+
+    pub fn undertaking(&self, id: &str) -> Result<Option<Undertaking>> {
+        self.global.undertaking(id)
+    }
+
+    /// How many undertakings were begun at or after `since`.
+    pub fn undertaken_since(&self, since: DateTime<Utc>) -> Result<i64> {
+        self.global.undertaken_since(since)
+    }
+
+    /// Places other than `except` where something was said since `since`,
+    /// on every platform, most recent first.
+    pub fn elsewhere(
+        &self,
+        since: DateTime<Utc>,
+        except: &str,
+        limit: usize,
+    ) -> Result<Vec<Elsewhere>> {
+        let mut all = Vec::new();
+        for shard in self.channels.values() {
+            all.extend(shard.elsewhere(since, except, limit)?);
+        }
+        all.sort_by_key(|e| std::cmp::Reverse(e.last.seq));
+        all.truncate(limit);
+        Ok(all)
+    }
+
+    /// Search her memory and the messages on every platform, oldest first. Words of three letters or more are matched as words
+    /// and the best of them kept; shorter ones (most Chinese) are matched
+    /// as text and the newest kept.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+        let mut ranked: Vec<(f64, Hit)> = Vec::new();
+        let mut scanned: Vec<Hit> = Vec::new();
+        for shard in self.every() {
+            let (r, s) = shard.search(query, limit)?;
+            ranked.extend(r);
+            scanned.extend(s);
+        }
+        ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
+        scanned.sort_by_key(|h| std::cmp::Reverse(h.seq));
+        let mut hits: Vec<Hit> = ranked.into_iter().take(limit).map(|(_, h)| h).collect();
+        for hit in scanned.into_iter().take(limit) {
+            if !hits.iter().any(|h| h.seq == hit.seq) {
+                hits.push(hit);
+            }
+        }
+        hits.sort_by_key(|h| h.seq);
+        Ok(hits)
+    }
+}
+
+/// One database: the global one, or one platform's. Every table exists in
+/// every one; what is in them depends on which events were folded in.
+struct Shard {
+    conn: Connection,
+}
+
+impl Shard {
+    fn open(path: &Path) -> Result<Self> {
+        Self::prepare(Connection::open(path)?)
     }
 
     fn prepare(conn: Connection) -> Result<Self> {
@@ -253,23 +725,24 @@ impl Memory {
             .unwrap_or(0))
     }
 
-    /// Fold in every journal entry not yet seen. Returns how many.
-    pub fn catch_up(&mut self, journal: &Journal) -> Result<u64> {
-        let mut applied = 0;
-        loop {
-            let batch = journal.read(self.last_seq()? + 1, 500)?;
-            if batch.is_empty() {
-                return Ok(applied);
-            }
-            for entry in &batch {
-                self.apply(entry)?;
-                applied += 1;
-            }
+    /// Note that entry `seq` has been seen, when nothing of it is kept here.
+    fn mark(&mut self, seq: i64) -> Result<()> {
+        if seq > self.last_seq()? {
+            self.conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('last_seq', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = ?1",
+                [seq],
+            )?;
         }
+        Ok(())
     }
 
-    /// Fold one journal entry into the views.
-    pub fn apply(&mut self, entry: &Entry) -> Result<()> {
+    /// Fold one journal entry into this database's views, unless it already
+    /// has it.
+    fn fold(&mut self, entry: &Entry) -> Result<()> {
+        if entry.seq <= self.last_seq()? {
+            return Ok(());
+        }
         let tx = self.conn.transaction()?;
         let at = stamp(&entry.at);
         let seq = entry.seq;
@@ -1109,15 +1582,19 @@ impl Memory {
         Ok(out)
     }
 
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+    /// Hits for words of three letters or more, with their rank (lower is
+    /// better), and hits for shorter ones, newest first.
+    #[allow(clippy::type_complexity)]
+    fn search(&self, query: &str, limit: usize) -> Result<(Vec<(f64, Hit)>, Vec<Hit>)> {
         let terms: Vec<&str> = query.split_whitespace().collect();
+        let mut ranked = Vec::new();
+        let mut scanned = Vec::new();
         if terms.is_empty() {
-            return Ok(Vec::new());
+            return Ok((ranked, scanned));
         }
         let limit = as_i64(limit);
         let (long, short): (Vec<&str>, Vec<&str>) =
             terms.iter().partition(|t| t.chars().count() >= 3);
-        let mut hits: Vec<Hit> = Vec::new();
         if !long.is_empty() {
             let phrases = long
                 .iter()
@@ -1125,10 +1602,12 @@ impl Memory {
                 .collect::<Vec<_>>()
                 .join(" OR ");
             let mut stmt = self.conn.prepare(
-                "SELECT seq, at, kind, text, place FROM recall WHERE recall MATCH ?1 ORDER BY rank LIMIT ?2",
+                "SELECT seq, at, kind, text, place, bm25(recall) FROM recall WHERE recall MATCH ?1 ORDER BY rank LIMIT ?2",
             )?;
-            hits = stmt
-                .query_map(params![phrases, limit], row_to_hit)?
+            ranked = stmt
+                .query_map(params![phrases, limit], |r| {
+                    Ok((r.get::<_, f64>(5)?, row_to_hit(r)?))
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
         }
         if !short.is_empty() {
@@ -1147,17 +1626,11 @@ impl Memory {
             let mut stmt = self.conn.prepare(&format!(
                 "SELECT seq, at, kind, text, place FROM recall WHERE {clause} ORDER BY rowid DESC LIMIT {limit}"
             ))?;
-            let scanned = stmt
+            scanned = stmt
                 .query_map(rusqlite::params_from_iter(patterns), row_to_hit)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for hit in scanned {
-                if !hits.iter().any(|h| h.seq == hit.seq) {
-                    hits.push(hit);
-                }
-            }
         }
-        hits.sort_by_key(|h| h.seq);
-        Ok(hits)
+        Ok((ranked, scanned))
     }
 }
 
@@ -1743,6 +2216,187 @@ mod tests {
         ]);
         let _ = last;
         assert!(m.pursuits(5).unwrap().is_empty());
+    }
+
+    fn on(channel: &str, event: Event) -> Event {
+        match event {
+            Event::Heard {
+                place,
+                from,
+                id,
+                text,
+                reply_to,
+                addressed,
+                ..
+            } => Event::Heard {
+                channel: channel.into(),
+                place,
+                from,
+                id,
+                text,
+                reply_to,
+                addressed,
+            },
+            other => other,
+        }
+    }
+
+    #[test]
+    fn each_platform_is_kept_in_a_database_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::in_memory();
+        let mut m = Memory::open(dir.path()).unwrap();
+        for event in [
+            on(
+                "telegram",
+                heard(
+                    "a",
+                    PlaceKind::Direct,
+                    "a",
+                    "1",
+                    "a secret on telegram",
+                    true,
+                ),
+            ),
+            on(
+                "qq",
+                heard("b", PlaceKind::Group, "b", "2", "chatter on qq", false),
+            ),
+            Event::Canon {
+                fact: "lives near the old gate".into(),
+                source: "life".into(),
+            },
+            Event::Noted {
+                about: "telegram:a".into(),
+                text: "is moving in spring".into(),
+                place: Some("telegram:a".into()),
+            },
+        ] {
+            m.apply(&j.append(event).unwrap()).unwrap();
+        }
+        let root = dir.path().join(MEMORY_DIR);
+        let mut files: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| {
+                std::path::Path::new(n)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("db"))
+            })
+            .collect();
+        files.sort();
+        assert_eq!(files, ["global.db", "qq.db", "telegram.db"]);
+
+        // What was said on one platform is in that platform's file and no other.
+        let holds = |file: &str, needle: &str| {
+            let conn = Connection::open(root.join(file)).unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM recall WHERE text LIKE ?1",
+                [format!("%{needle}%")],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+                > 0
+        };
+        // The messages are the platform's record, in its file and no other.
+        assert!(holds("telegram.db", "a secret on telegram"));
+        assert!(!holds("qq.db", "a secret on telegram"));
+        assert!(!holds("global.db", "a secret on telegram"));
+        assert!(holds("qq.db", "chatter on qq"));
+        // What she remembers is in her memory, whole, and says where it was
+        // formed.
+        assert!(holds("global.db", "is moving in spring"));
+        assert!(!holds("telegram.db", "is moving in spring"));
+        assert!(holds("global.db", "lives near the old gate"));
+        assert_eq!(
+            m.notes("telegram:a", 5).unwrap()[0].place.as_deref(),
+            Some("telegram:a")
+        );
+
+        // Asking about a place or a person reads its own platform's.
+        assert_eq!(m.thread("telegram:a", 5).unwrap().len(), 1);
+        assert_eq!(m.notes("telegram:a", 5).unwrap().len(), 1);
+        assert!(m.thread("qq:a", 5).unwrap().is_empty());
+        assert!(m.place("nowhere:a").unwrap().is_none());
+
+        // Opened again, it is all still there, and nothing is folded twice.
+        drop(m);
+        let mut m = Memory::open(dir.path()).unwrap();
+        assert_eq!(m.catch_up(&j).unwrap(), 0);
+        assert_eq!(m.places().unwrap().len(), 2);
+        assert_eq!(m.canon(5).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_entry_folded_twice_is_kept_once() {
+        // A platform's database has it, the global one has not recorded it:
+        // what an interrupted fold leaves behind. Folding it again changes
+        // nothing.
+        let mut j = Journal::in_memory();
+        let mut m = Memory::in_memory().unwrap();
+        let entry = j
+            .append(heard("a", PlaceKind::Direct, "a", "1", "hi", true))
+            .unwrap();
+        m.channel_mut("t").unwrap().fold(&entry).unwrap();
+        assert_eq!(m.last_seq().unwrap(), 0);
+        m.catch_up(&j).unwrap();
+        assert_eq!(m.thread("t:a", 5).unwrap().len(), 1);
+        assert_eq!(m.last_seq().unwrap(), 1);
+    }
+
+    #[test]
+    fn work_is_remembered_whole_and_says_where_it_was_asked_for() {
+        let (_, m) = fold(vec![
+            Event::Undertook {
+                id: "u1".into(),
+                brief: "find the hours".into(),
+                asked_by: Some("t:a".into()),
+                place: Some("t:a".into()),
+            },
+            Event::Undertook {
+                id: "u2".into(),
+                brief: "draw the gate".into(),
+                asked_by: None,
+                place: None,
+            },
+            Event::Concluded {
+                id: "u1".into(),
+                outcome: "finished".into(),
+                summary: "nine on weekdays".into(),
+            },
+        ]);
+        assert_eq!(
+            m.undertaking("u1").unwrap().unwrap().outcome.as_deref(),
+            Some("finished")
+        );
+        assert!(m.undertaking("u2").unwrap().unwrap().outcome.is_none());
+        assert_eq!(m.undertakings(false, 10).unwrap().len(), 2);
+        assert!(m.global.undertaking("u1").unwrap().is_some());
+        assert_eq!(
+            m.undertaking("u1").unwrap().unwrap().place.as_deref(),
+            Some("t:a")
+        );
+    }
+
+    #[test]
+    fn a_platform_name_names_one_file_and_comes_back_from_it() {
+        for name in ["qq", "x", "telegram", "Telegram", "global", "a/b", "群", ""] {
+            let file = file_of(name);
+            assert!(!file.contains('/'), "{file}");
+            assert_eq!(channel_of_file(&file).as_deref(), Some(name), "{file}");
+        }
+        assert_eq!(file_of("qq"), "qq.db");
+        assert_eq!(channel_of_file("global.db"), None);
+    }
+
+    #[test]
+    fn the_store_from_before_platforms_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("derived")).unwrap();
+        std::fs::write(dir.path().join(LEGACY_FILE), b"old").unwrap();
+        Memory::open(dir.path()).unwrap();
+        assert!(!dir.path().join(LEGACY_FILE).exists());
+        assert!(dir.path().join(MEMORY_DIR).join("global.db").exists());
     }
 
     #[test]
