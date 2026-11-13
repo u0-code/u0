@@ -1547,6 +1547,80 @@ async fn what_she_looks_up_comes_back_before_she_answers() {
     assert_eq!(turns.len(), 2);
     assert!(matches!(turns[1].items.last(),
         Some(ghost_brain::Item::Result { name, .. }) if name == "look_up"));
+    drop(turns);
+    // Nothing came back, so there is nothing to keep.
+    assert!(!rig.kinds().contains(&"looked_up"));
+}
+
+/// A search service on this machine that answers every query with `hits`.
+async fn searxng(hits: serde_json::Value) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let body = serde_json::json!({ "results": hits }).to_string();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(reply.as_bytes()).await;
+        }
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn what_she_looks_up_is_kept_and_found_again() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let url = searxng(serde_json::json!([{
+        "title": "Heming tea house to close in December",
+        "url": "https://chengdu.example/heming",
+        "content": "The tea house in People's Park closes for good on December 20."
+    }]))
+    .await;
+    rig.mind.workshop.web.search = Some(ghost_work::tools::Source::Searxng { url });
+    rig.think.then_turn(
+        "",
+        &[(
+            "look_up",
+            serde_json::json!({"query": "heming tea house closing"}),
+        )],
+    );
+    rig.think.then_turn(
+        "",
+        &[(
+            "say",
+            serde_json::json!({"text": "december 20, apparently"}),
+        )],
+    );
+    rig.hear(dm("wen", "1", "is heming really closing?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    let kept = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["looked_up"], 0)
+        .unwrap();
+    assert_eq!(kept.len(), 1);
+    assert!(matches!(&kept[0].event,
+        Event::LookedUp { query, found, place }
+            if query == "heming tea house closing"
+                && found.contains("December 20")
+                && place.as_deref() == Some("t:wen")));
+
+    // Somewhere else, days later, it is something she knows, and it came
+    // from the web, not from anyone who told her in private.
+    let hits = rig.mind.ghost.memory().search("q", "Heming", 8).unwrap();
+    let hit = hits
+        .iter()
+        .find(|h| h.kind == "looked_up")
+        .expect("found again");
+    assert!(hit.text.contains("December 20") && hit.place.is_none());
 }
 
 #[tokio::test]

@@ -50,3 +50,4 @@
 {"kind":"reflected","data":{"text":"Quiet on Telegram. Wen did most of the talking, about the move.","channel":"telegram","sources":{"from":100,"upto":180,"since":"2026-11-12T00:30:00.000000Z","until":"2026-11-12T16:30:00.000000Z"}}}
 {"kind":"profiled","data":{"person":"telegram:42","shared":"Draws, lives in Chengdu for now.","private":"Moving to Chongqing; has not told the group.","sources":{"from":100,"upto":180,"since":"2026-11-12T00:30:00.000000Z","until":"2026-11-12T16:30:00.000000Z"}}}
 {"kind":"digested","data":{"place":"t:wen","upto":140,"text":"Wen has been telling you about the move.","sources":{"from":3,"upto":140,"since":"2026-11-01T09:00:00.000000Z","until":"2026-11-12T09:40:57.000000Z"}}}
+{"kind":"looked_up","data":{"query":"Chengdu tea houses closing 2026","found":"1. Heming tea house to close in December (chengdu.example, 2026-10-30)","place":"t:wen"}}
