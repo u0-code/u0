@@ -1,0 +1,7 @@
+# The toolchain everything is built and linted with, here and in CI, so that
+# a lint that passes on one machine passes on all of them. The oldest
+# compiler the code is promised to build with is `rust-version` in
+# Cargo.toml, and CI checks that one too.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
