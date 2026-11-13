@@ -219,6 +219,15 @@ pub enum Event {
         #[serde(default)]
         private: String,
     },
+    /// She put what she wants to keep of the earlier part of a conversation
+    /// into a few lines, replacing whatever she kept of it before. The
+    /// messages up to entry `upto` stand behind it; later ones are still
+    /// read as they were written.
+    Digested {
+        place: String,
+        upto: i64,
+        text: String,
+    },
     /// Something she worked out about her own craft: what she does well in
     /// public, what falls flat, what to try. Replaces an earlier lesson when
     /// she has changed her mind.
@@ -280,6 +289,7 @@ impl Event {
             Self::Profiled { .. } => "profiled",
             Self::Challenged { .. } => "challenged",
             Self::Linked { .. } => "linked",
+            Self::Digested { .. } => "digested",
         }
     }
 }

@@ -10,6 +10,7 @@ mod ask;
 mod attend;
 mod browse;
 mod context;
+mod digest;
 mod living;
 mod public;
 mod reach;
@@ -43,7 +44,7 @@ use tokio::{
 use tracing::{info, warn};
 
 use self::{
-    attend::Thinking,
+    attend::{Thinking, Thought},
     living::{LivedDraft, PlanDraft, ReflectDraft},
     speak::{Bubble, Speaking},
 };
@@ -199,8 +200,8 @@ impl MindHandle {
 /// What a spawned job brings back.
 enum Outcome {
     Thought {
-        job: Thinking,
-        result: Result<Deliberation>,
+        job: Box<Thinking>,
+        result: Result<Thought>,
     },
     Sent {
         place: String,
@@ -215,6 +216,11 @@ enum Outcome {
     Lived {
         block: u32,
         result: Result<LivedDraft>,
+    },
+    Digested {
+        place: String,
+        upto: i64,
+        result: Result<String>,
     },
     Reflected {
         people: Vec<ghost_core::memory::Person>,
@@ -356,6 +362,8 @@ pub struct Mind {
     /// The block whose `Lived` entry is being written.
     living: Option<u32>,
     reflecting: bool,
+    /// Places whose earlier conversation she is writing down right now.
+    digesting: HashSet<String>,
     /// Channels with a scroll in flight.
     browsing: HashSet<String>,
     /// Posts she has already scrolled past, per channel. Bounded.
@@ -399,6 +407,7 @@ impl Mind {
             plan_failures: 0,
             living: None,
             reflecting: false,
+            digesting: HashSet::new(),
             browsing: HashSet::new(),
             scrolled: HashMap::new(),
         };
@@ -525,7 +534,7 @@ impl Mind {
 
     fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
         match outcome {
-            Outcome::Thought { job, result } => self.on_thought(job, result, now),
+            Outcome::Thought { job, result } => self.on_thought(*job, result, now),
             Outcome::Sent {
                 place,
                 bubble,
@@ -538,6 +547,11 @@ impl Mind {
             } => self.on_planned(day, weather, result, now),
             Outcome::Lived { block, result } => self.on_lived(block, result, now),
             Outcome::Reflected { people, result } => self.on_reflected(&people, result, now),
+            Outcome::Digested {
+                place,
+                upto,
+                result,
+            } => self.on_digested(&place, upto, result),
             Outcome::Browsed {
                 channel,
                 items,
@@ -585,8 +599,11 @@ impl Mind {
             .is_some_and(|c| c.can.contains(&what))
     }
 
-    /// Who she is and what moment this is, as a system prompt.
-    fn self_prompt(&self, now: DateTime<Utc>) -> Result<String> {
+    /// Who she is, and what moment this is. The first is the system prompt
+    /// and changes only when a fact is added to her life; the second
+    /// changes by the hour and goes late in the request, so that a provider
+    /// which caches what it has read before can reuse everything ahead of it.
+    fn portrait(&self, now: DateTime<Utc>) -> Result<(String, String)> {
         let journal = self.ghost.journal();
         let moment = self.life.moment(journal, now)?;
         let day = self.life.today(journal, now)?;
@@ -601,7 +618,33 @@ impl Mind {
             recent: &recent,
             canon: &canon,
         };
-        Ok(narrate::fill(&self.prompts.this, &scene.pairs()))
+        let pairs = scene.pairs();
+        Ok((
+            narrate::fill(&self.prompts.this, &pairs),
+            narrate::fill(&self.prompts.now, &pairs),
+        ))
+    }
+
+    /// Who she is: the system prompt.
+    fn who(&self, now: DateTime<Utc>) -> Result<String> {
+        Ok(self.portrait(now)?.0)
+    }
+
+    /// A request about `prompt`, as her, at this moment.
+    fn framed(&self, now: DateTime<Utc>, prompt: &str) -> Result<ghost_brain::Completion> {
+        let (who, right_now) = self.portrait(now)?;
+        Ok(ghost_brain::Completion::ask(
+            who,
+            format!("{right_now}\n{prompt}"),
+            self.cfg.max_tokens,
+        ))
+    }
+
+    /// Everything a brain is told about her, in one piece.
+    #[cfg(test)]
+    fn self_prompt(&self, now: DateTime<Utc>) -> Result<String> {
+        let (who, right_now) = self.portrait(now)?;
+        Ok(format!("{who}\n{right_now}"))
     }
 }
 

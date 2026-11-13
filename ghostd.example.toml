@@ -27,8 +27,14 @@ token_env = "GHOSTD_TOKEN"
 tempo = 1.0
 # Longest thing a brain may write back for one deliberation, in tokens.
 max_tokens = 2000
-# How many messages of a conversation she sees when she looks at it.
+# How many messages of a conversation she sees when she looks at it. Once
+# twice as many have gone by, she writes down what to keep of the older part
+# and sees that note above the recent ones.
 thread_window = 40
+# What she does in a conversation is tool calls, where her brain can take
+# them: she can search her memory or the web before answering, and a call
+# she gets wrong comes back to her. Off, it is one JSON reply.
+talk_tools = true
 # Ceiling on brain calls per hour. 0 means no ceiling.
 calls_per_hour = 120
 # Run the life engine: plan her days, live through them, reflect at night.

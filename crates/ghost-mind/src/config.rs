@@ -15,6 +15,11 @@ pub struct MindConfig {
     pub max_tokens: u32,
     /// How many messages of a conversation she sees when she looks at it.
     pub thread_window: usize,
+    /// When her brain can take tools, what she does in a conversation is
+    /// tool calls: she can look something up or search her memory in the
+    /// middle of answering, and a call she gets wrong comes back to her to
+    /// put right. Off, or with a brain that cannot, it is one JSON reply.
+    pub talk_tools: bool,
     /// Ceiling on brain calls per hour. `0` means no ceiling.
     pub calls_per_hour: u32,
     /// Most public posts she will make in a day.
@@ -104,6 +109,7 @@ impl Default for MindConfig {
             tempo: 1.0,
             max_tokens: 2000,
             thread_window: 40,
+            talk_tools: true,
             calls_per_hour: 120,
             posts_per_day: 3,
             browse_minutes: [45, 150],

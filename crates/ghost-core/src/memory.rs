@@ -21,7 +21,7 @@ use crate::{
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -149,6 +149,15 @@ pub struct Challenge {
     pub claimant: String,
     pub claimed: String,
     pub word: String,
+}
+
+/// What she kept of the earlier part of a conversation.
+#[derive(Debug, Clone, Serialize)]
+pub struct Digest {
+    /// The newest message it stands for.
+    pub upto: i64,
+    pub at: DateTime<Utc>,
+    pub text: String,
 }
 
 /// Her standing account of someone, as last put in order.
@@ -486,6 +495,13 @@ impl Memory {
                     params![person, seq, at, shared, private],
                 )?;
             }
+            Event::Digested { place, upto, text } => {
+                tx.execute(
+                    "INSERT INTO digests (place, upto, at, text) VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(place) DO UPDATE SET upto = ?2, at = ?3, text = ?4",
+                    params![place, upto, at, text],
+                )?;
+            }
             Event::Learned { lesson, replaces } => {
                 if let Some(old) = replaces {
                     tx.execute("UPDATE craft SET retired = 1 WHERE seq = ?1", [old])?;
@@ -556,6 +572,50 @@ impl Memory {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         lines.reverse();
         Ok(lines)
+    }
+
+    /// What she kept of the earlier part of a conversation, if she has.
+    pub fn digest(&self, place: &str) -> Result<Option<Digest>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT upto, at, text FROM digests WHERE place = ?1",
+                [place],
+                |r| {
+                    Ok(Digest {
+                        upto: r.get(0)?,
+                        at: time_at(r, 1)?,
+                        text: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// The messages in a place after entry `after` and up to `upto`, oldest
+    /// first, and no more than `limit` of them.
+    pub fn thread_between(
+        &self,
+        place: &str,
+        after: i64,
+        upto: i64,
+        limit: usize,
+    ) -> Result<Vec<Line>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "{LINE_SELECT} WHERE place = ?1 AND seq > ?2 AND seq <= ?3 ORDER BY seq LIMIT ?4"
+        ))?;
+        Ok(stmt
+            .query_map(params![place, after, upto, as_i64(limit)], row_to_line)?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// How many messages a place holds after entry `after`.
+    pub fn lines_after(&self, place: &str, after: i64) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE place = ?1 AND seq > ?2",
+            params![place, after],
+            |r| r.get(0),
+        )?)
     }
 
     pub fn line(&self, seq: i64) -> Result<Option<(String, Line)>> {
@@ -1209,6 +1269,9 @@ CREATE TABLE IF NOT EXISTS challenges (
 CREATE TABLE IF NOT EXISTS links (
     seq INTEGER PRIMARY KEY, one TEXT NOT NULL, other TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS digests (
+    place TEXT PRIMARY KEY, upto INTEGER NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS profiles (
     person TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL,
     shared TEXT NOT NULL, private TEXT NOT NULL
@@ -1554,6 +1617,35 @@ mod tests {
         assert_eq!(other[0].place.key, "t:g");
         assert_eq!((other[0].heard, other[0].said), (1, 1));
         assert_eq!(other[0].last.text, "not yet");
+    }
+
+    #[test]
+    fn a_digest_replaces_the_one_before() {
+        let (_, m) = fold(vec![
+            heard("a", PlaceKind::Direct, "a", "1", "one", true),
+            heard("a", PlaceKind::Direct, "a", "2", "two", true),
+            heard("a", PlaceKind::Direct, "a", "3", "three", true),
+            Event::Digested {
+                place: "t:a".into(),
+                upto: 1,
+                text: "said one".into(),
+            },
+            Event::Digested {
+                place: "t:a".into(),
+                upto: 2,
+                text: "said one, then two".into(),
+            },
+        ]);
+        let digest = m.digest("t:a").unwrap().unwrap();
+        assert_eq!(
+            (digest.upto, digest.text.as_str()),
+            (2, "said one, then two")
+        );
+        assert!(m.digest("t:b").unwrap().is_none());
+        assert_eq!(m.lines_after("t:a", digest.upto).unwrap(), 1);
+        let between = m.thread_between("t:a", 0, 2, 10).unwrap();
+        assert_eq!(between.len(), 2);
+        assert_eq!(between[1].text, "two");
     }
 
     #[test]

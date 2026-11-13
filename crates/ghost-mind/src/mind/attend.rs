@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_brain::{Brain, Completion};
+use ghost_brain::{Brain, Completion, Effort, Item, Step, Turn};
 use ghost_core::{
     journal::Event,
     life::{Phase, Reach},
@@ -31,6 +31,15 @@ const AUTOMATED_SAYS_PER_HOUR: i64 = 6;
 const RECALL_ROUNDS: u8 = 2;
 /// How many times a failed deliberation is retried.
 const THINK_RETRIES: u8 = 3;
+/// How many turns a brain gets in one look, when what she does is tool
+/// calls: enough to look something up and remember something before
+/// answering, and no more.
+const TALK_STEPS: u8 = 5;
+/// How much of what a search returned she is shown.
+const LOOKED_UP: usize = 3000;
+
+const NOT_SENT: &str = "You wrote that as a private thought, so nothing was sent and nothing was done. \
+If you meant to say it, call `say`. If you meant to stay silent, call nothing again.";
 
 /// One look at a place, from start to finish.
 pub(super) struct Thinking {
@@ -44,6 +53,44 @@ pub(super) struct Thinking {
     pub recalled: Option<String>,
     /// Use the tick brain: nobody is talking to her.
     pub cheap: bool,
+    /// When what she does is tool calls: this look so far, as the brain
+    /// sees it. Empty until the first turn.
+    pub items: Vec<Item>,
+    /// What she has decided to do so far, to be done when the look ends.
+    pub took: Vec<Action>,
+    /// What she made of it, in a line.
+    pub thought: String,
+    /// She has been told once that a thought is not a message.
+    pub nudged: bool,
+}
+
+impl Thinking {
+    pub fn new(place: &str, why: Why, cheap: bool) -> Self {
+        Self {
+            place: place.to_owned(),
+            upto: 0,
+            unread_chars: 0,
+            round: 0,
+            why,
+            recalled: None,
+            cheap,
+            items: Vec::new(),
+            took: Vec::new(),
+            thought: String::new(),
+            nudged: false,
+        }
+    }
+}
+
+/// What one turn of a brain came to.
+pub(super) enum Thought {
+    /// Everything she does, in one JSON reply.
+    Whole(Deliberation),
+    /// One turn of tool calls.
+    Step(Step),
+    /// What looking things up returned: the call each answer belongs to,
+    /// the answer, and whether it failed.
+    Looked(Vec<(String, String, bool)>),
 }
 
 /// What made her look.
@@ -226,16 +273,9 @@ impl Mind {
         if addressed {
             self.phone_in_hand(&place.key, now)?;
         }
+        self.consider_digest(&place, now)?;
         self.ponder(
-            Thinking {
-                place: place.key.clone(),
-                upto: 0,
-                unread_chars: 0,
-                round: 0,
-                why: Why::Unread,
-                recalled: None,
-                cheap: !addressed,
-            },
+            Thinking::new(&place.key, Why::Unread, !addressed),
             &place,
             now,
         )
@@ -296,11 +336,18 @@ impl Mind {
         place: &PlaceState,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        let request = self.compose(place, &mut job, now)?;
         let brain = if job.cheap {
             self.tick.clone()
         } else {
             self.think.clone()
+        };
+        let with_tools = self.cfg.talk_tools && brain.works();
+        // What she sees is put together once for a look made of tool
+        // calls, and again for each round of one made of JSON replies.
+        let request = if with_tools && !job.items.is_empty() {
+            None
+        } else {
+            Some(self.compose(place, &mut job, now, with_tools)?)
         };
         self.budget.spend(now);
         self.thinking.insert(place.key.clone());
@@ -318,23 +365,76 @@ impl Mind {
                 },
             );
         }
-        self.jobs.spawn(async move {
-            let result = deliberate(brain.as_ref(), &request).await;
-            Outcome::Thought { job, result }
-        });
+        if with_tools {
+            let system = match request {
+                Some((system, prompt)) => {
+                    job.items.push(Item::user(prompt));
+                    system
+                }
+                None => self.who(now)?,
+            };
+            let turn = Turn {
+                system,
+                items: job.items.clone(),
+                tools: actions::tools(self.work_means(), self.can_look_up()),
+                max_tokens: self.cfg.max_tokens,
+                temperature: None,
+                // Talking is not a problem to be worked out at length, and
+                // what she thinks is spent from the same allowance as what
+                // she says.
+                effort: Some(Effort::Low),
+            };
+            self.jobs.spawn(async move {
+                let result = brain
+                    .step(&turn)
+                    .await
+                    .map(Thought::Step)
+                    .map_err(Error::from);
+                Outcome::Thought {
+                    job: Box::new(job),
+                    result,
+                }
+            });
+        } else if let Some((system, prompt)) = request {
+            let request = Completion::ask(system, prompt, self.cfg.max_tokens)
+                .expecting_json()
+                .thinking(Effort::Low);
+            self.jobs.spawn(async move {
+                let result = deliberate(brain.as_ref(), &request)
+                    .await
+                    .map(Thought::Whole);
+                Outcome::Thought {
+                    job: Box::new(job),
+                    result,
+                }
+            });
+        }
         Ok(())
     }
 
     /// Put together what she sees when she looks at a place.
+    /// Returns the system prompt and the prompt: who she is, and what is
+    /// in front of her. `with_tools` chooses how she is told to answer.
     fn compose(
         &self,
         place: &PlaceState,
         job: &mut Thinking,
         now: DateTime<Utc>,
-    ) -> Result<Completion> {
+        with_tools: bool,
+    ) -> Result<(String, String)> {
         let memory = self.ghost.memory();
         let tz = self.life.clock().tz();
-        let lines = memory.thread(&place.key, self.cfg.thread_window)?;
+        // The recent messages as they were written. Of what came before
+        // them she has her own note, if the conversation is that long; then
+        // everything since the note is shown, so that nothing falls between.
+        let kept = memory.digest(&place.key)?;
+        let mut lines = memory.thread(
+            &place.key,
+            self.cfg.thread_window * if kept.is_some() { 2 } else { 1 },
+        )?;
+        if let Some(kept) = &kept {
+            lines.retain(|l| l.seq > kept.upto);
+        }
         job.upto = lines
             .iter()
             .filter(|l| l.incoming)
@@ -413,12 +513,19 @@ impl Mind {
             .map(|r| format!("\n# What you remember\n\n{r}\n"))
             .unwrap_or_default();
 
+        let (who, right_now) = self.portrait(now)?;
+        let reply = if with_tools {
+            self.prompts.reply_tools.clone()
+        } else {
+            narrate::fill(&self.prompts.reply_json, &[("abilities", self.abilities())])
+        };
         let prompt = narrate::fill(
             &self.prompts.attend,
             &[
                 ("where", self.describe_place(place, &people)),
                 ("elsewhere", self.elsewhere(place, now)?),
-                ("abilities", self.abilities()),
+                ("now", right_now),
+                ("reply", reply),
                 (
                     "people",
                     if cards.is_empty() {
@@ -429,23 +536,24 @@ impl Mind {
                 ),
                 (
                     "transcript",
-                    narrate::transcript(&lines, place.read_upto, tz),
+                    format!(
+                        "{}{}",
+                        kept.map_or_else(String::new, |d| format!(
+                            "What you kept of this conversation before the messages below:\n{}\n\n",
+                            d.text
+                        )),
+                        narrate::transcript(&lines, place.read_upto, tz)
+                    ),
                 ),
                 ("recalled", recalled),
                 ("why", why),
                 ("addressed", addressed),
             ],
         );
-        // Talking is not a problem to be worked out at length, and what she
-        // thinks is spent from the same allowance as what she says.
-        Ok(
-            Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens)
-                .expecting_json()
-                .thinking(ghost_brain::Effort::Low),
-        )
+        Ok((who, prompt))
     }
 
-    fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {
+    pub(super) fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {
         let mut out = match place.kind {
             PlaceKind::Direct => format!(
                 "{}: a private conversation with {}.",
@@ -484,18 +592,33 @@ impl Mind {
     pub(super) fn on_thought(
         &mut self,
         mut job: Thinking,
-        result: Result<Deliberation>,
+        result: Result<Thought>,
         now: DateTime<Utc>,
     ) -> Result<()> {
         self.thinking.remove(&job.place);
         let Some(place) = self.ghost.memory().place(&job.place)? else {
             return Ok(());
         };
-        let deliberation = match result {
-            Ok(d) => d,
+        let thought = match result {
+            Ok(thought) => thought,
             Err(e) => return self.could_not_think(&place, &job, &e, now),
         };
         self.retries.remove(&job.place);
+        let deliberation = match thought {
+            Thought::Whole(deliberation) => deliberation,
+            Thought::Step(step) => return self.on_turn(job, step, &place, now),
+            Thought::Looked(found) => {
+                for (id, output, failed) in found {
+                    job.items.push(Item::Result {
+                        id,
+                        name: "look_up".into(),
+                        output,
+                        failed,
+                    });
+                }
+                return self.go_on(job, &place, now);
+            }
+        };
         if job.round < RECALL_ROUNDS
             && let Some(claimed) = deliberation.verify()
         {
@@ -507,27 +630,172 @@ impl Mind {
         if job.round < RECALL_ROUNDS
             && let Some(query) = deliberation.recall()
         {
-            let hits = self.ghost.memory().search(query, 8)?;
-            let tz = self.life.clock().tz();
-            job.recalled = Some(if hits.is_empty() {
-                format!("You searched your memory for \"{query}\" and found nothing.")
-            } else {
-                let mut found = Vec::with_capacity(hits.len());
-                for h in &hits {
-                    found.push(format!(
-                        "- {} {}{}",
-                        h.at.map(|at| at.with_timezone(&tz).format("%Y-%m-%d").to_string())
-                            .unwrap_or_default(),
-                        clip(&h.text, 300),
-                        self.learned_where(h.place.as_deref(), &place.key)?
-                    ));
-                }
-                found.join("\n")
-            });
+            job.recalled = Some(self.remembered(query, &place)?);
             job.round += 1;
             return self.ponder(job, &place, now);
         }
         self.apply(&place, &job, deliberation, now)
+    }
+
+    /// What a search of her memory turns up, as she would be told it.
+    fn remembered(&self, query: &str, place: &PlaceState) -> Result<String> {
+        let hits = self.ghost.memory().search(query, 8)?;
+        if hits.is_empty() {
+            return Ok(format!(
+                "You searched your memory for \"{query}\" and found nothing."
+            ));
+        }
+        let tz = self.life.clock().tz();
+        let mut found = Vec::with_capacity(hits.len());
+        for h in &hits {
+            found.push(format!(
+                "- {} {}{}",
+                h.at.map(|at| at.with_timezone(&tz).format("%Y-%m-%d").to_string())
+                    .unwrap_or_default(),
+                clip(&h.text, 300),
+                self.learned_where(h.place.as_deref(), &place.key)?
+            ));
+        }
+        Ok(found.join("\n"))
+    }
+
+    /// What taking things on would be done with, if she can at all.
+    fn work_means(&self) -> Option<&'static str> {
+        self.can_work().then(|| {
+            if self.workshop.machine.is_some() {
+                "at your computer"
+            } else {
+                "by looking things up and thinking them through"
+            }
+        })
+    }
+
+    /// Whether she can glance something up in the middle of a conversation.
+    fn can_look_up(&self) -> bool {
+        self.cfg.work.web && self.workshop.web.search.is_some()
+    }
+
+    /// One turn of a look made of tool calls came back. What she asked to
+    /// know is answered, what she decided to do is kept for the end, and a
+    /// call that could not be read is handed back to be put right.
+    fn on_turn(
+        &mut self,
+        mut job: Thinking,
+        step: Step,
+        place: &PlaceState,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let said = step.text.trim().to_owned();
+        if job.thought.is_empty() {
+            job.thought.clone_from(&said);
+        }
+        let calls = step.calls.clone();
+        job.items.push(step.into_item());
+        job.round += 1;
+        if calls.is_empty() {
+            // A brain new to this writes its answer as text now and then.
+            // Text is a thought, and a thought reaches nobody: say so once,
+            // where someone is waiting on her.
+            let waited_on = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+            if !said.is_empty()
+                && job.took.is_empty()
+                && !job.nudged
+                && waited_on
+                && job.round < TALK_STEPS
+            {
+                job.nudged = true;
+                job.items.push(Item::user(NOT_SENT));
+                return self.ponder(job, place, now);
+            }
+            return self.conclude(job, place, now);
+        }
+        let mut again = false;
+        let mut searches = Vec::new();
+        for call in calls {
+            let (output, failed) = match actions::from_call(&call) {
+                Err(why) => {
+                    again = true;
+                    (why, true)
+                }
+                Ok(Action::Recall { query }) => {
+                    again = true;
+                    (self.remembered(&query, place)?, false)
+                }
+                Ok(Action::Verify { claimed }) => {
+                    again = true;
+                    (self.challenge(place, &claimed)?, false)
+                }
+                Ok(Action::LookUp { query }) => {
+                    if self.can_look_up() {
+                        tracing::info!("{}: looking up \"{}\"", place.key, clip(&query, 80));
+                        searches.push((call.id, query));
+                        continue;
+                    }
+                    again = true;
+                    ("You have no way to look that up here.".to_owned(), true)
+                }
+                Ok(action) => {
+                    job.took.push(action);
+                    ("ok".to_owned(), false)
+                }
+            };
+            job.items.push(Item::Result {
+                id: call.id,
+                name: call.name,
+                output,
+                failed,
+            });
+        }
+        if !searches.is_empty() {
+            // The web is slow: it is looked up off to the side, and the
+            // look goes on when the answers are in.
+            let Some(source) = self.workshop.web.search.clone() else {
+                return self.conclude(job, place, now);
+            };
+            self.thinking.insert(place.key.clone());
+            self.jobs.spawn(async move {
+                use ghost_work::Tool as _;
+                let search = ghost_work::tools::Search::new(source);
+                let mut found = Vec::with_capacity(searches.len());
+                for (id, query) in searches {
+                    let outcome = search.call(&serde_json::json!({"query": query})).await;
+                    found.push((id, clip(&outcome.output, LOOKED_UP), outcome.failed));
+                }
+                Outcome::Thought {
+                    job: Box::new(job),
+                    result: Ok(Thought::Looked(found)),
+                }
+            });
+            return Ok(());
+        }
+        if again {
+            return self.go_on(job, place, now);
+        }
+        self.conclude(job, place, now)
+    }
+
+    /// Another turn, if she has any left; otherwise the look ends with
+    /// what she has decided so far.
+    fn go_on(&mut self, job: Thinking, place: &PlaceState, now: DateTime<Utc>) -> Result<()> {
+        if job.round < TALK_STEPS {
+            self.ponder(job, place, now)
+        } else {
+            self.conclude(job, place, now)
+        }
+    }
+
+    /// A look made of tool calls is over: do what she decided.
+    fn conclude(
+        &mut self,
+        mut job: Thinking,
+        place: &PlaceState,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let deliberation = Deliberation {
+            thought: std::mem::take(&mut job.thought),
+            actions: std::mem::take(&mut job.took),
+        };
+        self.apply(place, &job, deliberation, now)
     }
 
     fn could_not_think(
@@ -645,7 +913,7 @@ impl Mind {
                     }
                 }
                 // Handled before this, as another round of thought.
-                Action::Verify { .. } => {}
+                Action::Verify { .. } | Action::LookUp { .. } => {}
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
                     match self.undertake(&brief, asker.as_ref(), Some(place), now)? {

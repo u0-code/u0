@@ -207,7 +207,10 @@ impl Mind {
             context_tokens: self.cfg.work.context_tokens,
             ..Limits::default()
         };
-        let who = format!("{}\n\n{WHO}", self.self_prompt(now)?);
+        // Who she is, without what moment it is: the same words at every
+        // sitting, so that a sitting picked up later reads its transcript
+        // from the provider's cache instead of afresh.
+        let who = format!("{}\n\n{WHO}", self.who(now)?);
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working = Some(Working {
             id: next.id.clone(),

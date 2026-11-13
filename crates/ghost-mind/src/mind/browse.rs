@@ -87,7 +87,7 @@ impl Mind {
                     }),
             ),
         ];
-        let system = self.self_prompt(now)?;
+        let (system, right_now) = self.portrait(now)?;
         let (brain, body, max_tokens) =
             (self.think.clone(), self.body.clone(), self.cfg.max_tokens);
         let seen: HashSet<String> = self
@@ -152,8 +152,8 @@ impl Mind {
             };
             let mut pairs = pairs;
             pairs.push(("items", listing));
-            let request = Completion::ask(system, narrate::fill(&template, &pairs), max_tokens)
-                .expecting_json();
+            let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
+            let request = Completion::ask(system, prompt, max_tokens).expecting_json();
             let result = match brain.complete(&request).await {
                 Ok(reply) => actions::parse(&reply.text).map_err(Error::Parse),
                 Err(e) => Err(e.into()),

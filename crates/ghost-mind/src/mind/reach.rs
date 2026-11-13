@@ -115,15 +115,7 @@ impl Mind {
         self.pursuing.insert(intention.seq);
         self.refresh_intentions()?;
         self.ponder(
-            Thinking {
-                place: place.key.clone(),
-                upto: 0,
-                unread_chars: 0,
-                round: 0,
-                why: Why::Intention(intention),
-                recalled: None,
-                cheap: false,
-            },
+            Thinking::new(&place.key, Why::Intention(intention), false),
             &place,
             now,
         )

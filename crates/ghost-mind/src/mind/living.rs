@@ -112,7 +112,7 @@ impl Mind {
                 },
             ),
         ];
-        let system = self.self_prompt(now)?;
+        let (system, right_now) = self.portrait(now)?;
         let (city, country) = {
             let home = &self.ghost.identity().seed().home;
             (home.city.clone(), home.country.clone())
@@ -135,8 +135,8 @@ impl Mind {
                     .map(|w| format!("The weather today: {w}."))
                     .unwrap_or_default(),
             ));
-            let request = Completion::ask(system, narrate::fill(&template, &pairs), max_tokens)
-                .expecting_json();
+            let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
+            let request = Completion::ask(system, prompt, max_tokens).expecting_json();
             let result = ask(brain.as_ref(), &request)
                 .await
                 .and_then(|v| plan_draft(&v));
@@ -231,8 +231,7 @@ impl Mind {
                 ("what", block.what.clone()),
             ],
         );
-        let request =
-            Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens).expecting_json();
+        let request = self.framed(now, &prompt)?.expecting_json();
         let brain = self.tick.clone();
         let index = block.index;
         self.living = Some(index);
@@ -406,8 +405,7 @@ impl Mind {
                 ),
             ],
         );
-        let request =
-            Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens).expecting_json();
+        let request = self.framed(now, &prompt)?.expecting_json();
         let brain = self.think.clone();
         self.reflecting = true;
         self.budget.spend(now);

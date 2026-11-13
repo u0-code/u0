@@ -76,6 +76,31 @@ impl Script {
         });
     }
 
+    /// Queue one turn: something thought, and any number of calls.
+    fn then_turn(&self, text: &str, calls: &[(&str, serde_json::Value)]) {
+        self.hands.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.steps.lock().unwrap().push_back(ghost_brain::Step {
+            text: text.to_owned(),
+            calls: calls
+                .iter()
+                .enumerate()
+                .map(|(i, (name, args))| ghost_brain::Call {
+                    id: format!("c{i}-{name}"),
+                    name: (*name).to_owned(),
+                    args: args.clone(),
+                })
+                .collect(),
+            stop: if calls.is_empty() {
+                ghost_brain::Stop::End
+            } else {
+                ghost_brain::Stop::Calls
+            },
+            usage: ghost_brain::Usage::default(),
+            model: "script".into(),
+            carry: None,
+        });
+    }
+
     fn last_prompt(&self) -> String {
         let seen = self.seen.lock().unwrap();
         seen.last()
@@ -215,7 +240,34 @@ fn dm(from: &str, id: &str, text: &str) -> Incoming {
 }
 
 impl Rig {
+    /// A mind whose brain answers in JSON, as most of these tests script it.
     fn new(config: MindConfig, now: DateTime<Utc>) -> Self {
+        Self::build(
+            MindConfig {
+                talk_tools: false,
+                ..config
+            },
+            now,
+        )
+    }
+
+    /// A mind at human pace whose brain answers by calling tools.
+    fn with_tools(now: DateTime<Utc>) -> Self {
+        let rig = Self::build(
+            MindConfig {
+                live: false,
+                browse_minutes: [0, 0],
+                ..MindConfig::default()
+            },
+            now,
+        );
+        rig.think
+            .hands
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        rig
+    }
+
+    fn build(config: MindConfig, now: DateTime<Utc>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("ghost.toml"), SEED).unwrap();
         let ghost = Ghost::birth(dir.path()).unwrap();
@@ -322,6 +374,21 @@ impl Rig {
             .unwrap()
             .iter()
             .map(|e| e.event.kind())
+            .collect()
+    }
+
+    /// Why she did each thing she decided, as her journal has it.
+    fn reasons(&self) -> Vec<String> {
+        self.mind
+            .ghost
+            .journal()
+            .read(1, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                Event::Decided { reason, .. } => Some(reason),
+                _ => None,
+            })
             .collect()
     }
 
@@ -1407,4 +1474,227 @@ async fn she_does_not_take_someones_word_for_who_they_are() {
         "{known}"
     );
     assert!(known.contains("is leaving the institute"), "{known}");
+}
+
+#[tokio::test]
+async fn with_tools_she_answers_by_calling_them() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.think.then_turn(
+        "she sounds tired",
+        &[
+            ("say", serde_json::json!({"text": "long day?"})),
+            ("say", serde_json::json!({"text": "go lie down"})),
+            (
+                "note",
+                serde_json::json!({"about": "wen", "text": "works late on Thursdays"}),
+            ),
+        ],
+    );
+    rig.hear(dm("wen", "1", "just got home"), t0);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    assert_eq!(rig.body.sent(), ["long day?", "go lie down"]);
+    assert!(rig.kinds().contains(&"noted"));
+
+    // Everything she meant to do came in one turn, so one turn was all.
+    let turns = rig.think.turns.lock().unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(rig.think.calls(), 0, "nothing was asked for as JSON");
+    // Who she is comes first and holds nothing that changes by the hour;
+    // the hour comes after, with what is in front of her.
+    assert!(turns[0].system.contains("You are Lin"));
+    assert!(!turns[0].system.contains("# Right now"));
+    let ghost_brain::Item::User { text } = &turns[0].items[0] else {
+        panic!()
+    };
+    assert!(text.contains("# Right now") && text.contains("just got home"));
+    assert!(text.find("# The conversation") < text.find("# Right now"));
+    assert!(!text.contains(r#"{"do":"#), "no JSON format is described");
+    let names: Vec<&str> = turns[0].tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"say") && names.contains(&"recall"));
+    // No way to search the web in this body, so it is not offered.
+    assert!(!names.contains(&"look_up"));
+    // Her thought is the reason in her journal.
+    assert!(rig.reasons().iter().any(|r| r == "she sounds tired"));
+}
+
+#[tokio::test]
+async fn a_call_she_gets_wrong_comes_back_to_her() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"message": "hi"}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "hi"}))]);
+    rig.hear(dm("wen", "1", "hey"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    assert_eq!(rig.body.sent(), ["hi"]);
+
+    let turns = rig.think.turns.lock().unwrap();
+    assert_eq!(turns.len(), 2);
+    assert!(matches!(turns[1].items.last(),
+        Some(ghost_brain::Item::Result { failed: true, output, .. })
+            if output.contains("could not be used") && output.contains("text")));
+}
+
+#[tokio::test]
+async fn she_can_search_her_memory_in_the_middle_of_answering() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.think.then_turn(
+        "",
+        &[(
+            "note",
+            serde_json::json!({"about": "wen", "text": "her cat is called Dumpling"}),
+        )],
+    );
+    rig.hear(dm("wen", "1", "my cat is called Dumpling"), t0);
+    rig.until(|r| r.kinds().contains(&"noted")).await;
+
+    let later = t0 + Duration::hours(3);
+    rig.think
+        .then_turn("", &[("recall", serde_json::json!({"query": "cat"}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "Dumpling!"}))]);
+    rig.hear(dm("wen", "2", "do you remember my cat's name?"), later);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    assert_eq!(rig.body.sent(), ["Dumpling!"]);
+
+    let turns = rig.think.turns.lock().unwrap();
+    let asked_again = turns.last().unwrap();
+    assert!(matches!(asked_again.items.last(),
+        Some(ghost_brain::Item::Result { name, output, failed: false, .. })
+            if name == "recall" && output.contains("Dumpling")));
+    // The turn after is the same look carried on: what she saw first is
+    // still at the head of it, unchanged.
+    let before = &turns[turns.len() - 2];
+    assert_eq!(asked_again.items[0], before.items[0]);
+}
+
+#[tokio::test]
+async fn a_thought_is_not_a_message() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    // It answers in plain text, the way it would without tools.
+    rig.think.then_turn("nine, I think", &[]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "nine, I think"}))]);
+    rig.hear(dm("wen", "1", "when does it close?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    assert_eq!(rig.body.sent(), ["nine, I think"]);
+    {
+        let turns = rig.think.turns.lock().unwrap();
+        assert!(matches!(turns[1].items.last(),
+            Some(ghost_brain::Item::User { text }) if text.contains("nothing was sent")));
+    }
+
+    // Told once. Saying nothing a second time is taken as meant.
+    let later = t0 + Duration::hours(1);
+    rig.think.then_turn("not worth answering", &[]);
+    rig.think.then_turn("still not", &[]);
+    rig.hear(dm("wen", "2", "??"), later);
+    rig.until(|r| r.reasons().iter().any(|x| x == "not worth answering"))
+        .await;
+    assert_eq!(rig.body.sent().len(), 1);
+}
+
+#[tokio::test]
+async fn what_she_looks_up_comes_back_before_she_answers() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    // Somewhere to search that answers at once, with a refusal: nothing is
+    // listening there. What matters here is the way round, not the result.
+    rig.mind.workshop.web.search = Some(ghost_work::tools::Source::Searxng {
+        url: "http://127.0.0.1:1".into(),
+    });
+    rig.think.then_turn(
+        "",
+        &[(
+            "look_up",
+            serde_json::json!({"query": "heming tea house hours"}),
+        )],
+    );
+    rig.think.then_turn(
+        "",
+        &[("say", serde_json::json!({"text": "can't tell, sorry"}))],
+    );
+    rig.hear(dm("wen", "1", "when does the tea house close?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    let turns = rig.think.turns.lock().unwrap();
+    assert!(turns[0].tools.iter().any(|t| t.name == "look_up"));
+    assert_eq!(turns.len(), 2);
+    assert!(matches!(turns[1].items.last(),
+        Some(ghost_brain::Item::Result { name, .. }) if name == "look_up"));
+}
+
+#[tokio::test]
+async fn a_long_conversation_is_kept_as_a_note_and_its_end_word_for_word() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(
+        MindConfig {
+            live: false,
+            browse_minutes: [0, 0],
+            thread_window: 4,
+            ..MindConfig::default()
+        },
+        t0,
+    );
+    // Ten messages go by, each read and left unanswered.
+    let mut now = t0;
+    for i in 1..=10 {
+        now += Duration::minutes(20);
+        rig.tick
+            .then("Wen has been telling you about the tea house, one line at a time.");
+        rig.hear(
+            dm("wen", &i.to_string(), &format!("tea house fact {i}")),
+            now,
+        );
+        rig.until(|r| r.mind.agenda.attend.is_empty() && r.mind.jobs.is_empty())
+            .await;
+    }
+    // Past twice what she is shown, she wrote the older part down.
+    let digests: Vec<(i64, String)> = rig
+        .mind
+        .ghost
+        .journal()
+        .read(1, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            Event::Digested { upto, text, .. } => Some((upto, text)),
+            _ => None,
+        })
+        .collect();
+    assert!(!digests.is_empty(), "{:?}", rig.kinds());
+    assert!(digests[0].1.contains("tea house"));
+
+    // The next look shows the note, then every message after it, and none
+    // of the messages the note stands for.
+    now += Duration::minutes(20);
+    rig.hear(dm("wen", "11", "are you there?"), now);
+    rig.until(|r| r.think.last_prompt().contains("are you there?"))
+        .await;
+    let prompt = rig.think.last_prompt();
+    assert!(prompt.contains("What you kept of this conversation"));
+    assert!(prompt.contains("one line at a time"));
+    assert!(!prompt.contains("tea house fact 1\n"), "{prompt}");
+    assert!(prompt.contains("tea house fact 10"));
+    let kept_upto = rig
+        .mind
+        .ghost
+        .memory()
+        .digest("t:wen")
+        .unwrap()
+        .unwrap()
+        .upto;
+    let shown_from = rig
+        .mind
+        .ghost
+        .memory()
+        .thread_between("t:wen", kept_upto, i64::MAX, 1)
+        .unwrap()[0]
+        .text
+        .clone();
+    assert!(prompt.contains(&shown_from), "nothing falls between");
 }

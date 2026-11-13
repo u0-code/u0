@@ -281,7 +281,7 @@ impl Mind {
                 ("craft", or_none(self.craft_lines()?)),
             ],
         );
-        Ok(Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens).expecting_json())
+        Ok(self.framed(now, &prompt)?.expecting_json())
     }
 
     pub(super) fn on_held(&mut self, channel: &str, text: &str, why: &str) -> Result<()> {

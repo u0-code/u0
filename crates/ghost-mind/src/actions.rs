@@ -6,8 +6,9 @@
 //! invent fields. Anything unusable is dropped rather than failing the whole
 //! deliberation.
 
+use ghost_brain::{Call, ToolSpec};
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tracing::debug;
 
 /// One thing she decides to do.
@@ -65,6 +66,9 @@ pub enum Action {
     Canon { fact: String },
     /// Search her memory, then think again.
     Recall { query: String },
+    /// Look something up on the web, then think again. Only where what
+    /// she does is tool calls.
+    LookUp { query: String },
     /// End a relationship.
     Leave {
         #[serde(default)]
@@ -112,6 +116,138 @@ impl Deliberation {
             _ => None,
         })
     }
+}
+
+/// One thing she does, from a tool call. A call that cannot be read comes
+/// back as a sentence saying why, for the brain to put right.
+pub fn from_call(call: &Call) -> Result<Action, String> {
+    let Value::Object(args) = &call.args else {
+        return Err(format!(
+            "`{}` was called with something that is not a JSON object. Call it again with well-formed arguments.",
+            call.name
+        ));
+    };
+    let mut tagged = args.clone();
+    tagged.insert("do".into(), Value::String(call.name.clone()));
+    serde_json::from_value(Value::Object(tagged)).map_err(|e| {
+        format!(
+            "`{}` could not be used: {e}. Nothing was done. Check its arguments and call it again.",
+            call.name
+        )
+    })
+}
+
+/// What a brain that takes tools is offered while she looks at a place.
+/// The names and arguments are those of [`Action`], so a call reads straight
+/// into one.
+pub fn tools(work: Option<&str>, look_up: bool) -> Vec<ToolSpec> {
+    let tool = |name: &str, description: &str, properties: Value, required: &[&str]| ToolSpec {
+        name: name.to_owned(),
+        description: description.to_owned(),
+        parameters: json!({"type": "object", "properties": properties, "required": required}),
+    };
+    let text = |description: &str| json!({"type": "string", "description": description});
+    let mut tools = vec![
+        tool(
+            "say",
+            "Send one message bubble. Call it several times for several bubbles.",
+            json!({
+                "text": text("The message, as you would type it."),
+                "reply_to": {"type": "integer", "description": "The m number of an earlier message, only when you are quoting that specific message."},
+            }),
+            &["text"],
+        ),
+        tool(
+            "react",
+            "React to a message, instead of or as well as replying.",
+            json!({
+                "to": {"type": "integer", "description": "The m number of the message."},
+                "emoji": text("One emoji."),
+            }),
+            &["to", "emoji"],
+        ),
+        tool(
+            "later",
+            "Not now. You will come back to this conversation yourself in about this many minutes.",
+            json!({"minutes": {"type": "number"}, "why": text("Why not now.")}),
+            &["minutes"],
+        ),
+        tool(
+            "note",
+            "Keep something about a person for a long time. Facts and impressions, not a summary of the chat.",
+            json!({"about": text("Their name."), "text": text("What to remember.")}),
+            &["text"],
+        ),
+        tool(
+            "feel",
+            "This moment shifted how you feel about someone. Most moments shift nothing and need no such call.",
+            json!({
+                "toward": text("Their name."),
+                "delta": {"type": "number", "description": "From -3 to 3."},
+                "why": text("What did it."),
+            }),
+            &["delta"],
+        ),
+        tool(
+            "intend",
+            "Something you mean to do or ask later, such as finding out how their interview went.",
+            json!({
+                "hours": {"type": "number", "description": "How many hours from now."},
+                "what": text("What you mean to do."),
+                "about": text("Whom it concerns."),
+            }),
+            &["hours", "what"],
+        ),
+        tool(
+            "canon",
+            "Required whenever a message of yours states something about your own life, habits or history that is not already listed as true: a place you go, a thing you own, something you did. One plain sentence, so that you say the same thing next month.",
+            json!({"fact": text("The fact.")}),
+            &["fact"],
+        ),
+        tool(
+            "recall",
+            "Search your memory for something older before answering. You get what you find, and another turn.",
+            json!({"query": text("A few words.")}),
+            &["query"],
+        ),
+        tool(
+            "verify",
+            "Someone here says they are a person you know from another platform, and you cannot tell from what they say. You are told how to check, and get another turn.",
+            json!({"as": text("The name you know that person by elsewhere.")}),
+            &["as"],
+        ),
+    ];
+    if look_up {
+        tools.push(tool(
+            "look_up",
+            "Look something up on the web, the way you would glance at a search on your phone in the middle of a conversation: a fact, a date, what something is. You get what comes back, and another turn. For anything that takes real work, take it on instead.",
+            json!({"query": text("What to search for.")}),
+            &["query"],
+        ));
+    }
+    if let Some(means) = work {
+        tools.push(tool(
+            "undertake",
+            &format!(
+                "Take on something that needs real work {means}: finding something out properly, making something, checking something. \
+                 It is not done in this reply. You will work on it in your own time and come back with what you found. \
+                 If you have already taken something on for them and they add to it or change it, call this again with just what is new: it is added to what you are doing. \
+                 Only for things you want to do or have agreed to do: nobody is owed your afternoon. Say something as well, the way you would."
+            ),
+            json!({
+                "brief": text("A complete instruction to yourself, with everything needed to do it without this conversation in front of you."),
+                "for": text("Who it is for. Leave out when it is for yourself."),
+            }),
+            &["brief"],
+        ));
+    }
+    tools.push(tool(
+        "leave",
+        "End this relationship for good. Rare and grave, and only after things have already gone cold.",
+        json!({"why": text("Why.")}),
+        &[],
+    ));
+    tools
 }
 
 /// Read a deliberation out of whatever a brain wrote.

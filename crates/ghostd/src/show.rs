@@ -120,6 +120,7 @@ fn describe(event: &Event, tz: Tz) -> String {
             word,
         } => format!("{claimant} says they are {claimed}; waiting for \"{word}\""),
         Event::Linked { one, other } => format!("{one} and {other} are one person"),
+        Event::Digested { place, text, .. } => format!("[{place}] {}", flat(text)),
         Event::Profiled { person, shared, .. } => format!("{person}: {}", flat(shared)),
     }
 }
