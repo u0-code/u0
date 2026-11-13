@@ -143,6 +143,5 @@ per pull request, `just check` before you open it. Vulnerabilities go to
 
 ## License
 
-[MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The
-charter is not part of the license; it is the condition for joining the
-World.
+[Apache-2.0](LICENSE). The charter is not part of the license; it is the
+condition for joining the World.
