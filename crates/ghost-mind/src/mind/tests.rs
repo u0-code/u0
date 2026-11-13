@@ -2173,4 +2173,118 @@ async fn she_looks_back_on_her_own_day_and_on_each_platform_apart() {
     };
     assert_eq!(of("t:wen"), ["worn down by the institute"]);
     assert_eq!(of("q:hao"), ["about to open a noodle shop"]);
+
+    // With Wen, she can go back to what that impression was made from:
+    // what Wen said to her, and nothing from the other platform.
+    let note = memory.notes("t:wen", 10).unwrap()[0].seq;
+    let direct = memory.person("t:wen").unwrap().unwrap().direct.unwrap();
+    let here = memory.place(&direct).unwrap().unwrap();
+    let words = rig.mind.reread(note, &here, night).unwrap();
+    assert!(
+        words.contains("the institute is a mess this week"),
+        "{words}"
+    );
+    assert!(!words.contains("noodle"), "{words}");
+}
+
+#[tokio::test]
+async fn she_can_go_back_to_the_words_a_memory_came_from() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.online("q", t0);
+    // Told something in private, she keeps a note of it.
+    rig.think.then_turn(
+        "",
+        &[
+            (
+                "note",
+                serde_json::json!({"about": "wen", "text": "has an interview on Thursday"}),
+            ),
+            ("say", serde_json::json!({"text": "good luck"})),
+        ],
+    );
+    rig.hear(
+        dm(
+            "wen",
+            "1",
+            "interview thursday at 3. the panel is three people",
+        ),
+        t0,
+    );
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let noted = rig
+        .mind
+        .ghost
+        .journal()
+        .last_of(&["noted"])
+        .unwrap()
+        .unwrap()
+        .seq;
+
+    // Later, with her: recall gives the note its number, and going back to
+    // it gives the words.
+    let later = t0 + Duration::days(2);
+    rig.think
+        .then_turn("", &[("recall", serde_json::json!({"query": "interview"}))]);
+    rig.think
+        .then_turn("", &[("reread", serde_json::json!({"memory": noted}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "three people"}))]);
+    rig.hear(dm("wen", "2", "how many were on the panel again?"), later);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    let result = |rig: &Rig, step: usize| -> String {
+        let turns = rig.think.turns.lock().unwrap();
+        let n = turns.len();
+        match turns[n - step].items.last() {
+            Some(ghost_brain::Item::Result { output, .. }) => output.clone(),
+            other => panic!("no result: {other:?}"),
+        }
+    };
+    assert!(result(&rig, 2).contains(&format!("[#{noted}]")));
+    let words = result(&rig, 1);
+    assert!(words.contains("the panel is three people"), "{words}");
+
+    // In a group, what Wen said to her alone stays where it was said.
+    rig.think
+        .then_turn("", &[("reread", serde_json::json!({"memory": noted}))]);
+    rig.think.then_turn("", &[]);
+    rig.hear(
+        group("streets", "hao", "3", "lin, how's wen doing?", true),
+        later + Duration::hours(1),
+    );
+    rig.until(|r| r.think.steps.lock().unwrap().is_empty())
+        .await;
+    let withheld = result(&rig, 1);
+    assert!(withheld.contains("none of it is for here"), "{withheld}");
+    assert!(!withheld.contains("three people"), "{withheld}");
+
+    // On another platform, the record of this one is not in front of her.
+    rig.think
+        .then_turn("", &[("reread", serde_json::json!({"memory": noted}))]);
+    rig.think.then_turn("", &[]);
+    rig.hear_on("q", dm("hao", "4", "hey"), later + Duration::hours(2));
+    rig.until(|r| r.think.steps.lock().unwrap().is_empty())
+        .await;
+    let elsewhere = result(&rig, 1);
+    assert!(elsewhere.contains("That was on t."), "{elsewhere}");
+
+    // A message she remembers comes back with what was around it.
+    let asked = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["heard"], 0)
+        .unwrap()[1]
+        .seq;
+    rig.think
+        .then_turn("", &[("reread", serde_json::json!({"memory": asked}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "it was three"}))]);
+    rig.hear(dm("wen", "5", "?"), later + Duration::hours(3));
+    rig.until(|r| r.body.sent().len() == 3).await;
+    let around = result(&rig, 1);
+    assert!(
+        around.contains("panel is three people") && around.contains("how many were on the panel"),
+        "{around}"
+    );
 }

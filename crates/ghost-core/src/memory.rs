@@ -484,6 +484,39 @@ impl Memory {
         })
     }
 
+    /// The messages on a platform from entry `from` to entry `upto`, each
+    /// with the place it was in, oldest first. When there are more than
+    /// `limit`, the newest are kept.
+    pub fn lines_on(
+        &self,
+        channel: &str,
+        from: i64,
+        upto: i64,
+        limit: usize,
+    ) -> Result<Vec<(String, Line)>> {
+        self.channels
+            .get(channel)
+            .map_or(Ok(Vec::new()), |s| s.lines_on(from, upto, limit))
+    }
+
+    /// The messages in a place around entry `seq`: up to `n` before it, the
+    /// one at it, and up to `n` after, oldest first.
+    pub fn around(&self, place: &str, seq: i64, n: usize) -> Result<Vec<Line>> {
+        let Some(shard) = self.shard_of(place) else {
+            return Ok(Vec::new());
+        };
+        let mut lines = shard.thread_before(place, seq, n + 1)?;
+        lines.extend(shard.thread_between(place, seq, i64::MAX, n)?);
+        Ok(lines)
+    }
+
+    /// The last `limit` messages in a place up to and including entry
+    /// `upto`, oldest first.
+    pub fn thread_before(&self, place: &str, upto: i64, limit: usize) -> Result<Vec<Line>> {
+        self.shard_of(place)
+            .map_or(Ok(Vec::new()), |s| s.thread_before(place, upto, limit))
+    }
+
     /// How many messages a place holds after entry `after`.
     pub fn lines_after(&self, place: &str, after: i64) -> Result<i64> {
         self.shard_of(place)
@@ -1147,6 +1180,35 @@ impl Shard {
         Ok(stmt
             .query_map(params![place, after, upto, as_i64(limit)], row_to_line)?
             .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The last `limit` messages in a place up to and including entry
+    /// `upto`, oldest first.
+    pub fn thread_before(&self, place: &str, upto: i64, limit: usize) -> Result<Vec<Line>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "{LINE_SELECT} WHERE place = ?1 AND seq <= ?2 ORDER BY seq DESC LIMIT ?3"
+        ))?;
+        let mut lines = stmt
+            .query_map(params![place, upto, as_i64(limit)], row_to_line)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        lines.reverse();
+        Ok(lines)
+    }
+
+    /// Every place's messages from entry `from` to `upto`, the newest
+    /// `limit` of them, oldest first.
+    pub fn lines_on(&self, from: i64, upto: i64, limit: usize) -> Result<Vec<(String, Line)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT place, seq, at, dir, person, name, platform_id, reply_to, addressed, text
+             FROM messages WHERE seq >= ?1 AND seq <= ?2 ORDER BY seq DESC LIMIT ?3",
+        )?;
+        let mut lines = stmt
+            .query_map(params![from, upto, as_i64(limit)], |r| {
+                Ok((r.get(0)?, line_at(r, 1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        lines.reverse();
+        Ok(lines)
     }
 
     /// How many messages a place holds after entry `after`.

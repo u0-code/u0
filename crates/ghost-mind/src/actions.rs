@@ -66,6 +66,11 @@ pub enum Action {
     Canon { fact: String },
     /// Search her memory, then think again.
     Recall { query: String },
+    /// Go back to what one memory was made from, then think again.
+    Reread {
+        #[serde(deserialize_with = "reference")]
+        memory: i64,
+    },
     /// Look something up on the web, then think again. Only where what
     /// she does is tool calls.
     LookUp { query: String },
@@ -104,6 +109,14 @@ impl Deliberation {
     pub fn recall(&self) -> Option<&str> {
         self.actions.iter().find_map(|a| match a {
             Action::Recall { query } if !query.trim().is_empty() => Some(query.as_str()),
+            _ => None,
+        })
+    }
+
+    /// The memory she asked to go back to, if she asked.
+    pub fn reread(&self) -> Option<i64> {
+        self.actions.iter().find_map(|a| match a {
+            Action::Reread { memory } => Some(*memory),
             _ => None,
         })
     }
@@ -197,9 +210,15 @@ pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
         ),
         tool(
             "recall",
-            "Search your memory for something older before answering. You get what you find, and another turn.",
+            "Search your memory for something older before answering. You get what you find, each with its number, and another turn.",
             json!({"query": text("A few words.")}),
             &["query"],
+        ),
+        tool(
+            "reread",
+            "Go back to what one memory came from: the messages a note or an account was made from, or the stretch around a message. For when the words themselves matter and your memory of them is not enough. You get them, and another turn.",
+            json!({"memory": {"type": "integer", "description": "The memory's number, as recall showed it."}}),
+            &["memory"],
         ),
     ];
     if look_up {

@@ -15,6 +15,7 @@ mod living;
 mod public;
 mod pursuit;
 mod reach;
+mod reread;
 mod speak;
 #[cfg(test)]
 mod tests;

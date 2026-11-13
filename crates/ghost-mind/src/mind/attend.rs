@@ -642,12 +642,21 @@ impl Mind {
                 return self.go_on(job, &place, now);
             }
         };
-        if job.round < RECALL_ROUNDS
-            && let Some(query) = deliberation.recall()
-        {
-            job.recalled = Some(self.remembered(query, &place, now)?);
-            job.round += 1;
-            return self.ponder(job, &place, now);
+        if job.round < RECALL_ROUNDS {
+            let found = match (deliberation.recall(), deliberation.reread()) {
+                (Some(query), _) => Some(self.remembered(query, &place, now)?),
+                (None, Some(n)) => Some(self.reread(n, &place, now)?),
+                (None, None) => None,
+            };
+            if let Some(found) = found {
+                // What she went back to is added to what she already found.
+                job.recalled = Some(match job.recalled.take() {
+                    Some(before) => format!("{before}\n\n{found}"),
+                    None => found,
+                });
+                job.round += 1;
+                return self.ponder(job, &place, now);
+            }
         }
         self.apply(&place, &job, deliberation, now)
     }
@@ -664,7 +673,8 @@ impl Mind {
         let mut found = Vec::with_capacity(hits.len());
         for h in &hits {
             found.push(format!(
-                "- {}{}{}",
+                "- [#{}] {}{}{}",
+                h.seq,
                 h.at.map(|at| format!("{}: ", narrate::capital(&when(at, now, clock))))
                     .unwrap_or_default(),
                 clip(&h.text, 300),
@@ -735,6 +745,10 @@ impl Mind {
                 Ok(Action::Recall { query }) => {
                     again = true;
                     (self.remembered(&query, place, now)?, false)
+                }
+                Ok(Action::Reread { memory }) => {
+                    again = true;
+                    (self.reread(memory, place, now)?, false)
                 }
                 Ok(Action::LookUp { query }) => {
                     if self.can_look_up() {
@@ -1031,7 +1045,7 @@ impl Mind {
                     }
                 }
                 // Recall has had its rounds; posting only happens while scrolling.
-                Action::Recall { .. } | Action::Post { .. } => {}
+                Action::Recall { .. } | Action::Reread { .. } | Action::Post { .. } => {}
             }
         }
         if !bubbles.is_empty() {
