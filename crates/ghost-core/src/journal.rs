@@ -192,6 +192,22 @@ pub enum Event {
         #[serde(default)]
         posts: Vec<PostStats>,
     },
+    /// Someone said they are a person she knows on another platform, and
+    /// she asked for proof: a word she made up, to be sent to her from the
+    /// account she already knows.
+    Challenged {
+        /// Who says so.
+        claimant: String,
+        /// Who they say they are.
+        claimed: String,
+        word: String,
+    },
+    /// Two accounts were shown to be one person: the word came back from
+    /// the right place.
+    Linked {
+        one: String,
+        other: String,
+    },
     /// She put what she knows of someone in order: a short account that
     /// replaces the one before it. What she could have learned where others
     /// were present is kept apart from what they told her alone.
@@ -262,6 +278,8 @@ impl Event {
             Self::Measured { .. } => "measured",
             Self::Learned { .. } => "learned",
             Self::Profiled { .. } => "profiled",
+            Self::Challenged { .. } => "challenged",
+            Self::Linked { .. } => "linked",
         }
     }
 }

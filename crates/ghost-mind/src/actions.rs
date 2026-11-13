@@ -72,6 +72,13 @@ pub enum Action {
     },
     /// Post publicly, to no one in particular.
     Post { text: String },
+    /// Someone here says they are a person she knows on another platform.
+    /// Ask for proof instead of taking their word.
+    Verify {
+        /// The name or handle she knows that person by elsewhere.
+        #[serde(rename = "as")]
+        claimed: String,
+    },
     /// Take on something that needs real work, to be done in her own time.
     Undertake {
         brief: String,
@@ -90,6 +97,14 @@ pub struct Deliberation {
 }
 
 impl Deliberation {
+    /// Who someone here claims to be elsewhere, if she asked to check.
+    pub fn verify(&self) -> Option<&str> {
+        self.actions.iter().find_map(|a| match a {
+            Action::Verify { claimed } if !claimed.trim().is_empty() => Some(claimed.as_str()),
+            _ => None,
+        })
+    }
+
     /// The memory query she asked for, if she asked for one.
     pub fn recall(&self) -> Option<&str> {
         self.actions.iter().find_map(|a| match a {

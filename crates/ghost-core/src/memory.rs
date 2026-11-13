@@ -21,7 +21,7 @@ use crate::{
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -139,6 +139,16 @@ pub struct Undertaking {
     pub summary: Option<String>,
     pub sittings: i64,
     pub last_at: DateTime<Utc>,
+}
+
+/// A proof she is waiting for: `word`, from the account `claimed`.
+#[derive(Debug, Clone, Serialize)]
+pub struct Challenge {
+    pub seq: i64,
+    pub at: DateTime<Utc>,
+    pub claimant: String,
+    pub claimed: String,
+    pub word: String,
 }
 
 /// Her standing account of someone, as last put in order.
@@ -443,6 +453,27 @@ impl Memory {
                         params![channel, post.id, seq, at, n(post.likes), n(post.replies), n(post.reposts), n(post.views)],
                     )?;
                 }
+            }
+            Event::Challenged {
+                claimant,
+                claimed,
+                word,
+            } => {
+                tx.execute(
+                    "INSERT INTO challenges (seq, at, claimant, claimed, word) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![seq, at, claimant, claimed, word],
+                )?;
+            }
+            Event::Linked { one, other } => {
+                tx.execute(
+                    "INSERT INTO links (seq, one, other) VALUES (?1, ?2, ?3)",
+                    params![seq, one, other],
+                )?;
+                tx.execute(
+                    "UPDATE challenges SET met = 1
+                     WHERE (claimant = ?1 AND claimed = ?2) OR (claimant = ?2 AND claimed = ?1)",
+                    params![one, other],
+                )?;
             }
             Event::Profiled {
                 person,
@@ -769,6 +800,50 @@ impl Memory {
     ///
     /// Terms of three or more characters go through the trigram index; shorter
     /// ones (common in Chinese) fall back to a substring scan.
+    /// The proofs she is still waiting for from the account `claimed`,
+    /// asked for at or after `since`.
+    pub fn challenges_to(&self, claimed: &str, since: DateTime<Utc>) -> Result<Vec<Challenge>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT seq, at, claimant, claimed, word FROM challenges
+             WHERE claimed = ?1 AND met = 0 AND at >= ?2 ORDER BY seq",
+        )?;
+        Ok(stmt
+            .query_map(params![claimed, stamp(&since)], |r| {
+                Ok(Challenge {
+                    seq: r.get(0)?,
+                    at: time_at(r, 1)?,
+                    claimant: r.get(2)?,
+                    claimed: r.get(3)?,
+                    word: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The other accounts shown to belong to the same person as `key`.
+    pub fn linked(&self, key: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT one, other FROM links")?;
+        let pairs = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        // Links are few; follow them until nothing new turns up.
+        let mut same = vec![key.to_owned()];
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for (one, other) in &pairs {
+                for (here, there) in [(one, other), (other, one)] {
+                    if same.contains(here) && !same.contains(there) {
+                        same.push(there.clone());
+                        grew = true;
+                    }
+                }
+            }
+        }
+        same.remove(0);
+        Ok(same)
+    }
+
     /// Her standing account of someone, if she has put one in order.
     pub fn profile(&self, person: &str) -> Result<Option<Profile>> {
         Ok(self
@@ -1126,6 +1201,13 @@ CREATE TABLE IF NOT EXISTS undertakings (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, brief TEXT NOT NULL,
     asked_by TEXT, place TEXT, outcome TEXT, summary TEXT,
     sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS challenges (
+    seq INTEGER PRIMARY KEY, at TEXT NOT NULL, claimant TEXT NOT NULL,
+    claimed TEXT NOT NULL, word TEXT NOT NULL, met INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS links (
+    seq INTEGER PRIMARY KEY, one TEXT NOT NULL, other TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS profiles (
     person TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL,
@@ -1515,5 +1597,35 @@ mod tests {
             .collect();
         assert_eq!(since, ["likes the plane trees"]);
         assert!(m.profile("t:nobody").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_proof_is_waited_for_until_it_is_met() {
+        let challenged = Event::Challenged {
+            claimant: "d:wen".into(),
+            claimed: "t:wen".into(),
+            word: "heron-42".into(),
+        };
+        let (_, m) = fold(vec![challenged.clone()]);
+        let since = Utc::now() - chrono::Duration::hours(1);
+        assert_eq!(m.challenges_to("t:wen", since).unwrap()[0].word, "heron-42");
+        assert!(m.challenges_to("d:wen", since).unwrap().is_empty());
+        assert!(m.linked("t:wen").unwrap().is_empty());
+
+        let (_, m) = fold(vec![
+            challenged,
+            Event::Linked {
+                one: "d:wen".into(),
+                other: "t:wen".into(),
+            },
+            Event::Linked {
+                one: "t:wen".into(),
+                other: "x:wen".into(),
+            },
+        ]);
+        assert!(m.challenges_to("t:wen", since).unwrap().is_empty(), "met");
+        let mut same = m.linked("d:wen").unwrap();
+        same.sort();
+        assert_eq!(same, ["t:wen", "x:wen"], "links carry across");
     }
 }

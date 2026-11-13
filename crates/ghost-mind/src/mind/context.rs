@@ -16,6 +16,12 @@ use ghost_core::{
 use super::Mind;
 use crate::{Result, actions::clip};
 
+/// What the words she makes up to check who someone is are built from.
+const WORDS: [&str; 16] = [
+    "heron", "lantern", "quartz", "willow", "ember", "harbor", "thistle", "copper", "meadow",
+    "pebble", "saffron", "tundra", "juniper", "marble", "orchard", "falcon",
+];
+
 /// How far back "the rest of your day" reaches.
 const WINDOW: Duration = Duration::hours(6);
 /// How long a finished undertaking stays on her mind.
@@ -85,6 +91,80 @@ impl Mind {
             .collect()
     }
 
+    /// Someone in `place` says they are a person she knows elsewhere. She
+    /// does not take their word: she makes up a word and asks for it to be
+    /// sent from the account she already knows. Returns what she is told
+    /// about how that went, for her next thought.
+    pub(super) fn challenge(&mut self, place: &PlaceState, claimed: &str) -> Result<String> {
+        if place.kind != PlaceKind::Direct {
+            return Ok(
+                "You can only check who someone is in a private conversation with them.".into(),
+            );
+        }
+        let memory = self.ghost.memory();
+        let Some(claimant) = memory.person_of_direct(&place.key)? else {
+            return Ok("There is nobody here to check.".into());
+        };
+        let wanted = claimed.trim().trim_start_matches('@').to_lowercase();
+        let known = memory.people()?.into_iter().find(|p| {
+            p.channel != claimant.channel
+                && p.direct.is_some()
+                && !p.gone
+                && (p.name.to_lowercase() == wanted
+                    || p.handle
+                        .as_deref()
+                        .is_some_and(|h| h.to_lowercase() == wanted))
+        });
+        let Some(known) = known else {
+            return Ok(format!(
+                "You do not know anyone called \"{claimed}\" on another platform, so there is nothing to check their claim against. \
+                 Their word alone is not enough: go on treating them as who they are here."
+            ));
+        };
+        if memory.linked(&claimant.key)?.contains(&known.key) {
+            return Ok(format!(
+                "You already know this: they are {} from {}.",
+                known.name, known.channel
+            ));
+        }
+        let word = format!(
+            "{}-{}",
+            WORDS[self.rng.usize(..WORDS.len())],
+            self.rng.u32(10..100)
+        );
+        self.record(ghost_core::journal::Event::Challenged {
+            claimant: claimant.key,
+            claimed: known.key,
+            word: word.clone(),
+        })?;
+        Ok(format!(
+            "To check whether they are {name} from {channel}, you made up a word: \"{word}\". \
+             Tell them to send you exactly that word from that account, on {channel}. \
+             If it arrives there, you will know they are the same person. \
+             Until then they are someone new who says so: nothing {name} told you is for them.",
+            name = known.name,
+            channel = known.channel
+        ))
+    }
+
+    /// A private message arrived from `sender`. If it carries a word she is
+    /// waiting for from that account, the two accounts are one person.
+    pub(super) fn proven(&mut self, sender: &str, said: &str, now: DateTime<Utc>) -> Result<()> {
+        let waiting = self
+            .ghost
+            .memory()
+            .challenges_to(sender, now - Duration::hours(24))?;
+        for challenge in waiting {
+            if said.contains(&challenge.word.to_lowercase()) {
+                self.record(ghost_core::journal::Event::Linked {
+                    one: challenge.claimant,
+                    other: sender.to_owned(),
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     /// What she knows of someone, for a place: her standing account of
     /// them and the notes written since. Outside the private conversation
     /// with that person, the part they told her alone is left out, and she
@@ -96,16 +176,41 @@ impl Mind {
         limit: usize,
     ) -> Result<(String, Vec<Note>)> {
         let memory = self.ghost.memory();
-        let profile = memory.profile(&person.key)?;
-        let since = profile.as_ref().map_or(0, |p| p.seq);
-        let notes =
-            self.with_provenance(memory.notes_after(&person.key, since, limit)?, &here.key)?;
-        let Some(profile) = profile else {
-            return Ok((String::new(), notes));
-        };
-        let alone_with_them =
-            here.kind == PlaceKind::Direct && person.direct.as_deref() == Some(here.key.as_str());
+        // The same person under another name is still the same person:
+        // what she knows of them there, she knows here.
         let mut text = String::new();
+        let mut same = vec![person.clone()];
+        for key in memory.linked(&person.key)? {
+            if let Some(other) = memory.person(&key)? {
+                text.push_str(&format!(
+                    "\n  They are also {} on {}. That has been checked.",
+                    other.name, other.channel
+                ));
+                same.push(other);
+            }
+        }
+        let alone_with_them = here.kind == PlaceKind::Direct
+            && same
+                .iter()
+                .any(|p| p.direct.as_deref() == Some(here.key.as_str()));
+        let mut notes = Vec::new();
+        let mut newest: Option<ghost_core::memory::Profile> = None;
+        for one in &same {
+            let profile = memory.profile(&one.key)?;
+            let since = profile.as_ref().map_or(0, |p| p.seq);
+            notes.extend(memory.notes_after(&one.key, since, limit)?);
+            if let Some(profile) = profile
+                && newest.as_ref().is_none_or(|n| profile.seq > n.seq)
+            {
+                newest = Some(profile);
+            }
+        }
+        notes.sort_by_key(|n| n.seq);
+        let skip = notes.len().saturating_sub(limit);
+        let notes = self.with_provenance(notes.split_off(skip), &here.key)?;
+        let Some(profile) = newest else {
+            return Ok((text, notes));
+        };
         if !profile.shared.trim().is_empty() {
             text.push_str(&format!(
                 "\n  What you know of them: {}",

@@ -87,6 +87,8 @@ impl Mind {
                 Some(id) => self.ghost.memory().is_hers(&place_key, id)?,
                 None => false,
             };
+        let proof = (m.place.kind == PlaceKind::Direct)
+            .then(|| (social::key(channel, &m.from.id), m.text.to_lowercase()));
         self.record(Event::Heard {
             channel: channel.to_owned(),
             place: m.place,
@@ -96,6 +98,9 @@ impl Mind {
             reply_to: m.reply_to,
             addressed,
         })?;
+        if let Some((sender, said)) = proof {
+            self.proven(&sender, &said, now)?;
+        }
         self.schedule_attend(&place_key, now)
     }
 
@@ -486,6 +491,14 @@ impl Mind {
         };
         self.retries.remove(&job.place);
         if job.round < RECALL_ROUNDS
+            && let Some(claimed) = deliberation.verify()
+        {
+            // She thinks again knowing what came of asking for proof.
+            job.recalled = Some(self.challenge(&place, claimed)?);
+            job.round += 1;
+            return self.ponder(job, &place, now);
+        }
+        if job.round < RECALL_ROUNDS
             && let Some(query) = deliberation.recall()
         {
             let hits = self.ghost.memory().search(query, 8)?;
@@ -625,6 +638,8 @@ impl Mind {
                         did.push("put it off".to_owned());
                     }
                 }
+                // Handled before this, as another round of thought.
+                Action::Verify { .. } => {}
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
                     match self.undertake(&brief, asker.as_ref(), Some(place), now)? {
