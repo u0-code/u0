@@ -43,7 +43,7 @@ class GhostAgent(BaseAgent):
         binary: str | None = None,
         max_steps: int = 200,
         max_minutes: int = 60,
-        context_tokens: int = 60000,
+        context_tokens: int | None = None,
         base_url: str = "https://api.deepseek.com",
         api_key_env: str = "DEEPSEEK_API_KEY",
         **kwargs,
@@ -52,7 +52,8 @@ class GhostAgent(BaseAgent):
         self._bin = Path(binary or os.environ["GHOST_WORK_BIN"]).expanduser()
         self._max_steps = int(max_steps)
         self._max_minutes = int(max_minutes)
-        self._context_tokens = int(context_tokens)
+        # Left unset, the worker takes it from the model's context window.
+        self._context_tokens = int(context_tokens) if context_tokens else None
         self._base_url = base_url
         self._api_key_env = api_key_env
 
@@ -95,8 +96,9 @@ class GhostAgent(BaseAgent):
             "--api-key-env", self._api_key_env,
             "--max-steps", str(self._max_steps),
             "--max-minutes", str(self._max_minutes),
-            "--context-tokens", str(self._context_tokens),
         ]
+        if self._context_tokens:
+            command += ["--context-tokens", str(self._context_tokens)]
         # Act as Harbor's own exec would: same directory, same user, same
         # task-wide environment.
         workdir = getattr(environment.task_env_config, "workdir", None)

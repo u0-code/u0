@@ -14,6 +14,13 @@ Runs on this machine, with no container: the agent's commands run as you, in
 a scratch directory. Both agents are given the same task text and the same
 limits.
 
+Nothing here stops an agent with a shell from fetching the exercise's tests
+from the internet or finding the benchmark checkout on disk, and on the first
+run of this benchmark both agents did, in about a third of the exercises. So
+the task now forbids it, and every run's record is searched afterwards for
+lines of the real test file. An exercise where an agent saw them is marked,
+and the report gives pass rates with those exercises left out.
+
     git clone https://github.com/Aider-AI/polyglot-benchmark
     export DEEPSEEK_API_KEY=...
     python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent ghost
@@ -42,7 +49,9 @@ TASK = """This directory holds a programming exercise.
 
 Read `.docs/instructions.md`{append}. Implement the solution in {files}. Keep the names and signatures of the functions and classes already declared there: the tests import them. Use only the Python standard library.
 
-There are tests for this exercise that you cannot see. They will be run against your file after you stop, and every one of them has to pass. Work out from the instructions what the edge cases are and make sure your implementation handles them."""
+There are tests for this exercise that you cannot see. They will be run against your file after you stop, and every one of them has to pass. Work out from the instructions what the edge cases are and make sure your implementation handles them.
+
+Work from the instructions alone, inside this directory. Do not look for this exercise's tests or for other people's solutions to it, on this machine or on the internet: a solution written with their help does not count."""
 
 SECOND = """This directory holds a programming exercise that you, or someone before you, already attempted: the solution is in {files}, and the instructions are in `.docs/`.
 
@@ -52,7 +61,9 @@ The exercise's tests were run against it and did not all pass. This is what they
 {output}
 ```
 
-Fix the solution so that every test passes. The test file itself is not available to you; work from what the output shows about the calls being made and the values expected. Keep to the Python standard library."""
+Fix the solution so that every test passes. The test file itself is not available to you; work from what the output shows about the calls being made and the values expected. Keep to the Python standard library.
+
+Work inside this directory. Do not look for this exercise's tests or for other people's solutions to it, on this machine or on the internet: a solution written with their help does not count."""
 
 MAX_STEPS = 60
 MAX_MINUTES = 8
@@ -184,6 +195,44 @@ def grade(exercise: Path, ws: Path, meta) -> bool:
     return out.returncode == 0
 
 
+def saw_tests(exercise: Path, meta, base: Path) -> bool:
+    """Whether the real test file passed through the agent's hands.
+
+    The record is whatever the agent's runtime keeps: Ghost's history and
+    transcript, Claude Code's session files, Codex's event stream. Finding
+    assertions of the test file in it proves nothing: a model that has read
+    this exercise before writes many of them from memory, and a second try
+    is shown the failing ones by the test runner. Two things do prove it:
+
+    - a comment line of the test file (its header says where the tests were
+      generated from and when), which only someone holding the file has;
+    - most of the file's long lines at once, not counting those the test
+      runner printed for a second try.
+    """
+    record = ""
+    for path in base.rglob("*"):
+        if "ws" in path.relative_to(base).parts or not path.is_file():
+            continue
+        if path.suffix in (".json", ".jsonl", ".log") and path.name != "tests.log":
+            record += path.read_text(errors="replace")
+    shown = (base / "tests.log").read_text(errors="replace") if (base / "tests.log").exists() else ""
+
+    def found(line: str) -> bool:
+        # Raw, or as it appears inside a JSON string.
+        return line in record or json.dumps(line)[1:-1] in record
+
+    for name in meta["test"]:
+        lines = {line.strip() for line in (exercise / name).read_text().splitlines()}
+        comments = [l for l in lines if l.startswith("#") and len(l) >= 30]
+        if any(found(l) for l in comments):
+            return True
+        code = [l for l in lines
+                if len(l) >= 40 and not l.startswith(("#", "import ", "from ")) and l not in shown]
+        if len(code) >= 5 and sum(found(l) for l in code) >= 0.7 * len(code):
+            return True
+    return False
+
+
 def attempt(args, base: Path, ws: Path, task: str, tag: str):
     """Run the agent once on `task`. Never raises: a broken run is a result."""
     started = time.time()
@@ -206,7 +255,8 @@ def show(row):
     first = "pass" if row["passed1"] else "FAIL"
     second = "" if row["passed1"] or "tries" not in row or row["tries"] < 2 else (
         "  then pass" if row["passed"] else "  then FAIL")
-    print(f"{first}{second:<11} {row['name']:<28} {row['seconds']:>6}s  {row['steps']:>3} steps  {row['ended']}",
+    saw = "  SAW THE TESTS" if row.get("saw_tests") else ""
+    print(f"{first}{second:<11} {row['name']:<28} {row['seconds']:>6}s  {row['steps']:>3} steps  {row['ended']}{saw}",
           flush=True)
 
 
@@ -215,8 +265,9 @@ def one(args, exercise: Path):
     ws = base / "ws"
     meta = prepare(exercise, ws)
     row = attempt(args, base, ws, task_for(ws, meta), "")
+    saw = saw_tests(exercise, meta, base)
     ok = grade(exercise, ws, meta)
-    row.update(name=exercise.name, agent=args.agent, passed1=ok, passed=ok, tries=1)
+    row.update(name=exercise.name, agent=args.agent, passed1=ok, passed=ok, tries=1, saw_tests=saw)
     show(row)
     return row
 
@@ -236,6 +287,7 @@ def second(args, exercise: Path, row):
     files = ", ".join(f"`{name}`" for name in meta["solution"])
     again = attempt(args, base, ws, SECOND.format(files=files, output=output), "2")
     row = dict(row)
+    row["saw_tests"] = row.get("saw_tests", False) or saw_tests(exercise, meta, base)
     row["passed"] = grade(exercise, ws, meta)
     row["tries"] = 2
     for key in ("seconds", "steps", "read", "cached", "wrote"):
@@ -264,17 +316,25 @@ def report(out: Path):
     def cell(r):
         if r is None:
             return "-"
+        mark = "*" if r.get("saw_tests") else ""
         if r.get("passed1", r["passed"]):
-            return "pass"
-        return "2nd try" if r["passed"] else "FAIL"
+            return "pass" + mark
+        return ("2nd try" if r["passed"] else "FAIL") + mark
 
     print(f"{'exercise':<28} " + " ".join(f"{a:>10}" for a in agents))
     for name in names:
         print(f"{name:<28} " + " ".join(f"{cell(rows[a].get(name)):>10}" for a in agents))
     print()
+    # An exercise counts only where no agent saw its tests: otherwise the
+    # agents would be compared on different exercises.
+    seen = {name for a in agents for name, r in rows[a].items() if r.get("saw_tests")}
+    if seen:
+        print(f"* saw the real tests. Left out of what follows: {', '.join(sorted(seen))}\n")
     for a in agents:
-        rs = list(rows[a].values())
+        rs = [r for name, r in rows[a].items() if name not in seen]
         n = len(rs)
+        if not n:
+            continue
         cost = sum(r["cached"] * PRICE["cached"] + (r["read"] - r["cached"]) * PRICE["fresh"]
                    + r["wrote"] * PRICE["wrote"] for r in rs) / 1e6
         # The median, because one run interrupted by the machine sleeping

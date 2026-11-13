@@ -5,50 +5,42 @@ Run on 2026-11-13, on one Apple-silicon laptop, every agent on DeepSeek
 
 ## Aider polyglot, Python exercises (34), on this machine
 
-`bench/polyglot.py`. Tests hidden from the agent; two tries, the second after
-being shown what the tests printed. Same task text and the same limits (60
-steps, 8 minutes a try) for both agents.
+### Correction to the first run
 
-| | `ghost-work` | Claude Code 2.1.322 |
+The table that stood here said the tests were hidden from the agents. They
+were not, in effect. Both agents had a shell with the network behind it, and
+in about half the exercises each of them went and got the exercise's real
+tests: downloaded from the upstream repository, or, once, found in the
+benchmark checkout on disk. Searching each run's record for the test file
+(`saw_tests` in `bench/polyglot.py`) gives:
+
+| First run, 2026-11-13 | `ghost-work` | Claude Code 2.1.322 |
 |---|---|---|
-| Passed at the first try | 25 / 34 | 26 / 34 |
-| Passed within two tries | 33 / 34 | 34 / 34 |
-| Median time per exercise, both tries | 177 s | 91 s |
-| Steps per exercise, both tries | 21.9 | 14.9 |
-| Tokens read per exercise (cached) | 324k (93%) | 265k (92%) |
-| Tokens written per exercise | 20.0k | 13.1k |
-| Cost of the whole run | $0.55 | $0.39 |
+| Exercises where it got the real tests | 17 of 34 | 14 of 34 |
+| Passed at the first try, all 34 | 25 | 26 |
+| Passed within two tries, all 34 | 33 | 34 |
+| Passed at the first try, the 13 exercises neither saw the tests of | 11 | 11 |
+| Passed within two tries, those 13 | 12 | 13 |
 
-What this says:
+So the pass rates of the first run say little, and thirteen exercises are
+too few to rank two agents on. What the first run does show:
 
-- On pass rate the two are level. One exercise apart on 34 is inside the
-  noise: the nine or so exercises each agent missed at the first try are
-  nearly all cases where the instructions do not say what the hidden tests
-  expect (a list or a string, cents or dollars, the exact wording of an
-  error), and which way an agent guessed.
-- `ghost-work` takes about twice as long and costs about 1.4 times as much.
-  Most of that is deliberate: it will not accept its own first claim of being
-  finished, and a reviewer then reads the evidence. On short exercises like
-  these that is overhead with nothing to catch. Whether it pays for itself on
-  long work is what this benchmark cannot show.
-- The one exercise `ghost-work` did not get in two tries is `beer-song`: on
-  the second try it returned a list of verses where the tests want a flat
-  list of lines.
+- The explanation given here for `ghost-work` being twice as slow was wrong.
+  It was put down to the check and review at the end. Those cost about 3 of
+  17 steps. Most of the difference was 22 shell commands that searched the
+  whole disk for the tests (`find / -name ...`) and ran into the two-minute
+  limit: 2,307 of the 2,429 seconds its tools took in all.
+- The reviewer passed all 34 first tries, including the 9 that then failed
+  the tests. On exercises like these, where what fails is a guess about
+  something the instructions do not say, it has nothing to go on.
 
-Caveats:
+The task text now forbids looking for the tests, the report marks every
+exercise where an agent got them anyway, and those are left out of the pass
+rates. The second run, below, is with that in place.
 
-- Claude Code's token counts are low by a little: three of its eight second
-  tries lost their counts to a crash in the benchmark script, since fixed.
-  Its pass results were regraded from the files it left and are not affected.
-- The laptop slept for some hours in the middle of Claude Code's run, which
-  is why times are given as medians.
-- `ghost-work`'s prompt was changed once after two exercises had been seen
-  failing in a smoke test (to compare output with expected text mechanically,
-  and to give its reviewer room to answer). The numbers above are from the
-  full run after that change.
-- Codex 0.133 was also started on the same exercises through DeepSeek's
-  Responses API and passed 25 of 34 at the first try. Its run was stopped
-  before its second tries finished and is not in the table.
+### Second run
+
+Not finished at the time of writing.
 
 ## A long task, not code
 
