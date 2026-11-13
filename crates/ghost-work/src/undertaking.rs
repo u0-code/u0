@@ -66,6 +66,9 @@ pub struct Finish {
     /// the machine knows them.
     #[serde(default)]
     pub files: Vec<String>,
+    /// What doing this taught about doing things like it, if anything.
+    #[serde(default)]
+    pub lesson: Option<String>,
     pub at: DateTime<Utc>,
 }
 

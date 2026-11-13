@@ -231,6 +231,22 @@ pub enum Event {
         #[serde(default)]
         private: String,
     },
+    /// Something she is after over months, in her own words: a direction,
+    /// not a task. It replaces an earlier one when she has changed her
+    /// mind; an empty `what` with `replaces` lets that one go.
+    Pursued {
+        what: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replaces: Option<i64>,
+    },
+    /// Something doing a piece of work taught her about how to do things:
+    /// what she would do differently, or a way that worked and was not
+    /// obvious. Replaces an earlier one when she has learned better.
+    Practised {
+        lesson: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replaces: Option<i64>,
+    },
     /// She put what she wants to keep of the earlier part of a conversation
     /// into a few lines, replacing whatever she kept of it before. The
     /// messages up to entry `upto` stand behind it; later ones are still
@@ -304,6 +320,8 @@ impl Event {
             Self::Challenged { .. } => "challenged",
             Self::Linked { .. } => "linked",
             Self::Digested { .. } => "digested",
+            Self::Pursued { .. } => "pursued",
+            Self::Practised { .. } => "practised",
         }
     }
 }

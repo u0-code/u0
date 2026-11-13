@@ -303,6 +303,7 @@ fn report(undertaking: &Undertaking, ended: Ended) -> Report {
     Report {
         ended,
         asking: state.waiting,
+        lesson: state.finish.as_ref().and_then(|f| f.lesson.clone()),
         files: state
             .finish
             .as_ref()

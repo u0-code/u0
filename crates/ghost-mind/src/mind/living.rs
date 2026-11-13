@@ -47,6 +47,10 @@ pub(super) struct ReflectDraft {
     canon: Vec<String>,
     /// `(lesson, the seq of the one it replaces)`.
     lessons: Vec<(String, Option<i64>)>,
+    /// `(what she is after, the seq of the one it replaces)`.
+    pursuits: Vec<(String, Option<i64>)>,
+    /// Something to take on tomorrow for herself, or empty.
+    undertake: String,
 }
 
 impl Mind {
@@ -395,6 +399,8 @@ impl Mind {
                 ),
                 ("intentions", meant),
                 ("public", self.public_review(now)?),
+                ("pursuits", self.pursuit_block()?),
+                ("own_work", self.own_work_line(now)?),
                 (
                     "said",
                     if said.is_empty() {
@@ -480,6 +486,8 @@ impl Mind {
         }
         self.register(draft.canon, "reflection")?;
         self.learn(draft.lessons)?;
+        self.on_pursuits(draft.pursuits)?;
+        self.start_own_work(&draft.undertake, now)?;
         self.refresh_intentions()
     }
 
@@ -603,6 +611,19 @@ pub(super) fn reflect_draft(v: &Value) -> Result<ReflectDraft> {
         intentions,
         canon: strings(&v["canon"]),
         lessons: super::public::lessons(&v["lessons"]),
+        pursuits: v["pursuits"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| match item {
+                        Value::String(s) => (s.trim().to_owned(), None),
+                        other => (text(&other["what"]), other["replaces"].as_i64()),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        undertake: text(&v["undertake"]),
     })
 }
 

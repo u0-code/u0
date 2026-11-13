@@ -1948,3 +1948,102 @@ async fn what_she_made_is_handed_over_as_a_file() {
             .any(|l| l.text == "[file: hours.md] here you go")
     );
 }
+
+#[tokio::test]
+async fn she_takes_something_on_toward_what_she_is_after_and_keeps_what_it_taught_her() {
+    let t0 = at(23, 30);
+    let mut rig = Rig::quiet(t0);
+    // A brain that can work.
+    rig.think
+        .hands
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let night = |json: serde_json::Value| super::living::reflect_draft(&json).unwrap();
+
+    // With nothing she is after, she is not asked what to do about it,
+    // and anything said anyway comes to nothing.
+    assert!(rig.mind.own_work_line(t0).unwrap().contains("empty"));
+    rig.mind
+        .on_reflected(
+            &[],
+            Ok(night(serde_json::json!({
+                "reflection": "A quiet day.",
+                "undertake": "Find out which tea houses are closing.",
+            }))),
+            t0,
+        )
+        .unwrap();
+    assert!(!rig.kinds().contains(&"undertook"));
+
+    // One night she finds she is after something, and means to start.
+    rig.mind
+        .on_reflected(
+            &[],
+            Ok(night(serde_json::json!({
+                "reflection": "I keep going back to the old tea houses.",
+                "pursuits": [{"what": "draw the tea houses that are closing, before they do"}],
+                "undertake": "Find out which tea houses in the city are closing this year, with dates.",
+            }))),
+            t0,
+        )
+        .unwrap();
+    let kinds = rig.kinds();
+    assert!(
+        kinds.contains(&"pursued") && kinds.contains(&"undertook"),
+        "{kinds:?}"
+    );
+    let own = rig.mind.ghost.memory().undertakings(true, 5).unwrap()[0].clone();
+    assert_eq!((own.asked_by, own.place), (None, None));
+    // It is in front of her the next night, numbered, to change or let go.
+    assert!(
+        rig.mind
+            .pursuit_block()
+            .unwrap()
+            .contains("draw the tea houses")
+    );
+    // One thing of her own at a time.
+    rig.mind
+        .on_reflected(
+            &[],
+            Ok(night(serde_json::json!({
+                "reflection": "More of the same.",
+                "undertake": "Also list the ones that have already gone.",
+            }))),
+            t0,
+        )
+        .unwrap();
+    assert_eq!(rig.kinds().iter().filter(|k| **k == "undertook").count(), 1);
+
+    // She does it, in her own time, and what it taught her about working
+    // is kept and is there at the top of the next piece of work.
+    rig.think.then_call(
+        "done",
+        serde_json::json!({
+            "outcome": "gave_up", "summary": "The listings are all a year old.",
+            "lesson": "Look at when a page was last changed before trusting a date on it.",
+        }),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    assert!(rig.kinds().contains(&"practised"));
+    assert!(
+        rig.mind
+            .practice_block()
+            .unwrap()
+            .contains("when a page was last changed")
+    );
+    // Nobody asked, so there is nobody to tell.
+    assert!(
+        rig.mind
+            .ghost
+            .memory()
+            .open_intentions()
+            .unwrap()
+            .is_empty()
+    );
+
+    // She can change her mind about what she is after, or let it go.
+    let seq = rig.mind.ghost.memory().pursuits(3).unwrap()[0].seq;
+    rig.mind
+        .on_pursuits(vec![(String::new(), Some(seq))])
+        .unwrap();
+    assert!(rig.mind.ghost.memory().pursuits(3).unwrap().is_empty());
+}

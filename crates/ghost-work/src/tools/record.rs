@@ -238,6 +238,7 @@ impl Tool for Done {
                 "summary": {"type": "string", "description": "What was done, or what is in the way, in a few sentences."},
                 "evidence": {"type": "string", "description": "For `finished`: each requirement and how you checked it holds (the command you ran and what it showed)."},
                 "files": {"type": "array", "items": {"type": "string"}, "description": "If what was asked for is one or more files, their absolute paths: these are what gets handed over. Leave out when the result is what you say in the summary."},
+                "lesson": {"type": "string", "description": "Optional, and usually left out. One sentence you would want in front of you the next time you do work like this: what you would do differently, or a way of going about it that worked and was not obvious. About how to work, not about this task's subject."},
             }),
             &["outcome", "summary"],
         )
@@ -303,6 +304,11 @@ impl Tool for Done {
                             .collect()
                     })
                     .unwrap_or_default(),
+                lesson: args["lesson"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_owned),
                 at: Utc::now(),
             });
         });

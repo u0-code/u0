@@ -13,6 +13,7 @@ mod context;
 mod digest;
 mod living;
 mod public;
+mod pursuit;
 mod reach;
 mod speak;
 #[cfg(test)]

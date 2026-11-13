@@ -270,7 +270,7 @@ impl Mind {
         // Who she is, without what moment it is: the same words at every
         // sitting, so that a sitting picked up later reads its transcript
         // from the provider's cache instead of afresh.
-        let who = format!("{}\n\n{WHO}", self.who(now)?);
+        let who = format!("{}\n\n{WHO}{}", self.who(now)?, self.practice_block()?);
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working = Some(Working {
             id: next.id.clone(),
@@ -439,6 +439,9 @@ impl Mind {
             outcome: outcome.to_owned(),
             summary: summary.clone(),
         })?;
+        if let Some(lesson) = &report.lesson {
+            self.on_practice(lesson)?;
+        }
         // What a review of her own writing came to becomes part of her craft.
         if id.starts_with(super::public::REVIEW) && outcome == "finished" {
             self.learn(super::public::conclusions(&summary))?;

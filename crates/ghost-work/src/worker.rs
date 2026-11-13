@@ -182,6 +182,8 @@ pub struct Report {
     pub asking: Option<String>,
     /// The files that are the result, if it finished and the result is files.
     pub files: Vec<String>,
+    /// What the work taught about working, if the worker said.
+    pub lesson: Option<String>,
     /// Totals for the whole undertaking, across runs.
     pub steps: u64,
     pub sittings: u32,
@@ -752,6 +754,7 @@ impl Worker {
         Report {
             ended,
             asking: state.waiting,
+            lesson: state.finish.as_ref().and_then(|f| f.lesson.clone()),
             files: state
                 .finish
                 .as_ref()

@@ -84,6 +84,10 @@ rest_minutes = 10
 max_sittings = 12
 # Things she will take on in a day.
 per_day = 4
+# Once she has put into words something she is after, she may take a piece
+# of work on toward it without being asked: at most one every this many
+# days, and only when nothing of her own is in hand. 0 is never.
+pursue_days = 2
 # In the middle of work she can stop and ask whoever it is for. If nobody
 # answers within this many hours she goes on with her own judgement.
 ask_hours = 24

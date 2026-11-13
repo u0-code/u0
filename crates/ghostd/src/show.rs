@@ -115,7 +115,9 @@ fn describe(event: &Event, tz: Tz) -> String {
             posts.len(),
             followers.map_or_else(String::new, |f| format!(", {f} followers"))
         ),
-        Event::Learned { lesson, .. } => flat(lesson),
+        Event::Learned { lesson, .. } | Event::Practised { lesson, .. } => flat(lesson),
+        Event::Pursued { what, .. } if what.trim().is_empty() => "let it go".to_owned(),
+        Event::Pursued { what, .. } => flat(what),
         Event::Challenged {
             claimant,
             claimed,

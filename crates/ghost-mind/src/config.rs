@@ -74,6 +74,9 @@ pub struct WorkConfig {
     pub max_sittings: u32,
     /// Things she will take on in a day.
     pub per_day: u32,
+    /// Days between the times she may take something on unasked, toward
+    /// what she is after. `0` is never.
+    pub pursue_days: u32,
     /// Hours she waits for an answer to something she asked in the middle
     /// of work before going on without one.
     pub ask_hours: u32,
@@ -100,6 +103,7 @@ impl Default for WorkConfig {
             rest_minutes: 10,
             max_sittings: 12,
             per_day: 4,
+            pursue_days: 2,
             ask_hours: 24,
             context_tokens: None,
             review_days: 7,
