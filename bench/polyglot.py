@@ -169,12 +169,18 @@ def grade(exercise: Path, ws: Path, meta) -> bool:
     for name in meta["test"]:
         shutil.copy(exercise / name, ws / name)
     modules = [Path(name).stem for name in meta["test"]]
+    log = ws.parent / "tests.log"
     try:
         out = subprocess.run([sys.executable, "-m", "unittest", *modules], cwd=ws,
                              capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
+        # Still something to show a second try: what was printed, and that
+        # the tests never finished.
+        printed = (e.stdout or b"") + (e.stderr or b"")
+        log.write_text(printed.decode("utf-8", "replace")
+                       + "\nThe tests did not finish within 180 seconds: something in the solution never returns.\n")
         return False
-    (ws.parent / "tests.log").write_text(out.stdout + out.stderr)
+    log.write_text(out.stdout + out.stderr)
     return out.returncode == 0
 
 

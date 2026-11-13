@@ -79,16 +79,25 @@ between agents is not a finding.
 
 ## Results
 
-The comparison has not been run yet. So far only `ghost-work` has been run,
-on the five development tasks above, and it passed all five. That says the
-loop works and the adapter is wired correctly; it says nothing about how it
-compares.
+See [`RESULTS.md`](RESULTS.md). The comparison that was run is the one below,
+which needs no containers. The Terminal-Bench comparison above has only been
+run for `ghost-work` on five development tasks.
 
-Known problems on an Apple-silicon laptop:
+## Without containers: Aider polyglot
 
-- `terminus-2` installs tmux in the task container with a fixed 120 second
-  limit. Emulated and held to the task's one CPU, the install takes longer
-  and setup fails. `--override-cpus 4` (for every agent) is the likely fix
-  and is untested.
-- `claude-code` 2.1.20 fails against DeepSeek's endpoint with a tool-result
-  ordering error; 2.1.322 works.
+```bash
+git clone https://github.com/Aider-AI/polyglot-benchmark
+export DEEPSEEK_API_KEY=...
+python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent ghost
+python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent ghost --retry
+python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent claude --claude-bin /path/to/claude
+python3 bench/polyglot.py --bench polyglot-benchmark --out runs --agent claude --retry
+python3 bench/polyglot.py --out runs --report
+```
+
+The 34 Python exercises, with their tests hidden from the agent. As in the
+benchmark's own protocol there are two tries: after the first, an agent that
+failed is shown what the tests printed and may fix its solution. The agents
+run on this machine, in scratch directories, as you. Claude Code needs a
+recent version (2.1.20 fails against DeepSeek's endpoint; 2.1.322 works) and
+is given its own configuration directory, so your login is not touched.
