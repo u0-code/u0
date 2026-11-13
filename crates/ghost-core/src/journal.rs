@@ -377,7 +377,11 @@ impl Journal {
             )
             .optional()?
             .unwrap_or((1, GENESIS.to_owned()));
+        // An entry holds the time to the microsecond. The entry handed back
+        // carries the time as it was written, not the finer one the clock
+        // gave, so that it is the same entry a reader gets later.
         let at_text = stamp(&at);
+        let at = parse_stamp(&at_text).unwrap_or(at);
         let payload = serde_json::to_string(&event)?;
         let hash = hash_entry(&prev_hash, seq, &at_text, event.kind(), &payload);
         tx.execute(
@@ -615,6 +619,20 @@ mod tests {
         assert_eq!(j.verify().unwrap(), 2);
         assert_eq!(j.last().unwrap().unwrap(), b);
         assert_eq!(j.entry(1).unwrap().unwrap(), a);
+    }
+
+    #[test]
+    fn an_entry_is_handed_back_as_it_was_written() {
+        // A clock finer than the journal keeps: Linux gives nanoseconds,
+        // and an entry is written to the microsecond.
+        let fine = DateTime::parse_from_rfc3339("2026-11-13T11:06:48.502265504Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut j = Journal::in_memory();
+        let written = j.append_at(fine, lived("rain")).unwrap();
+        assert_eq!(written.at.timestamp_subsec_nanos(), 502_265_000);
+        assert_eq!(j.last().unwrap().unwrap(), written);
+        assert_eq!(j.verify().unwrap(), 1);
     }
 
     #[test]
