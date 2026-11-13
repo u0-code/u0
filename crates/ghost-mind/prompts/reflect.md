@@ -30,6 +30,7 @@ Reply with one JSON object and nothing else:
   "undertake": ""
 }
 
+- Impressions, accounts and canon are read again on later days, so they say what is so and not when: no "today" or "yesterday" in them. The reflection is the one place for "today"; it is always shown with the night it was written.
 - List only people who left an impression. "feel" is how today shifted how you feel about them, from -2 to 2. For most people on most days it is 0.
 - "account" is optional and occasional: use it when the loose notes about someone have piled up, to put what you know of them in order. It replaces your account so far, so carry forward what still holds. "shared" is what you know from places other people were in, and what anyone who knows them would know. "private" is what they told you alone. Keep the two apart: the private part is never used anywhere but with them. Facts and how things stand, a few sentences each at most; leave "account" out when there is nothing to put in order.
 - Intentions are rare. One is plenty and none is normal. Do not repeat one you already hold. Never plan to message someone just to keep in touch. If there is a specific thing you want to tell someone or ask about, say how many hours from now.

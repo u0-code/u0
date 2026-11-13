@@ -56,7 +56,7 @@ impl Mind {
                 ),
                 (
                     "transcript",
-                    narrate::transcript(&stretch, i64::MAX, self.life.clock().tz()),
+                    narrate::transcript(&stretch, i64::MAX, self.life.clock(), now),
                 ),
             ],
         );

@@ -14,6 +14,7 @@ use crate::{
     journal::{Entry, Event},
     life::{Clock, Day, Moment, Phase, Reach},
     memory::{Fact, Line, Note, Person},
+    when::{day, when},
     will::Standing,
 };
 
@@ -86,7 +87,7 @@ impl Scene<'_> {
                     .map(|w| format!("Weather: {w}"))
                     .unwrap_or_default(),
             ),
-            ("recent", self.lately(tz)),
+            ("recent", self.lately()),
             ("canon", self.facts()),
         ]
     }
@@ -139,31 +140,24 @@ impl Scene<'_> {
         }
     }
 
-    fn lately(&self, tz: Tz) -> String {
+    fn lately(&self) -> String {
         if self.recent.is_empty() {
             return "(nothing worth noting yet)".into();
         }
-        self.recent
-            .iter()
-            .filter_map(|e| {
-                let text = match &e.event {
-                    Event::Lived { text, .. } => text.clone(),
-                    Event::Reflected { text } => format!("(looking back) {text}"),
-                    Event::Posted { text, .. } => format!("you posted: {text}"),
-                    Event::Dormant { since } => format!(
-                        "(a blank: nothing from {} until now)",
-                        since.with_timezone(&tz).format("%m-%d %H:%M")
-                    ),
-                    _ => return None,
-                };
-                Some(format!(
-                    "- {} {}",
-                    e.at.with_timezone(&tz).format("%m-%d %H:%M"),
-                    text
-                ))
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        let rows = self.recent.iter().filter_map(|e| {
+            let text = match &e.event {
+                Event::Lived { text, .. } => text.clone(),
+                Event::Reflected { text } => format!("(looking back) {text}"),
+                Event::Posted { text, .. } => format!("you posted: {text}"),
+                Event::Dormant { since } => format!(
+                    "(a blank: nothing from {} until then)",
+                    when(*since, self.now, self.clock)
+                ),
+                _ => return None,
+            };
+            Some((when(e.at, self.now, self.clock), text))
+        });
+        grouped(rows)
     }
 
     fn facts(&self) -> String {
@@ -182,7 +176,9 @@ impl Scene<'_> {
 ///
 /// Every line carries `[mN]`, its journal seq, so a brain can point at a
 /// message. A marker separates what she has already seen from what is new.
-pub fn transcript(lines: &[Line], read_upto: i64, tz: Tz) -> String {
+/// Lines carry the time of day; when the conversation reaches back past
+/// today, each day begins with a line that names it, the way a phone does.
+pub fn transcript(lines: &[Line], read_upto: i64, clock: &Clock, now: DateTime<Utc>) -> String {
     if lines.is_empty() {
         return "(no messages yet)".into();
     }
@@ -190,9 +186,19 @@ pub fn transcript(lines: &[Line], read_upto: i64, tz: Tz) -> String {
         .iter()
         .filter_map(|l| Some((l.platform_id.as_deref()?, l.seq)))
         .collect();
+    let tz = clock.tz();
+    let all_today = lines
+        .iter()
+        .all(|l| clock.day_of(l.at) == clock.day_of(now));
     let mut out = String::new();
     let mut marked = false;
+    let mut on = None;
     for line in lines {
+        let this = clock.day_of(line.at);
+        if !all_today && on != Some(this) {
+            out.push_str(&format!("--- {} ---\n", day(line.at, now, clock)));
+            on = Some(this);
+        }
         if !marked && line.incoming && line.seq > read_upto {
             if !out.is_empty() {
                 out.push_str("--- new since you last looked ---\n");
@@ -214,7 +220,7 @@ pub fn transcript(lines: &[Line], read_upto: i64, tz: Tz) -> String {
         out.push_str(&format!(
             "[m{}] {} {who}{quoted}: {text}\n",
             line.seq,
-            line.at.with_timezone(&tz).format("%m-%d %H:%M"),
+            line.at.with_timezone(&tz).format("%H:%M"),
         ));
     }
     out.trim_end().to_owned()
@@ -226,6 +232,7 @@ pub fn person_card(
     standing: &Standing,
     notes: &[Note],
     now: DateTime<Utc>,
+    clock: &Clock,
 ) -> String {
     let handle = person
         .handle
@@ -236,7 +243,7 @@ pub fn person_card(
         "- {}{handle}: {}. You first heard from them {}, and have talked on {} day{}.",
         person.name,
         standing.stage.word(),
-        ago(person.first_at, now),
+        when(person.first_at, now, clock),
         standing.active_days,
         if standing.active_days == 1 { "" } else { "s" },
     );
@@ -256,19 +263,39 @@ pub fn person_card(
     out
 }
 
-/// How long ago, in the words a person would use.
-pub fn ago(then: DateTime<Utc>, now: DateTime<Utc>) -> String {
-    let d = now - then;
-    let (n, unit) = if d.num_minutes() < 2 {
-        return "just now".into();
-    } else if d.num_hours() < 1 {
-        (d.num_minutes(), "minute")
-    } else if d.num_days() < 1 {
-        (d.num_hours(), "hour")
-    } else {
-        (d.num_days(), "day")
-    };
-    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
+/// Rows of `(when, what)` in order, with a run of rows that happened at
+/// the same remembered time put under it once.
+pub fn grouped(rows: impl IntoIterator<Item = (String, String)>) -> String {
+    let mut runs: Vec<(String, Vec<String>)> = Vec::new();
+    for (at, text) in rows {
+        match runs.last_mut() {
+            Some((last, texts)) if *last == at => texts.push(text),
+            _ => runs.push((at, vec![text])),
+        }
+    }
+    runs.iter()
+        .map(|(at, texts)| match texts.as_slice() {
+            [one] => format!("- {}: {one}", capital(at)),
+            many => format!(
+                "- {}:\n{}",
+                capital(at),
+                many.iter()
+                    .map(|t| format!("  - {t}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The text with its first letter capitalised.
+pub fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
 }
 
 fn list(items: &[String]) -> String {
@@ -281,9 +308,17 @@ fn list(items: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
+    use chrono::{Duration, NaiveTime};
 
     use super::*;
+
+    fn clock() -> Clock {
+        Clock::new(
+            chrono_tz::UTC,
+            NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(23, 0, 0).unwrap(),
+        )
+    }
 
     #[test]
     fn fill_is_single_pass() {
@@ -315,7 +350,7 @@ mod tests {
             line(5, false, "hey", "b", None),
             line(8, true, "two\nlines", "c", Some("b")),
         ];
-        let t = transcript(&lines, 5, chrono_tz::UTC);
+        let t = transcript(&lines, 5, &clock(), Utc::now());
         let rows: Vec<&str> = t.lines().collect();
         assert!(rows[0].starts_with("[m3]") && rows[0].ends_with("Haoran: hi"));
         assert!(rows[1].contains("you: hey"));
@@ -325,11 +360,34 @@ mod tests {
     }
 
     #[test]
-    fn ago_reads_naturally() {
+    fn a_conversation_that_reaches_back_names_its_days() {
         let now = Utc::now();
-        assert_eq!(ago(now - Duration::seconds(30), now), "just now");
-        assert_eq!(ago(now - Duration::minutes(5), now), "5 minutes ago");
-        assert_eq!(ago(now - Duration::hours(1), now), "1 hour ago");
-        assert_eq!(ago(now - Duration::days(12), now), "12 days ago");
+        let mut lines = vec![
+            line(3, true, "hi", "a", None),
+            line(5, false, "hey", "b", None),
+            line(8, true, "again", "c", None),
+        ];
+        lines[0].at = now - Duration::days(1);
+        lines[1].at = now - Duration::days(1);
+        let t = transcript(&lines, 8, &clock(), now);
+        let rows: Vec<&str> = t.lines().collect();
+        assert_eq!(rows[0], "--- yesterday ---");
+        assert!(rows[1].starts_with("[m3]"));
+        assert!(rows[2].starts_with("[m5]"));
+        assert_eq!(rows[3], "--- today ---");
+        assert!(rows[4].starts_with("[m8]"));
+    }
+
+    #[test]
+    fn rows_remembered_at_the_same_time_are_put_under_it_once() {
+        let out = grouped([
+            ("this morning".to_owned(), "a".to_owned()),
+            ("this morning".to_owned(), "b".to_owned()),
+            ("about two hours ago".to_owned(), "c".to_owned()),
+        ]);
+        assert_eq!(
+            out,
+            "- This morning:\n  - a\n  - b\n- About two hours ago: c"
+        );
     }
 }

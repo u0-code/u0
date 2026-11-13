@@ -23,6 +23,7 @@ pub mod memory;
 pub mod narrate;
 pub mod social;
 pub mod tempo;
+pub mod when;
 pub mod will;
 
 pub use error::{Error, Result};
