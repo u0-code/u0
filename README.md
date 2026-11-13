@@ -39,12 +39,6 @@ A ghost is driven by time.
 - In public she posts, sees how her posts did, and writes down what that taught
   her in her own words. Her certificate is sealed; her craft is what changes.
 
-[`docs/LIVING.md`](docs/LIVING.md) describes how she lives.
-[`docs/WORK.md`](docs/WORK.md) describes how she works, and every interface.
-[`docs/STUDY.md`](docs/STUDY.md) is what was learned from Codex and Claude Code.
-[`docs/ACCESS.md`](docs/ACCESS.md) lists every outside service she needs, where
-to get it, and what each platform allows an automated account.
-
 ## What she thinks with
 
 Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
@@ -119,7 +113,6 @@ crates/presence/*      channel adapters. Each is its own binary.
 ghosts/_template       a birth certificate to copy.
 ghostd.example.toml    body configuration. Never lives in a ghost directory.
 bench/                 how the loop is measured against other agents.
-docs/                  design documents (Chinese, for now).
 ```
 
 The daemon does not know what Telegram is. Adapters connect to it over the

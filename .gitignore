@@ -13,3 +13,8 @@
 /run
 /models.json
 /keeper.json
+# Design documents and write-ups stay on the machine they were written on.
+# Only READMEs are published.
+/docs/
+/bench/RESULTS.md
+/bench/samples/

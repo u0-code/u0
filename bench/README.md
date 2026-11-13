@@ -79,9 +79,10 @@ between agents is not a finding.
 
 ## Results
 
-See [`RESULTS.md`](RESULTS.md). The comparison that was run is the one below,
-which needs no containers. The Terminal-Bench comparison above has only been
-run for `ghost-work` on five development tasks.
+Results are not kept in this repository. The comparison that has been run is
+the one below, which needs no containers; `python3 bench/polyglot.py --out
+<dir> --report` prints its table. The Terminal-Bench comparison above has
+only been run for `ghost-work` on five development tasks.
 
 ## Without containers: Aider polyglot
 

@@ -48,6 +48,5 @@ you did not write the task for yourself.
 Any OpenAI-compatible server works (`--base-url`, `--model`,
 `--api-key-env`); `--kind anthropic` uses the Anthropic API.
 
-The design and the interfaces are in [`docs/WORK.md`](../../docs/WORK.md).
 
 [`Worker`]: src/worker.rs
