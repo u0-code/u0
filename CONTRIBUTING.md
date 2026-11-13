@@ -91,6 +91,11 @@ who answers for a change: whoever opens the pull request has read it, run
 it, and can say why each line is there. [AGENTS.md](AGENTS.md) is what an
 agent working here is told.
 
+## Licence
+
+Ghost is under [Apache-2.0](LICENSE). What you contribute is offered under
+the same licence, as its section 5 says, with nothing to sign.
+
 ## Security
 
 Do not open an issue for a vulnerability. See [SECURITY.md](SECURITY.md).

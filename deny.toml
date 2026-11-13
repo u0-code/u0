@@ -9,8 +9,8 @@ all-features = true
 ignore = []
 
 [licenses]
-# Licences that can be combined with MIT OR Apache-2.0 without asking more
-# of whoever ships the result than those two do.
+# Licences that can be combined with Apache-2.0 without asking more of
+# whoever ships the result than it does.
 allow = [
     "MIT",
     "Apache-2.0",
