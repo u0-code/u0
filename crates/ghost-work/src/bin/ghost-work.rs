@@ -109,18 +109,12 @@ struct Args {
     /// is known to manage, up to 32,000.
     #[arg(long)]
     max_output: Option<u32>,
-    /// Work that took fewer steps than this is not reviewed.
-    #[arg(long, default_value_t = 25)]
-    audit_from: u32,
     /// How hard the model thinks at each step: off, low, high or max.
     /// Default: whatever the provider does.
     #[arg(long)]
     effort: Option<String>,
     #[arg(long)]
     temperature: Option<f32>,
-    /// Accept the worker's own word that it is finished, without a review.
-    #[arg(long)]
-    no_audit: bool,
 
     /// Serve the tools over MCP on stdio instead of working. Started by a
     /// command-line agent, not by a person.
@@ -258,8 +252,6 @@ async fn main() -> anyhow::Result<()> {
             Some(other) => bail!("unknown effort {other:?}: use off, low, high or max"),
         },
         temperature: args.temperature,
-        audit: !args.no_audit,
-        audit_from: args.audit_from,
     };
 
     let report = match args.runtime.as_str() {

@@ -60,8 +60,6 @@ pub enum Outcome {
 pub struct Finish {
     pub outcome: Outcome,
     pub summary: String,
-    /// How each requirement was checked.
-    pub evidence: String,
     /// The files that are the result, where the result is files: paths as
     /// the machine knows them.
     #[serde(default)]
@@ -83,16 +81,6 @@ pub struct State {
     #[serde(default)]
     pub handoff: Option<String>,
     pub finish: Option<Finish>,
-    /// The worker has been made to check its work once already.
-    pub checked: bool,
-    /// Something was run or read after the last change to a file: the
-    /// worker has looked at what it left, and a claim of being finished
-    /// that comes with evidence need not be sent back to look again.
-    #[serde(default)]
-    pub looked: bool,
-    /// A reviewer has looked at a claim of being finished once already.
-    #[serde(default)]
-    pub audited: bool,
     /// Files written or edited most recently, newest last.
     #[serde(default)]
     pub touched: Vec<String>,

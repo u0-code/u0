@@ -23,10 +23,11 @@ What makes it hold up over hours:
   transcript word for word.
 - Nothing is lost to that: every item the transcript ever held is appended to
   `history.jsonl`, which is never rewritten.
-- Saying "finished" the first time gets the task read back, with an
-  instruction to check each requirement against the real state. Long work
-  is then read by a reviewer who sees the task, the evidence, every command
-  that was run, and can open the files for itself.
+- How to finish is said beforehand, the way Codex does it: the instructions
+  say that checking is part of the work and what `finished` means, and work
+  that has outlived a context is told again, at length, when it is picked
+  up. `done` then ends the work as reported. Nothing is sent back and nobody
+  reads it over.
 - A part of the work that is mostly reading can be handed to a helper
   (`delegate`) with a context of its own; only its report comes back.
   Calls that only look run side by side.

@@ -827,18 +827,14 @@ async fn she_takes_something_on_does_it_and_comes_back_with_it() {
             {"do":"say","text":"let me look"},
             {"do":"undertake","brief":"Find out what time the Heming tea house in People's Park closes on weekdays."}]}"#,
     );
-    // The work itself: she is asked to check once, then it is recorded.
+    // The work itself: she finds it out, and says so.
     rig.think.then_call(
         "note",
         serde_json::json!({"text": "the park's own page says 21:00"}),
     );
     rig.think.then_call(
         "done",
-        serde_json::json!({"outcome": "finished", "summary": "It closes at nine."}),
-    );
-    rig.think.then_call(
-        "done",
-        serde_json::json!({"outcome": "finished", "summary": "It closes at nine on weekdays.", "evidence": "the park's own page lists 21:00 for weekdays"}),
+        serde_json::json!({"outcome": "finished", "summary": "It closes at nine on weekdays."}),
     );
     rig.hear(
         dm("wen", "1", "do you know when the heming tea house closes?"),
@@ -1352,16 +1348,11 @@ async fn once_a_week_she_looks_at_how_her_writing_is_going() {
     );
 
     // What it comes to is kept as craft.
-    let done = |evidence: &str| {
-        serde_json::json!({"outcome": "finished", "evidence": evidence, "summary":
+    let done = || {
+        serde_json::json!({"outcome": "finished", "summary":
             "Looked at six posts and four writers.\nLESSON: one doorway, described plainly, is what people answer\nTRY: post one photograph-sized observation a day instead of a thread"})
     };
-    rig.think
-        .then_call("done", done("read review.md back just now"));
-    rig.think.then_call(
-        "done",
-        done("read review.md back just now; it has all three parts"),
-    );
+    rig.think.then_call("done", done());
     rig.until(|r| r.kinds().contains(&"concluded")).await;
     let craft: Vec<String> = rig
         .mind
@@ -1893,13 +1884,8 @@ async fn what_she_made_is_handed_over_as_a_file() {
     );
     rig.think.then_call(
         "done",
-        serde_json::json!({"outcome": "finished", "summary": "It is written up."}),
-    );
-    rig.think.then_call(
-        "done",
         serde_json::json!({
             "outcome": "finished", "summary": "It is written up.",
-            "evidence": "cat hours.md printed 09:00-21:00 just now",
             "files": [made.to_str().unwrap()],
         }),
     );

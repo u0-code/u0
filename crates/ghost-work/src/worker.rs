@@ -14,8 +14,11 @@
 //!   notes and the last stretch of the transcript, word for word. Nothing
 //!   is lost to this: every item is also appended to a history that is
 //!   never rewritten.
-//! - **Finishing is checked.** Saying "done" the first time gets the task
-//!   read back (see the `done` tool).
+//! - **How to finish is said beforehand.** The instructions say what
+//!   finished means and that checking is part of the work; work that has
+//!   outlived a context is told again, at length, when it is picked up.
+//!   `done` then ends the work as reported. Nothing is sent back and nobody
+//!   reads it over.
 //! - **Stalls are noticed.** Talking without acting, repeating the same call,
 //!   and running low on steps each get said out loud to the model.
 
@@ -66,26 +69,15 @@ otherwise look at the current state first.";
 const NOT_STARTED: &str = "This was not run: the work was interrupted before it began. \
 Run it again if it is still needed.";
 
-const AUDITOR: &str = "You are reviewing someone's claim that a task is finished. You see the task, \
-their summary and evidence, every command they ran in order (without its output), and what their \
-most recent commands actually printed. You cannot run anything. If you have a `read` tool, use it to \
-look at the files the task is about for yourself, instead of taking a description of them on trust. \
-Decide whether the task as written is demonstrably complete.\n\n\
-Be strict about the result the task literally asks for: names, paths, formats, exact output, things \
-that must be running. Such a requirement with no direct evidence in the printed output counts as \
-unproven. A claim contradicted by the output counts as false. A requirement about how the work was \
-to be done (in what order, in how many commands, with which tool) cannot be shown after the fact: \
-judge it from the list of commands, and accept it unless the list contradicts it. Do not ask for \
-more than the task asks for, and do not fail work for style.\n\n\
-Answer with PASS or FAIL as the first word. After FAIL, list each unproven or failed requirement \
-in one line each, saying what would prove it. After PASS, nothing more is needed.";
+/// Work that has outlived a context is long enough for the worker to have
+/// lost sight of part of it. This is what it is told about finishing when it
+/// is picked up: before, not after.
+const AUDIT: &str = "When you come to think this is finished, treat that as unproven. Much of what you did \
+    is behind you and out of sight, and what you remember doing is not evidence. Take the task as it is \
+    written above and, for each thing it asks for, look at the real state as it is now: run it, read it, \
+    print it. Check what was asked, not a narrower thing that is easier to check. A requirement you cannot \
+    show to hold is not finished: keep working on it instead of calling `done`.";
 
-/// How much of the recent transcript the reviewer is shown, in characters.
-const AUDIT_SHOWN: usize = 14_000;
-/// How much of the list of commands the reviewer is shown, in characters.
-const AUDIT_LEDGER: usize = 10_000;
-/// How many times the reviewer may look at files before it has to decide.
-const AUDIT_LOOKS: usize = 6;
 /// Tools that only look, and can be run side by side when the model asks
 /// for several at once.
 const SIDE_BY_SIDE: [&str; 4] = ["read", "search", "fetch", "delegate"];
@@ -146,13 +138,6 @@ pub struct Limits {
     /// provider.
     pub effort: Option<Effort>,
     pub temperature: Option<f32>,
-    /// Have a claim of being finished looked at by a reviewer who sees only
-    /// the task, the evidence and the recent output.
-    pub audit: bool,
-    /// Work that took fewer steps than this is not reviewed. On short work
-    /// a second reader has nothing to go on that the first did not, and
-    /// costs a request; on long work it catches what was skipped.
-    pub audit_from: u32,
 }
 
 impl Default for Limits {
@@ -164,8 +149,6 @@ impl Default for Limits {
             max_output: None,
             effort: None,
             temperature: None,
-            audit: true,
-            audit_from: 25,
         }
     }
 }
@@ -280,8 +263,6 @@ impl Tool for Delegate {
             limits: Limits {
                 max_steps: HELPER_STEPS.min(self.limits.max_steps),
                 max_seconds: HELPER_SECONDS.min(self.limits.max_seconds),
-                // The one who asked is the one who checks.
-                audit: false,
                 ..self.limits.clone()
             },
             who: String::new(),
@@ -534,7 +515,7 @@ fn opening_with(state: &State, tail: bool) -> String {
     };
     format!(
         "{task}\n\n{before}\n\n\
-         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n{after}",
+         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n{after}\n\n{AUDIT}",
         state.plan_text(),
         state.notes_text(NOTES_SHOWN)
     )
@@ -657,15 +638,6 @@ impl Worker {
                 "{}\u{1f}{}\u{1f}{}\u{1e}",
                 call.name, call.args, outcome.output
             ));
-            // Whether the worker has looked at what it left since it last
-            // changed a file: `done` asks.
-            match call.name.as_str() {
-                "write" | "edit" if !outcome.failed => {
-                    self.undertaking.update(|state| state.looked = false);
-                }
-                "shell" | "read" => self.undertaking.update(|state| state.looked = true),
-                _ => {}
-            }
             if !outcome.failed
                 && matches!(call.name.as_str(), "write" | "edit")
                 && let Some(path) = call.args["path"].as_str()
@@ -685,141 +657,6 @@ impl Worker {
             });
         }
         (logged, signature)
-    }
-
-    /// Ask a reviewer whether the work is demonstrably finished. Returns
-    /// what it cost and, if the reviewer was not convinced, why.
-    async fn audit(&self, items: &[Item]) -> (Usage, Option<String>) {
-        let state = self.undertaking.state();
-        let Some(finish) = &state.finish else {
-            return (Usage::default(), None);
-        };
-        // The newest calls and what they printed, oldest first, within a
-        // budget: what was actually seen, as opposed to what is claimed.
-        let mut shown: Vec<String> = Vec::new();
-        let mut used = 0;
-        let mut calls: std::collections::HashMap<&str, &Call> = std::collections::HashMap::new();
-        for item in items {
-            if let Item::Assistant { calls: made, .. } = item {
-                calls.extend(made.iter().map(|c| (c.id.as_str(), c)));
-            }
-        }
-        for item in items.iter().rev() {
-            let Item::Result {
-                id, name, output, ..
-            } = item
-            else {
-                continue;
-            };
-            if matches!(name.as_str(), "plan" | "note" | "done") {
-                continue;
-            }
-            let asked = calls
-                .get(id.as_str())
-                .map_or_else(String::new, |c| preview(&c.args.to_string(), 300));
-            let block = format!("$ {name} {asked}\n{}", crate::tools::clip(output, 500, 900));
-            if used + block.len() > AUDIT_SHOWN {
-                break;
-            }
-            used += block.len();
-            shown.push(block);
-        }
-        shown.reverse();
-        // Everything that was run, from the history: the transcript may
-        // have been cleared since, and what was done early is part of what
-        // is being claimed.
-        let mut ledger: Vec<String> = Vec::new();
-        let mut room = AUDIT_LEDGER;
-        let ran: Vec<Call> = self
-            .undertaking
-            .history()
-            .into_iter()
-            .filter_map(|item| match item {
-                Item::Assistant { calls, .. } => Some(calls),
-                _ => None,
-            })
-            .flatten()
-            .filter(|c| !matches!(c.name.as_str(), "plan" | "note" | "done" | "handoff"))
-            .collect();
-        for call in ran.iter().rev() {
-            let line = format!("{} {}", call.name, preview(&call.args.to_string(), 160));
-            if line.len() > room {
-                ledger.push(format!(
-                    "({} earlier commands are not listed)",
-                    ran.len() - ledger.len()
-                ));
-                break;
-            }
-            room -= line.len();
-            ledger.push(line);
-        }
-        ledger.reverse();
-        // The reviewer can look at files for itself, where there are
-        // files to look at, and nothing else.
-        let eyes = self.tools.only(&["read"]);
-        let mut seen = vec![Item::user(format!(
-            "<task>\n{}\n</task>\n\n<summary>\n{}\n</summary>\n\n<evidence>\n{}\n</evidence>\n\n\
-             <commands_run>\n{}\n</commands_run>\n\n<recent_output>\n{}\n</recent_output>",
-            state.task_text(),
-            finish.summary,
-            finish.evidence,
-            ledger.join("\n"),
-            shown.join("\n\n")
-        ))];
-        let mut spent = Usage::default();
-        for look in 0..=AUDIT_LOOKS {
-            let turn = Turn {
-                system: AUDITOR.to_owned(),
-                items: seen.clone(),
-                // On its last turn it has nothing to look with, and decides.
-                tools: if look < AUDIT_LOOKS {
-                    eyes.specs()
-                } else {
-                    Vec::new()
-                },
-                // A verdict needs reading, not long thought, and thinking is
-                // spent from the same allowance as the answer: a reviewer
-                // that thinks it all away has said nothing.
-                max_tokens: self.max_output().max(8000),
-                temperature: self.limits.temperature,
-                effort: Some(Effort::Low),
-            };
-            let step = match self.brain.step(&turn).await {
-                Ok(step) => step,
-                Err(e) => {
-                    // No reviewer is not a reason to hold finished work back.
-                    tracing::warn!("the review could not be done: {e}");
-                    return (spent, None);
-                }
-            };
-            spent.add(step.usage);
-            if !step.calls.is_empty() {
-                let calls = step.calls.clone();
-                seen.push(step.into_item());
-                for call in calls {
-                    let outcome = eyes.run(&call).await;
-                    seen.push(Item::Result {
-                        id: call.id,
-                        name: call.name,
-                        output: outcome.output,
-                        failed: outcome.failed,
-                    });
-                }
-                continue;
-            }
-            let verdict = step.text.trim();
-            if verdict.is_empty() {
-                tracing::warn!("the reviewer said nothing; the claim stands unreviewed");
-                return (spent, None);
-            }
-            let passed = verdict
-                .trim_start_matches(|c: char| !c.is_alphabetic())
-                .to_uppercase()
-                .starts_with("PASS");
-            tracing::info!("reviewer: {}", preview(verdict, 200));
-            return (spent, (!passed).then(|| verdict.to_owned()));
-        }
-        (spent, None)
     }
 
     /// Make room. First on a copy: long output is trimmed, then old output
@@ -1166,42 +1003,12 @@ impl Worker {
                 }
             }
 
-            let mut finish = self.undertaking.update(|state| {
+            let finish = self.undertaking.update(|state| {
                 state.steps += 1;
                 state.usage.add(usage);
                 state.seconds += asked.elapsed().as_secs_f64();
                 state.finish.clone()
             });
-            // A claim of being finished gets one outside look. The reviewer
-            // reads the history, so this step has to be in it first.
-            if finish.is_some() {
-                self.save(&items, &mut recorded);
-            }
-            if self.limits.audit
-                && self.undertaking.state().steps >= u64::from(self.limits.audit_from)
-                && finish
-                    .as_ref()
-                    .is_some_and(|f| f.outcome == Outcome::Finished)
-                && !self.undertaking.state().audited
-            {
-                let (spent, objection) = self.audit(&items).await;
-                self.undertaking.update(|state| {
-                    state.audited = true;
-                    state.usage.add(spent);
-                    if objection.is_some() {
-                        state.finish = None;
-                    }
-                });
-                if let Some(objection) = objection {
-                    finish = None;
-                    items.push(Item::user(format!(
-                        "Your claim that this is finished was read by a reviewer who saw the task, your evidence \
-                         and what your recent commands printed. They were not convinced:\n\n{objection}\n\n\
-                         Deal with each point: fix what is wrong, and show what was right by running the check \
-                         that proves it. Then call `done` again."
-                    )));
-                }
-            }
             self.undertaking.log(&json!({
                 "at": chrono::Utc::now().to_rfc3339(),
                 "step": n,
@@ -1353,117 +1160,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn work_runs_to_a_checked_finish() {
+    async fn work_ends_when_it_says_it_is_finished() {
         let dir = tempfile::tempdir().unwrap();
         let script = vec![
             calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "wrote it"}),
-            ),
             calls("shell", json!({"command": "cat hi.txt"})),
             calls(
                 "done",
-                json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat hi.txt` just now, it printed hi"}),
+                json!({"outcome": "finished", "summary": "wrote it and read it back"}),
             ),
         ];
-        let (worker, brain) = worker(
-            dir.path(),
-            script,
-            Limits {
-                audit: false,
-                ..Limits::default()
-            },
-        );
+        let (worker, brain) = worker(dir.path(), script, Limits::default());
         let report = worker.run().await;
         assert_eq!(report.ended, Ended::Finished);
-        assert_eq!(report.steps, 4);
-        assert!(report.usage.input >= 400);
+        assert_eq!(report.summary, "wrote it and read it back");
+        assert_eq!(report.steps, 3);
+        assert!(report.usage.input >= 300);
         assert_eq!(
             std::fs::read_to_string(dir.path().join("hi.txt")).unwrap(),
             "hi\n"
         );
-
-        // The first `done` was answered with the task, and the model saw that.
+        // Its word is taken: nothing was sent back, and nobody was asked to
+        // read it over. Three steps, three requests.
         let seen = brain.seen.lock().unwrap();
-        let Item::Result { output, .. } = &seen[2].items[4] else {
-            panic!()
-        };
-        assert!(output.contains("make hi.txt say hi"));
+        assert_eq!(seen.len(), 3);
+        // How to finish was said at the start, in the instructions.
+        assert!(seen[0].system.contains("Nobody checks after you"));
         // The log has one line per step.
         let log = std::fs::read_to_string(dir.path().join("state/log.jsonl")).unwrap();
-        assert_eq!(log.lines().count(), 4);
-    }
-
-    #[tokio::test]
-    async fn work_that_was_looked_at_is_not_sent_back_to_be_looked_at_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let script = vec![
-            calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
-            calls("shell", json!({"command": "cat hi.txt"})),
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat hi.txt` just now, it printed hi"}),
-            ),
-        ];
-        let (worker, _) = worker(dir.path(), script, Limits::default());
-        let report = worker.run().await;
-        assert_eq!(report.ended, Ended::Finished);
-        assert_eq!(report.steps, 3);
-    }
-
-    #[tokio::test]
-    async fn a_reviewer_can_send_finished_work_back_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let done = |evidence: &str| {
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "wrote it", "evidence": evidence}),
-            )
-        };
-        let script = vec![
-            calls("write", json!({"path": "hi.txt", "content": "hello\n"})),
-            done("I wrote the file with the write tool"),
-            done("I wrote the file with the write tool"),
-            says("FAIL\n- hi.txt must say hi: nothing printed shows its content"),
-            calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
-            done("cat hi.txt printed hi, checked just now"),
-        ];
-        let (worker, brain) = worker(
-            dir.path(),
-            script,
-            Limits {
-                audit: true,
-                audit_from: 0,
-                ..Limits::default()
-            },
-        );
-        let report = worker.run().await;
-        assert_eq!(report.ended, Ended::Finished);
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("hi.txt")).unwrap(),
-            "hi\n"
-        );
-
-        let seen = brain.seen.lock().unwrap();
-        // The reviewer saw the task and the output.
-        let review = seen
-            .iter()
-            .find(|t| t.system == AUDITOR)
-            .expect("a review happened");
-        assert!(matches!(&review.items[0], Item::User { text }
-            if text.contains("make hi.txt say hi") && text.contains("$ write")));
-        // And everything that was run, from the history and not from what
-        // is left of the transcript.
-        assert!(matches!(&review.items[0], Item::User { text }
-            if text.contains("<commands_run>\nwrite {\"content\":\"hello\\n\"")));
-        // Its objection reached the worker, and it was only asked once.
-        assert!(
-            seen.iter()
-                .any(|t| matches!(t.items.last(), Some(Item::User { text })
-            if text.contains("nothing printed shows its content")))
-        );
-        assert_eq!(seen.iter().filter(|t| t.system == AUDITOR).count(), 1);
+        assert_eq!(log.lines().count(), 3);
     }
 
     #[tokio::test]
@@ -1584,6 +1309,10 @@ mod tests {
         assert_eq!(fresh.items.len(), 1);
         assert!(matches!(&fresh.items[0], Item::User { text }
             if text.contains("the file goes in hi.txt") && text.contains("Do not start over")));
+        // Work that has outlived a context is told how to finish when it
+        // is picked up, not caught at the end.
+        assert!(matches!(&fresh.items[0], Item::User { text }
+            if text.contains("treat that as unproven")));
     }
 
     #[tokio::test]
@@ -1828,61 +1557,6 @@ mod tests {
             })
             .collect();
         assert_eq!(answers, [("one", true), ("two", true)]);
-    }
-
-    #[tokio::test]
-    async fn short_work_is_not_reviewed_and_a_reviewer_can_look_for_itself() {
-        let done = |evidence: &str| {
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "wrote it", "evidence": evidence}),
-            )
-        };
-        let work = || {
-            vec![
-                calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
-                done("wrote it with the write tool just now"),
-                done("cat hi.txt printed hi, checked just now"),
-            ]
-        };
-        // Four steps: nobody is asked to read it over.
-        let dir = tempfile::tempdir().unwrap();
-        let (short, brain) = worker(dir.path(), work(), Limits::default());
-        assert_eq!(short.run().await.ended, Ended::Finished);
-        assert!(
-            !brain
-                .seen
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|t| t.system == AUDITOR)
-        );
-
-        // Asked to review everything, the reviewer opens the file before
-        // it decides, and has nothing but `read` to do it with.
-        let dir = tempfile::tempdir().unwrap();
-        let mut script = work();
-        script.push(calls("read", json!({"path": "hi.txt"})));
-        script.push(says("PASS"));
-        let limits = Limits {
-            audit_from: 0,
-            ..Limits::default()
-        };
-        let (reviewed, brain) = worker(dir.path(), script, limits);
-        assert_eq!(reviewed.run().await.ended, Ended::Finished);
-        let seen = brain.seen.lock().unwrap();
-        let reviews: Vec<&Turn> = seen.iter().filter(|t| t.system == AUDITOR).collect();
-        assert_eq!(reviews.len(), 2);
-        assert_eq!(
-            reviews[0]
-                .tools
-                .iter()
-                .map(|t| t.name.as_str())
-                .collect::<Vec<_>>(),
-            ["read"]
-        );
-        assert!(matches!(reviews[1].items.last(),
-            Some(Item::Result { name, output, .. }) if name == "read" && output.contains("hi")));
     }
 
     #[tokio::test]

@@ -232,11 +232,10 @@ impl Tool for Done {
     fn spec(&self) -> ToolSpec {
         spec(
             "done",
-            "End the work. `finished` means every requirement has been checked against the real state, not just attempted. `blocked` means something outside your control is in the way. `gave_up` means you are out of ideas. Nothing can be done after this.",
+            "End the work and say how it ended. `finished` is your word that every requirement holds and that you have seen it hold in the real state; nothing checks it after you. `blocked` means something outside your control is in the way. `gave_up` means you are out of ideas. Nothing can be done after this.",
             json!({
                 "outcome": {"type": "string", "enum": ["finished", "blocked", "gave_up"]},
                 "summary": {"type": "string", "description": "What was done, or what is in the way, in a few sentences."},
-                "evidence": {"type": "string", "description": "For `finished`: each requirement and how you checked it holds (the command you ran and what it showed)."},
                 "files": {"type": "array", "items": {"type": "string"}, "description": "If what was asked for is one or more files, their absolute paths: these are what gets handed over. Leave out when the result is what you say in the summary."},
                 "lesson": {"type": "string", "description": "Optional, and usually left out. One sentence you would want in front of you the next time you do work like this: what you would do differently, or a way of going about it that worked and was not obvious. About how to work, not about this task's subject."},
             }),
@@ -259,45 +258,10 @@ impl Tool for Done {
                 ));
             }
         };
-        let evidence = args["evidence"]
-            .as_str()
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
-        let checked = self.undertaking.state().checked;
-        if outcome == undertaking::Outcome::Finished && checked && evidence.chars().count() < 20 {
-            return Outcome::fail(
-                "`finished` needs evidence: for each requirement, the command you ran just now and what it showed.",
-            );
-        }
-
-        // The commonest way to fail is to stop one check too early. The
-        // first claim of success is answered with the task itself, unless
-        // the worker has already done what that asks for: looked at what it
-        // left after its last change, and said what it saw. Sending that
-        // back costs four or five steps and changes nothing.
-        if outcome == undertaking::Outcome::Finished {
-            let shown = evidence.chars().count() >= 20;
-            let brief = self.undertaking.update(|state| {
-                let first = !std::mem::replace(&mut state.checked, true);
-                (first && !(state.looked && shown)).then(|| state.task_text())
-            });
-            if let Some(brief) = brief {
-                return Outcome::ok(format!(
-                    "Not recorded yet. Before this is final, check your work against the task as it was given:\n\n\
-                     <task>\n{brief}\n</task>\n\n\
-                     Go through it requirement by requirement. For each one, look at the real state now \
-                     (run the command, read the file, call the program) instead of relying on what you remember doing. \
-                     Check exact names, paths and formats, and that nothing the task did not ask for was left behind or broken. \
-                     Fix whatever is off. Then call `done` again."
-                ));
-            }
-        }
         self.undertaking.update(|state| {
             state.finish = Some(Finish {
                 outcome,
                 summary: summary.trim().to_owned(),
-                evidence,
                 files: args["files"]
                     .as_array()
                     .map(|files| {
@@ -351,41 +315,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finishing_is_asked_twice_and_giving_up_once() {
+    async fn finishing_is_recorded_as_it_is_reported() {
         let (_dir, u) = undertaking();
         let done = Done::new(u.clone());
-        let first = done
-            .call(&json!({"outcome": "finished", "summary": "wrote it"}))
+        let said = done
+            .call(&json!({
+                "outcome": "finished", "summary": "wrote it",
+                "files": ["/work/a.txt"], "lesson": "print the file before saying so",
+            }))
             .await;
-        assert!(
-            first.output.contains("make a.txt say hi"),
-            "the task comes back"
-        );
-        assert!(u.state().finish.is_none());
-        let second = done
-            .call(&json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat a.txt` just now, it printed hi"}))
-            .await;
-        assert_eq!(second.output, "recorded");
+        assert_eq!(said.output, "recorded");
+        let finish = u.state().finish.unwrap();
+        assert_eq!(finish.outcome, undertaking::Outcome::Finished);
+        assert_eq!(finish.files, ["/work/a.txt"]);
         assert_eq!(
-            u.state().finish.unwrap().outcome,
-            undertaking::Outcome::Finished
+            finish.lesson.as_deref(),
+            Some("print the file before saying so")
         );
-
-        // Having looked at what it left since it last changed anything,
-        // and saying what it saw, it is taken at its word the first time.
-        let (_dir, careful) = undertaking();
-        careful.update(|state| state.looked = true);
-        let once = Done::new(careful.clone())
-            .call(&json!({"outcome": "finished", "summary": "wrote it", "evidence": "ran `cat a.txt` just now, it printed hi"}))
-            .await;
-        assert_eq!(once.output, "recorded");
-        // Having looked but with nothing to show for it, it is not.
-        let (_dir, vague) = undertaking();
-        vague.update(|state| state.looked = true);
-        let back = Done::new(vague.clone())
-            .call(&json!({"outcome": "finished", "summary": "wrote it"}))
-            .await;
-        assert!(back.output.contains("make a.txt say hi"));
 
         let (_dir, other) = undertaking();
         Done::new(other.clone())
