@@ -286,44 +286,61 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-impl Event {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Born { .. } => "born",
-            Self::Dormant { .. } => "dormant",
-            Self::Woke => "woke",
-            Self::Slept => "slept",
-            Self::Planned { .. } => "planned",
-            Self::Lived { .. } => "lived",
-            Self::Heard { .. } => "heard",
-            Self::Read { .. } => "read",
-            Self::Said { .. } => "said",
-            Self::Reacted { .. } => "reacted",
-            Self::Posted { .. } => "posted",
-            Self::Saw { .. } => "saw",
-            Self::Decided { .. } => "decided",
-            Self::Felt { .. } => "felt",
-            Self::Noted { .. } => "noted",
-            Self::Intended { .. } => "intended",
-            Self::Settled { .. } => "settled",
-            Self::Left { .. } => "left",
-            Self::Reflected { .. } => "reflected",
-            Self::Canon { .. } => "canon",
-            Self::Undertook { .. } => "undertook",
-            Self::Worked { .. } => "worked",
-            Self::Asked { .. } => "asked",
-            Self::Added { .. } => "added",
-            Self::Concluded { .. } => "concluded",
-            Self::Measured { .. } => "measured",
-            Self::Learned { .. } => "learned",
-            Self::Profiled { .. } => "profiled",
-            Self::Challenged { .. } => "challenged",
-            Self::Linked { .. } => "linked",
-            Self::Digested { .. } => "digested",
-            Self::Pursued { .. } => "pursued",
-            Self::Practised { .. } => "practised",
+/// Every kind of event there is, by its variant and by the name it is
+/// written under. One list gives both [`Event::kind`] and [`Event::KINDS`],
+/// and the match it makes is exhaustive: a new variant does not compile
+/// until it is named here, and once it is, the compatibility test asks for
+/// an entry of it as it is written (`tests/fixtures/events.jsonl`).
+macro_rules! kinds {
+    ($($variant:ident => $name:literal),* $(,)?) => {
+        impl Event {
+            /// The name this event is written under.
+            pub fn kind(&self) -> &'static str {
+                match self {
+                    $(Self::$variant { .. } => $name,)*
+                }
+            }
+
+            /// The name of every kind of event, in the order they were added.
+            pub const KINDS: &'static [&'static str] = &[$($name),*];
         }
-    }
+    };
+}
+
+kinds! {
+    Born => "born",
+    Dormant => "dormant",
+    Woke => "woke",
+    Slept => "slept",
+    Planned => "planned",
+    Lived => "lived",
+    Heard => "heard",
+    Read => "read",
+    Said => "said",
+    Reacted => "reacted",
+    Posted => "posted",
+    Saw => "saw",
+    Decided => "decided",
+    Felt => "felt",
+    Noted => "noted",
+    Intended => "intended",
+    Settled => "settled",
+    Left => "left",
+    Reflected => "reflected",
+    Canon => "canon",
+    Undertook => "undertook",
+    Worked => "worked",
+    Asked => "asked",
+    Added => "added",
+    Concluded => "concluded",
+    Measured => "measured",
+    Learned => "learned",
+    Profiled => "profiled",
+    Challenged => "challenged",
+    Linked => "linked",
+    Digested => "digested",
+    Pursued => "pursued",
+    Practised => "practised",
 }
 
 /// One line of her journal.
