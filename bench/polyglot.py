@@ -271,10 +271,15 @@ def report(out: Path):
         n = len(rs)
         cost = sum(r["cached"] * PRICE["cached"] + (r["read"] - r["cached"]) * PRICE["fresh"]
                    + r["wrote"] * PRICE["wrote"] for r in rs) / 1e6
+        # The median, because one run interrupted by the machine sleeping
+        # would otherwise decide the average.
+        secs = sorted(r["seconds"] for r in rs)
+        median = secs[n // 2] if n % 2 else (secs[n // 2 - 1] + secs[n // 2]) / 2
         print(f"{a}: {sum(r.get('passed1', r['passed']) for r in rs)}/{n} at the first try, "
-              f"{sum(r['passed'] for r in rs)}/{n} within two, "
-              f"{sum(r['seconds'] for r in rs) / n:.0f}s and {sum(r['steps'] for r in rs) / n:.1f} steps per exercise, "
-              f"{sum(r['read'] for r in rs) / n / 1000:.0f}k tokens read ({sum(r['cached'] for r in rs) * 100 // max(1, sum(r['read'] for r in rs))}% cached) "
+              f"{sum(r['passed'] for r in rs)}/{n} within two; "
+              f"median {median:.0f}s and {sum(r['steps'] for r in rs) / n:.1f} steps per exercise, "
+              f"{sum(r['read'] for r in rs) / n / 1000:.0f}k tokens read "
+              f"({sum(r['cached'] for r in rs) * 100 // max(1, sum(r['read'] for r in rs))}% cached) "
               f"and {sum(r['wrote'] for r in rs) / n / 1000:.1f}k written per exercise, ${cost:.2f} in all")
 
 
