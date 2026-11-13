@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# A git hook: checks the first line of a commit message. Installed by
+# `just hooks`; nothing installs it for you.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/check-subject.sh" "$(head -n 1 "$1")"

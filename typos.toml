@@ -1,0 +1,22 @@
+# Spelling, checked by `just typos` and in CI.
+
+[files]
+extend-exclude = [
+    "Cargo.lock",
+    "assets/",
+    # Other people's words: exercises, tasks and model output.
+    "bench/samples/",
+]
+
+[default]
+extend-ignore-re = [
+    # Hashes, seals and ids are not words.
+    "\\b[0-9a-f]{8,}\\b",
+]
+
+[default.extend-words]
+# Names of things, spelled as their owners spell them.
+onebot = "onebot"
+napcat = "napcat"
+# A deliberate near-miss in a test of the seal.
+abd = "abd"

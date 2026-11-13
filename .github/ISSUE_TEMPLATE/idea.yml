@@ -1,0 +1,16 @@
+name: An idea
+description: Something a ghost should be able to do, or do differently.
+labels: [idea]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What, and for whom
+      description: What a person living with a ghost would notice.
+    validations:
+      required: true
+  - type: textarea
+    id: charter
+    attributes:
+      label: Does it fit the charter?
+      description: Anything that edits her, owns her, or keeps someone coming back does not. If you are unsure, say what worries you.

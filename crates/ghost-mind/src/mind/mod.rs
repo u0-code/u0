@@ -4,7 +4,7 @@
 //! waits on three things: a signal from outside, the outcome of a job it sent
 //! off (a brain call, a send), or the next moment on its agenda. Nothing in
 //! here blocks on a network call; anything slow is spawned and comes back as
-//! an [`Outcome`].
+//! an `Outcome`.
 
 mod ask;
 mod attend;
