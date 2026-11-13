@@ -46,3 +46,7 @@
 {"kind":"pursued","data":{"what":"","replaces":45}}
 {"kind":"practised","data":{"lesson":"Look at when a page was last changed before trusting a date on it."}}
 {"kind":"practised","data":{"lesson":"Check the page date, then one other source.","replaces":47}}
+{"kind":"noted","data":{"about":"telegram:42","text":"Wen is moving to Chongqing in spring.","place":"telegram:dm:42","sources":{"from":120,"upto":131,"since":"2026-11-12T09:02:11.000000Z","until":"2026-11-12T09:40:57.000000Z"}}}
+{"kind":"reflected","data":{"text":"Quiet on Telegram. Wen did most of the talking, about the move.","channel":"telegram","sources":{"from":100,"upto":180,"since":"2026-11-12T00:30:00.000000Z","until":"2026-11-12T16:30:00.000000Z"}}}
+{"kind":"profiled","data":{"person":"telegram:42","shared":"Draws, lives in Chengdu for now.","private":"Moving to Chongqing; has not told the group.","sources":{"from":100,"upto":180,"since":"2026-11-12T00:30:00.000000Z","until":"2026-11-12T16:30:00.000000Z"}}}
+{"kind":"digested","data":{"place":"t:wen","upto":140,"text":"Wen has been telling you about the move.","sources":{"from":3,"upto":140,"since":"2026-11-01T09:00:00.000000Z","until":"2026-11-12T09:40:57.000000Z"}}}

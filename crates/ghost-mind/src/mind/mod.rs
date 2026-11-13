@@ -221,10 +221,14 @@ enum Outcome {
     Digested {
         place: String,
         upto: i64,
+        sources: ghost_core::journal::Sources,
         result: Result<String>,
     },
     Reflected {
+        /// The platform it looked back on, or none for her own day.
+        channel: Option<String>,
         people: Vec<ghost_core::memory::Person>,
+        sources: ghost_core::journal::Sources,
         result: Result<ReflectDraft>,
     },
     Browsed {
@@ -362,7 +366,8 @@ pub struct Mind {
     plan_failures: u8,
     /// The block whose `Lived` entry is being written.
     living: Option<u32>,
-    reflecting: bool,
+    /// How many looks back on the day are still being thought.
+    reflecting: usize,
     /// Places whose earlier conversation she is writing down right now.
     digesting: HashSet<String>,
     /// Channels with a scroll in flight.
@@ -407,7 +412,7 @@ impl Mind {
             planning: false,
             plan_failures: 0,
             living: None,
-            reflecting: false,
+            reflecting: 0,
             digesting: HashSet::new(),
             browsing: HashSet::new(),
             scrolled: HashMap::new(),
@@ -547,12 +552,18 @@ impl Mind {
                 result,
             } => self.on_planned(day, weather, result, now),
             Outcome::Lived { block, result } => self.on_lived(block, result, now),
-            Outcome::Reflected { people, result } => self.on_reflected(&people, result, now),
+            Outcome::Reflected {
+                channel,
+                people,
+                sources,
+                result,
+            } => self.on_reflected(channel.as_deref(), &people, Some(sources), result, now),
             Outcome::Digested {
                 place,
                 upto,
+                sources,
                 result,
-            } => self.on_digested(&place, upto, result),
+            } => self.on_digested(&place, upto, sources, result),
             Outcome::Browsed {
                 channel,
                 items,

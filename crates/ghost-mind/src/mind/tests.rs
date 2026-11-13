@@ -1259,7 +1259,9 @@ async fn what_she_knows_of_someone_is_split_by_where_she_learned_it() {
         }}]
     }))
     .unwrap();
-    rig.mind.on_reflected(&people, Ok(draft), t0).unwrap();
+    rig.mind
+        .on_reflected(Some("t"), &people, None, Ok(draft), t0)
+        .unwrap();
 
     // Alone with her, she has all of it.
     let t1 = t0 + Duration::hours(1);
@@ -1878,7 +1880,9 @@ async fn she_takes_something_on_toward_what_she_is_after_and_keeps_what_it_taugh
     assert!(rig.mind.own_work_line(t0).unwrap().contains("empty"));
     rig.mind
         .on_reflected(
+            None,
             &[],
+            None,
             Ok(night(serde_json::json!({
                 "reflection": "A quiet day.",
                 "undertake": "Find out which tea houses are closing.",
@@ -1891,7 +1895,9 @@ async fn she_takes_something_on_toward_what_she_is_after_and_keeps_what_it_taugh
     // One night she finds she is after something, and means to start.
     rig.mind
         .on_reflected(
+            None,
             &[],
+            None,
             Ok(night(serde_json::json!({
                 "reflection": "I keep going back to the old tea houses.",
                 "pursuits": [{"what": "draw the tea houses that are closing, before they do"}],
@@ -1917,7 +1923,9 @@ async fn she_takes_something_on_toward_what_she_is_after_and_keeps_what_it_taugh
     // One thing of her own at a time.
     rig.mind
         .on_reflected(
+            None,
             &[],
+            None,
             Ok(night(serde_json::json!({
                 "reflection": "More of the same.",
                 "undertake": "Also list the ones that have already gone.",
@@ -2003,4 +2011,92 @@ async fn a_conversation_is_shown_its_own_platform_and_her_whole_memory() {
     // The other platform's record: neither the message nor her post.
     assert!(!seen.contains("my noodle shop opens on the 3rd"), "{seen}");
     assert!(!seen.contains("the plane trees on Wenshu street"), "{seen}");
+}
+
+#[tokio::test]
+async fn she_looks_back_on_her_own_day_and_on_each_platform_apart() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.online("q", t0);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"oh no"}]}"#);
+    rig.hear(dm("wen", "1", "the institute is a mess this week"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"I'll come"}]}"#);
+    rig.hear_on(
+        "q",
+        dm("hao", "2", "my noodle shop opens on the 3rd"),
+        t0 + Duration::hours(1),
+    );
+    rig.until(|r| r.body.sent().len() == 2).await;
+
+    // Every look back gets the same answer, naming both of them: each can
+    // only keep what it says about the people in front of it.
+    let answer = r#"{"reflection": "A day.", "people": [
+        {"who": "wen", "impression": "worn down by the institute"},
+        {"who": "hao", "impression": "about to open a noodle shop"}]}"#;
+    for _ in 0..3 {
+        rig.think.then(answer);
+    }
+    let night = t0 + Duration::hours(10);
+    let before = rig.think.calls();
+    rig.mind.cfg.live = true;
+    rig.mind.reflect(night).unwrap();
+    while let Some(done) = rig.mind.jobs.join_next().await {
+        rig.mind.on_outcome(done.unwrap(), night).unwrap();
+    }
+
+    // One look at her own day, and one at each platform.
+    let asked: Vec<String> = rig.think.seen.lock().unwrap()[before..]
+        .iter()
+        .map(|c| format!("{:?}", c.messages))
+        .collect();
+    assert_eq!(asked.len(), 3);
+    let on = |channel: &str| {
+        asked
+            .iter()
+            .find(|p| p.contains(&format!("you look back on {channel}:")))
+            .unwrap_or_else(|| panic!("no look back on {channel}"))
+    };
+    assert!(on("t").contains("institute") && !on("t").contains("noodle"));
+    assert!(on("q").contains("noodle") && !on("q").contains("institute"));
+    let own = asked
+        .iter()
+        .find(|p| p.contains("You also talked with people today, on q, t."))
+        .expect("a look back on her own day");
+    assert!(!own.contains("noodle") && !own.contains("institute"));
+
+    // Each is kept with what it is about and what it was made from.
+    let mut looked: Vec<Option<String>> = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["reflected"], 0)
+        .unwrap()
+        .into_iter()
+        .map(|e| match e.event {
+            Event::Reflected {
+                channel, sources, ..
+            } => {
+                let sources = sources.expect("what it was made from");
+                assert!(sources.since <= t0 && sources.until == night);
+                channel
+            }
+            _ => unreachable!(),
+        })
+        .collect();
+    looked.sort();
+    assert_eq!(looked, [None, Some("q".into()), Some("t".into())]);
+    let memory = rig.mind.ghost.memory();
+    let of = |key: &str| -> Vec<String> {
+        memory
+            .notes(key, 10)
+            .unwrap()
+            .into_iter()
+            .map(|n| n.text)
+            .collect()
+    };
+    assert_eq!(of("t:wen"), ["worn down by the institute"]);
+    assert_eq!(of("q:hao"), ["about to open a noodle shop"]);
 }

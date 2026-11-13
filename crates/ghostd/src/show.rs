@@ -40,7 +40,17 @@ fn describe(event: &Event, tz: Tz) -> String {
                 None => format!("{day}: {plan}"),
             }
         }
-        Event::Lived { text, .. } | Event::Reflected { text } => flat(text),
+        Event::Lived { text, .. }
+        | Event::Reflected {
+            text,
+            channel: None,
+            ..
+        } => flat(text),
+        Event::Reflected {
+            text,
+            channel: Some(channel),
+            ..
+        } => format!("[{channel}] {}", flat(text)),
         Event::Heard {
             channel,
             place,

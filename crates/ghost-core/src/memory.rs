@@ -35,7 +35,7 @@ use serde::Serialize;
 
 use crate::{
     Result,
-    journal::{Entry, Event, Journal, parse_stamp, stamp},
+    journal::{Entry, Event, Journal, Sources, parse_stamp, stamp},
     social::{self, PlaceKind},
 };
 
@@ -47,7 +47,7 @@ const LEGACY_FILE: &str = "derived/memory.db";
 const GLOBAL: &str = "global";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
@@ -117,6 +117,8 @@ pub struct Note {
     pub text: String,
     /// Where she learned it.
     pub place: Option<String>,
+    /// What she had in front of her when she wrote it.
+    pub sources: Option<Sources>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +190,8 @@ pub struct Digest {
     pub upto: i64,
     pub at: DateTime<Utc>,
     pub text: String,
+    /// Everything it stands for, when that was written down.
+    pub sources: Option<Sources>,
 }
 
 /// Her standing account of someone, as last put in order.
@@ -198,6 +202,8 @@ pub struct Profile {
     pub at: DateTime<Utc>,
     pub shared: String,
     pub private: String,
+    /// What it was put in order from, when that was written down.
+    pub sources: Option<Sources>,
 }
 
 /// Something she has learned about her craft and not since replaced.
@@ -832,10 +838,17 @@ impl Shard {
                     params![toward, i64::from(*delta), WARMTH_MIN, WARMTH_MAX],
                 )?;
             }
-            Event::Noted { about, text, place } => {
+            Event::Noted {
+                about,
+                text,
+                place,
+                sources,
+            } => {
+                let (from, upto, since, until) = columns(sources.as_ref());
                 tx.execute(
-                    "INSERT INTO notes (seq, at, person, text, place) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![seq, at, about, text, place],
+                    "INSERT INTO notes (seq, at, person, text, place, src_from, src_upto, since, until)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![seq, at, about, text, place, from, upto, since, until],
                 )?;
                 remember(&tx, seq, &at, "noted", text, place.as_deref())?;
             }
@@ -868,7 +881,7 @@ impl Shard {
                 remember(&tx, seq, &at, "canon", fact, None)?;
             }
             Event::Lived { text, .. } => remember(&tx, seq, &at, "lived", text, None)?,
-            Event::Reflected { text } => remember(&tx, seq, &at, "reflected", text, None)?,
+            Event::Reflected { text, .. } => remember(&tx, seq, &at, "reflected", text, None)?,
             Event::Posted { channel, id, text } => {
                 if let Some(id) = id {
                     tx.execute(
@@ -972,18 +985,30 @@ impl Shard {
                 person,
                 shared,
                 private,
+                sources,
             } => {
+                let (from, upto, since, until) = columns(sources.as_ref());
                 tx.execute(
-                    "INSERT INTO profiles (person, seq, at, shared, private) VALUES (?1, ?2, ?3, ?4, ?5)
-                     ON CONFLICT(person) DO UPDATE SET seq = ?2, at = ?3, shared = ?4, private = ?5",
-                    params![person, seq, at, shared, private],
+                    "INSERT INTO profiles (person, seq, at, shared, private, src_from, src_upto, since, until)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                     ON CONFLICT(person) DO UPDATE SET seq = ?2, at = ?3, shared = ?4, private = ?5,
+                       src_from = ?6, src_upto = ?7, since = ?8, until = ?9",
+                    params![person, seq, at, shared, private, from, upto, since, until],
                 )?;
             }
-            Event::Digested { place, upto, text } => {
+            Event::Digested {
+                place,
+                upto,
+                text,
+                sources,
+            } => {
+                let (from, src_upto, since, until) = columns(sources.as_ref());
                 tx.execute(
-                    "INSERT INTO digests (place, upto, at, text) VALUES (?1, ?2, ?3, ?4)
-                     ON CONFLICT(place) DO UPDATE SET upto = ?2, at = ?3, text = ?4",
-                    params![place, upto, at, text],
+                    "INSERT INTO digests (place, upto, at, text, src_from, src_upto, since, until)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT(place) DO UPDATE SET upto = ?2, at = ?3, text = ?4,
+                       src_from = ?5, src_upto = ?6, since = ?7, until = ?8",
+                    params![place, upto, at, text, from, src_upto, since, until],
                 )?;
             }
             Event::Pursued { what, replaces } => {
@@ -1085,13 +1110,14 @@ impl Shard {
         Ok(self
             .conn
             .query_row(
-                "SELECT upto, at, text FROM digests WHERE place = ?1",
+                "SELECT upto, at, text, src_from, src_upto, since, until FROM digests WHERE place = ?1",
                 [place],
                 |r| {
                     Ok(Digest {
                         upto: r.get(0)?,
                         at: time_at(r, 1)?,
                         text: r.get(2)?,
+                        sources: sources_at(r, 3)?,
                     })
                 },
             )
@@ -1309,7 +1335,8 @@ impl Shard {
     /// The newest `limit` notes about a person, oldest first.
     pub fn notes(&self, person: &str, limit: usize) -> Result<Vec<Note>> {
         let mut stmt = self.conn.prepare(
-            "SELECT seq, at, text, place FROM notes WHERE person = ?1 ORDER BY seq DESC LIMIT ?2",
+            "SELECT seq, at, text, place, src_from, src_upto, since, until
+             FROM notes WHERE person = ?1 ORDER BY seq DESC LIMIT ?2",
         )?;
         let mut notes = stmt
             .query_map(params![person, as_i64(limit)], |r| {
@@ -1318,6 +1345,7 @@ impl Shard {
                     at: time_at(r, 1)?,
                     text: r.get(2)?,
                     place: r.get(3)?,
+                    sources: sources_at(r, 4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1415,7 +1443,8 @@ impl Shard {
         Ok(self
             .conn
             .query_row(
-                "SELECT seq, at, shared, private FROM profiles WHERE person = ?1",
+                "SELECT seq, at, shared, private, src_from, src_upto, since, until
+                 FROM profiles WHERE person = ?1",
                 [person],
                 |r| {
                     Ok(Profile {
@@ -1423,6 +1452,7 @@ impl Shard {
                         at: time_at(r, 1)?,
                         shared: r.get(2)?,
                         private: r.get(3)?,
+                        sources: sources_at(r, 4)?,
                     })
                 },
             )
@@ -1652,6 +1682,38 @@ fn time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<DateTime<Utc
     })
 }
 
+/// Sources as the four columns they are kept in.
+fn columns(
+    sources: Option<&Sources>,
+) -> (Option<i64>, Option<i64>, Option<String>, Option<String>) {
+    match sources {
+        Some(s) => (
+            Some(s.from),
+            Some(s.upto),
+            Some(stamp(&s.since)),
+            Some(stamp(&s.until)),
+        ),
+        None => (None, None, None, None),
+    }
+}
+
+/// Sources read back from four columns starting at `idx`.
+fn sources_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<Option<Sources>> {
+    let from: Option<i64> = row.get(idx)?;
+    let upto: Option<i64> = row.get(idx + 1)?;
+    let since = opt_time_at(row, idx + 2)?;
+    let until = opt_time_at(row, idx + 3)?;
+    Ok(match (from, upto, since, until) {
+        (Some(from), Some(upto), Some(since), Some(until)) => Some(Sources {
+            from,
+            upto,
+            since,
+            until,
+        }),
+        _ => None,
+    })
+}
+
 fn opt_time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<Option<DateTime<Utc>>> {
     let text: Option<String> = row.get(idx)?;
     Ok(text.and_then(|t| parse_stamp(&t).ok()))
@@ -1770,7 +1832,7 @@ CREATE INDEX IF NOT EXISTS messages_person ON messages (person, seq);
 CREATE INDEX IF NOT EXISTS messages_platform ON messages (place, platform_id);
 CREATE TABLE IF NOT EXISTS notes (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, person TEXT NOT NULL, text TEXT NOT NULL,
-    place TEXT
+    place TEXT, src_from INTEGER, src_upto INTEGER, since TEXT, until TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_person ON notes (person, seq);
 CREATE TABLE IF NOT EXISTS intentions (
@@ -1795,11 +1857,13 @@ CREATE TABLE IF NOT EXISTS links (
     seq INTEGER PRIMARY KEY, one TEXT NOT NULL, other TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS digests (
-    place TEXT PRIMARY KEY, upto INTEGER NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL
+    place TEXT PRIMARY KEY, upto INTEGER NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL,
+    src_from INTEGER, src_upto INTEGER, since TEXT, until TEXT
 );
 CREATE TABLE IF NOT EXISTS profiles (
     person TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL,
-    shared TEXT NOT NULL, private TEXT NOT NULL
+    shared TEXT NOT NULL, private TEXT NOT NULL,
+    src_from INTEGER, src_upto INTEGER, since TEXT, until TEXT
 );
 CREATE TABLE IF NOT EXISTS craft (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, lesson TEXT NOT NULL,
@@ -1916,6 +1980,7 @@ mod tests {
                 why: "kind".into(),
             },
             Event::Noted {
+                sources: None,
                 about: "t:a".into(),
                 text: "designs buildings".into(),
                 place: Some("t:a".into()),
@@ -2013,6 +2078,7 @@ mod tests {
                 true,
             ),
             Event::Noted {
+                sources: None,
                 about: "t:a".into(),
                 text: "sister is moving to Kunming".into(),
                 place: Some("t:a".into()),
@@ -2175,6 +2241,7 @@ mod tests {
                 ),
             ),
             Event::Noted {
+                sources: None,
                 about: "qq:b".into(),
                 text: "runs the lantern stall".into(),
                 place: Some("qq:b".into()),
@@ -2309,6 +2376,7 @@ mod tests {
                 source: "life".into(),
             },
             Event::Noted {
+                sources: None,
                 about: "telegram:a".into(),
                 text: "is moving in spring".into(),
                 place: Some("telegram:a".into()),
@@ -2448,11 +2516,13 @@ mod tests {
             heard("a", PlaceKind::Direct, "a", "2", "two", true),
             heard("a", PlaceKind::Direct, "a", "3", "three", true),
             Event::Digested {
+                sources: None,
                 place: "t:a".into(),
                 upto: 1,
                 text: "said one".into(),
             },
             Event::Digested {
+                sources: None,
                 place: "t:a".into(),
                 upto: 2,
                 text: "said one, then two".into(),
@@ -2475,26 +2545,31 @@ mod tests {
         let (_, m) = fold(vec![
             heard("a", PlaceKind::Direct, "a", "1", "hi", true),
             Event::Noted {
+                sources: None,
                 about: "t:a".into(),
                 text: "designs buildings".into(),
                 place: None,
             },
             Event::Profiled {
+                sources: None,
                 person: "t:a".into(),
                 shared: "An architect.".into(),
                 private: String::new(),
             },
             Event::Noted {
+                sources: None,
                 about: "t:a".into(),
                 text: "is leaving the institute".into(),
                 place: Some("t:a".into()),
             },
             Event::Profiled {
+                sources: None,
                 person: "t:a".into(),
                 shared: "An architect, careful with words.".into(),
                 private: "Leaving the institute; has told nobody.".into(),
             },
             Event::Noted {
+                sources: None,
                 about: "t:a".into(),
                 text: "likes the plane trees".into(),
                 place: None,
@@ -2511,6 +2586,53 @@ mod tests {
             .collect();
         assert_eq!(since, ["likes the plane trees"]);
         assert!(m.profile("t:nobody").unwrap().is_none());
+    }
+
+    #[test]
+    fn what_a_memory_was_made_from_is_kept_with_it() {
+        let then = Utc::now() - chrono::Duration::days(3);
+        let sources = Sources {
+            from: 2,
+            upto: 9,
+            since: then,
+            until: then + chrono::Duration::hours(2),
+        };
+        let (_, m) = fold(vec![
+            Event::Noted {
+                about: "t:a".into(),
+                text: "is leaving the institute".into(),
+                place: Some("t:a".into()),
+                sources: Some(sources),
+            },
+            Event::Profiled {
+                person: "t:a".into(),
+                shared: "An architect.".into(),
+                private: String::new(),
+                sources: Some(sources),
+            },
+            Event::Digested {
+                place: "t:a".into(),
+                upto: 9,
+                text: "Talk of the institute.".into(),
+                sources: Some(sources),
+            },
+            Event::Noted {
+                about: "t:a".into(),
+                text: "likes the plane trees".into(),
+                place: None,
+                sources: None,
+            },
+        ]);
+        let kept = |s: Option<Sources>| s.map(|s| (s.from, s.upto, s.since.timestamp()));
+        let want = Some((2, 9, then.timestamp()));
+        let notes = m.notes("t:a", 10).unwrap();
+        assert_eq!(kept(notes[0].sources), want);
+        assert_eq!(
+            notes[1].sources, None,
+            "a note from before sources were kept"
+        );
+        assert_eq!(kept(m.profile("t:a").unwrap().unwrap().sources), want);
+        assert_eq!(kept(m.digest("t:a").unwrap().unwrap().sources), want);
     }
 
     #[test]
