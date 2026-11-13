@@ -1,0 +1,34 @@
+name: Something is wrong
+description: She did something she should not have, or the software did.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: The journal around it
+      description: "`ghostd journal <dir>` for the entries around the moment, with anything private removed."
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit, or the release.
+    validations:
+      required: true
+  - type: input
+    id: brain
+    attributes:
+      label: What she thinks with
+      description: Provider and model, or which command-line agent.
+  - type: input
+    id: where
+    attributes:
+      label: Where she was
+      description: Terminal, Telegram, Discord, QQ, X.

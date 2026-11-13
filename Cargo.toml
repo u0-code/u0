@@ -21,6 +21,8 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HappyFox001/Ghost"
 rust-version = "1.89"
+# Nothing here is on crates.io. A ghost is run from a checkout or a release.
+publish = false
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

@@ -135,7 +135,14 @@ See [CHARTER.md](CHARTER.md). The short version: she is born once, her journal
 is append-only, she discloses what she is, and nothing in this codebase is
 tuned to keep you coming back.
 
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is the whole of the process: one change
+per pull request, `just check` before you open it. Vulnerabilities go to
+[SECURITY.md](SECURITY.md), not to an issue.
+
 ## License
 
-MIT or Apache-2.0, at your option. The charter is not part of the license; it
-is the condition for joining the World.
+[MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The
+charter is not part of the license; it is the condition for joining the
+World.
