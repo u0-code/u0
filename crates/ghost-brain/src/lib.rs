@@ -16,7 +16,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use async_trait::async_trait;
 
-pub use step::{Call, Item, Step, Stop, ToolSpec, Turn, Usage};
+pub use step::{Call, Effort, Item, Step, Stop, ToolSpec, Turn, Usage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -56,6 +56,8 @@ pub struct Completion {
     /// The caller expects a single JSON object back. Providers that can
     /// enforce this do; the rest rely on the prompt.
     pub json: bool,
+    /// How hard to think first. `None` leaves it to the provider.
+    pub effort: Option<Effort>,
 }
 
 impl Completion {
@@ -67,12 +69,19 @@ impl Completion {
             max_tokens,
             temperature: None,
             json: false,
+            effort: None,
         }
     }
 
     #[must_use]
     pub fn expecting_json(mut self) -> Self {
         self.json = true;
+        self
+    }
+
+    #[must_use]
+    pub fn thinking(mut self, effort: Effort) -> Self {
+        self.effort = Some(effort);
         self
     }
 
@@ -126,6 +135,10 @@ pub enum Error {
         status: u16,
         body: String,
     },
+    /// The request held more than the model's context window takes. Sending
+    /// it again will not help; sending less will.
+    #[error("{provider} says the context is too long: {detail}")]
+    TooLong { provider: String, detail: String },
     #[error("{0} is not installed or not on PATH")]
     NotInstalled(String),
     #[error("{program} exited with {status}: {stderr}")]
@@ -198,12 +211,37 @@ pub trait Brain: Send + Sync {
         None
     }
 
+    /// The most this model can write in one answer, thinking included, if
+    /// that is known. A caller that does not know asks for little.
+    fn max_output(&self) -> Option<u32> {
+        None
+    }
+
     /// If this brain is a command-line agent, how to start it. Such an
     /// agent cannot take a [`Turn`], but it can be given our tools and left
     /// to step through a piece of work itself.
     fn cli(&self) -> Option<CliAgent> {
         None
     }
+}
+
+/// The most a model this crate has been run against writes in one answer.
+pub(crate) fn known_max_output(model: &str) -> Option<u32> {
+    let model = model.to_lowercase();
+    if model.starts_with("deepseek-flash") || model.starts_with("deepseek-v4") {
+        Some(393_216)
+    } else if model.starts_with("claude-") {
+        Some(64_000)
+    } else {
+        None
+    }
+}
+
+/// Whether a model can be told how hard to think, in the way its provider's
+/// `OpenAI`-compatible endpoint takes it.
+pub(crate) fn known_to_think(model: &str) -> bool {
+    let model = model.to_lowercase();
+    model.starts_with("deepseek-flash") || model.starts_with("deepseek-v4")
 }
 
 /// The context window of a model this crate has been run against, by name.
@@ -246,6 +284,7 @@ mod tests {
             max_tokens: 10,
             temperature: None,
             json: false,
+            effort: None,
         };
         let t = c.transcript("someone", "Lin");
         assert!(t.starts_with("Be Lin."));

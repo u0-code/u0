@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::{
-    Brain, Call, Completion, Error, Item, Reply, Result, Role, Step, Stop, Turn, Usage, http,
+    Brain, Call, Completion, Effort, Error, Item, Reply, Result, Role, Step, Stop, Turn, Usage,
+    http::{self, Answer},
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -21,6 +22,9 @@ pub struct OpenAi {
     /// Send `response_format: json_object` when the caller expects JSON.
     json_mode: bool,
     window: Option<u64>,
+    max_output: Option<u32>,
+    /// The server takes `reasoning_effort` and `thinking`.
+    thinks: bool,
 }
 
 impl OpenAi {
@@ -46,11 +50,29 @@ impl OpenAi {
             client: http::client(),
             api_key,
             window: crate::known_window(&model),
+            max_output: crate::known_max_output(&model),
+            thinks: crate::known_to_think(&model),
             model,
             base_url,
             max_tokens_param,
             json_mode,
         }
+    }
+
+    /// Say whether the server can be told how hard to think, when the
+    /// model is not one this crate knows.
+    #[must_use]
+    pub fn with_effort(mut self, thinks: Option<bool>) -> Self {
+        self.thinks = thinks.unwrap_or(self.thinks);
+        self
+    }
+
+    /// Say the most this model writes in one answer, when it is not one
+    /// this crate knows.
+    #[must_use]
+    pub fn with_max_output(mut self, max_output: Option<u32>) -> Self {
+        self.max_output = max_output.or(self.max_output);
+        self
     }
 
     /// Say how large this model's context window is, when it is not one
@@ -61,15 +83,118 @@ impl OpenAi {
         self
     }
 
-    async fn post(&self, body: &Value) -> Result<(Value, String)> {
-        http::send("openai", || {
-            self.client
-                .post(format!("{}/chat/completions", self.base_url))
-                .bearer_auth(&self.api_key)
-                .json(body)
-        })
-        .await
+    /// Ask for a completion as a stream and put the answer back together:
+    /// the message, why it stopped, what it cost and which model wrote it,
+    /// in the shape of an answer that was not streamed.
+    async fn post(&self, body: &mut Value, effort: Option<Effort>) -> Result<Value> {
+        body["stream"] = json!(true);
+        body["stream_options"] = json!({"include_usage": true});
+        if self.thinks {
+            match effort {
+                Some(Effort::Off) => body["thinking"] = json!({"type": "disabled"}),
+                Some(Effort::Low) => body["reasoning_effort"] = json!("low"),
+                Some(Effort::High) => body["reasoning_effort"] = json!("high"),
+                Some(Effort::Max) => body["reasoning_effort"] = json!("max"),
+                None => {}
+            }
+        }
+        let body = &*body;
+        let answer = http::ask(
+            "openai",
+            || {
+                self.client
+                    .post(format!("{}/chat/completions", self.base_url))
+                    .bearer_auth(&self.api_key)
+                    .json(body)
+            },
+            // Finished when the model has said why it stopped.
+            |events| {
+                events
+                    .iter()
+                    .any(|e| e["choices"][0]["finish_reason"].is_string())
+            },
+        )
+        .await?;
+        match answer {
+            Answer::Whole(v, _) if v["choices"][0]["message"].is_object() => Ok(v),
+            Answer::Whole(_, text) => Err(Error::Malformed {
+                provider: "openai".into(),
+                detail: format!("no message in {text}"),
+            }),
+            Answer::Events(events) => Ok(gather(&events)),
+        }
     }
+}
+
+/// Put the pieces of a streamed completion back together.
+fn gather(events: &[Value]) -> Value {
+    let mut content = String::new();
+    let mut reasoning = String::new();
+    // Calls arrive in fragments, each tagged with the index of its call.
+    let mut calls: Vec<(String, String, String)> = Vec::new();
+    let mut finish = Value::Null;
+    let mut usage = Value::Null;
+    let mut model = Value::Null;
+    for event in events {
+        if event["usage"].is_object() {
+            usage = event["usage"].clone();
+        }
+        if model.is_null() && event["model"].is_string() {
+            model = event["model"].clone();
+        }
+        let choice = &event["choices"][0];
+        if choice["finish_reason"].is_string() {
+            finish = choice["finish_reason"].clone();
+        }
+        let delta = &choice["delta"];
+        if let Some(piece) = delta["content"].as_str() {
+            content.push_str(piece);
+        }
+        if let Some(piece) = delta["reasoning_content"].as_str() {
+            reasoning.push_str(piece);
+        }
+        for piece in delta["tool_calls"].as_array().into_iter().flatten() {
+            let at = piece["index"]
+                .as_u64()
+                .and_then(|i| usize::try_from(i).ok())
+                .unwrap_or(calls.len().saturating_sub(1));
+            if calls.len() <= at {
+                calls.resize(at + 1, Default::default());
+            }
+            let (id, name, arguments) = &mut calls[at];
+            if let Some(piece) = piece["id"].as_str() {
+                id.push_str(piece);
+            }
+            if let Some(piece) = piece["function"]["name"].as_str() {
+                name.push_str(piece);
+            }
+            if let Some(piece) = piece["function"]["arguments"].as_str() {
+                arguments.push_str(piece);
+            }
+        }
+    }
+    let mut message = json!({"role": "assistant", "content": content});
+    if !reasoning.is_empty() {
+        message["reasoning_content"] = json!(reasoning);
+    }
+    if !calls.is_empty() {
+        message["tool_calls"] = calls
+            .into_iter()
+            .map(|(id, name, arguments)| {
+                let mut call =
+                    json!({"type": "function", "function": {"name": name, "arguments": arguments}});
+                if !id.is_empty() {
+                    call["id"] = json!(id);
+                }
+                call
+            })
+            .collect();
+    }
+    json!({
+        "model": model,
+        "choices": [{"message": message, "finish_reason": finish}],
+        "usage": usage,
+    })
 }
 
 /// A working transcript in the wire format.
@@ -125,6 +250,9 @@ fn usage(v: &Value) -> Usage {
             .or_else(|| u["prompt_tokens_details"]["cached_tokens"].as_u64())
             .unwrap_or(0),
         output: u["completion_tokens"].as_u64().unwrap_or(0),
+        thought: u["completion_tokens_details"]["reasoning_tokens"]
+            .as_u64()
+            .unwrap_or(0),
     }
 }
 
@@ -154,16 +282,24 @@ impl Brain for OpenAi {
             body["temperature"] = json!(t);
         }
 
-        let (v, text) = self.post(&body).await?;
+        let v = self.post(&mut body, req.effort).await?;
         let out = v["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or_default()
             .trim()
             .to_owned();
         if out.is_empty() {
+            let spent = usage(&v);
             return Err(Error::Malformed {
                 provider: "openai".into(),
-                detail: format!("no message content in {text}"),
+                detail: if v["choices"][0]["finish_reason"] == "length" {
+                    format!(
+                        "the answer ran out at {} tokens, {} of them thinking, before anything was written",
+                        spent.output, spent.thought
+                    )
+                } else {
+                    "an empty answer".to_owned()
+                },
             });
         }
         Ok(Reply {
@@ -180,6 +316,10 @@ impl Brain for OpenAi {
 
     fn window(&self) -> Option<u64> {
         self.window
+    }
+
+    fn max_output(&self) -> Option<u32> {
+        self.max_output
     }
 
     async fn step(&self, turn: &Turn) -> Result<Step> {
@@ -208,15 +348,9 @@ impl Brain for OpenAi {
             body["temperature"] = json!(t);
         }
 
-        let (v, text) = self.post(&body).await?;
+        let v = self.post(&mut body, turn.effort).await?;
         let choice = &v["choices"][0];
         let message = &choice["message"];
-        if !message.is_object() {
-            return Err(Error::Malformed {
-                provider: "openai".into(),
-                detail: format!("no message in {text}"),
-            });
-        }
         let calls: Vec<Call> = message["tool_calls"]
             .as_array()
             .map(|calls| {
@@ -270,6 +404,41 @@ impl Brain for OpenAi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_streamed_answer_is_put_back_together() {
+        let events: Vec<Value> = [
+            r#"{"model":"m","choices":[{"delta":{"role":"assistant","reasoning_content":"they want "}}]}"#,
+            r#"{"choices":[{"delta":{"reasoning_content":"two things"}}]}"#,
+            r#"{"choices":[{"delta":{"content":"On it."}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"shell","arguments":"{\"comm"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","function":{"name":"read","arguments":""}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\":\"ls\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":\"a\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+            r#"{"choices":[],"usage":{"prompt_tokens":100,"prompt_cache_hit_tokens":80,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":12}}}"#,
+        ]
+        .iter()
+        .map(|e| serde_json::from_str(e).unwrap())
+        .collect();
+        let v = gather(&events);
+        let message = &v["choices"][0]["message"];
+        assert_eq!(message["content"], "On it.");
+        assert_eq!(message["reasoning_content"], "they want two things");
+        assert_eq!(message["tool_calls"][0]["id"], "c1");
+        assert_eq!(
+            message["tool_calls"][0]["function"]["arguments"],
+            r#"{"command":"ls"}"#
+        );
+        assert_eq!(message["tool_calls"][1]["function"]["name"], "read");
+        assert_eq!(v["choices"][0]["finish_reason"], "tool_calls");
+        assert_eq!(v["model"], "m");
+        let spent = usage(&v);
+        assert_eq!(
+            (spent.input, spent.cached, spent.output, spent.thought),
+            (100, 80, 30, 12)
+        );
+    }
 
     #[test]
     fn a_transcript_goes_on_the_wire_in_order() {

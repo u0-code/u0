@@ -169,6 +169,10 @@ impl Brain for Anthropic {
         self.window
     }
 
+    fn max_output(&self) -> Option<u32> {
+        crate::known_max_output(&self.model)
+    }
+
     async fn step(&self, turn: &Turn) -> Result<Step> {
         let mut messages = wire(&turn.items);
         // Cache everything up to the newest message: a loop resends the same
@@ -238,6 +242,7 @@ impl Brain for Anthropic {
                     + cached,
                 cached,
                 output: u["output_tokens"].as_u64().unwrap_or(0),
+                thought: 0,
             },
             model: v["model"].as_str().unwrap_or(&self.model).to_owned(),
             carry: (!kept.is_empty()).then_some(Value::Array(kept)),

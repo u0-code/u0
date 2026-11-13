@@ -102,7 +102,7 @@ impl Default for MindConfig {
     fn default() -> Self {
         Self {
             tempo: 1.0,
-            max_tokens: 700,
+            max_tokens: 2000,
             thread_window: 40,
             calls_per_hour: 120,
             posts_per_day: 3,

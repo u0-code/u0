@@ -436,7 +436,13 @@ impl Mind {
                 ("addressed", addressed),
             ],
         );
-        Ok(Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens).expecting_json())
+        // Talking is not a problem to be worked out at length, and what she
+        // thinks is spent from the same allowance as what she says.
+        Ok(
+            Completion::ask(self.self_prompt(now)?, prompt, self.cfg.max_tokens)
+                .expecting_json()
+                .thinking(ghost_brain::Effort::Low),
+        )
     }
 
     fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {

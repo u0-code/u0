@@ -17,7 +17,7 @@ use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
 
 use anyhow::{Context, bail};
 use clap::Parser;
-use ghost_brain::{Brain, CliAgent, CliKind, anthropic::Anthropic, openai::OpenAi};
+use ghost_brain::{Brain, CliAgent, CliKind, Effort, anthropic::Anthropic, openai::OpenAi};
 use ghost_work::{
     Docker, Limits, Local, Machine, Undertaking, Worker, claude, codex, mcp, tools,
     worker::{opening_text, system_prompt},
@@ -105,8 +105,14 @@ struct Args {
     /// not known here.
     #[arg(long)]
     context_window: Option<u64>,
-    #[arg(long, default_value_t = 8192)]
-    max_output: u32,
+    /// Output tokens per step, thinking included. Default: what the model
+    /// is known to manage, up to 32,000.
+    #[arg(long)]
+    max_output: Option<u32>,
+    /// How hard the model thinks at each step: off, low, high or max.
+    /// Default: whatever the provider does.
+    #[arg(long)]
+    effort: Option<String>,
     #[arg(long)]
     temperature: Option<f32>,
     /// Accept the worker's own word that it is finished, without a review.
@@ -231,6 +237,14 @@ async fn main() -> anyhow::Result<()> {
         max_seconds: args.max_minutes * 60,
         context_tokens: args.context_tokens,
         max_output: args.max_output,
+        effort: match args.effort.as_deref() {
+            None => None,
+            Some("off") => Some(Effort::Off),
+            Some("low") => Some(Effort::Low),
+            Some("high") => Some(Effort::High),
+            Some("max") => Some(Effort::Max),
+            Some(other) => bail!("unknown effort {other:?}: use off, low, high or max"),
+        },
         temperature: args.temperature,
         audit: !args.no_audit,
     };

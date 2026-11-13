@@ -27,7 +27,7 @@ use std::{
     time::Instant,
 };
 
-use ghost_brain::{Brain, Call, Item, Stop, Turn, Usage};
+use ghost_brain::{Brain, Call, Effort, Item, Stop, Turn, Usage};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -43,6 +43,9 @@ const NO_CALL: &str = "You wrote a message but called no tool, so nothing happen
 If the work is complete, check it and call `done`. Otherwise take the next action now.";
 const CUT_OFF: &str = "Your last message was cut off by the output limit before it finished. \
 Continue. If you were writing a large file, write it in several smaller pieces.";
+const THOUGHT_OUT: &str = "Your last step used its whole output allowance thinking and wrote nothing, \
+so nothing happened. Do not work the whole problem out in your head: take the next small action now \
+and let its result tell you what to do after it.";
 const REPEATING: &str = "You have made the same call three times and got the same result. \
 It will not change. Stop and think about what that result is telling you, then do something different.";
 const HANDOFF: &str = "Your context is almost full, and all of it but the most recent part is about to be cleared. \
@@ -80,6 +83,12 @@ const AUDIT_SHOWN: usize = 14_000;
 /// How much of the list of commands the reviewer is shown, in characters.
 const AUDIT_LEDGER: usize = 10_000;
 
+/// What one step may write when nothing says and nothing is known about
+/// the model.
+const UNKNOWN_OUTPUT: u32 = 8192;
+/// What one step may write on a model known to manage more: room to think
+/// at length and still write a long file.
+const KNOWN_OUTPUT: u32 = 32_000;
 /// Where a transcript is folded when nothing says and the model's window is
 /// not known: small enough for any model worth working with.
 const UNKNOWN_WINDOW: u64 = 60_000;
@@ -117,8 +126,13 @@ pub struct Limits {
     /// Left unset, that is most of the model's context window, or a small
     /// fixed size for a model whose window is not known.
     pub context_tokens: Option<u64>,
-    /// Output tokens per step.
-    pub max_output: u32,
+    /// Output tokens per step, thinking included. Left unset, it is what
+    /// the model is known to manage up to a generous ceiling, or a small
+    /// fixed amount for a model nothing is known about.
+    pub max_output: Option<u32>,
+    /// How hard the model thinks at each step. `None` leaves it to the
+    /// provider.
+    pub effort: Option<Effort>,
     pub temperature: Option<f32>,
     /// Have a claim of being finished looked at by a reviewer who sees only
     /// the task, the evidence and the recent output.
@@ -131,7 +145,8 @@ impl Default for Limits {
             max_steps: 200,
             max_seconds: 3600,
             context_tokens: None,
-            max_output: 8192,
+            max_output: None,
+            effort: None,
             temperature: None,
             audit: true,
         }
@@ -325,16 +340,7 @@ fn mend(items: &mut Vec<Item>) {
 }
 
 fn too_long(error: &ghost_brain::Error) -> bool {
-    let ghost_brain::Error::Api {
-        status: 400, body, ..
-    } = error
-    else {
-        return false;
-    };
-    let body = body.to_lowercase();
-    body.contains("context")
-        || body.contains("too long")
-        || body.contains("maximum") && body.contains("token")
+    matches!(error, ghost_brain::Error::TooLong { .. })
 }
 
 fn preview(text: &str, max: usize) -> String {
@@ -430,10 +436,19 @@ impl Worker {
     /// was asked for, or most of the model's window with room left to
     /// answer in, and in either case well under any size the model has
     /// already refused.
+    /// How much one step may write.
+    fn max_output(&self) -> u32 {
+        self.limits.max_output.unwrap_or_else(|| {
+            self.brain
+                .max_output()
+                .map_or(UNKNOWN_OUTPUT, |most| most.min(KNOWN_OUTPUT))
+        })
+    }
+
     fn budget(&self) -> u64 {
         let wanted = self.limits.context_tokens.unwrap_or_else(|| {
             self.brain.window().map_or(UNKNOWN_WINDOW, |window| {
-                let reserved = u64::from(self.limits.max_output) + HEADROOM.min(window / 8);
+                let reserved = u64::from(self.max_output()) + HEADROOM.min(window / 8);
                 (window * 4 / 5).min(window.saturating_sub(reserved))
             })
         });
@@ -594,10 +609,12 @@ impl Worker {
                 shown.join("\n\n")
             ))],
             tools: Vec::new(),
-            // Room for a model that thinks before it answers: thinking is
-            // counted against this too, and a verdict cut off by it is none.
-            max_tokens: self.limits.max_output.max(6000),
+            // A verdict needs reading, not long thought, and thinking is
+            // spent from the same allowance as the answer: a reviewer that
+            // thinks it all away has said nothing.
+            max_tokens: self.max_output().max(8000),
             temperature: self.limits.temperature,
+            effort: Some(Effort::Low),
         };
         match self.brain.step(&turn).await {
             Ok(step) if step.text.trim().is_empty() => {
@@ -686,8 +703,9 @@ impl Worker {
                 system: system.to_owned(),
                 items: shown,
                 tools: tools.specs(),
-                max_tokens: self.limits.max_output,
+                max_tokens: self.max_output(),
                 temperature: self.limits.temperature,
+                effort: self.limits.effort,
             };
             match self.brain.step(&turn).await {
                 Ok(step) => {
@@ -827,8 +845,9 @@ impl Worker {
                 system: system.clone(),
                 items: items.clone(),
                 tools: specs.clone(),
-                max_tokens: self.limits.max_output,
+                max_tokens: self.max_output(),
                 temperature: self.limits.temperature,
+                effort: self.limits.effort,
             };
             let step = match self.brain.step(&turn).await {
                 Ok(step) => step,
@@ -873,11 +892,13 @@ impl Worker {
             let mut usage = step.usage;
             usage.add(extra);
             let (said, calls, why) = (step.text.clone(), step.calls.clone(), step.stop);
+            let thought_out = why == Stop::Length && said.is_empty() && calls.is_empty();
             tracing::info!(
-                "step {n}: read {} ({} cached), wrote {}{}",
+                "step {n}: read {} ({} cached), wrote {} ({} thinking){}",
                 step.usage.input,
                 step.usage.cached,
                 step.usage.output,
+                step.usage.thought,
                 if said.is_empty() {
                     String::new()
                 } else {
@@ -897,7 +918,9 @@ impl Worker {
                     self.save(&items, &mut recorded);
                     return self.report(Ended::Stalled);
                 }
-                items.push(Item::user(if why == Stop::Length {
+                items.push(Item::user(if thought_out {
+                    THOUGHT_OUT
+                } else if why == Stop::Length {
                     CUT_OFF
                 } else {
                     NO_CALL
@@ -959,6 +982,7 @@ impl Worker {
                 "read": usage.input,
                 "cached": usage.cached,
                 "wrote": usage.output,
+                "thought": usage.thought,
                 "model_ms": model_ms,
                 "said": preview(&said, 400),
                 "calls": logged,
@@ -1002,6 +1026,8 @@ mod tests {
         window: AtomicU64,
         /// It refuses a transcript of more than this many tokens; 0 for never.
         refuses_over: AtomicU64,
+        /// What it says it can write in one answer; 0 for not known.
+        max_output: AtomicU64,
     }
 
     fn says(text: &str) -> Step {
@@ -1013,6 +1039,7 @@ mod tests {
                 input: 100,
                 cached: 0,
                 output: 10,
+                thought: 0,
             },
             model: "scripted".into(),
             carry: None,
@@ -1042,15 +1069,19 @@ mod tests {
         fn window(&self) -> Option<u64> {
             Some(self.window.load(Ordering::Relaxed)).filter(|w| *w > 0)
         }
+        fn max_output(&self) -> Option<u32> {
+            u32::try_from(self.max_output.load(Ordering::Relaxed))
+                .ok()
+                .filter(|m| *m > 0)
+        }
         async fn step(&self, turn: &Turn) -> Result<Step> {
             // Like a real model, it reads as much as it is shown.
             let size = (chars(&turn.items) / 3).max(100) as u64;
             let limit = self.refuses_over.load(Ordering::Relaxed);
             if limit > 0 && size > limit {
-                return Err(ghost_brain::Error::Api {
+                return Err(ghost_brain::Error::TooLong {
                     provider: "scripted".into(),
-                    status: 400,
-                    body: "This model's maximum context length is less than what was sent".into(),
+                    detail: "more than this model's window".into(),
                 });
             }
             self.seen.lock().unwrap().push(turn.clone());
@@ -1079,6 +1110,7 @@ mod tests {
             seen: Mutex::new(vec![]),
             window: AtomicU64::new(0),
             refuses_over: AtomicU64::new(0),
+            max_output: AtomicU64::new(0),
         });
         let machine = Arc::new(Local::new(dir));
         let worker = Worker {
@@ -1399,6 +1431,12 @@ mod tests {
         // A small window keeps room to answer in.
         brain.window.store(32_000, Ordering::Relaxed);
         assert_eq!(worker.budget(), 32_000 - 8192 - 4000);
+        // What a step may write is what the model is known to manage, up
+        // to a ceiling; little, for a model nothing is known about.
+        assert_eq!(worker.max_output(), 8192);
+        brain.max_output.store(393_216, Ordering::Relaxed);
+        assert_eq!(worker.max_output(), 32_000);
+        brain.max_output.store(0, Ordering::Relaxed);
         worker.limits.context_tokens = Some(50_000);
         assert_eq!(worker.budget(), 50_000);
         worker.undertaking.update(|s| s.refused_at = Some(40_000));

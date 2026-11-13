@@ -26,7 +26,7 @@ token_env = "GHOSTD_TOKEN"
 # sleep; use it only while developing.
 tempo = 1.0
 # Longest thing a brain may write back for one deliberation, in tokens.
-max_tokens = 700
+max_tokens = 2000
 # How many messages of a conversation she sees when she looks at it.
 thread_window = 40
 # Ceiling on brain calls per hour. 0 means no ceiling.
@@ -115,6 +115,11 @@ api_key = "ollama"
 # The model's context window in tokens. Known for DeepSeek's and Anthropic's
 # models; for anything else say it here, or work is paced as if it were small.
 context_window = 40000
+# The most it writes in one answer, thinking included. Unknown means 8192.
+# max_output = 16000
+# Set if the server takes `reasoning_effort`, so that she can think less
+# when chatting and when checking, and more when working.
+# reasoning_effort = true
 
 # Relay through the Claude Code CLI you are already logged into.
 # Runs `claude -p` as a subprocess. For your own experiments only.

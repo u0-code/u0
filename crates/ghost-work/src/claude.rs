@@ -80,6 +80,7 @@ fn usage_of(message: &Value) -> Usage {
         input: n("input_tokens") + n("cache_creation_input_tokens") + cached,
         cached,
         output: n("output_tokens"),
+        thought: 0,
     }
 }
 
@@ -329,7 +330,8 @@ mod tests {
             Usage {
                 input: 115,
                 cached: 100,
-                output: 7
+                output: 7,
+                thought: 0,
             }
         );
     }

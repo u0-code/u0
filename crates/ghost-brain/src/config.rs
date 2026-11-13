@@ -53,6 +53,12 @@ pub enum ProviderConfig {
         /// The model's context window in tokens, when it is not one this
         /// crate knows. Work is paced by it.
         context_window: Option<u64>,
+        /// The most the model writes in one answer, thinking included,
+        /// when it is not one this crate knows.
+        max_output: Option<u32>,
+        /// The server takes `reasoning_effort` and `thinking`, so the model
+        /// can be told how hard to think. Known for DeepSeek's models.
+        reasoning_effort: Option<bool>,
     },
     ClaudeCode {
         /// Path to the `claude` binary. Default: found on PATH.
@@ -126,6 +132,8 @@ impl ProviderConfig {
                 max_tokens_param,
                 json_mode,
                 context_window,
+                max_output,
+                reasoning_effort,
             } => std::sync::Arc::new(
                 OpenAi::new(
                     key(api_key.as_ref(), api_key_env)?,
@@ -134,7 +142,9 @@ impl ProviderConfig {
                     max_tokens_param.clone(),
                     *json_mode,
                 )
-                .with_window(*context_window),
+                .with_window(*context_window)
+                .with_max_output(*max_output)
+                .with_effort(*reasoning_effort),
             ),
             Self::ClaudeCode {
                 program,

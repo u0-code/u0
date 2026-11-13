@@ -24,12 +24,19 @@ trait Brain {
     async fn complete(&self, req: &Completion) -> Result<Reply>;   // 文字进，文字出
     fn works(&self) -> bool;                                        // 能否带工具
     async fn step(&self, turn: &Turn) -> Result<Step>;              // 带工具的一步
+    fn window(&self) -> Option<u64>;                                // 上下文窗口
+    fn max_output(&self) -> Option<u32>;                            // 一次回答最多写多少（含思考）
 }
 
-struct Turn { system, items: Vec<Item>, tools: Vec<ToolSpec>, max_tokens, temperature }
+struct Turn { system, items: Vec<Item>, tools: Vec<ToolSpec>, max_tokens, temperature, effort }
 enum   Item { User{text}, Assistant{text, calls, carry}, Result{id, name, output, failed} }
-struct Step { text, calls: Vec<Call>, stop: End|Calls|Length, usage: {input, cached, output}, model, carry }
+struct Step { text, calls: Vec<Call>, stop: End|Calls|Length, usage: {input, cached, output, thought}, model, carry }
+enum   Effort { Off, Low, High, Max }                               // 先想多少再答
 ```
+
+- **回答按流接收**（OpenAI 兼容接口）。想了几分钟才开始写的模型，不走流的话连接上一直没有字节，中间的代理会把它断掉：第一次基准重跑里审查者 26 次有 6 次就是这样没了回答。流在中途断了，整个请求重发；服务端不支持流就照常读整个响应体。
+- **思考和回答花的是同一份额度。** `usage.thought` 单独记思考用了多少。一步的输出上限按模型来（已知的模型取 32,000，不认识的取 8,192）；审查用 `Effort::Low`。额度全花在思考上、什么都没写的一步，会被明确告诉模型。
+- **"上下文太长"是一种独立的错误**（`Error::TooLong`），在这一层从各家的报错文字里认出来，循环不再自己猜。
 
 - `carry` 是提供方要求原样带回的东西（DeepSeek 的 `reasoning_content`、Anthropic 的 thinking 块），对其他所有人不透明。
 - brain 永远不自己执行工具。循环在 `ghost-work` 里。

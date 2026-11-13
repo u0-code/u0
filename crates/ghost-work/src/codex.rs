@@ -185,6 +185,7 @@ pub async fn sit(seat: &Seat) -> Report {
                     input: n("input_tokens"),
                     cached: n("cached_input_tokens"),
                     output: n("output_tokens"),
+                    thought: n("reasoning_output_tokens"),
                 });
             }
             Some("turn.failed" | "error") => {

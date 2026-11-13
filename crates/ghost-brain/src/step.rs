@@ -76,6 +76,19 @@ impl Item {
     }
 }
 
+/// How hard a model that thinks before it answers should think. What a
+/// model thinks is spent from the same allowance as what it writes, so this
+/// is also how much of `max_tokens` is left for the answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Effort {
+    /// Do not think: answer.
+    Off,
+    Low,
+    High,
+    Max,
+}
+
 /// A request for one step.
 #[derive(Debug, Clone)]
 pub struct Turn {
@@ -84,6 +97,9 @@ pub struct Turn {
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
+    /// `None` leaves it to the provider. A provider that cannot be told
+    /// ignores it.
+    pub effort: Option<Effort>,
 }
 
 /// Why the model stopped.
@@ -105,7 +121,11 @@ pub struct Usage {
     pub input: u64,
     /// The part of `input` served from the provider's prompt cache.
     pub cached: u64,
+    /// Everything the model produced, thinking included.
     pub output: u64,
+    /// The part of `output` that was thinking, where the provider says.
+    #[serde(default)]
+    pub thought: u64,
 }
 
 impl Usage {
@@ -113,6 +133,7 @@ impl Usage {
         self.input += other.input;
         self.cached += other.cached;
         self.output += other.output;
+        self.thought += other.thought;
     }
 }
 
