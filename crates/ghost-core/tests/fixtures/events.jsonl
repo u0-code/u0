@@ -1,0 +1,48 @@
+{"kind":"born","data":{"name":"Lin","seal":"397b94eb5a1c0d2f6e8b7a4c3d2e1f0099887766554433221100ffeeddccbbaa"}}
+{"kind":"dormant","data":{"since":"2026-11-01T08:30:00Z"}}
+{"kind":"woke"}
+{"kind":"slept"}
+{"kind":"planned","data":{"day":"2026-11-02","blocks":[{"from":"09:30","to":"11:00","what":"sketching the teahouse on the east side","reach":"busy"},{"from":"13:00","to":"14:00","what":"lunch","reach":"free"}]}}
+{"kind":"planned","data":{"day":"2026-11-03","weather":"light rain, 12 degrees","blocks":[{"from":"01:00","to":"02:00","what":"reading","reach":"glance"},{"from":"10:00","to":"12:00","what":"the market","reach":"away"}]}}
+{"kind":"lived","data":{"text":"Got the roofline down."}}
+{"kind":"lived","data":{"text":"The teahouse was shut, so she drew the gate.","block":0}}
+{"kind":"heard","data":{"channel":"t","place":{"id":"wen","kind":"direct"},"from":{"id":"wen","name":"Wen"},"id":"m1","text":"hi"}}
+{"kind":"heard","data":{"channel":"d","place":{"id":"room-7","kind":"group","name":"the studio"},"from":{"id":"bot-3","name":"Minutes","handle":"minutes","automated":true},"id":"m2","text":"@lin are you coming?","reply_to":"m1","addressed":true}}
+{"kind":"heard","data":{"channel":"x","place":{"id":"thread-9","kind":"public"},"from":{"id":"u1","name":"Someone"},"id":"p4","text":"nice drawing"}}
+{"kind":"read","data":{"channel":"t","place":"wen","upto":9}}
+{"kind":"said","data":{"channel":"t","place":"wen","text":"hey"}}
+{"kind":"said","data":{"channel":"t","place":"wen","id":"out-1","text":"nine, I think","reply_to":"m1"}}
+{"kind":"reacted","data":{"channel":"t","place":"wen","to":"m1","emoji":"👍"}}
+{"kind":"posted","data":{"channel":"x","text":"The plane trees are turning."}}
+{"kind":"posted","data":{"channel":"x","id":"p9","text":"One doorway, east side."}}
+{"kind":"saw","data":{"channel":"x","text":"someone on the timeline, about the rain"}}
+{"kind":"decided","data":{"about":"t:wen","decision":"said 1 thing","reason":"she sounds tired"}}
+{"kind":"felt","data":{"toward":"t:wen","delta":1,"why":"easy to talk to"}}
+{"kind":"felt","data":{"toward":"t:wen","delta":-2,"why":"that was unkind"}}
+{"kind":"noted","data":{"about":"t:wen","text":"designs buildings"}}
+{"kind":"noted","data":{"about":"t:wen","text":"is leaving the institute","place":"t:wen"}}
+{"kind":"intended","data":{"due":"2026-11-03T02:00:00Z","what":"ask how the interview went"}}
+{"kind":"intended","data":{"due":"2026-11-03T02:00:00.250000Z","what":"tell them what came of it","about":"t:wen","place":"t:wen","owed":true}}
+{"kind":"settled","data":{"intention":24,"outcome":"said 1 thing"}}
+{"kind":"left","data":{"person":"t:wen","why":"it had gone cold"}}
+{"kind":"reflected","data":{"text":"A quiet day. The gate stays with me."}}
+{"kind":"canon","data":{"fact":"has started sketching the old teahouse","source":"reflection"}}
+{"kind":"undertook","data":{"id":"20261112-140000-00ab","brief":"Find out when the Heming tea house closes on weekdays."}}
+{"kind":"undertook","data":{"id":"20261112-150000-00cd","brief":"Write up the hours.\n\nWhat Wen wrote, word for word:\n> can you write up when it is open?","asked_by":"t:wen","place":"t:wen"}}
+{"kind":"worked","data":{"id":"20261112-140000-00ab","summary":"two sources so far","steps":9}}
+{"kind":"asked","data":{"id":"20261112-150000-00cd","question":"weekdays or weekends?"}}
+{"kind":"added","data":{"id":"20261112-150000-00cd","text":"Weekdays."}}
+{"kind":"concluded","data":{"id":"20261112-140000-00ab","outcome":"finished","summary":"It closes at nine on weekdays."}}
+{"kind":"measured","data":{"channel":"x"}}
+{"kind":"measured","data":{"channel":"x","followers":120,"posts":[{"id":"p9","likes":3,"replies":1,"reposts":0,"views":240},{"id":"p8"}]}}
+{"kind":"learned","data":{"lesson":"one doorway, described plainly, is what people answer"}}
+{"kind":"learned","data":{"lesson":"a photograph-sized observation a day","replaces":38}}
+{"kind":"profiled","data":{"person":"t:wen","shared":"An architect."}}
+{"kind":"profiled","data":{"person":"t:wen","shared":"An architect, careful with words.","private":"Leaving the institute; has told nobody."}}
+{"kind":"challenged","data":{"claimant":"d:wen","claimed":"t:wen","word":"heron"}}
+{"kind":"linked","data":{"one":"d:wen","other":"t:wen"}}
+{"kind":"digested","data":{"place":"t:wen","upto":9,"text":"Wen has been telling you about the tea house, one line at a time."}}
+{"kind":"pursued","data":{"what":"draw the tea houses that are closing, before they do"}}
+{"kind":"pursued","data":{"what":"","replaces":45}}
+{"kind":"practised","data":{"lesson":"Look at when a page was last changed before trusting a date on it."}}
+{"kind":"practised","data":{"lesson":"Check the page date, then one other source.","replaces":47}}
