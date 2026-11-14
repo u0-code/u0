@@ -45,7 +45,15 @@ const LOOKED_UP: usize = 3000;
 /// The tools that bring something back and so ask for another turn. None of
 /// them is offered on a look's last turn.
 const BRINGS_BACK: &[&str] = &[
-    "recall", "reread", "search", "fetch", "read", "write", "edit", "shell",
+    "recall",
+    "reread",
+    "search",
+    "fetch",
+    "read",
+    "write",
+    "edit",
+    "shell",
+    "load_tools",
 ];
 /// How much of what reached beyond the conversation she is shown in it: a
 /// page is read at a glance, and the rest of it is work.
@@ -75,6 +83,9 @@ pub(super) struct Thinking {
     pub thought: String,
     /// She has been told once that a thought is not a message.
     pub nudged: bool,
+    /// The servers of tools she loaded in this look: their tools are
+    /// offered for the rest of it.
+    pub loaded: ghost_work::tools::Loaded,
 }
 
 impl Thinking {
@@ -91,6 +102,7 @@ impl Thinking {
             took: Vec::new(),
             thought: String::new(),
             nudged: false,
+            loaded: ghost_work::tools::Loaded::default(),
         }
     }
 }
@@ -449,14 +461,17 @@ impl Mind {
             self.think.clone()
         };
         let with_tools = self.cfg.talk_tools && brain.works();
-        let offer = self.offer(place, with_tools, now)?;
+        let offer = self.offer(place, with_tools, &job.loaded, now)?;
         let mut tools = actions::tools(&self.prompts, &offer);
         // On the last turn of a look nothing more can come back to her, so
         // only what acts is offered, and she is told so: a look that runs out
         // of turns must still end in an answer, never in silence.
         let last = with_tools && job.round > 0 && job.round + 1 >= self.cfg.talk_steps;
         if last {
-            tools.retain(|t| !BRINGS_BACK.contains(&t.name.as_str()));
+            // A tool of a server she loaded brings something back too.
+            tools.retain(|t| {
+                !BRINGS_BACK.contains(&t.name.as_str()) && catalog::find(&t.name).is_some()
+            });
             job.items.push(Item::user(self.prompts.text("last_turn")));
         }
         // What she sees is put together once for a look made of tool
@@ -902,7 +917,13 @@ impl Mind {
     /// What a look at `place` offers beyond what is always there. With
     /// `with_tools`, that includes what reaches beyond the conversation, as
     /// it is said there: what it is, and the conversation's pace.
-    fn offer(&self, place: &PlaceState, with_tools: bool, now: DateTime<Utc>) -> Result<Offer> {
+    fn offer(
+        &self,
+        place: &PlaceState,
+        with_tools: bool,
+        loaded: &ghost_work::tools::Loaded,
+        now: DateTime<Utc>,
+    ) -> Result<Offer> {
         let mut offer = Offer {
             means: self.work_means().map(str::to_owned),
             files: self.can(&place.channel, Can::Files),
@@ -913,7 +934,7 @@ impl Mind {
         if with_tools {
             let glance = self.prompts.text("at_a_glance");
             offer.reaching = self
-                .reaching(place, now)?
+                .reaching(place, loaded, now)?
                 .specs(self.prompts.store(), Loop::Conversation)
                 .into_iter()
                 .map(|mut spec| {
@@ -927,15 +948,25 @@ impl Mind {
 
     /// The tools that reach beyond a conversation, as she has them in
     /// `place`: the web, if she has it; her machine, if she has one and
-    /// may use it here.
-    fn reaching(&self, place: &PlaceState, now: DateTime<Utc>) -> Result<Toolbox> {
+    /// may use it here; and the servers of tools she has, with the tools
+    /// of those `loaded` in this look.
+    fn reaching(
+        &self,
+        place: &PlaceState,
+        loaded: &ghost_work::tools::Loaded,
+        now: DateTime<Utc>,
+    ) -> Result<Toolbox> {
         let web = self.cfg.work.web.then_some(&self.workshop.web);
         let machine = if self.machine_here(place, now)? {
             self.workshop.machine.clone()
         } else {
             None
         };
-        Ok(ghost_work::tools::reaching(web, machine))
+        let tools = ghost_work::tools::reaching(web, machine);
+        Ok(match &self.workshop.servers {
+            Some(servers) => ghost_work::tools::with_servers(tools, servers, loaded, false),
+            None => tools,
+        })
     }
 
     /// Whether she may use her machine in the middle of this conversation.
@@ -965,10 +996,19 @@ impl Mind {
 
     /// What she is told she can do here, from the tools offered here that
     /// say what having them lets her do; nothing at all when none do.
+    /// Where she can take something on, the tools only work has are told
+    /// too: someone may want what she cannot do yet, such as a browser,
+    /// and finding one is a piece of work she can take on.
     pub(super) fn abilities_here(&self, offered: &[&str]) -> String {
+        let at_work = offered.contains(&"undertake");
         let lines: Vec<String> = catalog::TOOLS
             .iter()
-            .filter(|e| offered.contains(&e.name))
+            .filter(|e| {
+                offered.contains(&e.name)
+                    || (at_work
+                        && !e.loops.contains(&Loop::Conversation)
+                        && e.needs.iter().all(|n| self.at_work_has(*n)))
+            })
             .filter_map(|e| self.prompts.store().ability(e.name))
             .map(|a| {
                 self.prompts
@@ -980,6 +1020,16 @@ impl Mind {
         } else {
             self.prompts
                 .fill("abilities", &[("abilities", lines.join("\n"))])
+        }
+    }
+
+    /// Whether work she took on would have what `need` asks for. Only
+    /// what a tool of work alone could need is answered; what a piece of
+    /// work has depends on the piece, and is not claimed here.
+    fn at_work_has(&self, need: Need) -> bool {
+        match need {
+            Need::Registry => self.workshop.servers.as_ref().is_some_and(|s| s.installs()),
+            _ => false,
         }
     }
 
@@ -1106,7 +1156,7 @@ impl Mind {
             return self.conclude(job, place, now);
         }
         let mut again = false;
-        let reaching = self.reaching(place, now)?;
+        let reaching = self.reaching(place, &job.loaded, now)?;
         let reachable = reaching.names();
         let mut outside = Vec::new();
         for call in calls {

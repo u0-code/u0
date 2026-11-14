@@ -32,6 +32,7 @@ mod belongings;
 mod canon;
 mod craft;
 mod digests;
+mod installed;
 mod intentions;
 mod links;
 mod messages;
@@ -46,6 +47,7 @@ pub use belongings::Belonging;
 pub use canon::Fact;
 pub use craft::Lesson;
 pub use digests::Digest;
+pub use installed::Installed;
 pub use intentions::Intention;
 pub use links::Challenge;
 pub use messages::{Aside, Line, Share, Unprompted};
@@ -63,7 +65,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -135,6 +137,7 @@ impl Memory {
             public::SCHEMA,
             links::SCHEMA,
             belongings::SCHEMA,
+            installed::SCHEMA,
             recall::SCHEMA,
         ] {
             conn.execute_batch(tables)?;
@@ -203,6 +206,7 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     public::fold(tx, entry, at)?;
     links::fold(tx, entry, at)?;
     belongings::fold(tx, entry, at)?;
+    installed::fold(tx, entry, at)?;
     recall::fold(tx, entry, at)
 }
 

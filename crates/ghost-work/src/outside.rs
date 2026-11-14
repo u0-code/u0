@@ -42,7 +42,16 @@ pub fn source(words: &Store, call: &Call) -> Option<String> {
             Some(job) => ("outside_job", vec![("job", job.to_string())]),
             None => ("outside_shell", vec![("command", command(&arg("command")))]),
         },
-        name if catalog::find(name).is_none() => ("outside_tool", vec![("tool", name.to_owned())]),
+        "find_tools" => ("outside_registry", vec![("query", arg("query"))]),
+        "install" => ("outside_install", vec![("name", arg("name"))]),
+        name if catalog::find(name).is_none() => match name.split_once("__") {
+            // A loaded tool of a server, as `load_tools` names it.
+            Some((server, tool)) => (
+                "outside_server",
+                vec![("server", server.to_owned()), ("tool", tool.to_owned())],
+            ),
+            None => ("outside_tool", vec![("tool", name.to_owned())]),
+        },
         _ => return None,
     };
     Some(words.fill(TEXTS, key, &pairs))

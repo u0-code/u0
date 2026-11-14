@@ -50,10 +50,17 @@ impl Outcome {
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// What the model calls it by.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     /// What the model is told about it in `lp`, in the words of `words`.
     fn spec(&self, words: &Store, lp: Loop) -> ToolSpec;
     async fn call(&self, args: &Value) -> Outcome;
+    /// Tools this one has made usable, offered right after it. A tool that
+    /// loads others, such as `load_tools`, brings them; the rest bring
+    /// none. Asked each time the tools are listed, so what is brought can
+    /// grow while the box is in use.
+    fn brings(&self) -> Vec<Arc<dyn Tool>> {
+        Vec::new()
+    }
 }
 
 /// Build a spec without the ceremony, for a tool whose words are not
@@ -109,19 +116,29 @@ impl Toolbox {
         self
     }
 
+    /// Every tool, each followed by what it brings, in order.
+    fn all(&self) -> Vec<Arc<dyn Tool>> {
+        let mut all = Vec::with_capacity(self.tools.len());
+        for tool in &self.tools {
+            all.push(tool.clone());
+            all.extend(tool.brings());
+        }
+        all
+    }
+
     /// What the model is told about each tool, in `lp`.
     pub fn specs(&self, words: &Store, lp: Loop) -> Vec<ToolSpec> {
-        self.tools.iter().map(|t| t.spec(words, lp)).collect()
+        self.all().iter().map(|t| t.spec(words, lp)).collect()
     }
 
     /// The name of each tool, in order.
     pub fn names(&self) -> Vec<String> {
-        self.tools.iter().map(|t| t.name().to_owned()).collect()
+        self.all().iter().map(|t| t.name().to_owned()).collect()
     }
 
     /// Whether it carries a tool called `name`.
     pub fn has(&self, name: &str) -> bool {
-        self.tools.iter().any(|t| t.name() == name)
+        self.all().iter().any(|t| t.name() == name)
     }
 
     /// Only the named tools.
@@ -138,7 +155,7 @@ impl Toolbox {
     }
 
     pub async fn run(&self, call: &Call) -> Outcome {
-        let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) else {
+        let Some(tool) = self.all().into_iter().find(|t| t.name() == call.name) else {
             let known = self.names();
             return Outcome::fail(format!(
                 "there is no tool called `{}`. The tools are: {}.",

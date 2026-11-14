@@ -4171,6 +4171,106 @@ async fn what_she_is_told_she_can_do_here_is_what_she_is_offered_here() {
 }
 
 #[tokio::test]
+async fn she_is_told_she_can_find_tools_and_is_offered_to_load_only_once_she_has_some() {
+    let t0 = at(14, 0);
+    let ability =
+        |rig: &Rig, name: &str| rig.mind.prompts.store().ability(name).unwrap().to_owned();
+    let folder = tempfile::tempdir().unwrap();
+    let servers = |configured| {
+        ghost_work::servers::Servers::new(
+            ghost_work::servers::Config {
+                registry: "http://127.0.0.1:1".into(),
+                ..ghost_work::servers::Config::default()
+            },
+            folder.path().to_path_buf(),
+            configured,
+        )
+    };
+    let first_turn = |rig: &Rig| rig.think.turns.lock().unwrap()[0].clone();
+
+    // None yet: finding them is work she can take on, and nothing is
+    // there to load.
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.workshop.servers = Some(servers(Vec::new()));
+    rig.hear(dm("wen", "1", "can you look at a page for me?"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let turn = first_turn(&rig);
+    assert!(
+        turn.system.contains(&ability(&rig, "find_tools")),
+        "{}",
+        turn.system
+    );
+    assert!(!turn.tools.iter().any(|t| t.name == "load_tools"));
+    // Installing belongs to work, not to a conversation.
+    assert!(!turn.tools.iter().any(|t| t.name == "install"));
+
+    // With one, it is listed in a line under `load_tools`.
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.workshop.servers = Some(servers(vec![ghost_work::servers::Configured {
+        name: "notes".into(),
+        description: "Her notebook.".into(),
+        command: Some("true".into()),
+        args: Vec::new(),
+        url: None,
+        env: Vec::new(),
+    }]));
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let turn = first_turn(&rig);
+    let load = turn
+        .tools
+        .iter()
+        .find(|t| t.name == "load_tools")
+        .expect("load_tools is offered");
+    assert!(
+        load.description.contains("- notes: Her notebook."),
+        "{}",
+        load.description
+    );
+    assert!(turn.system.contains(&ability(&rig, "load_tools")));
+}
+
+#[tokio::test]
+async fn what_happens_to_her_servers_of_tools_is_written_in_her_journal_by_her() {
+    let t0 = at(14, 0);
+    let folder = tempfile::tempdir().unwrap();
+    let servers = ghost_work::servers::Servers::new(
+        ghost_work::servers::Config::default(),
+        folder.path().to_path_buf(),
+        Vec::new(),
+    );
+    servers.know(vec![ghost_core::memory::Installed {
+        seq: 1,
+        at: t0,
+        name: "io.github.someone/notes".into(),
+        version: "1.0.0".into(),
+        description: "A notebook.".into(),
+        source: "npm:notes@1.0.0".into(),
+        owner: Some("github.com/someone".into()),
+        how: ghost_core::journal::Launch::default(),
+        tools: vec!["write".into()],
+        hash: "h".into(),
+    }]);
+    let mut rig = Rig::new(MindConfig::default(), t0);
+    rig.mind.workshop.servers = Some(servers.clone());
+    // As a sitting of work would, off to the side of her.
+    servers
+        .uninstall("notes", "it never kept anything")
+        .unwrap();
+    assert!(!rig.kinds().contains(&"uninstalled"));
+    rig.mind.on_time(t0).unwrap();
+    assert!(rig.kinds().contains(&"uninstalled"));
+    // Once.
+    rig.mind.on_time(t0).unwrap();
+    assert_eq!(
+        rig.kinds().iter().filter(|k| **k == "uninstalled").count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn her_machine_is_hers_to_use_in_private_with_a_friend_and_not_with_a_stranger() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);
