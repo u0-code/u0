@@ -68,6 +68,25 @@ pub struct MindConfig {
     /// top-level `[operators]` table of `ghostd.toml`, not from `[mind]`.
     #[serde(skip)]
     pub operators: Operators,
+    /// What the people who run her say about particular places, by place
+    /// key (`channel:id`). Set from the top-level `[places]` tables of
+    /// `ghostd.toml`, not from `[mind]`.
+    #[serde(skip)]
+    pub places: BTreeMap<String, PlaceConfig>,
+}
+
+/// What the people who run her say about one place. Neither is hers: they
+/// are how the body is set up, and the one she is shown is shown as what
+/// they said.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlaceConfig {
+    /// She looks here only at what is said to her. What the others say
+    /// among themselves is never looked at, so no brain is asked about it.
+    pub addressed_only: bool,
+    /// Something about the place, shown to her among what is so here when
+    /// she looks at it without being spoken to.
+    pub note: Option<String>,
 }
 
 /// The accounts that run her body, and the prefix that turns a message from
@@ -262,6 +281,7 @@ impl Default for MindConfig {
             prompts: None,
             work: WorkConfig::default(),
             operators: Operators::default(),
+            places: BTreeMap::new(),
         }
     }
 }

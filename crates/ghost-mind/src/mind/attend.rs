@@ -202,17 +202,30 @@ impl Mind {
                 Attend {
                     due: now,
                     addressed: true,
+                    backoff: 1.0,
                 },
             );
             return Ok(());
         }
         let addressed = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        // Where she is holding back, what the others say among themselves
+        // waits until something is said to her.
+        if !addressed && self.holds_back(&place, now) {
+            return Ok(());
+        }
+        let backoff = if addressed {
+            1.0
+        } else {
+            self.backoff(&place, now)?
+        };
         // Let a burst settle before looking.
         let floor = after(now, self.tempo.settle());
         if let Some(existing) = self.agenda.attend.get_mut(place_key)
             && (existing.addressed || !addressed)
+            && backoff >= existing.backoff
         {
-            // Already going to look. More messages only push that out a little.
+            // Already going to look. More messages only push that out a
+            // little, unless they are a reason not to wait as long.
             existing.due = existing.due.max(floor);
             return Ok(());
         }
@@ -230,6 +243,7 @@ impl Mind {
             engaged: place.last_out_at.is_some_and(|at| now - at < ENGAGED_FOR),
             addressed,
             patience: self.patience(&place, now)?,
+            backoff,
         };
         let due = after(now, self.tempo.notice(&notice, &mut self.rng)).max(floor);
         let due = self
@@ -237,9 +251,14 @@ impl Mind {
             .attend
             .get(place_key)
             .map_or(due, |existing| existing.due.min(due).max(floor));
-        self.agenda
-            .attend
-            .insert(place_key.to_owned(), Attend { due, addressed });
+        self.agenda.attend.insert(
+            place_key.to_owned(),
+            Attend {
+                due,
+                addressed,
+                backoff,
+            },
+        );
         Ok(())
     }
 
@@ -274,6 +293,10 @@ impl Mind {
         // A directive does not wait on her day: not on sleep, not on work,
         // not on how often she has spoken here.
         let directed = place.unread_directed > 0;
+        let addressed = directed || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        if !addressed && self.holds_back(&place, now) {
+            return Ok(());
+        }
         let moment = self.life.moment(self.ghost.journal(), now)?;
         if moment.phase == Phase::Asleep && !self.tempo.instant() && !directed {
             return self.schedule_attend(place_key, now);
@@ -288,7 +311,8 @@ impl Mind {
                 place_key.to_owned(),
                 Attend {
                     due: now + Duration::seconds(5),
-                    addressed: place.kind == PlaceKind::Direct || place.unread_addressed > 0,
+                    addressed,
+                    backoff: 1.0,
                 },
             );
             return Ok(());
@@ -301,17 +325,16 @@ impl Mind {
                 .said_since(place_key, now - Duration::hours(1))?
                 >= AUTOMATED_SAYS_PER_HOUR
         {
-            self.record(Event::Read {
-                channel: place.channel.clone(),
-                place: place.id.clone(),
-                upto: place.last_in_seq,
-            })?;
-            self.record(Event::Decided {
-                about: place.key.clone(),
-                decision: "stayed out of it".into(),
-                reason: "only automated accounts are talking, and she has said enough".into(),
-            })?;
-            return Ok(());
+            return self.stay_out(
+                &place,
+                "only automated accounts are talking, and she has said enough",
+            );
+        }
+        if !directed && self.in_a_loop_with_bots(&place)? {
+            return self.stay_out(
+                &place,
+                "she and automated accounts have been answering each other with no person in between",
+            );
         }
         if !self.budget.allow(now) {
             // The budget is the body's, and holds for directives too: one
@@ -328,11 +351,11 @@ impl Mind {
                 Attend {
                     due: now + wait,
                     addressed: true,
+                    backoff: 1.0,
                 },
             );
             return Ok(());
         }
-        let addressed = directed || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
         if addressed {
             self.phone_in_hand(&place.key, now)?;
         }
@@ -375,6 +398,22 @@ impl Mind {
                 attend.due = attend.due.min(due);
             }
         }
+        Ok(())
+    }
+
+    /// She leaves what is unread in a place read and says nothing, without
+    /// asking a brain, for `reason`.
+    fn stay_out(&mut self, place: &PlaceState, reason: &str) -> Result<()> {
+        self.record(Event::Read {
+            channel: place.channel.clone(),
+            place: place.id.clone(),
+            upto: place.last_in_seq,
+        })?;
+        self.record(Event::Decided {
+            about: place.key.clone(),
+            decision: "stayed out of it".into(),
+            reason: reason.to_owned(),
+        })?;
         Ok(())
     }
 
@@ -594,15 +633,7 @@ impl Mind {
         let addressed = match (place.kind, place.unread_addressed > 0) {
             (PlaceKind::Direct, _) => self.prompts.text("addressed_direct").to_owned(),
             (_, true) => self.prompts.text("addressed_you").to_owned(),
-            (_, false) => self.prompts.fill(
-                "addressed_nobody",
-                &[(
-                    "said",
-                    memory
-                        .said_since(&place.key, now - Duration::hours(1))?
-                        .to_string(),
-                )],
-            ),
+            (_, false) => self.unaddressed(place, now)?,
         };
         let why = match &job.why {
             Why::Unread => match place.unread {
@@ -656,6 +687,7 @@ impl Mind {
                     self.abilities(
                         self.can(&place.channel, Can::Files),
                         self.has_work_under_way()?,
+                        place.kind == PlaceKind::Group,
                     ),
                 )],
             )
@@ -875,6 +907,7 @@ impl Mind {
             means: self.work_means().map(str::to_owned),
             files: self.can(&place.channel, Can::Files),
             under_way: self.has_work_under_way()?,
+            group: place.kind == PlaceKind::Group,
             reaching: Vec::new(),
         };
         if with_tools {
@@ -1210,6 +1243,7 @@ impl Mind {
                 Attend {
                     due,
                     addressed: true,
+                    backoff: 1.0,
                 },
             );
             return Ok(());
@@ -1436,6 +1470,11 @@ impl Mind {
                         fact,
                         source: format!("said in {}", place.key),
                     })?;
+                }
+                Action::Quiet { hours } => {
+                    if self.go_quiet(place, hours, now)? {
+                        did.push("went quiet".to_owned());
+                    }
                 }
                 Action::Leave { why } => {
                     if let Some(done) = self.leave(place, why, now)? {

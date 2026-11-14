@@ -75,6 +75,12 @@ pub enum Action {
         #[serde(deserialize_with = "reference")]
         memory: i64,
     },
+    /// Hold back in a group for a while, having been asked to: look only
+    /// at what is said to her there, for this many hours.
+    Quiet {
+        #[serde(deserialize_with = "number")]
+        hours: f64,
+    },
     /// End a relationship.
     Leave {
         #[serde(default)]
@@ -192,6 +198,8 @@ pub struct Offer {
     pub files: bool,
     /// She has work she could steer or stop.
     pub under_way: bool,
+    /// The place is a group.
+    pub group: bool,
     /// The tools that reach beyond the conversation, offered here, as they
     /// are said here: the web, and her machine.
     pub reaching: Vec<ToolSpec>,
@@ -204,6 +212,7 @@ impl Offer {
             Need::Work => self.means.is_some(),
             Need::UnderWay => self.under_way,
             Need::Files => self.files,
+            Need::Group => self.group,
             Need::Memory => true,
             // Those reach beyond the conversation, and are offered as
             // they are given.
@@ -263,6 +272,7 @@ fn shape(name: &str) -> Option<Shape> {
             ],
             &[],
         ),
+        "quiet" => (&[("hours", "number")], &["hours"]),
         "leave" => (&[("why", "string")], &[]),
         _ => return None,
     })

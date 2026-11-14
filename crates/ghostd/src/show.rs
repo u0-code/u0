@@ -188,6 +188,10 @@ fn describe(event: &Event, tz: Tz) -> String {
             from,
             text,
         } => format!("#{message} from {from}: {}", flat(text)),
+        Event::Quieted { place, until } => format!(
+            "quiet in {place} until {}",
+            until.with_timezone(&tz).format("%m-%d %H:%M")
+        ),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

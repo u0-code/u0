@@ -10,8 +10,8 @@
 //! loop, and a conversation runs them off to the side, a few seconds each.
 //!
 //! A tool that belongs to one loop alone does so because of what it is.
-//! Saying something, reacting, leaving and taking work on are things she
-//! does with people in front of her. Planning, finishing, asking whoever
+//! Saying something, reacting, keeping quiet, leaving and taking work on
+//! are things she does with people in front of her. Planning, finishing, asking whoever
 //! the work is for, telling them as it goes, handing out parts, waiting on
 //! them and writing a handoff only mean something inside a piece of work.
 //! Steering and stopping belong to both: in a conversation they act on her
@@ -43,6 +43,8 @@ pub enum Need {
     Follower,
     /// A way to equip a helper.
     Helpers,
+    /// A place where several people talk, not all of it to her.
+    Group,
 }
 
 /// One tool: its name, the loops it belongs to, and what it needs.
@@ -96,6 +98,7 @@ pub const TOOLS: &[Entry] = &[
     entry("steer", BOTH, &[Need::UnderWay]),
     entry("stop", BOTH, &[Need::UnderWay]),
     entry("send_file", TALK, &[Need::Files]),
+    entry("quiet", TALK, &[Need::Group]),
     entry("leave", TALK, &[]),
     entry("plan", WORK, &[]),
     entry("done", WORK, &[]),

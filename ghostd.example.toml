@@ -159,6 +159,27 @@ review_days = 7
 # report = "21:00"       # the default
 # qq = ["0123456789ABCDEF0123456789ABCDEF"]
 
+# What you say about particular places, one table per place, keyed by the
+# place as `<channel>:<id>`: the channel's name and the place's id as its
+# presence reports it (`ghostd show` and the journal print it that way).
+#
+#   addressed_only  She looks there only at what is said to her: a mention,
+#                   a reply to her. What the others say among themselves is
+#                   never looked at, and no brain is asked about it. Off by
+#                   default: in a group nobody talks to, she still looks now
+#                   and then, less often each time she has nothing to add.
+#   note            Something about the place, shown to her as what you, the
+#                   people who run her, say of it, beside the other facts
+#                   about the place whenever she looks at it without being
+#                   spoken to. It informs her; it does not decide for her.
+#
+# Being asked to be quiet in a group needs nothing here: she can agree to it
+# herself, for a number of hours, and it is kept in her journal.
+# [places."qq:group:0123456789ABCDEF"]
+# addressed_only = true
+# [places."qq:group:FEDCBA9876543210"]
+# note = "old friends from school; this group prefers you keep it light"
+
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"

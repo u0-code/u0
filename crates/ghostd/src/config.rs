@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use ghost_brain::{Brain, config::ProviderConfig};
-use ghost_mind::{MindConfig, Operators};
+use ghost_mind::{MindConfig, Operators, PlaceConfig};
 use serde::Deserialize;
 
 pub const FILE: &str = "ghostd.toml";
@@ -33,6 +33,9 @@ pub struct Config {
     /// directive from one of them.
     #[serde(default)]
     pub operators: Operators,
+    /// What they say about particular places, by place key.
+    #[serde(default)]
+    pub places: BTreeMap<String, PlaceConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,10 +144,11 @@ impl Config {
         Ok((cfg, path))
     }
 
-    /// How she lives, with who runs her.
+    /// How she lives, with who runs her and what they say about places.
     pub fn mind(&self) -> MindConfig {
         MindConfig {
             operators: self.operators.clone(),
+            places: self.places.clone(),
             ..self.mind.clone()
         }
     }
@@ -269,6 +273,25 @@ mod operator_tests {
         );
         let wrong: Result<Config, _> =
             toml::from_str(&format!("{BRAIN}[operators]\nreport = \"9pm\"\n"));
+        assert!(wrong.is_err());
+    }
+
+    #[test]
+    fn a_place_can_be_set_to_addressed_only_and_given_a_note() {
+        let cfg = parse(
+            "[places.\"qq:group:5F2A\"]\naddressed_only = true\nnote = \"keep it light here\"\n\n\
+             [places.\"qq:group:77\"]\nnote = \"old friends\"\n",
+        );
+        let places = cfg.mind().places;
+        assert!(places["qq:group:5F2A"].addressed_only);
+        assert_eq!(
+            places["qq:group:5F2A"].note.as_deref(),
+            Some("keep it light here")
+        );
+        assert!(!places["qq:group:77"].addressed_only);
+        assert!(parse("").mind().places.is_empty());
+        let wrong: Result<Config, _> =
+            toml::from_str(&format!("{BRAIN}[places.\"x:y\"]\nadressed_only = true\n"));
         assert!(wrong.is_err());
     }
 

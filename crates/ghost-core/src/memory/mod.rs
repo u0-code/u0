@@ -48,7 +48,7 @@ pub use craft::Lesson;
 pub use digests::Digest;
 pub use intentions::Intention;
 pub use links::Challenge;
-pub use messages::Line;
+pub use messages::{Aside, Line, Share, Unprompted};
 pub use notes::{Note, Profile};
 pub use people::Person;
 pub use places::{Elsewhere, PlaceState, Talked};
@@ -63,7 +63,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 /// How far the journal has been folded in.
 const META: &str =

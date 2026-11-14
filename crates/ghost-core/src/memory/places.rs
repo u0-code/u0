@@ -4,6 +4,11 @@
 //! conversation, a room, a public thread. It is known from the first message
 //! heard or said there, and it keeps the newest message each way and the
 //! newest she has read, so that what is unread is whatever came in after.
+//!
+//! Each time she looked at a place is kept as well, so that how many times
+//! in a row she has looked and said nothing can be counted from what
+//! happened rather than kept as a number something has to remember to
+//! reset. And a group that asked her to be quiet keeps until when.
 
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -33,6 +38,15 @@ pub struct PlaceState {
     pub unread_addressed: i64,
     /// Unread messages that are directives from an operator of hers.
     pub unread_directed: i64,
+    /// She was asked to be quiet here, and agreed to, until then.
+    pub quiet_until: Option<DateTime<Utc>>,
+}
+
+impl PlaceState {
+    /// Whether she has agreed to be quiet here at `now`.
+    pub fn quiet_at(&self, now: DateTime<Utc>) -> bool {
+        self.quiet_until.is_some_and(|until| now < until)
+    }
 }
 
 /// A place other than the one she is looking at, and what went on there.
@@ -63,9 +77,12 @@ CREATE TABLE IF NOT EXISTS places (
     kind TEXT NOT NULL, name TEXT,
     read_upto INTEGER NOT NULL DEFAULT 0,
     last_in_seq INTEGER NOT NULL DEFAULT 0, last_in_at TEXT,
-    last_out_seq INTEGER NOT NULL DEFAULT 0, last_out_at TEXT
+    last_out_seq INTEGER NOT NULL DEFAULT 0, last_out_at TEXT,
+    quiet_until TEXT
 );
 CREATE INDEX IF NOT EXISTS places_channel ON places (channel);
+CREATE TABLE IF NOT EXISTS looks (seq INTEGER PRIMARY KEY, place TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS looks_place ON looks (place, seq);
 ";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
@@ -101,9 +118,20 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             place,
             upto,
         } => {
+            let key = social::key(channel, place);
             tx.execute(
                 "UPDATE places SET read_upto = MAX(read_upto, ?2) WHERE key = ?1",
-                params![social::key(channel, place), upto],
+                params![key, upto],
+            )?;
+            tx.execute(
+                "INSERT INTO looks (seq, place) VALUES (?1, ?2)",
+                params![seq, key],
+            )?;
+        }
+        Event::Quieted { place, until } => {
+            tx.execute(
+                "UPDATE places SET quiet_until = ?2 WHERE key = ?1",
+                params![place, stamp(until)],
             )?;
         }
         _ => {}
@@ -121,6 +149,18 @@ impl Memory {
                 row_to_place,
             )
             .optional()?)
+    }
+
+    /// How many times in a row she has looked at a place and said nothing:
+    /// her looks there since the last thing she said there, counted up to
+    /// `most`.
+    pub fn silent_looks(&self, key: &str, most: usize) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM looks l JOIN places p ON p.key = l.place
+              WHERE l.place = ?1 AND l.seq > p.last_out_seq LIMIT ?2)",
+            params![key, as_i64(most)],
+            |r| r.get(0),
+        )?)
     }
 
     /// Every place on every platform, most recently active first.
@@ -220,7 +260,7 @@ impl Memory {
 
 const PLACE_SELECT: &str = "
 SELECT p.key, p.channel, p.id, p.kind, p.name, p.read_upto,
-       p.last_in_seq, p.last_in_at, p.last_out_seq, p.last_out_at,
+       p.last_in_seq, p.last_in_at, p.last_out_seq, p.last_out_at, p.quiet_until,
        (SELECT COUNT(*) FROM messages m
          WHERE m.place = p.key AND m.dir = 'in' AND m.seq > p.read_upto),
        (SELECT COUNT(*) FROM messages m
@@ -243,9 +283,10 @@ fn row_to_place(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaceState> {
         last_in_at: opt_time_at(r, 7)?,
         last_out_seq: r.get(8)?,
         last_out_at: opt_time_at(r, 9)?,
-        unread: r.get(10)?,
-        unread_addressed: r.get(11)?,
-        unread_directed: r.get(12)?,
+        quiet_until: opt_time_at(r, 10)?,
+        unread: r.get(11)?,
+        unread_addressed: r.get(12)?,
+        unread_directed: r.get(13)?,
     })
 }
 
@@ -255,6 +296,51 @@ mod tests {
 
     use super::super::testing::{fold, heard, on, said};
     use crate::{journal::Event, social::PlaceKind};
+
+    fn read(place: &str, upto: i64) -> Event {
+        Event::Read {
+            channel: "t".into(),
+            place: place.into(),
+            upto,
+        }
+    }
+
+    #[test]
+    fn silent_looks_are_those_since_she_last_said_something_there() {
+        let (_, m) = fold(vec![
+            heard("g", PlaceKind::Group, "a", "1", "one", false),
+            read("g", 1),
+            said("g", "hi"),
+            heard("g", PlaceKind::Group, "a", "2", "two", false),
+            read("g", 4),
+            heard("g", PlaceKind::Group, "a", "3", "three", false),
+            read("g", 6),
+            // A look somewhere else is not a look here.
+            heard("h", PlaceKind::Group, "a", "4", "elsewhere", false),
+            read("h", 8),
+        ]);
+        assert_eq!(m.silent_looks("t:g", 10).unwrap(), 2);
+        assert_eq!(m.silent_looks("t:g", 1).unwrap(), 1);
+        assert_eq!(m.silent_looks("t:h", 10).unwrap(), 1);
+        assert_eq!(m.silent_looks("t:nowhere", 10).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_place_is_quiet_until_the_latest_time_she_agreed_to() {
+        let now = Utc::now();
+        let quieted = |hours| Event::Quieted {
+            place: "t:g".into(),
+            until: now + chrono::Duration::hours(hours),
+        };
+        let (_, m) = fold(vec![
+            heard("g", PlaceKind::Group, "a", "1", "be quiet", false),
+            quieted(5),
+            quieted(1),
+        ]);
+        let g = m.place("t:g").unwrap().unwrap();
+        assert!(g.quiet_at(now + chrono::Duration::minutes(30)));
+        assert!(!g.quiet_at(now + chrono::Duration::hours(2)));
+    }
 
     #[test]
     fn unread_follows_read_markers() {

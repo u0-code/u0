@@ -415,8 +415,9 @@ impl Mind {
 
     /// The actions that exist only in a body that can do them. `files`
     /// says whether the place she is looking at can take a file, and
-    /// `under_way` whether she has work she could steer or stop.
-    pub(super) fn abilities(&self, files: bool, under_way: bool) -> String {
+    /// `under_way` whether she has work she could steer or stop, and
+    /// `group` whether it is a group, where she can agree to be quiet.
+    pub(super) fn abilities(&self, files: bool, under_way: bool, group: bool) -> String {
         let mut abilities = String::new();
         if let Some(means) = self.work_means() {
             abilities.push_str(
@@ -430,6 +431,9 @@ impl Mind {
         }
         if under_way {
             abilities.push_str(self.prompts.text("ability_steer"));
+        }
+        if group {
+            abilities.push_str(self.prompts.text("ability_quiet"));
         }
         abilities
     }
