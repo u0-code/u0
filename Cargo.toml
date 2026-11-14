@@ -12,6 +12,7 @@ members = [
     "crates/presence/ghost-telegram",
     "crates/presence/ghost-discord",
     "crates/presence/ghost-onebot",
+    "crates/presence/ghost-qqbot",
     "crates/presence/ghost-x",
 ]
 
