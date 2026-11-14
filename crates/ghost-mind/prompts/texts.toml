@@ -38,6 +38,18 @@ Those are other conversations and your own business. \
 What someone told you in private is not repeated here, and you do not let on that you know it.
 
 """
+# One piece of work she has under way, in the rest of her day. The number
+# is how she names it to `steer` and `stop`; {{whom}} is " for <name>" or
+# nothing, and {{state}} where it stands.
+work_open = "- [work #{{work}}] You have taken something on{{whom}}: \"{{brief}}\". {{state}}"
+# Under it, the latest few things the work chose to tell her, newest last.
+# Only what it said: what it did to find it out stays with the work.
+work_told = "\n  It told you, {{when}}: {{text}}{{files}}"
+# Only when what it told her came with files.
+work_told_files = " (ready to hand over: {{files}})"
+# And what she kept from it so far, which `send_file` can hand over by its
+# number or file name.
+work_kept = "\n  You kept from it #{{thing}} ({{file}}): {{note}}"
 waiting_answer = "You stopped to ask them: \"{{question}}\". It waits for their answer. When they give one, take it on again with just the answer, so that it reaches the work."
 
 addressed_direct = "This is a private conversation. Whatever is new was written to you."
@@ -66,6 +78,16 @@ to it or change it, use this again with just what is new: it is added to what yo
 "for" when it is for yourself. Only for things you want to do or have agreed to do: nobody is owed your \
 afternoon. Say something as well, the way you would.
 """
+# Offered only when she has work under way.
+ability_steer = """\
+- {"do":"steer","work":<number>,"text":"..."}
+  Pass something on to a piece of work you have under way, by its number in the rest of your day: more of \
+what is wanted, a change of mind, something you just learned that it should know. It reaches the work \
+before its next step, without starting it again.
+- {"do":"stop","work":<number>}
+  Stop a piece of work you have under way, for good, because it is no longer wanted or no longer worth \
+doing. Whatever it already kept is still yours.
+"""
 ability_send_file = """\
 - {"do":"send_file","file":"...","text":"..."} or {"do":"send_file","message":<m number>,"image":<n>}
   Hand over a file or an image you have: something you kept, by its number or file name as recall showed \
@@ -81,6 +103,8 @@ out "text" then.
 nothing_kept = "{{why}} Nothing was kept."
 nothing_let_go = "{{why}} Nothing was let go."
 nothing_sent = "{{why}} Nothing was sent."
+nothing_steered = "{{why}} Nothing reached the work."
+nothing_stopped = "{{why}} Nothing was stopped."
 
 keep_no_note = "The note is empty: say what it is and when you would want it again."
 no_image_index = "There is no image {{image}}: images are counted from 1."
@@ -89,6 +113,9 @@ image_not_saved = "Image {{image}} of m{{message}} was not saved when you looked
 image_not_seen = "You have not seen image {{image}} of m{{message}}, so you do not have it."
 hold_nothing = "You hold nothing numbered {{thing}}."
 send_what = "Say what to hand over: `file` for something you kept or made, or `message` for an image here."
+steer_nothing = "Say what to pass on to the work."
+no_work = "You have no work numbered {{work}}. The number is the one after \"work #\" in the rest of your day."
+work_over = "Work #{{work}} has already ended."
 kept_gone = "You kept {{file}} but it is no longer on disk, so it cannot be sent."
 nothing_called = """\
 You have nothing called {{wanted}} to hand over here. What you can send is something you kept, by its \
@@ -141,6 +168,11 @@ tell_them = "tell them what came of what you took on (\"{{brief}}\"). {{how}}. W
 how_finished = "It is done"
 how_blocked = "You could not finish it"
 how_gave_up = "You gave up on it"
+# The summary of work she stopped herself.
+stopped = "You stopped it before it was done. Where it had got to: {{progress}}"
+# What she resolves to do when work under way has something she could hand
+# over before it is done: something it kept, or a file it made.
+share_found = "show them what has come so far of what you took on (\"{{brief}}\"), if it is worth showing now: {{found}}. {{send}}"
 # Only when the work made files.
 made = " What you made is in: {{files}}. {{send}}"
 made_send = "Hand it over with `send_file`."

@@ -119,6 +119,18 @@ pub enum Action {
         #[serde(default, rename = "for")]
         for_whom: Option<String>,
     },
+    /// Pass something on to work she has under way. `work` is the number
+    /// she knows it by.
+    Steer {
+        #[serde(deserialize_with = "reference")]
+        work: i64,
+        text: String,
+    },
+    /// Stop work she has under way, for good.
+    Stop {
+        #[serde(deserialize_with = "reference")]
+        work: i64,
+    },
 }
 
 /// The outcome of one look at something.
@@ -170,7 +182,14 @@ pub fn from_call(call: &Call) -> Result<Action, String> {
 /// The names and arguments are those of [`Action`], so a call reads straight
 /// into one. The shape of each is here; what each is said to be is in
 /// `tools.toml`, and `work` is what fills `{{means}}` in `undertake`.
-pub fn tools(words: &Prompts, work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
+/// `under_way` says whether she has work she could steer or stop.
+pub fn tools(
+    words: &Prompts,
+    work: Option<&str>,
+    look_up: bool,
+    files: bool,
+    under_way: bool,
+) -> Vec<ToolSpec> {
     // Each argument by name and JSON type, described if `tools.toml` says
     // something about it.
     let tool = |name: &str, arguments: &[(&str, &str)], required: &[&str]| {
@@ -247,6 +266,14 @@ pub fn tools(words: &Prompts, work: Option<&str>, look_up: bool, files: bool) ->
         undertake.description =
             narrate::fill(&undertake.description, &[("means", means.to_owned())]);
         tools.push(undertake);
+    }
+    if under_way {
+        tools.push(tool(
+            "steer",
+            &[("work", "integer"), ("text", "string")],
+            &["work", "text"],
+        ));
+        tools.push(tool("stop", &[("work", "integer")], &["work"]));
     }
     if files {
         tools.push(tool(
@@ -499,6 +526,24 @@ mod tests {
                     image: Some(2),
                     text: Some("this".into())
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn work_is_named_by_its_number_however_it_is_written() {
+        let d = parse(
+            r##"{"actions":[{"do":"steer","work":"#41","text":"weekdays only"},{"do":"stop","work":41}]}"##,
+        )
+        .unwrap();
+        assert_eq!(
+            d.actions,
+            vec![
+                Action::Steer {
+                    work: 41,
+                    text: "weekdays only".into()
+                },
+                Action::Stop { work: 41 },
             ]
         );
     }

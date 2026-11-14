@@ -128,6 +128,10 @@ struct Args {
     /// command-line agent, not by a person.
     #[arg(long)]
     serve_mcp: bool,
+    /// Offer `tell`, for work someone follows as it runs and reads what it
+    /// is told from the record.
+    #[arg(long)]
+    tell: bool,
 }
 
 impl Args {
@@ -224,6 +228,11 @@ async fn main() -> anyhow::Result<()> {
     // What it keeps stays in this undertaking's record. A helper is not
     // given `keep`: its record is its own, and nobody reads what it kept.
     let toolbox = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
+    let toolbox = if args.tell {
+        toolbox.with(tools::Tell::new(undertaking.clone()))
+    } else {
+        toolbox
+    };
 
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());

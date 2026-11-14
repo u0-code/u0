@@ -348,6 +348,18 @@ pub enum Event {
     LetGo {
         kept: i64,
     },
+    /// While a piece of work was under way, it told her something worth
+    /// knowing before it was done: a finding, a partial result, a file
+    /// ready to hand over. Only what the work chose to say is here, never
+    /// what it did to find it out.
+    Reported {
+        /// The undertaking, as its `Undertook` names it.
+        id: String,
+        text: String,
+        /// Files it made that are ready to hand over: paths on her machine.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<String>,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -442,6 +454,7 @@ kinds! {
     Viewed => "viewed",
     Kept => "kept",
     LetGo => "let_go",
+    Reported => "reported",
 }
 
 /// One line of her journal.

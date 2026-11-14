@@ -75,7 +75,7 @@ pub async fn serve(
                 let name = message["params"]["name"].as_str().unwrap_or_default();
                 let outcome = if undertaking.state().finish.is_some() {
                     crate::tool::Outcome::fail(
-                        "The work has been ended with `done`. Nothing more can be done; stop here.",
+                        "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here.",
                     )
                 } else {
                     tools

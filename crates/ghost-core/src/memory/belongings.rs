@@ -111,6 +111,20 @@ impl Memory {
         Ok(held)
     }
 
+    /// What she got from `from` and still holds, the newest `limit`,
+    /// oldest first: from one place, or from one piece of work.
+    pub fn kept_from(&self, from: &str, limit: usize) -> Result<Vec<Belonging>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM belongings WHERE origin = ?1 AND held = 1
+             ORDER BY seq DESC LIMIT ?2"
+        ))?;
+        let mut held = stmt
+            .query_map(params![from, as_i64(limit)], row_to_belonging)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        held.reverse();
+        Ok(held)
+    }
+
     /// Whether she has ever kept `file` from `from` with exactly this note,
     /// whether or not she still holds it.
     pub fn ever_kept(&self, file: &str, note: &str, from: &str) -> Result<bool> {
@@ -195,6 +209,28 @@ mod tests {
             m.ever_kept("a.png", "A heron in the rain.", "qq:b")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn what_she_holds_from_one_piece_of_work_is_listed_apart() {
+        let from = |file: &str, origin: &str| Event::Kept {
+            file: file.into(),
+            note: format!("{file}, kept"),
+            from: Some(origin.into()),
+        };
+        let (_, m) = fold(vec![
+            from("a.png", "u1"),
+            from("b.png", "qq:b"),
+            from("c.png", "u1"),
+            Event::LetGo { kept: 1 },
+        ]);
+        let files: Vec<String> = m
+            .kept_from("u1", 5)
+            .unwrap()
+            .into_iter()
+            .map(|b| b.file)
+            .collect();
+        assert_eq!(files, ["c.png"]);
     }
 
     #[test]

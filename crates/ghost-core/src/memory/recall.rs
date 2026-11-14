@@ -102,6 +102,7 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         Event::Undertook { brief, place, .. } => memory("undertook", brief, place.as_ref()),
         Event::Added { text, .. } => memory("added", text, None),
         Event::Concluded { summary, .. } => memory("concluded", summary, None),
+        Event::Reported { text, .. } => memory("reported", text, None),
         Event::Pursued { what, .. } if !what.trim().is_empty() => memory("pursued", what, None),
         Event::Practised { lesson, .. } => memory("practised", lesson, None),
         Event::Learned { lesson, .. } => memory("learned", lesson, None),

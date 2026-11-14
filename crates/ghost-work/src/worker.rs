@@ -178,8 +178,22 @@ pub enum Ended {
     /// It asked whoever the work is for a question, and is waiting for
     /// the answer to be added to the task. The question is in the report.
     Waiting,
+    /// Whoever it is for stopped it from outside. It ends here.
+    Dropped,
     /// The model could not be reached, or refused.
     Failed(String),
+}
+
+impl From<Outcome> for Ended {
+    /// How a run ends when the work has an outcome on record.
+    fn from(outcome: Outcome) -> Self {
+        match outcome {
+            Outcome::Finished => Self::Finished,
+            Outcome::Blocked => Self::Blocked,
+            Outcome::GaveUp => Self::GaveUp,
+            Outcome::Dropped => Self::Dropped,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -853,11 +867,7 @@ impl Worker {
     /// Work until it is finished, or until something stops it.
     pub async fn run(&self) -> Report {
         if let Some(finish) = self.undertaking.state().finish {
-            return self.report(match finish.outcome {
-                Outcome::Finished => Ended::Finished,
-                Outcome::Blocked => Ended::Blocked,
-                Outcome::GaveUp => Ended::GaveUp,
-            });
+            return self.report(finish.outcome.into());
         }
         let started = Instant::now();
         let system = self.system();
@@ -913,6 +923,12 @@ impl Worker {
         let warn_at = self.limits.max_steps * 4 / 5;
 
         for n in 1..=self.limits.max_steps {
+            // Stopped from outside since the last step: it ends here, as
+            // whoever stopped it said, and not as paused.
+            if let Some(finish) = self.undertaking.state().finish {
+                self.save(&items, &mut recorded);
+                return self.report(finish.outcome.into());
+            }
             if self.pause.load(Ordering::Relaxed) {
                 return self.report(Ended::Paused);
             }
@@ -1098,11 +1114,7 @@ impl Worker {
             self.save(&items, &mut recorded);
 
             if let Some(finish) = finish {
-                return self.report(match finish.outcome {
-                    Outcome::Finished => Ended::Finished,
-                    Outcome::Blocked => Ended::Blocked,
-                    Outcome::GaveUp => Ended::GaveUp,
-                });
+                return self.report(finish.outcome.into());
             }
             if n == warn_at && warn_at > 0 {
                 items.push(Item::user(format!(
@@ -1724,6 +1736,100 @@ mod tests {
         assert_eq!(report.steps, 2, "totals run across both");
         // It was shown the transcript it left, not a blank page.
         assert_eq!(brain.seen.lock().unwrap()[0].items.len(), 3);
+    }
+
+    /// A tool that takes a while, during which something happens outside
+    /// the work: what the closure does.
+    struct Meanwhile(Box<dyn Fn() + Send + Sync>);
+
+    #[async_trait]
+    impl Tool for Meanwhile {
+        fn spec(&self) -> ToolSpec {
+            tool::spec("wait", "Wait a moment.", json!({}), &[])
+        }
+        async fn call(&self, _: &Value) -> tool::Outcome {
+            (self.0)();
+            tool::Outcome::ok("waited")
+        }
+    }
+
+    /// What happens in `meanwhile` happens from another handle on the
+    /// same record, while the worker's first step is running.
+    fn while_it_runs(
+        dir: &std::path::Path,
+        meanwhile: impl Fn(&Undertaking) + Send + Sync + 'static,
+    ) -> Meanwhile {
+        let db = state_db(dir);
+        Meanwhile(Box::new(move || {
+            meanwhile(&Undertaking::open(&db, "main", None).unwrap());
+        }))
+    }
+
+    #[tokio::test]
+    async fn words_added_while_a_step_runs_reach_the_worker_at_its_next_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("wait", json!({})),
+            calls("done", json!({"outcome": "gave_up", "summary": "enough"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        worker.tools = worker.tools.with(while_it_runs(dir.path(), |outside| {
+            outside.add("only the weekday hours, after all").unwrap();
+        }));
+        worker.run().await;
+        let seen = brain.seen.lock().unwrap();
+        assert!(!seen[0].items.iter().any(|item| matches!(item,
+            Item::User { text } if text.contains("weekday hours"))));
+        assert!(matches!(seen[1].items.last(), Some(Item::User { text })
+            if text.contains("only the weekday hours, after all")));
+    }
+
+    #[tokio::test]
+    async fn work_stopped_from_outside_ends_as_dropped_after_its_step_and_keeps_what_it_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            Step {
+                calls: vec![
+                    Call {
+                        id: "k".into(),
+                        name: "keep".into(),
+                        args: json!({"file": "PLACEHOLDER", "note": "a pixel"}),
+                    },
+                    Call {
+                        id: "w".into(),
+                        name: "wait".into(),
+                        args: json!({}),
+                    },
+                ],
+                stop: Stop::Calls,
+                ..says("")
+            },
+            calls("write", json!({"path": "late.txt", "content": "too late"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        let file = worker.undertaking.keep(&[ghost_brain::Picture {
+            mime: "image/png".into(),
+            bytes: tools::testing::PIXEL.to_vec(),
+        }])[0]
+            .clone();
+        brain.steps.lock().unwrap()[0].calls[0].args["file"] = json!(file);
+        worker.tools = worker
+            .tools
+            .with(tools::Keep::new(worker.undertaking.clone()))
+            .with(while_it_runs(dir.path(), |outside| {
+                assert!(outside.stop(), "it was still going");
+            }));
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Dropped);
+        assert_eq!(report.steps, 1, "nothing after the step it was on");
+        assert_eq!(brain.seen.lock().unwrap().len(), 1);
+        assert!(!dir.path().join("late.txt").exists());
+        let state = worker.undertaking.state();
+        assert_eq!(state.finish.unwrap().outcome, Outcome::Dropped);
+        assert_eq!(state.kept.len(), 1, "what it kept is still on record");
+        // Picked up again, it does not start over.
+        assert_eq!(worker.run().await.ended, Ended::Dropped);
+        assert!(!worker.undertaking.stop(), "it had already ended");
     }
 
     /// A tool that returns a new picture every time it is called.
