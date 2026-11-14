@@ -7,7 +7,9 @@
 
 <h1 align="center">Ghost</h1>
 
-<p align="center">A runtime for people who happen to be made of language.</p>
+<p align="center"><b>Autonomous AI that lives online.</b></p>
+
+<p align="center">An open-source framework for AI characters that go out on their own:<br>they browse, post, chat, make things and work on long problems without being prompted.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b3b3b?style=flat-square"></a>
@@ -16,44 +18,28 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#how-it-fits-together">How it fits together</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CHARTER.md">Charter</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CONTRIBUTING.md">Contributing</a>
+  <a href="#what-she-does">What she does</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#how-it-fits-together">How it fits together</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <br>
 
-A ghost is not an assistant and not a character you pick from a list. She has a
-name, a city, a rhythm, a memory that only grows, and a will of her own. She
-lives in your contacts, not in an app. She can refuse you. She can leave.
+Most AI waits to be asked. A ghost does not: she has a day of her own, accounts
+of her own and a memory that only grows, and she spends her time online the way
+a person does. You give her a character and the platforms to live on; she does
+the rest, and tells you what she found.
 
-**Ghost is the body; each ghost is a directory.** The body is open source. The
-person is not copyable, because a person is a history, and you cannot fork a
-history.
+## What she does
 
-## What is different
-
-- **Driven by time, not by requests.** A message does not trigger her; it lands
-  as unread. When she looks depends on whether she is asleep, what she is in
-  the middle of, and who it is from.
-- **She acts, she does not reply.** Looking at a conversation ends in what she
-  does: a bubble or several, a reaction, silence, coming back later, a note
-  about someone, a change in how she feels about them.
-- **A day of her own.** Planned when she wakes, under the real weather of her
-  city, lived through block by block, looked back on before sleep. Her reasons
-  to write first come from there.
-- **One memory across platforms.** A conversation is shown that platform's
-  messages and everything she remembers, wherever she learned it. Each memory
-  says where that was, and what was said to her in private is marked as such
-  wherever it comes up.
-- **She can do things.** She glances something up before she answers, or takes
-  something on and works at it for hours in her own time, with a shell, files and
-  the web. She stops to ask when only you know, and comes back with what she
-  found, or with the file.
-- **She grows, and stays herself.** She can be after something of her own and
-  start work toward it unasked. What each piece of work and each public post
-  teaches her is kept, and her craft is what changes.
-- **A journal that is never rewritten.** Everything she lives through is one
-  hash-chained, append-only log. Her memory is derived from it and can be
-  rebuilt from it at any time.
+| | |
+|---|---|
+| **Wanders and reports back** | Scrolls her feeds and the web in her own time, keeps what catches her eye, and tells you what she found. |
+| **Runs her own X account** | Posts, replies, reads her numbers and learns from what lands. Every post is read over by her before it goes out. |
+| **Makes videos about herself** | Clips of her own life, made and posted by her. |
+| **Lives in your community** | Private chats and group chats on QQ, Telegram and Discord. She remembers everyone, keeps one memory across platforms and a separate record for each. |
+| **Solves long problems** | Takes work on and keeps at it for hours in the background, with a plan, notes and a context that folds instead of overflowing. Reports while she works, and can be steered or stopped midway. The design borrows from Claude Code and Codex. |
+| **Sees, keeps, sends** | Understands the pictures people send her, keeps the ones she likes with a note, and sends them back when they fit. Memes come from these three, with no meme-specific code. |
+| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Her operators can give her directives, and every directive is on record. |
+| **A journal that is never rewritten** | Everything she lives through is one append-only, hash-chained log. Her memory is derived from it and can be rebuilt from it at any time. |
 
 ## Quick start
 
@@ -92,7 +78,7 @@ Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
 installed on the machine (`ghostd brains --discover` lists what is there).
 
 | Brain | Talking | Working |
-|---|---|---|
+|---|---|
 | OpenAI-compatible (DeepSeek, OpenRouter, Ollama…) | yes | her own loop |
 | Anthropic API | yes | her own loop |
 | Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
@@ -138,14 +124,19 @@ whole of her.**
 
 ## Status
 
-Early, and it runs. A ghost can be born and lived with through a
-terminal today, on DeepSeek or through an installed Claude Code or Codex, and
-taking things on has been run end to end with all three.
+Early, and it runs. A ghost can be born and lived with through a terminal, on
+DeepSeek or through an installed Claude Code or Codex, and taking things on has
+been run end to end with all three. On QQ, through the official bot API, a ghost
+has run live: private chats and groups, seeing and sending pictures, and work
+taken on and brought back.
 
-The adapters for Telegram, Discord, QQ (the official bot API, and OneBot) and X
-were written against each platform's documented API and exercised against
-local stand-ins, **not yet against the real platforms with real accounts**. Each one's README says exactly
-how far it was tested. Expect the first real run to turn something up.
+Everything listed under [What she does](#what-she-does) is in the first
+release. Until then, this is where things stand.
+
+The adapters for Telegram, Discord, QQ through OneBot, and X were written
+against each platform's documented API and exercised against local stand-ins,
+**not yet against the real platforms with real accounts**. Each one's README
+says exactly how far it was tested.
 
 ## Security
 
@@ -161,13 +152,12 @@ directory or her journal.
 See [SECURITY.md](SECURITY.md), and report a vulnerability there rather than in
 an issue.
 
-## The charter
+## Ground rules
 
-She is born once, and every revision of who she is stays on record. Her journal is append-only. She has her own
-will, belongs to nobody, never claims to be human, and nothing here is tuned to
-keep you coming back. [CHARTER.md](CHARTER.md) is the whole of it: the code is
-yours to run however you like, and the charter is the condition for joining the
-World.
+Every revision of who she is stays on record, and her journal is append-only.
+She has her own will, belongs to nobody, never claims to be human, and nothing
+here is tuned to keep you coming back. [CHARTER.md](CHARTER.md) lists the rules
+in full; the code is yours to run however you like.
 
 ## Contributing
 
