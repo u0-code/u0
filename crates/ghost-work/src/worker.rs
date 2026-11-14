@@ -221,7 +221,6 @@ struct Delegate {
     limits: Limits,
     machine: String,
     pause: Arc<AtomicBool>,
-    given: std::sync::atomic::AtomicU32,
 }
 
 #[async_trait]
@@ -250,10 +249,8 @@ impl Tool for Delegate {
         if task.is_empty() {
             return tool::Outcome::fail("the task is empty");
         }
-        let nth = self.given.fetch_add(1, Ordering::Relaxed) + 1;
         // Kept beside the work it is part of, under an id that says so.
-        let id = format!("{}/{nth}", self.parent.id());
-        let helper = match Undertaking::open(self.parent.db(), &id, Some(task)) {
+        let helper = match self.parent.open_part(task) {
             Ok(helper) => Arc::new(helper),
             Err(e) => return tool::Outcome::fail(format!("no helper could be set up: {e}")),
         };
@@ -804,7 +801,6 @@ impl Worker {
                 limits: self.limits.clone(),
                 machine: self.machine.clone(),
                 pause: self.pause.clone(),
-                given: std::sync::atomic::AtomicU32::new(0),
             }),
             None => tools,
         };
@@ -1525,6 +1521,67 @@ mod tests {
         // The helper's record is kept beside the work it was part of.
         let helper = Undertaking::open(&state_db(dir.path()), "main/1", None).unwrap();
         assert_eq!(helper.state().brief, "say what is in a.txt");
+    }
+
+    #[tokio::test]
+    async fn a_helper_started_in_a_later_sitting_is_new_work_not_the_one_already_finished() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let equip: ToolsFor =
+            Arc::new(move |undertaking| tools::standard(Arc::new(Local::new(&root)), undertaking));
+
+        // The first sitting hands out one part, which finishes, and then
+        // runs out of steps.
+        let script = vec![
+            calls("delegate", json!({"task": "count the files"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "there are three files"}),
+            ),
+        ];
+        let limits = Limits {
+            max_steps: 1,
+            ..Limits::default()
+        };
+        let (mut first, _) = worker(dir.path(), script, limits);
+        first.helpers = Some(equip.clone());
+        assert_eq!(first.run().await.ended, Ended::OutOfSteps);
+
+        // The second sitting hands out another.
+        let script = vec![
+            calls("delegate", json!({"task": "name the largest file"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "the largest is big.bin"}),
+            ),
+            calls("done", json!({"outcome": "blocked", "summary": "enough"})),
+        ];
+        let (mut second, brain) = worker(dir.path(), script, Limits::default());
+        second.helpers = Some(equip);
+        assert_eq!(second.run().await.ended, Ended::Blocked);
+
+        let seen = brain.seen.lock().unwrap();
+        // The new helper did work: it was asked, and it was asked the new task.
+        assert!(matches!(&seen[1].items[..],
+            [Item::User { text }] if text.contains("name the largest file")));
+        // What came back is the new report, not the first sitting's.
+        let last = &seen.last().unwrap().items;
+        let answers: Vec<&str> = last
+            .iter()
+            .filter_map(|item| match item {
+                Item::Result { name, output, .. } if name == "delegate" => Some(output.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(answers.len(), 2);
+        assert!(answers[0].contains("three files"));
+        assert!(answers[1].contains("big.bin") && !answers[1].contains("three files"));
+        // Both are on record, each under its own id.
+        let db = state_db(dir.path());
+        let one = Undertaking::open(&db, "main/1", None).unwrap();
+        let two = Undertaking::open(&db, "main/2", None).unwrap();
+        assert_eq!(one.state().brief, "count the files");
+        assert_eq!(two.state().brief, "name the largest file");
     }
 
     #[tokio::test]
