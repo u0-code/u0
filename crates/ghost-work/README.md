@@ -64,5 +64,15 @@ you did not write the task for yourself.
 Any OpenAI-compatible server works (`--base-url`, `--model`,
 `--api-key-env`); `--kind anthropic` uses the Anthropic API.
 
+## What it is told
+
+Every word the model reads from this crate is a file in
+[`prompts/`](prompts/): the working instructions in `work.md`, what is said
+along the way in `work_texts.toml`, and in `tools.toml` what every tool is,
+for work and for a ghost's conversations alike. What is built in is only the
+last resort: `<state>/prompts/` wins, then `--prompts <dir>`, file by file,
+and `work_texts.toml` and `tools.toml` entry by entry. The files are looked
+at before each step, so an edit reaches work that is already running.
+
 
 [`Worker`]: src/worker.rs

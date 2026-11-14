@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use ghost_brain::{Call, Picture, ToolSpec};
 use serde_json::{Value, json};
 
+use crate::prompts::{Loop, Prompts};
+
 /// What running a tool produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
@@ -47,11 +49,15 @@ impl Outcome {
 
 #[async_trait]
 pub trait Tool: Send + Sync {
-    fn spec(&self) -> ToolSpec;
+    /// What the model calls it by.
+    fn name(&self) -> &'static str;
+    /// What the model is told about it in `lp`, in the words of `words`.
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec;
     async fn call(&self, args: &Value) -> Outcome;
 }
 
-/// Build a spec without the ceremony.
+/// Build a spec without the ceremony, for a tool whose words are not
+/// kept in `tools.toml`.
 #[allow(clippy::needless_pass_by_value)]
 pub fn spec(name: &str, description: &str, properties: Value, required: &[&str]) -> ToolSpec {
     ToolSpec {
@@ -88,8 +94,14 @@ impl Toolbox {
         self
     }
 
-    pub fn specs(&self) -> Vec<ToolSpec> {
-        self.tools.iter().map(|t| t.spec()).collect()
+    /// What the model is told about each tool, in `lp`.
+    pub fn specs(&self, words: &Prompts, lp: Loop) -> Vec<ToolSpec> {
+        self.tools.iter().map(|t| t.spec(words, lp)).collect()
+    }
+
+    /// The name of each tool, in order.
+    pub fn names(&self) -> Vec<String> {
+        self.tools.iter().map(|t| t.name().to_owned()).collect()
     }
 
     /// Only the named tools.
@@ -99,15 +111,15 @@ impl Toolbox {
             tools: self
                 .tools
                 .iter()
-                .filter(|t| names.contains(&t.spec().name.as_str()))
+                .filter(|t| names.contains(&t.name()))
                 .cloned()
                 .collect(),
         }
     }
 
     pub async fn run(&self, call: &Call) -> Outcome {
-        let Some(tool) = self.tools.iter().find(|t| t.spec().name == call.name) else {
-            let known: Vec<String> = self.tools.iter().map(|t| t.spec().name).collect();
+        let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) else {
+            let known = self.names();
             return Outcome::fail(format!(
                 "there is no tool called `{}`. The tools are: {}.",
                 call.name,

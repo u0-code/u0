@@ -40,47 +40,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
+    prompts::{self, Loop, Prompts, Shared},
     tool::{self, Tool, Toolbox},
     tools::{Handoff, clip},
     undertaking::{Outcome, State, Undertaking, placeholder},
 };
-
-const PROMPT: &str = include_str!("prompts/work.md");
-
-const NO_CALL: &str = "You wrote a message but called no tool, so nothing happened. \
-If the work is complete, check it and call `done`. Otherwise take the next action now.";
-const CUT_OFF: &str = "Your last message was cut off by the output limit before it finished. \
-Continue. If you were writing a large file, write it in several smaller pieces.";
-const THOUGHT_OUT: &str = "Your last step used its whole output allowance thinking and wrote nothing, \
-so nothing happened. Do not work the whole problem out in your head: take the next small action now \
-and let its result tell you what to do after it.";
-const REPEATING: &str = "You have made the same call three times and got the same result. \
-It will not change. Stop and think about what that result is telling you, then do something different.";
-const HANDOFF: &str = "Your context is almost full, and all of it but the most recent part is about to be cleared. \
-You will continue this work with the task, the plan, your handoff, your latest notes and only the last stretch \
-of this conversation in front of you. \
-Right now, call `handoff` once with a single document that stands on its own: what is finished and checked, \
-what is in progress and exactly where you stopped, the exact paths and commands that matter, what you learned \
-that was not obvious, and the next few actions in order. It replaces any earlier handoff, so carry forward \
-whatever from the earlier one still matters. Keep it under about 500 words. Also bring `plan` up to date. \
-Do nothing else in this step.";
-
-/// Calls run one after another, so of the calls left without a result when
-/// the work was interrupted only the first can have begun.
-const INTERRUPTED: &str = "This did not finish: the work was interrupted while it ran, and what it did is unknown. \
-It may have partly happened. If it only reads, or doing it twice does no harm, run it again; \
-otherwise look at the current state first.";
-const NOT_STARTED: &str = "This was not run: the work was interrupted before it began. \
-Run it again if it is still needed.";
-
-/// Work that has outlived a context is long enough for the worker to have
-/// lost sight of part of it. This is what it is told about finishing when it
-/// is picked up: before, not after.
-const AUDIT: &str = "When you come to think this is finished, treat that as unproven. Much of what you did \
-    is behind you and out of sight, and what you remember doing is not evidence. Take the task as it is \
-    written above and, for each thing it asks for, look at the real state as it is now: run it, read it, \
-    print it. Check what was asked, not a narrower thing that is easier to check. A requirement you cannot \
-    show to hold is not finished: keep working on it instead of calling `done`.";
 
 /// Tools that only look, and can be run side by side when the model asks
 /// for several at once.
@@ -230,6 +194,9 @@ pub struct Worker {
     /// self-contained part of the work to another worker that has a
     /// context of its own and reports back in a few paragraphs.
     pub helpers: Option<ToolsFor>,
+    /// What it is told, and what its tools are said to be. Looked at again
+    /// before each step, so that an edit reaches work already running.
+    pub prompts: Shared,
 }
 
 /// Builds the tools for work on a given undertaking: the same machine and
@@ -244,22 +211,20 @@ struct Delegate {
     limits: Limits,
     machine: String,
     pause: Arc<AtomicBool>,
+    prompts: Shared,
 }
 
 #[async_trait]
 impl Tool for Delegate {
-    fn spec(&self) -> ToolSpec {
-        tool::spec(
+    fn name(&self) -> &'static str {
+        "delegate"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "delegate",
-            "Hand a self-contained part of the work to a helper. It starts with nothing but what you write here, \
-             works in the same place with the same tools, and its report is all you get back: none of what it read \
-             stays with you. Use it for a part that takes a lot of reading or searching whose details you do not \
-             need: surveying a large codebase, reading many pages, checking many files. Several can be given out \
-             in one step and run side by side. Do not use it for the main line of the work, or for anything you \
-             could do in a few steps yourself.",
-            json!({
-                "task": {"type": "string", "description": "A complete instruction: what to find out or do, where to look, and exactly what to report back."},
-            }),
+            json!({"task": {"type": "string"}}),
             &["task"],
         )
     }
@@ -290,6 +255,7 @@ impl Tool for Delegate {
             machine: self.machine.clone(),
             pause: self.pause.clone(),
             helpers: None,
+            prompts: self.prompts.clone(),
         };
         let report = worker.run().await;
         // What the helper spent is spent on this work.
@@ -299,21 +265,45 @@ impl Tool for Delegate {
         } else {
             report.summary.trim().to_owned()
         };
+        let words = prompts::hold(&self.prompts);
         let how = match &report.ended {
-            Ended::Finished => "finished".to_owned(),
-            Ended::Blocked => "could not go on".to_owned(),
-            Ended::GaveUp => "gave up".to_owned(),
-            Ended::Failed(why) => format!("failed ({})", preview(why, 160)),
-            _ => "ran out of steps or time before finishing".to_owned(),
+            Ended::Finished => words.text("helper_finished").to_owned(),
+            Ended::Blocked => words.text("helper_blocked").to_owned(),
+            Ended::GaveUp => words.text("helper_gave_up").to_owned(),
+            Ended::Failed(why) => words.fill("helper_failed", &[("why", preview(why, 160))]),
+            _ => words.text("helper_ran_out").to_owned(),
         };
         tool::Outcome {
             failed: report.ended != Ended::Finished,
-            ..tool::Outcome::ok(format!(
-                "The helper {how} after {} steps. Its report:\n\n{}",
-                report.steps,
-                clip(&said, HELPER_REPORT / 2, HELPER_REPORT / 2)
+            ..tool::Outcome::ok(words.fill(
+                "helper_report",
+                &[
+                    ("how", how),
+                    ("steps", report.steps.to_string()),
+                    ("report", clip(&said, HELPER_REPORT / 2, HELPER_REPORT / 2)),
+                ],
             ))
         }
+    }
+}
+
+/// What every request of a sitting shows the model before its transcript:
+/// the words they come from, the instructions, and the tools.
+struct Shown {
+    words: Prompts,
+    system: String,
+    specs: Vec<ToolSpec>,
+}
+
+impl Shown {
+    /// Its size in characters.
+    fn weight(&self) -> usize {
+        self.system.len()
+            + self
+                .specs
+                .iter()
+                .map(|s| s.description.len() + s.parameters.to_string().len())
+                .sum::<usize>()
     }
 }
 
@@ -371,7 +361,7 @@ fn prune(items: &mut [Item], spare: usize) -> usize {
 /// the model has already been shown. Pictures that came back since its
 /// last step have not been looked at yet, and always stay. Returns how many
 /// characters that freed.
-fn unsee(items: &mut [Item], keep: usize) -> usize {
+fn unsee(items: &mut [Item], keep: usize, words: &Prompts) -> usize {
     let before = chars(items);
     let shown = items
         .iter()
@@ -391,14 +381,12 @@ fn unsee(items: &mut [Item], keep: usize) -> usize {
         }
         // Older ones would fit where this did not, but are older still.
         left = 0;
-        let (these, them) = if pictures.len() == 1 {
-            ("This image is", "it")
+        output.push('\n');
+        output.push_str(words.text(if pictures.len() == 1 {
+            "no_longer_shown_one"
         } else {
-            ("These images are", "them")
-        };
-        output.push_str(&format!(
-            "\n[{these} no longer shown, to save room. Ask for {them} again if you need to see {them}.]"
-        ));
+            "no_longer_shown_many"
+        }));
         pictures.clear();
     }
     before - chars(items)
@@ -464,7 +452,7 @@ fn shed(items: &mut [Item], keep: usize) -> usize {
 
 /// Make a transcript picked up from disk whole again: every call the model
 /// made has to have a result, even if the process died before one came.
-fn mend(items: &mut Vec<Item>) {
+fn mend(items: &mut Vec<Item>, words: &Prompts) {
     let Some(at) = items
         .iter()
         .rposition(|item| matches!(item, Item::Assistant { .. }))
@@ -486,7 +474,11 @@ fn mend(items: &mut Vec<Item>) {
         .filter(|c| !answered.contains(&c.id.as_str()))
         .enumerate()
         .map(|(nth, c)| {
-            let said = if nth == 0 { INTERRUPTED } else { NOT_STARTED };
+            let said = words.text(if nth == 0 {
+                "interrupted"
+            } else {
+                "not_started"
+            });
             Item::result(&c.id, &c.name, said, true)
         })
         .collect();
@@ -509,83 +501,97 @@ fn preview(text: &str, max: usize) -> String {
 }
 
 /// The working instructions, with who is working and where filled in.
-pub fn system_prompt(who: &str, machine: &str, limits: &Limits) -> String {
+pub fn system_prompt(words: &Prompts, who: &str, machine: &str, limits: &Limits) -> String {
     let who = if who.trim().is_empty() {
         String::new()
     } else {
         format!("{}\n\n", who.trim())
     };
-    let budget = format!(
-        "You have at most {} steps and about {} minutes. That is enough to work carefully and not enough to wander.",
-        limits.max_steps,
-        (limits.max_seconds / 60).max(1)
+    let budget = words.fill(
+        "budget",
+        &[
+            ("steps", limits.max_steps.to_string()),
+            ("minutes", (limits.max_seconds / 60).max(1).to_string()),
+        ],
     );
-    PROMPT
-        .replace("{who}", &who)
-        .replace("{machine}", machine.trim())
-        .replace("{budget}", &budget)
+    ghost_core::narrate::fill(
+        words.work(),
+        &[
+            ("who", who),
+            ("machine", machine.trim().to_owned()),
+            ("budget", budget),
+        ],
+    )
 }
 
 /// What a sitting opens with: the task alone the first time, and the task
 /// with what was left behind every time after.
-pub fn opening_text(state: &State) -> String {
-    opening_with(state, false)
+pub fn opening_text(words: &Prompts, state: &State) -> String {
+    opening_with(words, state, false)
 }
 
 /// The opening, for a context that was cleared. With `tail`, the last
 /// stretch of the old transcript follows it word for word, and the worker
 /// is told to go on from there instead of finding its feet again.
-fn opening_with(state: &State, tail: bool) -> String {
-    let task = format!("<task>\n{}\n</task>", state.task_text());
+fn opening_with(words: &Prompts, state: &State, tail: bool) -> String {
+    let task = words.fill("task", &[("task", state.task_text())]);
     if state.steps == 0 {
         return task;
     }
     let handoff = state.handoff.as_deref().map_or_else(String::new, |h| {
-        format!("<handoff>\n{}\n</handoff>\n\n", h.trim())
+        words.fill("handoff_section", &[("handoff", h.trim().to_owned())])
     });
     let touched = if state.touched.is_empty() {
         String::new()
     } else {
-        format!(
-            "<files_you_last_changed>\n{}\n</files_you_last_changed>\n\n",
-            state.touched.join("\n")
-        )
+        words.fill("touched_section", &[("files", state.touched.join("\n"))])
     };
     let (before, after) = if tail {
-        (
-            "You have already been working on this. Your context filled up, so all of it but the most \
-             recent part has been cleared. This is what you left for yourself; after this message, the \
-             last stretch of your work follows exactly as it happened.",
-            "Clearing your context is routine and does not end the task. Do not start over and do not \
-             redo what is finished. Treat what is above as settled, and carry on directly from where \
-             the messages below leave off.",
-        )
+        ("cleared_before", "cleared_after")
     } else {
-        (
-            "You have already been working on this, and your earlier context is gone. \
-             This is what you left for yourself.",
-            "Clearing your context is routine and does not end the task. Do not start over. \
-             First look at the current state of the environment, which holds \
-             whatever you already did. Then carry on from where you stopped.",
-        )
+        ("picked_up_before", "picked_up_after")
     };
-    format!(
-        "{task}\n\n{before}\n\n\
-         <plan>\n{}\n</plan>\n\n{handoff}{touched}<notes>\n{}\n</notes>\n\n{after}\n\n{AUDIT}",
-        state.plan_text(),
-        state.notes_text(NOTES_SHOWN)
+    words.fill(
+        "opening",
+        &[
+            ("task", task),
+            ("before", words.text(before).to_owned()),
+            ("plan", state.plan_text()),
+            ("handoff", handoff),
+            ("touched", touched),
+            ("notes", state.notes_text(NOTES_SHOWN)),
+            ("after", words.text(after).to_owned()),
+            ("audit", words.text("audit").to_owned()),
+        ],
     )
 }
 
 impl Worker {
-    fn system(&self) -> String {
-        system_prompt(&self.who, &self.machine, &self.limits)
+    fn system(&self, words: &Prompts) -> String {
+        system_prompt(words, &self.who, &self.machine, &self.limits)
     }
 
     /// What a sitting starts from: the task alone the first time, and the
     /// task with what was left behind every time after.
-    fn opening(&self) -> Vec<Item> {
-        vec![Item::user(opening_text(&self.undertaking.state()))]
+    fn opening(&self, words: &Prompts) -> Vec<Item> {
+        vec![Item::user(opening_text(words, &self.undertaking.state()))]
+    }
+
+    /// What the model is shown, in `words`, with `tools`.
+    fn shown(&self, tools: &Toolbox, words: Prompts) -> Shown {
+        Shown {
+            system: self.system(&words),
+            specs: tools.specs(&words, Loop::Work),
+            words,
+        }
+    }
+
+    /// The words as they are now, looked at again first, and whether they
+    /// changed.
+    fn words(&self) -> (Prompts, bool) {
+        let mut words = prompts::hold(&self.prompts);
+        let changed = words.refresh_now();
+        (words.clone(), changed)
     }
 
     /// How many tokens the transcript may reach before it is folded: what
@@ -754,13 +760,14 @@ impl Worker {
         &self,
         items: &mut Vec<Item>,
         recorded: &mut usize,
-        system: &str,
+        shown: &Shown,
         tools: &Toolbox,
         gauge: &mut Gauge,
         base: u64,
         ceiling: u64,
         ask: bool,
     ) -> (Usage, Option<u64>) {
+        let words = &shown.words;
         // What the sitting started at cannot be folded away, so the aim is
         // set in the room above it.
         let base = base.min(ceiling);
@@ -772,7 +779,7 @@ impl Worker {
         };
         // Pictures go before any text: they cost the most, and are worth
         // the least once they have been looked at.
-        let mut freed = unsee(&mut trial, 0);
+        let mut freed = unsee(&mut trial, 0, words);
         trial_gauge.reweigh(&trial);
         if trial_gauge.tokens(&trial) > target {
             freed += prune(&mut trial, KEEP_RECENT[2]);
@@ -801,13 +808,13 @@ impl Worker {
         self.save(items, recorded);
         let mut spent = Usage::default();
         if ask {
-            let asking = Item::user(HANDOFF);
-            let mut shown = items.clone();
-            shown.push(asking.clone());
+            let asking = Item::user(words.text("handoff"));
+            let mut asking_items = items.clone();
+            asking_items.push(asking.clone());
             let turn = Turn {
-                system: system.to_owned(),
-                items: shown,
-                tools: tools.specs(),
+                system: shown.system.clone(),
+                items: asking_items,
+                tools: shown.specs.clone(),
                 max_tokens: self.max_output(),
                 temperature: self.limits.temperature,
                 effort: self.limits.effort,
@@ -832,7 +839,7 @@ impl Worker {
             state.sittings += 1;
             state.clone()
         });
-        let opening = Item::user(opening_with(&state, !tail.is_empty()));
+        let opening = Item::user(opening_with(words, &state, !tail.is_empty()));
         self.undertaking.remember(std::slice::from_ref(&opening));
         tracing::info!(
             "a new sitting begins from the plan, the handoff and the last {} items",
@@ -870,7 +877,6 @@ impl Worker {
             return self.report(finish.outcome.into());
         }
         let started = Instant::now();
-        let system = self.system();
         // The handoff tool is there at every step, not only when it is
         // wanted: a request whose tools differ from the last one's reads
         // nothing from the provider's cache.
@@ -886,17 +892,14 @@ impl Worker {
                 limits: self.limits.clone(),
                 machine: self.machine.clone(),
                 pause: self.pause.clone(),
+                prompts: self.prompts.clone(),
             }),
             None => tools,
         };
-        let specs = tools.specs();
+        let mut shown = self.shown(&tools, self.words().0);
         let mut gauge = Gauge {
             measured: None,
-            fixed: system.len()
-                + specs
-                    .iter()
-                    .map(|s| s.description.len() + s.parameters.to_string().len())
-                    .sum::<usize>(),
+            fixed: shown.weight(),
         };
         let (mut items, mut recorded) = match self
             .undertaking
@@ -909,13 +912,13 @@ impl Worker {
                 let known = items.len();
                 (items, known)
             }
-            None => (self.opening(), 0),
+            None => (self.opening(&shown.words), 0),
         };
-        mend(&mut items);
+        mend(&mut items, &shown.words);
 
         // Where this sitting started, in tokens. A transcript picked up from
         // disk counts as starting from the task alone.
-        let mut base = gauge.tokens(&self.opening());
+        let mut base = gauge.tokens(&self.opening(&shown.words));
         let mut idle = 0;
         let mut last_signature = String::new();
         let mut repeats = 0;
@@ -945,13 +948,14 @@ impl Worker {
                 self.save(&items, &mut recorded);
                 return self.report(Ended::Waiting);
             }
+            // What it is told, as the files say it now.
+            if let (words, true) = self.words() {
+                shown = self.shown(&tools, words);
+                gauge.fixed = shown.weight();
+            }
             for added in added {
                 tracing::info!("added to the task: {}", preview(&added, 160));
-                items.push(Item::user(format!(
-                    "Something has been added to the task while you were working:\n\n{added}\n\n\
-                     It extends or adjusts what was asked; it does not replace it. \
-                     Take it into account from here, and update the plan if it changes what is left to do."
-                )));
+                items.push(Item::user(shown.words.fill("added", &[("added", added)])));
             }
 
             let mut extra = Usage::default();
@@ -961,7 +965,7 @@ impl Worker {
                     .fold(
                         &mut items,
                         &mut recorded,
-                        &system,
+                        &shown,
                         &tools,
                         &mut gauge,
                         base,
@@ -972,15 +976,15 @@ impl Worker {
                 extra = spent;
                 base = began.unwrap_or(base);
             }
-            if unsee(&mut items, PICTURES_KEPT) > 0 {
+            if unsee(&mut items, PICTURES_KEPT, &shown.words) > 0 {
                 gauge.reweigh(&items);
             }
 
             let asked = Instant::now();
             let turn = Turn {
-                system: system.clone(),
+                system: shown.system.clone(),
                 items: items.clone(),
-                tools: specs.clone(),
+                tools: shown.specs.clone(),
                 max_tokens: self.max_output(),
                 temperature: self.limits.temperature,
                 effort: self.limits.effort,
@@ -1024,7 +1028,7 @@ impl Worker {
                         .fold(
                             &mut items,
                             &mut recorded,
-                            &system,
+                            &shown,
                             &tools,
                             &mut gauge,
                             0,
@@ -1071,13 +1075,13 @@ impl Worker {
                     self.save(&items, &mut recorded);
                     return self.report(Ended::Stalled);
                 }
-                items.push(Item::user(if thought_out {
-                    THOUGHT_OUT
+                items.push(Item::user(shown.words.text(if thought_out {
+                    "thought_out"
                 } else if why == Stop::Length {
-                    CUT_OFF
+                    "cut_off"
                 } else {
-                    NO_CALL
-                }));
+                    "no_call"
+                })));
             } else {
                 idle = 0;
                 let (ran, signature) = self.run_calls(&tools, &calls, &mut items).await;
@@ -1085,7 +1089,7 @@ impl Worker {
                 if signature == last_signature {
                     repeats += 1;
                     if repeats == 2 {
-                        items.push(Item::user(REPEATING));
+                        items.push(Item::user(shown.words.text("repeating")));
                         repeats = 0;
                     }
                 } else {
@@ -1117,9 +1121,12 @@ impl Worker {
                 return self.report(finish.outcome.into());
             }
             if n == warn_at && warn_at > 0 {
-                items.push(Item::user(format!(
-                    "You have used {n} of your {} steps. Spend what is left on getting the work into a finished, checked state, and call `done`.",
-                    self.limits.max_steps
+                items.push(Item::user(shown.words.fill(
+                    "steps_left",
+                    &[
+                        ("used", n.to_string()),
+                        ("steps", self.limits.max_steps.to_string()),
+                    ],
                 )));
             }
         }
@@ -1254,6 +1261,7 @@ mod tests {
             machine: "a test directory".into(),
             pause: Arc::new(AtomicBool::new(false)),
             helpers: None,
+            prompts: Prompts::shipped().shared(),
         };
         (worker, brain)
     }
@@ -1331,7 +1339,7 @@ mod tests {
             },
             Item::result("a", "shell", "ok", false),
         ];
-        mend(&mut items);
+        mend(&mut items, &Prompts::shipped());
         assert_eq!(items.len(), 5);
         // The first call without a result may have begun; the one after it
         // cannot have, and is safe to run.
@@ -1345,7 +1353,7 @@ mod tests {
         );
         // Nothing to do when it is already whole.
         let before = items.clone();
-        mend(&mut items);
+        mend(&mut items, &Prompts::shipped());
         assert_eq!(items, before);
     }
 
@@ -1744,7 +1752,10 @@ mod tests {
 
     #[async_trait]
     impl Tool for Meanwhile {
-        fn spec(&self) -> ToolSpec {
+        fn name(&self) -> &'static str {
+            "wait"
+        }
+        fn spec(&self, _: &Prompts, _: Loop) -> ToolSpec {
             tool::spec("wait", "Wait a moment.", json!({}), &[])
         }
         async fn call(&self, _: &Value) -> tool::Outcome {
@@ -1837,7 +1848,10 @@ mod tests {
 
     #[async_trait]
     impl Tool for Camera {
-        fn spec(&self) -> ToolSpec {
+        fn name(&self) -> &'static str {
+            "camera"
+        }
+        fn spec(&self, _: &Prompts, _: Loop) -> ToolSpec {
             tool::spec("camera", "Take a picture.", json!({}), &[])
         }
         async fn call(&self, _: &Value) -> tool::Outcome {
@@ -2030,7 +2044,7 @@ mod tests {
             // Not looked at yet.
             result("d", 3),
         ];
-        let freed = unsee(&mut items, 2);
+        let freed = unsee(&mut items, 2, &Prompts::shipped());
         assert!(freed > 2 * ghost_brain::PICTURE_WEIGHT, "{freed}");
         let counts: Vec<usize> = items.iter().map(pictures_in).collect();
         // `b` has two and only one would fit: both go, and so does `a`.
@@ -2038,7 +2052,176 @@ mod tests {
         assert!(matches!(&items[4], Item::Result { output, .. }
             if output.ends_with("[These images are no longer shown, to save room. Ask for them again if you need to see them.]")));
         // Even with nothing kept, what has not been looked at stays.
-        unsee(&mut items, 0);
+        unsee(&mut items, 0, &Prompts::shipped());
         assert_eq!(items.iter().map(pictures_in).sum::<usize>(), 3);
+    }
+
+    /// Compare `got` with what was recorded under `name`, or record it when
+    /// `GHOST_RECORD` is set.
+    fn compare(name: &str, got: &str) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/requests")
+            .join(format!("{name}.txt"));
+        if std::env::var_os("GHOST_RECORD").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, got).unwrap();
+            return;
+        }
+        let want = std::fs::read_to_string(&path).unwrap();
+        if want != got {
+            let at = want
+                .lines()
+                .zip(got.lines())
+                .position(|(a, b)| a != b)
+                .unwrap_or(want.lines().count().min(got.lines().count()));
+            panic!(
+                "{name} differs from what was recorded, first at line {}:\nrecorded: {:?}\nnow:      {:?}",
+                at + 1,
+                want.lines().nth(at),
+                got.lines().nth(at)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_tool_described_anew_in_the_ghosts_tools_toml_reaches_work_already_running() {
+        let dir = tempfile::tempdir().unwrap();
+        // The work writes the file itself, between its first step and its
+        // second, as a person editing it would.
+        let script = vec![
+            calls(
+                "write",
+                json!({
+                    "path": "prompts/tools.toml",
+                    "content": "[shell]\ndescription = \"Run it.\"\n\n[shell.parameters]\ncommand = \"What to run.\"\n",
+                }),
+            ),
+            calls("done", json!({"outcome": "finished", "summary": "ok"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        worker.prompts = Prompts::load(dir.path(), None).shared();
+        worker.run().await;
+        let seen = brain.seen.lock().unwrap();
+        let shell = |turn: &Turn| {
+            turn.tools
+                .iter()
+                .find(|t| t.name == "shell")
+                .cloned()
+                .unwrap()
+        };
+        let shipped = Prompts::shipped();
+        assert_eq!(
+            shell(&seen[0]).description,
+            shipped.store().tool("shell", Loop::Work)
+        );
+        let now = shell(&seen[1]);
+        assert_eq!(now.description, "Run it.");
+        assert_eq!(
+            now.parameters["properties"]["command"]["description"],
+            "What to run."
+        );
+        // What the file does not mention keeps its built-in words.
+        assert_eq!(
+            now.parameters["properties"]["timeout"]["description"],
+            shipped
+                .store()
+                .parameter("shell", "timeout", Loop::Work)
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn what_a_worker_is_told_comes_from_the_files_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompts = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&prompts).unwrap();
+        std::fs::write(
+            prompts.join("work.md"),
+            "{{who}}Work here: {{machine}}. {{budget}}",
+        )
+        .unwrap();
+        std::fs::write(
+            prompts.join("work_texts.toml"),
+            "no_call = \"Call a tool.\"\nbudget = \"{{steps}} steps.\"\n",
+        )
+        .unwrap();
+        let script = vec![
+            says("I would."),
+            calls("done", json!({"outcome": "finished", "summary": "ok"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        worker.prompts = Prompts::load(&dir.path().join("state"), Some(&prompts)).shared();
+        worker.run().await;
+        let seen = brain.seen.lock().unwrap();
+        assert_eq!(seen[0].system, "Work here: a test directory. 200 steps.");
+        assert!(
+            matches!(seen[1].items.last(), Some(Item::User { text }) if text == "Call a tool.")
+        );
+    }
+
+    #[tokio::test]
+    async fn with_nothing_overridden_a_worker_asks_exactly_what_it_asked_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            says("I will write it."),
+            calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
+            calls("shell", json!({"command": "cat hi.txt"})),
+            calls("delegate", json!({"task": "say what is in hi.txt"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "it says hi"}),
+            ),
+            calls("note", json!({"text": "hi.txt holds hi"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wrote it"}),
+            ),
+        ];
+        let limits = Limits {
+            max_steps: 5,
+            ..Limits::default()
+        };
+        let (mut worker, brain) = worker(dir.path(), script, limits);
+        let root = dir.path().to_path_buf();
+        worker.helpers = Some(Arc::new(move |undertaking| {
+            tools::standard(Arc::new(Local::new(&root)), undertaking)
+        }));
+        let u = worker.undertaking.clone();
+        worker.tools = tools::with_web(worker.tools.clone(), &tools::WebConfig::default())
+            .with(tools::Keep::new(u.clone()))
+            .with(tools::Tell::new(u.clone()))
+            .with(tools::Ask::new(u.clone()));
+        worker.run().await;
+        let mut out = String::new();
+        for turn in brain.seen.lock().unwrap().iter() {
+            out.push_str(&format!(
+                "system: {}\nitems: {:#?}\ntools: {:#?}\n\n",
+                turn.system, turn.items, turn.tools
+            ));
+        }
+        let words = Prompts::shipped();
+        let mut state = u.state();
+        state.steps = 3;
+        out.push_str(&format!(
+            "opening: {}\n\ncleared: {}\n\n",
+            opening_with(&words, &state, false),
+            opening_with(&words, &state, true)
+        ));
+        let call = |id: &str| Call {
+            id: id.into(),
+            name: "shell".into(),
+            args: json!({"command": "make"}),
+        };
+        let mut items = vec![Item::Assistant {
+            text: String::new(),
+            calls: vec![call("a"), call("b")],
+            carry: None,
+        }];
+        mend(&mut items, &words);
+        out.push_str(&format!("mended: {items:#?}\n\n"));
+        for said in ["no_call", "cut_off", "thought_out", "repeating", "handoff"] {
+            out.push_str(&format!("nudge: {}\n", words.text(said)));
+        }
+        compare("worker", &out);
     }
 }

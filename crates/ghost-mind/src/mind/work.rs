@@ -310,6 +310,9 @@ impl Mind {
             self.prompts.working.trim_end(),
             self.practice_block()?
         );
+        // What the work is told comes from the same files as what she is
+        // told, and is looked at again before each step.
+        let words = self.prompts.for_work();
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working = Some(Working {
             id: next.id.clone(),
@@ -329,6 +332,7 @@ impl Mind {
                     machine: place,
                     pause,
                     helpers: Some(equip),
+                    prompts: words.shared(),
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;
@@ -364,11 +368,22 @@ impl Mind {
                     // She follows it as it runs.
                     "--tell".to_owned(),
                 ];
+                // Her own `prompts/` is found in her directory; the
+                // configured one has to be named.
+                if let Some(dir) = &self.cfg.prompts {
+                    tool_server.extend([
+                        "--prompts".to_owned(),
+                        dir.canonicalize()
+                            .unwrap_or_else(|_| dir.clone())
+                            .display()
+                            .to_string(),
+                    ]);
+                }
                 tool_server.extend(self.workshop.runner_args.iter().cloned());
                 let seat = claude::Seat {
                     agent,
-                    system: system_prompt(&who, &place, &limits),
-                    opening: opening_text(&undertaking.state()),
+                    system: system_prompt(&words, &who, &place, &limits),
+                    opening: opening_text(&words, &undertaking.state()),
                     undertaking,
                     tool_server,
                     max_turns: limits.max_steps,

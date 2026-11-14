@@ -8,8 +8,9 @@ the actions that come back into journal entries, delivers what she says at the
 pace a person types, plans and lives her day, pursues her own intentions,
 scrolls feeds, and works on what she has taken on, a sitting at a time. The
 prompts it uses are data, in [`prompts/`](prompts/): whole templates as
-Markdown, the short framings, nudges and refusals in `texts.toml`, and what
-each tool is said to do in `tools.toml`. They are built in only as the last
+Markdown, and the short framings, nudges and refusals in `texts.toml`; what
+each tool is said to do is in `ghost-work`'s `tools.toml`, one file for every
+tool of both loops, read from the same directories. They are built in only as the last
 resort; a file of the same name in her own `prompts/`, or in the configured
 directory, is used instead, and taken in again when it changes.
 

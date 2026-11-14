@@ -20,7 +20,8 @@ use anyhow::{Context, bail};
 use clap::Parser;
 use ghost_brain::{Brain, CliAgent, CliKind, Effort, anthropic::Anthropic, openai::OpenAi};
 use ghost_work::{
-    Docker, Limits, Local, Machine, Undertaking, WORK_DB, Worker, claude, codex, mcp, tools,
+    Docker, Limits, Local, Machine, Prompts, Undertaking, WORK_DB, Worker, claude, codex, mcp,
+    prompts, tools,
     worker::{opening_text, system_prompt},
 };
 
@@ -47,6 +48,12 @@ struct Args {
     /// command-line agent serve her tools.
     #[arg(long, default_value = "main")]
     id: String,
+    /// A directory of prompts: `work.md`, `work_texts.toml` and
+    /// `tools.toml`, or any of them. A `prompts/` directory inside `--state`
+    /// wins over it, and what is built in is used for anything neither has.
+    /// A file changed while the work runs is taken in at the next step.
+    #[arg(long)]
+    prompts: Option<PathBuf>,
 
     /// Work in this directory on this computer.
     #[arg(long, conflicts_with = "docker")]
@@ -234,16 +241,16 @@ async fn main() -> anyhow::Result<()> {
         toolbox
     };
 
+    let words = Prompts::load(&args.state, args.prompts.as_deref()).shared();
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());
-        return Ok(mcp::serve(toolbox, undertaking, input, tokio::io::stdout()).await?);
+        return Ok(mcp::serve(toolbox, words, undertaking, input, tokio::io::stdout()).await?);
     }
 
     // A first look around, so the first steps are not spent finding out
     // which system this is and what is in the directory.
     let mut place = if args.no_machine {
-        "You have no computer to run things on: only what you can look up and think through."
-            .to_owned()
+        prompts::hold(&words).text("no_machine").to_owned()
     } else {
         machine.describe()
     };
@@ -255,9 +262,11 @@ async fn main() -> anyhow::Result<()> {
     };
     match looked {
         Ok(out) if !out.text.trim().is_empty() => {
-            place.push_str("\n\nWhen this run started it looked like this:\n\n```\n");
-            place.push_str(out.text.trim());
-            place.push_str("\n```");
+            place.push_str("\n\n");
+            place.push_str(
+                &prompts::hold(&words)
+                    .fill("looked_around", &[("look", out.text.trim().to_owned())]),
+            );
         }
         Ok(_) => {}
         Err(e) => bail!("the machine cannot be reached: {e}"),
@@ -301,6 +310,12 @@ async fn main() -> anyhow::Result<()> {
                 place_args[at + 1] = dir.canonicalize()?.display().to_string();
             }
             tool_server.extend(place_args);
+            if let Some(dir) = &args.prompts {
+                tool_server.extend([
+                    "--prompts".to_owned(),
+                    dir.canonicalize()?.display().to_string(),
+                ]);
+            }
             let by_codex = args.runtime == "codex";
             let seat = claude::Seat {
                 agent: CliAgent {
@@ -317,8 +332,8 @@ async fn main() -> anyhow::Result<()> {
                     model: args.model.clone(),
                     args: args.agent_args.clone(),
                 },
-                system: system_prompt("", &place, &limits),
-                opening: opening_text(&undertaking.state()),
+                system: system_prompt(&prompts::hold(&words), "", &place, &limits),
+                opening: opening_text(&prompts::hold(&words), &undertaking.state()),
                 undertaking,
                 tool_server,
                 max_turns: args.max_steps,
@@ -360,6 +375,7 @@ async fn main() -> anyhow::Result<()> {
                 machine: place,
                 pause: Arc::new(AtomicBool::new(false)),
                 helpers: Some(equip),
+                prompts: words,
             }
             .run()
             .await

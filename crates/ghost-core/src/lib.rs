@@ -24,6 +24,7 @@ pub mod life;
 pub mod media;
 pub mod memory;
 pub mod narrate;
+pub mod prompts;
 pub mod social;
 pub mod tempo;
 pub mod when;

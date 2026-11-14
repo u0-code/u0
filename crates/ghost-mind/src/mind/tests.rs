@@ -3575,3 +3575,103 @@ async fn nothing_kept_is_recorded_twice_when_the_sitting_ends() {
     // The sitting's record still lists it at the end; it is hers once.
     assert_eq!(count(&rig, "kept"), 1);
 }
+
+/// Every clock time written as `HH:MM`. When a message came in is when the
+/// test ran, and when she looks is a moment her tempo draws at random.
+fn without_times(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if i + 5 <= b.len()
+            && b[i + 2] == b':'
+            && [0, 1, 3, 4].iter().all(|&k| b[i + k].is_ascii_digit())
+        {
+            out.extend_from_slice(b"HH:MM");
+            i += 5;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap()
+}
+
+/// Compare `got` with what was recorded under `name`, or record it when
+/// `GHOST_RECORD` is set. The ghost's directory, which changes from run to
+/// run, is written as `<dir>`, and the times messages came in, which are
+/// when the test ran, are left out of the comparison.
+fn compare_recorded(rig: &Rig, name: &str, got: &str) {
+    let got = got.replace(&rig.mind.ghost.dir().display().to_string(), "<dir>");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/requests")
+        .join(format!("{name}.txt"));
+    if std::env::var_os("GHOST_RECORD").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &got).unwrap();
+        return;
+    }
+    let (want, got) = (
+        without_times(&std::fs::read_to_string(&path).unwrap()),
+        without_times(&got),
+    );
+    if want != got {
+        let at = want
+            .lines()
+            .zip(got.lines())
+            .position(|(a, b)| a != b)
+            .unwrap_or(want.lines().count().min(got.lines().count()));
+        panic!(
+            "{name} differs from what was recorded, first at line {}:\nrecorded: {:?}\nnow:      {:?}",
+            at + 1,
+            want.lines().nth(at),
+            got.lines().nth(at)
+        );
+    }
+}
+
+fn turns_text(turns: &[ghost_brain::Turn]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for t in turns {
+        let _ = write!(
+            out,
+            "system: {}\nitems: {:#?}\ntools: {:#?}\n\n",
+            t.system, t.items, t.tools
+        );
+    }
+    out
+}
+
+#[tokio::test]
+async fn with_nothing_overridden_she_asks_exactly_what_she_asked_before() {
+    let t0 = at(14, 0);
+    // Answering in JSON.
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("wen", "1", "is the tea house open?"), t0);
+    rig.until(|r| r.think.calls() == 1).await;
+    let seen = format!("{:#?}", rig.think.seen.lock().unwrap());
+    compare_recorded(&rig, "talk_json", &seen);
+
+    // Answering with tools, with memory searched in between.
+    let mut rig = Rig::with_tools(t0);
+    rig.think
+        .then_turn("", &[("recall", serde_json::json!({"query": "tea"}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "nine, I think"}))]);
+    rig.hear(dm("wen", "1", "is the tea house open?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let turns = turns_text(&rig.think.turns.lock().unwrap());
+    compare_recorded(&rig, "talk_tools", &turns);
+
+    // At work for a friend.
+    let mut rig = Rig::quiet(t0);
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "Nine on weekdays."}),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let turns = turns_text(&rig.think.turns.lock().unwrap());
+    compare_recorded(&rig, "work", &turns);
+}

@@ -11,7 +11,8 @@ use ghost_brain::ToolSpec;
 use serde_json::{Value, json};
 
 use crate::{
-    tool::{Outcome, Tool, spec, text},
+    prompts::{Loop, Prompts},
+    tool::{Outcome, Tool, text},
     undertaking::{self, Finish, PlanStep, Progress, Undertaking},
 };
 
@@ -37,18 +38,21 @@ fn progress(word: &str) -> Progress {
 
 #[async_trait]
 impl Tool for Plan {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "plan"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "plan",
-            "Write or rewrite the plan: the whole list of steps, each with its status. Use it at the start of anything that takes more than a few steps, and again whenever a step is finished or the plan changes. The plan survives when older context is dropped.",
             json!({
                 "steps": {
                     "type": "array",
-                    "description": "Every step of the plan, in order.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "text": {"type": "string", "description": "What the step is, concretely."},
+                            "text": {"type": "string"},
                             "status": {"type": "string", "enum": ["todo", "doing", "done", "dropped"]},
                         },
                         "required": ["text", "status"],
@@ -104,15 +108,12 @@ impl Note {
 
 #[async_trait]
 impl Tool for Note {
-    fn spec(&self) -> ToolSpec {
-        spec(
-            "note",
-            "Write down one thing you would not want to find out twice: a path, a version, a command that worked, a decision and its reason, a dead end. A line or two. Notes survive when older context is dropped; tool output does not.",
-            json!({
-                "text": {"type": "string", "description": "The fact, stated so it makes sense on its own later."},
-            }),
-            &["text"],
-        )
+    fn name(&self) -> &'static str {
+        "note"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(lp, "note", json!({"text": {"type": "string"}}), &["text"])
     }
 
     async fn call(&self, args: &Value) -> Outcome {
@@ -147,13 +148,15 @@ impl Handoff {
 
 #[async_trait]
 impl Tool for Handoff {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "handoff"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "handoff",
-            "Only when you are told your context is about to be cleared: write the one document you will continue from afterwards. It replaces any earlier handoff, so it has to stand on its own. For things worth keeping at any other time, use `note`.",
-            json!({
-                "text": {"type": "string", "description": "What is finished and checked, what is in progress and exactly where it stopped, the paths and commands that matter, what was not obvious, and the next actions in order."},
-            }),
+            json!({"text": {"type": "string"}}),
             &["text"],
         )
     }
@@ -186,17 +189,15 @@ impl Ask {
 
 #[async_trait]
 impl Tool for Ask {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "ask"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "ask",
-            "Put a question to the person this work is for, and stop until they answer. \
-             Only for what you cannot find out and should not decide alone: a preference, a fact only they have, \
-             a choice between ways that would give them a different result. Never for what you could look up or try. \
-             The answer may take hours, so do everything that does not depend on it first, and ask once, with \
-             everything you need in the one question.",
-            json!({
-                "question": {"type": "string", "description": "The question, as you would put it to them: short, and answerable without having seen your work."},
-            }),
+            json!({"question": {"type": "string"}}),
             &["question"],
         )
     }
@@ -232,16 +233,15 @@ impl Keep {
 
 #[async_trait]
 impl Tool for Keep {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "keep"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "keep",
-            "Keep an image you were shown, because you want to have it: something worth looking at or \
-             using, now or later. It is had at once, while you go on working, and stays after the work is \
-             over. What you do not keep is gone with the work. Keeping the same image again replaces the note.",
-            json!({
-                "file": {"type": "string", "description": "The image's name, as a result showed it in `[image: <name>]`."},
-                "note": {"type": "string", "description": "In your own words: what it is, and when you would want it again. This is how it will be found later."},
-            }),
+            json!({"file": {"type": "string"}, "note": {"type": "string"}}),
             &["file", "note"],
         )
     }
@@ -283,10 +283,6 @@ impl Tool for Keep {
 /// Something worth knowing before the work is done, for whoever it is
 /// for. Only offered where someone follows the work as it runs and takes
 /// what it tells them from the record.
-//
-// What this tool is said to be is still a literal here, like every other
-// tool description in ghost-work, until ghost-work's prose moves to files
-// of its own as ghost-mind's has.
 pub struct Tell {
     undertaking: Arc<Undertaking>,
 }
@@ -299,17 +295,17 @@ impl Tell {
 
 #[async_trait]
 impl Tool for Tell {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "tell"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "tell",
-            "Tell whoever this work is for something worth their knowing now, before the work is done: a \
-             finding they would want straight away, a partial result, a file ready to hand over. It reaches \
-             them while you go on working; it asks nothing and ends nothing. Most steps need none: the whole \
-             account belongs in `done`, and what is only on the way to it belongs in `note`. For an image you \
-             were shown, use `keep`.",
             json!({
-                "text": {"type": "string", "description": "What they should know, in a sentence or two that make sense without your work in front of them."},
-                "files": {"type": "array", "items": {"type": "string"}, "description": "Files you made that are ready to hand over now: their absolute paths. Leave out when there are none."},
+                "text": {"type": "string"},
+                "files": {"type": "array", "items": {"type": "string"}},
             }),
             &["text"],
         )
@@ -357,15 +353,19 @@ impl Done {
 
 #[async_trait]
 impl Tool for Done {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "done"
+    }
+
+    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
+        words.spec(
+            lp,
             "done",
-            "End the work and say how it ended. `finished` is your word that every requirement holds and that you have seen it hold in the real state; nothing checks it after you. `blocked` means something outside your control is in the way. `gave_up` means you are out of ideas. Nothing can be done after this.",
             json!({
                 "outcome": {"type": "string", "enum": ["finished", "blocked", "gave_up"]},
-                "summary": {"type": "string", "description": "What was done, or what is in the way, in a few sentences."},
-                "files": {"type": "array", "items": {"type": "string"}, "description": "If what was asked for is one or more files, their absolute paths: these are what gets handed over. Leave out when the result is what you say in the summary."},
-                "lesson": {"type": "string", "description": "Optional, and usually left out. One sentence you would want in front of you the next time you do work like this: what you would do differently, or a way of going about it that worked and was not obvious. About how to work, not about this task's subject."},
+                "summary": {"type": "string"},
+                "files": {"type": "array", "items": {"type": "string"}},
+                "lesson": {"type": "string"},
             }),
             &["outcome", "summary"],
         )
