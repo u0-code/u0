@@ -281,9 +281,10 @@ async fn install_runs_a_stdio_server_with_a_clean_environment_and_pinned_args() 
         "what it declared and was given by name"
     );
     // Nothing else of the body's environment: only what the shell itself
-    // adds when it starts.
+    // adds when it starts, and the proxy rule everything she runs follows.
     let extra: Vec<&String> = env
         .keys()
+        .filter(|k| !k.to_ascii_lowercase().ends_with("_proxy"))
         .filter(|k| {
             ![
                 "HOME",
