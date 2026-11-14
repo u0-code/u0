@@ -4181,3 +4181,34 @@ async fn an_operators_directive_to_take_something_on_is_not_held_to_the_relation
     );
     assert!(u.brief.ends_with(&carried), "{}", u.brief);
 }
+
+#[tokio::test]
+async fn a_look_that_spends_its_turns_on_looking_things_up_still_ends_in_an_answer() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let steps = usize::from(rig.mind.cfg.talk_steps);
+    // Every turn but the last goes to searching her memory, which always
+    // asks for another turn.
+    for _ in 0..steps - 1 {
+        rig.think
+            .then_turn("", &[("recall", serde_json::json!({"query": "tea"}))]);
+    }
+    rig.think.then_turn(
+        "",
+        &[("say", serde_json::json!({"text": "found nothing, sorry"}))],
+    );
+    rig.hear(dm("wen", "1", "what was that teahouse called?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    let turns = rig.think.turns.lock().unwrap();
+    assert_eq!(turns.len(), steps);
+    let last = turns.last().unwrap();
+    // On the last turn nothing that brings something back is offered, and
+    // she is told why.
+    assert!(last.tools.iter().all(|t| t.name != "recall"));
+    assert!(last.tools.iter().any(|t| t.name == "say"));
+    assert!(matches!(last.items.last(),
+        Some(ghost_brain::Item::User { text }) if text.contains("last turn")));
+    // Earlier turns still had it.
+    assert!(turns[0].tools.iter().any(|t| t.name == "recall"));
+}

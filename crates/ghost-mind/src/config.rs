@@ -200,7 +200,7 @@ impl Default for MindConfig {
             max_tokens: 2000,
             thread_window: 40,
             talk_tools: true,
-            talk_steps: 5,
+            talk_steps: 8,
             talk_tool_seconds: 30,
             talk_machine: true,
             calls_per_hour: 120,
