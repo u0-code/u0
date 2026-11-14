@@ -25,6 +25,9 @@
 //!   reads it over.
 //! - **Stalls are noticed.** Talking without acting, repeating the same call,
 //!   and running low on steps each get said out loud to the model.
+//! - **Parts run alongside.** A worker that can equip helpers hands out
+//!   parts of the work that run while it goes on, and hears from them
+//!   between its steps, as it hears from outside: see [`crate::parts`].
 
 use std::{
     sync::{
@@ -34,26 +37,21 @@ use std::{
     time::Instant,
 };
 
-use async_trait::async_trait;
 use ghost_brain::{Brain, Call, Effort, Item, Stop, ToolSpec, Turn, Usage};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    prompts::{self, Loop, Prompts, Shared, Store},
-    tool::{self, Tool, Toolbox},
+    parts::Parts,
+    prompts::{self, Loop, Prompts, Shared},
+    tool::{self, Toolbox},
     tools::{Handoff, clip},
-    undertaking::{Outcome, State, Undertaking, placeholder},
+    undertaking::{MailKind, Outcome, State, Undertaking, placeholder},
 };
 
 /// Tools that only look, and can be run side by side when the model asks
 /// for several at once.
-const SIDE_BY_SIDE: [&str; 4] = ["read", "search", "fetch", "delegate"];
-/// What a helper given part of the work gets to do it in.
-const HELPER_STEPS: u32 = 40;
-const HELPER_SECONDS: u64 = 900;
-/// How much of a helper's report comes back.
-const HELPER_REPORT: usize = 8000;
+const SIDE_BY_SIDE: [&str; 3] = ["read", "search", "fetch"];
 
 /// What one step may write when nothing says and nothing is known about
 /// the model.
@@ -111,6 +109,13 @@ pub struct Limits {
     /// provider.
     pub effort: Option<Effort>,
     pub temperature: Option<f32>,
+    /// Parts of the work that may run at once. A part handed out beyond
+    /// this waits until one of them ends.
+    pub parts: usize,
+    /// Steps one part may take, over all the sittings it runs in. A part
+    /// is a piece of work in its own right, carried across sittings like
+    /// any other, so it is given what a whole run is given.
+    pub part_steps: u32,
 }
 
 impl Default for Limits {
@@ -122,6 +127,8 @@ impl Default for Limits {
             max_output: None,
             effort: None,
             temperature: None,
+            parts: 4,
+            part_steps: 200,
         }
     }
 }
@@ -190,9 +197,9 @@ pub struct Worker {
     pub machine: String,
     /// Set from outside to stop after the step in progress.
     pub pause: Arc<AtomicBool>,
-    /// How to equip a helper. With this, the worker can hand a
-    /// self-contained part of the work to another worker that has a
-    /// context of its own and reports back in a few paragraphs.
+    /// How to equip a helper. With this, the worker can hand
+    /// self-contained parts of the work to other workers, each with a
+    /// context of its own, that run alongside it and report back.
     pub helpers: Option<ToolsFor>,
     /// What it is told, and what its tools are said to be. Looked at again
     /// before each step, so that an edit reaches work already running.
@@ -202,91 +209,6 @@ pub struct Worker {
 /// Builds the tools for work on a given undertaking: the same machine and
 /// the same web, with a record of its own.
 pub type ToolsFor = Arc<dyn Fn(&Arc<Undertaking>) -> Toolbox + Send + Sync>;
-
-/// Part of the work, given to a helper.
-struct Delegate {
-    brain: Arc<dyn Brain>,
-    equip: ToolsFor,
-    parent: Arc<Undertaking>,
-    limits: Limits,
-    machine: String,
-    pause: Arc<AtomicBool>,
-    prompts: Shared,
-}
-
-#[async_trait]
-impl Tool for Delegate {
-    fn name(&self) -> &'static str {
-        "delegate"
-    }
-
-    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
-        prompts::spec(
-            words,
-            lp,
-            "delegate",
-            json!({"task": {"type": "string"}}),
-            &["task"],
-        )
-    }
-
-    async fn call(&self, args: &Value) -> tool::Outcome {
-        let task = match tool::text(args, "task") {
-            Ok(task) => task.trim(),
-            Err(refusal) => return refusal,
-        };
-        if task.is_empty() {
-            return tool::Outcome::fail("the task is empty");
-        }
-        // Kept beside the work it is part of, under an id that says so.
-        let helper = match self.parent.open_part(task) {
-            Ok(helper) => Arc::new(helper),
-            Err(e) => return tool::Outcome::fail(format!("no helper could be set up: {e}")),
-        };
-        let worker = Worker {
-            brain: self.brain.clone(),
-            tools: (self.equip)(&helper),
-            undertaking: helper.clone(),
-            limits: Limits {
-                max_steps: HELPER_STEPS.min(self.limits.max_steps),
-                max_seconds: HELPER_SECONDS.min(self.limits.max_seconds),
-                ..self.limits.clone()
-            },
-            who: String::new(),
-            machine: self.machine.clone(),
-            pause: self.pause.clone(),
-            helpers: None,
-            prompts: self.prompts.clone(),
-        };
-        let report = worker.run().await;
-        // What the helper spent is spent on this work.
-        self.parent.update(|state| state.usage.add(report.usage));
-        let said = if report.summary.trim().is_empty() {
-            helper.state().progress()
-        } else {
-            report.summary.trim().to_owned()
-        };
-        let words = prompts::hold(&self.prompts);
-        let how = match &report.ended {
-            Ended::Finished => words.text("helper_finished").to_owned(),
-            Ended::Blocked => words.text("helper_blocked").to_owned(),
-            Ended::GaveUp => words.text("helper_gave_up").to_owned(),
-            Ended::Failed(why) => words.fill("helper_failed", &[("why", preview(why, 160))]),
-            _ => words.text("helper_ran_out").to_owned(),
-        };
-        tool::Outcome {
-            failed: report.ended != Ended::Finished,
-            ..tool::Outcome::ok(words.fill(
-                "helper_report",
-                &[
-                    ("how", how),
-                    ("steps", report.steps.to_string()),
-                    ("report", clip(&said, HELPER_REPORT / 2, HELPER_REPORT / 2)),
-                ],
-            ))
-        }
-    }
-}
 
 /// What every request of a sitting shows the model before its transcript:
 /// the words they come from, the instructions, and the tools.
@@ -492,7 +414,7 @@ fn too_long(error: &ghost_brain::Error) -> bool {
     matches!(error, ghost_brain::Error::TooLong { .. })
 }
 
-fn preview(text: &str, max: usize) -> String {
+pub(crate) fn preview(text: &str, max: usize) -> String {
     let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
         flat
@@ -698,10 +620,14 @@ impl Worker {
                 "chars": outcome.output.len(),
                 "pictures": outcome.pictures.len(),
             }));
-            signature.push_str(&format!(
-                "{}\u{1f}{}\u{1f}{}\u{1e}",
-                call.name, call.args, outcome.output
-            ));
+            // Waiting on parts that are still at it comes back the same
+            // way every time, and is not being stuck.
+            if call.name != "wait" {
+                signature.push_str(&format!(
+                    "{}\u{1f}{}\u{1f}{}\u{1e}",
+                    call.name, call.args, outcome.output
+                ));
+            }
             if !outcome.failed
                 && matches!(call.name.as_str(), "write" | "edit")
                 && let Some(path) = call.args["path"].as_str()
@@ -872,12 +798,27 @@ impl Worker {
         }
     }
 
-    /// Work until it is finished, or until something stops it.
+    /// Work until it is finished, or until something stops it. Parts of
+    /// the work that are running when it stops stop after the step they
+    /// are on, and are waited for, so that what they spent is counted.
     pub async fn run(&self) -> Report {
         if let Some(finish) = self.undertaking.state().finish {
             return self.report(finish.outcome.into());
         }
         let started = Instant::now();
+        let parts = self
+            .helpers
+            .as_ref()
+            .map(|equip| Parts::new(self, equip.clone(), started));
+        let ended = self.sit(started, parts.as_ref()).await;
+        if let Some(parts) = &parts {
+            parts.settle().await;
+        }
+        self.report(ended)
+    }
+
+    /// One sitting, until something ends it.
+    async fn sit(&self, started: Instant, parts: Option<&Arc<Parts>>) -> Ended {
         // The handoff tool is there at every step, not only when it is
         // wanted: a request whose tools differ from the last one's reads
         // nothing from the provider's cache.
@@ -885,16 +826,8 @@ impl Worker {
             .tools
             .clone()
             .with(Handoff::new(self.undertaking.clone()));
-        let tools = match &self.helpers {
-            Some(equip) => tools.with(Delegate {
-                brain: self.brain.clone(),
-                equip: equip.clone(),
-                parent: self.undertaking.clone(),
-                limits: self.limits.clone(),
-                machine: self.machine.clone(),
-                pause: self.pause.clone(),
-                prompts: self.prompts.clone(),
-            }),
+        let tools = match parts {
+            Some(parts) => parts.equip(tools),
             None => tools,
         };
         let mut shown = self.shown(&tools, self.words().0);
@@ -931,32 +864,44 @@ impl Worker {
             // whoever stopped it said, and not as paused.
             if let Some(finish) = self.undertaking.state().finish {
                 self.save(&items, &mut recorded);
-                return self.report(finish.outcome.into());
+                return finish.outcome.into();
             }
             if self.pause.load(Ordering::Relaxed) {
-                return self.report(Ended::Paused);
+                return Ended::Paused;
             }
             if started.elapsed().as_secs() >= self.limits.max_seconds {
-                return self.report(Ended::OutOfTime);
+                return Ended::OutOfTime;
             }
-            // Whatever was added to the task from outside since the last
-            // step is put in front of the worker before it goes on.
-            let added = self.undertaking.take_added();
-            if !added.is_empty() {
+            // Whatever reached the work since the last step, from outside
+            // or from its parts, is put in front of the worker before it
+            // goes on.
+            let mail = self.undertaking.take_inbox();
+            let answered = mail.iter().any(|m| m.kind == MailKind::Added);
+            if answered {
                 // Whatever it was waiting to hear, this is the answer.
                 self.undertaking.update(|state| state.waiting = None);
-            } else if self.undertaking.state().waiting.is_some() {
-                self.save(&items, &mut recorded);
-                return self.report(Ended::Waiting);
             }
             // What it is told, as the files say it now.
             if let (words, true) = self.words() {
                 shown = self.shown(&tools, words);
                 gauge.fixed = shown.weight();
             }
-            for added in added {
-                tracing::info!("added to the task: {}", preview(&added, 160));
-                items.push(Item::user(shown.words.fill("added", &[("added", added)])));
+            for mail in mail {
+                tracing::info!("reached the work: {}", preview(&mail.text, 160));
+                items.push(Item::user(match mail.kind {
+                    MailKind::Added => shown.words.fill("added", &[("added", mail.text)]),
+                    // Written by the part as it is to be read.
+                    MailKind::Told | MailKind::Asked | MailKind::Ended => mail.text,
+                }));
+            }
+            // Still waiting to be answered: what came from its parts
+            // meanwhile is kept in the transcript for when it goes on.
+            if !answered && self.undertaking.state().waiting.is_some() {
+                self.save(&items, &mut recorded);
+                return Ended::Waiting;
+            }
+            if let Some(parts) = parts {
+                parts.pump();
             }
 
             let mut extra = Usage::default();
@@ -1005,7 +950,7 @@ impl Worker {
             let Ok(answered) = answered else {
                 tracing::warn!("the model had not answered when the time allowed ran out");
                 self.save(&items, &mut recorded);
-                return self.report(Ended::OutOfTime);
+                return Ended::OutOfTime;
             };
             let step = match answered {
                 Ok(step) => step,
@@ -1042,7 +987,7 @@ impl Worker {
                 }
                 Err(e) => {
                     self.save(&items, &mut recorded);
-                    return self.report(Ended::Failed(e.to_string()));
+                    return Ended::Failed(e.to_string());
                 }
             };
             overflowed = false;
@@ -1074,7 +1019,7 @@ impl Worker {
                 idle += 1;
                 if idle >= 3 {
                     self.save(&items, &mut recorded);
-                    return self.report(Ended::Stalled);
+                    return Ended::Stalled;
                 }
                 items.push(Item::user(shown.words.text(if thought_out {
                     "thought_out"
@@ -1087,7 +1032,7 @@ impl Worker {
                 idle = 0;
                 let (ran, signature) = self.run_calls(&tools, &calls, &mut items).await;
                 logged = ran;
-                if signature == last_signature {
+                if !signature.is_empty() && signature == last_signature {
                     repeats += 1;
                     if repeats == 2 {
                         items.push(Item::user(shown.words.text("repeating")));
@@ -1119,7 +1064,7 @@ impl Worker {
             self.save(&items, &mut recorded);
 
             if let Some(finish) = finish {
-                return self.report(finish.outcome.into());
+                return finish.outcome.into();
             }
             if n == warn_at && warn_at > 0 {
                 items.push(Item::user(shown.words.fill(
@@ -1131,7 +1076,7 @@ impl Worker {
                 )));
             }
         }
-        self.report(Ended::OutOfSteps)
+        Ended::OutOfSteps
     }
 }
 
@@ -1144,11 +1089,15 @@ mod tests {
 
     use super::*;
     use crate::{machine::Local, tools};
+    use crate::{prompts::Store, tool::Tool};
 
     /// A brain that plays back a script, and remembers what it was shown.
     /// Asked for a handoff, it writes one without spending the script.
     struct Scripted {
         steps: Mutex<Vec<Step>>,
+        /// Scripts of their own for parts of the work: a part whose task
+        /// holds the words is played those steps.
+        parts: Mutex<Vec<(&'static str, Vec<Step>)>>,
         seen: Mutex<Vec<Turn>>,
         /// What it says its context window is; 0 for not known.
         window: AtomicU64,
@@ -1220,8 +1169,27 @@ mod tests {
             self.seen.lock().unwrap().push(turn.clone());
             let asked_to_hand_off = matches!(turn.items.last(),
                 Some(Item::User { text }) if text.contains("about to be cleared"));
+            let task = match turn.items.first() {
+                Some(Item::User { text }) => text.as_str(),
+                _ => "",
+            };
+            let part = self
+                .parts
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .find(|(words, _)| task.contains(words))
+                .map(|(_, script)| {
+                    if script.is_empty() {
+                        says("")
+                    } else {
+                        script.remove(0)
+                    }
+                });
             let mut step = if asked_to_hand_off {
                 calls("handoff", json!({"text": "the file goes in hi.txt"}))
+            } else if let Some(step) = part {
+                step
             } else {
                 let mut steps = self.steps.lock().unwrap();
                 if steps.is_empty() {
@@ -1246,6 +1214,7 @@ mod tests {
         );
         let brain = Arc::new(Scripted {
             steps: Mutex::new(script),
+            parts: Mutex::new(vec![]),
             seen: Mutex::new(vec![]),
             window: AtomicU64::new(0),
             refuses_over: AtomicU64::new(0),
@@ -1575,108 +1544,781 @@ mod tests {
             Item::User { text } if text.contains("markdown") && text.contains("added to the task"))));
     }
 
+    impl Scripted {
+        /// Play `script` to the part whose task holds `words`.
+        fn part(&self, words: &'static str, script: Vec<Step>) {
+            self.parts.lock().unwrap().push((words, script));
+        }
+
+        /// The requests made for the work whose task holds `words`, in
+        /// order: the parent's, as `worker` sets it, or a part's.
+        fn turns_of(&self, words: &str) -> Vec<Turn> {
+            self.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|t| matches!(t.items.first(), Some(Item::User { text }) if text.contains(words)))
+                .cloned()
+                .collect()
+        }
+
+        /// Where in all the requests the first and the last one for the
+        /// work whose task holds `words` came.
+        fn span_of(&self, words: &str) -> (usize, usize) {
+            let seen = self.seen.lock().unwrap();
+            let at: Vec<usize> = seen
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| matches!(t.items.first(), Some(Item::User { text }) if text.contains(words)))
+                .map(|(i, _)| i)
+                .collect();
+            (at[0], *at.last().unwrap())
+        }
+    }
+
+    const PARENT: &str = "make hi.txt say hi";
+
+    /// A tool that does nothing until the gate it shares opens: what a part
+    /// is doing while its parent is watched.
+    struct Hold(Arc<AtomicBool>);
+
+    #[async_trait]
+    impl Tool for Hold {
+        fn name(&self) -> &'static str {
+            "hold"
+        }
+        fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
+            tool::spec("hold", "Wait to be let go.", json!({}), &[])
+        }
+        async fn call(&self, _: &Value) -> tool::Outcome {
+            while !self.0.load(Ordering::Relaxed) {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            tool::Outcome::ok("let go")
+        }
+    }
+
+    /// A tool that opens the gate every `hold` waits at, once `check` has
+    /// looked at how things stand.
+    struct Release(Arc<AtomicBool>, Box<dyn Fn() + Send + Sync>);
+
+    #[async_trait]
+    impl Tool for Release {
+        fn name(&self) -> &'static str {
+            "release"
+        }
+        fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
+            tool::spec("release", "Let them go.", json!({}), &[])
+        }
+        async fn call(&self, _: &Value) -> tool::Outcome {
+            (self.1)();
+            self.0.store(true, Ordering::Relaxed);
+            tool::Outcome::ok("released")
+        }
+    }
+
+    /// Let `worker` hand out parts, which work in `dir` with the standard
+    /// tools and, given a gate, a `hold` that waits for it to open. Returns
+    /// the gate, and gives the parent a `release` that opens it after
+    /// `check`.
+    fn with_parts(
+        worker: &mut Worker,
+        dir: &std::path::Path,
+        check: Option<Box<dyn Fn() + Send + Sync>>,
+    ) -> Arc<AtomicBool> {
+        let gate = Arc::new(AtomicBool::new(false));
+        let (root, held) = (dir.to_path_buf(), gate.clone());
+        worker.helpers = Some(Arc::new(move |undertaking| {
+            tools::standard(Arc::new(Local::new(&root)), undertaking).with(Hold(held.clone()))
+        }));
+        if let Some(check) = check {
+            worker.tools = worker.tools.clone().with(Release(gate.clone(), check));
+        }
+        gate
+    }
+
+    /// What the call to `name` returned, the last time in `turn`.
+    fn result_of<'a>(turn: &'a Turn, name: &str) -> &'a str {
+        turn.items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                Item::Result {
+                    name: n, output, ..
+                } if n == name => Some(output.as_str()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no result of {name}"))
+    }
+
+    /// The messages put in front of the worker after its opening.
+    fn messages(turn: &Turn) -> Vec<&str> {
+        turn.items[1..]
+            .iter()
+            .filter_map(|item| match item {
+                Item::User { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn part_record(dir: &std::path::Path, n: u64) -> Undertaking {
+        Undertaking::open(&state_db(dir), &format!("main/{n}"), None).unwrap()
+    }
+
+    fn both(first: Step, second: Step) -> Step {
+        Step {
+            calls: [first.calls, second.calls]
+                .concat()
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut call)| {
+                    call.id = format!("c{i}");
+                    call
+                })
+                .collect(),
+            stop: Stop::Calls,
+            ..says("")
+        }
+    }
+
     #[tokio::test]
-    async fn a_helper_does_part_of_the_work_and_only_its_report_comes_back() {
+    async fn delegate_returns_at_once_and_the_parent_works_on_while_its_part_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "count the lines of a.txt"})),
+            // The part is under way now, held in its first step.
+            calls("wait", json!({"seconds": 0.2})),
+            calls("note", json!({"text": "the part is counting"})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "a.txt has one line"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "count the lines",
+            vec![
+                calls("hold", json!({})),
+                calls(
+                    "done",
+                    json!({"outcome": "finished", "summary": "it has one line"}),
+                ),
+            ],
+        );
+        let (db, watched) = (state_db(dir.path()), brain.clone());
+        with_parts(
+            &mut worker,
+            dir.path(),
+            Some(Box::new(move || {
+                // The parent has waited and noted while its part, begun
+                // before, is in the middle of its first step.
+                let part = Undertaking::open(&db, "main/1", None).unwrap();
+                assert!(part.state().finish.is_none(), "the part had finished");
+                assert_eq!(watched.turns_of("count the lines").len(), 1);
+            })),
+        );
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Finished);
+
+        let turns = brain.turns_of(PARENT);
+        // What came back at once was its number, and nothing of its work.
+        let started = result_of(&turns[1], "delegate");
+        assert_eq!(started, "Part 1 has started on it, alongside you.");
+        // Its report reached the parent between steps, after the wait.
+        let last = turns.last().unwrap();
+        assert_eq!(result_of(last, "wait"), "Something arrived. It follows.");
+        assert!(matches!(last.items.last(), Some(Item::User { text })
+            if text.starts_with("Part 1 finished after 2 steps.") && text.ends_with("it has one line")));
+        assert_eq!(
+            part_record(dir.path(), 1).state().finish.unwrap().outcome,
+            Outcome::Finished
+        );
+    }
+
+    #[tokio::test]
+    async fn what_a_part_tells_reaches_its_parents_transcript_before_its_next_step_and_not_her() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "find the opening hours"})),
+            calls("wait", json!({"seconds": 10})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "nine"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "opening hours",
+            vec![
+                calls(
+                    "tell",
+                    json!({"text": "two sources say nine", "files": ["/w/hours.md"]}),
+                ),
+                calls("hold", json!({})),
+                calls(
+                    "done",
+                    json!({"outcome": "finished", "summary": "nine on weekdays"}),
+                ),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+
+        let turns = brain.turns_of(PARENT);
+        // The step after the first wait: the message is there, as a message
+        // of its own that says whom it is from, and the part goes on.
+        assert_eq!(
+            result_of(&turns[2], "wait"),
+            "Something arrived. It follows."
+        );
+        assert_eq!(
+            messages(&turns[2]),
+            [
+                "A message from part 1, which goes on working:\n\ntwo sources say nine\n\nFiles it made: /w/hours.md"
+            ]
+        );
+        // It is not something added to the task, and it is not what the
+        // work tells whoever it is for: that is the parent's alone.
+        let state = worker.undertaking.state();
+        assert!(state.additions.is_empty());
+        assert!(state.told.is_empty());
+        assert!(
+            messages(turns.last().unwrap())
+                .last()
+                .is_some_and(|m| m.starts_with("Part 1 finished"))
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_returns_when_a_part_ends_and_times_out_while_nothing_arrives() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "check the links"})),
+            calls("wait", json!({"seconds": 0.3})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 30})),
+            // Nothing is left running.
+            calls("wait", json!({"seconds": 30})),
+            calls("done", json!({"outcome": "finished", "summary": "checked"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "check the links",
+            vec![
+                calls("hold", json!({})),
+                calls(
+                    "done",
+                    json!({"outcome": "finished", "summary": "all good"}),
+                ),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        let began = Instant::now();
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+        // Neither of the long waits ran its course.
+        assert!(began.elapsed().as_secs() < 10, "{:?}", began.elapsed());
+
+        let turns = brain.turns_of(PARENT);
+        assert_eq!(
+            result_of(&turns[2], "wait"),
+            "Nothing arrived in 0.3 seconds."
+        );
+        assert!(messages(&turns[2]).is_empty());
+        assert_eq!(
+            result_of(&turns[4], "wait"),
+            "Something arrived. It follows."
+        );
+        assert!(result_of(&turns[5], "wait").starts_with("No part is running or queued"));
+    }
+
+    #[tokio::test]
+    async fn waiting_again_on_a_part_still_at_it_is_not_taken_for_being_stuck() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut script = vec![calls("delegate", json!({"task": "build the docs"}))];
+        script.extend((0..4).map(|_| calls("wait", json!({"seconds": 0.05}))));
+        script.extend([
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "built"})),
+        ]);
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "build the docs",
+            vec![
+                calls("hold", json!({})),
+                calls("done", json!({"outcome": "finished", "summary": "built"})),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+        let last = brain.turns_of(PARENT).pop().unwrap();
+        let timed_out = last
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Result { output, .. } if output.starts_with("Nothing arrived")))
+            .count();
+        assert_eq!(timed_out, 4);
+        assert!(
+            !messages(&last)
+                .iter()
+                .any(|m| m.contains("same call three times"))
+        );
+    }
+
+    #[tokio::test]
+    async fn steering_a_running_part_reaches_it_before_its_next_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "paint the gate"})),
+            calls("wait", json!({"seconds": 0.2})),
+            calls("steer", json!({"part": 1, "text": "use the blue paint"})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "blue"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "paint the gate",
+            vec![
+                calls("hold", json!({})),
+                calls(
+                    "done",
+                    json!({"outcome": "finished", "summary": "painted blue"}),
+                ),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+
+        let parent = brain.turns_of(PARENT);
+        assert_eq!(
+            result_of(&parent[3], "steer"),
+            "Passed on to part 1. It reads it before its next step."
+        );
+        let part = brain.turns_of("paint the gate");
+        assert_eq!(part.len(), 2);
+        // Begun before it was steered, and told before the step after.
+        assert!(!part[0].items.iter().any(|item| matches!(item,
+            Item::User { text } if text.contains("blue"))));
+        assert!(matches!(part[1].items.last(), Some(Item::User { text })
+            if text.contains("use the blue paint") && text.contains("does not replace it")));
+        // The parent's own task is unchanged.
+        assert!(worker.undertaking.state().additions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_part_ends_as_dropped_after_the_step_it_is_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "write the long report"})),
+            calls("wait", json!({"seconds": 0.2})),
+            calls("stop", json!({"part": "part 1"})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "not needed"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "write the long report",
+            vec![
+                calls("hold", json!({})),
+                calls("write", json!({"path": "late.txt", "content": "too late"})),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+
+        let state = part_record(dir.path(), 1).state();
+        assert_eq!(state.finish.unwrap().outcome, Outcome::Dropped);
+        assert_eq!(state.steps, 1, "nothing after the step it was on");
+        assert!(!dir.path().join("late.txt").exists());
+        assert_eq!(brain.turns_of("write the long report").len(), 1);
+        let last = brain.turns_of(PARENT).pop().unwrap();
+        assert!(
+            messages(&last)
+                .iter()
+                .any(|m| m.starts_with("Part 1 was stopped after 1 steps."))
+        );
+    }
+
+    #[tokio::test]
+    async fn parts_beyond_the_cap_queue_and_start_when_one_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            both(
+                calls("delegate", json!({"task": "count the files"})),
+                calls("delegate", json!({"task": "name the largest file"})),
+            ),
+            calls("parts", json!({})),
+            calls("release", json!({})),
+            calls("wait", json!({"seconds": 10})),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "both"})),
+        ];
+        let limits = Limits {
+            parts: 1,
+            ..Limits::default()
+        };
+        let (mut worker, brain) = worker(dir.path(), script, limits);
+        brain.part(
+            "count the files",
+            vec![
+                calls("hold", json!({})),
+                calls("done", json!({"outcome": "finished", "summary": "three"})),
+            ],
+        );
+        brain.part(
+            "name the largest file",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "big.bin"}),
+            )],
+        );
+        with_parts(&mut worker, dir.path(), Some(Box::new(|| {})));
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+
+        let turns = brain.turns_of(PARENT);
+        let answers: Vec<&str> = turns[1]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Result { output, .. } => Some(output.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            answers,
+            [
+                "Part 1 has started on it, alongside you.",
+                "Part 2 is queued, because as many parts as may run at once (1) already are. It starts when one of them ends."
+            ]
+        );
+        let listed = result_of(&turns[2], "parts");
+        assert!(
+            listed.contains("- part 1 (running, 0 steps), given \"count the files\": "),
+            "{listed}"
+        );
+        assert!(
+            listed.contains("- part 2 (queued, 0 steps), given \"name the largest file\": "),
+            "{listed}"
+        );
+        // The second began only once the first had ended.
+        let (_, first_ended) = brain.span_of("count the files");
+        let (second_began, _) = brain.span_of("name the largest file");
+        assert!(second_began > first_ended);
+        for n in [1, 2] {
+            assert_eq!(
+                part_record(dir.path(), n).state().finish.unwrap().outcome,
+                Outcome::Finished
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unfinished_part_resumes_at_its_parents_next_sitting() {
+        let dir = tempfile::tempdir().unwrap();
+        // The first sitting hands out a part and ends while the part is in
+        // the middle of a step.
+        let script = vec![
+            calls("delegate", json!({"task": "survey the old files"})),
+            calls("wait", json!({"seconds": 0.2})),
+        ];
+        let limits = Limits {
+            max_steps: 2,
+            ..Limits::default()
+        };
+        let (mut first, brain) = worker(dir.path(), script, limits);
+        brain.part(
+            "survey the old files",
+            vec![
+                calls("note", json!({"text": "halfway through the survey"})),
+                calls("shell", json!({"command": "sleep 1"})),
+                calls(
+                    "done",
+                    json!({"outcome": "finished", "summary": "too soon"}),
+                ),
+            ],
+        );
+        with_parts(&mut first, dir.path(), None);
+        assert_eq!(first.run().await.ended, Ended::OutOfSteps);
+        // It stopped after the step it was on, and has not ended.
+        let state = part_record(dir.path(), 1).state();
+        assert!(state.finish.is_none());
+        assert_eq!(state.steps, 2);
+
+        let script = vec![
+            calls("wait", json!({"seconds": 10})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "surveyed"}),
+            ),
+        ];
+        let (mut second, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "survey the old files",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "surveyed it all"}),
+            )],
+        );
+        with_parts(&mut second, dir.path(), None);
+        assert_eq!(second.run().await.ended, Ended::Finished);
+        // It went on from where it was, not from the start.
+        let part = brain.turns_of("survey the old files");
+        assert_eq!(part.len(), 1);
+        assert!(part[0].items.iter().any(|item| matches!(item,
+            Item::Assistant { calls, .. } if calls.iter().any(|c| c.args["text"] == "halfway through the survey"))));
+        let state = part_record(dir.path(), 1).state();
+        assert_eq!(state.steps, 3);
+        assert_eq!(state.finish.unwrap().summary, "surveyed it all");
+        assert!(
+            messages(brain.turns_of(PARENT).last().unwrap())
+                .iter()
+                .any(|m| m.starts_with("Part 1 finished after 3 steps."))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_work_is_not_called_finished_while_a_part_has_not_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "check the spelling"})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "all of it"}),
+            ),
+            calls("wait", json!({"seconds": 10})),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "all of it, checked"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "check the spelling",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "no mistakes"}),
+            )],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Finished);
+        assert_eq!(report.summary, "all of it, checked");
+
+        let turns = brain.turns_of(PARENT);
+        let refused = turns[2]
+            .items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                Item::Result {
+                    name,
+                    output,
+                    failed,
+                    ..
+                } if name == "done" => Some((output, *failed)),
+                _ => None,
+            })
+            .unwrap();
+        assert!(refused.1);
+        assert!(
+            refused
+                .0
+                .starts_with("Not recorded. These parts have not ended: 1."),
+            "{}",
+            refused.0
+        );
+        assert!(refused.0.contains("`wait`") && refused.0.contains("`stop`"));
+    }
+
+    #[tokio::test]
+    async fn giving_the_work_up_ends_its_parts_with_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "rebuild the index"})),
+            calls("wait", json!({"seconds": 0.2})),
+            calls(
+                "done",
+                json!({"outcome": "gave_up", "summary": "the disk is gone"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "rebuild the index",
+            vec![
+                calls("shell", json!({"command": "sleep 0.5"})),
+                calls("write", json!({"path": "late.txt", "content": "too late"})),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        assert_eq!(worker.run().await.ended, Ended::GaveUp);
+        let state = part_record(dir.path(), 1).state();
+        assert_eq!(state.finish.unwrap().outcome, Outcome::Dropped);
+        assert!(!dir.path().join("late.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn what_a_part_spends_is_counted_in_its_parents_totals() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("delegate", json!({"task": "list the tests"})),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "listed"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "list the tests",
+            vec![
+                calls("note", json!({"text": "there are twelve"})),
+                calls("done", json!({"outcome": "finished", "summary": "twelve"})),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Finished);
+        assert_eq!(report.steps, 3, "the part's steps are its own");
+
+        let own: u64 = worker
+            .undertaking
+            .logged()
+            .iter()
+            .map(|line| line["read"].as_u64().unwrap())
+            .sum();
+        let part = part_record(dir.path(), 1).state().usage;
+        assert!(part.input >= 200 && part.output == 20);
+        assert_eq!(report.usage.input, own + part.input);
+        assert_eq!(report.usage.output, 30 + part.output);
+    }
+
+    #[tokio::test]
+    async fn a_part_starts_from_its_task_alone_and_only_its_report_comes_back() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "needle-in-a-file").unwrap();
         let script = vec![
             calls("delegate", json!({"task": "say what is in a.txt"})),
-            // The helper's own steps.
-            calls("shell", json!({"command": "cat a.txt"})),
-            calls(
-                "done",
-                json!({"outcome": "gave_up", "summary": "it holds one word about a needle"}),
-            ),
-            // Back with the one who asked.
+            calls("wait", json!({"seconds": 10})),
             calls("done", json!({"outcome": "blocked", "summary": "enough"})),
         ];
         let (mut worker, brain) = worker(dir.path(), script, Limits::default());
-        let root = dir.path().to_path_buf();
-        worker.helpers = Some(Arc::new(move |undertaking| {
-            tools::standard(Arc::new(Local::new(&root)), undertaking)
-        }));
-        let report = worker.run().await;
-        assert_eq!(report.ended, Ended::Blocked);
-        assert_eq!(report.steps, 2, "the helper's steps are its own");
+        brain.part(
+            "say what is in a.txt",
+            vec![
+                calls("shell", json!({"command": "cat a.txt"})),
+                calls(
+                    "done",
+                    json!({"outcome": "gave_up", "summary": "it holds one word about a needle"}),
+                ),
+            ],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        assert_eq!(worker.run().await.ended, Ended::Blocked);
 
-        let seen = brain.seen.lock().unwrap();
-        // The helper started from the task it was given and nothing else.
-        assert!(matches!(&seen[1].items[..],
+        let part = brain.turns_of("say what is in a.txt");
+        // It started from the task it was given and nothing else, knowing
+        // it is a part, and with nothing to hand out parts of its own.
+        assert!(matches!(&part[0].items[..],
             [Item::User { text }] if text.contains("say what is in a.txt")));
-        assert!(!seen[1].tools.iter().any(|t| t.name == "delegate"));
+        assert!(
+            part[0]
+                .system
+                .contains("You are doing one part of a larger piece of work.")
+        );
+        let names: Vec<&str> = part[0].tools.iter().map(|t| t.name.as_str()).collect();
+        for name in ["delegate", "wait", "parts", "steer", "stop"] {
+            assert!(!names.contains(&name), "a part has {name}");
+        }
+        assert!(names.contains(&"tell") && names.contains(&"ask"));
         // What it read stayed with it. Its report came back.
-        let last = &seen.last().unwrap().items;
-        assert!(last.iter().any(|item| matches!(item,
-            Item::Result { name, output, .. }
-                if name == "delegate" && output.contains("one word about a needle"))));
-        assert!(!last.iter().any(|item| item.weight() > 0
-            && matches!(item, Item::Result { output, .. } if output.contains("needle-in-a-file"))));
-        // What it spent is counted with the work it was part of.
-        assert!(report.usage.input >= seen.iter().map(|_| 100).sum::<u64>());
-        // The helper's record is kept beside the work it was part of.
-        let helper = Undertaking::open(&state_db(dir.path()), "main/1", None).unwrap();
-        assert_eq!(helper.state().brief, "say what is in a.txt");
+        let last = brain.turns_of(PARENT).pop().unwrap();
+        assert!(
+            messages(&last)
+                .iter()
+                .any(|m| m.starts_with("Part 1 gave up after 2 steps.")
+                    && m.contains("one word about a needle"))
+        );
+        assert!(!last.items.iter().any(|item| matches!(item,
+            Item::Result { output, .. } if output.contains("needle-in-a-file"))));
+        assert_eq!(
+            part_record(dir.path(), 1).state().brief,
+            "say what is in a.txt"
+        );
     }
 
     #[tokio::test]
-    async fn a_helper_started_in_a_later_sitting_is_new_work_not_the_one_already_finished() {
+    async fn a_part_handed_out_in_a_later_sitting_is_new_work_not_one_already_finished() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_path_buf();
-        let equip: ToolsFor =
-            Arc::new(move |undertaking| tools::standard(Arc::new(Local::new(&root)), undertaking));
-
         // The first sitting hands out one part, which finishes, and then
         // runs out of steps.
         let script = vec![
             calls("delegate", json!({"task": "count the files"})),
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "there are three files"}),
-            ),
+            calls("wait", json!({"seconds": 10})),
         ];
         let limits = Limits {
-            max_steps: 1,
+            max_steps: 2,
             ..Limits::default()
         };
-        let (mut first, _) = worker(dir.path(), script, limits);
-        first.helpers = Some(equip.clone());
+        let (mut first, brain) = worker(dir.path(), script, limits);
+        brain.part(
+            "count the files",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "there are three files"}),
+            )],
+        );
+        with_parts(&mut first, dir.path(), None);
         assert_eq!(first.run().await.ended, Ended::OutOfSteps);
 
         // The second sitting hands out another.
         let script = vec![
             calls("delegate", json!({"task": "name the largest file"})),
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "the largest is big.bin"}),
-            ),
+            calls("wait", json!({"seconds": 10})),
             calls("done", json!({"outcome": "blocked", "summary": "enough"})),
         ];
         let (mut second, brain) = worker(dir.path(), script, Limits::default());
-        second.helpers = Some(equip);
+        brain.part(
+            "name the largest file",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "the largest is big.bin"}),
+            )],
+        );
+        with_parts(&mut second, dir.path(), None);
         assert_eq!(second.run().await.ended, Ended::Blocked);
 
-        let seen = brain.seen.lock().unwrap();
-        // The new helper did work: it was asked, and it was asked the new task.
-        assert!(matches!(&seen[1].items[..],
-            [Item::User { text }] if text.contains("name the largest file")));
-        // What came back is the new report, not the first sitting's.
-        let last = &seen.last().unwrap().items;
-        let answers: Vec<&str> = last
-            .iter()
-            .filter_map(|item| match item {
-                Item::Result { name, output, .. } if name == "delegate" => Some(output.as_str()),
-                _ => None,
-            })
+        let turns = brain.turns_of(PARENT);
+        assert_eq!(
+            result_of(&turns[1], "delegate"),
+            "Part 2 has started on it, alongside you."
+        );
+        // The new part did work: it was asked, and it was asked the new task.
+        assert_eq!(brain.turns_of("name the largest file").len(), 1);
+        assert!(brain.turns_of("count the files").is_empty());
+        let reports: Vec<&str> = messages(turns.last().unwrap())
+            .into_iter()
+            .filter(|m| m.starts_with("Part "))
             .collect();
-        assert_eq!(answers.len(), 2);
-        assert!(answers[0].contains("three files"));
-        assert!(answers[1].contains("big.bin") && !answers[1].contains("three files"));
+        assert!(
+            reports
+                .iter()
+                .any(|m| m.starts_with("Part 1 finished") && m.contains("three files"))
+        );
+        assert!(
+            reports
+                .iter()
+                .any(|m| m.starts_with("Part 2 finished") && m.contains("big.bin"))
+        );
         // Both are on record, each under its own id.
-        let db = state_db(dir.path());
-        let one = Undertaking::open(&db, "main/1", None).unwrap();
-        let two = Undertaking::open(&db, "main/2", None).unwrap();
-        assert_eq!(one.state().brief, "count the files");
-        assert_eq!(two.state().brief, "name the largest file");
+        assert_eq!(part_record(dir.path(), 1).state().brief, "count the files");
+        assert_eq!(
+            part_record(dir.path(), 2).state().brief,
+            "name the largest file"
+        );
     }
 
     #[tokio::test]
@@ -1754,10 +2396,10 @@ mod tests {
     #[async_trait]
     impl Tool for Meanwhile {
         fn name(&self) -> &'static str {
-            "wait"
+            "meanwhile"
         }
         fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
-            tool::spec("wait", "Wait a moment.", json!({}), &[])
+            tool::spec("meanwhile", "Wait a moment.", json!({}), &[])
         }
         async fn call(&self, _: &Value) -> tool::Outcome {
             (self.0)();
@@ -1781,7 +2423,7 @@ mod tests {
     async fn words_added_while_a_step_runs_reach_the_worker_at_its_next_step() {
         let dir = tempfile::tempdir().unwrap();
         let script = vec![
-            calls("wait", json!({})),
+            calls("meanwhile", json!({})),
             calls("done", json!({"outcome": "gave_up", "summary": "enough"})),
         ];
         let (mut worker, brain) = worker(dir.path(), script, Limits::default());
@@ -1809,7 +2451,7 @@ mod tests {
                     },
                     Call {
                         id: "w".into(),
-                        name: "wait".into(),
+                        name: "meanwhile".into(),
                         args: json!({}),
                     },
                 ],
@@ -2168,10 +2810,7 @@ mod tests {
             calls("write", json!({"path": "hi.txt", "content": "hi\n"})),
             calls("shell", json!({"command": "cat hi.txt"})),
             calls("delegate", json!({"task": "say what is in hi.txt"})),
-            calls(
-                "done",
-                json!({"outcome": "finished", "summary": "it says hi"}),
-            ),
+            calls("wait", json!({"seconds": 10})),
             calls("note", json!({"text": "hi.txt holds hi"})),
             calls(
                 "done",
@@ -2179,14 +2818,18 @@ mod tests {
             ),
         ];
         let limits = Limits {
-            max_steps: 5,
+            max_steps: 6,
             ..Limits::default()
         };
         let (mut worker, brain) = worker(dir.path(), script, limits);
-        let root = dir.path().to_path_buf();
-        worker.helpers = Some(Arc::new(move |undertaking| {
-            tools::standard(Arc::new(Local::new(&root)), undertaking)
-        }));
+        brain.part(
+            "say what is in hi.txt",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "it says hi"}),
+            )],
+        );
+        with_parts(&mut worker, dir.path(), None);
         let u = worker.undertaking.clone();
         worker.tools = tools::with_web(worker.tools.clone(), &tools::WebConfig::default())
             .with(tools::Keep::new(u.clone()))

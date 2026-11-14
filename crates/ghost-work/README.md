@@ -33,9 +33,16 @@ What makes it hold up over hours:
   that has outlived a context is told again, at length, when it is picked
   up. `done` then ends the work as reported. Nothing is sent back and nobody
   reads it over.
-- A part of the work that is mostly reading can be handed to a helper
-  (`delegate`) with a context of its own; only its report comes back.
-  Calls that only look run side by side.
+- A self-contained part of the work can be handed to another worker
+  (`delegate`) with a context of its own, and runs alongside while the
+  worker goes on. What the part tells, asks and finally reports reaches the
+  worker between its steps, through the same inbox as what is added to its
+  task; `steer`, `stop`, `wait` and `parts` are how it answers, ends, waits
+  on and looks over its parts. A few run at once (`parts` in the limits,
+  4 by default) and the rest queue. A part is kept in `work.db` like any
+  undertaking and resumes at the parent's next sitting; it hands out no
+  parts of its own, and the work cannot be called `finished` while one is
+  still going. Calls that only look run side by side.
 - Where there is someone to ask, the worker can stop and ask (`ask`), and
   goes on when the answer is added to the task.
 - Talking without acting, repeating a call, and running low on steps are each

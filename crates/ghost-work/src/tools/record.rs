@@ -352,6 +352,16 @@ impl Tool for Tell {
     }
 }
 
+/// The outcome a worker means by `word`, in any of the ways models put it.
+pub(crate) fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
+    match word.trim().to_lowercase().as_str() {
+        "finished" | "done" | "success" | "completed" => Some(undertaking::Outcome::Finished),
+        "blocked" => Some(undertaking::Outcome::Blocked),
+        "gave_up" | "gave up" | "failed" => Some(undertaking::Outcome::GaveUp),
+        _ => None,
+    }
+}
+
 pub struct Done {
     undertaking: Arc<Undertaking>,
 }
@@ -388,15 +398,11 @@ impl Tool for Done {
             (Ok(o), Ok(s)) => (o, s),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
-        let outcome = match outcome.trim().to_lowercase().as_str() {
-            "finished" | "done" | "success" | "completed" => undertaking::Outcome::Finished,
-            "blocked" => undertaking::Outcome::Blocked,
-            "gave_up" | "gave up" | "failed" => undertaking::Outcome::GaveUp,
-            other => {
-                return Outcome::fail(format!(
-                    "`{other}` is not an outcome. Use finished, blocked or gave_up."
-                ));
-            }
+        let Some(outcome) = outcome_of(outcome) else {
+            return Outcome::fail(format!(
+                "`{}` is not an outcome. Use finished, blocked or gave_up.",
+                outcome.trim().to_lowercase()
+            ));
         };
         self.undertaking.update(|state| {
             state.finish = Some(Finish {

@@ -13,6 +13,7 @@ mod web;
 use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
+pub(crate) use record::outcome_of;
 pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
 pub use shell::Shell;
 pub use web::{Fetch, Search, Source, WebConfig};

@@ -21,6 +21,11 @@
 //! it the same way: what she adds goes into its inbox, taken before its
 //! next step, and stopping it is an outcome written into its record, which
 //! it sees before its next step too.
+//!
+//! The work may hand parts of itself to other workers that run alongside
+//! it during a sitting. They report to the work, through the same inbox,
+//! and never to her: she sees each only as a line under the work in the
+//! rest of her day.
 
 use std::sync::{
     Arc,
@@ -320,6 +325,8 @@ impl Mind {
             max_steps: self.cfg.work.sitting_steps,
             max_seconds: u64::from(self.cfg.work.sitting_minutes) * 60,
             context_tokens: self.cfg.work.context_tokens,
+            parts: usize::try_from(self.cfg.work.parts).unwrap_or(usize::MAX),
+            part_steps: self.cfg.work.part_steps,
             ..Limits::default()
         };
         // Who she is, without what moment it is: the same words at every

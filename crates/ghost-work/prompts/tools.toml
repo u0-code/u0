@@ -171,6 +171,26 @@ description = """\
 [stop.parameters]
 work = "Its number, as the rest of your day shows it: work #<number>."
 
+# At work, the same two act on the parts handed out with `delegate`.
+[steer.work]
+description = """\
+    Pass something on to one of your parts while it works: more of what is wanted, a correction, something \
+    you found that it should know, or the answer to a question it asked you. It reaches the part before its \
+    next step. A part that stopped to ask you goes on once you answer."""
+
+[steer.work.parameters]
+part = "The part's number, as `delegate` gave it."
+text = "What the part should know, complete enough to act on: it has not seen your work."
+
+[stop.work]
+description = """\
+    Stop one of your parts for good, because what it is doing is no longer wanted: you found it out \
+    yourself, or another part did, or the plan changed. It ends after the step it is on, and its report \
+    reaches you. To change what it is doing instead, use `steer`."""
+
+[stop.work.parameters]
+part = "The part's number, as `delegate` gave it."
+
 [leave]
 description = "End this relationship for good. Rare and grave, and only after things have already gone cold."
 
@@ -206,7 +226,7 @@ text = "What is finished and checked, what is in progress and exactly where it s
 # come back.
 [ask]
 description = """\
-    Put a question to the person this work is for, and stop until they answer. \
+    Put a question to whoever this work is for, and stop until they answer. \
     Only for what you cannot find out and should not decide alone: a preference, a fact only they have, \
     a choice between ways that would give them a different result. Never for what you could look up or try. \
     The answer may take hours, so do everything that does not depend on it first, and ask once, with \
@@ -228,18 +248,39 @@ description = """\
 text = "What they should know, in a sentence or two that make sense without your work in front of them."
 files = "Files you made that are ready to hand over now: their absolute paths. Leave out when there are none."
 
-# Offered only when the work can be given to helpers.
+# Offered only when the work can be handed out in parts. A part cannot
+# hand out parts of its own.
 [delegate]
 description = """\
-    Hand a self-contained part of the work to a helper. It starts with nothing but what you write here, \
-    works in the same place with the same tools, and its report is all you get back: none of what it read \
-    stays with you. Use it for a part that takes a lot of reading or searching whose details you do not \
-    need: surveying a large codebase, reading many pages, checking many files. Several can be given out \
-    in one step and run side by side. Do not use it for the main line of the work, or for anything you \
-    could do in a few steps yourself."""
+    Hand a self-contained part of the work to another worker, which does it alongside you with a context \
+    of its own, in the same place and with the same tools. This returns at once with the part's number and \
+    nothing else. What the part tells you, what it asks you and its final report reach you as messages \
+    between your steps, each marked with its number; none of what it read stays with you. Use it for work \
+    that takes many steps whose details you do not need: surveying a large codebase, reading many pages, \
+    building or checking one piece while you do another. Give each part work that does not overlap with \
+    another part's or with yours, because two workers changing the same files undo each other. Keep the \
+    main line of the work for yourself, and do not hand out what you could do in a few steps. A part \
+    keeps going across your sittings until it ends, and the work cannot be called finished while one has \
+    not."""
 
 [delegate.parameters]
-task = "A complete instruction: what to find out or do, where to look, and exactly what to report back."
+task = "A complete instruction, since the part has seen none of your work: what to find out or do, where to look, what not to touch, and exactly what to report back."
+
+[wait]
+description = """\
+    Wait until something arrives from one of your parts, or until `seconds` have passed. It says only \
+    whether something arrived; what arrived follows as messages. A wait does nothing else, so first do \
+    whatever of your own share does not depend on your parts, and wait only when you cannot go on without \
+    what they will report."""
+
+[wait.parameters]
+seconds = "How long to wait at most. Default 60."
+
+[parts]
+description = """\
+    List the parts you have handed out: each one's number, where it stands (running, queued, waiting for \
+    your answer, or how it ended), and the latest it said. For when you have lost track of them; what they \
+    tell you reaches you without asking."""
 
 # The web. `search` only where there is somewhere to search.
 

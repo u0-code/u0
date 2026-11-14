@@ -10,11 +10,12 @@
 //! loop, and a conversation runs them off to the side, a few seconds each.
 //!
 //! A tool that belongs to one loop alone does so because of what it is.
-//! Saying something, reacting, leaving, taking work on and steering it are
-//! things she does with people in front of her. Planning, finishing,
-//! asking whoever the work is for, telling them as it goes, handing a part
-//! to a helper and writing a handoff only mean something inside a piece of
-//! work.
+//! Saying something, reacting, leaving and taking work on are things she
+//! does with people in front of her. Planning, finishing, asking whoever
+//! the work is for, telling them as it goes, handing out parts, waiting on
+//! them and writing a handoff only mean something inside a piece of work.
+//! Steering and stopping belong to both: in a conversation they act on her
+//! work, and at work on its parts.
 
 use crate::prompts::Loop;
 
@@ -31,7 +32,8 @@ pub enum Need {
     Files,
     /// A body that can take work on.
     Work,
-    /// Work under way that can be steered or stopped.
+    /// Work under way that can be steered or stopped: hers, in a
+    /// conversation, and the parts handed out, at work.
     UnderWay,
     /// Her memory to search.
     Memory,
@@ -91,8 +93,8 @@ pub const TOOLS: &[Entry] = &[
     entry("write", BOTH, &[Need::Machine]),
     entry("edit", BOTH, &[Need::Machine]),
     entry("undertake", TALK, &[Need::Work]),
-    entry("steer", TALK, &[Need::UnderWay]),
-    entry("stop", TALK, &[Need::UnderWay]),
+    entry("steer", BOTH, &[Need::UnderWay]),
+    entry("stop", BOTH, &[Need::UnderWay]),
     entry("send_file", TALK, &[Need::Files]),
     entry("leave", TALK, &[]),
     entry("plan", WORK, &[]),
@@ -101,6 +103,8 @@ pub const TOOLS: &[Entry] = &[
     entry("ask", WORK, &[Need::Someone]),
     entry("tell", WORK, &[Need::Follower]),
     entry("delegate", WORK, &[Need::Helpers]),
+    entry("wait", WORK, &[Need::Helpers]),
+    entry("parts", WORK, &[Need::Helpers]),
 ];
 
 /// The tool called `name`, if there is one.
