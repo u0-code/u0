@@ -19,6 +19,9 @@ fn describe(event: &Event, tz: Tz) -> String {
     let flat = |text: &str| text.replace('\n', " ⏎ ");
     match event {
         Event::Born { name, seal } => format!("{name} was born (seal {})", seal.short()),
+        Event::Described { seal, .. } => {
+            format!("her certificate as it stands now (seal {})", seal.short())
+        }
         Event::Dormant { since } => format!(
             "nothing since {}",
             since.with_timezone(&tz).format("%m-%d %H:%M")

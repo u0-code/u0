@@ -49,7 +49,7 @@ pub mod method {
     pub const AGENDA: &str = "mind.agenda";
     /// Console → daemon request. No params.
     pub const PEOPLE: &str = "memory.people";
-    /// Console → daemon request. No params. Her sealed birth certificate.
+    /// Console → daemon request. No params. Her birth certificate as it stands.
     pub const IDENTITY: &str = "ghost.identity";
     /// Console → daemon request. No params. What is true about her life.
     pub const CANON: &str = "memory.canon";

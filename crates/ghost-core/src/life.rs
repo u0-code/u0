@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Result,
     ghost::Ghost,
-    identity::SealedIdentity,
+    identity::Identity,
     journal::{Entry, Event, Journal},
 };
 
@@ -92,7 +92,7 @@ impl Clock {
     ///
     /// # Panics
     /// Never in practice: the times were validated when the certificate was parsed.
-    pub fn of(identity: &SealedIdentity) -> Self {
+    pub fn of(identity: &Identity) -> Self {
         let seed = identity.seed();
         Self {
             tz: identity.tz(),
@@ -221,7 +221,7 @@ pub struct Life {
 }
 
 impl Life {
-    pub fn new(identity: &SealedIdentity) -> Self {
+    pub fn new(identity: &Identity) -> Self {
         Self {
             clock: Clock::of(identity),
         }

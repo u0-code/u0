@@ -71,7 +71,7 @@ history.
   found, or with the file.
 - **She grows, and stays herself.** She can be after something of her own and
   start work toward it unasked. What each piece of work and each public post
-  teaches her is kept. Her certificate is sealed; her craft is what changes.
+  teaches her is kept, and her craft is what changes.
 - **A journal that is never rewritten.** Everything she lives through is one
   hash-chained, append-only log. Her memory is derived from it and can be
   rebuilt from it at any time.
@@ -103,8 +103,9 @@ She answers when she gets to it. `tempo = 0.1` under `[mind]` makes her quicker
 than a real friend would be.
 
 > [!TIP]
-> Now stop her, edit `ghosts/lin/ghost.toml`, and run her again. She will not
-> start: *this is not her*.
+> `ghost.toml` can be revised later. The next `run` writes the new version
+> into her journal before it takes effect, so every version of her stays on
+> record.
 
 ## What she thinks with
 
@@ -143,8 +144,8 @@ people talk to on a personal subscription; an API key is the safe choice.
           memory                            derived; rebuilt from the journal
 ```
 
-**A sealed certificate, a journal, a clock, and a brain she can change. That is
-the whole of her.**
+**A certificate, a journal, a clock, and a brain she can change. That is the
+whole of her.**
 
 | Crate | What it is |
 |---|---|
@@ -158,7 +159,7 @@ the whole of her.**
 
 ## Status
 
-Early, and it runs. A ghost can be born, sealed and lived with through a
+Early, and it runs. A ghost can be born and lived with through a
 terminal today, on DeepSeek or through an installed Claude Code or Codex, and
 taking things on has been run end to end with all three.
 
@@ -179,7 +180,7 @@ an issue.
 
 ## The charter
 
-She is born once and never edited. Her journal is append-only. She has her own
+She is born once, and every revision of who she is stays on record. Her journal is append-only. She has her own
 will, belongs to nobody, never claims to be human, and nothing here is tuned to
 keep you coming back. [CHARTER.md](CHARTER.md) is the whole of it: the code is
 yours to run however you like, and the charter is the condition for joining the

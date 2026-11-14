@@ -295,7 +295,8 @@ fn home(event: &Event) -> Home {
         | Event::Challenged { .. }
         | Event::Linked { .. }
         // What she found out is hers, wherever she was when she did.
-        | Event::LookedUp { .. } => Home::Global,
+        | Event::LookedUp { .. }
+        | Event::Described { .. } => Home::Global,
     }
 }
 
@@ -1085,6 +1086,7 @@ impl Shard {
                 remember(&tx, seq, &at, "learned", lesson, None)?;
             }
             Event::Born { .. }
+            | Event::Described { .. }
             | Event::Dormant { .. }
             | Event::Woke
             | Event::Slept

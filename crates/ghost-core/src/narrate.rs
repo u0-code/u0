@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
 use crate::{
-    identity::SealedIdentity,
+    identity::Identity,
     journal::{Entry, Event},
     life::{Clock, Day, Moment, Phase, Reach},
     memory::{Fact, Line, Note, Person},
@@ -45,7 +45,7 @@ pub fn fill(template: &str, pairs: &[(&str, String)]) -> String {
 
 /// Everything about her and this moment that every prompt needs.
 pub struct Scene<'a> {
-    pub identity: &'a SealedIdentity,
+    pub identity: &'a Identity,
     pub clock: &'a Clock,
     pub now: DateTime<Utc>,
     pub moment: &'a Moment,

@@ -1,9 +1,10 @@
-//! The birth certificate and its seal.
+//! The birth certificate.
 //!
-//! A ghost's identity is written once, at birth, and sealed. Nothing in this
-//! crate can mutate a [`SealedIdentity`]: there is no setter, no builder, no
-//! `&mut` accessor. The daemon refuses to run a ghost whose certificate no
-//! longer matches the seal recorded in her journal.
+//! Who she is is written in `ghost.toml`. It can be revised: when the file no
+//! longer matches the version last written into her journal, the new text is
+//! written there too (see [`Ghost::open`](crate::Ghost::open)), so every
+//! version of her stays on record. An [`Identity`] is one version, read-only
+//! while she runs; a revision takes effect the next time she is opened.
 
 use std::{fmt, fs, path::Path};
 
@@ -15,8 +16,6 @@ use crate::{Error, Result};
 
 /// File name of the birth certificate inside a ghost directory.
 pub const SEED_FILE: &str = "ghost.toml";
-/// File name of the seal written by `birth`.
-pub const SEAL_FILE: &str = "seal";
 
 /// The birth certificate as written by whoever gives birth to her.
 ///
@@ -114,7 +113,7 @@ fn parse_hhmm(s: &str) -> std::result::Result<NaiveTime, chrono::ParseError> {
     NaiveTime::parse_from_str(s, "%H:%M")
 }
 
-/// The BLAKE3 hash of the certificate bytes, exactly as they were at birth.
+/// The BLAKE3 hash of the certificate text: which version of it this is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Seal(String);
@@ -140,18 +139,27 @@ impl fmt::Display for Seal {
     }
 }
 
-/// A certificate together with the seal computed from its bytes.
-///
-/// This type is read-only by construction.
+/// One version of her certificate: what it says, its text, and its seal.
 #[derive(Debug, Clone)]
-pub struct SealedIdentity {
+pub struct Identity {
     seed: Seed,
+    text: String,
     seal: Seal,
 }
 
-impl SealedIdentity {
-    pub(crate) fn new(seed: Seed, seal: Seal) -> Self {
-        Self { seed, seal }
+impl Identity {
+    /// Read a certificate from its text.
+    pub fn parse(text: &str) -> Result<Self> {
+        Ok(Self {
+            seed: Seed::parse(text)?,
+            text: text.to_owned(),
+            seal: Seal::of(text.as_bytes()),
+        })
+    }
+
+    /// The certificate exactly as written.
+    pub fn text(&self) -> &str {
+        &self.text
     }
 
     pub fn seed(&self) -> &Seed {
@@ -175,30 +183,13 @@ impl SealedIdentity {
     }
 }
 
-/// Read and seal the certificate in `dir`.
-pub fn read_certificate(dir: &Path) -> Result<SealedIdentity> {
+/// Read the certificate in `dir`.
+pub fn read_certificate(dir: &Path) -> Result<Identity> {
     let path = dir.join(SEED_FILE);
     let bytes = fs::read(&path).map_err(|_| Error::NoSeed(path.clone()))?;
-    let text =
-        String::from_utf8(bytes.clone()).map_err(|e| Error::BadSeed(format!("not utf-8: {e}")))?;
-    let seed = Seed::parse(&text)?;
-    Ok(SealedIdentity::new(seed, Seal::of(&bytes)))
+    let text = String::from_utf8(bytes).map_err(|e| Error::BadSeed(format!("not utf-8: {e}")))?;
+    Identity::parse(&text)
 }
-
-/// Read the seal file, if `birth` has written one.
-pub fn read_seal_file(dir: &Path) -> Result<Option<Seal>> {
-    match fs::read_to_string(dir.join(SEAL_FILE)) {
-        Ok(s) => Ok(Some(Seal(s.trim().to_owned()))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
-pub(crate) fn write_seal_file(dir: &Path, seal: &Seal) -> Result<()> {
-    fs::write(dir.join(SEAL_FILE), format!("{seal}\n"))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
