@@ -156,6 +156,13 @@ fn describe(event: &Event, tz: Tz) -> String {
                 .map_or_else(String::new, |f| format!(" (media/{f})")),
             flat(what)
         ),
+        Event::Kept { file, note, from } => format!(
+            "media/{file}{}: {}",
+            from.as_deref()
+                .map_or_else(String::new, |f| format!(" (from {f})")),
+            flat(note)
+        ),
+        Event::LetGo { kept } => format!("let #{kept} go"),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

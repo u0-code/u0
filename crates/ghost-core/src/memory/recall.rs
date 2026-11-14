@@ -5,6 +5,11 @@
 //! from a conversation finds her memory, whole, and what was said on that
 //! conversation's platform, and nothing said on any other: a line heard on
 //! one platform carries that platform; everything else carries none.
+//!
+//! An entry makes at most one row, kept under the entry's seq as its rowid,
+//! so that a row can be taken out again when what it stands for is no
+//! longer so: a note on something she kept, once she has replaced it or let
+//! the thing go.
 
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Transaction, params, types::Value};
@@ -100,6 +105,8 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         Event::Pursued { what, .. } if !what.trim().is_empty() => memory("pursued", what, None),
         Event::Practised { lesson, .. } => memory("practised", lesson, None),
         Event::Learned { lesson, .. } => memory("learned", lesson, None),
+        // Her own: found from anywhere, by her note, while she holds it.
+        Event::Kept { note, .. } => memory("kept", note, None),
         // Kept without a place: it came from the web, not from anyone she
         // was talking with, so it is nobody's secret.
         Event::LookedUp { query, found, .. } => Kept {
@@ -110,6 +117,8 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         },
         // Found through the message it belongs to; see `fold`.
         Event::Viewed { .. }
+        // Takes a note out; see `fold`.
+        | Event::LetGo { .. }
         | Event::Pursued { .. }
         | Event::Born { .. }
         | Event::Described { .. }
@@ -135,6 +144,25 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
 }
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
+    match &entry.event {
+        // A note on something she kept is found for as long as it holds: a
+        // later note on the same thing, or letting it go, takes it out.
+        Event::Kept { file, .. } => {
+            tx.execute(
+                "DELETE FROM recall WHERE kind = 'kept' AND rowid IN
+                 (SELECT seq FROM belongings WHERE file = ?1 AND seq < ?2)",
+                params![file, entry.seq],
+            )?;
+        }
+        Event::LetGo { kept } => {
+            tx.execute(
+                "DELETE FROM recall WHERE rowid = ?1 AND kind = 'kept'",
+                [kept],
+            )?;
+            return Ok(());
+        }
+        _ => {}
+    }
     // What she saw in an image is kept as part of the conversation it was
     // sent in: found from that platform, and from nowhere else.
     if let Event::Viewed { message, what, .. } = &entry.event {
@@ -147,7 +175,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             .optional()?;
         if let Some((channel, place, name)) = sent {
             tx.execute(
-                "INSERT INTO recall (text, kind, seq, at, place, channel) VALUES (?1, 'viewed', ?2, ?3, ?4, ?5)",
+                "INSERT INTO recall (rowid, text, kind, seq, at, place, channel) VALUES (?2, ?1, 'viewed', ?2, ?3, ?4, ?5)",
                 params![format!("{name} sent an image: {what}"), entry.seq, at, place, channel],
             )?;
         }
@@ -155,7 +183,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
     }
     if let Some(k) = kept(&entry.event) {
         tx.execute(
-            "INSERT INTO recall (text, kind, seq, at, place, channel) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO recall (rowid, text, kind, seq, at, place, channel) VALUES (?3, ?1, ?2, ?3, ?4, ?5, ?6)",
             params![k.text, k.kind, entry.seq, at, k.place, k.channel],
         )?;
     }

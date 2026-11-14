@@ -28,6 +28,7 @@ use crate::{
     social,
 };
 
+mod belongings;
 mod canon;
 mod craft;
 mod digests;
@@ -41,6 +42,7 @@ mod public;
 mod recall;
 mod work;
 
+pub use belongings::Belonging;
 pub use canon::Fact;
 pub use craft::Lesson;
 pub use digests::Digest;
@@ -61,7 +63,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -117,6 +119,7 @@ impl Memory {
             craft::SCHEMA,
             public::SCHEMA,
             links::SCHEMA,
+            belongings::SCHEMA,
             recall::SCHEMA,
         ] {
             conn.execute_batch(tables)?;
@@ -184,6 +187,7 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     craft::fold(tx, entry, at)?;
     public::fold(tx, entry, at)?;
     links::fold(tx, entry, at)?;
+    belongings::fold(tx, entry, at)?;
     recall::fold(tx, entry, at)
 }
 
