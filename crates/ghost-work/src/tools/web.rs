@@ -221,6 +221,8 @@ impl Tool for Search {
 pub struct Fetch {
     client: reqwest::Client,
     reader_key: Option<String>,
+    /// Where the reader is: DeepSeek, except in tests.
+    reader_at: String,
 }
 
 impl Fetch {
@@ -228,6 +230,7 @@ impl Fetch {
         Self {
             client: client(),
             reader_key,
+            reader_at: DEEPSEEK.to_owned(),
         }
     }
 
@@ -235,7 +238,7 @@ impl Fetch {
     async fn through_reader(&self, key: &str, url: &str) -> Result<String, String> {
         let resp = self
             .client
-            .post(format!("{DEEPSEEK}/v1/tools/fetch"))
+            .post(format!("{}/v1/tools/fetch", self.reader_at))
             .bearer_auth(key)
             .json(&json!({"url": url}))
             .send()
@@ -602,9 +605,18 @@ impl Tool for Fetch {
         let fetched = match &self.reader_key {
             Some(key) if !names_an_image(url) => match self.through_reader(key, url).await {
                 Ok(text) => {
-                    let images = Url::parse(url)
+                    let mut images = Url::parse(url)
                         .map(|base| markdown_images(&text, &base))
                         .unwrap_or_default();
+                    // The reader often leaves a page's images out of its
+                    // text, so a page of pictures read as nothing but
+                    // captions. What the page shows is then taken from
+                    // the page itself.
+                    if images.is_empty()
+                        && let Ok(Fetched::Page { images: shown, .. }) = self.directly(url).await
+                    {
+                        images = shown;
+                    }
                     Ok(Fetched::Page { text, images })
                 }
                 // The reader refuses some sites that answer a plain request.
@@ -819,6 +831,33 @@ mod tests {
                  - {base}/boats.jpg  \"Boats at dawn\"  800×600\n\
                  - https://cdn.example/late.webp  \"Loaded late\""
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_read_without_its_images_still_lists_what_it_shows() {
+        // The reader gives the captions of a gallery and none of its
+        // pictures; the page itself has them, one loaded late.
+        let page = r#"<html><body><h1>Possums</h1>
+            <img src="/grey.jpg" data-original="/a1.gif" alt="received, cannot do">
+            <img src="/a2.webp" alt="deep thought"></body></html>"#;
+        let reader =
+            r##"{"title":"Possums","content":"# Possums\n\nreceived, cannot do\ndeep thought"}"##;
+        let base = serve(vec![
+            ("/gallery", "text/html; charset=utf-8", page.into()),
+            ("/v1/tools/fetch", "application/json", reader.into()),
+        ])
+        .await;
+        let mut fetch = Fetch::new(Some("key".into()));
+        fetch.reader_at.clone_from(&base);
+        let read = fetch.call(&json!({"url": format!("{base}/gallery")})).await;
+        assert!(!read.failed, "{}", read.output);
+        let (text, images) = read.output.split_once("\n\nImages on this page").unwrap();
+        assert!(text.contains("deep thought"), "{text}");
+        assert!(
+            images.contains(&format!("{base}/a1.gif  \"received, cannot do\""))
+                && images.contains(&format!("{base}/a2.webp")),
+            "{images}"
         );
     }
 
