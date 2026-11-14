@@ -14,6 +14,16 @@ tool of both loops, read from the same directories. They are built in only as th
 resort; a file of the same name in her own `prompts/`, or in the configured
 directory, is used instead, and taken in again when it changes.
 
+In a conversation she has the same abilities as at work, at a conversation's
+pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
+needs; where her brain takes tools, `search`, `fetch` and, in private with a
+friend, her machine (`shell`, `read`, `write`, `edit`) run off to the side,
+each for at most `[mind] talk_tool_seconds`, within `talk_steps` turns. A page
+or picture she opens is in her journal as `Opened`, so that she can keep or
+send a picture by the name she was shown, in that conversation only. What she
+is offered here is listed in what she is told about herself, under "What you
+can do here", from each tool's `ability` in `tools.toml`.
+
 What it adds to a look at a conversation, so that she is one person and not
 one per platform: the rest of her day (what she has taken on, what has been
 going on elsewhere), where each thing she knows was learned, and for each

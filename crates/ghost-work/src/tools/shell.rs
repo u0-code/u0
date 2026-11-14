@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::{Desk, clip};
 use crate::{
     machine::quote,
-    prompts::{Loop, Prompts},
+    prompts::{self, Loop, Store},
     tool::{Outcome, Tool, text},
 };
 
@@ -90,8 +90,9 @@ impl Tool for Shell {
         "shell"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "shell",
             json!({

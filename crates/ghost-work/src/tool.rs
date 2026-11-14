@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use ghost_brain::{Call, Picture, ToolSpec};
 use serde_json::{Value, json};
 
-use crate::prompts::{Loop, Prompts};
+use crate::prompts::{Loop, Store};
 
 /// What running a tool produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +52,7 @@ pub trait Tool: Send + Sync {
     /// What the model calls it by.
     fn name(&self) -> &'static str;
     /// What the model is told about it in `lp`, in the words of `words`.
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec;
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec;
     async fn call(&self, args: &Value) -> Outcome;
 }
 
@@ -95,7 +95,7 @@ impl Toolbox {
     }
 
     /// What the model is told about each tool, in `lp`.
-    pub fn specs(&self, words: &Prompts, lp: Loop) -> Vec<ToolSpec> {
+    pub fn specs(&self, words: &Store, lp: Loop) -> Vec<ToolSpec> {
         self.tools.iter().map(|t| t.spec(words, lp)).collect()
     }
 

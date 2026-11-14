@@ -185,6 +185,11 @@ impl Prompts {
         self.store.parameter(name, parameter, Loop::Conversation)
     }
 
+    /// Everything read, for what reads tools.toml itself.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// The words of the work loop, from the same places as these.
     pub fn for_work(&self) -> ghost_work::Prompts {
         ghost_work::Prompts::layered(self.store.layers())
@@ -265,7 +270,7 @@ mod tests {
         );
         write_at(
             &config.path().join("texts.toml"),
-            "look = \"the config's\"\nno_look_up = \"the config's\"\n",
+            "look = \"the config's\"\ncannot_here = \"the config's\"\n",
             1,
         );
         let p = Prompts::load(ghost.path(), Some(config.path()));
@@ -273,7 +278,7 @@ mod tests {
         assert_eq!(p.gate, "the config's gate");
         assert_eq!(p.attend, Prompts::shipped().attend);
         assert_eq!(p.text("look"), "hers");
-        assert_eq!(p.text("no_look_up"), "the config's");
+        assert_eq!(p.text("cannot_here"), "the config's");
         assert_eq!(p.text("not_sent"), Prompts::shipped().text("not_sent"));
 
         let listed = p.listing();
@@ -288,7 +293,7 @@ mod tests {
         assert_eq!(origin("gate.md", None), (Origin::Config, true));
         assert_eq!(origin("attend.md", None), (Origin::BuiltIn, false));
         assert_eq!(origin(TEXTS, Some("look")), (Origin::Ghost, true));
-        assert_eq!(origin(TEXTS, Some("no_look_up")), (Origin::Config, true));
+        assert_eq!(origin(TEXTS, Some("cannot_here")), (Origin::Config, true));
         assert_eq!(origin("tools.toml", Some("say")), (Origin::BuiltIn, false));
     }
 

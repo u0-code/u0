@@ -101,28 +101,6 @@ impl Prompts {
         self.store.listing()
     }
 
-    /// The spec of tool `name` as it is offered in `lp`: `properties` are
-    /// its arguments' JSON schemas, to which what `tools.toml` says of each
-    /// is added as its description. An argument inside a list of objects is
-    /// described under its path, `steps.text`.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn spec(&self, lp: Loop, name: &str, mut properties: Value, required: &[&str]) -> ToolSpec {
-        if let Value::Object(map) = &mut properties {
-            for (argument, schema) in map.iter_mut() {
-                describe(&self.store, lp, name, argument, schema);
-            }
-        }
-        ToolSpec {
-            name: name.to_owned(),
-            description: self.store.tool(name, lp).to_owned(),
-            parameters: json!({
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }),
-        }
-    }
-
     /// The store underneath, for a reader that keeps more files beside
     /// these.
     pub fn store(&self) -> &Store {
@@ -139,6 +117,42 @@ impl Prompts {
         Self {
             store: Store::layered(FILES, layers),
         }
+    }
+}
+
+impl std::ops::Deref for Prompts {
+    type Target = Store;
+
+    fn deref(&self) -> &Store {
+        &self.store
+    }
+}
+
+/// The spec of tool `name` as it is offered in `lp`, in the words of
+/// `words`: `properties` are its arguments' JSON schemas, to which what
+/// `tools.toml` says of each is added as its description. An argument
+/// inside a list of objects is described under its path, `steps.text`.
+#[allow(clippy::needless_pass_by_value)]
+pub fn spec(
+    words: &Store,
+    lp: Loop,
+    name: &str,
+    mut properties: Value,
+    required: &[&str],
+) -> ToolSpec {
+    if let Value::Object(map) = &mut properties {
+        for (argument, schema) in map.iter_mut() {
+            describe(words, lp, name, argument, schema);
+        }
+    }
+    ToolSpec {
+        name: name.to_owned(),
+        description: words.tool(name, lp).to_owned(),
+        parameters: json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }),
     }
 }
 

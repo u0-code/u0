@@ -116,6 +116,13 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
             place: None,
             channel: None,
         },
+        // Like what she looked up: from the web, and nobody's secret.
+        Event::Opened { url, text, .. } => Kept {
+            kind: "opened",
+            text: format!("you opened {url}: {text}"),
+            place: None,
+            channel: None,
+        },
         // Found through the message it belongs to; see `fold`.
         Event::Viewed { .. }
         // Takes a note out; see `fold`.

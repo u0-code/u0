@@ -3,23 +3,30 @@
 use std::collections::VecDeque;
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_brain::{Brain, Completion, Effort, Item, Step, Turn};
+use ghost_brain::{Brain, Call, Completion, Effort, Item, Step, Turn};
 use ghost_core::{
     journal::Event,
     life::{Phase, Reach},
+    media,
     memory::{Intention, Person, PlaceState},
     narrate,
+    prompts::Loop,
     social::{self, PlaceKind},
     tempo::Notice,
     when::when,
-    will,
+    will::{self, Stage},
+};
+use ghost_work::{
+    Toolbox,
+    catalog::{self, Need},
+    undertaking::placeholder,
 };
 use tracing::{debug, warn};
 
 use super::{Attend, Mind, Outcome, after, speak::Bubble};
 use crate::{
     Act, Can, Error, Incoming, Result,
-    actions::{self, Action, Deliberation, clip},
+    actions::{self, Action, Deliberation, Offer, clip},
 };
 
 /// How long after she speaks somewhere she is still "in" that conversation.
@@ -32,12 +39,12 @@ const AUTOMATED_SAYS_PER_HOUR: i64 = 6;
 const RECALL_ROUNDS: u8 = 2;
 /// How many times a failed deliberation is retried.
 const THINK_RETRIES: u8 = 3;
-/// How many turns a brain gets in one look, when what she does is tool
-/// calls: enough to look something up and remember something before
-/// answering, and no more.
-const TALK_STEPS: u8 = 5;
-/// How much of what a search returned she is shown.
+/// How much of what a search returned, or of a page she opened, is kept in
+/// her journal.
 const LOOKED_UP: usize = 3000;
+/// How much of what reached beyond the conversation she is shown in it: a
+/// page is read at a glance, and the rest of it is work.
+const TALK_RESULT: usize = 6000;
 /// How many of the latest messages are read for words that bring back a
 /// piece of her past.
 const PAST_SCAN: usize = 3;
@@ -89,17 +96,14 @@ pub(super) enum Thought {
     Whole(Deliberation),
     /// One turn of tool calls.
     Step(Step),
-    /// What looking things up returned.
+    /// What came back from beyond the conversation: the web, her machine.
     Looked(Vec<Found>),
 }
 
-/// One look-up: the call it answers, what was asked, what came back, and
-/// whether it failed.
+/// One call that reached beyond the conversation, and what came of it.
 pub(super) struct Found {
-    pub call: String,
-    pub query: String,
-    pub output: String,
-    pub failed: bool,
+    pub call: Call,
+    pub outcome: ghost_work::Outcome,
 }
 
 /// What made her look.
@@ -351,12 +355,27 @@ impl Mind {
             self.think.clone()
         };
         let with_tools = self.cfg.talk_tools && brain.works();
+        let offer = self.offer(place, with_tools, now)?;
+        let tools = actions::tools(&self.prompts, &offer);
         // What she sees is put together once for a look made of tool
         // calls, and again for each round of one made of JSON replies.
         let request = if with_tools && !job.items.is_empty() {
             None
         } else {
-            Some(self.compose(place, &mut job, now, with_tools)?)
+            let names: Vec<&str> = if with_tools {
+                tools.iter().map(|t| t.name.as_str()).collect()
+            } else {
+                // Answering in JSON, she can do what reply_json.md lists.
+                ["undertake", "send_file"]
+                    .into_iter()
+                    .filter(|n| match *n {
+                        "undertake" => offer.means.is_some(),
+                        _ => offer.files,
+                    })
+                    .collect()
+            };
+            let abilities = self.abilities_here(&names);
+            Some(self.compose(place, &mut job, now, with_tools, &abilities)?)
         };
         self.budget.spend(now);
         self.thinking.insert(place.key.clone());
@@ -380,18 +399,21 @@ impl Mind {
                     job.items.push(Item::user(prompt));
                     system
                 }
-                None => self.who(now)?,
+                None => {
+                    self.portrait_on(
+                        now,
+                        Some(&place.channel),
+                        &self.abilities_here(
+                            &tools.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+                        ),
+                    )?
+                    .0
+                }
             };
             let turn = Turn {
                 system,
                 items: job.items.clone(),
-                tools: actions::tools(
-                    &self.prompts,
-                    self.work_means(),
-                    self.can_look_up(),
-                    self.can(&place.channel, Can::Files),
-                    self.has_work_under_way()?,
-                ),
+                tools,
                 max_tokens: self.cfg.max_tokens,
                 temperature: None,
                 // Talking is not a problem to be worked out at length, and
@@ -436,6 +458,7 @@ impl Mind {
         job: &mut Thinking,
         now: DateTime<Utc>,
         with_tools: bool,
+        abilities: &str,
     ) -> Result<(String, String)> {
         let memory = self.ghost.memory();
         let tz = self.life.clock().tz();
@@ -550,7 +573,7 @@ impl Mind {
             .prompts
             .section("past", "past", &narrate::past(&touched));
 
-        let (who, right_now) = self.portrait_on(now, Some(&place.channel))?;
+        let (who, right_now) = self.portrait_on(now, Some(&place.channel), abilities)?;
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
         } else {
@@ -679,16 +702,14 @@ impl Mind {
             Thought::Whole(deliberation) => deliberation,
             Thought::Step(step) => return self.on_turn(job, step, &place, now),
             Thought::Looked(found) => {
-                for f in found {
-                    if !f.failed {
-                        self.record(Event::LookedUp {
-                            query: f.query,
-                            found: f.output.clone(),
-                            place: Some(place.key.clone()),
-                        })?;
-                    }
-                    job.items
-                        .push(Item::result(f.call, "look_up", f.output, f.failed));
+                let sees = if job.cheap {
+                    self.tick.sees()
+                } else {
+                    self.think.sees()
+                };
+                for Found { call, outcome } in found {
+                    let item = self.took_in(&place, call, outcome, sees)?;
+                    job.items.push(item);
                 }
                 return self.go_on(job, &place, now);
             }
@@ -765,9 +786,147 @@ impl Mind {
         Ok(!self.ghost.memory().undertakings(true, 1)?.is_empty())
     }
 
-    /// Whether she can glance something up in the middle of a conversation.
-    fn can_look_up(&self) -> bool {
-        self.cfg.work.web && self.workshop.web.search.is_some()
+    /// What a look at `place` offers beyond what is always there. With
+    /// `with_tools`, that includes what reaches beyond the conversation, as
+    /// it is said there: what it is, and the conversation's pace.
+    fn offer(&self, place: &PlaceState, with_tools: bool, now: DateTime<Utc>) -> Result<Offer> {
+        let mut offer = Offer {
+            means: self.work_means().map(str::to_owned),
+            files: self.can(&place.channel, Can::Files),
+            under_way: self.has_work_under_way()?,
+            reaching: Vec::new(),
+        };
+        if with_tools {
+            let glance = self.prompts.text("at_a_glance");
+            offer.reaching = self
+                .reaching(place, now)?
+                .specs(self.prompts.store(), Loop::Conversation)
+                .into_iter()
+                .map(|mut spec| {
+                    spec.description = format!("{} {glance}", spec.description);
+                    spec
+                })
+                .collect();
+        }
+        Ok(offer)
+    }
+
+    /// The tools that reach beyond a conversation, as she has them in
+    /// `place`: the web, if she has it; her machine, if she has one and
+    /// may use it here.
+    fn reaching(&self, place: &PlaceState, now: DateTime<Utc>) -> Result<Toolbox> {
+        let web = self.cfg.work.web.then_some(&self.workshop.web);
+        let machine = if self.machine_here(place, now)? {
+            self.workshop.machine.clone()
+        } else {
+            None
+        };
+        Ok(ghost_work::tools::reaching(web, machine))
+    }
+
+    /// Whether she may use her machine in the middle of this conversation.
+    /// Nobody she does not know well gets her hands on a shell, here any
+    /// more than at work: only in private, with a friend or closer.
+    fn machine_here(&self, place: &PlaceState, now: DateTime<Utc>) -> Result<bool> {
+        if !self.cfg.talk_machine
+            || self.workshop.machine.is_none()
+            || place.kind != PlaceKind::Direct
+        {
+            return Ok(false);
+        }
+        Ok(self
+            .ghost
+            .memory()
+            .person_of_direct(&place.key)?
+            .is_some_and(|p| will::standing(&p, now).stage >= Stage::Friend))
+    }
+
+    /// What she is told she can do here, from the tools offered here that
+    /// say what having them lets her do; nothing at all when none do.
+    pub(super) fn abilities_here(&self, offered: &[&str]) -> String {
+        let lines: Vec<String> = catalog::TOOLS
+            .iter()
+            .filter(|e| offered.contains(&e.name))
+            .filter_map(|e| self.prompts.store().ability(e.name))
+            .map(|a| {
+                self.prompts
+                    .fill("ability_line", &[("ability", a.to_owned())])
+            })
+            .collect();
+        if lines.is_empty() {
+            String::new()
+        } else {
+            self.prompts
+                .fill("abilities", &[("abilities", lines.join("\n"))])
+        }
+    }
+
+    /// What came back from beyond the conversation, as an item of the look,
+    /// with what it was kept as in her journal: a search as `LookedUp`, a
+    /// page or an image she opened as `Opened`. An image is kept under
+    /// `media/` and named in the result, so that she can keep it or send it
+    /// by that name; a brain that sees is shown it.
+    fn took_in(
+        &mut self,
+        place: &PlaceState,
+        call: Call,
+        outcome: ghost_work::Outcome,
+        sees: bool,
+    ) -> Result<Item> {
+        let ghost_work::Outcome {
+            output,
+            failed,
+            mut pictures,
+        } = outcome;
+        let mut output = clip(&output, TALK_RESULT);
+        let opened = call.args["url"]
+            .as_str()
+            .or_else(|| call.args["path"].as_str())
+            .unwrap_or_default()
+            .to_owned();
+        if !failed && pictures.is_empty() {
+            match call.name.as_str() {
+                "search" => {
+                    self.record(Event::LookedUp {
+                        query: call.args["query"].as_str().unwrap_or_default().to_owned(),
+                        found: clip(&output, LOOKED_UP),
+                        place: Some(place.key.clone()),
+                    })?;
+                }
+                "fetch" => {
+                    self.record(Event::Opened {
+                        url: opened.clone(),
+                        text: clip(&output, LOOKED_UP),
+                        file: None,
+                        place: Some(place.key.clone()),
+                    })?;
+                }
+                _ => {}
+            }
+        }
+        for picture in &pictures {
+            let file = media::store(self.ghost.dir(), &picture.bytes, &picture.mime)?;
+            self.record(Event::Opened {
+                url: opened.clone(),
+                text: clip(&output, 300),
+                file: Some(file.clone()),
+                place: Some(place.key.clone()),
+            })?;
+            output.push('\n');
+            output.push_str(&placeholder(&file));
+        }
+        if !pictures.is_empty() && !sees {
+            output.push('\n');
+            output.push_str(&ghost_brain::not_shown(pictures.len()));
+            pictures.clear();
+        }
+        Ok(Item::Result {
+            id: call.id,
+            name: call.name,
+            output,
+            failed,
+            pictures,
+        })
     }
 
     /// One turn of a look made of tool calls came back. What she asked to
@@ -796,7 +955,7 @@ impl Mind {
                 && job.took.is_empty()
                 && !job.nudged
                 && waited_on
-                && job.round < TALK_STEPS
+                && job.round < self.cfg.talk_steps
             {
                 job.nudged = true;
                 job.items.push(Item::user(self.prompts.text("not_sent")));
@@ -805,9 +964,26 @@ impl Mind {
             return self.conclude(job, place, now);
         }
         let mut again = false;
-        let mut searches = Vec::new();
+        let reaching = self.reaching(place, now)?;
+        let reachable = reaching.names();
+        let mut outside = Vec::new();
         for call in calls {
+            if reachable.contains(&call.name) {
+                outside.push(call);
+                continue;
+            }
+            // Something that reaches beyond the conversation, which she
+            // does not have here.
+            let beyond = catalog::find(&call.name).is_some_and(|e| {
+                e.needs
+                    .iter()
+                    .any(|n| matches!(n, Need::Search | Need::Web | Need::Machine))
+            });
             let (output, failed) = match actions::from_call(&call) {
+                Err(_) if beyond => {
+                    again = true;
+                    (self.prompts.text("cannot_here").to_owned(), true)
+                }
                 Err(why) => {
                     again = true;
                     (why, true)
@@ -819,15 +995,6 @@ impl Mind {
                 Ok(Action::Reread { memory }) => {
                     again = true;
                     (self.reread(memory, place, now)?, false)
-                }
-                Ok(Action::LookUp { query }) => {
-                    if self.can_look_up() {
-                        tracing::info!("{}: looking up \"{}\"", place.key, clip(&query, 80));
-                        searches.push((call.id, query));
-                        continue;
-                    }
-                    again = true;
-                    (self.prompts.text("no_look_up").to_owned(), true)
                 }
                 // Told at once when it cannot be done, so that she can
                 // put it right, as with a call she got wrong.
@@ -854,25 +1021,31 @@ impl Mind {
             job.items
                 .push(Item::result(call.id, call.name, output, failed));
         }
-        if !searches.is_empty() {
-            // The web is slow: it is looked up off to the side, and the
-            // look goes on when the answers are in.
-            let Some(source) = self.workshop.web.search.clone() else {
-                return self.conclude(job, place, now);
-            };
+        if !outside.is_empty() {
+            // The web and her machine are slow: they are reached off to
+            // the side, each for a few seconds at most, and the look goes
+            // on when what they return is in.
+            let budget = std::time::Duration::from_secs(self.cfg.talk_tool_seconds);
+            let too_slow = self.prompts.fill(
+                "too_slow",
+                &[("seconds", self.cfg.talk_tool_seconds.to_string())],
+            );
+            for call in &outside {
+                tracing::info!(
+                    "{}: {} {}",
+                    place.key,
+                    call.name,
+                    clip(&call.args.to_string(), 80)
+                );
+            }
             self.thinking.insert(place.key.clone());
             self.jobs.spawn(async move {
-                use ghost_work::Tool as _;
-                let search = ghost_work::tools::Search::new(source);
-                let mut found = Vec::with_capacity(searches.len());
-                for (call, query) in searches {
-                    let outcome = search.call(&serde_json::json!({"query": query})).await;
-                    found.push(Found {
-                        call,
-                        query,
-                        output: clip(&outcome.output, LOOKED_UP),
-                        failed: outcome.failed,
-                    });
+                let mut found = Vec::with_capacity(outside.len());
+                for call in outside {
+                    let outcome = tokio::time::timeout(budget, reaching.run(&call))
+                        .await
+                        .unwrap_or_else(|_| ghost_work::Outcome::fail(too_slow.clone()));
+                    found.push(Found { call, outcome });
                 }
                 Outcome::Thought {
                     job: Box::new(job),
@@ -890,7 +1063,7 @@ impl Mind {
     /// Another turn, if she has any left; otherwise the look ends with
     /// what she has decided so far.
     fn go_on(&mut self, job: Thinking, place: &PlaceState, now: DateTime<Utc>) -> Result<()> {
-        if job.round < TALK_STEPS {
+        if job.round < self.cfg.talk_steps {
             self.ponder(job, place, now)
         } else {
             self.conclude(job, place, now)
@@ -1029,8 +1202,6 @@ impl Mind {
                         did.push("put it off".to_owned());
                     }
                 }
-                // Handled before this, as another round of thought.
-                Action::LookUp { .. } => {}
                 Action::SendFile {
                     file,
                     message,
@@ -1133,8 +1304,9 @@ impl Mind {
                 Action::Keep {
                     message,
                     image,
+                    file,
                     note,
-                } => match self.keep(place, message, image, &note)? {
+                } => match self.keep(place, message, image, file.as_deref(), &note)? {
                     None => did.push("kept something".to_owned()),
                     // Nothing to keep is nothing done: there is no entry.
                     Some(why) => debug!("{}: kept nothing: {why}", place.key),

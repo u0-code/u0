@@ -10,6 +10,7 @@
 //! more than one thought.
 //!
 
+pub mod catalog;
 pub mod claude;
 pub mod codex;
 pub mod machine;

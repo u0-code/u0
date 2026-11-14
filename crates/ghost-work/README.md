@@ -6,7 +6,9 @@ tools, and state that outlives any one context window.
 **Is:** a [`Worker`] that takes a `ghost_brain::Brain`, a `Toolbox` and an
 `Undertaking` and works until the undertaking is finished or something stops
 it. A `Machine` to work on (a local directory, or a Docker container). The
-standard tools: `shell`, `read`, `write`, `edit`, `plan`, `note`, `done`.
+standard tools: `shell`, `read`, `write`, `edit`, `plan`, `note`, `done`. The
+catalog (`src/catalog.rs`) lists every tool of a ghost's conversations and of
+work, the loops each belongs to and what each needs.
 
 **Is not:** a person. It does not know who is working; that is a paragraph
 handed in by whoever starts it. `ghost-mind` is what makes it hers.

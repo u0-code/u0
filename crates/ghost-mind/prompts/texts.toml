@@ -59,7 +59,30 @@ intention_due = "Nobody just wrote. Earlier you told yourself: \"{{what}}\". The
 
 # When she wrote text and called nothing, where someone is waiting on her.
 not_sent = "You wrote that as a private thought, so nothing was sent and nothing was done. If you meant to say it, call `say`. If you meant to stay silent, call nothing again."
-no_look_up = "You have no way to look that up here."
+# When she calls a tool this conversation does not offer.
+cannot_here = "That is not something you can do from here."
+# When she asked to keep something without saying what.
+keep_what = "Say which image: `file` for one you opened here, by its name, or `message` for one in a message here."
+# When the file she named is not an image she opened in this conversation.
+not_opened_here = "You did not open an image called {{file}} in this conversation. Use the name its result showed, as in `[image: <name>]`."
+
+# Put after what a tool of both loops (the web, a machine) is said to be,
+# where it is offered in a conversation: the conversation's pace.
+at_a_glance = "Here it is a glance, the way you would check something on your phone mid-conversation, and it has to be quick. Anything bigger than a glance is better taken on as work."
+# When such a tool took longer than a conversation allows.
+too_slow = "This took longer than {{seconds}} seconds, so it was left. If it matters, take it on as work."
+
+# What she can do through the phone she talks on, in what she is told
+# about herself. {{abilities}} is one `ability_line` for each tool offered
+# here that has an `ability` in tools.toml; with none, the whole section is
+# left out.
+abilities = """\
+    # What you can do here\n\n\
+    Through the phone you talk on here, you can:\n\n{{abilities}}\n\n\
+    These come with how you are here, whatever your life in your own world is like. They need no \
+    explaining in your story and nobody expects one: you use them the way anyone uses a phone, without \
+    remarking on it.\n\n"""
+ability_line = "- {{ability}}"
 
 # How she would take something on: at a machine, or without one. Fills
 # {{means}} in `ability_undertake` here and in `undertake` in tools.toml.

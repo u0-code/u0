@@ -172,6 +172,14 @@ fn describe(event: &Event, tz: Tz) -> String {
                 format!(" ({})", files.join(", "))
             }
         ),
+        Event::Opened {
+            url, text, file, ..
+        } => format!(
+            "{url}{}: {}",
+            file.as_deref()
+                .map_or_else(String::new, |f| format!(" (media/{f})")),
+            flat(&text.chars().take(200).collect::<String>())
+        ),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

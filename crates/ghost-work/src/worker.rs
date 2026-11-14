@@ -40,7 +40,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    prompts::{self, Loop, Prompts, Shared},
+    prompts::{self, Loop, Prompts, Shared, Store},
     tool::{self, Tool, Toolbox},
     tools::{Handoff, clip},
     undertaking::{Outcome, State, Undertaking, placeholder},
@@ -220,8 +220,9 @@ impl Tool for Delegate {
         "delegate"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "delegate",
             json!({"task": {"type": "string"}}),
@@ -1755,7 +1756,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "wait"
         }
-        fn spec(&self, _: &Prompts, _: Loop) -> ToolSpec {
+        fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
             tool::spec("wait", "Wait a moment.", json!({}), &[])
         }
         async fn call(&self, _: &Value) -> tool::Outcome {
@@ -1851,7 +1852,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "camera"
         }
-        fn spec(&self, _: &Prompts, _: Loop) -> ToolSpec {
+        fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
             tool::spec("camera", "Take a picture.", json!({}), &[])
         }
         async fn call(&self, _: &Value) -> tool::Outcome {

@@ -21,8 +21,13 @@ impl Mind {
                 "nothing_kept",
                 &[("why", self.prompts.text("keep_no_note").to_owned())],
             )),
-            Action::Keep { message, image, .. } => self
-                .seen_here(place, *message, *image)?
+            Action::Keep {
+                message,
+                image,
+                file,
+                ..
+            } => self
+                .keepable(place, *message, *image, file.as_deref())?
                 .err()
                 .map(|why| self.prompts.fill("nothing_kept", &[("why", why)])),
             Action::LetGo { thing } => self.cannot_let_go(*thing)?,
@@ -101,20 +106,79 @@ impl Mind {
         })
     }
 
-    /// Keep image `image` of message `message` with her note. Returns why
-    /// not, if it cannot be kept; then nothing is written.
+    /// The image she opened in this conversation under the name `wanted`,
+    /// as a result showed it, and the line about it; or, as a sentence for
+    /// her, why she does not have it. Only a bare name under `media/`, and
+    /// only one opened here: what she opened elsewhere stays there.
+    pub(super) fn opened_here(
+        &self,
+        place: &PlaceState,
+        wanted: &str,
+    ) -> Result<std::result::Result<(String, String), String>> {
+        let wanted = wanted.trim();
+        let wanted = wanted
+            .strip_prefix("[image:")
+            .and_then(|f| f.strip_suffix(']'))
+            .unwrap_or(wanted)
+            .trim();
+        let wanted = wanted.strip_prefix("media/").unwrap_or(wanted);
+        let opened = self
+            .ghost
+            .journal()
+            .of_kinds_after(&["opened"], 0)?
+            .into_iter()
+            .rev()
+            .find_map(|e| match e.event {
+                Event::Opened {
+                    file: Some(file),
+                    text,
+                    place: Some(at),
+                    ..
+                } if file == wanted && at == place.key => Some((file, text)),
+                _ => None,
+            });
+        Ok(match opened {
+            Some((file, text)) if media::path(self.ghost.dir(), &file).is_some() => {
+                Ok((file, text))
+            }
+            _ => Err(self
+                .prompts
+                .fill("not_opened_here", &[("file", wanted.to_owned())])),
+        })
+    }
+
+    /// What she would keep, asked for by `file` or by `message` and
+    /// `image`: the file under `media/` and what she saw in it; or, as a
+    /// sentence for her, why she does not have it.
+    fn keepable(
+        &self,
+        place: &PlaceState,
+        message: Option<i64>,
+        image: Option<i64>,
+        file: Option<&str>,
+    ) -> Result<std::result::Result<(String, String), String>> {
+        match (file.filter(|f| !f.trim().is_empty()), message) {
+            (Some(file), _) => self.opened_here(place, file),
+            (None, Some(message)) => self.seen_here(place, message, image),
+            (None, None) => Ok(Err(self.prompts.text("keep_what").to_owned())),
+        }
+    }
+
+    /// Keep what she asked for with her note. Returns why not, if it cannot
+    /// be kept; then nothing is written.
     pub(super) fn keep(
         &mut self,
         place: &PlaceState,
-        message: i64,
+        message: Option<i64>,
         image: Option<i64>,
+        file: Option<&str>,
         note: &str,
     ) -> Result<Option<String>> {
         let note = note.trim();
         if note.is_empty() {
             return Ok(Some("the note was empty".into()));
         }
-        let file = match self.seen_here(place, message, image)? {
+        let file = match self.keepable(place, message, image, file)? {
             Ok((file, _)) => file,
             Err(why) => return Ok(Some(why)),
         };

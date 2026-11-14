@@ -633,13 +633,19 @@ impl Mind {
     /// changes by the hour and goes late in the request, so that a provider
     /// which caches what it has read before can reuse everything ahead of it.
     fn portrait(&self, now: DateTime<Utc>) -> Result<(String, String)> {
-        self.portrait_on(now, None)
+        self.portrait_on(now, None, "")
     }
 
     /// The same, for a moment spent on platform `on`. What she posted is
     /// that platform's record, so only her posts there are among what she
-    /// has been doing lately; with no platform, none are.
-    fn portrait_on(&self, now: DateTime<Utc>, on: Option<&str>) -> Result<(String, String)> {
+    /// has been doing lately; with no platform, none are. `abilities` is
+    /// what she can do through the phone she is on, if that is said.
+    fn portrait_on(
+        &self,
+        now: DateTime<Utc>,
+        on: Option<&str>,
+        abilities: &str,
+    ) -> Result<(String, String)> {
         let journal = self.ghost.journal();
         let moment = self.life.moment(journal, now)?;
         let day = self.life.today(journal, now)?;
@@ -671,6 +677,7 @@ impl Mind {
                 *value = self.prompts.section("examples", "examples", value);
             }
         }
+        pairs.push(("abilities", abilities.to_owned()));
         Ok((
             narrate::fill(&self.prompts.this, &pairs),
             narrate::fill(&self.prompts.now, &pairs),

@@ -137,6 +137,9 @@ impl Said {
 #[serde(deny_unknown_fields)]
 struct Words {
     description: Option<String>,
+    /// What having it lets her do, in a few words, for a tool that is
+    /// worth telling her she has.
+    ability: Option<String>,
     #[serde(default)]
     parameters: BTreeMap<String, String>,
     conversation: Option<Said>,
@@ -147,6 +150,9 @@ impl Words {
     fn take(&mut self, over: Self) {
         if over.description.is_some() {
             self.description = over.description;
+        }
+        if over.ability.is_some() {
+            self.ability = over.ability;
         }
         self.parameters.extend(over.parameters);
         for (mine, theirs) in [
@@ -329,6 +335,11 @@ impl Store {
         });
         debug_assert!(words.is_some(), "tools.toml does not describe {name}");
         words.unwrap_or_default()
+    }
+
+    /// What having tool `name` lets her do, in a few words, if it says.
+    pub fn ability(&self, name: &str) -> Option<&str> {
+        self.tools.get(name)?.ability.as_deref()
     }
 
     /// What argument `parameter` of tool `name` is described as in `lp`,

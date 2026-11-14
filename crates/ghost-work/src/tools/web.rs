@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::MAX_PICTURE;
 use crate::{
-    prompts::{Loop, Prompts},
+    prompts::{self, Loop, Store},
     tool::{Outcome, Tool, text},
 };
 
@@ -183,8 +183,9 @@ impl Tool for Search {
         "search"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "search",
             json!({"query": {"type": "string"}, "count": {"type": "integer"}}),
@@ -580,8 +581,9 @@ impl Tool for Fetch {
         "fetch"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "fetch",
             json!({"url": {"type": "string"}, "from": {"type": "integer"}}),

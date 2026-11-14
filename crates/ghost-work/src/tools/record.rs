@@ -11,7 +11,7 @@ use ghost_brain::ToolSpec;
 use serde_json::{Value, json};
 
 use crate::{
-    prompts::{Loop, Prompts},
+    prompts::{self, Loop, Store},
     tool::{Outcome, Tool, text},
     undertaking::{self, Finish, PlanStep, Progress, Undertaking},
 };
@@ -42,8 +42,9 @@ impl Tool for Plan {
         "plan"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "plan",
             json!({
@@ -112,8 +113,14 @@ impl Tool for Note {
         "note"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(lp, "note", json!({"text": {"type": "string"}}), &["text"])
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
+            lp,
+            "note",
+            json!({"text": {"type": "string"}}),
+            &["text"],
+        )
     }
 
     async fn call(&self, args: &Value) -> Outcome {
@@ -152,8 +159,9 @@ impl Tool for Handoff {
         "handoff"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "handoff",
             json!({"text": {"type": "string"}}),
@@ -193,8 +201,9 @@ impl Tool for Ask {
         "ask"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "ask",
             json!({"question": {"type": "string"}}),
@@ -237,8 +246,9 @@ impl Tool for Keep {
         "keep"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "keep",
             json!({"file": {"type": "string"}, "note": {"type": "string"}}),
@@ -299,8 +309,9 @@ impl Tool for Tell {
         "tell"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "tell",
             json!({
@@ -357,8 +368,9 @@ impl Tool for Done {
         "done"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "done",
             json!({

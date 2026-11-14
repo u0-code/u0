@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::{Desk, MAX_PICTURE};
 use crate::{
     machine::quote,
-    prompts::{Loop, Prompts},
+    prompts::{self, Loop, Store},
     tool::{Outcome, Tool, text},
 };
 
@@ -114,8 +114,9 @@ impl Tool for Read {
         "read"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "read",
             json!({
@@ -189,8 +190,9 @@ impl Tool for Write {
         "write"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "write",
             json!({"path": {"type": "string"}, "content": {"type": "string"}}),
@@ -230,8 +232,9 @@ impl Tool for Edit {
         "edit"
     }
 
-    fn spec(&self, words: &Prompts, lp: Loop) -> ToolSpec {
-        words.spec(
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
             lp,
             "edit",
             json!({
