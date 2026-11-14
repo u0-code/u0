@@ -379,6 +379,55 @@ impl Undertaking {
         })
     }
 
+    /// Start a new undertaking that is part of this one, as `<id>/<n>`,
+    /// with `n` one past the highest part already in the database.
+    ///
+    /// The number comes from what is on record, not from a count kept in
+    /// memory: a count starts again with every sitting, and the second
+    /// sitting's first part would reopen the first sitting's, finished
+    /// already, and hand back its old report for new work. The id is taken
+    /// in the same write transaction that finds it, so parts started side
+    /// by side, or from another process, each get one of their own.
+    pub fn open_part(&self, brief: &str) -> io::Result<Self> {
+        let brief = brief.trim();
+        if brief.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a new undertaking needs a brief",
+            ));
+        }
+        let id = {
+            let mut conn = self.conn();
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(other)?;
+            let prefix = format!("{}/", self.id);
+            let last = {
+                let mut query = tx
+                    .prepare(
+                        "SELECT substr(id, length(?1) + 1) FROM undertakings
+                         WHERE substr(id, 1, length(?1)) = ?1",
+                    )
+                    .map_err(other)?;
+                query
+                    .query_map([&prefix], |row| row.get::<_, String>(0))
+                    .map_err(other)?
+                    .filter_map(|rest| rest.ok()?.parse::<u64>().ok())
+                    .max()
+                    .unwrap_or(0)
+            };
+            let id = format!("{prefix}{}", last + 1);
+            let state = State {
+                brief: brief.to_owned(),
+                ..State::default()
+            };
+            store(&tx, &id, &state).map_err(other)?;
+            tx.commit().map_err(other)?;
+            id
+        };
+        Self::open(&self.db, &id, Some(brief))
+    }
+
     /// The database this undertaking is kept in.
     pub fn db(&self) -> &Path {
         &self.db
@@ -630,6 +679,24 @@ mod tests {
         assert_eq!(again.transcript().unwrap().len(), 1);
         assert_eq!(again.history().len(), 2);
         assert_eq!(again.logged(), [serde_json::json!({"step": 1})]);
+    }
+
+    #[test]
+    fn a_part_is_numbered_on_from_the_parts_on_record_and_only_its_own_parent_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = Undertaking::open(&db(&dir), "main", Some("the whole")).unwrap();
+        assert_eq!(parent.open_part("first").unwrap().id(), "main/1");
+        // A sibling whose id merely begins the same way is not a part.
+        let other = Undertaking::open(&db(&dir), "mainline", Some("other")).unwrap();
+        other.open_part("elsewhere").unwrap();
+        drop(parent);
+
+        // A new handle, as in a later sitting, counts from the database.
+        let parent = Undertaking::open(&db(&dir), "main", None).unwrap();
+        let second = parent.open_part("second").unwrap();
+        assert_eq!(second.id(), "main/2");
+        assert_eq!(second.state().brief, "second");
+        assert!(parent.open_part("  ").is_err(), "a part needs a brief");
     }
 
     #[test]
