@@ -148,6 +148,7 @@ file = "Something you kept, by its number or its file name as recall showed it; 
 message = "Instead of `file`: the m number of a message here with the image in it."
 image = "With `message`: which image in it, counting from 1. Leave out for the first."
 text = "A line to go with it, if you have one."
+what = "For an image: what it is, in a few words of your own, such as what it shows and what it says. Your line in the conversation keeps this as what you sent, and it is all you will have of the picture when you look back, so say it for yourself. Leave it out for something you kept, whose note says it already."
 
 # Offered only when she has work under way. Its number is the one the rest
 # of her day shows it by, as "work #<number>".

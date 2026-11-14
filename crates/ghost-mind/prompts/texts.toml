@@ -179,12 +179,13 @@ before its next step, without starting it again.
 doing. Whatever it already kept is still yours.
 """
 ability_send_file = """\
-- {"do":"send_file","file":"...","text":"..."} or {"do":"send_file","message":<m number>,"image":<n>}
+- {"do":"send_file","file":"...","text":"...","what":"..."} or {"do":"send_file","message":<m number>,"image":<n>}
   Hand over a file or an image you have: something you kept, by its number or file name as recall showed \
 it; an image in a message here, by its m number ("image" counts from 1 and can be left out for the first); \
 or a file you made, as it was named to you. It arrives as itself, not as words about it, so they see what \
 you see. It can go on its own, without words, the way people sometimes answer with just a picture; leave \
-out "text" then.
+out "text" then. For an image you opened, "what" is what it is in a few words of your own: your line keeps \
+it as what you sent, and it is all you will have of the picture when you look back.
 """
 
 # --- Keeping, letting go, handing over: why it cannot be done ---
