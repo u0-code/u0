@@ -13,13 +13,14 @@ mod web;
 use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
-pub(crate) use record::outcome_of;
 pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
+pub(crate) use record::{list, outcome_of, step_number};
 pub use shell::Shell;
 pub use web::{Fetch, Search, Source, WebConfig};
 
 use crate::{
     machine::{Machine, Output, quote},
+    prompts::Shared,
     tool::Toolbox,
     undertaking::Undertaking,
 };
@@ -132,26 +133,32 @@ pub(crate) fn clip(text: &str, head: usize, tail: usize) -> String {
 }
 
 /// The standard set: a shell and files on `machine`, and the record of
-/// `undertaking`.
-pub fn standard(machine: Arc<dyn Machine>, undertaking: &Arc<Undertaking>) -> Toolbox {
+/// `undertaking`, whose tools answer in `words`.
+pub fn standard(
+    machine: Arc<dyn Machine>,
+    undertaking: &Arc<Undertaking>,
+    words: &Shared,
+) -> Toolbox {
     let desk = Desk::new(machine);
-    Toolbox::new()
+    let tools = Toolbox::new()
         .with(Shell::new(desk.clone()))
         .with(Read::new(desk.clone()))
         .with(Write::new(desk.clone()))
-        .with(Edit::new(desk))
-        .with(Plan::new(undertaking.clone()))
-        .with(Note::new(undertaking.clone()))
-        .with(Done::new(undertaking.clone()))
+        .with(Edit::new(desk));
+    record(tools, undertaking, words)
 }
 
 /// The record of `undertaking` and nothing else: for work that needs no
 /// machine, such as finding something out.
-pub fn desk(undertaking: &Arc<Undertaking>) -> Toolbox {
-    Toolbox::new()
-        .with(Plan::new(undertaking.clone()))
+pub fn desk(undertaking: &Arc<Undertaking>, words: &Shared) -> Toolbox {
+    record(Toolbox::new(), undertaking, words)
+}
+
+fn record(tools: Toolbox, undertaking: &Arc<Undertaking>, words: &Shared) -> Toolbox {
+    tools
+        .with(Plan::new(undertaking.clone(), words.clone()))
         .with(Note::new(undertaking.clone()))
-        .with(Done::new(undertaking.clone()))
+        .with(Done::new(undertaking.clone(), words.clone()))
 }
 
 /// Add the web to a toolbox: `search` if there is somewhere to search, and

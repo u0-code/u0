@@ -479,7 +479,7 @@ fn opening_with(words: &Prompts, state: &State, tail: bool) -> String {
         &[
             ("task", task),
             ("before", words.text(before).to_owned()),
-            ("plan", state.plan_text()),
+            ("plan", state.plan_text(words)),
             ("handoff", handoff),
             ("touched", touched),
             ("notes", state.notes_text(NOTES_SHOWN)),
@@ -1089,7 +1089,7 @@ mod tests {
 
     use super::*;
     use crate::{machine::Local, tools};
-    use crate::{prompts::Store, tool::Tool};
+    use crate::{prompts::Store, tool::Tool, undertaking::Progress};
 
     /// A brain that plays back a script, and remembers what it was shown.
     /// Asked for a handoff, it writes one without spending the script.
@@ -1222,16 +1222,17 @@ mod tests {
             sees: AtomicBool::new(false),
         });
         let machine = Arc::new(Local::new(dir));
+        let prompts = Prompts::shipped().shared();
         let worker = Worker {
             brain: brain.clone(),
-            tools: tools::standard(machine, &undertaking),
+            tools: tools::standard(machine, &undertaking, &prompts),
             undertaking,
             limits,
             who: String::new(),
             machine: "a test directory".into(),
             pause: Arc::new(AtomicBool::new(false)),
             helpers: None,
-            prompts: Prompts::shipped().shared(),
+            prompts,
         };
         (worker, brain)
     }
@@ -1347,7 +1348,9 @@ mod tests {
     async fn a_full_context_is_folded_into_a_handoff() {
         let dir = tempfile::tempdir().unwrap();
         let big = "x".repeat(9000);
-        let mut script: Vec<Step> = (0..2)
+        // Enough output to pass the ceiling, which is set above what the
+        // instructions and the tools already take.
+        let mut script: Vec<Step> = (0..3)
             .map(|i| calls("shell", json!({"command": format!("echo {big}{i}")})))
             .collect();
         script.push(calls(
@@ -1627,9 +1630,10 @@ mod tests {
         check: Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Arc<AtomicBool> {
         let gate = Arc::new(AtomicBool::new(false));
-        let (root, held) = (dir.to_path_buf(), gate.clone());
+        let (root, held, words) = (dir.to_path_buf(), gate.clone(), worker.prompts.clone());
         worker.helpers = Some(Arc::new(move |undertaking| {
-            tools::standard(Arc::new(Local::new(&root)), undertaking).with(Hold(held.clone()))
+            tools::standard(Arc::new(Local::new(&root)), undertaking, &words)
+                .with(Hold(held.clone()))
         }));
         if let Some(check) = check {
             worker.tools = worker.tools.clone().with(Release(gate.clone(), check));
@@ -2135,6 +2139,128 @@ mod tests {
             refused.0
         );
         assert!(refused.0.contains("`wait`") && refused.0.contains("`stop`"));
+    }
+
+    #[tokio::test]
+    async fn a_part_handed_a_step_marks_it_done_with_the_first_line_of_its_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls(
+                "plan",
+                json!({"steps": [
+                    {"text": "count the lines of a.txt", "status": "todo",
+                     "check": "wc -l a.txt"},
+                    {"text": "say how many", "status": "todo", "after": [1]},
+                ]}),
+            ),
+            calls(
+                "delegate",
+                json!({"task": "count the lines of a.txt", "step": 1}),
+            ),
+            calls("wait", json!({"seconds": 10})),
+            calls(
+                "plan",
+                json!({"steps": [
+                    {"text": "count the lines of a.txt", "status": "done"},
+                    {"text": "say how many", "status": "done"},
+                ]}),
+            ),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "one line"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "count the lines",
+            vec![calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wc -l a.txt says 1\nIt has one line."}),
+            )],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        assert_eq!(worker.run().await.ended, Ended::Finished);
+
+        let turns = brain.turns_of(PARENT);
+        assert_eq!(
+            result_of(&turns[2], "delegate"),
+            "Part 1 has started on it, alongside you. It is on step 1 of your plan, which is \
+             marked done with its report when it finishes, and failed if it does not."
+        );
+        // The whole report still reaches the parent, and says what became
+        // of the step.
+        let report = messages(&turns[3])
+            .into_iter()
+            .find(|m| m.starts_with("Part 1 finished"))
+            .unwrap();
+        assert!(
+            report.contains("wc -l a.txt says 1\nIt has one line."),
+            "{report}"
+        );
+        assert!(report.ends_with("Step 1 of your plan, which it was given, is now marked done, with the first line of this report as its result."), "{report}");
+        // Marked done by the part's report, it kept that result when the
+        // plan was written again without one.
+        let step = &worker.undertaking.state().plan[0];
+        assert_eq!(step.status, Progress::Done);
+        assert_eq!(step.part, Some(1));
+        assert_eq!(
+            step.result.as_deref(),
+            Some("Part 1 finished: wc -l a.txt says 1")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_part_that_gives_up_on_its_step_marks_it_failed_and_a_step_not_ready_is_not_handed_out()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls(
+                "plan",
+                json!({"steps": ["find the mirror", {"text": "fetch from it", "status": "todo", "after": [1]}]}),
+            ),
+            calls(
+                "delegate",
+                json!({"task": "fetch from the mirror", "step": 2}),
+            ),
+            calls(
+                "delegate",
+                json!({"task": "find the mirror", "step": "step 1"}),
+            ),
+            calls("wait", json!({"seconds": 10})),
+            calls("done", json!({"outcome": "finished", "summary": "no"})),
+            calls(
+                "done",
+                json!({"outcome": "gave_up", "summary": "no mirror"}),
+            ),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        brain.part(
+            "find the mirror",
+            vec![calls(
+                "done",
+                json!({"outcome": "gave_up", "summary": "Every mirror listed is gone.\nTried three."}),
+            )],
+        );
+        with_parts(&mut worker, dir.path(), None);
+        assert_eq!(worker.run().await.ended, Ended::GaveUp);
+
+        let turns = brain.turns_of(PARENT);
+        assert_eq!(
+            result_of(&turns[2], "delegate"),
+            "Step 2 cannot be started yet: it is after steps that are not done (1)."
+        );
+        // Only the part that could start was handed out.
+        assert_eq!(worker.undertaking.parts().len(), 1);
+        let step = &worker.undertaking.state().plan[0];
+        assert_eq!(step.status, Progress::Failed);
+        assert_eq!(
+            step.result.as_deref(),
+            Some("Part 1 gave up: Every mirror listed is gone.")
+        );
+        // A failed step is open: the work is not called finished over it.
+        assert!(result_of(&turns[5], "done").starts_with(
+            "Not recorded. These steps of the plan are neither done nor dropped:\n[!] 1. find the mirror"
+        ));
     }
 
     #[tokio::test]

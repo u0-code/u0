@@ -3618,6 +3618,49 @@ async fn the_parts_of_her_work_show_under_it_a_line_each() {
 }
 
 #[tokio::test]
+async fn her_open_work_shows_how_far_its_plan_has_got_in_one_line() {
+    use ghost_work::undertaking::{PlanStep, Progress};
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let work = at_work_for_wen(&mut rig, "Survey the tea houses.", t0);
+    rig.mind.agenda.work = None;
+    let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
+    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let step = |text: &str, status| PlanStep {
+        text: text.into(),
+        status,
+        ..PlanStep::default()
+    };
+    record.update(|s| {
+        s.plan = vec![
+            step("List the tea houses", Progress::Done),
+            step("Read the reviews", Progress::Done),
+            step("Find the opening hours", Progress::Doing),
+            step("Visit the east one", Progress::Dropped),
+            step("Write it up", Progress::Todo),
+        ];
+    });
+
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"soon"}]}"#);
+    rig.hear(dm("wen", "2", "any luck?"), t0 + Duration::minutes(1));
+    rig.until(|r| r.think.calls() >= 1).await;
+    let prompt = rig.think.last_prompt();
+    let at = prompt
+        .find(&format!("[work #{work}]"))
+        .expect("the work is in the rest of her day");
+    let under: Vec<&str> = prompt[at..]
+        .lines()
+        .filter(|l| l.starts_with("  Its plan"))
+        .collect();
+    // The dropped step is not counted among those still to be done.
+    assert_eq!(
+        under,
+        ["  Its plan: 2 of 4 steps done; on now: \"Find the opening hours\"."]
+    );
+}
+
+#[tokio::test]
 async fn nothing_kept_is_recorded_twice_when_the_sitting_ends() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);

@@ -17,6 +17,11 @@
 //! again when the parent's next sitting does. Only so many run at once; the
 //! rest wait their turn, in the order they were handed out.
 //!
+//! A part can be handed a step of the plan. The step is marked in progress
+//! with the part's number on it, and when the part ends the step takes its
+//! outcome: done, with the first line of the part's report as its result,
+//! or failed. The parent still has the whole report in its inbox.
+//!
 //! A part hands out no parts of its own. With one level the number of
 //! workers is never more than the cap, and every part is where its parent,
 //! and whoever the parent is for, can see it.
@@ -38,8 +43,8 @@ use serde_json::{Value, json};
 use crate::{
     prompts::{self, Loop, Shared, Store},
     tool::{self, Tool, Toolbox},
-    tools::{self, clip, outcome_of},
-    undertaking::{Finish, MailKind, Outcome, Undertaking},
+    tools::{self, clip, list, outcome_of, step_number},
+    undertaking::{Finish, MailKind, Outcome, Progress, Undertaking},
     worker::{Ended, Limits, ToolsFor, Worker, preview},
 };
 
@@ -244,15 +249,84 @@ impl Parts {
             }
         };
         let state = part.state();
-        Some(self.fill(
+        let latest = state.latest();
+        let finished = state.finish.as_ref().map(|f| f.outcome) == Some(Outcome::Finished);
+        let result = self.fill(
+            "part_result",
+            &[
+                ("part", n.to_string()),
+                ("how", how.clone()),
+                (
+                    "line",
+                    preview(
+                        latest.lines().find(|l| !l.trim().is_empty()).unwrap_or(""),
+                        240,
+                    ),
+                ),
+            ],
+        );
+        let mut report = self.fill(
             "part_ended",
             &[
                 ("part", n.to_string()),
                 ("how", how),
                 ("steps", state.steps.to_string()),
-                ("report", clip(&state.latest(), REPORT / 2, REPORT / 2)),
+                ("report", clip(&latest, REPORT / 2, REPORT / 2)),
             ],
-        ))
+        );
+        for step in self.mark(n, finished, &result) {
+            let key = if finished {
+                "part_step_done"
+            } else {
+                "part_step_failed"
+            };
+            report.push_str(&self.fill(key, &[("step", step.to_string())]));
+        }
+        Some(report)
+    }
+
+    /// Mark the steps of the plan part `n` was handed, and that are still
+    /// open, done if it `finished` and failed if not, with `result`.
+    /// Returns their numbers, counted from 1. A step closed meanwhile by
+    /// the parent itself is left as the parent left it.
+    fn mark(&self, n: u64, finished: bool, result: &str) -> Vec<usize> {
+        self.parent.update(|state| {
+            let mut marked = Vec::new();
+            for (i, step) in state.plan.iter_mut().enumerate() {
+                if step.part == Some(n) && !step.status.closed() {
+                    step.status = if finished {
+                        Progress::Done
+                    } else {
+                        Progress::Failed
+                    };
+                    step.result = Some(result.to_owned());
+                    marked.push(i + 1);
+                }
+            }
+            marked
+        })
+    }
+
+    /// Why step `step` of the plan, counted from 1, cannot be handed to a
+    /// part now, if it cannot.
+    fn unready(&self, step: usize) -> Option<String> {
+        let state = self.parent.state();
+        let number = ("step", step.to_string());
+        let Some(i) = step.checked_sub(1).filter(|&i| i < state.plan.len()) else {
+            return Some(self.fill("no_step", &[number]));
+        };
+        let waiting = state.waiting_on(i);
+        if !waiting.is_empty() {
+            return Some(self.fill("step_not_ready", &[number, ("waiting", list(&waiting))]));
+        }
+        let taken = state.plan[i].part.filter(|&p| {
+            state.plan[i].status == Progress::Doing
+                && self
+                    .parent
+                    .part(p)
+                    .is_ok_and(|part| part.state().finish.is_none())
+        });
+        taken.map(|p| self.fill("step_taken", &[number, ("part", p.to_string())]))
     }
 
     /// The sitting is over. Every part running stops after the step it is
@@ -326,7 +400,7 @@ impl Tool for Delegate {
             words,
             lp,
             "delegate",
-            json!({"task": {"type": "string"}}),
+            json!({"task": {"type": "string"}, "step": {"type": "integer"}}),
             &["task"],
         )
     }
@@ -339,6 +413,20 @@ impl Tool for Delegate {
         if task.is_empty() {
             return tool::Outcome::fail("the task is empty");
         }
+        let step = args.get("step").filter(|s| !s.is_null()).map(step_number);
+        let step = match step {
+            None => None,
+            Some(Some(step)) => Some(step),
+            Some(None) => {
+                return tool::Outcome::fail(
+                    self.0
+                        .fill("no_step", &[("step", args["step"].to_string())]),
+                );
+            }
+        };
+        if let Some(why) = step.and_then(|step| self.0.unready(step)) {
+            return tool::Outcome::fail(why);
+        }
         // Kept beside the work it is part of, under an id that says so.
         let part = match self.0.parent.open_part(task) {
             Ok(part) => part,
@@ -347,16 +435,29 @@ impl Tool for Delegate {
         let Some(n) = part.number() else {
             return tool::Outcome::fail("no part could be set up");
         };
+        if let Some(step) = step {
+            self.0.parent.update(|state| {
+                if let Some(on) = state.plan.get_mut(step - 1) {
+                    on.status = Progress::Doing;
+                    on.part = Some(n);
+                    on.result = None;
+                }
+            });
+        }
         self.0.pump();
         let number = ("part", n.to_string());
-        tool::Outcome::ok(if self.0.running().contains_key(&n) {
+        let mut said = if self.0.running().contains_key(&n) {
             self.0.fill("part_started", &[number])
         } else {
             self.0.fill(
                 "part_queued",
                 &[number, ("running", self.0.limits.parts.max(1).to_string())],
             )
-        })
+        };
+        if let Some(step) = step {
+            said.push_str(&self.0.fill("part_on_step", &[("step", step.to_string())]));
+        }
+        tool::Outcome::ok(said)
     }
 }
 

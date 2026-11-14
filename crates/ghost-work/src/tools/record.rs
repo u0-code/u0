@@ -11,29 +11,173 @@ use ghost_brain::ToolSpec;
 use serde_json::{Value, json};
 
 use crate::{
-    prompts::{self, Loop, Store},
+    prompts::{self, Loop, Shared, Store},
     tool::{Outcome, Tool, text},
-    undertaking::{self, Finish, PlanStep, Progress, Undertaking},
+    undertaking::{self, Finish, PlanStep, Progress, State, Undertaking},
 };
 
+/// The plan: what is left to do, how each step will be known to be done,
+/// and what shows the ones that are.
 pub struct Plan {
     undertaking: Arc<Undertaking>,
+    words: Shared,
 }
 
 impl Plan {
-    pub fn new(undertaking: Arc<Undertaking>) -> Self {
-        Self { undertaking }
+    pub fn new(undertaking: Arc<Undertaking>, words: Shared) -> Self {
+        Self { undertaking, words }
     }
 }
 
-/// Models name the same four states many ways.
+/// Models name the same states many ways.
 fn progress(word: &str) -> Progress {
     match word.trim().to_lowercase().as_str() {
         "doing" | "in_progress" | "in progress" | "active" | "current" => Progress::Doing,
         "done" | "completed" | "complete" | "finished" => Progress::Done,
         "dropped" | "cancelled" | "canceled" | "skipped" => Progress::Dropped,
+        "failed" | "failure" => Progress::Failed,
         _ => Progress::Todo,
     }
+}
+
+/// A step's number as a model writes it: 2, "2", "step 2", "#2".
+pub(crate) fn step_number(value: &Value) -> Option<usize> {
+    match value {
+        Value::Number(n) => n.as_u64().and_then(|n| usize::try_from(n).ok()),
+        Value::String(s) => s
+            .trim()
+            .trim_start_matches(|c: char| !c.is_ascii_digit())
+            .parse()
+            .ok(),
+        _ => None,
+    }
+}
+
+/// A string argument of a step, or `kept` when it was left out. Given
+/// empty, it is cleared.
+fn given(step: &Value, key: &str, kept: impl FnOnce() -> Option<String>) -> Option<String> {
+    match step.get(key) {
+        None | Some(Value::Null) => kept(),
+        Some(value) => value
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
+    }
+}
+
+/// The plan `steps` describe, built on `old`. A plan is written whole each
+/// time, and a model bringing one step's status up to date seldom repeats
+/// everything else about every step. So a step with the same text as one
+/// before keeps what it does not say again: its check, what it is after
+/// (renumbered to where those steps are now), the part on it, and its
+/// result while its status stays the same.
+fn rewrite(steps: &[Value], old: &[PlanStep]) -> Vec<PlanStep> {
+    // Each step as given, with the step of the old plan it continues, if
+    // any, and what it is after if it says.
+    let mut given_steps: Vec<(PlanStep, Option<usize>, Option<Vec<usize>>)> = Vec::new();
+    for step in steps {
+        // A bare string is a step that has not been started.
+        let (words, status) = match step {
+            Value::String(words) => (words.as_str(), Progress::Todo),
+            other => match other["text"].as_str() {
+                Some(words) => (words, progress(other["status"].as_str().unwrap_or("todo"))),
+                None => continue,
+            },
+        };
+        let words = words.trim();
+        if words.is_empty() {
+            continue;
+        }
+        let was = (0..old.len())
+            .find(|&i| old[i].text == words && !given_steps.iter().any(|(_, w, _)| *w == Some(i)));
+        let before = was.map(|i| &old[i]);
+        let after = step.get("after").filter(|a| !a.is_null()).map(|a| match a {
+            Value::Array(list) => list.iter().filter_map(step_number).collect(),
+            one => step_number(one).into_iter().collect(),
+        });
+        let check = given(step, "check", || before.and_then(|b| b.check.clone()));
+        let result = given(step, "result", || {
+            before
+                .filter(|b| b.status == status)
+                .and_then(|b| b.result.clone())
+        });
+        let step = PlanStep {
+            text: words.to_owned(),
+            status,
+            check,
+            after: Vec::new(),
+            part: before.and_then(|b| b.part),
+            result,
+        };
+        given_steps.push((step, was, after));
+    }
+    // Where the old plan's step `n` is now, counted from 1.
+    let now_at = |n: usize| {
+        given_steps
+            .iter()
+            .position(|(_, was, _)| *was == Some(n.wrapping_sub(1)))
+            .map(|at| at + 1)
+    };
+    let afters: Vec<Vec<usize>> = given_steps
+        .iter()
+        .map(|(_, was, after)| match (after, was) {
+            (Some(after), _) => after.clone(),
+            (None, Some(i)) => old[*i].after.iter().filter_map(|&n| now_at(n)).collect(),
+            (None, None) => Vec::new(),
+        })
+        .collect();
+    let len = given_steps.len();
+    given_steps
+        .into_iter()
+        .zip(afters)
+        .enumerate()
+        .map(|(i, ((mut step, _, _), mut after))| {
+            // Only other steps of this plan, each once.
+            after.retain(|&n| n >= 1 && n <= len && n != i + 1);
+            after.sort_unstable();
+            after.dedup();
+            step.after = after;
+            step
+        })
+        .collect()
+}
+
+/// What is wrong with `state`'s plan, a line each, in `words`: a step
+/// with a check marked done without saying how the check was met, one
+/// dropped without saying why, one in progress before what it is after is
+/// done.
+fn problems(state: &State, words: &prompts::Prompts) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (i, step) in state.plan.iter().enumerate() {
+        let number = ("step", (i + 1).to_string());
+        match step.status {
+            Progress::Done if step.check.is_some() && step.result.is_none() => {
+                problems.push(words.fill("plan_unproven", &[number]));
+            }
+            Progress::Dropped if step.result.is_none() => {
+                problems.push(words.fill("plan_no_reason", &[number]));
+            }
+            Progress::Doing => {
+                let waiting = state.waiting_on(i);
+                if !waiting.is_empty() {
+                    problems
+                        .push(words.fill("plan_not_ready", &[number, ("waiting", list(&waiting))]));
+                }
+            }
+            _ => {}
+        }
+    }
+    problems
+}
+
+/// Step numbers, as a list a person would write.
+pub(crate) fn list(numbers: &[usize]) -> String {
+    numbers
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[async_trait]
@@ -54,7 +198,13 @@ impl Tool for Plan {
                         "type": "object",
                         "properties": {
                             "text": {"type": "string"},
-                            "status": {"type": "string", "enum": ["todo", "doing", "done", "dropped"]},
+                            "status": {
+                                "type": "string",
+                                "enum": ["todo", "doing", "done", "dropped", "failed"],
+                            },
+                            "check": {"type": "string"},
+                            "after": {"type": "array", "items": {"type": "integer"}},
+                            "result": {"type": "string"},
                         },
                         "required": ["text", "status"],
                     },
@@ -68,32 +218,27 @@ impl Tool for Plan {
         let Some(steps) = args["steps"].as_array() else {
             return Outcome::fail("missing argument `steps` (a list of {text, status})");
         };
-        let plan: Vec<PlanStep> = steps
-            .iter()
-            .filter_map(|step| {
-                // A bare string is a step that has not been started.
-                let (words, status) = match step {
-                    Value::String(words) => (words.as_str(), Progress::Todo),
-                    other => (
-                        other["text"].as_str()?,
-                        progress(other["status"].as_str().unwrap_or("todo")),
-                    ),
-                };
-                let words = words.trim();
-                (!words.is_empty()).then(|| PlanStep {
-                    text: words.to_owned(),
-                    status,
-                })
-            })
-            .collect();
-        if plan.is_empty() {
-            return Outcome::fail("the plan has no steps");
-        }
-        let shown = self.undertaking.update(|state| {
-            state.plan = plan;
-            state.plan_text()
+        let words = prompts::hold(&self.words).clone();
+        // Read, checked and written in one go, so that a part ending
+        // meanwhile and marking its step is built on and not lost.
+        let said = self.undertaking.update(|state| {
+            let plan = rewrite(steps, &state.plan);
+            if plan.is_empty() {
+                return Err("the plan has no steps".to_owned());
+            }
+            let was = std::mem::replace(&mut state.plan, plan);
+            let problems = problems(state, &words);
+            if problems.is_empty() {
+                Ok(words.fill("plan_now", &[("plan", state.plan_text(&words))]))
+            } else {
+                state.plan = was;
+                Err(words.fill("plan_refused", &[("problems", problems.join("\n"))]))
+            }
         });
-        Outcome::ok(format!("The plan is now:\n{shown}"))
+        match said {
+            Ok(shown) => Outcome::ok(shown),
+            Err(why) => Outcome::fail(why),
+        }
     }
 }
 
@@ -362,13 +507,17 @@ pub(crate) fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
     }
 }
 
+/// The end of the work. `finished` is not taken while a step of the plan
+/// is open: the plan is the standard the work set itself up front, and
+/// each step of it is either shown done or dropped for a reason.
 pub struct Done {
     undertaking: Arc<Undertaking>,
+    words: Shared,
 }
 
 impl Done {
-    pub fn new(undertaking: Arc<Undertaking>) -> Self {
-        Self { undertaking }
+    pub fn new(undertaking: Arc<Undertaking>, words: Shared) -> Self {
+        Self { undertaking, words }
     }
 }
 
@@ -404,7 +553,16 @@ impl Tool for Done {
                 outcome.trim().to_lowercase()
             ));
         };
-        self.undertaking.update(|state| {
+        let words = prompts::hold(&self.words).clone();
+        let refused = self.undertaking.update(|state| {
+            let open = state.open_steps();
+            if outcome == undertaking::Outcome::Finished && !open.is_empty() {
+                let steps: Vec<String> = open
+                    .iter()
+                    .map(|&n| state.step_text(&words, n - 1))
+                    .collect();
+                return Some(words.fill("steps_open", &[("steps", steps.join("\n"))]));
+            }
             state.finish = Some(Finish {
                 outcome,
                 summary: summary.trim().to_owned(),
@@ -426,8 +584,12 @@ impl Tool for Done {
                     .map(str::to_owned),
                 at: Utc::now(),
             });
+            None
         });
-        Outcome::ok("recorded")
+        match refused {
+            Some(open) => Outcome::fail(open),
+            None => Outcome::ok("recorded"),
+        }
     }
 }
 
@@ -448,10 +610,14 @@ mod tests {
         (dir, u)
     }
 
+    fn words() -> Shared {
+        crate::Prompts::shipped().shared()
+    }
+
     #[tokio::test]
     async fn a_plan_is_kept_whole() {
         let (_dir, u) = undertaking();
-        let out = Plan::new(u.clone())
+        let out = Plan::new(u.clone(), words())
             .call(&json!({"steps": [
                 {"text": "look", "status": "completed"},
                 {"text": "write the file", "status": "in_progress"},
@@ -465,6 +631,186 @@ mod tests {
             out.output
         );
         assert_eq!(u.state().plan.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_step_with_a_check_needs_a_result_to_be_marked_done() {
+        let (_dir, u) = undertaking();
+        let plan = Plan::new(u.clone(), words());
+        let out = plan
+            .call(&json!({"steps": [
+                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi"},
+                {"text": "tidy up", "status": "done"},
+            ]}))
+            .await;
+        assert!(out.failed);
+        assert_eq!(
+            out.output,
+            "The plan was not changed:\n- Step 1 has a check, so marking it done needs a `result`: \
+             what you saw that shows the check was met."
+        );
+        assert!(u.state().plan.is_empty(), "a refused plan was kept");
+
+        let out = plan
+            .call(&json!({"steps": [
+                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
+                 "result": "cat a.txt printed hi"},
+                {"text": "tidy up", "status": "done"},
+            ]}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+        let state = u.state();
+        assert_eq!(
+            state.plan[0].result.as_deref(),
+            Some("cat a.txt printed hi")
+        );
+        // A step without a check is done on its own word.
+        assert_eq!(state.plan[1].status, Progress::Done);
+    }
+
+    #[tokio::test]
+    async fn a_step_cannot_start_before_the_steps_it_is_after_are_done() {
+        let (_dir, u) = undertaking();
+        let plan = Plan::new(u.clone(), words());
+        let out = plan
+            .call(&json!({"steps": [
+                {"text": "build", "status": "doing"},
+                {"text": "test", "status": "todo"},
+                {"text": "ship", "status": "doing", "after": [1, "step 2"]},
+            ]}))
+            .await;
+        assert!(out.failed);
+        assert_eq!(
+            out.output,
+            "The plan was not changed:\n- Step 3 cannot be in progress yet: \
+             it is after steps that are not done (1, 2)."
+        );
+
+        // Dropped is not done: what depends on a dropped step waits until
+        // it no longer names it.
+        plan.call(&json!({"steps": [
+            {"text": "build", "status": "done"},
+            {"text": "test", "status": "dropped", "result": "there are no tests"},
+            {"text": "ship", "status": "todo", "after": [1, 2]},
+        ]}))
+        .await;
+        let out = plan
+            .call(&json!({"steps": [
+                {"text": "build", "status": "done"},
+                {"text": "test", "status": "dropped"},
+                {"text": "ship", "status": "doing"},
+            ]}))
+            .await;
+        assert!(out.output.contains("(2)"), "{}", out.output);
+        let out = plan
+            .call(&json!({"steps": [
+                {"text": "build", "status": "done"},
+                {"text": "test", "status": "dropped"},
+                {"text": "ship", "status": "doing", "after": [1]},
+            ]}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+    }
+
+    #[tokio::test]
+    async fn a_step_said_again_without_its_check_keeps_it_and_what_it_is_after_follows_it() {
+        let (_dir, u) = undertaking();
+        let plan = Plan::new(u.clone(), words());
+        plan.call(&json!({"steps": [
+            {"text": "build", "status": "todo", "check": "make prints ok"},
+            {"text": "ship", "status": "todo", "after": [1]},
+        ]}))
+        .await;
+        // Only statuses, and a step put in front.
+        let out = plan
+            .call(&json!({"steps": [
+                "look around",
+                {"text": "build", "status": "doing"},
+                {"text": "ship", "status": "todo"},
+            ]}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+        let state = u.state();
+        assert_eq!(state.plan[1].check.as_deref(), Some("make prints ok"));
+        assert_eq!(state.plan[2].after, [2]);
+        // Said again as empty, a check is gone.
+        plan.call(&json!({"steps": [
+            "look around",
+            {"text": "build", "status": "doing", "check": ""},
+            {"text": "ship", "status": "todo"},
+        ]}))
+        .await;
+        assert_eq!(u.state().plan[1].check, None);
+    }
+
+    #[tokio::test]
+    async fn the_plan_shows_what_each_step_is_after_its_check_and_its_result() {
+        let (_dir, u) = undertaking();
+        let out = Plan::new(u.clone(), words())
+            .call(&json!({"steps": [
+                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
+                 "result": "it printed hi"},
+                {"text": "survey the mirrors", "status": "dropped", "result": "one is enough"},
+                {"text": "copy it to b.txt", "status": "doing", "after": [1],
+                 "check": "cmp a.txt b.txt is silent"},
+                {"text": "say so", "status": "todo", "after": [3, 1]},
+            ]}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+        assert_eq!(
+            out.output,
+            "The plan is now:\n\
+             [x] 1. write a.txt\n      check: cat a.txt prints hi\n      result: it printed hi\n\
+             [-] 2. survey the mirrors\n      result: one is enough\n\
+             [>] 3. copy it to b.txt (after 1)\n      check: cmp a.txt b.txt is silent\n\
+             [ ] 4. say so (after 1, 3)"
+        );
+    }
+
+    #[tokio::test]
+    async fn finishing_is_refused_while_steps_are_open_and_taken_once_they_are_done_or_dropped() {
+        let (_dir, u) = undertaking();
+        let (plan, done) = (Plan::new(u.clone(), words()), Done::new(u.clone(), words()));
+        plan.call(&json!({"steps": [
+            {"text": "write a.txt", "status": "done"},
+            {"text": "check it", "status": "doing", "check": "cat a.txt prints hi"},
+            {"text": "mirror it", "status": "todo"},
+        ]}))
+        .await;
+        let finished = json!({"outcome": "finished", "summary": "wrote it"});
+        let refused = done.call(&finished).await;
+        assert!(refused.failed);
+        assert_eq!(
+            refused.output,
+            "Not recorded. These steps of the plan are neither done nor dropped:\n\
+             [>] 2. check it\n      check: cat a.txt prints hi\n\
+             [ ] 3. mirror it"
+        );
+        assert!(u.state().finish.is_none());
+
+        plan.call(&json!({"steps": [
+            {"text": "write a.txt", "status": "done"},
+            {"text": "check it", "status": "done", "result": "it printed hi"},
+            {"text": "mirror it", "status": "dropped", "result": "nobody asked for it"},
+        ]}))
+        .await;
+        assert_eq!(done.call(&finished).await.output, "recorded");
+        assert_eq!(
+            u.state().finish.unwrap().outcome,
+            undertaking::Outcome::Finished
+        );
+    }
+
+    #[tokio::test]
+    async fn work_with_open_steps_can_still_end_blocked() {
+        let (_dir, u) = undertaking();
+        Plan::new(u.clone(), words())
+            .call(&json!({"steps": ["write a.txt"]}))
+            .await;
+        let out = Done::new(u.clone(), words())
+            .call(&json!({"outcome": "blocked", "summary": "the disk is read-only"}))
+            .await;
+        assert_eq!(out.output, "recorded");
     }
 
     #[tokio::test]
@@ -536,7 +882,7 @@ mod tests {
     #[tokio::test]
     async fn finishing_is_recorded_as_it_is_reported() {
         let (_dir, u) = undertaking();
-        let done = Done::new(u.clone());
+        let done = Done::new(u.clone(), words());
         let said = done
             .call(&json!({
                 "outcome": "finished", "summary": "wrote it",
@@ -553,7 +899,7 @@ mod tests {
         );
 
         let (_dir, other) = undertaking();
-        Done::new(other.clone())
+        Done::new(other.clone(), words())
             .call(&json!({"outcome": "blocked", "summary": "no network"}))
             .await;
         assert_eq!(

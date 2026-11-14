@@ -55,6 +55,31 @@ audit = """\
     print it. Check what was asked, not a narrower thing that is easier to check. A requirement you cannot \
     show to hold is not finished: keep working on it instead of calling `done`."""
 
+# The plan, as the worker sees it: in the opening of a sitting picked up
+# again, and after each `plan`. A step is a line, its mark first: [ ] to
+# do, [>] in progress, [x] done, [-] dropped, [!] failed. What it is after,
+# the part on it, its check and its result follow, each only when it has
+# one, so that a sitting with nothing else in front of it can tell what
+# was shown to hold from what was only meant.
+no_plan = "(no plan written yet)"
+plan_step = "{{mark}} {{step}}. {{text}}{{after}}{{part}}{{check}}{{result}}"
+plan_after = " (after {{steps}})"
+plan_part = " (part {{part}})"
+plan_check = "\n      check: {{check}}"
+plan_result = "\n      result: {{result}}"
+
+# What `plan` returns: the plan as it now stands, or why it was not taken.
+plan_now = "The plan is now:\n{{plan}}"
+plan_refused = "The plan was not changed:\n{{problems}}"
+# Each a line of the refusal.
+plan_unproven = "- Step {{step}} has a check, so marking it done needs a `result`: what you saw that shows the check was met."
+plan_no_reason = "- Step {{step}} is dropped without a `result` saying why it is no longer needed."
+plan_not_ready = "- Step {{step}} cannot be in progress yet: it is after steps that are not done ({{waiting}})."
+
+# What `done` says when the work is called finished while steps of the
+# plan are still open. The list is all it says.
+steps_open = "Not recorded. These steps of the plan are neither done nor dropped:\n{{steps}}"
+
 # Something added to the task from outside while the work ran.
 added = """\
     Something has been added to the task while you were working:\n\n{{added}}\n\n\
@@ -122,6 +147,18 @@ part_who = """\
 # What `delegate` returns: the part's number, and nothing of its work yet.
 part_started = "Part {{part}} has started on it, alongside you."
 part_queued = "Part {{part}} is queued, because as many parts as may run at once ({{running}}) already are. It starts when one of them ends."
+# After either, when the part was handed a step of the plan.
+part_on_step = " It is on step {{step}} of your plan, which is marked done with its report when it finishes, and failed if it does not."
+# Why a step cannot be handed out.
+no_step = "Your plan has no step {{step}}. Call `plan` to add it first, or leave `step` out."
+step_not_ready = "Step {{step}} cannot be started yet: it is after steps that are not done ({{waiting}})."
+step_taken = "Step {{step}} is already with part {{part}}, which has not ended. Steer that part, or stop it first."
+# What is recorded on a step as its result when the part given it ends:
+# {{how}} is one of the words below, {{line}} the first line of its report.
+part_result = "Part {{part}} {{how}}: {{line}}"
+# Put after the report of a part that was given a step.
+part_step_done = "\n\nStep {{step}} of your plan, which it was given, is now marked done, with the first line of this report as its result."
+part_step_failed = "\n\nStep {{step}} of your plan, which it was given, is now marked failed. Do it another way, hand it out again, or drop it with a reason."
 
 # What reaches the worker from its parts between its steps, each as a
 # message of its own that says whom it is from and what it is.
