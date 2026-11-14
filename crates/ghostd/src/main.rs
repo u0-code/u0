@@ -25,6 +25,10 @@ use ghost_core::{
     Ghost,
     journal::Entry,
     life::{Life, Phase},
+    prompts::{
+        Store,
+        exported::{self, Updated},
+    },
 };
 use ghost_link::Console;
 use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses, prompts::Origin};
@@ -114,12 +118,28 @@ enum PromptsCmd {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Write the built-in prompts into DIR/prompts, to be changed there.
+    /// Write the built-in prompts into DIR/prompts, to be changed there,
+    /// with a note of what each was copied from.
     Export {
         dir: PathBuf,
         /// Overwrite files that are already there.
         #[arg(long)]
         force: bool,
+        /// Only these files, such as `self.md texts.toml`: the ones you
+        /// mean to change. A copy you leave as it is still hides the
+        /// built-in after an upgrade.
+        #[arg(long, num_args = 1.., value_name = "FILE")]
+        only: Vec<String>,
+    },
+    /// Bring the copies in DIR/prompts that nobody edited up to this
+    /// build's built-ins. Edited copies are left as they are; one that has
+    /// been brought up to date by hand is named with --looked-at, so that
+    /// it is no longer warned about.
+    Update {
+        dir: PathBuf,
+        /// Copies you have compared with this build's built-in and kept.
+        #[arg(long, num_args = 1.., value_name = "FILE")]
+        looked_at: Vec<String>,
     },
 }
 
@@ -177,8 +197,11 @@ async fn main() -> anyhow::Result<()> {
             cmd: PromptsCmd::List { dir, config },
         } => list_prompts(&dir, config.as_deref()),
         Cmd::Prompts {
-            cmd: PromptsCmd::Export { dir, force },
-        } => export_prompts(&dir, force),
+            cmd: PromptsCmd::Export { dir, force, only },
+        } => export_prompts(&dir, force, &only),
+        Cmd::Prompts {
+            cmd: PromptsCmd::Update { dir, looked_at },
+        } => update_prompts(&dir, &looked_at),
     }
 }
 
@@ -249,6 +272,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     };
     let prompts = Prompts::load(dir, cfg.mind.prompts.as_deref());
     say_overrides(&prompts);
+    say_stale(&prompts);
     let workshop = workshop(&cfg.mind.work, dir)?;
     if cfg.mind.work.enabled {
         info!(
@@ -436,6 +460,64 @@ fn say_overrides(prompts: &Prompts) {
     }
 }
 
+/// Warn about each copy of a prompt that may hide something newer in this
+/// build, and say once per directory what to do about it.
+fn say_stale(prompts: &Prompts) {
+    let files = ghost_mind::prompts::all_files();
+    for (_, dir) in prompts.store().layers() {
+        let stale = exported::stale(&files, dir);
+        if stale.is_empty() {
+            continue;
+        }
+        for one in &stale {
+            let what = match &one.key {
+                Some(key) => format!("{key} in {}", one.file),
+                None => one.file.to_owned(),
+            };
+            let lacks = if one.missing.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<String> =
+                    one.missing.iter().map(|m| format!("{{{{{m}}}}}")).collect();
+                format!(
+                    "; it lacks {}, which the built-in fills in, so that is left out of what her brain reads",
+                    names.join(", ")
+                )
+            };
+            if one.changed {
+                warn!(
+                    "{}: the built-in {what} has changed since this copy was exported, and the copy hides the newer one{lacks}",
+                    one.path.display()
+                );
+            } else {
+                warn!(
+                    "{}: there is no record of when this copy of {what} was exported{lacks}",
+                    one.path.display()
+                );
+            }
+        }
+        let mut names: Vec<&str> = stale.iter().map(|s| s.file).collect();
+        names.dedup();
+        let names = names.join(" ");
+        // The commands take the directory a `prompts/` is in.
+        if let Some(parent) = dir
+            .parent()
+            .filter(|_| dir.ends_with(ghost_mind::prompts::DIR))
+        {
+            warn!(
+                "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
+                 If you did, write this build's next to them with `ghostd prompts export <somewhere> --only {names}`, \
+                 carry over what you want, then `ghostd prompts update {0} --looked-at {names}`",
+                parent.display()
+            );
+        } else {
+            warn!(
+                "compare them with this build's (`ghostd prompts export <somewhere> --only {names}`) and carry over what you want"
+            );
+        }
+    }
+}
+
 /// `ghostd prompts list`.
 fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let configured = if Config::exists(config) {
@@ -444,6 +526,15 @@ fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         None
     };
     let prompts = Prompts::load(dir, configured.as_deref());
+    // What hides something newer in this build, by where it is.
+    let files = ghost_mind::prompts::all_files();
+    let behind: Vec<(PathBuf, Option<String>)> = prompts
+        .store()
+        .layers()
+        .iter()
+        .flat_map(|(_, dir)| exported::stale(&files, dir))
+        .map(|s| (s.path, s.key))
+        .collect();
     for listed in prompts.listing() {
         let name = match &listed.key {
             Some(key) => format!("{} {key}", listed.file),
@@ -453,18 +544,45 @@ fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
             (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
             (origin, Some(path)) => format!("{origin:<8} {}", path.display()),
         };
+        let is_behind = listed.path.as_ref().is_some_and(|path| {
+            behind
+                .iter()
+                .any(|(p, key)| p == path && (key.is_none() || *key == listed.key))
+        });
         println!(
             "{name:<36} {:<8} {from}",
-            if listed.differs { "changed" } else { "" }
+            if is_behind {
+                "behind"
+            } else if listed.differs {
+                "changed"
+            } else {
+                ""
+            }
         );
     }
     Ok(())
 }
 
+/// The prompt files called `names`, or every one if there are none.
+fn prompt_files(names: &[String]) -> anyhow::Result<Vec<ghost_mind::prompts::File>> {
+    let files = ghost_mind::prompts::all_files();
+    if let Some(unknown) = names.iter().find(|n| !files.iter().any(|f| f.name == *n)) {
+        let known: Vec<&str> = files.iter().map(|f| f.name).collect();
+        bail!(
+            "there is no prompt file {unknown:?}; there are {}",
+            known.join(", ")
+        );
+    }
+    Ok(files
+        .into_iter()
+        .filter(|f| names.is_empty() || names.iter().any(|n| n == f.name))
+        .collect())
+}
+
 /// `ghostd prompts export`.
-fn export_prompts(dir: &Path, force: bool) -> anyhow::Result<()> {
+fn export_prompts(dir: &Path, force: bool, only: &[String]) -> anyhow::Result<()> {
     let target = dir.join(ghost_mind::prompts::DIR);
-    let done = Prompts::export(&target, force)
+    let done = Store::export(&prompt_files(only)?, &target, force)
         .with_context(|| format!("write into {}", target.display()))?;
     let skipped = done.iter().filter(|(_, written)| !written).count();
     for (path, written) in &done {
@@ -476,6 +594,33 @@ fn export_prompts(dir: &Path, force: bool) -> anyhow::Result<()> {
     }
     if skipped > 0 {
         println!("{skipped} left as they were; --force overwrites them");
+    }
+    Ok(())
+}
+
+/// `ghostd prompts update`.
+fn update_prompts(dir: &Path, looked_at: &[String]) -> anyhow::Result<()> {
+    let target = dir.join(ghost_mind::prompts::DIR);
+    prompt_files(looked_at)?;
+    let looked_at: Vec<&str> = looked_at.iter().map(String::as_str).collect();
+    let done = exported::update(&ghost_mind::prompts::all_files(), &target, &looked_at)
+        .with_context(|| format!("update {}", target.display()))?;
+    if done.is_empty() {
+        println!("no copies in {}", target.display());
+    }
+    for (path, what) in &done {
+        let said = match what {
+            Updated::Replaced => "updated ",
+            Updated::Current => "current ",
+            Updated::Marked => "kept    ",
+            Updated::LeftAlone => "edited  ",
+        };
+        println!("{said} {}", path.display());
+    }
+    if done.iter().any(|(_, what)| *what == Updated::LeftAlone) {
+        println!(
+            "edited copies were left as they are; `ghostd run` warns about any that hide something newer"
+        );
     }
     Ok(())
 }
