@@ -95,6 +95,9 @@ pub enum Action {
         image: Option<i64>,
         #[serde(default)]
         text: Option<String>,
+        /// What it is, in her words, for her own line about what she sent.
+        #[serde(default)]
+        what: Option<String>,
     },
     /// Keep something she has seen, to have it again: an image in a
     /// message, by `message` and `image` (counting from 1, the first when
@@ -256,6 +259,7 @@ fn shape(name: &str) -> Option<Shape> {
                 ("message", "integer"),
                 ("image", "integer"),
                 ("text", "string"),
+                ("what", "string"),
             ],
             &[],
         ),
@@ -544,13 +548,15 @@ mod tests {
                     file: Some("#40".into()),
                     message: None,
                     image: None,
-                    text: None
+                    text: None,
+                    what: None
                 },
                 Action::SendFile {
                     file: None,
                     message: Some(12),
                     image: Some(2),
-                    text: Some("this".into())
+                    text: Some("this".into()),
+                    what: None
                 },
             ]
         );

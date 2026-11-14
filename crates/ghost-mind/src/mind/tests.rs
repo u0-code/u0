@@ -3954,6 +3954,40 @@ async fn in_conversation_she_searches_opens_a_page_and_a_picture_sees_it_keeps_i
 }
 
 #[tokio::test]
+async fn a_picture_she_opened_and_sent_reads_in_her_line_as_what_she_said_it_was() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.think.see();
+    takes_files(&mut rig, t0);
+    let web = site(vec![("/fish.gif", "image/png", PIXEL.to_vec())]).await;
+    let file = ghost_core::media::name(PIXEL, "image/png");
+    rig.think.then_turn(
+        "",
+        &[(
+            "fetch",
+            serde_json::json!({"url": format!("{web}/fish.gif")}),
+        )],
+    );
+    rig.think.then_turn(
+        "",
+        &[(
+            "send_file",
+            serde_json::json!({"file": file, "what": "A fat blue fish, flat on its back, captioned 麻了."}),
+        )],
+    );
+    rig.hear(dm("wen", "1", "send me a fish"), t0);
+    rig.until(|r| files_sent(r).len() == 1).await;
+    // Not the address it came from: what she said it was.
+    assert_eq!(
+        said_with_files(&rig),
+        [(
+            "[image: A fat blue fish, flat on its back, captioned 麻了.]".to_owned(),
+            Some(file)
+        )]
+    );
+}
+
+#[tokio::test]
 async fn a_picture_opened_in_one_conversation_cannot_be_kept_or_sent_from_another() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);

@@ -23,7 +23,7 @@ use ghost_work::{
 };
 use tracing::{debug, info, warn};
 
-use super::{Attend, Mind, Outcome, after, speak::Bubble};
+use super::{Attend, Mind, Outcome, after, give::Gift, speak::Bubble};
 use crate::{
     Act, Can, Error, Incoming, Result,
     actions::{self, Action, Deliberation, Offer, clip},
@@ -1302,8 +1302,16 @@ impl Mind {
                     message,
                     image,
                     text,
+                    what,
                 } => match self.giveable(place, file.as_deref(), message, image)? {
-                    Ok(gift) => {
+                    Ok(mut gift) => {
+                        // Her own words for it, when she gave them, are
+                        // what her line says she sent.
+                        if let (Gift::Image { what: shown, .. }, Some(words)) =
+                            (&mut gift, what.filter(|w| !w.trim().is_empty()))
+                        {
+                            *shown = words;
+                        }
                         bubbles.push_back(Bubble {
                             text: text.unwrap_or_default().trim().to_owned(),
                             reply_to: None,
