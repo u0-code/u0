@@ -30,6 +30,9 @@ pub struct Notice {
     pub addressed: bool,
     /// Multiplier from how she stands with the sender. Below 1 is quicker.
     pub patience: f32,
+    /// Multiplier from how many times in a row she has looked here and
+    /// said nothing. 1 is none; above it is slower.
+    pub backoff: f32,
 }
 
 impl Tempo {
@@ -63,7 +66,7 @@ impl Tempo {
         }
         if n.engaged {
             let (lo, hi) = if n.addressed { (2.0, 7.0) } else { (6.0, 40.0) };
-            return self.jitter(rng, lo, hi, n.patience.min(1.5));
+            return self.jitter(rng, lo, hi, n.patience.min(1.5) * n.backoff);
         }
         let (lo, hi) = match (n.reach, n.addressed) {
             (Reach::Free, true) => (8.0, 90.0),
@@ -74,7 +77,7 @@ impl Tempo {
             (Reach::Busy, false) => (1800.0, 5400.0),
             (Reach::Away, _) => (60.0, 600.0),
         };
-        let wait = self.jitter(rng, lo, hi, n.patience);
+        let wait = self.jitter(rng, lo, hi, n.patience * n.backoff);
         match n.reach {
             // Not looking until this is over.
             Reach::Away => n.until + wait,
@@ -143,6 +146,7 @@ mod tests {
             engaged,
             addressed,
             patience: 1.0,
+            backoff: 1.0,
         }
     }
 
@@ -207,6 +211,19 @@ mod tests {
         n.patience = 3.0;
         let cold = t.notice(&n, &mut b);
         assert!(cold > warm * 2);
+    }
+
+    #[test]
+    fn looking_and_saying_nothing_stretches_the_next_wait() {
+        let t = Tempo::new(1.0);
+        let mut a = Rng::with_seed(13);
+        let mut b = Rng::with_seed(13);
+        let mut n = notice(Phase::Awake, Reach::Free, 9999, false, false);
+        let first = t.notice(&n, &mut a);
+        n.backoff = 8.0;
+        let after_three = t.notice(&n, &mut b);
+        let ratio = after_three.as_secs_f64() / first.as_secs_f64();
+        assert!((ratio - 8.0).abs() < 0.01, "{ratio}");
     }
 
     #[test]

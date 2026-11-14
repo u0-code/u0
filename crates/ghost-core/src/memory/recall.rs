@@ -127,6 +127,9 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         Event::Viewed { .. }
         // The message it came in is already kept, word for word.
         | Event::Directed { .. }
+        // Being asked to be quiet is in what was said; agreeing to it is
+        // how she holds herself, not something to remember.
+        | Event::Quieted { .. }
         // Takes a note out; see `fold`.
         | Event::LetGo { .. }
         | Event::Pursued { .. }

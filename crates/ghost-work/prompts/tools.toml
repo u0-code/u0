@@ -192,6 +192,23 @@ description = """\
 [stop.work.parameters]
 part = "The part's number, as `delegate` gave it."
 
+# Offered only in a group. It exists because being asked to pipe down is
+# something a person in a group hears now and then, and the decent answer
+# is to do it and keep doing it, not to agree and go on as before; a model
+# that only promises forgets by the next message, so the promise is kept
+# for her. There is no keyword that sets it off: whether she was asked,
+# and for how long, is hers to judge. Until it runs out she does not look
+# at what is said in the group unless it is said to her.
+[quiet]
+description = """\
+    Someone here has asked you to be quiet, or it is plain the group wants less of you, and you agree to \
+    hold back for a while. Until the time is up you will not see the group's chatter at all, only what is \
+    said to you directly, which you can still answer the way anyone told to pipe down still answers when \
+    spoken to. Use it when you have been asked, not to sulk; say something short as well if a word is owed."""
+
+[quiet.parameters]
+hours = "For how many hours. A few is usual; a day if they meant it."
+
 [leave]
 description = "End this relationship for good. Rare and grave, and only after things have already gone cold."
 

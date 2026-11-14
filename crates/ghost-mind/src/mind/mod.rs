@@ -12,6 +12,7 @@ mod browse;
 mod context;
 mod digest;
 mod give;
+mod group;
 mod keep;
 mod living;
 mod public;
@@ -286,6 +287,9 @@ struct Attend {
     due: DateTime<Utc>,
     /// Scheduled because something was meant for her.
     addressed: bool,
+    /// How much her wait was stretched by her silence there when this was
+    /// scheduled. 1 is not at all.
+    backoff: f32,
 }
 
 /// Everything that will happen without anyone asking.

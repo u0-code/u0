@@ -402,6 +402,14 @@ pub enum Event {
         /// The directive, without the prefix.
         text: String,
     },
+    /// Someone in a group asked her to be quiet, and she agreed to: until
+    /// `until`, she does not look at what is said there unless it is said
+    /// to her. A later one for the same place replaces it.
+    Quieted {
+        /// The place, as a place key (`channel:id`).
+        place: String,
+        until: DateTime<Utc>,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -499,6 +507,7 @@ kinds! {
     Reported => "reported",
     Opened => "opened",
     Directed => "directed",
+    Quieted => "quieted",
 }
 
 /// One line of her journal.

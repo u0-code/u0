@@ -196,4 +196,10 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let reports = again.memory().reports_to("qq:B7D1C0", i64::MAX, 5).unwrap();
     assert_eq!(reports.len(), 1);
     assert!(reports[0].report && reports[0].owed && !reports[0].directed);
+    // A group she was asked to be quiet in is remembered as quiet until then.
+    let room = again.memory().place("d:room-7").unwrap().unwrap();
+    assert_eq!(
+        room.quiet_until.map(|t| t.to_rfc3339()).as_deref(),
+        Some("2026-11-15T06:30:00+00:00")
+    );
 }
