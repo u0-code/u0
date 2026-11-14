@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/ghost-core",
+    "crates/ghost-net",
     "crates/ghost-brain",
     "crates/ghost-work",
     "crates/ghost-mind",

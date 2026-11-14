@@ -1,0 +1,50 @@
+# One presence: carries the ghost on one platform. The instance is the
+# platform, as the binary is named:
+#
+#   systemctl enable --now ghost-presence@qqbot
+#
+# runs /opt/ghost/bin/ghost-qqbot. It connects to ghostd on 127.0.0.1 and
+# reconnects whenever ghostd restarts, so the two can start in any order.
+
+[Unit]
+Description=Ghost presence on %i
+Documentation=https://github.com/HappyFox001/Ghost/tree/main/deploy
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=ghost
+Group=ghost
+ExecStart=/opt/ghost/bin/ghost-%i
+
+# The platform's credentials and GHOSTD_TOKEN, from the same file as ghostd,
+# and the proxy setting with them: a presence has no ghostd.toml and reads
+# GHOST_PROXY and GHOST_DIRECT from here. A file for this platform alone may
+# be added.
+EnvironmentFile=/etc/ghost/ghost.env
+EnvironmentFile=-/etc/ghost/presence-%i.env
+
+# A presence has no orderly stop of its own: SIGTERM ends it at once, as
+# Ctrl-C does.
+Restart=on-failure
+RestartSec=10
+
+# A presence runs no programs of its own, and writes only to its own state
+# directory, /var/lib/ghost-presence/<platform>, which systemd makes for it:
+# ghost-x keeps there how far it has read, when it is given --state (see
+# deploy/README.md). Everything else is read-only to it.
+StateDirectory=ghost-presence/%i
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+
+[Install]
+WantedBy=multi-user.target

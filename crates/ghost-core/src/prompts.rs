@@ -25,6 +25,11 @@
 //! beside it under names of its own. This is how a brain reads a ghost, not
 //! who she is: none of it is in her journal, and changing it does not
 //! change her.
+//!
+//! A person's copy of a built-in file outlives the build it came from; how
+//! a copy that has fallen behind is noticed is [`exported`].
+
+pub mod exported;
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -405,19 +410,23 @@ impl Store {
     }
 
     /// Write what is built in for `files` into `dir`, for a person to
-    /// change. A file already there is left alone unless `force`. Returns
-    /// each file and whether it was written.
+    /// change, and note what each was copied from (see [`exported`]). A
+    /// file already there is left alone unless `force`. Returns each file
+    /// and whether it was written.
     pub fn export(files: &[File], dir: &Path, force: bool) -> io::Result<Vec<(PathBuf, bool)>> {
         fs::create_dir_all(dir)?;
         let mut done = Vec::with_capacity(files.len());
+        let mut written = Vec::new();
         for file in files {
             let path = dir.join(file.name);
             let write = force || !path.exists();
             if write {
                 fs::write(&path, file.built_in)?;
+                written.push(*file);
             }
             done.push((path, write));
         }
+        exported::note(dir, &written)?;
         Ok(done)
     }
 

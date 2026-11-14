@@ -12,6 +12,7 @@ mod show;
 mod wire;
 
 use std::{
+    fmt::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -25,6 +26,11 @@ use ghost_core::{
     Ghost,
     journal::Entry,
     life::{Life, Phase},
+    memory::Memory,
+    prompts::{
+        Store,
+        exported::{self, Updated},
+    },
 };
 use ghost_link::Console;
 use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses, prompts::Origin};
@@ -114,12 +120,28 @@ enum PromptsCmd {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Write the built-in prompts into DIR/prompts, to be changed there.
+    /// Write the built-in prompts into DIR/prompts, to be changed there,
+    /// with a note of what each was copied from.
     Export {
         dir: PathBuf,
         /// Overwrite files that are already there.
         #[arg(long)]
         force: bool,
+        /// Only these files, such as `self.md texts.toml`: the ones you
+        /// mean to change. A copy you leave as it is still hides the
+        /// built-in after an upgrade.
+        #[arg(long, num_args = 1.., value_name = "FILE")]
+        only: Vec<String>,
+    },
+    /// Bring the copies in DIR/prompts that nobody edited up to this
+    /// build's built-ins. Edited copies are left as they are; one that has
+    /// been brought up to date by hand is named with --looked-at, so that
+    /// it is no longer warned about.
+    Update {
+        dir: PathBuf,
+        /// Copies you have compared with this build's built-in and kept.
+        #[arg(long, num_args = 1.., value_name = "FILE")]
+        looked_at: Vec<String>,
     },
 }
 
@@ -177,8 +199,11 @@ async fn main() -> anyhow::Result<()> {
             cmd: PromptsCmd::List { dir, config },
         } => list_prompts(&dir, config.as_deref()),
         Cmd::Prompts {
-            cmd: PromptsCmd::Export { dir, force },
-        } => export_prompts(&dir, force),
+            cmd: PromptsCmd::Export { dir, force, only },
+        } => export_prompts(&dir, force, &only),
+        Cmd::Prompts {
+            cmd: PromptsCmd::Update { dir, looked_at },
+        } => update_prompts(&dir, &looked_at),
     }
 }
 
@@ -196,8 +221,20 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
 }
 
 async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
-    let (cfg, cfg_path) = if Config::exists(config) {
-        Config::load(config)?
+    let loaded = if Config::exists(config) {
+        Some(Config::load(config)?)
+    } else {
+        None
+    };
+    // Before anything makes a request, looking for brains included.
+    network(
+        &loaded
+            .as_ref()
+            .map(|(cfg, _)| cfg.network.clone())
+            .unwrap_or_default(),
+    )?;
+    let (cfg, cfg_path) = if let Some(loaded) = loaded {
+        loaded
     } else {
         // Nothing was written down for this machine. Use what is on it.
         let (cfg, what) = Config::from_found(&ghost_brain::discover::discover().await)?;
@@ -237,6 +274,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     };
     let prompts = Prompts::load(dir, cfg.mind.prompts.as_deref());
     say_overrides(&prompts);
+    say_stale(&prompts);
     let workshop = workshop(&cfg.mind.work, dir)?;
     if cfg.mind.work.enabled {
         info!(
@@ -298,7 +336,8 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let mut living = tokio::spawn(mind.run());
     let outcome = tokio::select! {
         ended = &mut living => ended,
-        _ = tokio::signal::ctrl_c() => {
+        why = told_to_stop() => {
+            info!("{why}: stopping");
             handle.stop().await;
             living.await
         }
@@ -306,6 +345,44 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     server.abort();
     outcome??;
     Ok(())
+}
+
+/// Make `[network]`, under whatever the environment sets, the way every
+/// request from this process and the programs it starts leaves the machine.
+fn network(setting: &ghost_net::Setting) -> anyhow::Result<()> {
+    let network = ghost_net::Network::from_env(setting).context("[network]")?;
+    info!("network: {network}");
+    if !ghost_net::install(network) {
+        warn!("the network setting came after the first request, which went the default way");
+    }
+    Ok(())
+}
+
+/// Resolves when she should stop: Ctrl-C at a terminal, or SIGTERM, which
+/// is how systemd, docker and a shutting-down machine ask. Either way she
+/// is stopped in order, so that nothing is cut off halfway through being
+/// written. Says which it was.
+async fn told_to_stop() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => "interrupted",
+                _ = term.recv() => "terminated",
+            },
+            Err(e) => {
+                warn!("cannot listen for SIGTERM ({e}); only Ctrl-C stops her in order");
+                let _ = tokio::signal::ctrl_c().await;
+                "interrupted"
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "interrupted"
+    }
 }
 
 fn status(dir: &Path) -> anyhow::Result<()> {
@@ -345,6 +422,61 @@ fn status(dir: &Path) -> anyhow::Result<()> {
     println!("journal   {} entries", peek.journal.len()?);
     if let Some(last) = peek.journal.last()? {
         println!("last      {}", show::entry(&last, life.clock().tz()));
+    }
+    // What a running body keeps on disk, read without disturbing it. What
+    // only the live process knows, such as which sitting is running this
+    // second, is not here; the time of each piece of work's last step is
+    // the nearest thing.
+    let Some(memory) = Memory::glance(dir)? else {
+        println!("memory    not built yet, or by another version; it is built when she runs");
+        return Ok(());
+    };
+    let unread = memory.places_unread()?;
+    if unread.is_empty() {
+        println!("unread    nothing");
+    }
+    for (i, place) in unread.iter().enumerate() {
+        let mut detail = format!("{} unread", place.unread);
+        if place.unread_addressed > 0 {
+            let _ = write!(detail, ", {} to her", place.unread_addressed);
+        }
+        if place.unread_directed > 0 {
+            let _ = write!(detail, ", {} from an operator", place.unread_directed);
+        }
+        let name = place
+            .name
+            .as_ref()
+            .map_or_else(|| place.key.clone(), |n| format!("{n} ({})", place.key));
+        println!("{:<9} {name}: {detail}", if i == 0 { "unread" } else { "" });
+    }
+    let open = memory.undertakings(true, 50)?;
+    let db = dir.join(ghost_work::WORK_DB);
+    let seen = if db.exists() {
+        ghost_work::undertaking::glance(&db).with_context(|| format!("read {}", db.display()))?
+    } else {
+        Vec::new()
+    };
+    println!("work      {} open", open.len());
+    for work in &open {
+        let brief: String = work.brief.split_whitespace().collect::<Vec<_>>().join(" ");
+        let brief: String = brief.chars().take(70).collect();
+        println!("          #{} {brief}", work.seq);
+        let mut detail = format!("{} sittings", work.sittings);
+        if let Some(seen) = seen.iter().find(|s| s.id == work.id) {
+            let _ = write!(detail, ", {} steps", seen.steps);
+            if let Some(at) = seen.last_step {
+                let at = at.with_timezone(&life.clock().tz());
+                let _ = write!(detail, ", last step {}", at.format("%m-%d %H:%M"));
+            }
+            if seen.parts_open > 0 {
+                let _ = write!(detail, ", {} parts unfinished", seen.parts_open);
+            }
+        }
+        if let Some(question) = &work.waiting {
+            let question: String = question.chars().take(60).collect();
+            let _ = write!(detail, ", waiting to hear: {question}");
+        }
+        println!("            {detail}");
     }
     Ok(())
 }
@@ -413,6 +545,64 @@ fn say_overrides(prompts: &Prompts) {
     }
 }
 
+/// Warn about each copy of a prompt that may hide something newer in this
+/// build, and say once per directory what to do about it.
+fn say_stale(prompts: &Prompts) {
+    let files = ghost_mind::prompts::all_files();
+    for (_, dir) in prompts.store().layers() {
+        let stale = exported::stale(&files, dir);
+        if stale.is_empty() {
+            continue;
+        }
+        for one in &stale {
+            let what = match &one.key {
+                Some(key) => format!("{key} in {}", one.file),
+                None => one.file.to_owned(),
+            };
+            let lacks = if one.missing.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<String> =
+                    one.missing.iter().map(|m| format!("{{{{{m}}}}}")).collect();
+                format!(
+                    "; it lacks {}, which the built-in fills in, so that is left out of what her brain reads",
+                    names.join(", ")
+                )
+            };
+            if one.changed {
+                warn!(
+                    "{}: the built-in {what} has changed since this copy was exported, and the copy hides the newer one{lacks}",
+                    one.path.display()
+                );
+            } else {
+                warn!(
+                    "{}: there is no record of when this copy of {what} was exported{lacks}",
+                    one.path.display()
+                );
+            }
+        }
+        let mut names: Vec<&str> = stale.iter().map(|s| s.file).collect();
+        names.dedup();
+        let names = names.join(" ");
+        // The commands take the directory a `prompts/` is in.
+        if let Some(parent) = dir
+            .parent()
+            .filter(|_| dir.ends_with(ghost_mind::prompts::DIR))
+        {
+            warn!(
+                "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
+                 If you did, write this build's next to them with `ghostd prompts export <somewhere> --only {names}`, \
+                 carry over what you want, then `ghostd prompts update {0} --looked-at {names}`",
+                parent.display()
+            );
+        } else {
+            warn!(
+                "compare them with this build's (`ghostd prompts export <somewhere> --only {names}`) and carry over what you want"
+            );
+        }
+    }
+}
+
 /// `ghostd prompts list`.
 fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let configured = if Config::exists(config) {
@@ -421,6 +611,15 @@ fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         None
     };
     let prompts = Prompts::load(dir, configured.as_deref());
+    // What hides something newer in this build, by where it is.
+    let files = ghost_mind::prompts::all_files();
+    let behind: Vec<(PathBuf, Option<String>)> = prompts
+        .store()
+        .layers()
+        .iter()
+        .flat_map(|(_, dir)| exported::stale(&files, dir))
+        .map(|s| (s.path, s.key))
+        .collect();
     for listed in prompts.listing() {
         let name = match &listed.key {
             Some(key) => format!("{} {key}", listed.file),
@@ -430,18 +629,45 @@ fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
             (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
             (origin, Some(path)) => format!("{origin:<8} {}", path.display()),
         };
+        let is_behind = listed.path.as_ref().is_some_and(|path| {
+            behind
+                .iter()
+                .any(|(p, key)| p == path && (key.is_none() || *key == listed.key))
+        });
         println!(
             "{name:<36} {:<8} {from}",
-            if listed.differs { "changed" } else { "" }
+            if is_behind {
+                "behind"
+            } else if listed.differs {
+                "changed"
+            } else {
+                ""
+            }
         );
     }
     Ok(())
 }
 
+/// The prompt files called `names`, or every one if there are none.
+fn prompt_files(names: &[String]) -> anyhow::Result<Vec<ghost_mind::prompts::File>> {
+    let files = ghost_mind::prompts::all_files();
+    if let Some(unknown) = names.iter().find(|n| !files.iter().any(|f| f.name == *n)) {
+        let known: Vec<&str> = files.iter().map(|f| f.name).collect();
+        bail!(
+            "there is no prompt file {unknown:?}; there are {}",
+            known.join(", ")
+        );
+    }
+    Ok(files
+        .into_iter()
+        .filter(|f| names.is_empty() || names.iter().any(|n| n == f.name))
+        .collect())
+}
+
 /// `ghostd prompts export`.
-fn export_prompts(dir: &Path, force: bool) -> anyhow::Result<()> {
+fn export_prompts(dir: &Path, force: bool, only: &[String]) -> anyhow::Result<()> {
     let target = dir.join(ghost_mind::prompts::DIR);
-    let done = Prompts::export(&target, force)
+    let done = Store::export(&prompt_files(only)?, &target, force)
         .with_context(|| format!("write into {}", target.display()))?;
     let skipped = done.iter().filter(|(_, written)| !written).count();
     for (path, written) in &done {
@@ -453,6 +679,33 @@ fn export_prompts(dir: &Path, force: bool) -> anyhow::Result<()> {
     }
     if skipped > 0 {
         println!("{skipped} left as they were; --force overwrites them");
+    }
+    Ok(())
+}
+
+/// `ghostd prompts update`.
+fn update_prompts(dir: &Path, looked_at: &[String]) -> anyhow::Result<()> {
+    let target = dir.join(ghost_mind::prompts::DIR);
+    prompt_files(looked_at)?;
+    let looked_at: Vec<&str> = looked_at.iter().map(String::as_str).collect();
+    let done = exported::update(&ghost_mind::prompts::all_files(), &target, &looked_at)
+        .with_context(|| format!("update {}", target.display()))?;
+    if done.is_empty() {
+        println!("no copies in {}", target.display());
+    }
+    for (path, what) in &done {
+        let said = match what {
+            Updated::Replaced => "updated ",
+            Updated::Current => "current ",
+            Updated::Marked => "kept    ",
+            Updated::LeftAlone => "edited  ",
+        };
+        println!("{said} {}", path.display());
+    }
+    if done.iter().any(|(_, what)| *what == Updated::LeftAlone) {
+        println!(
+            "edited copies were left as they are; `ghostd run` warns about any that hide something newer"
+        );
     }
     Ok(())
 }
@@ -555,6 +808,7 @@ async fn discover() -> anyhow::Result<()> {
 
 async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
     let (cfg, path) = Config::load(config)?;
+    network(&cfg.network)?;
     println!("config    {}", path.display());
     println!("think     {}", cfg.brain.think);
     println!("tick      {}", cfg.brain.tick);

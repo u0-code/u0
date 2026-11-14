@@ -18,8 +18,8 @@ use ghost_link::{
     text,
 };
 use serenity::all::{
-    Channel, ChannelId, Client, Context, CreateMessage, EventHandler, GatewayIntents, Http,
-    Message, MessageId, ReactionType, Ready, TypingStartEvent, UserId,
+    Channel, ChannelId, ClientBuilder, Context, CreateMessage, EventHandler, GatewayIntents, Http,
+    HttpBuilder, Message, MessageId, ReactionType, Ready, TypingStartEvent, UserId,
 };
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -99,7 +99,7 @@ impl Platform for Discord {
             | GatewayIntents::MESSAGE_CONTENT
             | GatewayIntents::GUILD_MESSAGE_TYPING
             | GatewayIntents::DIRECT_MESSAGE_TYPING;
-        let mut client = Client::builder(&self.token, intents)
+        let mut client = ClientBuilder::new_with_http(http(&self.token)?, intents)
             .event_handler(Ears {
                 up,
                 me: self.me,
@@ -167,6 +167,15 @@ impl Platform for Discord {
     }
 }
 
+/// Discord's HTTP API as the bot, going the way the network setting says.
+/// The gateway's own connection is a websocket, and is made directly.
+fn http(token: &str) -> anyhow::Result<Http> {
+    let client = ghost_net::builder()
+        .build()
+        .context("build an HTTP client")?;
+    Ok(HttpBuilder::new(token).client(client).build())
+}
+
 fn channel_id(place: &str) -> anyhow::Result<ChannelId> {
     let id: u64 = place
         .parse()
@@ -191,7 +200,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let args = Args::parse();
 
-    let http = Arc::new(Http::new(&args.bot_token));
+    let http = Arc::new(http(&args.bot_token)?);
     let me = http.get_current_user().await.context("log in to discord")?;
     info!("on discord as {}", me.name);
     let link = Link {

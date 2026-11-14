@@ -12,12 +12,14 @@ ghostd; you talk to her, wherever she lives.
 ```
 ghostd birth <dir>     write her birth and her persona into a new journal
 ghostd run <dir>       live
-ghostd status <dir>    who she is, what she is in the middle of   (reads the directory)
+ghostd status <dir>    who she is, what she is doing, what is     (reads the directory)
+                       unread, and her open work
 ghostd journal <dir>   tail of her journal                        (reads the directory)
 ghostd verify <dir>    chain check                                (reads the directory)
 ghostd brains --probe  ask each configured brain for one word
 ghostd prompts list <dir>    where each prompt comes from         (reads the directory)
 ghostd prompts export <dir>  copy the built-in prompts to change
+ghostd prompts update <dir>  bring unedited copies up to this build
 
 ghostd watch           her journal, live                          (connects to a daemon)
 ghostd people          who she knows and where she stands         (connects to a daemon)
@@ -48,12 +50,28 @@ that cannot be read or does not parse is warned about, and what was in use
 stays. At startup, and on every change, the log says which files are in use.
 
 ```
-ghostd prompts export <dir>            write the built-ins into <dir>/prompts/
-ghostd prompts export <dir> --force    and overwrite what is already there
-ghostd prompts list <dir>              each prompt, text and tool: where it comes
-                                       from, and "changed" if it is not the built-in
+ghostd prompts export <dir>                   write the built-ins into <dir>/prompts/
+ghostd prompts export <dir> --only self.md    only the files you mean to change
+ghostd prompts export <dir> --force           and overwrite what is already there
+ghostd prompts list <dir>                     each prompt, text and tool: where it comes
+                                              from; "changed" if it is not the built-in,
+                                              "behind" if the built-in moved on since
+ghostd prompts update <dir>                   replace copies nobody edited with this
+                                              build's built-ins; leave edited ones be
+ghostd prompts update <dir> --looked-at self.md
+                                              say an edited copy has been brought up
+                                              to date by hand
 ```
 
 `export` never overwrites a file unless told to, and says what it wrote and
-what it left. Delete what you do not mean to change: a file that is only a
-copy of the built-in keeps that copy when the built-in improves.
+what it left. Export only what you mean to change: a copy keeps its text when
+the built-in improves.
+
+Beside the copies, `export` writes `.exported.toml`, a note of the built-in
+each was copied from. At startup `ghostd run` warns about every copy, or
+every entry of a `.toml` copy, whose built-in has changed since, and names
+the placeholders the built-in fills in that the copy lacks. `update` then
+follows the upgrade for copies nobody edited, and leaves edited ones, and
+their warning, until you say with `--looked-at` that you have compared them.
+An entry a `.toml` copy leaves out already comes from the built-in, and is
+never stale.

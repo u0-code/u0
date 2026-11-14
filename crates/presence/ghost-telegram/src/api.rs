@@ -52,7 +52,7 @@ struct Parameters {
 impl Bot {
     pub fn new(api_base: &str, token: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            client: reqwest::Client::builder().timeout(HTTP_TIMEOUT).build()?,
+            client: ghost_net::builder().timeout(HTTP_TIMEOUT).build()?,
             base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         })
     }

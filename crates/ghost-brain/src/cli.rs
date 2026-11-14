@@ -231,6 +231,7 @@ async fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    ghost_net::pass_on(&mut cmd);
     for key in env_remove {
         cmd.env_remove(key);
     }

@@ -191,6 +191,10 @@ impl Machine for Local {
             .arg("-c")
             .arg(format!("exec 2>&1\n{script}"))
             .current_dir(&self.root);
+        // What she installs and runs here reaches the web the way the rest
+        // of her does. A container has a network of its own, and its proxy
+        // is set where the container is.
+        ghost_net::pass_on(&mut command);
         run(command, stdin, timeout).await
     }
 

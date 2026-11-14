@@ -1,0 +1,67 @@
+# One ghost, run by ghostd. The instance is her directory's name:
+#
+#   systemctl enable --now ghostd@weiwei
+#
+# runs /var/lib/ghost/weiwei with /etc/ghost/ghostd.toml. See deploy/README.md
+# for the layout this expects.
+
+[Unit]
+Description=Ghost %i
+Documentation=https://github.com/HappyFox001/Ghost/tree/main/deploy
+# Her brain is a network service; starting before the network is up only
+# means a minute of failed requests.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+# Her own unprivileged account, which owns her directory and nothing else.
+# She runs tools she installs herself, and there is no sandbox around them:
+# what this account cannot touch, neither can they.
+User=ghost
+Group=ghost
+WorkingDirectory=/var/lib/ghost/%i
+ExecStart=/opt/ghost/bin/ghostd run /var/lib/ghost/%i --config /etc/ghost/ghostd.toml
+
+# Keys, and GHOST_PROXY / GHOST_DIRECT if this machine needs them. systemd
+# reads the file before it gives up root, so it can be root's alone (mode
+# 600) and her shell cannot read it back. What ghostd is given, the programs
+# she starts on a `local:` machine inherit, keys included: put her machine in
+# a container to keep them apart. The second file, for this ghost alone, may
+# be absent.
+EnvironmentFile=/etc/ghost/ghost.env
+EnvironmentFile=-/etc/ghost/%i.env
+
+# ghostd stops her in order on SIGTERM, as on Ctrl-C: the mind is told to
+# stop and finishes what it is doing first. Give it time before systemd
+# kills it.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# A crash, or a brain that was unreachable at start, is retried. A clean
+# stop is not.
+Restart=on-failure
+RestartSec=10
+
+# What she writes is hers alone.
+UMask=0077
+# Nothing she starts can gain privileges: no sudo, no setuid helper.
+NoNewPrivileges=yes
+# The whole system is read-only to her, except her home: her directory, and
+# the caches the tools she installs keep there (npm, uv, a browser's
+# profile). Several ghosts on one machine share this home.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ghost
+# People's home directories are not hers to read.
+ProtectHome=yes
+# Her own /tmp, emptied when she stops.
+PrivateTmp=yes
+# The kernel's settings, modules and control groups are out of reach. These
+# take nothing her tools need. Left off on purpose: MemoryDenyWriteExecute
+# and a SystemCallFilter, which break Node and browsers, and
+# RestrictNamespaces, which a headless Chromium's sandbox needs.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

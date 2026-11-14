@@ -19,6 +19,23 @@ token_env = "GHOSTD_TOKEN"
 # Web origins allowed to connect besides pages served from this machine.
 # origins = ["https://console.example"]
 
+# How every request leaves this machine: her brains, her web tools, the
+# weather, and the programs she starts. This replaces setting NO_PROXY by
+# hand around a local proxy that stalls long streamed answers.
+#   proxy   "system" (the default): HTTPS_PROXY, HTTP_PROXY and NO_PROXY, as
+#           before; "none"; or an HTTP proxy, "http://127.0.0.1:7890".
+#   direct  hosts that never use the proxy: "api.deepseek.com" is that host,
+#           "*.deepseek.com" is it and every name under it. This machine's
+#           own addresses never use one.
+# GHOST_PROXY and GHOST_DIRECT (comma-separated) in the environment or .env
+# override these two, one at a time; the presences read only those. A proxy
+# with a password goes there, not here. Model APIs and platforms follow this
+# and nothing else; her own search and fetch try the other way once when a
+# site cannot be reached or turns them away, and remember what worked.
+# [network]
+# proxy = "http://127.0.0.1:7890"
+# direct = ["*.deepseek.com"]
+
 [mind]
 # The pace she lives at. 1.0 is human: she notices messages after seconds or
 # minutes depending on what she is doing, and types at a person's speed.

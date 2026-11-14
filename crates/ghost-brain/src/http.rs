@@ -29,8 +29,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// again got the whole answer in seconds.
 const STREAM_IDLE: Duration = Duration::from_secs(45);
 
+/// A client for a provider. It goes the way the network setting says and
+/// no other: an answer that took another way out without being told to is
+/// one nobody could account for.
 pub(crate) fn client() -> reqwest::Client {
-    reqwest::Client::builder()
+    ghost_net::builder()
         .timeout(REQUEST_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)

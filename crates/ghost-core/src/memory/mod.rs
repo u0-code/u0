@@ -100,6 +100,21 @@ impl Memory {
         Self::prepare(Connection::open(&path)?)
     }
 
+    /// The store under `dir` as it was last written, for looking at from
+    /// another process while she lives. It is opened read-only, so that
+    /// nothing here can rebuild or change it under the body that keeps it.
+    /// `None` if there is none yet, or it is of a shape this build does
+    /// not read.
+    pub fn glance(dir: &Path) -> Result<Option<Self>> {
+        let path = dir.join(MEMORY_FILE);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        Ok((version == SCHEMA_VERSION).then_some(Self { conn }))
+    }
+
     /// A store that lives only as long as the value. For tests and tools.
     pub fn in_memory() -> Result<Self> {
         Self::prepare(Connection::open_in_memory()?)

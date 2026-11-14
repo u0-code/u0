@@ -1,0 +1,18 @@
+# ghost-net
+
+How every HTTP request a Ghost program makes leaves the machine.
+
+**Is:** the one place HTTP clients are built (`ghost_net::builder()`), and
+the one setting they follow: `proxy` (`system`, `none`, or an HTTP proxy's
+address) and `direct` (hosts, and `*.suffix` patterns, that never use it).
+Each comes from `GHOST_PROXY` and `GHOST_DIRECT` in the environment, then
+from `[network]` in `ghostd.toml`, then the default, `system`. `pass_on`
+gives a program about to be started the same rule, in the variables every
+kind of program reads.
+
+**Is not:** a judge of which way a request should go. It never changes
+route by itself; a caller that wants to try the other way when one fails,
+as her web tools do, asks for a client that always goes one way.
+
+It is a crate of its own because the presences need it and depend on
+nothing else of Ghost's but `ghost-link`, which has no business with HTTP.
