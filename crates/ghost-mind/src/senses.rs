@@ -41,7 +41,7 @@ impl Default for OpenMeteo {
 impl OpenMeteo {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::builder()
+            client: ghost_net::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),

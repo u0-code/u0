@@ -196,8 +196,20 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
 }
 
 async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
-    let (cfg, cfg_path) = if Config::exists(config) {
-        Config::load(config)?
+    let loaded = if Config::exists(config) {
+        Some(Config::load(config)?)
+    } else {
+        None
+    };
+    // Before anything makes a request, looking for brains included.
+    network(
+        &loaded
+            .as_ref()
+            .map(|(cfg, _)| cfg.network.clone())
+            .unwrap_or_default(),
+    )?;
+    let (cfg, cfg_path) = if let Some(loaded) = loaded {
+        loaded
     } else {
         // Nothing was written down for this machine. Use what is on it.
         let (cfg, what) = Config::from_found(&ghost_brain::discover::discover().await)?;
@@ -305,6 +317,17 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     };
     server.abort();
     outcome??;
+    Ok(())
+}
+
+/// Make `[network]`, under whatever the environment sets, the way every
+/// request from this process and the programs it starts leaves the machine.
+fn network(setting: &ghost_net::Setting) -> anyhow::Result<()> {
+    let network = ghost_net::Network::from_env(setting).context("[network]")?;
+    info!("network: {network}");
+    if !ghost_net::install(network) {
+        warn!("the network setting came after the first request, which went the default way");
+    }
     Ok(())
 }
 
@@ -555,6 +578,7 @@ async fn discover() -> anyhow::Result<()> {
 
 async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
     let (cfg, path) = Config::load(config)?;
+    network(&cfg.network)?;
     println!("config    {}", path.display());
     println!("think     {}", cfg.brain.think);
     println!("tick      {}", cfg.brain.tick);

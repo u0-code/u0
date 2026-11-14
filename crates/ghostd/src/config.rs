@@ -36,6 +36,10 @@ pub struct Config {
     /// What they say about particular places, by place key.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceConfig>,
+    /// How requests leave this machine. `GHOST_PROXY` and `GHOST_DIRECT`
+    /// in the environment win over it, a part at a time: see `ghost_net`.
+    #[serde(default)]
+    pub network: ghost_net::Setting,
 }
 
 #[derive(Debug, Deserialize)]
@@ -292,6 +296,44 @@ mod operator_tests {
         assert!(parse("").mind().places.is_empty());
         let wrong: Result<Config, _> =
             toml::from_str(&format!("{BRAIN}[places.\"x:y\"]\nadressed_only = true\n"));
+        assert!(wrong.is_err());
+    }
+
+    #[test]
+    fn the_environment_wins_over_the_network_in_ghostd_toml() {
+        let cfg =
+            parse("[network]\nproxy = \"http://127.0.0.1:7890\"\ndirect = [\"*.deepseek.com\"]\n");
+        let with = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        let rule = |pairs| {
+            ghost_net::Network::new(&cfg.network, with(pairs))
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(
+            rule(&[]),
+            "proxy http://127.0.0.1:7890; direct to *.deepseek.com"
+        );
+        assert_eq!(rule(&[("GHOST_PROXY", "none")]), "no proxy");
+        assert_eq!(
+            rule(&[("GHOST_DIRECT", "api.example")]),
+            "proxy http://127.0.0.1:7890; direct to api.example"
+        );
+        assert_eq!(
+            rule(&[("GHOST_PROXY", "http://10.0.0.2:3128")]),
+            "proxy http://10.0.0.2:3128; direct to *.deepseek.com"
+        );
+        // Without a [network], the environment alone decides.
+        let bare = parse("");
+        assert_eq!(bare.network, ghost_net::Setting::default());
+        let wrong: Result<Config, _> =
+            toml::from_str(&format!("{BRAIN}[network]\nproxies = \"none\"\n"));
         assert!(wrong.is_err());
     }
 

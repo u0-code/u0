@@ -171,6 +171,8 @@ pub async fn sit(seat: &Seat) -> Report {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // It, and the tool server it starts, reach the web as she does.
+    ghost_net::pass_on(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => return fail(format!("could not start {}: {e}", seat.agent.program)),

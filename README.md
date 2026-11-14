@@ -90,8 +90,8 @@ people talk to on a personal subscription; an API key is the safe choice.
 
 > [!NOTE]
 > Behind a local proxy, long streamed answers sometimes stop partway. The log
-> says so and asks again; `NO_PROXY=api.deepseek.com` (or your provider's host)
-> avoids it.
+> says so and asks again; listing your provider's host under `direct` in
+> `[network]` (see `ghostd.example.toml`), or in `GHOST_DIRECT`, avoids it.
 
 ## How it fits together
 
@@ -116,6 +116,7 @@ whole of her.**
 |---|---|
 | [`ghost-core`](crates/ghost-core) | Identity, journal, derived memory, clock, tempo, will. No network. |
 | [`ghost-brain`](crates/ghost-brain) | Model providers behind one trait. Knows nothing of ghosts. |
+| [`ghost-net`](crates/ghost-net) | Where every HTTP client is built, and the one proxy setting they follow. |
 | [`ghost-work`](crates/ghost-work) | The loop she does things with: tools, a machine, state that outlives a context. Runs on its own too. |
 | [`ghost-mind`](crates/ghost-mind) | The actor that lives: attention, deliberation, speaking, her day, her work. |
 | [`ghost-protocol`](crates/ghost-protocol) · [`ghost-link`](crates/ghost-link) | The wire types, and a client for them. |

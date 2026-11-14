@@ -31,7 +31,7 @@ impl std::error::Error for ApiError {}
 impl X {
     pub fn new(base: &str, credentials: Credentials) -> anyhow::Result<Self> {
         Ok(Self {
-            client: reqwest::Client::builder()
+            client: ghost_net::builder()
                 .timeout(Duration::from_secs(30))
                 .build()?,
             base: base.trim_end_matches('/').to_owned(),

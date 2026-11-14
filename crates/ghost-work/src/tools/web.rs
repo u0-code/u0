@@ -6,12 +6,20 @@
 //! and otherwise gets the page itself and strips it down to text. Either
 //! way the images a page shows are listed after its text, and an address
 //! that holds an image comes back as the image, for a model to look at.
+//!
+//! These two choose their way out for themselves; see [`Routes`].
 
-use std::{fmt::Write as _, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Write as _,
+    sync::{Mutex, PoisonError},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use ghost_brain::{Picture, ToolSpec};
-use reqwest::Url;
+use ghost_net::{Network, Route};
+use reqwest::{Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
 use serde_json::{Value, json};
 
 use super::MAX_PICTURE;
@@ -29,13 +37,141 @@ const IMAGES_LISTED: usize = 40;
 /// an icon, a spacer or a pixel that counts visits.
 const MIN_SIDE: u32 = 32;
 
-fn client() -> reqwest::Client {
-    reqwest::Client::builder()
+/// Said after a result that came through the proxy. The model cannot see
+/// the network; this is the one thing it is told about it, because a page
+/// can differ by where it is asked from.
+const BY_PROXY: &str = "(reached through the proxy)";
+
+fn configured(builder: ClientBuilder) -> ClientBuilder {
+    builder
         .timeout(Duration::from_secs(40))
         .connect_timeout(Duration::from_secs(15))
         .user_agent("Mozilla/5.0 (compatible; ghost-work)")
-        .build()
-        .unwrap_or_default()
+}
+
+/// The two ways to a site, and which one worked for each.
+///
+/// Her look-ups are where a proxy most often helps and most often hurts:
+/// one site is reached only through it, another refuses whatever comes
+/// from it. So when a proxy is configured, a request that cannot connect,
+/// that times out, or that a site not yet known refuses outright (403 or
+/// 451) is tried once more the other way: direct if it went by the proxy,
+/// by the proxy if it went direct. The way that worked is remembered for
+/// each host for as long as this process runs, and is tried first after
+/// that. A site already known is not tried the other way for a refusal:
+/// that refusal is the site's answer.
+///
+/// The model is never asked which way: it cannot see the network. Only
+/// these tools switch; a model API or a platform goes the way the setting
+/// says, and nothing else.
+struct Routes {
+    network: Network,
+    direct: Client,
+    proxied: Client,
+    worked: Mutex<HashMap<String, Route>>,
+}
+
+/// An answer, and the way it came.
+struct Reached {
+    response: Response,
+    route: Route,
+}
+
+/// An answer that says the site will not serve this request from where
+/// it came.
+fn refused(status: StatusCode) -> bool {
+    matches!(status.as_u16(), 403 | 451)
+}
+
+impl Routes {
+    /// Both ways, each a client `configured` the same.
+    fn new(network: &Network, configured: impl Fn(ClientBuilder) -> ClientBuilder) -> Self {
+        Self {
+            network: network.clone(),
+            direct: configured(network.builder_by(Route::Direct))
+                .build()
+                .unwrap_or_default(),
+            proxied: configured(network.builder_by(Route::Proxy))
+                .build()
+                .unwrap_or_default(),
+            worked: Mutex::default(),
+        }
+    }
+
+    fn client(&self, route: Route) -> &Client {
+        match route {
+            Route::Direct => &self.direct,
+            Route::Proxy => &self.proxied,
+        }
+    }
+
+    fn known(&self) -> std::sync::MutexGuard<'_, HashMap<String, Route>> {
+        self.worked.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Send what `request` makes, the way that works. `request` is called
+    /// once for each try, with the client for that way.
+    async fn send(&self, request: impl Fn(&Client) -> RequestBuilder) -> Result<Reached, String> {
+        let request = &request;
+        let attempt = |route: Route| {
+            let client = self.client(route);
+            async move {
+                let built = request(client).build()?;
+                client.execute(built).await
+            }
+        };
+        let url = request(&self.direct)
+            .build()
+            .map_err(|e| e.to_string())?
+            .url()
+            .clone();
+        if !self.network.either_way(&url) {
+            let route = self.network.route(&url);
+            return attempt(route)
+                .await
+                .map(|response| Reached { response, route })
+                .map_err(|e| e.to_string());
+        }
+        let host = url.host_str().unwrap_or_default().to_owned();
+        let known = self.known().get(&host).copied();
+        let first = known.unwrap_or_else(|| self.network.route(&url));
+        let tried = attempt(first).await;
+        let again = match &tried {
+            Err(e) => e.is_connect() || e.is_timeout(),
+            Ok(response) => known.is_none() && refused(response.status()),
+        };
+        if !again {
+            if tried.as_ref().is_ok_and(|r| !refused(r.status())) {
+                self.known().insert(host, first);
+            }
+            return tried
+                .map(|response| Reached {
+                    response,
+                    route: first,
+                })
+                .map_err(|e| e.to_string());
+        }
+        let second = first.other();
+        match (attempt(second).await, tried) {
+            (Ok(response), _) if !refused(response.status()) => {
+                self.known().insert(host, second);
+                Ok(Reached {
+                    response,
+                    route: second,
+                })
+            }
+            // Refused both ways: the first refusal is the answer.
+            (_, Ok(response)) => Ok(Reached {
+                response,
+                route: first,
+            }),
+            (Ok(response), Err(_)) => Ok(Reached {
+                response,
+                route: second,
+            }),
+            (Err(again), Err(first)) => Err(format!("{first}; the other way: {again}")),
+        }
+    }
 }
 
 /// Where search results come from.
@@ -136,43 +272,43 @@ fn listing(found: &[Hit]) -> String {
 }
 
 pub struct Search {
-    client: reqwest::Client,
+    routes: Routes,
     source: Source,
 }
 
 impl Search {
     pub fn new(source: Source) -> Self {
         Self {
-            client: client(),
+            routes: Routes::new(ghost_net::current(), configured),
             source,
         }
     }
 
-    async fn ask(&self, query: &str, count: u64) -> Result<Value, String> {
-        let request = match &self.source {
-            Source::DeepSeek { key } => self
-                .client
-                .post(format!("{DEEPSEEK}/v1/tools/search"))
-                .bearer_auth(key)
-                .json(&json!({"query": query, "count": count})),
-            Source::Brave { key } => self
-                .client
-                .get("https://api.search.brave.com/res/v1/web/search")
-                .header("X-Subscription-Token", key)
-                .query(&[("q", query), ("count", &count.to_string())]),
-            Source::Searxng { url } => self
-                .client
-                .get(format!("{}/search", url.trim_end_matches('/')))
-                .query(&[("q", query), ("format", "json")]),
-        };
-        let resp = request.send().await.map_err(|e| e.to_string())?;
-        let status = resp.status();
-        let body = resp.text().await.map_err(|e| e.to_string())?;
+    async fn ask(&self, query: &str, count: u64) -> Result<(Value, Route), String> {
+        let reached = self
+            .routes
+            .send(|client| match &self.source {
+                Source::DeepSeek { key } => client
+                    .post(format!("{DEEPSEEK}/v1/tools/search"))
+                    .bearer_auth(key)
+                    .json(&json!({"query": query, "count": count})),
+                Source::Brave { key } => client
+                    .get("https://api.search.brave.com/res/v1/web/search")
+                    .header("X-Subscription-Token", key)
+                    .query(&[("q", query), ("count", &count.to_string())]),
+                Source::Searxng { url } => client
+                    .get(format!("{}/search", url.trim_end_matches('/')))
+                    .query(&[("q", query), ("format", "json")]),
+            })
+            .await?;
+        let status = reached.response.status();
+        let body = reached.response.text().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
             let said: String = body.chars().take(300).collect();
             return Err(format!("the search service answered {status}: {said}"));
         }
         serde_json::from_str(&body)
+            .map(|v| (v, reached.route))
             .map_err(|e| format!("the search service sent something unreadable: {e}"))
     }
 }
@@ -205,21 +341,30 @@ impl Tool for Search {
         let query: String = query.chars().take(128).collect();
         let count = args["count"].as_u64().unwrap_or(8).clamp(1, 20);
         match self.ask(&query, count).await {
-            Ok(v) => {
+            Ok((v, route)) => {
                 let found = hits(&self.source, &v);
-                if found.is_empty() {
-                    Outcome::ok("No results. Try other words, fewer words, or another language.")
+                let said = if found.is_empty() {
+                    "No results. Try other words, fewer words, or another language.".to_owned()
                 } else {
-                    Outcome::ok(listing(&found))
-                }
+                    listing(&found)
+                };
+                Outcome::ok(said_with_route(said, route))
             }
             Err(why) => Outcome::fail(why),
         }
     }
 }
 
+/// What a tool says, and after it, if it came through the proxy, that it did.
+fn said_with_route(said: String, route: Route) -> String {
+    match route {
+        Route::Proxy => format!("{said}\n\n{BY_PROXY}"),
+        Route::Direct => said,
+    }
+}
+
 pub struct Fetch {
-    client: reqwest::Client,
+    routes: Routes,
     reader_key: Option<String>,
     /// Where the reader is: DeepSeek, except in tests.
     reader_at: String,
@@ -228,22 +373,26 @@ pub struct Fetch {
 impl Fetch {
     pub fn new(reader_key: Option<String>) -> Self {
         Self {
-            client: client(),
+            routes: Routes::new(ghost_net::current(), configured),
             reader_key,
             reader_at: DEEPSEEK.to_owned(),
         }
     }
 
     /// The page as Markdown, through DeepSeek's fetch API.
-    async fn through_reader(&self, key: &str, url: &str) -> Result<String, String> {
-        let resp = self
-            .client
-            .post(format!("{}/v1/tools/fetch", self.reader_at))
-            .bearer_auth(key)
-            .json(&json!({"url": url}))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+    async fn through_reader(&self, key: &str, url: &str) -> Result<(String, Route), String> {
+        let Reached {
+            response: resp,
+            route,
+        } = self
+            .routes
+            .send(|client| {
+                client
+                    .post(format!("{}/v1/tools/fetch", self.reader_at))
+                    .bearer_auth(key)
+                    .json(&json!({"url": url}))
+            })
+            .await?;
         let status = resp.status();
         let v: Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
@@ -257,22 +406,21 @@ impl Fetch {
         if content.is_empty() {
             return Err("the page had no readable content".to_owned());
         }
-        Ok(if title.is_empty() || content.starts_with('#') {
+        let page = if title.is_empty() || content.starts_with('#') {
             content.to_owned()
         } else {
             format!("# {title}\n\n{content}")
-        })
+        };
+        Ok((page, route))
     }
 
     /// The page fetched from here and reduced to its text, with the images
     /// it shows listed after it; or the image at the address, to look at.
-    async fn directly(&self, url: &str) -> Result<Fetched, String> {
-        let mut resp = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+    async fn directly(&self, url: &str) -> Result<(Fetched, Route), String> {
+        let Reached {
+            response: mut resp,
+            route,
+        } = self.routes.send(|client| client.get(url)).await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(format!("the site answered {status}"));
@@ -305,7 +453,7 @@ impl Fetch {
                 bytes.extend_from_slice(&chunk);
             }
             if let Some(picture) = super::picture(bytes.clone()) {
-                return Ok(Fetched::Picture(picture));
+                return Ok((Fetched::Picture(picture), route));
             }
             if !kind.is_empty() {
                 return Err(format!(
@@ -313,7 +461,7 @@ impl Fetch {
                 ));
             }
             let body = String::from_utf8_lossy(&bytes).into_owned();
-            return Ok(page_of(body, &base, false));
+            return Ok((page_of(body, &base, false), route));
         }
         let body = resp.text().await.map_err(|e| e.to_string())?;
         if kind.contains("html")
@@ -321,7 +469,7 @@ impl Fetch {
             || kind.contains("json")
             || kind.contains("xml")
         {
-            Ok(page_of(body, &base, kind.contains("html")))
+            Ok((page_of(body, &base, kind.contains("html")), route))
         } else {
             Err(format!(
                 "the address holds {kind}, not a page of text. Download it with the shell if you need it."
@@ -604,7 +752,7 @@ impl Tool for Fetch {
         }
         let fetched = match &self.reader_key {
             Some(key) if !names_an_image(url) => match self.through_reader(key, url).await {
-                Ok(text) => {
+                Ok((text, route)) => {
                     let mut images = Url::parse(url)
                         .map(|base| markdown_images(&text, &base))
                         .unwrap_or_default();
@@ -613,11 +761,12 @@ impl Tool for Fetch {
                     // captions. What the page shows is then taken from
                     // the page itself.
                     if images.is_empty()
-                        && let Ok(Fetched::Page { images: shown, .. }) = self.directly(url).await
+                        && let Ok((Fetched::Page { images: shown, .. }, _)) =
+                            self.directly(url).await
                     {
                         images = shown;
                     }
-                    Ok(Fetched::Page { text, images })
+                    Ok((Fetched::Page { text, images }, route))
                 }
                 // The reader refuses some sites that answer a plain request.
                 Err(first) => self.directly(url).await.map_err(|second| {
@@ -629,11 +778,14 @@ impl Tool for Fetch {
                 .await
                 .map_err(|why| format!("could not read {url}: {why}")),
         };
-        let (page, images) = match fetched {
-            Ok(Fetched::Page { text, images }) => (text, images),
-            Ok(Fetched::Picture(picture)) => {
+        let (page, images, route) = match fetched {
+            Ok((Fetched::Page { text, images }, route)) => (text, images, route),
+            Ok((Fetched::Picture(picture), route)) => {
                 return Outcome::seen(
-                    format!("{url} is an image ({}).", super::about(&picture)),
+                    said_with_route(
+                        format!("{url} is an image ({}).", super::about(&picture)),
+                        route,
+                    ),
                     picture,
                 );
             }
@@ -659,7 +811,7 @@ impl Tool for Fetch {
                 total - end
             );
         }
-        Outcome::ok(part)
+        Outcome::ok(said_with_route(part, route))
     }
 }
 
@@ -767,8 +919,97 @@ fn page_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
+    use ghost_net::Setting;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     use super::*;
     use crate::tools::testing::{PIXEL, serve};
+
+    /// A proxy on this machine that refuses everything it is asked for, as
+    /// one does that a site has turned away.
+    async fn refusing_proxy() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut request = [0u8; 4096];
+                let _ = socket.read(&mut request).await;
+                let _ = socket
+                    .write_all(
+                        b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// A fetch that goes by `proxy` unless `direct` lists the host, and
+    /// that finds `host` at `at`.
+    fn fetch_by(proxy: &str, direct: &[&str], host: &str, at: SocketAddr) -> Fetch {
+        let network = Network::new(
+            &Setting {
+                proxy: Some(proxy.to_owned()),
+                direct: Some(direct.iter().map(|&d| d.to_owned()).collect()),
+            },
+            |_| None,
+        )
+        .unwrap();
+        Fetch {
+            routes: Routes::new(&network, |b| configured(b).resolve(host, at)),
+            reader_key: None,
+            reader_at: DEEPSEEK.to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_goes_direct_when_the_proxy_is_turned_away_and_remembers_it() {
+        let site = serve(vec![(
+            "/harbour",
+            "text/html",
+            b"<p>Boats at dawn.</p>".to_vec(),
+        )])
+        .await;
+        let at: SocketAddr = site.trim_start_matches("http://").parse().unwrap();
+        let fetch = fetch_by(&refusing_proxy().await, &[], "harbour.test", at);
+        let url = format!("http://harbour.test:{}/harbour", at.port());
+
+        let read = fetch.call(&json!({ "url": url })).await;
+        assert!(!read.failed, "{}", read.output);
+        assert!(read.output.contains("Boats at dawn."), "{}", read.output);
+        assert!(!read.output.contains(BY_PROXY), "{}", read.output);
+        assert_eq!(
+            fetch.routes.known().get("harbour.test"),
+            Some(&Route::Direct)
+        );
+        // Now known, it goes direct first.
+        let again = fetch.call(&json!({ "url": url })).await;
+        assert!(!again.failed, "{}", again.output);
+    }
+
+    #[tokio::test]
+    async fn fetch_goes_by_the_proxy_when_a_site_cannot_be_reached_directly_and_says_so() {
+        // Nothing listens here, so going direct cannot connect.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let url = format!("http://far.test:{}/page", closed.port());
+        // A proxy is asked for the whole address.
+        let path: &'static str = Box::leak(url.clone().into_boxed_str());
+        let proxy = serve(vec![(path, "text/html", b"<p>Far away.</p>".to_vec())]).await;
+        let fetch = fetch_by(&proxy, &["far.test"], "far.test", closed);
+
+        let read = fetch.call(&json!({ "url": url })).await;
+        assert!(!read.failed, "{}", read.output);
+        assert!(read.output.contains("Far away."), "{}", read.output);
+        assert!(read.output.ends_with(BY_PROXY), "{}", read.output);
+        assert_eq!(fetch.routes.known().get("far.test"), Some(&Route::Proxy));
+        let again = fetch.call(&json!({ "url": url })).await;
+        assert!(again.output.ends_with(BY_PROXY), "{}", again.output);
+    }
 
     #[tokio::test]
     async fn fetching_an_image_returns_the_picture_whatever_type_it_is_served_as() {

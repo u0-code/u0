@@ -86,11 +86,8 @@ async fn version(program: &str) -> Option<String> {
 }
 
 async fn ollama() -> Vec<String> {
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .no_proxy()
-        .build()
-    else {
+    // This machine's own addresses never go through a proxy.
+    let Ok(client) = ghost_net::builder().timeout(Duration::from_secs(2)).build() else {
         return Vec::new();
     };
     let Ok(resp) = client.get("http://127.0.0.1:11434/api/tags").send().await else {

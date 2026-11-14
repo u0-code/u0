@@ -41,9 +41,9 @@ type(scope): what changed, in plain words
 - **type**, exactly one: `feat`, `fix`, `perf`, `refactor`, `docs`, `style`,
   `test`, `bench`, `build`, `ci`, `chore`, `revert`.
 - **scope**, optional: the crate without its `ghost-` prefix (`core`,
-  `brain`, `work`, `mind`, `protocol`, `link`, `ghostd`, `term`, `telegram`,
-  `discord`, `onebot`, `x`), or `presence`, `bench`, `repo`, `deps`,
-  `readme`, `assets`. A change across two is `feat(work, mind): …`.
+  `brain`, `net`, `work`, `mind`, `protocol`, `link`, `ghostd`, `term`,
+  `telegram`, `discord`, `onebot`, `x`), or `presence`, `bench`, `repo`,
+  `deps`, `readme`, `assets`. A change across two is `feat(work, mind): …`.
 - 72 characters at most, no full stop at the end.
 - Say what is now true, not what you did: "a stalled answer no longer holds
   a run past its time", not "fix timeout bug".

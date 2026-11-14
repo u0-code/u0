@@ -683,6 +683,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
+ "ghost-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -719,6 +720,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "ghost-link",
+ "ghost-net",
  "serenity",
  "tokio",
  "tracing",
@@ -750,6 +752,7 @@ dependencies = [
  "fastrand",
  "ghost-brain",
  "ghost-core",
+ "ghost-net",
  "ghost-work",
  "reqwest",
  "serde",
@@ -758,6 +761,16 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "toml",
+ "tracing",
+]
+
+[[package]]
+name = "ghost-net"
+version = "0.0.1"
+dependencies = [
+ "reqwest",
+ "serde",
+ "tokio",
  "tracing",
 ]
 
@@ -797,6 +810,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "ghost-link",
+ "ghost-net",
  "reqwest",
  "rustls",
  "serde_json",
@@ -815,6 +829,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "ghost-link",
+ "ghost-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -849,6 +864,7 @@ dependencies = [
  "dotenvy",
  "ghost-brain",
  "ghost-core",
+ "ghost-net",
  "reqwest",
  "rusqlite",
  "serde",
@@ -871,6 +887,7 @@ dependencies = [
  "dotenvy",
  "fastrand",
  "ghost-link",
+ "ghost-net",
  "hmac",
  "percent-encoding",
  "reqwest",
@@ -898,6 +915,7 @@ dependencies = [
  "ghost-core",
  "ghost-link",
  "ghost-mind",
+ "ghost-net",
  "ghost-protocol",
  "ghost-work",
  "serde",

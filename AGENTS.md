@@ -18,6 +18,7 @@ working on the strength of having written it.
 ```
 crates/ghost-core      identity, journal, derived memory, clock, tempo, will. No network.
 crates/ghost-brain     model providers behind one trait. Knows nothing of ghosts.
+crates/ghost-net       where every HTTP client is built; the one proxy setting.
 crates/ghost-work      the loop she does things with: tools, a machine, state on disk.
 crates/ghost-mind      the actor that lives: attention, deliberation, speaking, her day, her work.
 crates/ghost-protocol  wire types of the Ghost Protocol.
@@ -38,6 +39,8 @@ bench/                 how the work loop is measured against other agents.
   journal alone. If you add a table or a column, bump `SCHEMA_VERSION`.
 - **One writer.** Only the `Mind` actor writes her journal. Anything slow is
   spawned and comes back as an `Outcome`; it does not touch her state.
+- **Every HTTP client comes from `ghost_net::builder()`**, and every program
+  she starts gets `ghost_net::pass_on`, so one proxy setting holds for all.
 - **Keys come from the environment**, or from the ignored `.env` file every
   binary loads at start. Never from ghostd.toml, never in a test, an example,
   a commit message, her journal or a log.

@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 async-trait = "0.1.92"
 base64 = "0.23.1"
+ghost-net = { version = "0.0.1", path = "../ghost-net" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

@@ -77,7 +77,7 @@ impl Mind {
         let request = self.view_request(place_key, message, now)?;
         let dir = self.ghost.dir().to_path_buf();
         self.jobs.spawn(async move {
-            let client = reqwest::Client::builder()
+            let client = ghost_net::builder()
                 .timeout(FETCH_TIMEOUT)
                 .build()
                 .unwrap_or_default();

@@ -88,10 +88,11 @@ pub async fn sit(seat: &Seat) -> Report {
             "-c",
             "mcp_servers.ghost.default_tools_approval_mode=\"approve\"",
         ])
-        // The keys our web tools read, and nothing else of the environment.
+        // The keys our web tools read and the way out they take, and
+        // nothing else of the environment.
         .args([
             "-c",
-            "mcp_servers.ghost.env_vars=[\"DEEPSEEK_API_KEY\", \"BRAVE_API_KEY\", \"SEARXNG_URL\"]",
+            "mcp_servers.ghost.env_vars=[\"DEEPSEEK_API_KEY\", \"BRAVE_API_KEY\", \"SEARXNG_URL\", \"HTTPS_PROXY\", \"HTTP_PROXY\", \"NO_PROXY\"]",
         ]);
     if let Some(model) = &seat.agent.model {
         command.args(["-m", model]);
@@ -106,6 +107,8 @@ pub async fn sit(seat: &Seat) -> Report {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // It, and the tool server it starts, reach the web as she does.
+    ghost_net::pass_on(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => return fail(format!("could not start {}: {e}", seat.agent.program)),

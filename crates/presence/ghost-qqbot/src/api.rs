@@ -56,7 +56,7 @@ impl Api {
         secret: &str,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            client: reqwest::Client::builder().timeout(HTTP_TIMEOUT).build()?,
+            client: ghost_net::builder().timeout(HTTP_TIMEOUT).build()?,
             api_base: api_base.trim_end_matches('/').to_owned(),
             token_base: token_base.trim_end_matches('/').to_owned(),
             app_id: app_id.trim().to_owned(),

@@ -8,7 +8,7 @@ set -euo pipefail
 
 subject="${1:-}"
 types='feat|fix|perf|refactor|docs|style|test|bench|build|ci|chore|revert'
-scopes='core|brain|work|mind|protocol|link|ghostd|term|telegram|discord|onebot|x|presence|bench|repo|deps|readme|assets'
+scopes='core|brain|net|work|mind|protocol|link|ghostd|term|telegram|discord|onebot|x|presence|bench|repo|deps|readme|assets'
 
 fail() {
     echo "not a subject this repository takes: $subject" >&2
