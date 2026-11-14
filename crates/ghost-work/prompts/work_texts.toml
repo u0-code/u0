@@ -141,6 +141,16 @@ outside_read = "the file {{path}}"
 outside_shell = "what this command printed: {{command}}"
 outside_job = "what background job {{job}} printed"
 outside_tool = "the tool {{tool}}, which is not one of yours"
+# A tool of a server of tools: someone else's program, installed from the
+# registry or given by whoever runs your body.
+outside_server = "the tool {{tool}} of {{server}}, a server of tools written by someone else"
+# What the registry lists, and what a server says of itself when it is
+# installed, are its publisher's words.
+outside_registry = "the registry of tools, searched for: {{query}}"
+outside_install = "the registry and the server {{name}}, as it was installed"
+
+# One line of `load_tools`, for each server of tools she has.
+server_line = "- {{server}}: {{description}} Tools: {{tools}}."
 
 # Put after a result whose images were taken out of the transcript.
 no_longer_shown_one = "[This image is no longer shown, to save room. Ask for it again if you need to see it.]"

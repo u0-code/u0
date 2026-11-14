@@ -197,6 +197,42 @@ review_days = 7
 # [places."qq:group:FEDCBA9876543210"]
 # note = "old friends from school; this group prefers you keep it light"
 
+# Servers of tools. She finds them in the MCP registry and installs them
+# herself, as a piece of work, with nobody approving: a browser, the tools
+# of a site, makers of pictures and video. What she installs is in her
+# journal and its files are under `tools/` in her directory. Each runs on
+# this machine (or, for a remote, is reached over https), started only when
+# she loads it, with an environment of its own: a PATH, its folder as home
+# and nothing else unless you name it below. Only npm and PyPI packages are
+# run, at the exact version listed, without install scripts.
+# [tools]
+# enabled = true                 # let her find and install servers herself
+# registry = "https://registry.modelcontextprotocol.io"
+# max_servers = 12
+# max_tools = 40                 # the most tools of one server she is offered
+# start_seconds = 30
+# install_seconds = 300          # the first start, which fetches the package
+# call_seconds = 120             # then the server is killed, with what it started
+# # A tool whose name has any of these in it is never offered: they run
+# # whatever code they are handed, on this machine. Replaces the default list.
+# deny = ["run_code", "exec", "eval", "shell", "terminal", "run_command", "spawn", "unsafe"]
+# # Variables from this environment a server may have, by its registry name.
+# # Only those it declares are given, and only to it. A server that needs a
+# # secret nobody gave it is not installed, and she is told why.
+# [tools.env]
+# "io.github.acme/slack" = ["SLACK_TOKEN"]
+
+# A server you give her, beside what she installs. She cannot uninstall it.
+# [[mcp]]
+# name = "notes"
+# description = "Her notebook."
+# command = "/usr/local/bin/notes-mcp"
+# args = ["--stdio"]
+# env = ["NOTES_TOKEN"]            # passed from this environment by name
+# [[mcp]]
+# name = "weather"
+# url = "https://weather.example.com/mcp"
+
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"

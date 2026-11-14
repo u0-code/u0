@@ -383,16 +383,24 @@ impl Mind {
         let words = self.prompts.for_work();
         let shared = words.clone().shared();
         // What she works with, for this and for any part of it she hands
-        // to a helper: her machine if she has one, and the web.
+        // to a helper: her machine if she has one, the web, and servers of
+        // tools to find, install and load, each sitting loading its own.
         let equip: ghost_work::worker::ToolsFor = {
             let (machine, web) = (self.workshop.machine.clone(), self.workshop.web.clone());
+            let servers = self.workshop.servers.clone();
             let words = shared.clone();
             Arc::new(move |undertaking| {
                 let tools = match &machine {
                     Some(machine) => tools::standard(machine.clone(), undertaking, &words),
                     None => tools::desk(undertaking, &words),
                 };
-                tools::with_web(tools, &web)
+                let tools = tools::with_web(tools, &web);
+                match &servers {
+                    Some(servers) => {
+                        tools::with_servers(tools, servers, &tools::Loaded::default(), true)
+                    }
+                    None => tools,
+                }
             })
         };
         // What she keeps while she works is hers to have again, and so is

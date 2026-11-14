@@ -1055,6 +1055,12 @@ impl Worker {
                     .run_calls(&tools, &shown.words, &calls, &mut items)
                     .await;
                 logged = ran;
+                // A tool may have brought others, as `load_tools` does:
+                // they are offered from the next step on.
+                if tools.names().len() != shown.specs.len() {
+                    shown = self.shown(&tools, shown.words.clone());
+                    gauge.fixed = shown.weight();
+                }
                 if !signature.is_empty() && signature == last_signature {
                     repeats += 1;
                     if repeats == 2 {

@@ -40,6 +40,12 @@ pub struct Config {
     /// in the environment win over it, a part at a time: see `ghost_net`.
     #[serde(default)]
     pub network: ghost_net::Setting,
+    /// How she finds and runs servers of tools.
+    #[serde(default)]
+    pub tools: ghost_work::servers::Config,
+    /// Servers of tools whoever runs her gives her, one `[[mcp]]` each.
+    #[serde(default)]
+    pub mcp: Vec<ghost_work::servers::Configured>,
 }
 
 #[derive(Debug, Deserialize)]

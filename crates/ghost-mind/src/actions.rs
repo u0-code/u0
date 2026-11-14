@@ -326,6 +326,15 @@ pub fn tools(words: &Prompts, offer: &Offer) -> Vec<ToolSpec> {
         }
         tools.push(spec);
     }
+    // What a tool brought with it, such as the tools of a server she
+    // loaded, is in no catalog: it comes after everything that is.
+    tools.extend(
+        offer
+            .reaching
+            .iter()
+            .filter(|t| catalog::find(&t.name).is_none())
+            .cloned(),
+    );
     tools
 }
 

@@ -15,7 +15,9 @@
 //! the work is for, telling them as it goes, handing out parts, waiting on
 //! them and writing a handoff only mean something inside a piece of work.
 //! Steering and stopping belong to both: in a conversation they act on her
-//! work, and at work on its parts.
+//! work, and at work on its parts. Finding and installing tools belong to
+//! work, since installing takes time and is something she sets out to do;
+//! loading what she has belongs to both, as the web does.
 
 use crate::prompts::Loop;
 
@@ -45,6 +47,10 @@ pub enum Need {
     Helpers,
     /// A place where several people talk, not all of it to her.
     Group,
+    /// A registry to find servers of tools in, and leave to install them.
+    Registry,
+    /// Servers of tools she has, to load.
+    Servers,
 }
 
 /// One tool: its name, the loops it belongs to, and what it needs.
@@ -94,6 +100,10 @@ pub const TOOLS: &[Entry] = &[
     entry("read", BOTH, &[Need::Machine]),
     entry("write", BOTH, &[Need::Machine]),
     entry("edit", BOTH, &[Need::Machine]),
+    entry("load_tools", BOTH, &[Need::Servers]),
+    entry("find_tools", WORK, &[Need::Registry]),
+    entry("install", WORK, &[Need::Registry]),
+    entry("uninstall", WORK, &[Need::Registry]),
     entry("undertake", TALK, &[Need::Work]),
     entry("steer", BOTH, &[Need::UnderWay]),
     entry("stop", BOTH, &[Need::UnderWay]),

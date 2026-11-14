@@ -275,7 +275,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let prompts = Prompts::load(dir, cfg.mind.prompts.as_deref());
     say_overrides(&prompts);
     say_stale(&prompts);
-    let workshop = workshop(&cfg.mind.work, dir)?;
+    let workshop = workshop(&cfg, dir)?;
     if cfg.mind.work.enabled {
         info!(
             "work: {}, {}",
@@ -711,11 +711,9 @@ fn update_prompts(dir: &Path, looked_at: &[String]) -> anyhow::Result<()> {
 }
 
 /// What she has to work with, from `[mind.work]`.
-fn workshop(
-    cfg: &ghost_mind::WorkConfig,
-    ghost_dir: &Path,
-) -> anyhow::Result<ghost_mind::Workshop> {
+fn workshop(config: &Config, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Workshop> {
     use ghost_work::{Docker, Local, Machine, tools::WebConfig};
+    let cfg = &config.mind.work;
     let machine: Option<Arc<dyn Machine>> = match cfg.machine.as_deref().map(str::trim) {
         None | Some("" | "none") => None,
         Some(spec) => match spec.split_once(':') {
@@ -784,7 +782,26 @@ fn workshop(
         },
         runner,
         runner_args,
+        servers: servers(config, ghost_dir)?,
     })
+}
+
+/// Her servers of tools, kept under `tools/` in her directory, if she may
+/// install any or has been given any.
+fn servers(
+    config: &Config,
+    ghost_dir: &Path,
+) -> anyhow::Result<Option<Arc<ghost_work::servers::Servers>>> {
+    if !config.tools.enabled && config.mcp.is_empty() {
+        return Ok(None);
+    }
+    // Absolute: each server runs with its own folder as its home.
+    let dir = ghost_dir.canonicalize()?.join("tools");
+    Ok(Some(ghost_work::servers::Servers::new(
+        config.tools.clone(),
+        dir,
+        config.mcp.clone(),
+    )))
 }
 
 /// Say what this machine could think with, as configuration to paste.

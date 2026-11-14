@@ -93,6 +93,9 @@ pub struct Workshop {
     /// The arguments that tell `ghost-work` about the same machine and web
     /// access as above.
     pub runner_args: Vec<String>,
+    /// Servers of tools: those she installs from the registry, and those
+    /// whoever runs her body gives her. `None` is none of either.
+    pub servers: Option<Arc<ghost_work::servers::Servers>>,
 }
 
 /// Something an observer can ask a running mind.
@@ -479,6 +482,11 @@ impl Mind {
         }
         // Settle whether she is awake before anything else can happen.
         self.live(now)?;
+        // Whatever servers of tools she installed are still hers. None is
+        // started until she loads it.
+        if let Some(servers) = &self.workshop.servers {
+            servers.know(self.ghost.memory().installed()?);
+        }
         // Whatever she had taken on is still hers.
         if self.can_work() && !self.ghost.memory().undertakings(true, 1)?.is_empty() {
             self.agenda.work = Some(now + Duration::minutes(1));
@@ -487,6 +495,23 @@ impl Mind {
         // if that has passed while her body was not running.
         self.agenda.report = self.report_time(now, 0);
         self.refresh_intentions()
+    }
+
+    /// Put in her journal what happened to her servers of tools since the
+    /// last look: what she installed at work, and what is gone and why.
+    /// They happen in whatever loop used them; only she writes them down,
+    /// at every moment of her day and as each job comes back, so a sitting
+    /// that installs something has it on the record within one glance.
+    fn servers_changed(&mut self) -> Result<()> {
+        let changes = match &self.workshop.servers {
+            Some(servers) => servers.take_changes(),
+            None => return Ok(()),
+        };
+        for event in changes {
+            info!("tools: {}", event.kind());
+            self.record(event)?;
+        }
+        Ok(())
     }
 
     fn on_signal(&mut self, signal: Signal, now: DateTime<Utc>) -> Result<()> {
@@ -531,6 +556,7 @@ impl Mind {
 
     fn on_time(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.prompts.refresh(now);
+        self.servers_changed()?;
         let due = |at: Option<DateTime<Utc>>| at.is_some_and(|at| at <= now);
         if due(self.agenda.life) {
             self.live(now)?;
@@ -573,6 +599,7 @@ impl Mind {
 
     fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
         self.prompts.refresh(now);
+        self.servers_changed()?;
         match outcome {
             Outcome::Thought { job, result } => self.on_thought(*job, result, now),
             Outcome::Sent {

@@ -7,6 +7,7 @@
 
 mod files;
 mod record;
+mod servers;
 mod shell;
 mod web;
 
@@ -15,6 +16,7 @@ use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 pub use files::{Edit, Read, Write};
 pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
 pub(crate) use record::{list, outcome_of, step_number};
+pub use servers::{FindTools, Install, LoadTools, Loaded, Uninstall};
 pub use shell::Shell;
 pub use web::{Fetch, Search, Source, WebConfig};
 
@@ -170,6 +172,32 @@ pub fn with_web(tools: Toolbox, config: &WebConfig) -> Toolbox {
         None => tools,
     };
     tools.with(Fetch::new(config.reader_key.clone()))
+}
+
+/// Add servers of tools to a toolbox. At work, with `installing`, that is
+/// `find_tools`, `install` and `uninstall`; anywhere, `load_tools`, which
+/// brings the tools of whatever is loaded in `loaded`. In a conversation
+/// `load_tools` is only there when she has a server to load.
+#[must_use]
+pub fn with_servers(
+    tools: Toolbox,
+    servers: &Arc<crate::servers::Servers>,
+    loaded: &Loaded,
+    installing: bool,
+) -> Toolbox {
+    let tools = if installing && servers.installs() {
+        tools
+            .with(FindTools::new(servers.clone()))
+            .with(Install::new(servers.clone()))
+            .with(Uninstall::new(servers.clone()))
+    } else {
+        tools
+    };
+    if installing || servers.any() {
+        tools.with(LoadTools::new(servers.clone(), loaded.clone()))
+    } else {
+        tools
+    }
 }
 
 /// The tools that reach beyond a conversation, for a conversation, in the

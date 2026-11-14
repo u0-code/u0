@@ -48,6 +48,25 @@ What makes it hold up over hours:
 - Talking without acting, repeating a call, and running low on steps are each
   said out loud to the model.
 
+## Servers of tools
+
+A ghost gets more tools the way a person gets an app: `find_tools` searches
+the [MCP registry](https://registry.modelcontextprotocol.io), `install`
+installs a server from it, `uninstall` takes one out, and `load_tools` makes
+one server's tools callable as `<server>__<tool>` for the rest of a sitting
+or a look at a conversation, so that tools nobody is using cost nothing.
+Nobody approves an install; what keeps a server in its place is checked in
+`src/servers/`: only the current listing of a name, a GitHub namespace only
+with its owner's repository, exact versions with no install scripts, an
+environment holding nothing but what it was given by name, https remotes on
+the public internet only, bounded tool lists with nothing that runs
+arbitrary code, a kill of the whole process group when a call runs over, and
+a hash that puts a server aside when it starts describing its tools
+differently from the day it was installed. The protocol is spoken by
+[`rmcp`](https://crates.io/crates/rmcp), behind `src/servers/client.rs`.
+Installs are recorded in the ghost's journal by `ghost-mind`, and a command-
+line agent stepping the work does not get these tools.
+
 ## Run one
 
 ```bash
