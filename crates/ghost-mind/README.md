@@ -7,7 +7,11 @@ will look at each place with something unread, hands a look to a brain, turns
 the actions that come back into journal entries, delivers what she says at the
 pace a person types, plans and lives her day, pursues her own intentions,
 scrolls feeds, and works on what she has taken on, a sitting at a time. The
-prompts it uses are data, in [`prompts/`](prompts/).
+prompts it uses are data, in [`prompts/`](prompts/): whole templates as
+Markdown, the short framings, nudges and refusals in `texts.toml`, and what
+each tool is said to do in `tools.toml`. They are built in only as the last
+resort; a file of the same name in her own `prompts/`, or in the configured
+directory, is used instead, and taken in again when it changes.
 
 What it adds to a look at a conversation, so that she is one person and not
 one per platform: the rest of her day (what she has taken on, what has been

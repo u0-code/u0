@@ -42,9 +42,6 @@ const LOOKED_UP: usize = 3000;
 /// piece of her past.
 const PAST_SCAN: usize = 3;
 
-const NOT_SENT: &str = "You wrote that as a private thought, so nothing was sent and nothing was done. \
-If you meant to say it, call `say`. If you meant to stay silent, call nothing again.";
-
 /// One look at a place, from start to finish.
 pub(super) struct Thinking {
     pub place: String,
@@ -389,6 +386,7 @@ impl Mind {
                 system,
                 items: job.items.clone(),
                 tools: actions::tools(
+                    &self.prompts,
                     self.work_means(),
                     self.can_look_up(),
                     self.can(&place.channel, Can::Files),
@@ -504,13 +502,16 @@ impl Mind {
         }
 
         let addressed = match (place.kind, place.unread_addressed > 0) {
-            (PlaceKind::Direct, _) => {
-                "This is a private conversation. Whatever is new was written to you.".to_owned()
-            }
-            (_, true) => "Someone here addressed you directly.".to_owned(),
-            (_, false) => format!(
-                "Nobody addressed you. In a shared space the normal thing is to say nothing unless you actually have something to add. You have spoken here {} time(s) in the last hour.",
-                memory.said_since(&place.key, now - Duration::hours(1))?
+            (PlaceKind::Direct, _) => self.prompts.text("addressed_direct").to_owned(),
+            (_, true) => self.prompts.text("addressed_you").to_owned(),
+            (_, false) => self.prompts.fill(
+                "addressed_nobody",
+                &[(
+                    "said",
+                    memory
+                        .said_since(&place.key, now - Duration::hours(1))?
+                        .to_string(),
+                )],
             ),
         };
         let why = match &job.why {
@@ -518,16 +519,15 @@ impl Mind {
                 1 => "There is 1 new message here since you last looked.".to_owned(),
                 n => format!("There are {n} new messages here since you last looked."),
             },
-            Why::Intention(intention) => format!(
-                "Nobody just wrote. Earlier you told yourself: \"{}\". The time you set has come. Decide whether to do it now, and how. If the moment has passed, let it go.",
-                intention.what
-            ),
+            Why::Intention(intention) => self
+                .prompts
+                .fill("intention_due", &[("what", intention.what.clone())]),
         };
-        let recalled = job
-            .recalled
-            .as_deref()
-            .map(|r| format!("\n# What you remember\n\n{r}\n"))
-            .unwrap_or_default();
+        let recalled = self.prompts.section(
+            "recalled",
+            "recalled",
+            job.recalled.as_deref().unwrap_or_default(),
+        );
 
         // The pieces of her past that the last few messages touch, and only
         // those: what is in front of her every time is what she talks about.
@@ -545,14 +545,9 @@ impl Mind {
             .iter()
             .filter(|p| p.touched_by(&recent))
             .collect();
-        let brought_back = if touched.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "\nSomething said here touches your past. You know this; whether it comes up is up to you, and usually it does not:\n{}\n",
-                narrate::past(&touched)
-            )
-        };
+        let brought_back = self
+            .prompts
+            .section("past", "past", &narrate::past(&touched));
 
         let (who, right_now) = self.portrait_on(now, Some(&place.channel))?;
         let reply = if with_tools {
@@ -610,36 +605,52 @@ impl Mind {
     }
 
     pub(super) fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {
+        let channel = ("channel", place.channel.clone());
         let mut out = match place.kind {
-            PlaceKind::Direct => format!(
-                "{}: a private conversation with {}.",
-                place.channel,
-                people.first().map_or("someone", |p| p.name.as_str())
+            PlaceKind::Direct => self.prompts.fill(
+                "place_direct",
+                &[
+                    channel,
+                    (
+                        "who",
+                        people
+                            .first()
+                            .map_or("someone", |p| p.name.as_str())
+                            .to_owned(),
+                    ),
+                ],
             ),
-            PlaceKind::Group => format!(
-                "{}: the group chat {}. Several people are here, and not everything said is meant for you.",
-                place.channel,
-                place
-                    .name
-                    .as_deref()
-                    .map_or_else(|| "(unnamed)".to_owned(), |n| format!("\"{n}\""))
+            PlaceKind::Group => self.prompts.fill(
+                "place_group",
+                &[
+                    channel,
+                    (
+                        "name",
+                        place
+                            .name
+                            .as_deref()
+                            .map_or_else(|| "(unnamed)".to_owned(), |n| format!("\"{n}\"")),
+                    ),
+                ],
             ),
-            PlaceKind::Public => format!(
-                "{}: a public thread. Anyone can read what is written here.",
-                place.channel
-            ),
+            PlaceKind::Public => self.prompts.fill("place_public", &[channel]),
         };
         if let Some(me) = self
             .channels
             .get(&place.channel)
             .and_then(|c| c.me.as_ref())
         {
-            out.push_str(&format!(
-                " You are {} here.",
-                me.handle
-                    .as_deref()
-                    .map_or_else(|| me.name.clone(), |h| format!("@{h}"))
-            ));
+            out.push_str(
+                &self.prompts.fill(
+                    "place_me",
+                    &[(
+                        "me",
+                        me.handle
+                            .as_deref()
+                            .map_or_else(|| me.name.clone(), |h| format!("@{h}")),
+                    )],
+                ),
+            );
         }
         out
     }
@@ -735,13 +746,13 @@ impl Mind {
     }
 
     /// What taking things on would be done with, if she can at all.
-    fn work_means(&self) -> Option<&'static str> {
+    pub(super) fn work_means(&self) -> Option<&str> {
         self.can_work().then(|| {
-            if self.workshop.machine.is_some() {
-                "at your computer"
+            self.prompts.text(if self.workshop.machine.is_some() {
+                "means_machine"
             } else {
-                "by looking things up and thinking them through"
-            }
+                "means_desk"
+            })
         })
     }
 
@@ -779,7 +790,7 @@ impl Mind {
                 && job.round < TALK_STEPS
             {
                 job.nudged = true;
-                job.items.push(Item::user(NOT_SENT));
+                job.items.push(Item::user(self.prompts.text("not_sent")));
                 return self.ponder(job, place, now);
             }
             return self.conclude(job, place, now);
@@ -807,7 +818,7 @@ impl Mind {
                         continue;
                     }
                     again = true;
-                    ("You have no way to look that up here.".to_owned(), true)
+                    (self.prompts.text("no_look_up").to_owned(), true)
                 }
                 // Told at once when it cannot be done, so that she can
                 // put it right, as with a call she got wrong.

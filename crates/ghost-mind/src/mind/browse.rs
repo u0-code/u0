@@ -60,7 +60,7 @@ impl Mind {
         self.measure_if_due(&channel, now)?;
         let posted = self.posted_today(now)?;
         let allowance = if posted >= self.cfg.posts_per_day as usize {
-            "That is enough for one day; do not post again today."
+            self.prompts.text("posted_enough")
         } else {
             ""
         };
@@ -72,19 +72,16 @@ impl Mind {
             ("actions", self.scrolling_actions()),
             (
                 "standing",
-                Some(self.standing_lines(&channel, now)?)
-                    .filter(|lines| !lines.is_empty())
-                    .map_or_else(String::new, |lines| {
-                        format!("\nHow what you posted here has done:\n{lines}\n")
-                    }),
+                self.prompts.section(
+                    "browse_standing",
+                    "standing",
+                    &self.standing_lines(&channel, now)?,
+                ),
             ),
             (
                 "craft",
-                Some(self.craft_lines()?)
-                    .filter(|lines| !lines.is_empty())
-                    .map_or_else(String::new, |lines| {
-                        format!("\nWhat you have learned about posting:\n{lines}\n")
-                    }),
+                self.prompts
+                    .section("browse_craft", "craft", &self.craft_lines()?),
             ),
         ];
         let (system, right_now) = self.portrait_on(now, Some(&channel))?;
@@ -172,14 +169,10 @@ impl Mind {
     fn scrolling_actions(&self) -> String {
         let mut out = String::new();
         if self.cfg.public_likes {
-            out.push_str(
-                "- {\"do\":\"react\",\"to\":<i number>,\"emoji\":\"❤\"}\n  Like a post.\n",
-            );
+            out.push_str(self.prompts.text("scroll_like"));
         }
         if self.cfg.public_replies {
-            out.push_str(
-                "- {\"do\":\"say\",\"reply_to\":<i number>,\"text\":\"...\"}\n  Reply publicly to a post. Rare.\n",
-            );
+            out.push_str(self.prompts.text("scroll_reply"));
         }
         out
     }

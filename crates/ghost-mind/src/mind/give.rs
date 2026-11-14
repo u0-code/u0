@@ -32,18 +32,17 @@ impl Mind {
         message: Option<i64>,
         image: Option<i64>,
     ) -> Result<std::result::Result<Gift, String>> {
+        // Each reason she cannot is followed by what did not happen.
+        let refused = |why: String| self.prompts.fill("nothing_sent", &[("why", why)]);
         if let Some(message) = message {
             return Ok(self
                 .seen_here(place, message, image)?
                 .map(|(file, what)| Gift::Image { file, what })
-                .map_err(|why| format!("{why} Nothing was sent.")));
+                .map_err(refused));
         }
         let wanted = file.map(str::trim).unwrap_or_default();
         if wanted.is_empty() {
-            return Ok(Err(
-                "Say what to hand over: `file` for something you kept or made, or `message` for an image here. Nothing was sent."
-                    .into(),
-            ));
+            return Ok(Err(refused(self.prompts.text("send_what").to_owned())));
         }
         let memory = self.ghost.memory();
         // Something she kept, by the number recall shows it with, or by the
@@ -52,8 +51,9 @@ impl Mind {
             Some(seq) => match memory.belonging(seq)? {
                 Some(held) => Some(held),
                 None => {
-                    return Ok(Err(format!(
-                        "You hold nothing numbered {seq}. Nothing was sent."
+                    return Ok(Err(refused(
+                        self.prompts
+                            .fill("hold_nothing", &[("thing", seq.to_string())]),
                     )));
                 }
             },
@@ -61,9 +61,8 @@ impl Mind {
         };
         if let Some(held) = held {
             if media::path(self.ghost.dir(), &held.file).is_none() {
-                return Ok(Err(format!(
-                    "You kept {} but it is no longer on disk, so it cannot be sent. Nothing was sent.",
-                    held.file
+                return Ok(Err(refused(
+                    self.prompts.fill("kept_gone", &[("file", held.file)]),
                 )));
             }
             return Ok(Ok(Gift::Image {
@@ -82,10 +81,9 @@ impl Mind {
         });
         Ok(match made {
             Some(path) => Ok(Gift::Made { path }),
-            None => Err(format!(
-                "You have nothing called {wanted} to hand over here. What you can send is something you kept, \
-                 by its number or file name as recall showed it; an image in a message here, by its m number; \
-                 or a file you made for the people here, by its name. Nothing was sent."
+            None => Err(refused(
+                self.prompts
+                    .fill("nothing_called", &[("wanted", wanted.to_owned())]),
             )),
         })
     }

@@ -3050,3 +3050,45 @@ async fn send_file_is_offered_with_no_machine_where_the_presence_can_take_files(
     rig.until(|r| r.think.calls() == 1).await;
     assert!(rig.think.last_prompt().contains(r#""do":"send_file""#));
 }
+
+#[tokio::test]
+async fn a_tool_described_anew_in_her_prompts_reaches_the_brain_without_a_restart() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    // Her prompts are looked for in her own directory, as a daemon does.
+    rig.mind.prompts = Prompts::load(rig.mind.ghost.dir(), None);
+    let say = |rig: &Rig, turn: usize| {
+        rig.think.turns.lock().unwrap()[turn]
+            .tools
+            .iter()
+            .find(|t| t.name == "say")
+            .cloned()
+            .unwrap()
+    };
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let shipped = Prompts::shipped();
+    assert_eq!(say(&rig, 0).description, shipped.tool("say"));
+
+    // While she runs, someone describes `say` differently.
+    let dir = rig.mind.ghost.dir().join(crate::prompts::DIR);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("tools.toml"),
+        "[say]\ndescription = \"Say one thing.\"\n\n[say.parameters]\ntext = \"What you say.\"\n",
+    )
+    .unwrap();
+    rig.hear(dm("wen", "2", "you there?"), t0 + Duration::minutes(30));
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 2)
+        .await;
+    let now = say(&rig, 1);
+    assert_eq!(now.description, "Say one thing.");
+    let described = |argument: &str| now.parameters["properties"][argument]["description"].clone();
+    assert_eq!(described("text"), "What you say.");
+    // What the file does not mention keeps its built-in words.
+    assert_eq!(
+        described("reply_to"),
+        shipped.parameter("say", "reply_to").unwrap()
+    );
+}

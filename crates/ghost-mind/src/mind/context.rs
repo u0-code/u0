@@ -147,11 +147,8 @@ impl Mind {
             match u.outcome.as_deref() {
                 None => {
                     let state = if let Some(question) = &u.waiting {
-                        format!(
-                            "You stopped to ask them: \"{}\". It waits for their answer. When they give one, \
-                             take it on again with just the answer, so that it reaches the work.",
-                            clip(question, 200)
-                        )
+                        self.prompts
+                            .fill("waiting_answer", &[("question", clip(question, 200))])
                     } else if self.working.as_ref().is_some_and(|w| w.id == u.id) {
                         "You were in the middle of it just now.".to_owned()
                     } else if u.sittings == 0 {
@@ -201,14 +198,9 @@ impl Mind {
             ));
         }
 
-        if lines.is_empty() {
-            return Ok(String::new());
-        }
-        Ok(format!(
-            "# The rest of your day\n\n{}\n\nThose are other conversations and your own business. \
-             What someone told you in private is not repeated here, and you do not let on that you know it.\n\n",
-            lines.join("\n")
-        ))
+        Ok(self
+            .prompts
+            .section("elsewhere", "lines", &lines.join("\n")))
     }
 
     /// The messages she has in front of her in a place, as the stretch of
@@ -290,30 +282,15 @@ impl Mind {
     /// says whether the place she is looking at can take a file.
     pub(super) fn abilities(&self, files: bool) -> String {
         let mut abilities = String::new();
-        if self.can_work() {
-            let means = if self.workshop.machine.is_some() {
-                "at your computer"
-            } else {
-                "by looking things up and thinking them through"
-            };
-            abilities.push_str(&format!(
-                "- {{\"do\":\"undertake\",\"brief\":\"...\",\"for\":\"<name>\"}}\n  \
-                 Take on something that needs real work {means}: finding something out properly, making something, checking something. \
-                 It is not done in this reply. You will work on it in your own time and come back with what you found. \
-                 Write the brief as a complete instruction to yourself, with everything needed to do it without this conversation in front of you. \
-                 If you have already taken something on for them and they add to it or change it, use this again with just what is new: it is added to what you are doing. \
-                 Leave out \"for\" when it is for yourself. Only for things you want to do or have agreed to do: nobody is owed your afternoon. \
-                 Say something as well, the way you would.\n"
-            ));
+        if let Some(means) = self.work_means() {
+            abilities.push_str(
+                &self
+                    .prompts
+                    .fill("ability_undertake", &[("means", means.to_owned())]),
+            );
         }
         if files {
-            abilities.push_str(
-                "- {\"do\":\"send_file\",\"file\":\"...\",\"text\":\"...\"} or {\"do\":\"send_file\",\"message\":<m number>,\"image\":<n>}\n  \
-                 Hand over a file or an image you have: something you kept, by its number or file name as recall showed it; \
-                 an image in a message here, by its m number (\"image\" counts from 1 and can be left out for the first); \
-                 or a file you made, as it was named to you. It arrives as itself, not as words about it, so they see what you see. \
-                 It can go on its own, without words, the way people sometimes answer with just a picture; leave out \"text\" then.\n",
-            );
+            abilities.push_str(self.prompts.text("ability_send_file"));
         }
         abilities
     }
