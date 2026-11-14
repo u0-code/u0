@@ -19,6 +19,9 @@ pub struct Incoming {
     pub reply_to: Option<String>,
     /// Meant for her: a direct message, a mention, or a reply to her.
     pub addressed: bool,
+    /// Links to the images in it, in the order of their `[image]`
+    /// placeholders in `text`.
+    pub images: Vec<String>,
 }
 
 /// What a channel is able to do.

@@ -120,6 +120,7 @@ impl Term {
             text: text.to_owned(),
             reply_to: None,
             addressed: self.group.is_none() || text.contains('@'),
+            images: Vec::new(),
         }
     }
 }

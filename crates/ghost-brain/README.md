@@ -15,6 +15,12 @@ tool: the loop that does lives in `ghost-work`.
 | `claude-code` | the `claude` CLI in headless (`-p`) mode   | whatever `claude` is logged in as | no: it is a `CliAgent` |
 | `codex`       | the `codex` CLI in `exec` mode             | whatever `codex` is logged in as | no: it is a `CliAgent` |
 
+A message can carry images (`Message::images`). A brain that can see
+(`Brain::sees`) is shown them: `openai` as `image_url` parts holding `data:`
+URLs, `anthropic` as base64 `image` blocks. Neither guesses from the model's
+name; a provider sees when its configuration says `vision = true`. The CLI
+relays never see, and read the text alone.
+
 A CLI cannot take one step at a time, but it brings a loop of its own.
 `Brain::cli` says how to start it, and `ghost-work` hands it a ghost's tools
 and lets it step through a piece of work itself.

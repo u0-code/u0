@@ -276,6 +276,7 @@ mod testing {
             text: text.into(),
             reply_to: None,
             addressed,
+            images: Vec::new(),
         }
     }
 
@@ -299,6 +300,7 @@ mod testing {
                 text,
                 reply_to,
                 addressed,
+                images,
                 ..
             } => Event::Heard {
                 channel: channel.into(),
@@ -308,6 +310,7 @@ mod testing {
                 text,
                 reply_to,
                 addressed,
+                images,
             },
             other => other,
         }

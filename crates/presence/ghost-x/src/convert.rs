@@ -89,6 +89,7 @@ pub fn posts(page: &Value, me: &str, addressed: bool) -> Vec<Inbound> {
                 text: text.to_owned(),
                 reply_to,
                 addressed,
+                images: Vec::new(),
             })
         })
         .collect();
@@ -125,6 +126,7 @@ pub fn direct_messages(page: &Value, me: &str) -> Vec<Inbound> {
                 text: text.to_owned(),
                 reply_to: None,
                 addressed: true,
+                images: Vec::new(),
             })
         })
         .collect();

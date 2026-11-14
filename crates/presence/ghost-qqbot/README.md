@@ -40,7 +40,8 @@ conversations anyway.
 | typing indicator | not used |
 | reactions | no; the API has none |
 | quoting a message | not carried; QQ quotes by an index of its own, not by message id |
-| images, video, files | she sees that one was sent (`[image]`), not its content |
+| images | she sees what is in them, the words in them and, for a meme or a sticker, what it means, when her brain can see (`vision = true`); otherwise only that one was sent (`[image]`). The image's link is handed to the daemon, which fetches and keeps it |
+| video, files | she sees that one was sent (`[video]`, `[file]`), not its content |
 | voice messages | she sees QQ's transcript, `[voice message: …]`, when it gives one |
 | names | QQ gives no names in private chats; the sender is `qq-` and the start of their id |
 

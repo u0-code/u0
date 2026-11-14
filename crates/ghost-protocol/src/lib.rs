@@ -306,6 +306,21 @@ pub struct Inbound {
     /// It was meant for her: a direct message, a mention, a reply to her.
     #[serde(default)]
     pub addressed: bool,
+    /// The images in the message, in the order their `[image]` placeholders
+    /// appear in `text`. The text keeps the placeholders, so a daemon that
+    /// cannot look at an image still knows one was sent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Image>,
+}
+
+/// An image in a message, where the channel keeps it. A platform's links
+/// expire, so a daemon that wants the image fetches it soon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Image {
+    pub url: String,
+    /// The type the channel says it is, e.g. `image/png`, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
 }
 
 /// Someone is typing.
@@ -486,5 +501,21 @@ mod tests {
         )
         .unwrap();
         assert!(!m.addressed && !m.from.automated && m.reply_to.is_none());
+        assert!(m.images.is_empty());
+    }
+
+    #[test]
+    fn images_ride_along_only_when_there_are_some() {
+        let mut m: Inbound = serde_json::from_str(
+            r#"{"place":{"id":"1","kind":"direct"},"from":{"id":"u","name":"U"},"id":"9","text":"[image]"}"#,
+        )
+        .unwrap();
+        assert!(!serde_json::to_string(&m).unwrap().contains("images"));
+        m.images.push(Image {
+            url: "https://example.invalid/a.png".into(),
+            mime: Some("image/png".into()),
+        });
+        let back: Inbound = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert_eq!(back, m);
     }
 }

@@ -53,6 +53,7 @@ struct Script {
     steps: Mutex<VecDeque<ghost_brain::Step>>,
     turns: Mutex<Vec<ghost_brain::Turn>>,
     hands: std::sync::atomic::AtomicBool,
+    eyes: std::sync::atomic::AtomicBool,
 }
 
 impl Script {
@@ -62,6 +63,11 @@ impl Script {
 
     fn calls(&self) -> usize {
         self.seen.lock().unwrap().len()
+    }
+
+    /// Give it eyes: it is shown the images in what it is sent.
+    fn see(&self) {
+        self.eyes.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Queue one step of work: a call to a tool.
@@ -136,6 +142,10 @@ impl Brain for Script {
 
     fn works(&self) -> bool {
         self.hands.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn sees(&self) -> bool {
+        self.eyes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn step(&self, turn: &ghost_brain::Turn) -> ghost_brain::Result<ghost_brain::Step> {
@@ -241,6 +251,7 @@ fn dm(from: &str, id: &str, text: &str) -> Incoming {
         text: text.into(),
         reply_to: None,
         addressed: true,
+        images: Vec::new(),
     }
 }
 
@@ -843,6 +854,7 @@ fn group(place: &str, from: &str, id: &str, text: &str, addressed: bool) -> Inco
         text: text.into(),
         reply_to: None,
         addressed,
+        images: Vec::new(),
     }
 }
 
@@ -1716,6 +1728,7 @@ fn befriend(rig: &mut Rig, who: &str, before: DateTime<Utc>) {
                     text: m.text,
                     reply_to: None,
                     addressed: true,
+                    images: Vec::new(),
                 },
             )
             .unwrap();
@@ -2323,4 +2336,180 @@ async fn her_past_comes_up_only_when_the_conversation_touches_it() {
     rig.until(|r| r.body.sent().len() == 2).await;
     let seen = rig.think.seen.lock().unwrap();
     assert!(format!("{:?}", seen.last().unwrap().messages).contains(grandmother));
+}
+
+/// The smallest PNG there is: one transparent pixel.
+const PIXEL: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89\0\0\0\nIDATx\x9cc\0\x01\0\0\x05\0\x01\r\n-\xb4\0\0\0\0IEND\xaeB`\x82";
+
+/// A server on this machine that answers every request with `body`, as
+/// `kind`. Returns its address and how many requests it has had.
+async fn image_host(
+    kind: &'static str,
+    body: &'static [u8],
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = hits.clone();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(body).await;
+        }
+    });
+    (format!("http://{addr}/sticker"), hits)
+}
+
+/// A private message holding one image and nothing else.
+fn picture_from(from: &str, id: &str, url: &str) -> Incoming {
+    let mut m = dm(from, id, "[image]");
+    m.images = vec![url.to_owned()];
+    m
+}
+
+fn viewed(rig: &Rig) -> Vec<(i64, u32, String, Option<String>)> {
+    rig.mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["viewed"], 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            Event::Viewed {
+                message,
+                image,
+                what,
+                file,
+            } => Some((message, image, what, file)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn an_image_she_is_sent_is_described_once_and_she_sees_the_description() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.tick.see();
+    let (url, hits) = image_host("image/png", PIXEL).await;
+    rig.tick
+        .then("A cartoon cat lying flat on the floor, captioned 躺平. People send it to say they have given up, half joking.");
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"same"}]}"#);
+    rig.hear(picture_from("wen", "1", &url), t0);
+    // She glances at it as it comes in, before she has read the conversation.
+    rig.pump(t0).await;
+    assert_eq!(rig.think.calls(), 0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    // Looked at once, by the brain that sees, with the image itself.
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(rig.tick.calls(), 1);
+    {
+        let seen = rig.tick.seen.lock().unwrap();
+        let shown = &seen[0].messages[0].images;
+        assert_eq!(shown.len(), 1);
+        assert_eq!(
+            (shown[0].mime.as_str(), &shown[0].bytes[..]),
+            ("image/png", PIXEL)
+        );
+    }
+    let heard = rig
+        .mind
+        .ghost
+        .journal()
+        .last_of(&["heard"])
+        .unwrap()
+        .unwrap();
+    assert!(matches!(&heard.event, Event::Heard { images, .. } if *images == [url.clone()]));
+    let views = viewed(&rig);
+    assert_eq!(views.len(), 1);
+    let (message, image, what, file) = &views[0];
+    assert_eq!((*message, *image), (heard.seq, 0));
+    assert!(what.contains("躺平"));
+
+    // The bytes are kept under her directory, named by what they are.
+    let file = file.as_deref().expect("the image was kept");
+    assert_eq!(file, ghost_core::media::name(PIXEL, "image/png"));
+    let kept = rig.mind.ghost.dir().join("media").join(file);
+    assert_eq!(std::fs::read(kept).unwrap(), PIXEL);
+
+    // When she read the conversation, she read what the image was.
+    let prompt = format!("{:?}", rig.think.seen.lock().unwrap()[0].messages);
+    assert!(
+        prompt.contains("[image: A cartoon cat lying flat on the floor, captioned 躺平."),
+        "{prompt}"
+    );
+}
+
+#[tokio::test]
+async fn a_brain_that_cannot_see_leaves_the_placeholder_and_fetches_nothing() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let (url, hits) = image_host("image/png", PIXEL).await;
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"?"}]}"#);
+    rig.hear(picture_from("wen", "1", &url), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(rig.tick.calls(), 0);
+    assert!(viewed(&rig).is_empty());
+    let prompt = format!("{:?}", rig.think.seen.lock().unwrap()[0].messages);
+    assert!(
+        prompt.contains("[image]") && !prompt.contains("[image:"),
+        "{prompt}"
+    );
+}
+
+#[tokio::test]
+async fn a_link_that_does_not_hold_an_image_leaves_the_placeholder() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.tick.see();
+    let (url, hits) = image_host("text/html", b"<html>expired</html>").await;
+    rig.hear(picture_from("wen", "1", &url), t0);
+    rig.pump(t0).await;
+
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // Nothing to describe, so no brain was asked and nothing was written.
+    assert_eq!(rig.tick.calls(), 0);
+    assert!(viewed(&rig).is_empty());
+    assert_eq!(
+        rig.mind.ghost.memory().thread("t:wen", 1).unwrap()[0].text,
+        "[image]"
+    );
+    assert!(!rig.mind.ghost.dir().join("media").exists());
+}
+
+#[tokio::test]
+async fn looking_at_images_spends_from_the_hourly_budget() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(
+        MindConfig {
+            live: false,
+            browse_minutes: [0, 0],
+            calls_per_hour: 1,
+            ..MindConfig::default()
+        },
+        t0,
+    );
+    rig.tick.see();
+    let (url, hits) = image_host("image/png", PIXEL).await;
+    rig.tick.then("A single pixel.");
+    rig.hear(picture_from("wen", "1", &url), t0);
+    rig.pump(t0).await;
+    rig.hear(picture_from("mei", "2", &url), t0);
+    rig.pump(t0).await;
+    // The first image used the hour's one call; the second waits as `[image]`.
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(viewed(&rig).len(), 1);
 }

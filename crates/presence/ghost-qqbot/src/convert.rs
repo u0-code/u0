@@ -4,7 +4,7 @@
 //! a different one for each bot, and a group by its own; place ids here are
 //! `c2c:<user openid>` and `group:<group openid>`.
 
-use ghost_link::protocol::{Actor, Inbound, Place, PlaceKind};
+use ghost_link::protocol::{Actor, Image, Inbound, Place, PlaceKind};
 use serde_json::{Value, json};
 
 use crate::replies::Passive;
@@ -63,7 +63,7 @@ pub fn inbound(kind: &str, data: &Value) -> Option<Inbound> {
         }
         _ => return None,
     };
-    let body = body(data);
+    let (body, images) = body(data);
     if body.is_empty() {
         return None;
     }
@@ -81,6 +81,7 @@ pub fn inbound(kind: &str, data: &Value) -> Option<Inbound> {
         // QQ quotes by an index of its own, not by message id.
         reply_to: None,
         addressed,
+        images,
     })
 }
 
@@ -93,12 +94,23 @@ fn short(openid: &str) -> String {
     format!("qq-{}", openid.chars().take(6).collect::<String>())
 }
 
-/// The message as plain text, with what is not text named in brackets.
-fn body(data: &Value) -> String {
+/// The message as plain text, with what is not text named in brackets, and
+/// the images in it, in the order of their placeholders.
+fn body(data: &Value) -> (String, Vec<Image>) {
     let mut out = tags(data["content"].as_str().unwrap_or_default(), data);
+    let mut images = Vec::new();
     for attachment in data["attachments"].as_array().into_iter().flatten() {
         let kind = attachment["content_type"].as_str().unwrap_or_default();
         let piece = if kind.starts_with("image") {
+            // Every image is listed, link or not: the nth image is matched
+            // to the nth placeholder, so none may be skipped. One without a
+            // link gets an empty one, which nothing fetches.
+            images.push(Image {
+                url: text(&attachment["url"])
+                    .map(|u| https(&u))
+                    .unwrap_or_default(),
+                mime: kind.contains('/').then(|| kind.to_owned()),
+            });
             "[image]".to_owned()
         } else if kind == "voice" || kind.starts_with("audio") {
             // QQ transcribes voice messages; what it heard is worth more than
@@ -117,7 +129,17 @@ fn body(data: &Value) -> String {
         }
         out.push_str(&piece);
     }
-    out
+    (out, images)
+}
+
+/// QQ hands out some media links without a scheme
+/// (`multimedia.nt.qq.com.cn/...` or `//...`). They are served over HTTPS.
+fn https(url: &str) -> String {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        url.to_owned()
+    } else {
+        format!("https://{}", url.trim_start_matches('/'))
+    }
 }
 
 /// Replace QQ's inline tags: `<@openid>` and `<@!openid>` mentions become
@@ -223,6 +245,39 @@ mod tests {
             "@老王 那家面馆关了[emoji] [image] [voice message: 你知道吗]"
         );
         assert!(m.addressed);
+        assert_eq!(
+            m.images,
+            [Image {
+                url: "https://example.invalid/a.jpg".into(),
+                mime: Some("image/jpeg".into())
+            }]
+        );
+    }
+
+    #[test]
+    fn each_image_is_handed_on_with_a_link_that_has_a_scheme() {
+        let data = json!({
+            "id": "m-4", "content": "", "author": {"user_openid": "U1"},
+            "attachments": [
+                {"content_type": "image/gif", "url": "multimedia.nt.qq.com.cn/download?id=1"},
+                {"content_type": "file", "url": "https://example.invalid/f.zip"},
+                {"content_type": "image", "url": "//gchat.qpic.cn/x.png"},
+                {"content_type": "image/png", "url": "http://example.invalid/b.png"}
+            ]
+        });
+        let m = inbound("C2C_MESSAGE_CREATE", &data).unwrap();
+        assert_eq!(m.text, "[image] [file] [image] [image]");
+        let urls: Vec<&str> = m.images.iter().map(|i| i.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://multimedia.nt.qq.com.cn/download?id=1",
+                "https://gchat.qpic.cn/x.png",
+                "http://example.invalid/b.png"
+            ]
+        );
+        assert_eq!(m.images[0].mime.as_deref(), Some("image/gif"));
+        assert_eq!(m.images[1].mime, None, "a bare `image` says no type");
     }
 
     #[test]

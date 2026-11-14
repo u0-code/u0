@@ -75,6 +75,7 @@ pub fn inbound(event: &Value, me: &Me) -> Option<Inbound> {
         id: id(&event["message_id"])?,
         text: text.trim().to_owned(),
         reply_to,
+        images: Vec::new(),
     })
 }
 

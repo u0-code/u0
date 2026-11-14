@@ -16,6 +16,8 @@ pub struct Anthropic {
     model: String,
     base_url: String,
     window: Option<u64>,
+    /// The model takes images.
+    sees: bool,
 }
 
 impl Anthropic {
@@ -29,7 +31,15 @@ impl Anthropic {
                 .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned())
                 .trim_end_matches('/')
                 .to_owned(),
+            sees: false,
         }
+    }
+
+    /// Say whether the model takes images.
+    #[must_use]
+    pub fn with_vision(mut self, sees: bool) -> Self {
+        self.sees = sees;
+        self
     }
 
     /// Say how large this model's context window is, when it is not one
@@ -50,6 +60,36 @@ impl Anthropic {
         })
         .await
     }
+}
+
+/// A completion's messages in the wire format. A message with images, sent
+/// to a model that sees, is a list of blocks: each image, base64, then the
+/// text, the order Anthropic's guidance gives.
+fn chat(req: &Completion, sees: bool) -> Vec<Value> {
+    req.messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                Role::User => "user",
+                Role::Assistant => "assistant",
+            };
+            if !sees || m.images.is_empty() {
+                return json!({"role": role, "content": m.text});
+            }
+            let mut blocks: Vec<Value> = m
+                .images
+                .iter()
+                .map(|p| {
+                    json!({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": p.mime, "data": p.base64()},
+                    })
+                })
+                .collect();
+            blocks.push(json!({"type": "text", "text": m.text}));
+            json!({"role": role, "content": blocks})
+        })
+        .collect()
 }
 
 /// A working transcript in the wire format. Tool results are user turns, and
@@ -116,21 +156,11 @@ impl Brain for Anthropic {
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
-        let messages: Vec<Value> = req
-            .messages
-            .iter()
-            .map(|m| {
-                json!({
-                    "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                    "content": m.text,
-                })
-            })
-            .collect();
         let mut body = json!({
             "model": self.model,
             "max_tokens": req.max_tokens,
             "system": req.system,
-            "messages": messages,
+            "messages": chat(req, self.sees),
         });
         if let Some(t) = req.temperature {
             body["temperature"] = json!(t);
@@ -163,6 +193,10 @@ impl Brain for Anthropic {
 
     fn works(&self) -> bool {
         true
+    }
+
+    fn sees(&self) -> bool {
+        self.sees
     }
 
     fn window(&self) -> Option<u64> {
@@ -253,6 +287,27 @@ impl Brain for Anthropic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_image_goes_to_a_model_that_sees_as_a_base64_block() {
+        let req = Completion {
+            messages: vec![crate::Message::user("what is this?").with_images(vec![
+                crate::Picture {
+                    mime: "image/jpeg".into(),
+                    bytes: vec![1, 2, 3],
+                },
+            ])],
+            ..Completion::ask("look", "", 100)
+        };
+        let m = chat(&req, true);
+        let blocks = m[0]["content"].as_array().unwrap();
+        assert_eq!(
+            blocks[0],
+            json!({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "AQID"}})
+        );
+        assert_eq!(blocks[1], json!({"type": "text", "text": "what is this?"}));
+        assert_eq!(chat(&req, false)[0]["content"], "what is this?");
+    }
 
     #[test]
     fn results_merge_into_one_user_turn() {

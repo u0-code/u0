@@ -57,6 +57,7 @@ pub fn inbound(message: &Message, me: UserId, channel_name: Option<String>) -> O
             .as_ref()
             .map(|m| m.id.to_string()),
         addressed: direct || replies_to_her || names_her,
+        images: Vec::new(),
     })
 }
 

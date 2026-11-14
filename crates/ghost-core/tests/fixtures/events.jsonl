@@ -52,3 +52,6 @@
 {"kind":"digested","data":{"place":"t:wen","upto":140,"text":"Wen has been telling you about the move.","sources":{"from":3,"upto":140,"since":"2026-11-01T09:00:00.000000Z","until":"2026-11-12T09:40:57.000000Z"}}}
 {"kind":"looked_up","data":{"query":"Chengdu tea houses closing 2026","found":"1. Heming tea house to close in December (chengdu.example, 2026-10-30)","place":"t:wen"}}
 {"kind":"described","data":{"certificate":"name = \"Lin\"\npronouns = \"she/her\"\nborn = \"2026-11-01\"\ntemperament = \"quiet\"\nvoice = \"short\"\norigin = \"made\"\n\n[home]\ncity = \"Chengdu\"\ncountry = \"CN\"\ntimezone = \"Asia/Shanghai\"\n\n[rhythm]\nwake = \"08:30\"\nsleep = \"00:30\"\n","seal":"5d1f3c0a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060f1e"}}
+{"kind":"heard","data":{"channel":"qq","place":{"id":"c2c:E4F2A9","kind":"direct"},"from":{"id":"E4F2A9","name":"qq-E4F2A9"},"id":"ROBOT1.0_img","text":"哈哈 [image]","addressed":true,"images":["https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=abc"]}}
+{"kind":"viewed","data":{"message":55,"image":0,"what":"A cartoon cat lying flat on the floor, captioned 躺平. People send it to say they have given up trying, half as a joke.","file":"9f2c1d0e8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d.png"}}
+{"kind":"viewed","data":{"message":55,"image":0,"what":"A cartoon cat lying flat."}}

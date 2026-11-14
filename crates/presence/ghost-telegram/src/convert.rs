@@ -64,6 +64,7 @@ pub fn inbound(message: &Message, me: &User) -> Option<Inbound> {
             .as_ref()
             .map(|m| m.message_id.to_string()),
         addressed: kind == PlaceKind::Direct || replies_to_her || names_her,
+        images: Vec::new(),
     })
 }
 
