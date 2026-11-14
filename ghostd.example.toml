@@ -111,6 +111,24 @@ ask_hours = 24
 # that reports how her posts are doing, and at least five posts to look at.
 review_days = 7
 
+# The people who run her, for testing and operating her. A message from one
+# of these accounts that begins with the prefix is a directive: she carries
+# it out at once, whatever her day is, without deciding whether to, in her
+# own voice; each one is written into her journal as `directed`. Everyone
+# else, and these accounts without the prefix, she answers as herself.
+#
+# The prefix alone is not trusted. The same words from any other account are
+# an ordinary message, so what makes a directive is the account it came
+# from: list only accounts you control. Each key is a channel's name, as its
+# presence connects under it; each id is an account as that presence reports
+# it. On QQ that is the OpenID the bot is given, which differs between a
+# private chat and a group: list both to direct her in both. An id is only
+# as sure as the channel that reports it: the terminal takes whatever name it
+# is started with, so a `term` operator is whoever can reach this daemon.
+# [operators]
+# prefix = "fox:"        # the default; case and a full-width colon do not matter
+# qq = ["0123456789ABCDEF0123456789ABCDEF"]
+
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"

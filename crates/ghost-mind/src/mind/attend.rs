@@ -21,7 +21,7 @@ use ghost_work::{
     catalog::{self, Need},
     undertaking::placeholder,
 };
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::{Attend, Mind, Outcome, after, speak::Bubble};
 use crate::{
@@ -110,6 +110,9 @@ pub(super) struct Found {
 pub(super) enum Why {
     Unread,
     Intention(Intention),
+    /// An operator of hers gave her a directive here: what each unread
+    /// one says, oldest first.
+    Directive(Vec<String>),
 }
 
 impl Mind {
@@ -129,12 +132,17 @@ impl Mind {
             debug!("{place_key}: {} delivered twice", m.id);
             return Ok(());
         }
-        if m.place.kind == PlaceKind::Direct
-            && self
-                .ghost
-                .memory()
-                .person(&social::key(channel, &m.from.id))?
-                .is_some_and(|p| p.gone)
+        // Whose account it came from is what makes a directive; the prefix
+        // only says that one is meant.
+        let directive = self
+            .cfg
+            .operators
+            .directive(channel, &m.from.id, &m.text)
+            .map(str::to_owned);
+        let from = social::key(channel, &m.from.id);
+        if directive.is_none()
+            && m.place.kind == PlaceKind::Direct
+            && self.ghost.memory().person(&from)?.is_some_and(|p| p.gone)
         {
             // She left. Their private messages no longer reach her.
             debug!("{place_key}: from someone she has left");
@@ -158,6 +166,14 @@ impl Mind {
             addressed,
             images: images.clone(),
         })?;
+        if let Some(text) = directive {
+            info!("{place_key}: a directive from {from}");
+            self.record(Event::Directed {
+                message: heard.seq,
+                from,
+                text,
+            })?;
+        }
         if !images.is_empty() {
             self.view(heard.seq, &place_key, &images, now)?;
         }
@@ -170,6 +186,18 @@ impl Mind {
             return Ok(());
         };
         if place.unread == 0 {
+            return Ok(());
+        }
+        // A directive is looked at as soon as it is in: whatever her day
+        // is, it is not hers to fit in around it.
+        if place.unread_directed > 0 {
+            self.agenda.attend.insert(
+                place_key.to_owned(),
+                Attend {
+                    due: now,
+                    addressed: true,
+                },
+            );
             return Ok(());
         }
         let addressed = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
@@ -236,13 +264,18 @@ impl Mind {
             // Nothing new, or no way to look. Coming back online reschedules.
             return Ok(());
         }
+        // A directive does not wait on her day: not on sleep, not on work,
+        // not on how often she has spoken here.
+        let directed = place.unread_directed > 0;
         let moment = self.life.moment(self.ghost.journal(), now)?;
-        if moment.phase == Phase::Asleep && !self.tempo.instant() {
+        if moment.phase == Phase::Asleep && !self.tempo.instant() && !directed {
             return self.schedule_attend(place_key, now);
         }
         // One thing at a time. If she is in the middle of a sitting, it is
-        // put down first, and she looks once it has stopped.
-        if self.set_work_aside() {
+        // put down first, and she looks once it has stopped; for a
+        // directive she looks at once, and the sitting stops after the step
+        // it is on.
+        if self.set_work_aside() && !directed {
             self.agenda.attend.insert(
                 place_key.to_owned(),
                 Attend {
@@ -252,7 +285,8 @@ impl Mind {
             );
             return Ok(());
         }
-        if self.only_bots_talking(&place)?
+        if !directed
+            && self.only_bots_talking(&place)?
             && self
                 .ghost
                 .memory()
@@ -272,26 +306,39 @@ impl Mind {
             return Ok(());
         }
         if !self.budget.allow(now) {
-            warn!("brain budget for this hour is spent; {place_key} waits");
+            // The budget is the body's, and holds for directives too: one
+            // waits a minute rather than ten.
+            let wait = if directed {
+                warn!("brain budget for this hour is spent; a directive in {place_key} waits");
+                Duration::minutes(1)
+            } else {
+                warn!("brain budget for this hour is spent; {place_key} waits");
+                Duration::minutes(10)
+            };
             self.agenda.attend.insert(
                 place_key.to_owned(),
                 Attend {
-                    due: now + Duration::minutes(10),
+                    due: now + wait,
                     addressed: true,
                 },
             );
             return Ok(());
         }
-        let addressed = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        let addressed = directed || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
         if addressed {
             self.phone_in_hand(&place.key, now)?;
         }
         self.consider_digest(&place, now)?;
-        self.ponder(
-            Thinking::new(&place.key, Why::Unread, !addressed),
-            &place,
-            now,
-        )
+        let why = if directed {
+            Why::Directive(
+                self.ghost
+                    .memory()
+                    .directives(&place.key, place.read_upto)?,
+            )
+        } else {
+            Why::Unread
+        };
+        self.ponder(Thinking::new(&place.key, why, !addressed), &place, now)
     }
 
     /// She has picked her phone up to look at something meant for her.
@@ -379,7 +426,10 @@ impl Mind {
         };
         self.budget.spend(now);
         self.thinking.insert(place.key.clone());
-        if job.round == 0 && matches!(job.why, Why::Unread) && self.can(&place.channel, Can::Read) {
+        if job.round == 0
+            && matches!(job.why, Why::Unread | Why::Directive(_))
+            && self.can(&place.channel, Can::Read)
+        {
             let upto = self
                 .ghost
                 .memory()
@@ -473,6 +523,16 @@ impl Mind {
         if let Some(kept) = &kept {
             lines.retain(|l| l.seq > kept.upto);
         }
+        // A directive reads as one, so that she can tell it from what people
+        // say to her.
+        for line in &mut lines {
+            if line.directive.is_some() {
+                line.text = self.prompts.fill(
+                    "directive_line",
+                    &[("text", std::mem::take(&mut line.text))],
+                );
+            }
+        }
         job.upto = lines
             .iter()
             .filter(|l| l.incoming)
@@ -507,7 +567,7 @@ impl Mind {
         let keys: Vec<String> = people.iter().map(|p| p.key.clone()).collect();
         let pursuing = match &job.why {
             Why::Intention(intention) => Some(intention.seq),
-            Why::Unread => None,
+            Why::Unread | Why::Directive(_) => None,
         };
         let meant: Vec<String> = self
             .intentions_about(&place.key, &keys)?
@@ -546,6 +606,9 @@ impl Mind {
             Why::Intention(intention) => self
                 .prompts
                 .fill("intention_due", &[("what", intention.what.clone())]),
+            Why::Directive(directives) => self
+                .prompts
+                .fill("directive", &[("directives", self.directives(directives))]),
         };
         let recalled = self.prompts.section(
             "recalled",
@@ -826,19 +889,27 @@ impl Mind {
 
     /// Whether she may use her machine in the middle of this conversation.
     /// Nobody she does not know well gets her hands on a shell, here any
-    /// more than at work: only in private, with a friend or closer.
+    /// more than at work: only in private, with a friend or closer. Those
+    /// who run her body are not held to that: where one of them has given
+    /// her a directive, or in private with one of them, it is there.
     fn machine_here(&self, place: &PlaceState, now: DateTime<Utc>) -> Result<bool> {
-        if !self.cfg.talk_machine
-            || self.workshop.machine.is_none()
-            || place.kind != PlaceKind::Direct
-        {
+        if !self.cfg.talk_machine || self.workshop.machine.is_none() {
+            return Ok(false);
+        }
+        if place.unread_directed > 0 {
+            return Ok(true);
+        }
+        if place.kind != PlaceKind::Direct {
             return Ok(false);
         }
         Ok(self
             .ghost
             .memory()
             .person_of_direct(&place.key)?
-            .is_some_and(|p| will::standing(&p, now).stage >= Stage::Friend))
+            .is_some_and(|p| {
+                self.cfg.operators.includes(&p.channel, &p.id)
+                    || will::standing(&p, now).stage >= Stage::Friend
+            }))
     }
 
     /// What she is told she can do here, from the tools offered here that
@@ -859,6 +930,15 @@ impl Mind {
             self.prompts
                 .fill("abilities", &[("abilities", lines.join("\n"))])
         }
+    }
+
+    /// Directives as she is shown them: one to a line.
+    pub(super) fn directives(&self, directives: &[String]) -> String {
+        directives
+            .iter()
+            .map(|d| self.prompts.fill("directive_item", &[("text", d.clone())]))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// What came back from beyond the conversation, as an item of the look,
@@ -1228,7 +1308,11 @@ impl Mind {
                 },
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
-                    match self.undertake(&brief, asker.as_ref(), Some(place), now)? {
+                    let directed = match &job.why {
+                        Why::Directive(directives) => directives.as_slice(),
+                        _ => &[],
+                    };
+                    match self.undertake(&brief, asker.as_ref(), Some(place), directed, now)? {
                         None => did.push("took something on".to_owned()),
                         Some(why) => {
                             self.record(Event::Decided {

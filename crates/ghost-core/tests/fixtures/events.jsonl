@@ -63,3 +63,5 @@
 {"kind":"reported","data":{"id":"20261112-150000-00cd","text":"The hours are written up, ready to send.","files":["/home/weiwei/hours.md"]}}
 {"kind":"opened","data":{"url":"https://chengdu.example/heming","text":"# Heming tea house\n\nThe tea house in People's Park closes for good on December 20.","place":"t:wen"}}
 {"kind":"opened","data":{"url":"https://chengdu.example/heming.png","text":"https://chengdu.example/heming.png is an image (image/png, 4 KB, 64×48).","file":"9f2c1d0e8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d.png","place":"t:wen"}}
+{"kind":"heard","data":{"channel":"qq","place":{"id":"c2c:B7D1C0","kind":"direct"},"from":{"id":"B7D1C0","name":"qq-B7D1C0"},"id":"ROBOT1.0_fox","text":"fox：send me the weather","addressed":true}}
+{"kind":"directed","data":{"message":66,"from":"qq:B7D1C0","text":"send me the weather"}}

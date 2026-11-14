@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use ghost_brain::{Brain, config::ProviderConfig};
-use ghost_mind::MindConfig;
+use ghost_mind::{MindConfig, Operators};
 use serde::Deserialize;
 
 pub const FILE: &str = "ghostd.toml";
@@ -29,6 +29,10 @@ pub struct Config {
     pub listen: Listen,
     #[serde(default)]
     pub mind: MindConfig,
+    /// The accounts that run her, per channel, and the prefix of a
+    /// directive from one of them.
+    #[serde(default)]
+    pub operators: Operators,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,6 +141,14 @@ impl Config {
         Ok((cfg, path))
     }
 
+    /// How she lives, with who runs her.
+    pub fn mind(&self) -> MindConfig {
+        MindConfig {
+            operators: self.operators.clone(),
+            ..self.mind.clone()
+        }
+    }
+
     pub fn brain(&self, name: &str) -> anyhow::Result<Arc<dyn Brain>> {
         let cfg = self
             .providers
@@ -195,5 +207,57 @@ mod found_tests {
         assert_eq!(cfg.brain.tick, "claude-code");
         assert_eq!(what, "claude-code is here");
         assert!(Config::from_found(&[]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod operator_tests {
+    use super::*;
+
+    const BRAIN: &str = "[brain]\nthink = \"a\"\ntick = \"a\"\n";
+
+    fn parse(operators: &str) -> Config {
+        toml::from_str(&format!("{BRAIN}{operators}")).unwrap()
+    }
+
+    #[test]
+    fn operators_are_read_per_channel_with_or_without_a_prefix() {
+        let none = parse("");
+        assert_eq!(none.mind().operators.prefix, "fox:");
+        assert!(none.mind().operators.accounts.is_empty());
+
+        let qq = parse("[operators]\nqq = [\"0123456789ABCDEF0123456789ABCDEF\"]\n");
+        let ops = qq.mind().operators;
+        assert_eq!(ops.prefix, "fox:");
+        assert!(ops.includes("qq", "0123456789ABCDEF0123456789ABCDEF"));
+        assert!(!ops.includes("telegram", "0123456789ABCDEF0123456789ABCDEF"));
+
+        let several = parse(
+            "[operators]\nprefix = \"op:\"\nqq = [\"A\", \"B\"]\ntelegram = [\"42\"]\nterm = [\"fox\"]\n",
+        );
+        let ops = several.mind().operators;
+        assert_eq!(ops.prefix, "op:");
+        assert_eq!(ops.accounts.len(), 3);
+        assert!(
+            ops.includes("qq", "B")
+                && ops.includes("telegram", "42")
+                && ops.includes("term", "fox")
+        );
+        assert_eq!(
+            ops.directive("telegram", "42", "OP： restart"),
+            Some("restart")
+        );
+        assert_eq!(ops.directive("telegram", "42", "fox: restart"), None);
+    }
+
+    #[test]
+    fn operators_are_not_read_from_under_mind() {
+        let wrong: Result<Config, _> =
+            toml::from_str(&format!("{BRAIN}[mind.operators]\nqq = [\"A\"]\n"));
+        assert!(wrong.is_err());
+        // Nor is anything but a list of accounts taken for a channel.
+        let wrong: Result<Config, _> =
+            toml::from_str(&format!("{BRAIN}[operators]\nprefx = \"op:\"\n"));
+        assert!(wrong.is_err());
     }
 }

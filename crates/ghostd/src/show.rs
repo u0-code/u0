@@ -180,6 +180,11 @@ fn describe(event: &Event, tz: Tz) -> String {
                 .map_or_else(String::new, |f| format!(" (media/{f})")),
             flat(&text.chars().take(200).collect::<String>())
         ),
+        Event::Directed {
+            message,
+            from,
+            text,
+        } => format!("#{message} from {from}: {}", flat(text)),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

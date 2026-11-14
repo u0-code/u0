@@ -170,4 +170,9 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
         line.text,
         "[image: The cat lying flat. For when someone has had enough of a day.] same"
     );
+    // A directive is marked on the line it came in, and that line is read
+    // as it was written.
+    let line = &again.memory().thread("qq:c2c:B7D1C0", 1).unwrap()[0];
+    assert_eq!(line.text, "fox：send me the weather");
+    assert_eq!(line.directive.as_deref(), Some("send me the weather"));
 }

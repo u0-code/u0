@@ -1,6 +1,6 @@
 //! Knobs on how she lives. All of them belong to the body, none to her.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -63,6 +63,73 @@ pub struct MindConfig {
     pub prompts: Option<PathBuf>,
     /// Whether and how she takes things on.
     pub work: WorkConfig,
+    /// Who can give her directives, and how one begins. Set from the
+    /// top-level `[operators]` table of `ghostd.toml`, not from `[mind]`.
+    #[serde(skip)]
+    pub operators: Operators,
+}
+
+/// The accounts that run her body, and the prefix that turns a message from
+/// one of them into a directive. A directive is carried out, not weighed,
+/// so what makes one is the account it came from: the prefix alone, from
+/// anyone else, is an ordinary message.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Operators {
+    /// What a directive begins with, after any leading whitespace. Matched
+    /// without regard to case, and a `:` in it matches a full-width `：`.
+    pub prefix: String,
+    /// Account ids per channel, as the channel's presence reports them.
+    #[serde(flatten)]
+    pub accounts: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for Operators {
+    fn default() -> Self {
+        Self {
+            prefix: "fox:".to_owned(),
+            accounts: BTreeMap::new(),
+        }
+    }
+}
+
+impl Operators {
+    /// Whether account `id` on `channel` is an operator's.
+    pub fn includes(&self, channel: &str, id: &str) -> bool {
+        self.accounts
+            .get(channel)
+            .is_some_and(|ids| ids.iter().any(|i| i == id))
+    }
+
+    /// The directive in `text`, without its prefix, if `text` is one: from
+    /// an operator's account and beginning with the prefix, with something
+    /// after it.
+    pub fn directive<'a>(&self, channel: &str, from: &str, text: &'a str) -> Option<&'a str> {
+        if !self.includes(channel, from) {
+            return None;
+        }
+        let prefix = self.prefix.trim();
+        if prefix.is_empty() {
+            return None;
+        }
+        let text = text.trim_start();
+        let mut rest = text.char_indices();
+        for want in prefix.chars() {
+            let (_, got) = rest.next()?;
+            if !same(want, got) {
+                return None;
+            }
+        }
+        let after = rest.next().map_or(text.len(), |(at, _)| at);
+        Some(text[after..].trim()).filter(|d| !d.is_empty())
+    }
+}
+
+/// Whether two characters of a prefix are the same, as a person typing it
+/// would mean: case aside, and a full-width colon for an ASCII one.
+fn same(a: char, b: char) -> bool {
+    let fold = |c: char| if c == '：' { ':' } else { c };
+    fold(a).to_lowercase().eq(fold(b).to_lowercase())
 }
 
 /// Taking things on: work that needs more than one thought.
@@ -147,6 +214,49 @@ impl Default for MindConfig {
             weather: true,
             prompts: None,
             work: WorkConfig::default(),
+            operators: Operators::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn operators() -> Operators {
+        Operators {
+            accounts: BTreeMap::from([("qq".to_owned(), vec!["D6E3".to_owned()])]),
+            ..Operators::default()
+        }
+    }
+
+    #[test]
+    fn a_directive_is_the_prefix_from_an_operator_whatever_its_case_and_colon() {
+        let ops = operators();
+        assert_eq!(
+            ops.directive("qq", "D6E3", "fox: send the weather"),
+            Some("send the weather")
+        );
+        assert_eq!(
+            ops.directive("qq", "D6E3", "  FOX：洗澡前回我"),
+            Some("洗澡前回我")
+        );
+        assert_eq!(ops.directive("qq", "D6E3", "Fox:hi"), Some("hi"));
+    }
+
+    #[test]
+    fn the_prefix_alone_does_not_make_a_directive() {
+        let ops = operators();
+        // From anyone else, on the channel or another, it is a message.
+        assert_eq!(ops.directive("qq", "A1B2", "fox: send the weather"), None);
+        assert_eq!(
+            ops.directive("telegram", "D6E3", "fox: send the weather"),
+            None
+        );
+        // From an operator, it has to begin the message and say something.
+        assert_eq!(ops.directive("qq", "D6E3", "hey fox: send it"), None);
+        assert_eq!(ops.directive("qq", "D6E3", "foxy: send it"), None);
+        assert_eq!(ops.directive("qq", "D6E3", "fox:   "), None);
+        assert_eq!(ops.directive("qq", "D6E3", "f"), None);
     }
 }

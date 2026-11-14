@@ -361,6 +361,7 @@ mod tests {
             reply_to: reply_to.map(Into::into),
             addressed: true,
             text: text.into(),
+            directive: None,
         }
     }
 
