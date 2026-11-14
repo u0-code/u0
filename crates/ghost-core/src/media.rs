@@ -9,7 +9,10 @@
 //! journal, and are not derived from it either. They are what she was
 //! shown, kept beside the record of it.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 use crate::Result;
 
@@ -37,6 +40,19 @@ pub fn store(dir: &Path, bytes: &[u8], mime: &str) -> Result<String> {
     fs::write(&partial, bytes)?;
     fs::rename(&partial, &path)?;
     Ok(name)
+}
+
+/// Where the file `name` is kept under `dir/media/`, if it is there. Only a
+/// bare name is looked for, and only a plain file is found: a path, a hidden
+/// name or a link is never followed out of `media/`.
+pub fn path(dir: &Path, name: &str) -> Option<PathBuf> {
+    let mut parts = Path::new(name).components();
+    let bare = matches!(parts.next(), Some(Component::Normal(_)))
+        && parts.next().is_none()
+        && !name.starts_with('.');
+    let path = dir.join(MEDIA_DIR).join(name);
+    let plain = bare && fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file());
+    plain.then_some(path)
 }
 
 /// The type of an image from its first bytes, for the kinds every provider
@@ -133,6 +149,40 @@ mod tests {
         // The same image again is the same file, and nothing is left aside.
         assert_eq!(store(dir.path(), bytes, "image/png").unwrap(), kept);
         assert_eq!(fs::read_dir(dir.path().join(MEDIA_DIR)).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn only_a_bare_name_in_media_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = store(dir.path(), b"bytes", "image/png").unwrap();
+        fs::write(dir.path().join("journal.db"), b"hers").unwrap();
+        assert_eq!(
+            path(dir.path(), &kept),
+            Some(dir.path().join(MEDIA_DIR).join(&kept))
+        );
+        for outside in [
+            "../journal.db",
+            "/etc/passwd",
+            "media/../../journal.db",
+            "",
+            ".",
+            "..",
+            "missing.png",
+        ] {
+            assert_eq!(path(dir.path(), outside), None, "{outside:?}");
+        }
+        // Nor what is half-written, nor a link out of it.
+        fs::write(dir.path().join(MEDIA_DIR).join(".x.partial"), b"half").unwrap();
+        assert_eq!(path(dir.path(), ".x.partial"), None);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                dir.path().join("journal.db"),
+                dir.path().join(MEDIA_DIR).join("link.png"),
+            )
+            .unwrap();
+            assert_eq!(path(dir.path(), "link.png"), None);
+        }
     }
 
     #[test]

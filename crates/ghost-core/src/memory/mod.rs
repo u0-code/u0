@@ -291,6 +291,7 @@ mod testing {
             id: None,
             text: text.into(),
             reply_to: None,
+            file: None,
         }
     }
 

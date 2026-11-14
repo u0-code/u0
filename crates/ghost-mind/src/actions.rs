@@ -81,9 +81,17 @@ pub enum Action {
     },
     /// Post publicly, to no one in particular.
     Post { text: String },
-    /// Hand over a file she made. Only where what she does is tool calls.
+    /// Hand over something she has: a thing she kept, by its number or its
+    /// file name; an image in a message in this conversation, by `message`
+    /// and `image` (counting from 1) as with `Keep`; or a file she made, by
+    /// its name.
     SendFile {
-        file: String,
+        #[serde(default)]
+        file: Option<String>,
+        #[serde(default, deserialize_with = "opt_reference")]
+        message: Option<i64>,
+        #[serde(default, deserialize_with = "opt_reference")]
+        image: Option<i64>,
         #[serde(default)]
         text: Option<String>,
     },
@@ -280,12 +288,16 @@ pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
     if files {
         tools.push(tool(
             "send_file",
-            "Hand over a file you made, in this conversation. It arrives as a file, not as text.",
+            "Hand over a file or an image you have, in this conversation: something you kept, an image sent here, \
+             or a file you made. It arrives as itself, not as words about it, so they see what you see. \
+             It can go on its own, without words, the way people sometimes answer with just a picture.",
             json!({
-                "file": text("The file, as it was named to you."),
+                "file": text("Something you kept, by its number or its file name as recall showed it; or a file you made, as it was named to you."),
+                "message": {"type": "integer", "description": "Instead of `file`: the m number of a message here with the image in it."},
+                "image": {"type": "integer", "description": "With `message`: which image in it, counting from 1. Leave out for the first."},
                 "text": text("A line to go with it, if you have one."),
             }),
-            &["file"],
+            &[],
         ));
     }
     tools.push(tool(
@@ -507,6 +519,31 @@ mod tests {
                     note: "x".into()
                 },
                 Action::LetGo { thing: 40 },
+            ]
+        );
+    }
+
+    #[test]
+    fn handing_over_reads_a_name_a_number_or_a_message_and_its_image() {
+        let d = parse(
+            r##"{"actions":[{"do":"send_file","file":"#40"},{"do":"send_file","message":"m12","image":"2","text":"this"}]}"##,
+        )
+        .unwrap();
+        assert_eq!(
+            d.actions,
+            vec![
+                Action::SendFile {
+                    file: Some("#40".into()),
+                    message: None,
+                    image: None,
+                    text: None
+                },
+                Action::SendFile {
+                    file: None,
+                    message: Some(12),
+                    image: Some(2),
+                    text: Some("this".into())
+                },
             ]
         );
     }

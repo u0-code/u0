@@ -286,24 +286,35 @@ impl Mind {
         Ok(files)
     }
 
-    /// The actions that exist only in a body that can do them.
-    pub(super) fn abilities(&self) -> String {
-        if !self.can_work() {
-            return String::new();
+    /// The actions that exist only in a body that can do them. `files`
+    /// says whether the place she is looking at can take a file.
+    pub(super) fn abilities(&self, files: bool) -> String {
+        let mut abilities = String::new();
+        if self.can_work() {
+            let means = if self.workshop.machine.is_some() {
+                "at your computer"
+            } else {
+                "by looking things up and thinking them through"
+            };
+            abilities.push_str(&format!(
+                "- {{\"do\":\"undertake\",\"brief\":\"...\",\"for\":\"<name>\"}}\n  \
+                 Take on something that needs real work {means}: finding something out properly, making something, checking something. \
+                 It is not done in this reply. You will work on it in your own time and come back with what you found. \
+                 Write the brief as a complete instruction to yourself, with everything needed to do it without this conversation in front of you. \
+                 If you have already taken something on for them and they add to it or change it, use this again with just what is new: it is added to what you are doing. \
+                 Leave out \"for\" when it is for yourself. Only for things you want to do or have agreed to do: nobody is owed your afternoon. \
+                 Say something as well, the way you would.\n"
+            ));
         }
-        let means = if self.workshop.machine.is_some() {
-            "at your computer"
-        } else {
-            "by looking things up and thinking them through"
-        };
-        format!(
-            "- {{\"do\":\"undertake\",\"brief\":\"...\",\"for\":\"<name>\"}}\n  \
-             Take on something that needs real work {means}: finding something out properly, making something, checking something. \
-             It is not done in this reply. You will work on it in your own time and come back with what you found. \
-             Write the brief as a complete instruction to yourself, with everything needed to do it without this conversation in front of you. \
-             If you have already taken something on for them and they add to it or change it, use this again with just what is new: it is added to what you are doing. \
-             Leave out \"for\" when it is for yourself. Only for things you want to do or have agreed to do: nobody is owed your afternoon. \
-             Say something as well, the way you would.\n"
-        )
+        if files {
+            abilities.push_str(
+                "- {\"do\":\"send_file\",\"file\":\"...\",\"text\":\"...\"} or {\"do\":\"send_file\",\"message\":<m number>,\"image\":<n>}\n  \
+                 Hand over a file or an image you have: something you kept, by its number or file name as recall showed it; \
+                 an image in a message here, by its m number (\"image\" counts from 1 and can be left out for the first); \
+                 or a file you made, as it was named to you. It arrives as itself, not as words about it, so they see what you see. \
+                 It can go on its own, without words, the way people sometimes answer with just a picture; leave out \"text\" then.\n",
+            );
+        }
+        abilities
     }
 }

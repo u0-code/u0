@@ -78,6 +78,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             id,
             text,
             reply_to,
+            ..
         } => {
             tx.execute(
                 "INSERT INTO messages (seq, at, channel, place, dir, name, platform_id, reply_to, text)

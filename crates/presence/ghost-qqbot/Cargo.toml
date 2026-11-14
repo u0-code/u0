@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 async-trait = "0.1.92"
+base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dotenvy = "0.15"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
@@ -22,6 +23,9 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["io-util"] }
 
 [lints]
 workspace = true

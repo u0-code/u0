@@ -11,6 +11,7 @@ mod attend;
 mod browse;
 mod context;
 mod digest;
+mod give;
 mod keep;
 mod living;
 mod public;

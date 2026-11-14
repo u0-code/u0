@@ -2808,3 +2808,245 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     assert!(note.starts_with("A heron, wings out."));
     assert_eq!(from.as_deref(), Some(id.as_str()));
 }
+
+/// The channel `t` comes online again, now able to take a file.
+fn takes_files(rig: &mut Rig, now: DateTime<Utc>) {
+    rig.mind
+        .on_signal(
+            Signal::Online {
+                channel: "t".into(),
+                me: Some(Actor {
+                    id: "weiwei".into(),
+                    name: "Weiwei".into(),
+                    handle: Some("weiwei".into()),
+                    automated: true,
+                }),
+                can: vec![Can::Send, Can::Typing, Can::Files],
+            },
+            now,
+        )
+        .unwrap();
+}
+
+/// Every file that reached the body: its name, its bytes and its line.
+fn files_sent(rig: &Rig) -> Vec<(String, Vec<u8>, Option<String>)> {
+    rig.body
+        .acts
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|(_, act)| match act {
+            Act::File {
+                name, data, text, ..
+            } => Some((name.clone(), data.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every `Said` in her journal: its text and the file sent with it.
+fn said_with_files(rig: &Rig) -> Vec<(String, Option<String>)> {
+    rig.mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["said"], 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            Event::Said { text, file, .. } => Some((text, file)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Wait until she has read everything in `key`.
+async fn read_through(rig: &mut Rig, key: &str) {
+    rig.until(|r| {
+        r.mind
+            .ghost
+            .memory()
+            .place(key)
+            .unwrap()
+            .is_some_and(|p| p.unread == 0)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_kept_image_is_sent_by_its_number_or_its_file_name_and_arrives_as_an_image() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    takes_files(&mut rig, t0);
+    let (_, file) = sent_and_seen(&mut rig, "wen", "1", "A heron in the rain.", t0);
+    read_through(&mut rig, "t:wen").await;
+    rig.mind
+        .record(Event::Kept {
+            file: file.clone(),
+            note: "The cross heron. For grey mornings.".into(),
+            from: Some("t:wen".into()),
+        })
+        .unwrap();
+    let seq = rig.mind.ghost.journal().last_seq().unwrap();
+
+    // Hours later, somewhere else, by the number recall shows it with...
+    let later = t0 + Duration::hours(3);
+    rig.think.then_turn(
+        "",
+        &[(
+            "send_file",
+            serde_json::json!({"file": format!("#{seq}"), "text": "this one"}),
+        )],
+    );
+    rig.hear(dm("mei", "2", "rough morning"), later);
+    rig.until(|r| files_sent(r).len() == 1).await;
+    // ...and by its name, on its own, without a word.
+    rig.think
+        .then_turn("", &[("send_file", serde_json::json!({"file": file}))]);
+    rig.hear(dm("mei", "3", "again"), later + Duration::hours(1));
+    rig.until(|r| files_sent(r).len() == 2).await;
+
+    let sent = files_sent(&rig);
+    assert_eq!(
+        sent[0],
+        (file.clone(), PIXEL.to_vec(), Some("this one".into()))
+    );
+    assert_eq!(sent[1], (file.clone(), PIXEL.to_vec(), None));
+    assert_eq!(
+        ghost_core::media::sniff(&sent[0].1),
+        Some("image/png"),
+        "it arrives as the image itself"
+    );
+    // In her own lines, what she sent reads as what it was, and which file.
+    let said = said_with_files(&rig);
+    let shown = "[image: The cross heron. For grey mornings.]";
+    assert!(said.contains(&(format!("{shown} this one"), Some(file.clone()))));
+    assert!(said.contains(&(shown.to_owned(), Some(file.clone()))));
+    let thread = rig.mind.ghost.memory().thread("t:mei", 5).unwrap();
+    assert!(thread.iter().any(|l| !l.incoming && l.text == shown));
+}
+
+#[tokio::test]
+async fn an_image_seen_in_this_conversation_can_be_sent_on() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    takes_files(&mut rig, t0);
+    let (message, file) = sent_and_seen(&mut rig, "wen", "1", "A heron in the rain.", t0);
+    rig.think.then_turn(
+        "",
+        &[(
+            "send_file",
+            serde_json::json!({"message": message, "image": 1}),
+        )],
+    );
+    rig.until(|r| files_sent(r).len() == 1).await;
+    assert_eq!(files_sent(&rig)[0], (file.clone(), PIXEL.to_vec(), None));
+    assert_eq!(
+        said_with_files(&rig),
+        [("[image: A heron in the rain.]".to_owned(), Some(file))]
+    );
+}
+
+#[tokio::test]
+async fn an_image_seen_in_another_conversation_cannot_be_sent() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    takes_files(&mut rig, t0);
+    let (elsewhere, _) = sent_and_seen(&mut rig, "mei", "1", "A heron.", t0);
+    read_through(&mut rig, "t:mei").await;
+
+    rig.think.then_turn(
+        "",
+        &[("send_file", serde_json::json!({"message": elsewhere}))],
+    );
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "never mind"}))]);
+    rig.hear(dm("wen", "2", "show me"), t0 + Duration::hours(1));
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let (why, failed) = last_result(&rig, "send_file");
+    assert!(failed);
+    assert!(
+        why.contains(&format!("no message m{elsewhere} in this conversation"))
+            && why.contains("Nothing was sent"),
+        "{why}"
+    );
+    assert!(files_sent(&rig).is_empty());
+}
+
+#[tokio::test]
+async fn a_file_she_does_not_have_is_refused_with_a_reason_and_nothing_is_sent() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    takes_files(&mut rig, t0);
+    // Her journal is beside `media/`; a path is not a name in it.
+    for (i, wanted) in ["sunset.png", "#999", "../journal.db"].iter().enumerate() {
+        rig.think
+            .then_turn("", &[("send_file", serde_json::json!({"file": wanted}))]);
+        rig.think
+            .then_turn("", &[("say", serde_json::json!({"text": "hm"}))]);
+        rig.hear(
+            dm("wen", &i.to_string(), "send it"),
+            t0 + Duration::hours(i64::try_from(i).unwrap()),
+        );
+        rig.until(|r| r.body.sent().len() == i + 1).await;
+        let (why, failed) = last_result(&rig, "send_file");
+        assert!(failed, "{wanted}");
+        let reason = if *wanted == "#999" {
+            "You hold nothing numbered 999.".to_owned()
+        } else {
+            format!("You have nothing called {wanted} to hand over here.")
+        };
+        assert!(why.starts_with(&reason), "{why}");
+    }
+    assert!(files_sent(&rig).is_empty());
+
+    // Answering in JSON there is no second turn: the refusal is written
+    // down as what she decided, and nothing is sent.
+    let mut rig = Rig::quiet(t0);
+    takes_files(&mut rig, t0);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"send_file","file":"sunset.png"}]}"#);
+    rig.hear(dm("wen", "1", "send it"), t0);
+    rig.until(|r| r.decisions().iter().any(|d| d == "did not send a file"))
+        .await;
+    assert!(
+        rig.reasons()
+            .iter()
+            .any(|r| r.starts_with("You have nothing called sunset.png"))
+    );
+    assert!(files_sent(&rig).is_empty());
+}
+
+#[tokio::test]
+async fn send_file_is_offered_with_no_machine_where_the_presence_can_take_files() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    assert!(rig.mind.workshop.machine.is_none());
+    let offered = |rig: &Rig| {
+        rig.think
+            .turns
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .tools
+            .iter()
+            .any(|t| t.name == "send_file")
+    };
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| !r.think.turns.lock().unwrap().is_empty())
+        .await;
+    assert!(!offered(&rig), "this channel cannot take a file");
+
+    takes_files(&mut rig, t0 + Duration::hours(1));
+    rig.hear(dm("wen", "2", "hi again"), t0 + Duration::hours(1));
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 2)
+        .await;
+    assert!(offered(&rig));
+
+    // Answering in JSON, it is among what she can do.
+    let mut rig = Rig::quiet(t0);
+    takes_files(&mut rig, t0);
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.calls() == 1).await;
+    assert!(rig.think.last_prompt().contains(r#""do":"send_file""#));
+}

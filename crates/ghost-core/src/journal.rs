@@ -84,6 +84,11 @@ pub enum Event {
         upto: i64,
     },
     /// She sent a message.
+    ///
+    /// When something of hers went with it, `text` begins with what it was,
+    /// in brackets: `[image: …]` for an image, in her words for it, or
+    /// `[file: <name>]` for a file she made. The line reads that way from
+    /// then on, so she can see later what she sent.
     Said {
         channel: String,
         place: String,
@@ -92,6 +97,10 @@ pub enum Event {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        /// The name in `media/` of the image she sent with it, if she sent
+        /// one: which bytes it was, beside what the text says of them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
     },
     /// She reacted to a message.
     Reacted {
