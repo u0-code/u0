@@ -33,6 +33,7 @@ tokio-tungstenite = "0.30.0"
 toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+dotenvy = "0.15"
 
 [lints]
 workspace = true

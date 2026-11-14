@@ -63,10 +63,10 @@ request title.
   one, rename one or change what one means. `ghost-core` has a test that
   reads journals as every earlier version wrote them; a new event adds a
   line to its fixtures.
-- **Anything that edits a ghost after birth**, keeps someone coming back, or
-  lets her pass as human. See [CHARTER.md](CHARTER.md).
-- **A secret in a file.** Keys come from the environment, in code, in tests
-  and in examples.
+- **Anything that rewrites her journal**, keeps someone coming back, or lets
+  her pass as human. See [CHARTER.md](CHARTER.md).
+- **A secret in a tracked file.** Keys come from the environment or the
+  ignored `.env`, in code, in tests and in examples.
 - **Tests that only show the code runs.** A test here says something that
   would be false if the behaviour were wrong, in words a person can read:
   look at the names of the ones that are there.

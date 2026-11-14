@@ -135,6 +135,10 @@ async fn login(wire: &Wire) -> anyhow::Result<Me> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Keys and settings may sit in an ignored `.env` file in the directory
+    // this runs from or one above it. Anything already set in the
+    // environment wins.
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),

@@ -466,6 +466,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,6 +715,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "dotenvy",
  "ghost-link",
  "serenity",
  "tokio",
@@ -758,6 +765,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "dotenvy",
  "futures-util",
  "ghost-link",
  "serde_json",
@@ -782,6 +790,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "dotenvy",
  "futures-util",
  "ghost-link",
  "reqwest",
@@ -800,6 +809,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "dotenvy",
  "ghost-link",
  "reqwest",
  "serde",
@@ -817,6 +827,7 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
+ "dotenvy",
  "ghost-link",
  "tokio",
  "tracing",
@@ -831,6 +842,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "dotenvy",
  "ghost-brain",
  "reqwest",
  "rusqlite",
@@ -851,6 +863,7 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
+ "dotenvy",
  "fastrand",
  "ghost-link",
  "hmac",
@@ -874,6 +887,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "dotenvy",
  "futures-util",
  "ghost-brain",
  "ghost-core",
