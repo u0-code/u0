@@ -331,7 +331,7 @@ sleep = "00:30"
         })
         .unwrap();
         drop(g);
-        fs::remove_dir_all(d.path().join(crate::memory::MEMORY_DIR)).unwrap();
+        fs::remove_file(d.path().join(crate::memory::MEMORY_FILE)).unwrap();
         let g = Ghost::open(d.path()).unwrap();
         assert_eq!(g.memory().canon(10).unwrap().len(), 1);
     }

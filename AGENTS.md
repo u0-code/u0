@@ -32,8 +32,9 @@ bench/                 how the work loop is measured against other agents.
 - **The journal is a forever format.** Add event variants and optional
   fields (`#[serde(default)]`). Never remove, rename or repurpose one. A new
   event needs a line in `crates/ghost-core/tests/fixtures/`, an arm in
-  `memory.rs`, and one in `ghostd`'s `show.rs`.
-- **Memory is derived.** Anything in `memory.rs` must be rebuildable from the
+  `memory/recall.rs` (and a fold in whichever `memory/` file keeps it), and
+  one in `ghostd`'s `show.rs`.
+- **Memory is derived.** Anything in `memory/` must be rebuildable from the
   journal alone. If you add a table or a column, bump `SCHEMA_VERSION`.
 - **One writer.** Only the `Mind` actor writes her journal. Anything slow is
   spawned and comes back as an `Outcome`; it does not touch her state.
