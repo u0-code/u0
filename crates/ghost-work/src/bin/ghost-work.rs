@@ -217,13 +217,14 @@ async fn main() -> anyhow::Result<()> {
     // The tools for a piece of work with its own record: this one, and any
     // helper it hands part of itself to.
     let (no_machine, web) = (args.no_machine, args.web);
+    let words = Prompts::load(&args.state, args.prompts.as_deref()).shared();
     let equip: ghost_work::worker::ToolsFor = {
-        let machine = machine.clone();
+        let (machine, words) = (machine.clone(), words.clone());
         Arc::new(move |undertaking| {
             let toolbox = if no_machine {
-                tools::desk(undertaking)
+                tools::desk(undertaking, &words)
             } else {
-                tools::standard(machine.clone(), undertaking)
+                tools::standard(machine.clone(), undertaking, &words)
             };
             if web {
                 tools::with_web(toolbox, &tools::WebConfig::from_env())
@@ -241,7 +242,6 @@ async fn main() -> anyhow::Result<()> {
         toolbox
     };
 
-    let words = Prompts::load(&args.state, args.prompts.as_deref()).shared();
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());
         return Ok(mcp::serve(toolbox, words, undertaking, input, tokio::io::stdout()).await?);

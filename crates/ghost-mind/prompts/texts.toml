@@ -60,6 +60,10 @@ What someone told you in private is not repeated here, and you do not let on tha
 # is how she names it to `steer` and `stop`; {{whom}} is " for <name>" or
 # nothing, and {{state}} where it stands.
 work_open = "- [work #{{work}}] You have taken something on{{whom}}: \"{{brief}}\". {{state}}"
+# Under it, when the work has a plan, how far it has got: {{done}} of
+# {{steps}}, the steps not dropped, and {{now}} the step it is on, if any.
+work_plan = "\n  Its plan: {{done}} of {{steps}} steps done{{now}}."
+work_plan_now = "; on now: \"{{step}}\""
 # Under it, the latest few things the work chose to tell her, newest last.
 # Only what it said: what it did to find it out stays with the work.
 work_told = "\n  It told you, {{when}}: {{text}}{{files}}"

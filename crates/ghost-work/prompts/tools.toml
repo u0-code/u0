@@ -200,14 +200,31 @@ why = "Why."
 # The tools of work: carrying it across context windows, and ending it.
 
 [plan]
-description = "Write or rewrite the plan: the whole list of steps, each with its status. Use it at the start of anything that takes more than a few steps, and again whenever a step is finished or the plan changes. The plan survives when older context is dropped."
+description = """\
+    Write or rewrite the plan: the whole list of steps, in order, each with its status. Use it at the start \
+    of anything that takes more than a few steps, and again whenever a step is finished or the plan changes. \
+    The plan survives when older context is dropped, and it is the standard the work is held to: `done` \
+    with `finished` is not taken while a step is neither done nor dropped.\n\n\
+    Give each step a `check`: how you will know it is done, concrete enough for someone else to carry out, \
+    such as a command and what it prints, a file that exists, or a page that says something. A step with a \
+    check is marked done only with a `result`: what you saw that met it. This is why checks matter. Long \
+    work outlives its context, and whoever picks it up later has none of what you saw in front of them, \
+    only what is on record. A result is proof on record; remembering that you did something is not. A step \
+    without a check cannot be shown to be done.\n\n\
+    A step that needs others finished first names them in `after`, and cannot be in progress until they \
+    are done. A step no longer needed is `dropped`, with a `result` saying why. A step handed to a part with \
+    `delegate` is marked done or failed for you when the part ends. What you leave out of a step you wrote \
+    before, with the same text, stays as it was."""
 
 [plan.parameters]
-steps = "Every step of the plan, in order."
+steps = "Every step of the plan, in order. As the plan is shown: [ ] todo, [>] doing, [x] done, [-] dropped, [!] failed."
 "steps.text" = "What the step is, concretely."
+"steps.check" = "How you will know it is done: what to run or look at, and what it has to show."
+"steps.after" = "The numbers of the steps that have to be done before this one can start."
+"steps.result" = "For a step marked done, what you saw that meets its check, in a line. For a dropped step, why it is no longer needed."
 
 [done]
-description = "End the work and say how it ended. `finished` is your word that every requirement holds and that you have seen it hold in the real state; nothing checks it after you. `blocked` means something outside your control is in the way. `gave_up` means you are out of ideas. Nothing can be done after this."
+description = "End the work and say how it ended. `finished` is your word that every requirement holds and that you have seen it hold in the real state; nothing checks it after you. `blocked` means something outside your control is in the way. `gave_up` means you are out of ideas. `finished` is not taken while a step of the plan is neither done nor dropped. Nothing can be done after this."
 
 [done.parameters]
 summary = "What was done, or what is in the way, in a few sentences."
@@ -265,6 +282,7 @@ description = """\
 
 [delegate.parameters]
 task = "A complete instruction, since the part has seen none of your work: what to find out or do, where to look, what not to touch, and exactly what to report back."
+step = "The number of the step of your plan this part does, if it does one. The step is marked in progress, and done or failed with the first line of the part's report when it ends, so put what the step's check asks for in `task`, and ask for the report to begin with how it was met."
 
 [wait]
 description = """\

@@ -181,6 +181,10 @@ impl Mind {
                             ("state", state),
                         ],
                     );
+                    let record = self.work_record(&u.id);
+                    if let Some(record) = &record {
+                        line.push_str(&self.plan_of(&record.state()));
+                    }
                     // What it chose to tell her, and never how it got there.
                     for report in memory.reports(&u.id, REPORTS_SHOWN)? {
                         line.push_str(&self.prompts.fill(
@@ -209,7 +213,9 @@ impl Mind {
                             ],
                         ));
                     }
-                    line.push_str(&self.parts_of(&u.id));
+                    if let Some(record) = &record {
+                        line.push_str(&self.parts_of(&u.id, record));
+                    }
                     lines.push(line);
                 }
                 Some(outcome) if now - u.last_at < FRESH => lines.push(format!(
@@ -249,18 +255,56 @@ impl Mind {
             .section("elsewhere", "lines", &lines.join("\n")))
     }
 
-    /// The newest parts the work `id` has handed out, a line each, to go
-    /// under it: what each was given, where it stands and the latest it
-    /// said. Empty when it has none, or its record cannot be read.
-    fn parts_of(&self, id: &str) -> String {
+    /// The record of the work `id`, if there is one to read.
+    fn work_record(&self, id: &str) -> Option<ghost_work::Undertaking> {
         let db = self.ghost.dir().join(ghost_work::WORK_DB);
         // Opening a record that is not there would make one.
         if !db.exists() {
+            return None;
+        }
+        ghost_work::Undertaking::open(&db, id, None).ok()
+    }
+
+    /// How far the plan of a piece of work has got, in one short line to
+    /// go under it: how many of the steps it has not dropped are done, and
+    /// the step it is on. Empty when it has no plan.
+    fn plan_of(&self, state: &ghost_work::undertaking::State) -> String {
+        use ghost_work::undertaking::Progress;
+        let kept = state
+            .plan
+            .iter()
+            .filter(|s| s.status != Progress::Dropped)
+            .count();
+        if kept == 0 {
             return String::new();
         }
-        let Ok(record) = ghost_work::Undertaking::open(&db, id, None) else {
-            return String::new();
-        };
+        let done = state
+            .plan
+            .iter()
+            .filter(|s| s.status == Progress::Done)
+            .count();
+        let now = state
+            .plan
+            .iter()
+            .find(|s| s.status == Progress::Doing)
+            .map_or_else(String::new, |s| {
+                self.prompts
+                    .fill("work_plan_now", &[("step", clip(&s.text, 120))])
+            });
+        self.prompts.fill(
+            "work_plan",
+            &[
+                ("done", done.to_string()),
+                ("steps", kept.to_string()),
+                ("now", now),
+            ],
+        )
+    }
+
+    /// The newest parts the work `id` has handed out, a line each, to go
+    /// under it: what each was given, where it stands and the latest it
+    /// said. Empty when it has none.
+    fn parts_of(&self, id: &str, record: &ghost_work::Undertaking) -> String {
         let parts = record.parts();
         let sitting = self.working.contains_key(id);
         let from = parts.len().saturating_sub(PARTS_SHOWN);

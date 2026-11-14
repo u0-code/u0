@@ -378,14 +378,19 @@ impl Mind {
             Some(machine) => machine.describe(),
             None => self.prompts.text("no_machine").to_owned(),
         };
+        // What the work is told comes from the same files as what she is
+        // told, and is looked at again before each step.
+        let words = self.prompts.for_work();
+        let shared = words.clone().shared();
         // What she works with, for this and for any part of it she hands
         // to a helper: her machine if she has one, and the web.
         let equip: ghost_work::worker::ToolsFor = {
             let (machine, web) = (self.workshop.machine.clone(), self.workshop.web.clone());
+            let words = shared.clone();
             Arc::new(move |undertaking| {
                 let tools = match &machine {
-                    Some(machine) => tools::standard(machine.clone(), undertaking),
-                    None => tools::desk(undertaking),
+                    Some(machine) => tools::standard(machine.clone(), undertaking, &words),
+                    None => tools::desk(undertaking, &words),
                 };
                 tools::with_web(tools, &web)
             })
@@ -421,9 +426,6 @@ impl Mind {
             self.prompts.working.trim_end(),
             self.practice_block()?
         );
-        // What the work is told comes from the same files as what she is
-        // told, and is looked at again before each step.
-        let words = self.prompts.for_work();
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working.insert(
             next.id.clone(),
@@ -445,7 +447,7 @@ impl Mind {
                     machine: place,
                     pause,
                     helpers: Some(equip),
-                    prompts: words.shared(),
+                    prompts: shared,
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;

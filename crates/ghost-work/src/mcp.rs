@@ -147,7 +147,8 @@ mod tests {
             )
             .unwrap(),
         );
-        let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking);
+        let words = crate::Prompts::shipped().shared();
+        let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking, &words);
         let input = requests
             .iter()
             .map(ToString::to_string)
@@ -156,7 +157,7 @@ mod tests {
         let mut out = Vec::new();
         serve(
             toolbox,
-            crate::Prompts::shipped().shared(),
+            words,
             undertaking,
             tokio::io::BufReader::new(input.as_bytes()),
             &mut out,

@@ -47,19 +47,53 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+use crate::prompts::Prompts;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Progress {
+    #[default]
     Todo,
     Doing,
     Done,
+    /// No longer needed, for the reason in the step's result.
     Dropped,
+    /// Tried, and it did not come off: the part given it ended without
+    /// finishing. Still to be done another way, or dropped.
+    Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Progress {
+    /// Whether the step is out of the way: done, or dropped for a reason.
+    /// Anything else is still open, and the work is not finished while it
+    /// is.
+    pub fn closed(self) -> bool {
+        matches!(self, Self::Done | Self::Dropped)
+    }
+}
+
+/// One step of the plan. The plan is a small graph: a step can be after
+/// others, and carries how it will be known to be done and, once it is,
+/// how that was shown. Everything but its text and status came later and
+/// is optional, so that plans saved before still load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanStep {
     pub text: String,
     pub status: Progress,
+    /// How it will be known to be done: a command and what it prints, a
+    /// file that exists, a page that says something.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<String>,
+    /// The steps, numbered from 1, that have to be done before it starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<usize>,
+    /// The part handed this step, by its number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<u64>,
+    /// How its check was met, why it was dropped, or how the part given it
+    /// ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,25 +215,79 @@ impl State {
         text
     }
 
-    /// The plan as the worker should see it.
-    pub fn plan_text(&self) -> String {
+    /// The plan as the worker should see it, in `words`: each step with
+    /// what it is after, the part on it, its check and its result, so that
+    /// a sitting picked up later knows what has been shown and what has
+    /// not.
+    pub fn plan_text(&self, words: &Prompts) -> String {
         if self.plan.is_empty() {
-            return "(no plan written yet)".to_owned();
+            return words.text("no_plan").to_owned();
         }
-        self.plan
-            .iter()
-            .enumerate()
-            .map(|(i, step)| {
-                let mark = match step.status {
-                    Progress::Todo => "[ ]",
-                    Progress::Doing => "[>]",
-                    Progress::Done => "[x]",
-                    Progress::Dropped => "[-]",
-                };
-                format!("{mark} {}. {}", i + 1, step.text)
-            })
+        (0..self.plan.len())
+            .map(|i| self.step_text(words, i))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Step `i` of the plan, counted from 0, as the worker is shown it.
+    pub fn step_text(&self, words: &Prompts, i: usize) -> String {
+        let step = &self.plan[i];
+        let mark = match step.status {
+            Progress::Todo => "[ ]",
+            Progress::Doing => "[>]",
+            Progress::Done => "[x]",
+            Progress::Dropped => "[-]",
+            Progress::Failed => "[!]",
+        };
+        let part = |key: &str, name: &str, value: Option<String>| {
+            value.map_or_else(String::new, |v| words.fill(key, &[(name, v)]))
+        };
+        let after = (!step.after.is_empty()).then(|| {
+            step.after
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        });
+        words.fill(
+            "plan_step",
+            &[
+                ("mark", mark.to_owned()),
+                ("step", (i + 1).to_string()),
+                ("text", step.text.clone()),
+                ("after", part("plan_after", "steps", after)),
+                (
+                    "part",
+                    part("plan_part", "part", step.part.map(|p| p.to_string())),
+                ),
+                ("check", part("plan_check", "check", step.check.clone())),
+                ("result", part("plan_result", "result", step.result.clone())),
+            ],
+        )
+    }
+
+    /// The numbers of the steps, counted from 1, that are neither done nor
+    /// dropped.
+    pub fn open_steps(&self) -> Vec<usize> {
+        (0..self.plan.len())
+            .filter(|&i| !self.plan[i].status.closed())
+            .map(|i| i + 1)
+            .collect()
+    }
+
+    /// The steps that step `i`, counted from 0, is after and that are not
+    /// done: while there are any, it cannot be started.
+    pub fn waiting_on(&self, i: usize) -> Vec<usize> {
+        self.plan[i]
+            .after
+            .iter()
+            .copied()
+            .filter(|&n| {
+                n.checked_sub(1)
+                    .and_then(|at| self.plan.get(at))
+                    .is_some_and(|s| s.status != Progress::Done)
+            })
+            .collect()
     }
 
     /// Where the work stands, in a sentence or two: for whoever asks how it
@@ -1090,6 +1178,7 @@ mod tests {
             s.plan.push(PlanStep {
                 text: "look around".into(),
                 status: Progress::Done,
+                ..PlanStep::default()
             });
             s.notes.push(Note {
                 at: Utc::now(),
@@ -1104,11 +1193,46 @@ mod tests {
         let again = Undertaking::open(&db(&dir), "u1", Some("something else")).unwrap();
         let state = again.state();
         assert_eq!(state.brief, "build the thing", "the brief does not change");
-        assert_eq!(state.plan_text(), "[x] 1. look around");
+        assert_eq!(state.plan_text(&Prompts::shipped()), "[x] 1. look around");
         assert_eq!(state.notes_text(1000), "- python is 3.12");
         assert_eq!(again.transcript().unwrap().len(), 1);
         assert_eq!(again.history().len(), 2);
         assert_eq!(again.logged(), [serde_json::json!({"step": 1})]);
+    }
+
+    #[test]
+    fn a_plan_saved_before_steps_had_checks_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        // As the state was written before steps had anything but a text
+        // and a status.
+        let state = r#"{"brief":"build the thing","plan":[
+            {"text":"look around","status":"done"},
+            {"text":"build it","status":"doing"}
+        ],"notes":[],"finish":null,"sittings":1,"steps":4,
+        "usage":{"input":0,"cached":0,"output":0,"thought":0},"seconds":1.0}"#;
+        let conn = Connection::open(db(&dir)).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute(
+            "INSERT INTO undertakings (id, state) VALUES ('u1', ?1)",
+            [state],
+        )
+        .unwrap();
+        drop(conn);
+
+        let state = Undertaking::open(&db(&dir), "u1", None).unwrap().state();
+        assert_eq!(state.brief, "build the thing");
+        assert_eq!(
+            state.plan[1],
+            PlanStep {
+                text: "build it".into(),
+                status: Progress::Doing,
+                ..PlanStep::default()
+            }
+        );
+        assert_eq!(
+            state.plan_text(&Prompts::shipped()),
+            "[x] 1. look around\n[>] 2. build it"
+        );
     }
 
     #[test]
