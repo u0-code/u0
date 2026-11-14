@@ -195,7 +195,7 @@ mod tests {
     use super::*;
 
     pub(crate) const SAMPLE: &str = r#"
-name = "Lin"
+name = "Weiwei"
 pronouns = "she/her"
 born = "2026-11-12"
 temperament = "quiet, blunt, curious"
@@ -215,7 +215,7 @@ sleep = "00:30"
     #[test]
     fn parses_sample() {
         let seed = Seed::parse(SAMPLE).unwrap();
-        assert_eq!(seed.name, "Lin");
+        assert_eq!(seed.name, "Weiwei");
         assert_eq!(seed.home.tz().unwrap(), chrono_tz::Asia::Shanghai);
     }
 

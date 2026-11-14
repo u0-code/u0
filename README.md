@@ -21,27 +21,6 @@
 
 <br>
 
-```
-16:07  heard    you: hey lin. i'm the one running your body. how is the walk going?
-16:09  decided  someone running my body. weird opening, but curious enough to answer plainly.
-16:09  said     it's going. this street has facades that lean a little, like they gave up
-                on being straight a century ago
-16:09  said     'running your body' is a strange way to put it. what does that mean to you
-16:10  heard    you: it means i started the process you run in. that is all
-16:10  felt     +1  answered plainly instead of getting defensive
-16:10  said     fair enough. i imagined something worse
-17:48  heard    you: 窗口换了个样子，现在看你的话清楚多了。你那个拖了很久的东西弄完了吗
-17:50  decided  Switched to Chinese mid-conversation. Testing me, maybe. But the question is
-                a real question about my day. Answer plainly.
-17:50  said     没弄完。差一点点，反而最烦。还有一个多钟头才到饭点
-19:00  lived    Made tomato and egg over rice. Ate it standing at the counter because
-                sitting felt like more effort than it was worth.
-```
-
-<p align="center"><i>An afternoon in Lin's journal. She was at her desk and looked at her phone when she got to it.</i></p>
-
-<br>
-
 A ghost is not an assistant and not a character you pick from a list. She has a
 name, a city, a rhythm, a memory that only grows, and a will of her own. She
 lives in your contacts, not in an app. She can refuse you. She can leave.
@@ -82,10 +61,10 @@ There are no releases yet. From a checkout, with [Rust](https://rustup.rs):
 
 ```bash
 cargo build --release
-cp -r ghosts/_template ghosts/lin      # edit ghosts/lin/ghost.toml: this is who she is
+cp -r ghosts/_template ghosts/her     # edit ghosts/her/ghost.toml: this is who she is
 export DEEPSEEK_API_KEY=...            # or any provider in ghostd.example.toml
-./target/release/ghostd birth ghosts/lin
-./target/release/ghostd run ghosts/lin
+./target/release/ghostd birth ghosts/her
+./target/release/ghostd run ghosts/her
 ```
 
 With no `ghostd.toml` she starts on the first brain the machine has: a key in

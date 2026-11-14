@@ -22,7 +22,7 @@ use super::{Mind, Parts, Signal, Workshop};
 use crate::{Act, Acted, Body, Can, Incoming, MindConfig, Numb, Prompts};
 
 const SEED: &str = r#"
-name = "Lin"
+name = "Weiwei"
 pronouns = "she/her"
 born = "2026-11-01"
 temperament = "quiet"
@@ -291,9 +291,9 @@ impl Rig {
             Signal::Online {
                 channel: "t".into(),
                 me: Some(Actor {
-                    id: "lin".into(),
-                    name: "Lin".into(),
-                    handle: Some("lin".into()),
+                    id: "weiwei".into(),
+                    name: "Weiwei".into(),
+                    handle: Some("weiwei".into()),
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::React, Can::Post, Can::Feed],
@@ -345,9 +345,9 @@ impl Rig {
                 Signal::Online {
                     channel: channel.into(),
                     me: Some(Actor {
-                        id: "lin".into(),
-                        name: "Lin".into(),
-                        handle: Some("lin".into()),
+                        id: "weiwei".into(),
+                        name: "Weiwei".into(),
+                        handle: Some("weiwei".into()),
                         automated: true,
                     }),
                     can: vec![Can::Send, Can::Typing],
@@ -608,7 +608,7 @@ async fn echoes_and_redeliveries_are_not_heard_twice() {
     let mut rig = Rig::quiet(t0);
     rig.hear(dm("haoran", "1", "hi"), t0);
     rig.hear(dm("haoran", "1", "hi"), t0);
-    rig.hear(dm("lin", "9", "her own message, echoed"), t0);
+    rig.hear(dm("weiwei", "9", "her own message, echoed"), t0);
     assert_eq!(rig.kinds().iter().filter(|k| **k == "heard").count(), 1);
 }
 
@@ -793,7 +793,7 @@ async fn in_public_her_messages_hang_off_each_other() {
     rig.think.then(
         r#"{"actions":[{"do":"say","text":"i walk past it most mornings"},{"do":"say","text":"where did you hear that"}]}"#,
     );
-    let mut mention = dm("mei", "tweet-9", "@lin is the teahouse really closing?");
+    let mut mention = dm("mei", "tweet-9", "@weiwei is the teahouse really closing?");
     mention.place = Place {
         id: "thread-9".into(),
         kind: PlaceKind::Public,
@@ -874,7 +874,7 @@ async fn she_takes_something_on_does_it_and_comes_back_with_it() {
     // She worked as herself, on the brief, with no shell in this body.
     {
         let turns = rig.think.turns.lock().unwrap();
-        assert!(turns[0].system.contains("Lin"));
+        assert!(turns[0].system.contains("Weiwei"));
         assert!(
             matches!(&turns[0].items[0], ghost_brain::Item::User { text } if text.contains("Heming tea house"))
         );
@@ -972,7 +972,7 @@ async fn she_carries_her_day_between_places_but_not_what_was_private() {
         t1,
     );
     rig.hear(
-        group("streets", "bo", "3", "lin, are you coming?", true),
+        group("streets", "bo", "3", "weiwei, are you coming?", true),
         t1,
     );
     rig.until(|r| r.think.calls() == 2).await;
@@ -1207,7 +1207,7 @@ async fn with_her_phone_in_her_hand_she_gets_to_everyone_who_wrote() {
     // message would normally wait a good while.
     let t0 = at(10, 0);
     let mut rig = Rig::quiet(t0);
-    rig.hear(dm("stranger-a", "1", "hello, is this lin?"), t0);
+    rig.hear(dm("stranger-a", "1", "hello, is this weiwei?"), t0);
     rig.hear(
         dm("stranger-b", "2", "hi, quick question"),
         t0 + Duration::seconds(1),
@@ -1285,7 +1285,7 @@ async fn what_she_knows_of_someone_is_split_by_where_she_learned_it() {
             "streets",
             "wen",
             "3",
-            "lin, did you see the new line 30 station?",
+            "weiwei, did you see the new line 30 station?",
             true,
         ),
         t2,
@@ -1423,7 +1423,7 @@ async fn with_tools_she_answers_by_calling_them() {
     assert_eq!(rig.think.calls(), 0, "nothing was asked for as JSON");
     // Who she is comes first and holds nothing that changes by the hour;
     // the hour comes after, with what is in front of her.
-    assert!(turns[0].system.contains("You are Lin"));
+    assert!(turns[0].system.contains("You are Weiwei"));
     assert!(!turns[0].system.contains("# Right now"));
     let ghost_brain::Item::User { text } = &turns[0].items[0] else {
         panic!()
@@ -1860,9 +1860,9 @@ async fn what_she_made_is_handed_over_as_a_file() {
             Signal::Online {
                 channel: "t".into(),
                 me: Some(Actor {
-                    id: "lin".into(),
-                    name: "Lin".into(),
-                    handle: Some("lin".into()),
+                    id: "weiwei".into(),
+                    name: "Weiwei".into(),
+                    handle: Some("weiwei".into()),
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::Files],
@@ -2249,7 +2249,7 @@ async fn she_can_go_back_to_the_words_a_memory_came_from() {
         .then_turn("", &[("reread", serde_json::json!({"memory": noted}))]);
     rig.think.then_turn("", &[]);
     rig.hear(
-        group("streets", "hao", "3", "lin, how's wen doing?", true),
+        group("streets", "hao", "3", "weiwei, how's wen doing?", true),
         later + Duration::hours(1),
     );
     rig.until(|r| r.think.steps.lock().unwrap().is_empty())

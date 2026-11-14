@@ -116,7 +116,7 @@ mod tests {
 
     fn me() -> User {
         serde_json::from_value(serde_json::json!({
-            "id": 99, "is_bot": true, "first_name": "Lin", "username": "lin_ghost_bot"
+            "id": 99, "is_bot": true, "first_name": "Weiwei", "username": "weiwei_ghost_bot"
         }))
         .unwrap()
     }
@@ -162,11 +162,11 @@ mod tests {
         assert_eq!(plain.place.name.as_deref(), Some("neighbours"));
         assert!(!plain.addressed);
 
-        let mention = base(serde_json::json!({"text": "what do you think @Lin_Ghost_Bot"}));
+        let mention = base(serde_json::json!({"text": "what do you think @Weiwei_Ghost_Bot"}));
         assert!(inbound(&mention, &me()).unwrap().addressed);
 
         let reply = base(serde_json::json!({"reply_to_message": {
-            "message_id": 5, "from": {"id": 99, "is_bot": true, "first_name": "Lin"},
+            "message_id": 5, "from": {"id": 99, "is_bot": true, "first_name": "Weiwei"},
             "chat": {"id": -100_123, "type": "supergroup"}, "text": "hm"
         }}));
         let reply = inbound(&reply, &me()).unwrap();
@@ -196,7 +196,7 @@ mod tests {
             "[opened a chat with you]"
         );
         let echo = message(serde_json::json!({
-            "message_id": 12, "from": {"id": 99, "is_bot": true, "first_name": "Lin"},
+            "message_id": 12, "from": {"id": 99, "is_bot": true, "first_name": "Weiwei"},
             "chat": {"id": 1, "type": "private"}, "text": "hi"
         }));
         assert!(inbound(&echo, &me()).is_none());

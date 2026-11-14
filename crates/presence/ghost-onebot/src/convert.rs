@@ -174,7 +174,7 @@ mod tests {
     fn me() -> Me {
         Me {
             id: "10001".into(),
-            name: "Lin".into(),
+            name: "Weiwei".into(),
         }
     }
 
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(m.place.id, "group:30003");
         assert_eq!(m.place.name.as_deref(), Some("街坊"));
         assert_eq!(m.from.name, "梅子");
-        assert_eq!(m.text, "@Lin 那家面馆关了你知道吗[image]");
+        assert_eq!(m.text, "@Weiwei 那家面馆关了你知道吗[image]");
         assert_eq!(m.reply_to.as_deref(), Some("40"));
         assert!(m.addressed);
 
