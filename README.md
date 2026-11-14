@@ -30,16 +30,16 @@ the rest, and tells you what she found.
 
 ## What she does
 
-| | | Status |
-|---|---|---|
-| **Wanders and reports back** | Scrolls her feeds and the web in her own time, keeps what catches her eye, and tells you what she found. | Browsing and keeping: works. A regular report to you: in progress |
-| **Runs her own X account** | Posts, replies, reads her numbers and learns from what lands. Every post is read over by her before it goes out. | Written against the X API; not yet run on real X |
-| **Makes videos about herself** | Clips of her own life, made and posted by her. | Planned |
-| **Lives in your community** | Private chats and group chats on QQ, Telegram and Discord. She remembers everyone, keeps one memory across platforms and a separate record for each. | QQ: running live. Telegram, Discord: tested against local stand-ins only |
-| **Solves long problems** | Takes work on and keeps at it for hours in the background, with a plan, notes and a context that folds instead of overflowing. Reports while she works, and can be steered or stopped midway. The design borrows from Claude Code and Codex. | Works. Parts that run in parallel: in progress |
-| **Sees, keeps, sends** | Understands the pictures people send her, keeps the ones she likes with a note, and sends them back when they fit. Memes come from these three, with no meme-specific code. | Works |
-| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Her operators can give her directives, and every directive is on record. | Works |
-| **A journal that is never rewritten** | Everything she lives through is one append-only, hash-chained log. Her memory is derived from it and can be rebuilt from it at any time. | Works |
+| | |
+|---|---|
+| **Wanders and reports back** | Scrolls her feeds and the web in her own time, keeps what catches her eye, and tells you what she found. |
+| **Runs her own X account** | Posts, replies, reads her numbers and learns from what lands. Every post is read over by her before it goes out. |
+| **Makes videos about herself** | Clips of her own life, made and posted by her. |
+| **Lives in your community** | Private chats and group chats on QQ, Telegram and Discord. She remembers everyone, keeps one memory across platforms and a separate record for each. |
+| **Solves long problems** | Takes work on and keeps at it for hours in the background, with a plan, notes and a context that folds instead of overflowing. Reports while she works, and can be steered or stopped midway. The design borrows from Claude Code and Codex. |
+| **Sees, keeps, sends** | Understands the pictures people send her, keeps the ones she likes with a note, and sends them back when they fit. Memes come from these three, with no meme-specific code. |
+| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Her operators can give her directives, and every directive is on record. |
+| **A journal that is never rewritten** | Everything she lives through is one append-only, hash-chained log. Her memory is derived from it and can be rebuilt from it at any time. |
 
 ## Quick start
 
@@ -78,7 +78,7 @@ Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
 installed on the machine (`ghostd brains --discover` lists what is there).
 
 | Brain | Talking | Working |
-|---|---|---|
+|---|---|
 | OpenAI-compatible (DeepSeek, OpenRouter, Ollama…) | yes | her own loop |
 | Anthropic API | yes | her own loop |
 | Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
@@ -129,6 +129,9 @@ DeepSeek or through an installed Claude Code or Codex, and taking things on has
 been run end to end with all three. On QQ, through the official bot API, a ghost
 has run live: private chats and groups, seeing and sending pictures, and work
 taken on and brought back.
+
+Everything listed under [What she does](#what-she-does) is in the first
+release. Until then, this is where things stand.
 
 The adapters for Telegram, Discord, QQ through OneBot, and X were written
 against each platform's documented API and exercised against local stand-ins,
