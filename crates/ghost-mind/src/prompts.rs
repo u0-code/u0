@@ -47,6 +47,7 @@ pub const FILES: &[File] = &[
     whole("browse.md", include_str!("../prompts/browse.md")),
     whole("gate.md", include_str!("../prompts/gate.md")),
     whole("view.md", include_str!("../prompts/view.md")),
+    whole("report.md", include_str!("../prompts/report.md")),
     whole("review.md", include_str!("../prompts/review.md")),
     whole("working.md", include_str!("../prompts/working.md")),
     File {
@@ -104,6 +105,8 @@ pub struct Prompts {
     pub gate: String,
     /// `view.md`: glancing at an image someone sent.
     pub view: String,
+    /// `report.md`: telling an operator what she has been doing.
+    pub report: String,
     /// `review.md`: the brief for sitting down to look at her public writing.
     pub review: String,
     /// `working.md`: what she is told about a piece of work she took on.
@@ -140,6 +143,7 @@ impl Prompts {
             browse: text("browse.md"),
             gate: text("gate.md"),
             view: text("view.md"),
+            report: text("report.md"),
             review: text("review.md"),
             working: text("working.md"),
             store,

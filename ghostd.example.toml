@@ -145,8 +145,18 @@ review_days = 7
 # private chat and a group: list both to direct her in both. An id is only
 # as sure as the channel that reports it: the terminal takes whatever name it
 # is started with, so a `term` operator is whoever can reach this daemon.
+#
+# Once a day, at `report`, in her own timezone, she comes to mean to tell each
+# operator what she has done and seen since she last told them: what she
+# looked up, opened and kept, work that ended, what she posted, who she met
+# and where she talked. It is said as herself, in a private conversation she
+# already has with that account, and like anything else she means to do it
+# waits until she is awake and free. An operator she has never talked with in
+# private gets no report: she never writes first to a stranger. What people
+# told her in private is not passed on. An empty string turns reports off.
 # [operators]
 # prefix = "fox:"        # the default; case and a full-width colon do not matter
+# report = "21:00"       # the default
 # qq = ["0123456789ABCDEF0123456789ABCDEF"]
 
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.

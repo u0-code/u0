@@ -2,7 +2,8 @@
 
 use std::{collections::BTreeMap, path::PathBuf};
 
-use serde::Deserialize;
+use chrono::NaiveTime;
+use serde::{Deserialize, Deserializer, de::Error as _};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -79,6 +80,11 @@ pub struct Operators {
     /// What a directive begins with, after any leading whitespace. Matched
     /// without regard to case, and a `:` in it matches a full-width `：`.
     pub prefix: String,
+    /// The time of day, in her own timezone, at which she tells each of
+    /// them what she has been doing, written `"HH:MM"`. An empty string,
+    /// read as `None`, is never.
+    #[serde(deserialize_with = "time_of_day")]
+    pub report: Option<NaiveTime>,
     /// Account ids per channel, as the channel's presence reports them.
     #[serde(flatten)]
     pub accounts: BTreeMap<String, Vec<String>>,
@@ -88,9 +94,22 @@ impl Default for Operators {
     fn default() -> Self {
         Self {
             prefix: "fox:".to_owned(),
+            report: NaiveTime::from_hms_opt(21, 0, 0),
             accounts: BTreeMap::new(),
         }
     }
+}
+
+/// `"HH:MM"` as a time of day, and an empty string as none.
+fn time_of_day<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveTime>, D::Error> {
+    let text = String::deserialize(d)?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    NaiveTime::parse_from_str(text, "%H:%M")
+        .map(Some)
+        .map_err(|_| D::Error::custom(format!("{text:?} is not a time of day like \"21:00\"")))
 }
 
 impl Operators {

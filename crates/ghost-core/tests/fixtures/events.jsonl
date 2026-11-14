@@ -67,3 +67,4 @@
 {"kind":"directed","data":{"message":66,"from":"qq:B7D1C0","text":"send me the weather"}}
 {"kind":"undertook","data":{"id":"20261114-090000-00ef","brief":"Write today's date into date.txt.\n\nAn operator of yours, one of the people who run your body, directed this, and you are carrying it out:\n- send the date","asked_by":"qq:B7D1C0","place":"qq:c2c:B7D1C0","directed":true}}
 {"kind":"intended","data":{"due":"2026-11-14T01:01:00Z","what":"hand over date.txt","about":"qq:B7D1C0","place":"qq:c2c:B7D1C0","owed":true,"directed":true}}
+{"kind":"intended","data":{"due":"2026-11-14T13:00:00Z","what":"tell qq-B7D1C0 what you have been up to since you last did","about":"qq:B7D1C0","place":"qq:c2c:B7D1C0","owed":true,"report":true}}

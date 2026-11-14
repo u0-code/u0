@@ -51,7 +51,7 @@ pub use links::Challenge;
 pub use messages::Line;
 pub use notes::{Note, Profile};
 pub use people::Person;
-pub use places::{Elsewhere, PlaceState};
+pub use places::{Elsewhere, PlaceState, Talked};
 pub use public::Standing;
 pub use recall::Hit;
 pub use work::{Undertaking, WorkReport};
@@ -63,7 +63,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 /// How far the journal has been folded in.
 const META: &str =

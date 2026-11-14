@@ -17,6 +17,7 @@ mod living;
 mod public;
 mod pursuit;
 mod reach;
+mod report;
 mod reread;
 mod speak;
 #[cfg(test)]
@@ -302,6 +303,8 @@ struct Agenda {
     phone: Option<DateTime<Utc>>,
     /// The next time she sits down to something she has taken on.
     work: Option<DateTime<Utc>>,
+    /// The next time she comes to mean to tell her operators about her day.
+    report: Option<DateTime<Utc>>,
 }
 
 impl Agenda {
@@ -314,6 +317,7 @@ impl Agenda {
             .chain(self.intention)
             .chain(self.phone)
             .chain(self.work)
+            .chain(self.report)
             .min()
     }
 }
@@ -475,6 +479,9 @@ impl Mind {
         if self.can_work() && !self.ghost.memory().undertakings(true, 1)?.is_empty() {
             self.agenda.work = Some(now + Duration::minutes(1));
         }
+        // Today's report, if it has not been made: at its time, or at once
+        // if that has passed while her body was not running.
+        self.agenda.report = self.report_time(now, 0);
         self.refresh_intentions()
     }
 
@@ -543,6 +550,10 @@ impl Mind {
             .collect();
         for place in speaking {
             self.speak(&place, now)?;
+        }
+        // Before intentions: a report meant now is acted on in this moment.
+        if due(self.agenda.report) {
+            self.report(now)?;
         }
         if due(self.agenda.intention) {
             self.pursue(now)?;

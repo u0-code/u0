@@ -618,6 +618,9 @@ impl Mind {
                 1 => "There is 1 new message here since you last looked.".to_owned(),
                 n => format!("There are {n} new messages here since you last looked."),
             },
+            Why::Intention(intention) if intention.report => {
+                self.report_brief(intention, place, now)?
+            }
             Why::Intention(intention) => self
                 .prompts
                 .fill("intention_due", &[("what", intention.what.clone())]),
