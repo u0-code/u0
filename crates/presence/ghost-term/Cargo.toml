@@ -17,6 +17,7 @@ ghost-link = { path = "../../ghost-link" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+dotenvy = "0.15"
 
 [lints]
 workspace = true

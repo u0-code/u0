@@ -12,6 +12,7 @@ publish.workspace = true
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 clap = { version = "4.6.7", features = ["derive", "env"] }
+dotenvy = "0.15"
 ghost-link = { path = "../../ghost-link" }
 serenity = { version = "0.12.5", default-features = false, features = ["client", "gateway", "model", "http", "builder", "native_tls_backend"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "sync"] }

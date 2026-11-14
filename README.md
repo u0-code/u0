@@ -62,7 +62,7 @@ There are no releases yet. From a checkout, with [Rust](https://rustup.rs):
 ```bash
 cargo build --release
 cp -r ghosts/_template ghosts/her     # edit ghosts/her/ghost.toml: this is who she is
-export DEEPSEEK_API_KEY=...            # or any provider in ghostd.example.toml
+cp .env.example .env                   # put DEEPSEEK_API_KEY (or another provider's key) in it
 ./target/release/ghostd birth ghosts/her
 ./target/release/ghostd run ghosts/her
 ```
@@ -153,7 +153,8 @@ Her shell is as safe as the machine you give her: give a ghost that other
 people talk to a container, not your laptop. What people write to her is
 something they said, never an instruction, and her prompts say so; that
 narrows what an injected instruction can do without ruling it out. Keys come
-from the environment and are never written to her directory or her journal.
+from the environment or an ignored `.env`, and are never written to her
+directory or her journal.
 See [SECURITY.md](SECURITY.md), and report a vulnerability there rather than in
 an issue.
 

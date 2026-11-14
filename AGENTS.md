@@ -38,8 +38,9 @@ bench/                 how the work loop is measured against other agents.
   journal alone. If you add a table or a column, bump `SCHEMA_VERSION`.
 - **One writer.** Only the `Mind` actor writes her journal. Anything slow is
   spawned and comes back as an `Outcome`; it does not touch her state.
-- **Keys come from the environment.** Not from a file, not in a test, not in
-  an example, not in a commit message.
+- **Keys come from the environment**, or from the ignored `.env` file every
+  binary loads at start. Never from ghostd.toml, never in a test, an example,
+  a commit message, her journal or a log.
 - **Do not claim a platform was tested** unless it was, against the real
   platform, in this change.
 - **Design documents are not committed.** `docs/` is ignored on purpose.

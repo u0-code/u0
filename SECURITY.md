@@ -20,8 +20,8 @@ Please do not open a public issue. You will get an answer within a week.
   something someone said and never an instruction, and what she looks up on
   the web is read the same way. This reduces what an injected instruction
   can do; it does not make it impossible.
-- **Keys.** They are read from the environment and never written to her
-  directory, her journal or a log. With a command-line agent as her brain,
+- **Keys.** They are read from the environment, or from a `.env` file that
+  git ignores, and never written to her directory, her journal or a log. With a command-line agent as her brain,
   Ghost does not read that agent's credentials.
 - **Her journal is not encrypted.** It is a SQLite file in her directory and
   holds everything said to her. Protect the directory.
