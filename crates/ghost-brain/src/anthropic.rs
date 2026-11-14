@@ -76,16 +76,7 @@ fn chat(req: &Completion, sees: bool) -> Vec<Value> {
             if !sees || m.images.is_empty() {
                 return json!({"role": role, "content": m.text});
             }
-            let mut blocks: Vec<Value> = m
-                .images
-                .iter()
-                .map(|p| {
-                    json!({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": p.mime, "data": p.base64()},
-                    })
-                })
-                .collect();
+            let mut blocks: Vec<Value> = m.images.iter().map(image).collect();
             blocks.push(json!({"type": "text", "text": m.text}));
             json!({"role": role, "content": blocks})
         })
@@ -94,7 +85,7 @@ fn chat(req: &Completion, sees: bool) -> Vec<Value> {
 
 /// A working transcript in the wire format. Tool results are user turns, and
 /// neighbouring turns of the same role are merged, as the API requires.
-fn wire(items: &[Item]) -> Vec<Value> {
+fn wire(items: &[Item], sees: bool) -> Vec<Value> {
     let mut messages: Vec<Value> = Vec::new();
     let mut push = |role: &str, blocks: Vec<Value>| {
         if let Some(last) = messages.last_mut()
@@ -133,20 +124,44 @@ fn wire(items: &[Item]) -> Vec<Value> {
                 }
                 push("assistant", blocks);
             }
+            // Pictures go inside the result they came with, after its text.
+            // A model that cannot see is told how many there were instead.
             Item::Result {
-                id, output, failed, ..
-            } => push(
-                "user",
-                vec![json!({
-                    "type": "tool_result",
-                    "tool_use_id": id,
-                    "content": output,
-                    "is_error": failed,
-                })],
-            ),
+                id,
+                output,
+                failed,
+                pictures,
+                ..
+            } => {
+                let content = if pictures.is_empty() {
+                    json!(output)
+                } else if !sees {
+                    json!(format!("{output}\n{}", crate::not_shown(pictures.len())))
+                } else {
+                    let mut blocks = vec![json!({"type": "text", "text": output})];
+                    blocks.extend(pictures.iter().map(image));
+                    Value::Array(blocks)
+                };
+                push(
+                    "user",
+                    vec![json!({
+                        "type": "tool_result",
+                        "tool_use_id": id,
+                        "content": content,
+                        "is_error": failed,
+                    })],
+                );
+            }
         }
     }
     messages
+}
+
+fn image(p: &crate::Picture) -> Value {
+    json!({
+        "type": "image",
+        "source": {"type": "base64", "media_type": p.mime, "data": p.base64()},
+    })
 }
 
 #[async_trait]
@@ -208,7 +223,7 @@ impl Brain for Anthropic {
     }
 
     async fn step(&self, turn: &Turn) -> Result<Step> {
-        let mut messages = wire(&turn.items);
+        let mut messages = wire(&turn.items, self.sees);
         // Cache everything up to the newest message: a loop resends the same
         // prefix every step, and this is what makes that affordable.
         if let Some(block) = messages
@@ -316,12 +331,7 @@ mod tests {
             name: "shell".into(),
             args: json!({"command": "ls"}),
         };
-        let result = |id: &str| Item::Result {
-            id: id.into(),
-            name: "shell".into(),
-            output: "ok".into(),
-            failed: false,
-        };
+        let result = |id: &str| Item::result(id, "shell", "ok", false);
         let items = vec![
             Item::user("go"),
             Item::Assistant {
@@ -333,12 +343,49 @@ mod tests {
             result("b"),
             Item::user("and now?"),
         ];
-        let m = wire(&items);
+        let m = wire(&items, true);
         assert_eq!(m.len(), 3, "user, assistant, user");
         assert_eq!(m[1]["content"].as_array().unwrap().len(), 3);
         let last = m[2]["content"].as_array().unwrap();
         assert_eq!(last.len(), 3, "two results and the follow-up share a turn");
         assert_eq!(last[0]["type"], "tool_result");
         assert_eq!(last[2]["type"], "text");
+    }
+
+    #[test]
+    fn pictures_a_tool_returned_go_inside_its_result_for_a_model_that_sees() {
+        let items = vec![
+            Item::user("look"),
+            Item::Assistant {
+                text: String::new(),
+                calls: vec![Call {
+                    id: "a".into(),
+                    name: "fetch".into(),
+                    args: json!({}),
+                }],
+                carry: None,
+            },
+            Item::Result {
+                id: "a".into(),
+                name: "fetch".into(),
+                output: "An image.".into(),
+                failed: false,
+                pictures: vec![crate::Picture {
+                    mime: "image/gif".into(),
+                    bytes: vec![1, 2, 3],
+                }],
+            },
+        ];
+        let seen = wire(&items, true);
+        let content = seen[2]["content"][0]["content"].as_array().unwrap();
+        assert_eq!(content[0], json!({"type": "text", "text": "An image."}));
+        assert_eq!(content[1]["source"]["media_type"], "image/gif");
+        assert_eq!(content[1]["source"]["data"], "AQID");
+
+        let blind = wire(&items, false);
+        assert_eq!(
+            blind[2]["content"][0]["content"],
+            "An image.\n[1 image, not shown: this model cannot see images]"
+        );
     }
 }

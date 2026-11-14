@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ghost_brain::{Call, ToolSpec};
+use ghost_brain::{Call, Picture, ToolSpec};
 use serde_json::{Value, json};
 
 /// What running a tool produced.
@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 pub struct Outcome {
     pub output: String,
     pub failed: bool,
+    /// Images to show the model with the output. Most tools have none.
+    pub pictures: Vec<Picture>,
 }
 
 impl Outcome {
@@ -22,6 +24,7 @@ impl Outcome {
         Self {
             output: output.into(),
             failed: false,
+            pictures: Vec::new(),
         }
     }
 
@@ -29,6 +32,15 @@ impl Outcome {
         Self {
             output: output.into(),
             failed: true,
+            pictures: Vec::new(),
+        }
+    }
+
+    /// A picture, with a line or two about it.
+    pub fn seen(output: impl Into<String>, picture: Picture) -> Self {
+        Self {
+            pictures: vec![picture],
+            ..Self::ok(output)
         }
     }
 }

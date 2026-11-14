@@ -76,7 +76,10 @@ impl Shell {
                 false
             }
         };
-        Outcome { output, failed }
+        Outcome {
+            failed,
+            ..Outcome::ok(output)
+        }
     }
 }
 
@@ -123,8 +126,8 @@ impl Tool for Shell {
             );
             return match self.desk.exec(&script, None, Duration::from_secs(30)).await {
                 Ok(out) => Outcome {
-                    output: out.text.trim().to_owned(),
                     failed: !out.ok(),
+                    ..Outcome::ok(out.text.trim())
                 },
                 Err(e) => Outcome::fail(format!("could not start the command: {e}")),
             };
@@ -200,8 +203,8 @@ impl Tool for Shell {
             let _ = write!(output, "\n[now in {dir}]");
         }
         Outcome {
-            output,
             failed: !out.ok(),
+            ..Outcome::ok(output)
         }
     }
 }

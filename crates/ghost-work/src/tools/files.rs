@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use ghost_brain::ToolSpec;
 use serde_json::{Value, json};
 
-use super::Desk;
+use super::{Desk, MAX_PICTURE};
 use crate::{
     machine::quote,
     tool::{Outcome, Tool, spec, text},
@@ -69,6 +69,42 @@ impl Read {
     pub fn new(desk: Arc<Desk>) -> Self {
         Self { desk }
     }
+
+    /// The file as a picture, if its name says it is an image and its
+    /// bytes agree. `None` sends it on to be read as text.
+    async fn look(&self, path: &str) -> Option<Outcome> {
+        let named = path.rsplit_once('.').is_some_and(|(_, ext)| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp"
+            )
+        });
+        if !named {
+            return None;
+        }
+        // The machine reads from its own root; the worker may have moved.
+        let full = match self.desk.cwd() {
+            Some(dir) if !path.starts_with('/') => format!("{}/{path}", dir.trim_end_matches('/')),
+            _ => path.to_owned(),
+        };
+        let bytes = match self.desk.machine.read(&full, MAX_PICTURE as u64).await {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                return Some(Outcome::fail(format!(
+                    "{path} is an image larger than {} MB, too large to be shown. Make a smaller copy with shell tools and read that.",
+                    MAX_PICTURE / (1024 * 1024)
+                )));
+            }
+            // Machines that cannot hand files over, and missing files, are
+            // left to the text reader, which says so in its own words.
+            Err(_) => return None,
+        };
+        let picture = super::picture(bytes)?;
+        Some(Outcome::seen(
+            format!("{path}: an image ({})", super::about(&picture)),
+            picture,
+        ))
+    }
 }
 
 #[async_trait]
@@ -76,7 +112,7 @@ impl Tool for Read {
     fn spec(&self) -> ToolSpec {
         spec(
             "read",
-            "Read a text file, with line numbers. Returns up to 600 lines; use `from` and `lines` to read a different part of a long file.",
+            "Read a text file, with line numbers. Returns up to 600 lines; use `from` and `lines` to read a different part of a long file. An image file (PNG, JPEG, GIF or WebP, up to 5 MB) comes back as the image itself, so you can look at it.",
             json!({
                 "path": {"type": "string", "description": "The file. Relative paths are taken from the shell's working directory."},
                 "from": {"type": "integer", "description": "First line to return, counting from 1."},
@@ -91,6 +127,9 @@ impl Tool for Read {
             Ok(p) => p,
             Err(refusal) => return refusal,
         };
+        if let Some(seen) = self.look(path).await {
+            return seen;
+        }
         let content = match slurp(&self.desk, path, Some(FETCH_BYTES)).await {
             Ok(c) => c,
             Err(refusal) => return refusal,
@@ -385,6 +424,31 @@ mod tests {
             std::fs::read_to_string(dir.path().join("a.py")).unwrap(),
             "def f():\n    return 1\n\ndef g():\n    return 2\n"
         );
+    }
+
+    #[tokio::test]
+    async fn reading_an_image_file_shows_the_image_from_where_the_shell_stands() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("pics")).unwrap();
+        std::fs::write(
+            dir.path().join("pics/dot.png"),
+            crate::tools::testing::PIXEL,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("pics/notes.png"), "only text").unwrap();
+        let d = desk(dir.path());
+        d.moved_to(dir.path().join("pics").display().to_string());
+        let read = Read::new(d.clone());
+
+        let seen = read.call(&json!({"path": "dot.png"})).await;
+        assert!(!seen.failed, "{}", seen.output);
+        assert_eq!(seen.pictures.len(), 1);
+        assert_eq!(seen.pictures[0].bytes, crate::tools::testing::PIXEL);
+        assert_eq!(seen.output, "dot.png: an image (image/png, 67 bytes, 1×1)");
+        // A name is not enough: what is not an image is read as text.
+        let text = read.call(&json!({"path": "notes.png"})).await;
+        assert!(text.pictures.is_empty());
+        assert_eq!(text.output, "    1  only text");
     }
 
     #[tokio::test]

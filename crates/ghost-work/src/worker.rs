@@ -14,6 +14,10 @@
 //!   notes and the last stretch of the transcript, word for word. Nothing
 //!   is lost to this: every item is also appended to a history that is
 //!   never rewritten.
+//! - **Pictures are shed first.** A tool may return images. They are kept
+//!   on disk and named in the result, shown to a brain that sees, and taken
+//!   out of the transcript once a few newer ones have been looked at, or
+//!   before any text when the transcript is folded.
 //! - **How to finish is said beforehand.** The instructions say what
 //!   finished means and that checking is part of the work; work that has
 //!   outlived a context is told again, at length, when it is picked up.
@@ -38,7 +42,7 @@ use serde_json::{Value, json};
 use crate::{
     tool::{self, Tool, Toolbox},
     tools::{Handoff, clip},
-    undertaking::{Outcome, State, Undertaking},
+    undertaking::{Outcome, State, Undertaking, placeholder},
 };
 
 const PROMPT: &str = include_str!("prompts/work.md");
@@ -119,6 +123,11 @@ const KEEP_RECENT: [usize; 3] = [12, 6, 3];
 const TAIL_SHARE: u64 = 16;
 /// The share of the notes a new sitting is shown, in characters.
 const NOTES_SHOWN: usize = 2500;
+/// How many pictures the model has already looked at stay in the
+/// transcript. Each one is sent again with every request, at the cost of
+/// a long passage, and is seldom looked at twice; the line naming its file
+/// stays, so it can be had again.
+const PICTURES_KEPT: usize = 6;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -284,12 +293,12 @@ impl Tool for Delegate {
             _ => "ran out of steps or time before finishing".to_owned(),
         };
         tool::Outcome {
-            output: format!(
+            failed: report.ended != Ended::Finished,
+            ..tool::Outcome::ok(format!(
                 "The helper {how} after {} steps. Its report:\n\n{}",
                 report.steps,
                 clip(&said, HELPER_REPORT / 2, HELPER_REPORT / 2)
-            ),
-            failed: report.ended != Ended::Finished,
+            ))
         }
     }
 }
@@ -340,6 +349,43 @@ fn prune(items: &mut [Item], spare: usize) -> usize {
         {
             *output = clip(output, PRUNE_HEAD, PRUNE_TAIL);
         }
+    }
+    before - chars(items)
+}
+
+/// Take pictures out of the transcript, all but the newest `keep` of those
+/// the model has already been shown. Pictures that came back since its
+/// last step have not been looked at yet, and always stay. Returns how many
+/// characters that freed.
+fn unsee(items: &mut [Item], keep: usize) -> usize {
+    let before = chars(items);
+    let shown = items
+        .iter()
+        .rposition(|item| matches!(item, Item::Assistant { .. }))
+        .unwrap_or(0);
+    let mut left = keep;
+    for item in items[..shown].iter_mut().rev() {
+        let Item::Result {
+            output, pictures, ..
+        } = item
+        else {
+            continue;
+        };
+        if pictures.len() <= left {
+            left -= pictures.len();
+            continue;
+        }
+        // Older ones would fit where this did not, but are older still.
+        left = 0;
+        let (these, them) = if pictures.len() == 1 {
+            ("This image is", "it")
+        } else {
+            ("These images are", "them")
+        };
+        output.push_str(&format!(
+            "\n[{these} no longer shown, to save room. Ask for {them} again if you need to see {them}.]"
+        ));
+        pictures.clear();
     }
     before - chars(items)
 }
@@ -425,11 +471,9 @@ fn mend(items: &mut Vec<Item>) {
         .iter()
         .filter(|c| !answered.contains(&c.id.as_str()))
         .enumerate()
-        .map(|(nth, c)| Item::Result {
-            id: c.id.clone(),
-            name: c.name.clone(),
-            output: if nth == 0 { INTERRUPTED } else { NOT_STARTED }.to_owned(),
-            failed: true,
+        .map(|(nth, c)| {
+            let said = if nth == 0 { INTERRUPTED } else { NOT_STARTED };
+            Item::result(&c.id, &c.name, said, true)
         })
         .collect();
     // Results belong directly after the calls, before anything said since.
@@ -631,6 +675,7 @@ impl Worker {
                 "ms": ms,
                 "failed": outcome.failed,
                 "chars": outcome.output.len(),
+                "pictures": outcome.pictures.len(),
             }));
             signature.push_str(&format!(
                 "{}\u{1f}{}\u{1f}{}\u{1e}",
@@ -647,14 +692,38 @@ impl Worker {
                     state.touched.drain(..extra);
                 });
             }
-            items.push(Item::Result {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                output: outcome.output,
-                failed: outcome.failed,
-            });
+            items.push(self.take_in(call, outcome));
         }
         (logged, signature)
+    }
+
+    /// A tool's outcome as a transcript item. Its pictures are kept on
+    /// disk and named in its output; a brain that cannot see them is told
+    /// how many there were, and the bytes go no further.
+    fn take_in(&self, call: &Call, outcome: tool::Outcome) -> Item {
+        let tool::Outcome {
+            mut output,
+            failed,
+            mut pictures,
+        } = outcome;
+        if !pictures.is_empty() {
+            for file in self.undertaking.keep(&pictures) {
+                output.push('\n');
+                output.push_str(&placeholder(&file));
+            }
+            if !self.brain.sees() {
+                output.push('\n');
+                output.push_str(&ghost_brain::not_shown(pictures.len()));
+                pictures.clear();
+            }
+        }
+        Item::Result {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            output,
+            failed,
+            pictures,
+        }
     }
 
     /// Make room. First on a copy: long output is trimmed, then old output
@@ -687,8 +756,14 @@ impl Worker {
             measured: gauge.measured,
             fixed: gauge.fixed,
         };
-        let mut freed = prune(&mut trial, KEEP_RECENT[2]);
+        // Pictures go before any text: they cost the most, and are worth
+        // the least once they have been looked at.
+        let mut freed = unsee(&mut trial, 0);
         trial_gauge.reweigh(&trial);
+        if trial_gauge.tokens(&trial) > target {
+            freed += prune(&mut trial, KEEP_RECENT[2]);
+            trial_gauge.reweigh(&trial);
+        }
         for keep in KEEP_RECENT {
             if trial_gauge.tokens(&trial) <= target {
                 break;
@@ -881,6 +956,9 @@ impl Worker {
                 extra = spent;
                 base = began.unwrap_or(base);
             }
+            if unsee(&mut items, PICTURES_KEPT) > 0 {
+                gauge.reweigh(&items);
+            }
 
             let asked = Instant::now();
             let turn = Turn {
@@ -1058,6 +1136,8 @@ mod tests {
         refuses_over: AtomicU64,
         /// What it says it can write in one answer; 0 for not known.
         max_output: AtomicU64,
+        /// Whether it says it can see images.
+        sees: AtomicBool,
     }
 
     fn says(text: &str) -> Step {
@@ -1104,6 +1184,9 @@ mod tests {
                 .ok()
                 .filter(|m| *m > 0)
         }
+        fn sees(&self) -> bool {
+            self.sees.load(Ordering::Relaxed)
+        }
         async fn step(&self, turn: &Turn) -> Result<Step> {
             // Like a real model, it reads as much as it is shown.
             let size = (chars(&turn.items) / 3).max(100) as u64;
@@ -1147,6 +1230,7 @@ mod tests {
             window: AtomicU64::new(0),
             refuses_over: AtomicU64::new(0),
             max_output: AtomicU64::new(0),
+            sees: AtomicBool::new(false),
         });
         let machine = Arc::new(Local::new(dir));
         let worker = Worker {
@@ -1233,12 +1317,7 @@ mod tests {
                 calls: vec![call("a"), call("b"), call("c")],
                 carry: None,
             },
-            Item::Result {
-                id: "a".into(),
-                name: "shell".into(),
-                output: "ok".into(),
-                failed: false,
-            },
+            Item::result("a", "shell", "ok", false),
         ];
         mend(&mut items);
         assert_eq!(items.len(), 5);
@@ -1370,12 +1449,7 @@ mod tests {
 
     #[test]
     fn long_output_is_trimmed_before_anything_is_dropped() {
-        let result = |output: String| Item::Result {
-            id: "a".into(),
-            name: "shell".into(),
-            output,
-            failed: false,
-        };
+        let result = |output: String| Item::result("a", "shell", output, false);
         let mut items = vec![
             Item::user("task"),
             result(format!("START{}END", "z".repeat(30_000))),
@@ -1650,5 +1724,215 @@ mod tests {
         assert_eq!(report.steps, 2, "totals run across both");
         // It was shown the transcript it left, not a blank page.
         assert_eq!(brain.seen.lock().unwrap()[0].items.len(), 3);
+    }
+
+    /// A tool that returns a new picture every time it is called.
+    struct Camera(AtomicU64);
+
+    #[async_trait]
+    impl Tool for Camera {
+        fn spec(&self) -> ToolSpec {
+            tool::spec("camera", "Take a picture.", json!({}), &[])
+        }
+        async fn call(&self, _: &Value) -> tool::Outcome {
+            let mut bytes = tools::testing::PIXEL.to_vec();
+            bytes.extend(self.0.fetch_add(1, Ordering::Relaxed).to_be_bytes());
+            tool::Outcome::seen(
+                "A picture.",
+                ghost_brain::Picture {
+                    mime: "image/png".into(),
+                    bytes,
+                },
+            )
+        }
+    }
+
+    fn pictures_in(item: &Item) -> usize {
+        match item {
+            Item::Result { pictures, .. } => pictures.len(),
+            _ => 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_brain_that_sees_is_shown_a_fetched_image_and_it_is_kept_under_its_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let site = tools::testing::serve(vec![(
+            "/dot.png",
+            "image/png",
+            tools::testing::PIXEL.to_vec(),
+        )])
+        .await;
+        let script = vec![
+            calls("fetch", json!({"url": format!("{site}/dot.png")})),
+            calls("done", json!({"outcome": "blocked", "summary": "enough"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        worker.tools = tools::with_web(worker.tools, &tools::WebConfig::default());
+        brain.sees.store(true, Ordering::Relaxed);
+        assert_eq!(worker.run().await.ended, Ended::Blocked);
+
+        let file = ghost_core::media::name(tools::testing::PIXEL, "image/png");
+        let kept = dir.path().join("state").join("media").join(&file);
+        assert_eq!(std::fs::read(kept).unwrap(), tools::testing::PIXEL);
+        let seen = brain.seen.lock().unwrap();
+        let Some(Item::Result {
+            output, pictures, ..
+        }) = seen[1].items.last()
+        else {
+            panic!("the fetch was answered")
+        };
+        assert_eq!(pictures.len(), 1);
+        assert_eq!(pictures[0].bytes, tools::testing::PIXEL);
+        assert!(output.ends_with(&format!("[image: {file}]")), "{output}");
+        // The history names the file and does not hold the bytes.
+        let history = worker.undertaking.history();
+        assert!(history.iter().all(|item| pictures_in(item) == 0));
+        assert!(history.iter().any(|item| matches!(item,
+            Item::Result { output, .. } if output.contains(&format!("[image: {file}]")))));
+    }
+
+    #[tokio::test]
+    async fn a_worker_picked_up_from_disk_gets_its_pictures_back_from_media() {
+        let dir = tempfile::tempdir().unwrap();
+        let limits = Limits {
+            max_steps: 1,
+            ..Limits::default()
+        };
+        let (mut first, eyes) = worker(dir.path(), vec![calls("camera", json!({}))], limits);
+        first.tools = first.tools.with(Camera(AtomicU64::new(7)));
+        eyes.sees.store(true, Ordering::Relaxed);
+        assert_eq!(first.run().await.ended, Ended::OutOfSteps);
+        // What was saved names the picture; the bytes are in media/ alone.
+        let mut bytes = tools::testing::PIXEL.to_vec();
+        bytes.extend(7u64.to_be_bytes());
+        let file = ghost_core::media::name(&bytes, "image/png");
+        let row: String = rusqlite::Connection::open(state_db(dir.path()))
+            .unwrap()
+            .query_row("SELECT items FROM transcript", [], |row| row.get(0))
+            .unwrap();
+        assert!(row.contains(&file) && !row.contains("\"data\""), "{row}");
+
+        let script = vec![calls(
+            "done",
+            json!({"outcome": "blocked", "summary": "enough"}),
+        )];
+        let (second, brain) = worker(dir.path(), script, Limits::default());
+        brain.sees.store(true, Ordering::Relaxed);
+        assert_eq!(second.run().await.ended, Ended::Blocked);
+        let seen = brain.seen.lock().unwrap();
+        let Some(Item::Result { pictures, .. }) = seen[0].items.last() else {
+            panic!("the picture's result was picked up")
+        };
+        assert_eq!(pictures.len(), 1);
+        assert_eq!(pictures[0].bytes, bytes);
+    }
+
+    #[tokio::test]
+    async fn a_brain_that_cannot_see_is_told_how_many_images_it_was_not_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = vec![
+            calls("camera", json!({})),
+            calls("done", json!({"outcome": "blocked", "summary": "enough"})),
+        ];
+        let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+        worker.tools = worker.tools.with(Camera(AtomicU64::new(0)));
+        assert_eq!(worker.run().await.ended, Ended::Blocked);
+        let seen = brain.seen.lock().unwrap();
+        let last = seen[1].items.last().unwrap();
+        assert_eq!(pictures_in(last), 0);
+        assert!(matches!(last, Item::Result { output, .. }
+            if output.starts_with("A picture.\n[image: ")
+                && output.ends_with("\n[1 image, not shown: this model cannot see images]")));
+    }
+
+    #[tokio::test]
+    async fn old_pictures_are_shed_before_any_text_when_the_transcript_is_folded() {
+        let dir = tempfile::tempdir().unwrap();
+        // Long enough to be trimmed if room were made by trimming text.
+        let mut script = vec![calls(
+            "shell",
+            json!({"command": "printf 't%.0s' $(seq 1 9000)"}),
+        )];
+        script.extend((0..6).map(|_| calls("camera", json!({}))));
+        script.push(calls(
+            "done",
+            json!({"outcome": "blocked", "summary": "enough"}),
+        ));
+        let limits = Limits {
+            context_tokens: Some(12_000),
+            ..Limits::default()
+        };
+        let (mut worker, brain) = worker(dir.path(), script, limits);
+        worker.tools = worker.tools.with(Camera(AtomicU64::new(0)));
+        brain.sees.store(true, Ordering::Relaxed);
+        let report = worker.run().await;
+        assert_eq!(report.ended, Ended::Blocked);
+        assert_eq!(report.sittings, 1, "shedding pictures was enough");
+
+        let seen = brain.seen.lock().unwrap();
+        let shown = |t: &Turn| t.items.iter().map(pictures_in).sum::<usize>();
+        // The pictures piled up until there was no room, then went.
+        let most = seen.iter().map(shown).max().unwrap();
+        assert!(most >= 3, "{most}");
+        let after = seen
+            .iter()
+            .position(|t| {
+                t.items.iter().any(|item| {
+                    matches!(item,
+                Item::Result { output, .. } if output.contains("no longer shown"))
+                })
+            })
+            .expect("old pictures were shed");
+        assert!(shown(&seen[after]) < most);
+        // The one it had not looked at yet was still there to be looked at.
+        assert_eq!(pictures_in(seen[after].items.last().unwrap()), 1);
+        // And the long output, older than all of them, was never cut.
+        for turn in seen.iter().skip(1) {
+            assert!(turn.items.iter().any(|item| matches!(item,
+                Item::Result { name, output, .. } if name == "shell" && output.len() >= 9000)));
+        }
+    }
+
+    #[test]
+    fn only_the_newest_pictures_already_looked_at_are_kept() {
+        let picture = |n: u8| ghost_brain::Picture {
+            mime: "image/png".into(),
+            bytes: vec![n],
+        };
+        let result = |id: &str, n: usize| Item::Result {
+            id: id.into(),
+            name: "camera".into(),
+            output: "A picture.".into(),
+            failed: false,
+            pictures: (0..n).map(|i| picture(u8::try_from(i).unwrap())).collect(),
+        };
+        let asked = Item::Assistant {
+            text: String::new(),
+            calls: vec![],
+            carry: None,
+        };
+        let mut items = vec![
+            Item::user("task"),
+            asked.clone(),
+            result("a", 1),
+            asked.clone(),
+            result("b", 2),
+            asked.clone(),
+            result("c", 1),
+            asked,
+            // Not looked at yet.
+            result("d", 3),
+        ];
+        let freed = unsee(&mut items, 2);
+        assert!(freed > 2 * ghost_brain::PICTURE_WEIGHT, "{freed}");
+        let counts: Vec<usize> = items.iter().map(pictures_in).collect();
+        // `b` has two and only one would fit: both go, and so does `a`.
+        assert_eq!(counts, [0, 0, 0, 0, 0, 0, 1, 0, 3]);
+        assert!(matches!(&items[4], Item::Result { output, .. }
+            if output.ends_with("[These images are no longer shown, to save room. Ask for them again if you need to see them.]")));
+        // Even with nothing kept, what has not been looked at stays.
+        unsee(&mut items, 0);
+        assert_eq!(items.iter().map(pictures_in).sum::<usize>(), 3);
     }
 }

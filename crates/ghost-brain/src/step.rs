@@ -9,6 +9,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::Picture;
+
 /// A tool the model may ask for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
@@ -51,12 +53,47 @@ pub enum Item {
         output: String,
         #[serde(default)]
         failed: bool,
+        /// Images the tool returned. A brain that [sees] is shown them with
+        /// the output; one that does not is told how many there were.
+        ///
+        /// [sees]: crate::Brain::sees
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pictures: Vec<Picture>,
     },
+}
+
+/// What one picture is counted as in [`Item::weight`], in characters:
+/// 4,800, about 1,600 tokens at three characters a token. That is what
+/// Anthropic charges for an image at the largest size it takes without
+/// scaling it down, and more than `OpenAI` charges for one in high detail,
+/// so a transcript of pictures is never thought smaller than it is.
+pub const PICTURE_WEIGHT: usize = 4800;
+
+/// What a model that cannot see is told in place of `n` pictures.
+pub fn not_shown(n: usize) -> String {
+    let s = if n == 1 { "" } else { "s" };
+    format!("[{n} image{s}, not shown: this model cannot see images]")
 }
 
 impl Item {
     pub fn user(text: impl Into<String>) -> Self {
         Self::User { text: text.into() }
+    }
+
+    /// The result of a call, with no pictures.
+    pub fn result(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        output: impl Into<String>,
+        failed: bool,
+    ) -> Self {
+        Self::Result {
+            id: id.into(),
+            name: name.into(),
+            output: output.into(),
+            failed,
+            pictures: Vec::new(),
+        }
     }
 
     /// A rough size in characters, for budgeting context.
@@ -71,7 +108,9 @@ impl Item {
                         .sum::<usize>()
                     + carry.as_ref().map_or(0, |c| c.to_string().len())
             }
-            Self::Result { output, .. } => output.len(),
+            Self::Result {
+                output, pictures, ..
+            } => output.len() + pictures.len() * PICTURE_WEIGHT,
         }
     }
 }
@@ -157,5 +196,40 @@ impl Step {
             calls: self.calls,
             carry: self.carry,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_result_with_pictures_is_written_with_them_as_base64_and_one_without_is_written_as_before()
+    {
+        let plain = Item::result("a", "shell", "ok", false);
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            json!({"is": "result", "id": "a", "name": "shell", "output": "ok", "failed": false})
+        );
+        let seen = Item::Result {
+            id: "b".into(),
+            name: "fetch".into(),
+            output: "An image.".into(),
+            failed: false,
+            pictures: vec![Picture {
+                mime: "image/png".into(),
+                bytes: vec![1, 2, 3],
+            }],
+        };
+        let written = serde_json::to_value(&seen).unwrap();
+        assert_eq!(
+            written["pictures"],
+            json!([{"mime": "image/png", "data": "AQID"}])
+        );
+        assert_eq!(serde_json::from_value::<Item>(written).unwrap(), seen);
+        // A picture weighs the same however small its bytes.
+        assert_eq!(seen.weight(), "An image.".len() + PICTURE_WEIGHT);
     }
 }

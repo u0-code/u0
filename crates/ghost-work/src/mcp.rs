@@ -95,11 +95,19 @@ pub async fn serve(
                     "name": name,
                     "failed": outcome.failed,
                     "chars": outcome.output.len(),
+                    "pictures": outcome.pictures.len(),
                 }));
+                // Pictures are kept and named, and go no further: no agent
+                // that serves these tools has yet been tried with images.
+                let mut said = outcome.output;
+                for file in undertaking.keep(&outcome.pictures) {
+                    said.push('\n');
+                    said.push_str(&crate::undertaking::placeholder(&file));
+                }
                 answer(
                     id,
                     json!({
-                        "content": [{"type": "text", "text": crate::tools::clip(&outcome.output, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
+                        "content": [{"type": "text", "text": crate::tools::clip(&said, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
                         "isError": outcome.failed,
                     }),
                 )

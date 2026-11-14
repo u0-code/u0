@@ -16,7 +16,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use async_trait::async_trait;
 
-pub use step::{Call, Effort, Item, Step, Stop, ToolSpec, Turn, Usage};
+pub use step::{Call, Effort, Item, PICTURE_WEIGHT, Step, Stop, ToolSpec, Turn, Usage, not_shown};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -58,12 +58,41 @@ impl Message {
     }
 }
 
-/// An image, as bytes and the type they are.
-#[derive(Clone, PartialEq, Eq)]
+/// An image, as bytes and the type they are. Written out, it is the type
+/// and the bytes as base64.
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "WrittenPicture", try_from = "WrittenPicture")]
 pub struct Picture {
     /// e.g. `image/png`.
     pub mime: String,
     pub bytes: Vec<u8>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WrittenPicture {
+    mime: String,
+    data: String,
+}
+
+impl From<Picture> for WrittenPicture {
+    fn from(p: Picture) -> Self {
+        Self {
+            data: p.base64(),
+            mime: p.mime,
+        }
+    }
+}
+
+impl TryFrom<WrittenPicture> for Picture {
+    type Error = base64::DecodeError;
+
+    fn try_from(w: WrittenPicture) -> std::result::Result<Self, Self::Error> {
+        use base64::Engine as _;
+        Ok(Self {
+            mime: w.mime,
+            bytes: base64::engine::general_purpose::STANDARD.decode(w.data)?,
+        })
+    }
 }
 
 impl Picture {

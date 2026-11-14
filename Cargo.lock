@@ -845,6 +845,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "ghost-brain",
+ "ghost-core",
  "reqwest",
  "rusqlite",
  "serde",
