@@ -22,8 +22,9 @@ So, before you use this:
 - Expect that the account may be lost.
 
 Which implementation you run, and with which account, is your decision and
-your risk. This adapter only speaks the protocol. If Tencent's official bot
-platform fits your case, an adapter for it would be a welcome addition.
+your risk. This adapter only speaks the protocol. Where Tencent's official bot
+platform fits, [`ghost-qqbot`](../ghost-qqbot) uses it instead: a bot account
+that QQ labels as one, and no ordinary account at risk.
 
 ## Setup
 

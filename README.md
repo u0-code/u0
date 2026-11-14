@@ -142,9 +142,9 @@ Early, and it runs. A ghost can be born and lived with through a
 terminal today, on DeepSeek or through an installed Claude Code or Codex, and
 taking things on has been run end to end with all three.
 
-The adapters for Telegram, Discord, QQ (OneBot) and X were written against each
-platform's documented API and exercised against local stand-ins, **not yet
-against the real platforms with real accounts**. Each one's README says exactly
+The adapters for Telegram, Discord, QQ (the official bot API, and OneBot) and X
+were written against each platform's documented API and exercised against
+local stand-ins, **not yet against the real platforms with real accounts**. Each one's README says exactly
 how far it was tested. Expect the first real run to turn something up.
 
 ## Security
