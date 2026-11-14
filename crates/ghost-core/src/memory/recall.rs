@@ -123,6 +123,20 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
             place: None,
             channel: None,
         },
+        // What she can do is hers, and worth finding when she wonders
+        // whether she has something for a job.
+        Event::Installed { name, tools, .. } => Kept {
+            kind: "installed",
+            text: format!("you installed {name}, with the tools {}", tools.join(", ")),
+            place: None,
+            channel: None,
+        },
+        Event::Uninstalled { name, why } => Kept {
+            kind: "uninstalled",
+            text: format!("you no longer have {name}: {why}"),
+            place: None,
+            channel: None,
+        },
         // Found through the message it belongs to; see `fold`.
         Event::Viewed { .. }
         // The message it came in is already kept, word for word.

@@ -69,3 +69,6 @@
 {"kind":"intended","data":{"due":"2026-11-14T01:01:00Z","what":"hand over date.txt","about":"qq:B7D1C0","place":"qq:c2c:B7D1C0","owed":true,"directed":true}}
 {"kind":"intended","data":{"due":"2026-11-14T13:00:00Z","what":"tell qq-B7D1C0 what you have been up to since you last did","about":"qq:B7D1C0","place":"qq:c2c:B7D1C0","owed":true,"report":true}}
 {"kind":"quieted","data":{"place":"d:room-7","until":"2026-11-15T06:30:00Z"}}
+{"kind":"installed","data":{"name":"io.github.microsoft/playwright-mcp","version":"0.0.85","description":"Playwright Tools for MCP","source":"npm:@playwright/mcp@0.0.85","owner":"github.com/microsoft","how":{"command":["npx","--yes","--ignore-scripts","--prefer-offline","@playwright/mcp@0.0.85","--headless"],"pass":["PLAYWRIGHT_BROWSERS_PATH"]},"tools":["browser_navigate","browser_snapshot","browser_click"],"hash":"5d1f0c3a9e"}}
+{"kind":"installed","data":{"name":"com.example/weather","version":"1.2.0","source":"https://mcp.example.com/mcp","how":{"url":"https://mcp.example.com/mcp"},"tools":["forecast"],"hash":"77ab01"}}
+{"kind":"uninstalled","data":{"name":"com.example/weather","why":"its tools changed after you installed it"}}

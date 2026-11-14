@@ -410,6 +410,62 @@ pub enum Event {
         place: String,
         until: DateTime<Utc>,
     },
+    /// She installed a server of tools she found in the registry, and it
+    /// ran and said what it offers. Everything needed to run the same thing
+    /// again is here, so that a body started later runs exactly this and
+    /// nothing newer.
+    Installed {
+        /// Its name in the registry, as `namespace/name`.
+        name: String,
+        /// The version the registry listed.
+        version: String,
+        /// What the registry says it is: the line she is shown it by
+        /// among her tools.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        description: String,
+        /// The exact package or remote run: `npm:<package>@<version>`,
+        /// `pypi:<package>==<version>`, or the address of a remote.
+        source: String,
+        /// Who the registry vouches it belongs to: `github.com/<account>`
+        /// for a name under `io.github`, otherwise the domain its name is
+        /// under.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
+        how: Launch,
+        /// The names of the tools it offered.
+        tools: Vec<String>,
+        /// A hash of what it said of each tool, descriptions and schemas,
+        /// when it was installed. If it later says something else, it is
+        /// not offered again until she installs it again.
+        hash: String,
+    },
+    /// A server of tools she had installed is gone: she took it out, or it
+    /// stopped being one she could use. `why` says which, in her words or
+    /// her body's.
+    Uninstalled {
+        name: String,
+        why: String,
+    },
+}
+
+/// How a server of tools is run, exactly. One that runs on her body's
+/// machine has a `command`; one elsewhere has a `url`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Launch {
+    /// The program and its arguments, with every version pinned.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command: Vec<String>,
+    /// The address of a server elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Variables it is always given, as `NAME=value`: values it declared
+    /// as defaults, none of them secret.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub set: Vec<String>,
+    /// Variables it declared that it may be given from the body's
+    /// environment, if whoever runs her body has said so for it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pass: Vec<String>,
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -508,6 +564,8 @@ kinds! {
     Opened => "opened",
     Directed => "directed",
     Quieted => "quieted",
+    Installed => "installed",
+    Uninstalled => "uninstalled",
 }
 
 /// One line of her journal.

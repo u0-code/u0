@@ -196,6 +196,14 @@ fn describe(event: &Event, tz: Tz) -> String {
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())
         ),
+        Event::Installed {
+            name,
+            version,
+            source,
+            tools,
+            ..
+        } => format!("{name} {version} ({source}): {}", tools.join(", ")),
+        Event::Uninstalled { name, why } => format!("{name}: {}", flat(why)),
     }
 }
 
