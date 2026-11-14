@@ -12,7 +12,8 @@ ghostd; you talk to her, wherever she lives.
 ```
 ghostd birth <dir>     write her birth and her persona into a new journal
 ghostd run <dir>       live
-ghostd status <dir>    who she is, what she is in the middle of   (reads the directory)
+ghostd status <dir>    who she is, what she is doing, what is     (reads the directory)
+                       unread, and her open work
 ghostd journal <dir>   tail of her journal                        (reads the directory)
 ghostd verify <dir>    chain check                                (reads the directory)
 ghostd brains --probe  ask each configured brain for one word

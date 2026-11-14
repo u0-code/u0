@@ -12,6 +12,7 @@ mod show;
 mod wire;
 
 use std::{
+    fmt::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -25,6 +26,7 @@ use ghost_core::{
     Ghost,
     journal::Entry,
     life::{Life, Phase},
+    memory::Memory,
     prompts::{
         Store,
         exported::{self, Updated},
@@ -334,7 +336,8 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let mut living = tokio::spawn(mind.run());
     let outcome = tokio::select! {
         ended = &mut living => ended,
-        _ = tokio::signal::ctrl_c() => {
+        why = told_to_stop() => {
+            info!("{why}: stopping");
             handle.stop().await;
             living.await
         }
@@ -353,6 +356,33 @@ fn network(setting: &ghost_net::Setting) -> anyhow::Result<()> {
         warn!("the network setting came after the first request, which went the default way");
     }
     Ok(())
+}
+
+/// Resolves when she should stop: Ctrl-C at a terminal, or SIGTERM, which
+/// is how systemd, docker and a shutting-down machine ask. Either way she
+/// is stopped in order, so that nothing is cut off halfway through being
+/// written. Says which it was.
+async fn told_to_stop() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => "interrupted",
+                _ = term.recv() => "terminated",
+            },
+            Err(e) => {
+                warn!("cannot listen for SIGTERM ({e}); only Ctrl-C stops her in order");
+                let _ = tokio::signal::ctrl_c().await;
+                "interrupted"
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "interrupted"
+    }
 }
 
 fn status(dir: &Path) -> anyhow::Result<()> {
@@ -392,6 +422,61 @@ fn status(dir: &Path) -> anyhow::Result<()> {
     println!("journal   {} entries", peek.journal.len()?);
     if let Some(last) = peek.journal.last()? {
         println!("last      {}", show::entry(&last, life.clock().tz()));
+    }
+    // What a running body keeps on disk, read without disturbing it. What
+    // only the live process knows, such as which sitting is running this
+    // second, is not here; the time of each piece of work's last step is
+    // the nearest thing.
+    let Some(memory) = Memory::glance(dir)? else {
+        println!("memory    not built yet, or by another version; it is built when she runs");
+        return Ok(());
+    };
+    let unread = memory.places_unread()?;
+    if unread.is_empty() {
+        println!("unread    nothing");
+    }
+    for (i, place) in unread.iter().enumerate() {
+        let mut detail = format!("{} unread", place.unread);
+        if place.unread_addressed > 0 {
+            let _ = write!(detail, ", {} to her", place.unread_addressed);
+        }
+        if place.unread_directed > 0 {
+            let _ = write!(detail, ", {} from an operator", place.unread_directed);
+        }
+        let name = place
+            .name
+            .as_ref()
+            .map_or_else(|| place.key.clone(), |n| format!("{n} ({})", place.key));
+        println!("{:<9} {name}: {detail}", if i == 0 { "unread" } else { "" });
+    }
+    let open = memory.undertakings(true, 50)?;
+    let db = dir.join(ghost_work::WORK_DB);
+    let seen = if db.exists() {
+        ghost_work::undertaking::glance(&db).with_context(|| format!("read {}", db.display()))?
+    } else {
+        Vec::new()
+    };
+    println!("work      {} open", open.len());
+    for work in &open {
+        let brief: String = work.brief.split_whitespace().collect::<Vec<_>>().join(" ");
+        let brief: String = brief.chars().take(70).collect();
+        println!("          #{} {brief}", work.seq);
+        let mut detail = format!("{} sittings", work.sittings);
+        if let Some(seen) = seen.iter().find(|s| s.id == work.id) {
+            let _ = write!(detail, ", {} steps", seen.steps);
+            if let Some(at) = seen.last_step {
+                let at = at.with_timezone(&life.clock().tz());
+                let _ = write!(detail, ", last step {}", at.format("%m-%d %H:%M"));
+            }
+            if seen.parts_open > 0 {
+                let _ = write!(detail, ", {} parts unfinished", seen.parts_open);
+            }
+        }
+        if let Some(question) = &work.waiting {
+            let question: String = question.chars().take(60).collect();
+            let _ = write!(detail, ", waiting to hear: {question}");
+        }
+        println!("            {detail}");
     }
     Ok(())
 }

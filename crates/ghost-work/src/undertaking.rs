@@ -568,6 +568,66 @@ fn load(conn: &Connection, id: &str) -> rusqlite::Result<Option<State>> {
     .transpose()
 }
 
+/// How one undertaking stands, as another process sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Glance {
+    pub id: String,
+    pub steps: u64,
+    pub sittings: u32,
+    /// When it last took a step, if it ever did.
+    pub last_step: Option<DateTime<Utc>>,
+    /// Whatever it put to whoever it is for, and is waiting to hear.
+    pub waiting: Option<String>,
+    /// Its parts that have not finished.
+    pub parts_open: usize,
+}
+
+/// How each undertaking in the database at `db` stands, for a person
+/// looking from outside while the work goes on. The database is opened
+/// read-only, so that looking can never get in the way of the work.
+/// Parts are counted under the undertaking they belong to.
+pub fn glance(db: &Path) -> io::Result<Vec<Glance>> {
+    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(other)?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(other)?;
+    let rows: Vec<(String, String)> = conn
+        .prepare("SELECT id, state FROM undertakings ORDER BY rowid")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect()
+        })
+        .map_err(other)?;
+    let states: Vec<(String, State)> = rows
+        .into_iter()
+        .filter_map(|(id, text)| Some((id, serde_json::from_str(&text).ok()?)))
+        .collect();
+    let mut seen = Vec::new();
+    for (id, state) in states.iter().filter(|(_, s)| s.parent.is_none()) {
+        let last_step = conn
+            .query_row(
+                "SELECT line FROM log WHERE id = ?1 ORDER BY n DESC LIMIT 1",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(other)?
+            .and_then(|line| serde_json::from_str::<Value>(&line).ok())
+            .and_then(|line| line["at"].as_str().and_then(|at| at.parse().ok()));
+        seen.push(Glance {
+            id: id.clone(),
+            steps: state.steps,
+            sittings: state.sittings,
+            last_step,
+            waiting: state.waiting.clone(),
+            parts_open: states
+                .iter()
+                .filter(|(_, part)| part.parent.as_ref() == Some(id) && part.finish.is_none())
+                .count(),
+        });
+    }
+    Ok(seen)
+}
+
 fn store(conn: &Connection, id: &str, state: &State) -> rusqlite::Result<()> {
     let text = serde_json::to_string(state)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -1168,6 +1228,38 @@ mod tests {
 
     fn db(dir: &tempfile::TempDir) -> PathBuf {
         dir.path().join(WORK_DB)
+    }
+
+    #[test]
+    fn work_under_way_can_be_looked_at_from_outside_without_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
+        work.update(|s| {
+            s.steps = 7;
+            s.sittings = 2;
+            s.waiting = Some("which colour?".into());
+        });
+        work.log(&serde_json::json!({"at": "2026-11-15T08:30:00+00:00", "step": 7}));
+        let part = work.open_part("one half").unwrap();
+        drop(part);
+        Undertaking::open(&db(&dir), "u2", Some("another")).unwrap();
+        drop(work);
+
+        let before = fs::read(db(&dir)).unwrap();
+        let seen = glance(&db(&dir)).unwrap();
+        assert_eq!(fs::read(db(&dir)).unwrap(), before, "looking wrote nothing");
+        assert_eq!(seen.len(), 2, "a part is counted under its whole: {seen:?}");
+        assert_eq!(seen[0].id, "u1");
+        assert_eq!(
+            (seen[0].steps, seen[0].sittings, seen[0].parts_open),
+            (7, 2, 1)
+        );
+        assert_eq!(seen[0].waiting.as_deref(), Some("which colour?"));
+        assert_eq!(
+            seen[0].last_step.map(|at| at.to_rfc3339()),
+            Some("2026-11-15T08:30:00+00:00".to_owned())
+        );
+        assert_eq!(seen[1].last_step, None);
     }
 
     #[test]

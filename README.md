@@ -72,6 +72,9 @@ than a real friend would be.
 > into her journal before it takes effect, so every version of her stays on
 > record.
 
+To run her on a Linux server, under systemd, with her own account and
+backups of her journal, see [deploy/](deploy).
+
 ## What she thinks with
 
 Any OpenAI-compatible API, the Anthropic API, or a command-line agent already
