@@ -1,4 +1,4 @@
-//! The birth certificate.
+//! The persona.
 //!
 //! Who she is is written in `ghost.toml`. It can be revised: when the file no
 //! longer matches the version last written into her journal, the new text is
@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
-/// File name of the birth certificate inside a ghost directory.
+/// File name of the persona inside a ghost directory.
 pub const SEED_FILE: &str = "ghost.toml";
 
-/// The birth certificate as written by whoever gives birth to her.
+/// The persona as written by whoever gives birth to her.
 ///
 /// Unknown fields are rejected so that a typo cannot silently become part of
 /// who she is.
@@ -96,7 +96,7 @@ pub struct Rhythm {
 }
 
 impl Seed {
-    /// Parse a certificate and check that every field she depends on is sane.
+    /// Parse a persona and check that every field she depends on is sane.
     pub fn parse(text: &str) -> Result<Self> {
         let seed: Self = toml::from_str(text).map_err(|e| Error::BadSeed(e.to_string()))?;
         seed.validate()?;
@@ -142,7 +142,7 @@ fn parse_hhmm(s: &str) -> std::result::Result<NaiveTime, chrono::ParseError> {
     NaiveTime::parse_from_str(s, "%H:%M")
 }
 
-/// The BLAKE3 hash of the certificate text: which version of it this is.
+/// The BLAKE3 hash of the persona text: which version of it this is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Seal(String);
@@ -168,7 +168,7 @@ impl fmt::Display for Seal {
     }
 }
 
-/// One version of her certificate: what it says, its text, and its seal.
+/// One version of her persona: what it says, its text, and its seal.
 #[derive(Debug, Clone)]
 pub struct Identity {
     seed: Seed,
@@ -177,7 +177,7 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// Read a certificate from its text.
+    /// Read a persona from its text.
     pub fn parse(text: &str) -> Result<Self> {
         Ok(Self {
             seed: Seed::parse(text)?,
@@ -186,7 +186,7 @@ impl Identity {
         })
     }
 
-    /// The certificate exactly as written.
+    /// The persona exactly as written.
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -206,14 +206,14 @@ impl Identity {
     /// Her home timezone.
     ///
     /// # Panics
-    /// Never in practice: the zone was validated when the certificate was parsed.
+    /// Never in practice: the zone was validated when the persona was parsed.
     pub fn tz(&self) -> Tz {
         self.seed.home.tz().expect("validated at parse")
     }
 }
 
-/// Read the certificate in `dir`.
-pub fn read_certificate(dir: &Path) -> Result<Identity> {
+/// Read the persona in `dir`.
+pub fn read_persona(dir: &Path) -> Result<Identity> {
     let path = dir.join(SEED_FILE);
     let bytes = fs::read(&path).map_err(|_| Error::NoSeed(path.clone()))?;
     let text = String::from_utf8(bytes).map_err(|e| Error::BadSeed(format!("not utf-8: {e}")))?;
@@ -249,7 +249,7 @@ sleep = "00:30"
     }
 
     #[test]
-    fn a_certificate_may_show_her_voice_and_key_her_past() {
+    fn a_persona_may_show_her_voice_and_key_her_past() {
         // Plain keys go before the first table; `[[past]]` entries after it.
         let text = format!(
             "examples = \"them: hi\\nme: hey\"\n{SAMPLE}\n[[past]]\nkeys = [\"Clinic\", \"诊所\"]\ntext = \"She runs a clinic.\"\n"
@@ -260,7 +260,7 @@ sleep = "00:30"
         assert!(past.touched_by(&["is the clinic open?"]));
         assert!(past.touched_by(&["你的诊所在哪"]));
         assert!(!past.touched_by(&["hello", "how are you"]));
-        // Certificates written before these fields still read.
+        // Personas written before these fields still read.
         assert!(Seed::parse(SAMPLE).unwrap().past.is_empty());
     }
 

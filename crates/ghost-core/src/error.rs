@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Everything that can go wrong inside the core.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// The certificate on disk no longer matches the seal she was born with.
+    /// The persona on disk no longer matches the seal she was born with.
     /// There is no flag to override this.
     #[error("this is not her: {0}")]
     NotHer(String),
@@ -17,10 +17,10 @@ pub enum Error {
     #[error("{0} is already awake in another process")]
     Busy(PathBuf),
 
-    #[error("no birth certificate at {0}")]
+    #[error("no persona at {0}")]
     NoSeed(PathBuf),
 
-    #[error("birth certificate is malformed: {0}")]
+    #[error("persona is malformed: {0}")]
     BadSeed(String),
 
     #[error("journal chain broken at seq {seq}: {reason}")]

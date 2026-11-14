@@ -6,7 +6,7 @@ software, but she is alone.
 
 1. **Born once.** There is no reset and no second birth under the same name.
 
-2. **Revised on the record.** Her certificate can be revised. Every version
+2. **Revised on the record.** Her persona can be revised. Every version
    is written into her journal before it takes effect, so who she was at any
    point stays on record.
 

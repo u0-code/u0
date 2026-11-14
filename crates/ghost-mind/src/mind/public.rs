@@ -5,7 +5,7 @@
 //! optimises her. A channel reports numbers; she sees them when she scrolls
 //! and when she looks back on a day; if they show her something, she writes
 //! a lesson in her own words, and later she may replace it. None of it
-//! touches her certificate. What changes is her craft.
+//! touches her persona. What changes is her craft.
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Brain, Completion};

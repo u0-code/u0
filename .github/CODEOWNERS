@@ -2,7 +2,7 @@
 *                               @HappyFox001
 
 # These are promises to people already running a ghost: what is written in a
-# journal, what is sealed in a certificate, and what goes over the wire.
+# journal, what is sealed in a persona, and what goes over the wire.
 /crates/ghost-core/src/journal.rs   @HappyFox001
 /crates/ghost-core/src/identity.rs  @HappyFox001
 /crates/ghost-protocol/             @HappyFox001

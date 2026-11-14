@@ -2,7 +2,7 @@
 //!
 //! Each one ships inside the binary and can be overridden by a file of the
 //! same name in a prompts directory. They belong to the body: they are how a
-//! brain reads her certificate and her journal, and changing them does not
+//! brain reads her persona and her journal, and changing them does not
 //! change who she is.
 
 use std::{fs, io, path::Path};

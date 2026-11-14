@@ -20,7 +20,7 @@ fn describe(event: &Event, tz: Tz) -> String {
     match event {
         Event::Born { name, seal } => format!("{name} was born (seal {})", seal.short()),
         Event::Described { seal, .. } => {
-            format!("her certificate as it stands now (seal {})", seal.short())
+            format!("her persona as it stands now (seal {})", seal.short())
         }
         Event::Dormant { since } => format!(
             "nothing since {}",

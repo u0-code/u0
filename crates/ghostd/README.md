@@ -3,14 +3,14 @@
 The daemon. Runs exactly one ghost.
 
 **Is:** the process that keeps her alive. It opens her directory, verifies her
-journal, records any revision of her certificate, starts her mind, and serves the Ghost Protocol so presences and
+journal, records any revision of her persona, starts her mind, and serves the Ghost Protocol so presences and
 consoles can connect. Connected presences are her body.
 
 **Is not:** a chat interface, and not aware of any platform. You do not talk to
 ghostd; you talk to her, wherever she lives.
 
 ```
-ghostd birth <dir>     write her birth and her certificate into a new journal
+ghostd birth <dir>     write her birth and her persona into a new journal
 ghostd run <dir>       live
 ghostd status <dir>    who she is, what she is in the middle of   (reads the directory)
 ghostd journal <dir>   tail of her journal                        (reads the directory)
