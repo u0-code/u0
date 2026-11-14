@@ -97,21 +97,27 @@ fn short(openid: &str) -> String {
 /// The message as plain text, with what is not text named in brackets, and
 /// the images in it, in the order of their placeholders.
 fn body(data: &Value) -> (String, Vec<Image>) {
-    let mut out = tags(data["content"].as_str().unwrap_or_default(), data);
+    // The nth image is matched to the nth `[image]` placeholder, so what
+    // someone typed must never read as one: their brackets become
+    // full-width ones, which look the same to a reader.
+    let mut out =
+        tags(data["content"].as_str().unwrap_or_default(), data).replace("[image", "［image");
     let mut images = Vec::new();
     for attachment in data["attachments"].as_array().into_iter().flatten() {
         let kind = attachment["content_type"].as_str().unwrap_or_default();
         let piece = if kind.starts_with("image") {
-            // Every image is listed, link or not: the nth image is matched
-            // to the nth placeholder, so none may be skipped. One without a
-            // link gets an empty one, which nothing fetches.
-            images.push(Image {
-                url: text(&attachment["url"])
-                    .map(|u| https(&u))
-                    .unwrap_or_default(),
-                mime: kind.contains('/').then(|| kind.to_owned()),
-            });
-            "[image]".to_owned()
+            match text(&attachment["url"]) {
+                Some(url) => {
+                    images.push(Image {
+                        url: https(&url),
+                        mime: kind.contains('/').then(|| kind.to_owned()),
+                    });
+                    "[image]".to_owned()
+                }
+                // Nothing to look at: said so, and not a placeholder, so the
+                // images that can be seen still line up with theirs.
+                None => "[image, not shown]".to_owned(),
+            }
         } else if kind == "voice" || kind.starts_with("audio") {
             // QQ transcribes voice messages; what it heard is worth more than
             // knowing that one was sent.
@@ -278,6 +284,27 @@ mod tests {
         );
         assert_eq!(m.images[0].mime.as_deref(), Some("image/gif"));
         assert_eq!(m.images[1].mime, None, "a bare `image` says no type");
+    }
+
+    #[test]
+    fn only_images_she_can_look_at_are_placeholders_and_typed_ones_are_not() {
+        let data = json!({
+            "id": "m-5", "content": "look at this [image] lol", "author": {"user_openid": "U1"},
+            "attachments": [
+                {"content_type": "image/png"},
+                {"content_type": "image/png", "url": "https://example.invalid/a.png"}
+            ]
+        });
+        let m = inbound("C2C_MESSAGE_CREATE", &data).unwrap();
+        // What was typed no longer reads as a placeholder, and the image with
+        // no link says so without being one: the one placeholder left is the
+        // one image listed.
+        assert_eq!(
+            m.text,
+            "look at this ［image] lol [image, not shown] [image]"
+        );
+        assert_eq!(m.text.matches("[image]").count(), m.images.len());
+        assert_eq!(m.images[0].url, "https://example.invalid/a.png");
     }
 
     #[test]
