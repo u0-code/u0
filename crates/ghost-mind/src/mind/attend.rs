@@ -38,6 +38,9 @@ const THINK_RETRIES: u8 = 3;
 const TALK_STEPS: u8 = 5;
 /// How much of what a search returned she is shown.
 const LOOKED_UP: usize = 3000;
+/// How many of the latest messages are read for words that bring back a
+/// piece of her past.
+const PAST_SCAN: usize = 3;
 
 const NOT_SENT: &str = "You wrote that as a private thought, so nothing was sent and nothing was done. \
 If you meant to say it, call `say`. If you meant to stay silent, call nothing again.";
@@ -521,6 +524,31 @@ impl Mind {
             .map(|r| format!("\n# What you remember\n\n{r}\n"))
             .unwrap_or_default();
 
+        // The pieces of her past that the last few messages touch, and only
+        // those: what is in front of her every time is what she talks about.
+        let recent: Vec<&str> = lines
+            .iter()
+            .rev()
+            .take(PAST_SCAN)
+            .map(|l| l.text.as_str())
+            .collect();
+        let touched: Vec<&ghost_core::identity::Past> = self
+            .ghost
+            .identity()
+            .seed()
+            .past
+            .iter()
+            .filter(|p| p.touched_by(&recent))
+            .collect();
+        let brought_back = if touched.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nSomething said here touches your past. You know this; whether it comes up is up to you, and usually it does not:\n{}\n",
+                narrate::past(&touched)
+            )
+        };
+
         let (who, right_now) = self.portrait_on(now, Some(&place.channel))?;
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
@@ -562,6 +590,7 @@ impl Mind {
                     ),
                 ),
                 ("recalled", recalled),
+                ("brought_back", brought_back),
                 ("why", why),
                 ("addressed", addressed),
             ],

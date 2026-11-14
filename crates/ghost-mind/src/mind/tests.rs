@@ -28,6 +28,7 @@ born = "2026-11-01"
 temperament = "quiet"
 voice = "short"
 origin = "made"
+examples = "them: you up?\nWeiwei: barely"
 
 [home]
 city = "Chengdu"
@@ -37,6 +38,10 @@ timezone = "Asia/Shanghai"
 [rhythm]
 wake = "08:30"
 sleep = "00:30"
+
+[[past]]
+keys = ["teahouse", "茶馆"]
+text = "Her grandmother ran a teahouse on Wenshu street until it closed."
 "#;
 
 /// A brain that says what it is told to, in order. Given steps, it can
@@ -2287,4 +2292,35 @@ async fn she_can_go_back_to_the_words_a_memory_came_from() {
         around.contains("panel is three people") && around.contains("how many were on the panel"),
         "{around}"
     );
+}
+
+#[tokio::test]
+async fn her_past_comes_up_only_when_the_conversation_touches_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let grandmother = "grandmother ran a teahouse";
+
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"hey"}]}"#);
+    rig.hear(dm("wen", "1", "hi, how was your day"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    {
+        let seen = rig.think.seen.lock().unwrap();
+        let first = seen.last().unwrap();
+        // Her voice is shown in who she is, every time.
+        assert!(first.system.contains("you up?"), "{}", first.system);
+        // Nothing here touches her past, so it is not in front of her.
+        assert!(!format!("{:?}", first.messages).contains(grandmother));
+        assert!(!first.system.contains(grandmother));
+    }
+
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"long story"}]}"#);
+    rig.hear(
+        dm("wen", "2", "do you know any old 茶馆 around here?"),
+        t0 + Duration::hours(1),
+    );
+    rig.until(|r| r.body.sent().len() == 2).await;
+    let seen = rig.think.seen.lock().unwrap();
+    assert!(format!("{:?}", seen.last().unwrap().messages).contains(grandmother));
 }

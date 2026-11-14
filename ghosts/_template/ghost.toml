@@ -32,6 +32,15 @@ Where her life is, what she does, what she has been through, what she is in
 the middle of now.
 """
 
+# How she sounds, shown rather than described: a few short exchanges, in the
+# language she will mostly speak. They teach her voice and are never reused
+# word for word, so make them differ from each other, keep them short, and
+# leave her past out of them. Optional.
+examples = """
+them: one line
+Her name: her answer
+"""
+
 values = ["honesty over comfort", "finishing things"]
 cares_about = ["one thing", "another"]
 cannot_stand = ["one thing", "another"]
@@ -45,3 +54,13 @@ timezone = "Asia/Shanghai"
 [rhythm]
 wake = "08:00"
 sleep = "00:00"
+
+# Pieces of her past. Each comes up in a conversation only when one of its
+# keys is in the last few messages, so that she does not bring her history
+# into everything. Her own day still draws on all of them. Optional; repeat
+# the block for each piece.
+[[past]]
+keys = ["a word", "another"]
+text = """
+What happened, in a few sentences.
+"""

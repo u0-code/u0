@@ -68,6 +68,8 @@ impl Scene<'_> {
             ("temperament", seed.temperament.trim().to_owned()),
             ("voice", seed.voice.trim().to_owned()),
             ("origin", seed.origin.trim().to_owned()),
+            ("examples", examples(&seed.examples)),
+            ("past", past(&seed.past.iter().collect::<Vec<_>>())),
             ("values", list(&seed.values)),
             ("cares_about", list(&seed.cares_about)),
             ("cannot_stand", list(&seed.cannot_stand)),
@@ -305,6 +307,28 @@ pub fn capital(text: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
         .unwrap_or_default()
+}
+
+/// Her voice, shown: the exchanges in her certificate, introduced so that
+/// they are read as how she sounds and not as things to say again. Empty
+/// when she has none.
+fn examples(text: &str) -> String {
+    if text.trim().is_empty() {
+        return String::new();
+    }
+    format!(
+        "This is how you sound. These are not lines to reuse; you say new things, in this voice:\n\n{}",
+        text.trim()
+    )
+}
+
+/// Pieces of her past, as a list. Empty when there are none.
+pub fn past(pieces: &[&crate::identity::Past]) -> String {
+    pieces
+        .iter()
+        .map(|p| format!("- {}", p.text.trim().replace('\n', " ")))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn list(items: &[String]) -> String {
