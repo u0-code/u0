@@ -30,16 +30,19 @@ The commands that read the directory are safe while a daemon is running her.
 
 Everything her brain reads that is not her persona or her journal is a file:
 the templates (`attend.md`, `self.md`, …), the short framings and refusals in
-`texts.toml`, and the tool descriptions in `tools.toml`. Each is looked for in
-three places, and the first that has it wins:
+`texts.toml`, what her work is told in `work.md` and `work_texts.toml`, and
+in `tools.toml` what every tool is, in a conversation and at work alike.
+Each is looked for in three places, and the first that has it wins:
 
 1. `<dir>/prompts/`, her own, found without any configuration;
 2. the `[mind] prompts` directory in `ghostd.toml`, if it is set;
 3. what is built into the binary.
 
-`texts.toml` and `tools.toml` are merged one entry at a time, so an override
-need only carry the texts or tools it changes. A running daemon looks at the
-files every couple of seconds at most, as she wakes, and takes in any that
+`texts.toml`, `work_texts.toml` and `tools.toml` are merged one entry at a
+time, so an override need only carry the texts or tools it changes. A tool
+said differently in one loop has a table for it, `[keep.conversation]` or
+`[keep.work]`. A running daemon looks at the files every couple of seconds at
+most, as she wakes, and work looks before each step, taking in any that
 changed: no restart. A file that is removed gives way to the next place; one
 that cannot be read or does not parse is warned about, and what was in use
 stays. At startup, and on every change, the log says which files are in use.

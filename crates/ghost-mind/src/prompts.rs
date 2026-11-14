@@ -5,127 +5,73 @@
 //! directory's `prompts/`, the `[mind] prompts` directory, and what is built
 //! into this binary. The built-ins are only the last resort, so that a lone
 //! binary still runs; anything a person might want to change is a file.
+//! How that is done is [`ghost_core::prompts`]; the work loop reads the same
+//! directory the same way.
 //!
 //! A changed file is taken in at the next use, without a restart: the mind
 //! asks for a refresh as it wakes, and at most every couple of seconds that
-//! looks at the modification time of each file it could read. Only a file
-//! that changed is read again. A file that goes away gives way to the next
-//! place; one that cannot be read, or does not parse, is warned about and
-//! what was in use stays in use.
+//! looks at the modification time of each file it could read.
 //!
 //! The templates are whole Markdown files. The short pieces are named
 //! entries in `texts.toml`, and the tool words are a table per tool in
-//! `tools.toml`; an override of either need only carry what it changes.
-//! None of this belongs to her: it is how a brain reads her persona and her
-//! journal, and changing it does not change who she is.
+//! `tools.toml`, which says what every tool is in a conversation and at
+//! work alike. Beside them are the work loop's own files, `work.md` and
+//! `work_texts.toml`, so that one directory holds everything a brain is
+//! told. None of this belongs to her: it is how a brain reads her persona
+//! and her journal, and changing it does not change who she is.
 
 use std::{
-    collections::{BTreeMap, HashMap},
-    fmt, fs, io,
+    io,
     path::{Path, PathBuf},
-    sync::LazyLock,
-    time::SystemTime,
 };
 
-use chrono::{DateTime, Duration, Utc};
-use ghost_core::narrate;
-use serde::Deserialize;
-use tracing::{info, warn};
+use chrono::{DateTime, Utc};
+use ghost_core::prompts::Store;
+pub use ghost_core::prompts::{DIR, File, Kind, Listed, Loop, Origin};
 
-/// The directory of prompts inside her own.
-pub const DIR: &str = "prompts";
 const TEXTS: &str = "texts.toml";
-const TOOLS: &str = "tools.toml";
-/// The least time between two looks at the files.
-const CHECK_EVERY: Duration = Duration::seconds(2);
 
-/// Every file a prompts directory can hold, with what is built in.
-pub const BUILT_IN: &[(&str, &str)] = &[
-    ("self.md", include_str!("../prompts/self.md")),
-    ("now.md", include_str!("../prompts/now.md")),
-    ("digest.md", include_str!("../prompts/digest.md")),
-    ("reply_json.md", include_str!("../prompts/reply_json.md")),
-    ("reply_tools.md", include_str!("../prompts/reply_tools.md")),
-    ("attend.md", include_str!("../prompts/attend.md")),
-    ("plan.md", include_str!("../prompts/plan.md")),
-    ("lived.md", include_str!("../prompts/lived.md")),
-    ("reflect.md", include_str!("../prompts/reflect.md")),
-    ("reflect_on.md", include_str!("../prompts/reflect_on.md")),
-    ("browse.md", include_str!("../prompts/browse.md")),
-    ("gate.md", include_str!("../prompts/gate.md")),
-    ("view.md", include_str!("../prompts/view.md")),
-    ("review.md", include_str!("../prompts/review.md")),
-    ("working.md", include_str!("../prompts/working.md")),
-    (TEXTS, include_str!("../prompts/texts.toml")),
-    (TOOLS, include_str!("../prompts/tools.toml")),
+/// The files the mind reads, with what is built in. The work loop's are in
+/// [`ghost_work::prompts::FILES`], and are read beside them.
+pub const FILES: &[File] = &[
+    whole("self.md", include_str!("../prompts/self.md")),
+    whole("now.md", include_str!("../prompts/now.md")),
+    whole("digest.md", include_str!("../prompts/digest.md")),
+    whole("reply_json.md", include_str!("../prompts/reply_json.md")),
+    whole("reply_tools.md", include_str!("../prompts/reply_tools.md")),
+    whole("attend.md", include_str!("../prompts/attend.md")),
+    whole("plan.md", include_str!("../prompts/plan.md")),
+    whole("lived.md", include_str!("../prompts/lived.md")),
+    whole("reflect.md", include_str!("../prompts/reflect.md")),
+    whole("reflect_on.md", include_str!("../prompts/reflect_on.md")),
+    whole("browse.md", include_str!("../prompts/browse.md")),
+    whole("gate.md", include_str!("../prompts/gate.md")),
+    whole("view.md", include_str!("../prompts/view.md")),
+    whole("review.md", include_str!("../prompts/review.md")),
+    whole("working.md", include_str!("../prompts/working.md")),
+    File {
+        name: TEXTS,
+        built_in: include_str!("../prompts/texts.toml"),
+        kind: Kind::Texts,
+    },
 ];
 
-static SHIPPED_TEXTS: LazyLock<Texts> =
-    LazyLock::new(|| texts(built_in(TEXTS)).expect("the built-in texts.toml parses"));
-static SHIPPED_TOOLS: LazyLock<Tools> =
-    LazyLock::new(|| tools(built_in(TOOLS)).expect("the built-in tools.toml parses"));
-
-type Texts = HashMap<String, String>;
-type Tools = BTreeMap<String, Words>;
-
-/// What a tool is called in words: its description, and its arguments'.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Words {
-    description: Option<String>,
-    #[serde(default)]
-    parameters: BTreeMap<String, String>,
-}
-
-/// Where a prompt came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
-    /// Her own directory's `prompts/`.
-    Ghost,
-    /// The `[mind] prompts` directory in `ghostd.toml`.
-    Config,
-    /// This binary.
-    BuiltIn,
-}
-
-impl fmt::Display for Origin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad(match self {
-            Self::Ghost => "ghost",
-            Self::Config => "config",
-            Self::BuiltIn => "built-in",
-        })
+const fn whole(name: &'static str, built_in: &'static str) -> File {
+    File {
+        name,
+        built_in,
+        kind: Kind::Whole,
     }
 }
 
-/// One prompt, text or tool, and where what is in use came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Listed {
-    /// The file it is in.
-    pub file: &'static str,
-    /// The text or tool in that file, for `texts.toml` and `tools.toml`.
-    pub key: Option<String>,
-    pub origin: Origin,
-    /// The file it came from, unless it is built in.
-    pub path: Option<PathBuf>,
-    /// Whether what is in use is not what is built in.
-    pub differs: bool,
-}
-
-/// What a file looked like the last time it was looked at.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Stamp {
-    Missing,
-    At(SystemTime, u64),
-    /// There, but it could not even be looked at.
-    Unreadable,
-}
-
-/// A file as last read: the text, if it could ever be read.
-#[derive(Debug, Clone)]
-struct Held {
-    stamp: Stamp,
-    text: Option<String>,
+/// Every file a prompts directory can hold: the mind's, then the work
+/// loop's.
+pub fn all_files() -> Vec<File> {
+    FILES
+        .iter()
+        .chain(ghost_work::prompts::FILES)
+        .copied()
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -162,20 +108,24 @@ pub struct Prompts {
     pub review: String,
     /// `working.md`: what she is told about a piece of work she took on.
     pub working: String,
-    texts: Texts,
-    tools: Tools,
-    /// The directories looked in, the first that has a file winning.
-    layers: Vec<(Origin, PathBuf)>,
-    /// What each file in them was when last read.
-    held: HashMap<PathBuf, Held>,
-    /// When the files were last looked at.
-    checked: Option<DateTime<Utc>>,
+    store: Store,
 }
 
 impl Prompts {
     /// What is built into this binary, and nothing else.
     pub fn shipped() -> Self {
-        let text = |name| built_in(name).to_owned();
+        Self::from_store(Store::shipped(&all_files()))
+    }
+
+    /// The prompts of the ghost in `ghost`: from her own `prompts/`, then
+    /// from `config` if there is one, then built in. Nothing here fails: a
+    /// file that cannot be used is warned about and passed over.
+    pub fn load(ghost: &Path, config: Option<&Path>) -> Self {
+        Self::from_store(Store::load(&all_files(), ghost, config))
+    }
+
+    fn from_store(store: Store) -> Self {
+        let text = |name| store.whole(name).to_owned();
         Self {
             this: text("self.md"),
             now: text("now.md"),
@@ -192,51 +142,26 @@ impl Prompts {
             view: text("view.md"),
             review: text("review.md"),
             working: text("working.md"),
-            texts: SHIPPED_TEXTS.clone(),
-            tools: SHIPPED_TOOLS.clone(),
-            layers: Vec::new(),
-            held: HashMap::new(),
-            checked: None,
+            store,
         }
-    }
-
-    /// The prompts of the ghost in `ghost`: from her own `prompts/`, then
-    /// from `config` if there is one, then built in. Nothing here fails: a
-    /// file that cannot be used is warned about and passed over.
-    pub fn load(ghost: &Path, config: Option<&Path>) -> Self {
-        let mut prompts = Self::shipped();
-        prompts.layers.push((Origin::Ghost, ghost.join(DIR)));
-        if let Some(config) = config {
-            prompts.layers.push((Origin::Config, config.to_owned()));
-        }
-        prompts.scan(false);
-        prompts
     }
 
     /// Take in any file that changed, if the files have not been looked at
     /// in the last couple of seconds. Cheap enough to call on every wake.
     pub fn refresh(&mut self, now: DateTime<Utc>) {
-        if self.layers.is_empty()
-            || self
-                .checked
-                .is_some_and(|at| now >= at && now - at < CHECK_EVERY)
-        {
-            return;
+        if self.store.refresh(now) {
+            *self = Self::from_store(std::mem::replace(&mut self.store, Store::shipped(&[])));
         }
-        self.checked = Some(now);
-        self.scan(true);
     }
 
     /// A text from `texts.toml`, as it is.
     pub fn text(&self, key: &str) -> &str {
-        let text = self.texts.get(key);
-        debug_assert!(text.is_some(), "texts.toml has no text called {key}");
-        text.map_or("", String::as_str)
+        self.store.text(TEXTS, key)
     }
 
     /// A text from `texts.toml`, with its placeholders filled.
     pub fn fill(&self, key: &str, pairs: &[(&str, String)]) -> String {
-        narrate::fill(self.text(key), pairs)
+        self.store.fill(TEXTS, key, pairs)
     }
 
     /// A text from `texts.toml` around `value`, put in as `{{name}}`; or
@@ -249,359 +174,57 @@ impl Prompts {
         }
     }
 
-    /// What tool `name` is described as.
+    /// What tool `name` is described as in a conversation.
     pub fn tool(&self, name: &str) -> &str {
-        let words = self.tools.get(name).and_then(|w| w.description.as_deref());
-        debug_assert!(words.is_some(), "tools.toml does not describe {name}");
-        words.unwrap_or_default()
+        self.store.tool(name, Loop::Conversation)
     }
 
-    /// What argument `parameter` of tool `name` is described as, if it is.
+    /// What argument `parameter` of tool `name` is described as in a
+    /// conversation, if it is.
     pub fn parameter(&self, name: &str, parameter: &str) -> Option<&str> {
-        self.tools
-            .get(name)?
-            .parameters
-            .get(parameter)
-            .map(String::as_str)
+        self.store.parameter(name, parameter, Loop::Conversation)
+    }
+
+    /// Everything read, for what reads tools.toml itself.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// The words of the work loop, from the same places as these.
+    pub fn for_work(&self) -> ghost_work::Prompts {
+        ghost_work::Prompts::layered(self.store.layers())
     }
 
     /// Every template, text and tool, with where what is in use came from.
     pub fn listing(&self) -> Vec<Listed> {
-        let mut out = Vec::new();
-        let current: HashMap<&str, &str> = self.templates().into_iter().collect();
-        for (file, shipped) in BUILT_IN {
-            if *file == TEXTS || *file == TOOLS {
-                continue;
-            }
-            let (origin, path) = self.winner(file);
-            out.push(Listed {
-                file,
-                key: None,
-                origin,
-                path,
-                differs: current.get(file).is_some_and(|now| now != shipped),
-            });
-        }
-        let mut keys: Vec<&String> = SHIPPED_TEXTS.keys().collect();
-        keys.sort();
-        for key in keys {
-            let (origin, path) = self.provider(TEXTS, |text| {
-                texts(text).is_ok_and(|t| t.contains_key(key.as_str()))
-            });
-            out.push(Listed {
-                file: TEXTS,
-                key: Some(key.clone()),
-                origin,
-                path,
-                differs: self.texts.get(key) != SHIPPED_TEXTS.get(key),
-            });
-        }
-        for name in SHIPPED_TOOLS.keys() {
-            let (origin, path) = self.provider(TOOLS, |text| {
-                tools(text).is_ok_and(|t| t.contains_key(name.as_str()))
-            });
-            out.push(Listed {
-                file: TOOLS,
-                key: Some(name.clone()),
-                origin,
-                path,
-                differs: self.tools.get(name) != SHIPPED_TOOLS.get(name),
-            });
-        }
-        out
+        self.store.listing()
     }
 
     /// Write every built-in file into `dir`, for a person to change. A
     /// file already there is left alone unless `force`. Returns each file
     /// and whether it was written.
     pub fn export(dir: &Path, force: bool) -> io::Result<Vec<(PathBuf, bool)>> {
-        fs::create_dir_all(dir)?;
-        let mut done = Vec::with_capacity(BUILT_IN.len());
-        for (name, text) in BUILT_IN {
-            let path = dir.join(name);
-            let write = force || !path.exists();
-            if write {
-                fs::write(&path, text)?;
-            }
-            done.push((path, write));
-        }
-        Ok(done)
-    }
-
-    /// The templates as they are now, by file name.
-    fn templates(&self) -> [(&'static str, &str); 15] {
-        [
-            ("self.md", self.this.as_str()),
-            ("now.md", &self.now),
-            ("digest.md", &self.digest),
-            ("reply_json.md", &self.reply_json),
-            ("reply_tools.md", &self.reply_tools),
-            ("attend.md", &self.attend),
-            ("plan.md", &self.plan),
-            ("lived.md", &self.lived),
-            ("reflect.md", &self.reflect),
-            ("reflect_on.md", &self.reflect_on),
-            ("browse.md", &self.browse),
-            ("gate.md", &self.gate),
-            ("view.md", &self.view),
-            ("review.md", &self.review),
-            ("working.md", &self.working),
-        ]
-    }
-
-    fn slot(&mut self, name: &str) -> Option<&mut String> {
-        Some(match name {
-            "self.md" => &mut self.this,
-            "now.md" => &mut self.now,
-            "digest.md" => &mut self.digest,
-            "reply_json.md" => &mut self.reply_json,
-            "reply_tools.md" => &mut self.reply_tools,
-            "attend.md" => &mut self.attend,
-            "plan.md" => &mut self.plan,
-            "lived.md" => &mut self.lived,
-            "reflect.md" => &mut self.reflect,
-            "reflect_on.md" => &mut self.reflect_on,
-            "browse.md" => &mut self.browse,
-            "gate.md" => &mut self.gate,
-            "view.md" => &mut self.view,
-            "review.md" => &mut self.review,
-            "working.md" => &mut self.working,
-            _ => return None,
-        })
-    }
-
-    /// The text of `name` in each directory that has a usable one, first
-    /// to last.
-    fn found(&self, name: &str) -> impl Iterator<Item = (Origin, &Path, &str)> {
-        self.layers.iter().filter_map(move |(origin, dir)| {
-            let path = dir.join(name);
-            let held = self.held.get(&path)?;
-            let text = held.text.as_deref()?;
-            Some((*origin, dir.as_path(), text))
-        })
-    }
-
-    /// Where the template `name` in use comes from.
-    fn winner(&self, name: &str) -> (Origin, Option<PathBuf>) {
-        self.provider(name, |_| true)
-    }
-
-    /// The first directory whose `file` says something `has` looks for.
-    fn provider(&self, file: &str, has: impl Fn(&str) -> bool) -> (Origin, Option<PathBuf>) {
-        self.found(file)
-            .find(|(_, _, text)| has(text))
-            .map_or((Origin::BuiltIn, None), |(origin, dir, _)| {
-                (origin, Some(dir.join(file)))
-            })
-    }
-
-    /// Look at every file, read again the ones that changed, and if any
-    /// did, work out again what is in use. `loud` says each change.
-    fn scan(&mut self, loud: bool) -> bool {
-        let mut changed = false;
-        for (_, dir) in self.layers.clone() {
-            // A directory that is not there is one look, not seventeen.
-            let there = match fs::metadata(&dir) {
-                Ok(_) => Some(true),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Some(false),
-                Err(_) => None,
-            };
-            for (name, _) in BUILT_IN {
-                let path = dir.join(name);
-                let stamp = match there {
-                    Some(true) => stamp(&path),
-                    Some(false) => Stamp::Missing,
-                    None => Stamp::Unreadable,
-                };
-                changed |= self.take(path, name, stamp, loud);
-            }
-        }
-        if changed {
-            self.settle();
-        }
-        changed
-    }
-
-    /// One file, as it is now. Returns whether what it says changed.
-    fn take(&mut self, path: PathBuf, name: &str, stamp: Stamp, loud: bool) -> bool {
-        let before = self
-            .held
-            .get(&path)
-            .map_or(Stamp::Missing, |h| h.stamp.clone());
-        if before == stamp {
-            return false;
-        }
-        match stamp {
-            Stamp::Missing => {
-                let had = self.held.remove(&path).is_some_and(|h| h.text.is_some());
-                if loud && had {
-                    info!(
-                        "{} is gone: {name} comes from the next place that has it",
-                        path.display()
-                    );
-                }
-                had
-            }
-            Stamp::Unreadable => {
-                warn!("cannot look at {}: the {name} in use stays", path.display());
-                self.held
-                    .entry(path)
-                    .or_insert(Held {
-                        stamp: Stamp::Missing,
-                        text: None,
-                    })
-                    .stamp = Stamp::Unreadable;
-                false
-            }
-            Stamp::At(..) => match read(&path, name) {
-                Ok(text) => {
-                    if loud {
-                        info!("read {} again", path.display());
-                    }
-                    let held = Held {
-                        stamp,
-                        text: Some(text),
-                    };
-                    let same =
-                        self.held.get(&path).and_then(|h| h.text.as_ref()) == held.text.as_ref();
-                    self.held.insert(path, held);
-                    !same
-                }
-                Err(why) => {
-                    warn!("{}: {why}. The {name} in use stays", path.display());
-                    // Remembered as looked at, so that it is not warned
-                    // about again until it changes.
-                    self.held
-                        .entry(path)
-                        .or_insert(Held {
-                            stamp: Stamp::Missing,
-                            text: None,
-                        })
-                        .stamp = stamp;
-                    false
-                }
-            },
-        }
-    }
-
-    /// Work out what is in use from what was read.
-    fn settle(&mut self) {
-        let chosen: Vec<(&str, String)> = BUILT_IN
-            .iter()
-            .map(|(name, shipped)| {
-                let text = self
-                    .found(name)
-                    .next()
-                    .map_or(*shipped, |(_, _, text)| text);
-                (*name, text.to_owned())
-            })
-            .collect();
-        for (name, text) in chosen {
-            if let Some(slot) = self.slot(name) {
-                *slot = text;
-            }
-        }
-        // The texts and tools are put together one entry at a time, the
-        // nearest directory last so that it wins.
-        let mut merged_texts = SHIPPED_TEXTS.clone();
-        let mut merged_tools = SHIPPED_TOOLS.clone();
-        let mut from_texts: Vec<&str> = self.found(TEXTS).map(|(_, _, t)| t).collect();
-        let mut from_tools: Vec<&str> = self.found(TOOLS).map(|(_, _, t)| t).collect();
-        from_texts.reverse();
-        from_tools.reverse();
-        for text in from_texts {
-            for (key, value) in texts(text).unwrap_or_default() {
-                if let Some(slot) = merged_texts.get_mut(&key) {
-                    *slot = value;
-                }
-            }
-        }
-        for text in from_tools {
-            for (name, words) in tools(text).unwrap_or_default() {
-                if let Some(slot) = merged_tools.get_mut(&name) {
-                    if words.description.is_some() {
-                        slot.description = words.description;
-                    }
-                    slot.parameters.extend(words.parameters);
-                }
-            }
-        }
-        self.texts = merged_texts;
-        self.tools = merged_tools;
+        Store::export(&all_files(), dir, force)
     }
 }
 
 /// The built-in text of the file `name`.
+#[cfg(test)]
 fn built_in(name: &str) -> &'static str {
-    BUILT_IN
+    all_files()
         .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, text)| *text)
+        .find(|f| f.name == name)
+        .map(|f| f.built_in)
         .unwrap_or_default()
-}
-
-fn stamp(path: &Path) -> Stamp {
-    match fs::metadata(path) {
-        Ok(meta) => Stamp::At(
-            meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-            meta.len(),
-        ),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Stamp::Missing,
-        Err(_) => Stamp::Unreadable,
-    }
-}
-
-/// The text of a file, if it is usable as the file `name`. Names in it that
-/// mean nothing are warned about; they do not make it unusable.
-fn read(path: &Path, name: &str) -> Result<String, String> {
-    let bytes = fs::read(path).map_err(|e| format!("cannot be read: {e}"))?;
-    let text = String::from_utf8(bytes).map_err(|_| "is not UTF-8".to_owned())?;
-    let unknown: Vec<String> = match name {
-        TEXTS => texts(&text)?
-            .into_keys()
-            .filter(|k| !SHIPPED_TEXTS.contains_key(k))
-            .collect(),
-        TOOLS => {
-            let mut unknown = Vec::new();
-            for (tool, words) in tools(&text)? {
-                match SHIPPED_TOOLS.get(&tool) {
-                    None => unknown.push(tool),
-                    Some(shipped) => unknown.extend(
-                        words
-                            .parameters
-                            .into_keys()
-                            .filter(|p| !shipped.parameters.contains_key(p))
-                            .map(|p| format!("{tool}.{p}")),
-                    ),
-                }
-            }
-            unknown
-        }
-        _ => Vec::new(),
-    };
-    if !unknown.is_empty() {
-        warn!(
-            "{}: nothing is called {}; left unused",
-            path.display(),
-            unknown.join(", ")
-        );
-    }
-    Ok(text)
-}
-
-fn texts(text: &str) -> Result<Texts, String> {
-    toml::from_str(text).map_err(|e| format!("does not parse: {e}"))
-}
-
-fn tools(text: &str) -> Result<Tools, String> {
-    toml::from_str(text).map_err(|e| format!("does not parse: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::{Duration as StdDuration, UNIX_EPOCH};
 
-    use chrono::TimeZone;
+    use std::fs;
+
+    use chrono::{Duration, TimeZone};
 
     use super::*;
 
@@ -625,9 +248,11 @@ mod tests {
     #[test]
     fn the_built_in_files_parse_and_describe_every_tool() {
         let shipped = Prompts::shipped();
-        assert!(!SHIPPED_TEXTS.is_empty());
-        for (name, words) in SHIPPED_TOOLS.iter() {
-            assert!(words.description.is_some(), "{name} has no description");
+        for listed in shipped.listing() {
+            if listed.file == "tools.toml" {
+                let name = listed.key.unwrap();
+                assert!(!shipped.tool(&name).is_empty(), "{name} has no description");
+            }
         }
         assert_eq!(shipped.attend, include_str!("../prompts/attend.md"));
     }
@@ -645,7 +270,7 @@ mod tests {
         );
         write_at(
             &config.path().join("texts.toml"),
-            "look = \"the config's\"\nno_look_up = \"the config's\"\n",
+            "look = \"the config's\"\ncannot_here = \"the config's\"\n",
             1,
         );
         let p = Prompts::load(ghost.path(), Some(config.path()));
@@ -653,7 +278,7 @@ mod tests {
         assert_eq!(p.gate, "the config's gate");
         assert_eq!(p.attend, Prompts::shipped().attend);
         assert_eq!(p.text("look"), "hers");
-        assert_eq!(p.text("no_look_up"), "the config's");
+        assert_eq!(p.text("cannot_here"), "the config's");
         assert_eq!(p.text("not_sent"), Prompts::shipped().text("not_sent"));
 
         let listed = p.listing();
@@ -668,8 +293,8 @@ mod tests {
         assert_eq!(origin("gate.md", None), (Origin::Config, true));
         assert_eq!(origin("attend.md", None), (Origin::BuiltIn, false));
         assert_eq!(origin(TEXTS, Some("look")), (Origin::Ghost, true));
-        assert_eq!(origin(TEXTS, Some("no_look_up")), (Origin::Config, true));
-        assert_eq!(origin(TOOLS, Some("say")), (Origin::BuiltIn, false));
+        assert_eq!(origin(TEXTS, Some("cannot_here")), (Origin::Config, true));
+        assert_eq!(origin("tools.toml", Some("say")), (Origin::BuiltIn, false));
     }
 
     #[test]
@@ -754,18 +379,79 @@ mod tests {
     }
 
     #[test]
+    fn export_and_list_cover_the_work_loops_files_and_every_tool_of_both_loops() {
+        let ghost = tempfile::tempdir().unwrap();
+        let dir = ghost.path().join(DIR);
+        let written: Vec<String> = Prompts::export(&dir, false)
+            .unwrap()
+            .into_iter()
+            .map(|(path, _)| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        for name in [
+            "self.md",
+            "texts.toml",
+            "work.md",
+            "work_texts.toml",
+            "tools.toml",
+        ] {
+            assert!(written.iter().any(|w| w == name), "{name} was not exported");
+            assert!(dir.join(name).exists());
+        }
+        assert_eq!(
+            fs::read_to_string(dir.join("work.md")).unwrap(),
+            ghost_work::prompts::FILES[0].built_in
+        );
+
+        // Changed where it was exported to, it is listed as hers.
+        write_at(&dir.join("work_texts.toml"), "no_call = \"Call one.\"\n", 1);
+        write_at(
+            &dir.join("tools.toml"),
+            "[delegate]\ndescription = \"Hand it on.\"\n",
+            1,
+        );
+        let listed = Prompts::load(ghost.path(), None).listing();
+        let find = |file: &str, key: Option<&str>| {
+            listed
+                .iter()
+                .find(|l| l.file == file && l.key.as_deref() == key)
+                .map(|l| (l.origin, l.differs))
+        };
+        assert_eq!(find("work.md", None), Some((Origin::Ghost, false)));
+        assert_eq!(
+            find("work_texts.toml", Some("no_call")),
+            Some((Origin::Ghost, true))
+        );
+        assert_eq!(
+            find("work_texts.toml", Some("audit")),
+            Some((Origin::BuiltIn, false))
+        );
+        assert_eq!(
+            find("tools.toml", Some("delegate")),
+            Some((Origin::Ghost, true))
+        );
+        // A tool of the conversation and one of work, in the one file.
+        assert!(find("tools.toml", Some("say")).is_some());
+        assert!(find("tools.toml", Some("shell")).is_some());
+    }
+
+    #[test]
     fn export_writes_every_built_in_and_overwrites_only_when_forced() {
         let ghost = tempfile::tempdir().unwrap();
         let dir = ghost.path().join(DIR);
         write_at(&dir.join("plan.md"), "mine", 1);
 
         let done = Prompts::export(&dir, false).unwrap();
-        assert_eq!(done.len(), BUILT_IN.len());
-        for (name, text) in BUILT_IN {
+        assert_eq!(done.len(), all_files().len());
+        for File {
+            name,
+            built_in: text,
+            ..
+        } in all_files()
+        {
             let written = done.iter().find(|(p, _)| p.ends_with(name)).unwrap().1;
-            assert_eq!(written, *name != "plan.md", "{name}");
-            if *name != "plan.md" {
-                assert_eq!(fs::read_to_string(dir.join(name)).unwrap(), *text);
+            assert_eq!(written, name != "plan.md", "{name}");
+            if name != "plan.md" {
+                assert_eq!(fs::read_to_string(dir.join(name)).unwrap(), text);
             }
         }
         assert_eq!(fs::read_to_string(dir.join("plan.md")).unwrap(), "mine");

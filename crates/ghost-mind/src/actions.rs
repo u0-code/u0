@@ -8,6 +8,7 @@
 
 use ghost_brain::{Call, ToolSpec};
 use ghost_core::narrate;
+use ghost_work::catalog::{self, Need};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
 use tracing::debug;
@@ -74,9 +75,6 @@ pub enum Action {
         #[serde(deserialize_with = "reference")]
         memory: i64,
     },
-    /// Look something up on the web, then think again. Only where what
-    /// she does is tool calls.
-    LookUp { query: String },
     /// End a relationship.
     Leave {
         #[serde(default)]
@@ -98,13 +96,16 @@ pub enum Action {
         #[serde(default)]
         text: Option<String>,
     },
-    /// Keep something she has seen, to have it again: for now, an image in
-    /// a message. `image` counts from 1, and is the first when left out.
+    /// Keep something she has seen, to have it again: an image in a
+    /// message, by `message` and `image` (counting from 1, the first when
+    /// left out), or an image she opened in this conversation, by `file`.
     Keep {
-        #[serde(deserialize_with = "reference")]
-        message: i64,
+        #[serde(default, deserialize_with = "opt_reference")]
+        message: Option<i64>,
         #[serde(default, deserialize_with = "opt_reference")]
         image: Option<i64>,
+        #[serde(default)]
+        file: Option<String>,
         note: String,
     },
     /// Let go of something she kept. `thing` is its number.
@@ -178,18 +179,96 @@ pub fn from_call(call: &Call) -> Result<Action, String> {
     })
 }
 
-/// What a brain that takes tools is offered while she looks at a place.
-/// The names and arguments are those of [`Action`], so a call reads straight
-/// into one. The shape of each is here; what each is said to be is in
-/// `tools.toml`, and `work` is what fills `{{means}}` in `undertake`.
-/// `under_way` says whether she has work she could steer or stop.
-pub fn tools(
-    words: &Prompts,
-    work: Option<&str>,
-    look_up: bool,
-    files: bool,
-    under_way: bool,
-) -> Vec<ToolSpec> {
+/// What a look at a place offers beyond what is always there.
+#[derive(Debug, Clone, Default)]
+pub struct Offer {
+    /// How she would take something on, if she can: what fills `{{means}}`
+    /// in `undertake`.
+    pub means: Option<String>,
+    /// The place takes files.
+    pub files: bool,
+    /// She has work she could steer or stop.
+    pub under_way: bool,
+    /// The tools that reach beyond the conversation, offered here, as they
+    /// are said here: the web, and her machine.
+    pub reaching: Vec<ToolSpec>,
+}
+
+impl Offer {
+    /// What she has here, as the catalog of tools asks it.
+    fn has(&self, need: Need) -> bool {
+        match need {
+            Need::Work => self.means.is_some(),
+            Need::UnderWay => self.under_way,
+            Need::Files => self.files,
+            Need::Memory => true,
+            // Those reach beyond the conversation, and are offered as
+            // they are given.
+            _ => false,
+        }
+    }
+}
+
+/// Arguments by name and JSON type, and which of them are required.
+type Shape = (
+    &'static [(&'static str, &'static str)],
+    &'static [&'static str],
+);
+
+/// The arguments of each thing she does in a conversation. A tool that
+/// runs the same in work is shaped there instead.
+fn shape(name: &str) -> Option<Shape> {
+    Some(match name {
+        "say" => (&[("text", "string"), ("reply_to", "integer")], &["text"]),
+        "react" => (&[("to", "integer"), ("emoji", "string")], &["to", "emoji"]),
+        "later" => (&[("minutes", "number"), ("why", "string")], &["minutes"]),
+        "note" => (&[("about", "string"), ("text", "string")], &["text"]),
+        "feel" => (
+            &[("toward", "string"), ("delta", "number"), ("why", "string")],
+            &["delta"],
+        ),
+        "intend" => (
+            &[("hours", "number"), ("what", "string"), ("about", "string")],
+            &["hours", "what"],
+        ),
+        "canon" => (&[("fact", "string")], &["fact"]),
+        "recall" => (&[("query", "string")], &["query"]),
+        "reread" => (&[("memory", "integer")], &["memory"]),
+        "keep" => (
+            &[
+                ("file", "string"),
+                ("message", "integer"),
+                ("image", "integer"),
+                ("note", "string"),
+            ],
+            &["note"],
+        ),
+        "let_go" => (&[("thing", "integer")], &["thing"]),
+        "undertake" => (&[("brief", "string"), ("for", "string")], &["brief"]),
+        "steer" => (
+            &[("work", "integer"), ("text", "string")],
+            &["work", "text"],
+        ),
+        "stop" => (&[("work", "integer")], &["work"]),
+        "send_file" => (
+            &[
+                ("file", "string"),
+                ("message", "integer"),
+                ("image", "integer"),
+                ("text", "string"),
+            ],
+            &[],
+        ),
+        "leave" => (&[("why", "string")], &[]),
+        _ => return None,
+    })
+}
+
+/// What a brain that takes tools is offered while she looks at a place, in
+/// the catalog's order. What she does with people in front of her is read
+/// straight into an [`Action`]; what reaches beyond the conversation runs
+/// as it does at work. What each is said to be is in `tools.toml`.
+pub fn tools(words: &Prompts, offer: &Offer) -> Vec<ToolSpec> {
     // Each argument by name and JSON type, described if `tools.toml` says
     // something about it.
     let tool = |name: &str, arguments: &[(&str, &str)], required: &[&str]| {
@@ -209,85 +288,30 @@ pub fn tools(
             parameters: json!({"type": "object", "properties": properties, "required": required}),
         }
     };
-    let mut tools = vec![
-        tool(
-            "say",
-            &[("text", "string"), ("reply_to", "integer")],
-            &["text"],
-        ),
-        tool(
-            "react",
-            &[("to", "integer"), ("emoji", "string")],
-            &["to", "emoji"],
-        ),
-        tool(
-            "later",
-            &[("minutes", "number"), ("why", "string")],
-            &["minutes"],
-        ),
-        tool(
-            "note",
-            &[("about", "string"), ("text", "string")],
-            &["text"],
-        ),
-        tool(
-            "feel",
-            &[("toward", "string"), ("delta", "number"), ("why", "string")],
-            &["delta"],
-        ),
-        tool(
-            "intend",
-            &[("hours", "number"), ("what", "string"), ("about", "string")],
-            &["hours", "what"],
-        ),
-        tool("canon", &[("fact", "string")], &["fact"]),
-        tool("recall", &[("query", "string")], &["query"]),
-        tool("reread", &[("memory", "integer")], &["memory"]),
-        tool(
-            "keep",
-            &[
-                ("message", "integer"),
-                ("image", "integer"),
-                ("note", "string"),
-            ],
-            &["message", "note"],
-        ),
-        tool("let_go", &[("thing", "integer")], &["thing"]),
-    ];
-    if look_up {
-        tools.push(tool("look_up", &[("query", "string")], &["query"]));
+    let mut tools = Vec::new();
+    for entry in catalog::TOOLS {
+        if !entry
+            .loops
+            .contains(&ghost_core::prompts::Loop::Conversation)
+        {
+            continue;
+        }
+        if let Some(reaching) = offer.reaching.iter().find(|t| t.name == entry.name) {
+            tools.push(reaching.clone());
+            continue;
+        }
+        let Some((arguments, required)) = shape(entry.name) else {
+            continue;
+        };
+        if !entry.needs.iter().all(|need| offer.has(*need)) {
+            continue;
+        }
+        let mut spec = tool(entry.name, arguments, required);
+        if let Some(means) = offer.means.as_deref().filter(|_| entry.name == "undertake") {
+            spec.description = narrate::fill(&spec.description, &[("means", means.to_owned())]);
+        }
+        tools.push(spec);
     }
-    if let Some(means) = work {
-        let mut undertake = tool(
-            "undertake",
-            &[("brief", "string"), ("for", "string")],
-            &["brief"],
-        );
-        undertake.description =
-            narrate::fill(&undertake.description, &[("means", means.to_owned())]);
-        tools.push(undertake);
-    }
-    if under_way {
-        tools.push(tool(
-            "steer",
-            &[("work", "integer"), ("text", "string")],
-            &["work", "text"],
-        ));
-        tools.push(tool("stop", &[("work", "integer")], &["work"]));
-    }
-    if files {
-        tools.push(tool(
-            "send_file",
-            &[
-                ("file", "string"),
-                ("message", "integer"),
-                ("image", "integer"),
-                ("text", "string"),
-            ],
-            &[],
-        ));
-    }
-    tools.push(tool("leave", &[("why", "string")], &[]));
     tools
 }
 
@@ -491,13 +515,15 @@ mod tests {
             d.actions,
             vec![
                 Action::Keep {
-                    message: 12,
+                    message: Some(12),
                     image: None,
+                    file: None,
                     note: "for later".into()
                 },
                 Action::Keep {
-                    message: 12,
+                    message: Some(12),
                     image: Some(2),
+                    file: None,
                     note: "x".into()
                 },
                 Action::LetGo { thing: 40 },

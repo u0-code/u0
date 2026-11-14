@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use super::{Desk, MAX_PICTURE};
 use crate::{
     machine::quote,
-    tool::{Outcome, Tool, spec, text},
+    prompts::{self, Loop, Store},
+    tool::{Outcome, Tool, text},
 };
 
 const IO_TIMEOUT: Duration = Duration::from_secs(60);
@@ -109,14 +110,19 @@ impl Read {
 
 #[async_trait]
 impl Tool for Read {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "read"
+    }
+
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
+            lp,
             "read",
-            "Read a text file, with line numbers. Returns up to 600 lines; use `from` and `lines` to read a different part of a long file. An image file (PNG, JPEG, GIF or WebP, up to 5 MB) comes back as the image itself, so you can look at it.",
             json!({
-                "path": {"type": "string", "description": "The file. Relative paths are taken from the shell's working directory."},
-                "from": {"type": "integer", "description": "First line to return, counting from 1."},
-                "lines": {"type": "integer", "description": "How many lines to return."},
+                "path": {"type": "string"},
+                "from": {"type": "integer"},
+                "lines": {"type": "integer"},
             }),
             &["path"],
         )
@@ -180,14 +186,16 @@ impl Write {
 
 #[async_trait]
 impl Tool for Write {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "write"
+    }
+
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
+            lp,
             "write",
-            "Create a file or replace its whole content. Missing directories are created. The content is written exactly as given.",
-            json!({
-                "path": {"type": "string"},
-                "content": {"type": "string", "description": "The complete content of the file."},
-            }),
+            json!({"path": {"type": "string"}, "content": {"type": "string"}}),
             &["path", "content"],
         )
     }
@@ -220,15 +228,20 @@ impl Edit {
 
 #[async_trait]
 impl Tool for Edit {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "edit"
+    }
+
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
+            lp,
             "edit",
-            "Replace an exact piece of text in a file. `old` must match the file character for character, including indentation, and must be unique unless `all` is true. To insert, replace a nearby line with itself plus the new text.",
             json!({
                 "path": {"type": "string"},
-                "old": {"type": "string", "description": "The text to replace, exactly as it is in the file."},
-                "new": {"type": "string", "description": "The text to put in its place."},
-                "all": {"type": "boolean", "description": "Replace every occurrence instead of requiring exactly one."},
+                "old": {"type": "string"},
+                "new": {"type": "string"},
+                "all": {"type": "boolean"},
             }),
             &["path", "old", "new"],
         )

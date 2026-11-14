@@ -10,16 +10,19 @@
 //! more than one thought.
 //!
 
+pub mod catalog;
 pub mod claude;
 pub mod codex;
 pub mod machine;
 pub mod mcp;
+pub mod prompts;
 pub mod tool;
 pub mod tools;
 pub mod undertaking;
 pub mod worker;
 
 pub use machine::{Docker, Local, Machine};
+pub use prompts::Prompts;
 pub use tool::{Outcome, Tool, Toolbox};
 pub use undertaking::{Undertaking, WORK_DB};
 pub use worker::{Ended, Limits, Report, Worker};

@@ -6,7 +6,9 @@ tools, and state that outlives any one context window.
 **Is:** a [`Worker`] that takes a `ghost_brain::Brain`, a `Toolbox` and an
 `Undertaking` and works until the undertaking is finished or something stops
 it. A `Machine` to work on (a local directory, or a Docker container). The
-standard tools: `shell`, `read`, `write`, `edit`, `plan`, `note`, `done`.
+standard tools: `shell`, `read`, `write`, `edit`, `plan`, `note`, `done`. The
+catalog (`src/catalog.rs`) lists every tool of a ghost's conversations and of
+work, the loops each belongs to and what each needs.
 
 **Is not:** a person. It does not know who is working; that is a paragraph
 handed in by whoever starts it. `ghost-mind` is what makes it hers.
@@ -63,6 +65,16 @@ you did not write the task for yourself.
 
 Any OpenAI-compatible server works (`--base-url`, `--model`,
 `--api-key-env`); `--kind anthropic` uses the Anthropic API.
+
+## What it is told
+
+Every word the model reads from this crate is a file in
+[`prompts/`](prompts/): the working instructions in `work.md`, what is said
+along the way in `work_texts.toml`, and in `tools.toml` what every tool is,
+for work and for a ghost's conversations alike. What is built in is only the
+last resort: `<state>/prompts/` wins, then `--prompts <dir>`, file by file,
+and `work_texts.toml` and `tools.toml` entry by entry. The files are looked
+at before each step, so an edit reaches work that is already running.
 
 
 [`Worker`]: src/worker.rs

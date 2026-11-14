@@ -35,6 +35,13 @@ thread_window = 40
 # them: she can search her memory or the web before answering, and a call
 # she gets wrong comes back to her. Off, it is one JSON reply.
 talk_tools = true
+# Turns in one look at a conversation, and seconds one search, page,
+# picture or command may take in it. Anything bigger is taken on as work.
+talk_steps = 5
+talk_tool_seconds = 30
+# Her machine in a conversation, as at work, in private and only with a
+# friend or closer. Needs [mind.work] machine.
+talk_machine = true
 # Ceiling on brain calls per hour. 0 means no ceiling.
 calls_per_hour = 120
 # Run the life engine: plan her days, live through them, reflect at night.

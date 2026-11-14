@@ -1519,7 +1519,7 @@ async fn with_tools_she_answers_by_calling_them() {
     let names: Vec<&str> = turns[0].tools.iter().map(|t| t.name.as_str()).collect();
     assert!(names.contains(&"say") && names.contains(&"recall"));
     // No way to search the web in this body, so it is not offered.
-    assert!(!names.contains(&"look_up"));
+    assert!(!names.contains(&"search"));
     // Her thought is the reason in her journal.
     assert!(rig.reasons().iter().any(|r| r == "she sounds tired"));
 }
@@ -1616,7 +1616,7 @@ async fn what_she_looks_up_comes_back_before_she_answers() {
     rig.think.then_turn(
         "",
         &[(
-            "look_up",
+            "search",
             serde_json::json!({"query": "heming tea house hours"}),
         )],
     );
@@ -1628,10 +1628,10 @@ async fn what_she_looks_up_comes_back_before_she_answers() {
     rig.until(|r| r.body.sent().len() == 1).await;
 
     let turns = rig.think.turns.lock().unwrap();
-    assert!(turns[0].tools.iter().any(|t| t.name == "look_up"));
+    assert!(turns[0].tools.iter().any(|t| t.name == "search"));
     assert_eq!(turns.len(), 2);
     assert!(matches!(turns[1].items.last(),
-        Some(ghost_brain::Item::Result { name, .. }) if name == "look_up"));
+        Some(ghost_brain::Item::Result { name, .. }) if name == "search"));
     drop(turns);
     // Nothing came back, so there is nothing to keep.
     assert!(!rig.kinds().contains(&"looked_up"));
@@ -1671,7 +1671,7 @@ async fn what_she_looks_up_is_kept_and_found_again() {
     rig.think.then_turn(
         "",
         &[(
-            "look_up",
+            "search",
             serde_json::json!({"query": "heming tea house closing"}),
         )],
     );
@@ -3574,4 +3574,420 @@ async fn nothing_kept_is_recorded_twice_when_the_sitting_ends() {
     rig.until(|r| r.kinds().contains(&"concluded")).await;
     // The sitting's record still lists it at the end; it is hers once.
     assert_eq!(count(&rig, "kept"), 1);
+}
+
+/// Every clock time written as `HH:MM`. When a message came in is when the
+/// test ran, and when she looks is a moment her tempo draws at random.
+fn without_times(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if i + 5 <= b.len()
+            && b[i + 2] == b':'
+            && [0, 1, 3, 4].iter().all(|&k| b[i + k].is_ascii_digit())
+        {
+            out.extend_from_slice(b"HH:MM");
+            i += 5;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap()
+}
+
+/// Compare `got` with what was recorded under `name`, or record it when
+/// `GHOST_RECORD` is set. The ghost's directory, which changes from run to
+/// run, is written as `<dir>`, and the times messages came in, which are
+/// when the test ran, are left out of the comparison.
+fn compare_recorded(rig: &Rig, name: &str, got: &str) {
+    let got = got.replace(&rig.mind.ghost.dir().display().to_string(), "<dir>");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/requests")
+        .join(format!("{name}.txt"));
+    if std::env::var_os("GHOST_RECORD").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &got).unwrap();
+        return;
+    }
+    let (want, got) = (
+        without_times(&std::fs::read_to_string(&path).unwrap()),
+        without_times(&got),
+    );
+    if want != got {
+        let at = want
+            .lines()
+            .zip(got.lines())
+            .position(|(a, b)| a != b)
+            .unwrap_or(want.lines().count().min(got.lines().count()));
+        panic!(
+            "{name} differs from what was recorded, first at line {}:\nrecorded: {:?}\nnow:      {:?}",
+            at + 1,
+            want.lines().nth(at),
+            got.lines().nth(at)
+        );
+    }
+}
+
+fn turns_text(turns: &[ghost_brain::Turn]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for t in turns {
+        let _ = write!(
+            out,
+            "system: {}\nitems: {:#?}\ntools: {:#?}\n\n",
+            t.system, t.items, t.tools
+        );
+    }
+    out
+}
+
+#[tokio::test]
+async fn with_nothing_overridden_she_asks_exactly_what_she_asked_before() {
+    let t0 = at(14, 0);
+    // Answering in JSON.
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("wen", "1", "is the tea house open?"), t0);
+    rig.until(|r| r.think.calls() == 1).await;
+    let seen = format!("{:#?}", rig.think.seen.lock().unwrap());
+    compare_recorded(&rig, "talk_json", &seen);
+
+    // Answering with tools, with memory searched in between.
+    let mut rig = Rig::with_tools(t0);
+    rig.think
+        .then_turn("", &[("recall", serde_json::json!({"query": "tea"}))]);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "nine, I think"}))]);
+    rig.hear(dm("wen", "1", "is the tea house open?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let turns = turns_text(&rig.think.turns.lock().unwrap());
+    compare_recorded(&rig, "talk_tools", &turns);
+
+    // At work for a friend.
+    let mut rig = Rig::quiet(t0);
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "Nine on weekdays."}),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let turns = turns_text(&rig.think.turns.lock().unwrap());
+    compare_recorded(&rig, "work", &turns);
+}
+
+/// A web server on this machine that answers each path in `routes` with
+/// its type and body, and anything else with 404. Returns its address.
+async fn site(routes: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let n = socket.read(&mut request).await.unwrap_or(0);
+            let line = String::from_utf8_lossy(&request[..n]);
+            let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+            let (status, kind, body) = routes.iter().find(|(p, _, _)| *p == path).map_or(
+                ("404 Not Found", "text/plain", b"no".to_vec()),
+                |(_, k, b)| ("200 OK", *k, b.clone()),
+            );
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(&body).await;
+        }
+    });
+    format!("http://{addr}")
+}
+
+fn opened(rig: &Rig) -> Vec<(String, Option<String>, Option<String>)> {
+    rig.mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["opened"], 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            Event::Opened {
+                url, file, place, ..
+            } => Some((url, file, place)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn in_conversation_she_searches_opens_a_page_and_a_picture_sees_it_keeps_it_and_sends_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.think.see();
+    takes_files(&mut rig, t0);
+    let web = site(vec![
+        (
+            "/heron",
+            "text/html",
+            b"<html><body><p>A heron at the lake, wings out.</p>\
+              <img src=\"/heron.png\" alt=\"a heron\" width=\"640\" height=\"480\"></body></html>"
+                .to_vec(),
+        ),
+        ("/heron.png", "image/png", PIXEL.to_vec()),
+    ])
+    .await;
+    let found = searxng(serde_json::json!([{
+        "title": "Herons at the lake",
+        "url": format!("{web}/heron"),
+        "content": "Photographs of the herons that come in winter."
+    }]))
+    .await;
+    rig.mind.workshop.web.search = Some(ghost_work::tools::Source::Searxng { url: found });
+    let file = ghost_core::media::name(PIXEL, "image/png");
+    rig.think.then_turn(
+        "",
+        &[(
+            "search",
+            serde_json::json!({"query": "heron photograph lake"}),
+        )],
+    );
+    rig.think.then_turn(
+        "",
+        &[("fetch", serde_json::json!({"url": format!("{web}/heron")}))],
+    );
+    rig.think.then_turn(
+        "",
+        &[(
+            "fetch",
+            serde_json::json!({"url": format!("{web}/heron.png")}),
+        )],
+    );
+    rig.think.then_turn(
+        "she will like this",
+        &[
+            (
+                "keep",
+                serde_json::json!({"file": format!("[image: {file}]"), "note": "A heron, wings out. For Wen."}),
+            ),
+            (
+                "send_file",
+                serde_json::json!({"file": file, "text": "this one"}),
+            ),
+        ],
+    );
+    rig.hear(dm("wen", "1", "find me a picture of a heron?"), t0);
+    rig.until(|r| files_sent(r).len() == 1).await;
+
+    {
+        let turns = rig.think.turns.lock().unwrap();
+        assert_eq!(turns.len(), 4);
+        let names: Vec<&str> = turns[0].tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            names.contains(&"search") && names.contains(&"fetch"),
+            "{names:?}"
+        );
+        // The tools of both loops tell her a conversation is for a glance.
+        let fetch = turns[0].tools.iter().find(|t| t.name == "fetch").unwrap();
+        assert!(
+            fetch
+                .description
+                .ends_with(rig.mind.prompts.text("at_a_glance"))
+        );
+        let result = |turn: usize| match turns[turn].items.last() {
+            Some(ghost_brain::Item::Result {
+                name,
+                output,
+                failed: false,
+                pictures,
+                ..
+            }) => (name.clone(), output.clone(), pictures.clone()),
+            other => panic!("{other:?}"),
+        };
+        let (name, output, _) = result(1);
+        assert!(name == "search" && output.contains(&format!("{web}/heron")));
+        let (name, output, _) = result(2);
+        assert!(name == "fetch" && output.contains("wings out"), "{output}");
+        assert!(
+            output.contains(&format!("{web}/heron.png")),
+            "the page lists its pictures"
+        );
+        // The picture is shown to a brain that sees, by the name it is
+        // kept under.
+        let (_, output, pictures) = result(3);
+        assert!(output.contains(&format!("[image: {file}]")), "{output}");
+        assert_eq!(pictures.len(), 1);
+        assert_eq!(pictures[0].bytes, PIXEL);
+    }
+    // What she read and what she looked at are in her journal, here.
+    assert_eq!(count(&rig, "looked_up"), 1);
+    let here = Some("t:wen".to_owned());
+    assert_eq!(
+        opened(&rig),
+        [
+            (format!("{web}/heron"), None, here.clone()),
+            (format!("{web}/heron.png"), Some(file.clone()), here.clone()),
+        ]
+    );
+    // Kept, from here, and handed over as itself.
+    let held = kept(&rig);
+    assert_eq!(held.len(), 1);
+    assert_eq!(
+        (held[0].1.as_str(), held[0].2.as_str(), held[0].3.clone()),
+        (file.as_str(), "A heron, wings out. For Wen.", here)
+    );
+    assert_eq!(
+        files_sent(&rig),
+        [(file.clone(), PIXEL.to_vec(), Some("this one".into()))]
+    );
+}
+
+#[tokio::test]
+async fn a_picture_opened_in_one_conversation_cannot_be_kept_or_sent_from_another() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    takes_files(&mut rig, t0);
+    let web = site(vec![("/heron.png", "image/png", PIXEL.to_vec())]).await;
+    let file = ghost_core::media::name(PIXEL, "image/png");
+    rig.think.then_turn(
+        "",
+        &[(
+            "fetch",
+            serde_json::json!({"url": format!("{web}/heron.png")}),
+        )],
+    );
+    rig.hear(dm("wen", "1", "show me a heron"), t0);
+    rig.until(|r| opened(r).len() == 1).await;
+
+    let later = t0 + Duration::hours(1);
+    rig.think.then_turn(
+        "",
+        &[
+            ("keep", serde_json::json!({"file": file, "note": "a heron"})),
+            ("send_file", serde_json::json!({"file": file})),
+        ],
+    );
+    rig.hear(dm("mei", "2", "hi"), later);
+    rig.until(|r| r.think.turns.lock().unwrap().len() >= 3)
+        .await;
+    assert!(last_result(&rig, "keep").1);
+    assert!(last_result(&rig, "send_file").1);
+    assert!(kept(&rig).is_empty());
+    assert!(files_sent(&rig).is_empty());
+}
+
+#[tokio::test]
+async fn a_call_beyond_the_conversation_that_outlasts_its_time_comes_back_failed_and_says_why() {
+    use tokio::io::AsyncReadExt;
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.cfg.talk_tool_seconds = 1;
+    // A site that takes the request and never answers.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            held.push(socket);
+        }
+    });
+    rig.think.then_turn(
+        "",
+        &[(
+            "fetch",
+            serde_json::json!({"url": format!("http://{addr}/slow")}),
+        )],
+    );
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "it won't open"}))]);
+    rig.hear(dm("wen", "1", "can you open this?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let (output, failed) = last_result(&rig, "fetch");
+    assert!(failed);
+    assert_eq!(
+        output,
+        rig.mind
+            .prompts
+            .fill("too_slow", &[("seconds", "1".to_owned())])
+    );
+    assert!(opened(&rig).is_empty());
+}
+
+#[tokio::test]
+async fn what_she_is_told_she_can_do_here_is_what_she_is_offered_here() {
+    let t0 = at(14, 0);
+    let section = "# What you can do here";
+    let ability =
+        |rig: &Rig, name: &str| rig.mind.prompts.store().ability(name).unwrap().to_owned();
+
+    // Nothing beyond talking: nothing is said.
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.cfg.work.web = false;
+    rig.mind.cfg.work.enabled = false;
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let system = rig.think.turns.lock().unwrap()[0].system.clone();
+    assert!(!system.contains(section), "{system}");
+    assert!(system.contains("You cannot stand:") && system.contains("# Ground rules"));
+
+    // The web, and a place that takes files: both, and nothing else.
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.cfg.work.enabled = false;
+    rig.mind.workshop.web.search = Some(ghost_work::tools::Source::Searxng {
+        url: "http://127.0.0.1:1".into(),
+    });
+    takes_files(&mut rig, t0);
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let system = rig.think.turns.lock().unwrap()[0].system.clone();
+    assert!(system.contains(section), "{system}");
+    for name in ["search", "fetch", "send_file"] {
+        assert!(system.contains(&ability(&rig, name)), "{name} is not said");
+    }
+    for name in ["undertake", "shell"] {
+        assert!(!system.contains(&ability(&rig, name)), "{name} is said");
+    }
+}
+
+#[tokio::test]
+async fn her_machine_is_hers_to_use_in_private_with_a_friend_and_not_with_a_stranger() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let desk = tempfile::tempdir().unwrap();
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
+    rig.hear(dm("mei", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let offered = |rig: &Rig, turn: usize| -> Vec<String> {
+        rig.think.turns.lock().unwrap()[turn]
+            .tools
+            .iter()
+            .map(|t| t.name.clone())
+            .collect()
+    };
+    assert!(!offered(&rig, 0).iter().any(|n| n == "shell"));
+
+    let later = t0 + Duration::hours(1);
+    befriend(&mut rig, "wen", later);
+    rig.think.then_turn(
+        "",
+        &[(
+            "shell",
+            serde_json::json!({"command": "echo hello > note.txt; cat note.txt"}),
+        )],
+    );
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "done"}))]);
+    rig.hear(
+        dm("wen", "2", "can you make a note on your computer?"),
+        later,
+    );
+    rig.until(|r| r.body.sent().len() == 1).await;
+    assert!(offered(&rig, 1).iter().any(|n| n == "shell"));
+    let (output, failed) = last_result(&rig, "shell");
+    assert!(!failed && output.contains("hello"), "{output}");
+    assert!(desk.path().join("note.txt").exists());
 }

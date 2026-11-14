@@ -360,6 +360,23 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
     },
+    /// She opened something on the web, or on her machine, in the middle of
+    /// a conversation: a page she read, or an image she looked at. Kept so
+    /// that what she read is something she knows, and so that an image she
+    /// opened in a conversation can be kept or sent from it by the name
+    /// she was shown, and from nowhere else.
+    Opened {
+        /// The address, or the path on her machine.
+        url: String,
+        /// What she read, cut short; or, for an image, a line about it.
+        text: String,
+        /// For an image, its file under `media/`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
+        /// The place she was in when she opened it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -455,6 +472,7 @@ kinds! {
     Kept => "kept",
     LetGo => "let_go",
     Reported => "reported",
+    Opened => "opened",
 }
 
 /// One line of her journal.

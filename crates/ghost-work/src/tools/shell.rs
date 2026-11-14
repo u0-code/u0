@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use super::{Desk, clip};
 use crate::{
     machine::quote,
-    tool::{Outcome, Tool, spec, text},
+    prompts::{self, Loop, Store},
+    tool::{Outcome, Tool, text},
 };
 
 const DEFAULT_TIMEOUT: u64 = 120;
@@ -85,18 +86,20 @@ impl Shell {
 
 #[async_trait]
 impl Tool for Shell {
-    fn spec(&self) -> ToolSpec {
-        spec(
+    fn name(&self) -> &'static str {
+        "shell"
+    }
+
+    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
+        prompts::spec(
+            words,
+            lp,
             "shell",
-            "Run a bash command and get its output (stdout and stderr together) and exit status. \
-             Not interactive: there is no terminal and nothing can be typed at a prompt. \
-             The working directory carries over to the next call; exported variables do not. \
-             Long output is cut in the middle, so prefer commands that print what you need.",
             json!({
-                "command": {"type": "string", "description": "The bash command or script to run."},
-                "timeout": {"type": "integer", "description": "Seconds before the command is stopped, or, with `job`, how long to wait for it. Default 120, at most 3600."},
-                "background": {"type": "boolean", "description": "Start the command as a job and return at once, for servers, builds, downloads and anything else that takes long. The reply gives the job's number."},
-                "job": {"type": "integer", "description": "Instead of running a command: wait for the background job with this number to finish, for up to `timeout` seconds, and return what it has printed since you last looked. Says whether it is still running or how it exited."},
+                "command": {"type": "string"},
+                "timeout": {"type": "integer"},
+                "background": {"type": "boolean"},
+                "job": {"type": "integer"},
             }),
             &[],
         )

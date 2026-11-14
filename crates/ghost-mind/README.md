@@ -8,10 +8,21 @@ the actions that come back into journal entries, delivers what she says at the
 pace a person types, plans and lives her day, pursues her own intentions,
 scrolls feeds, and works on what she has taken on, a sitting at a time. The
 prompts it uses are data, in [`prompts/`](prompts/): whole templates as
-Markdown, the short framings, nudges and refusals in `texts.toml`, and what
-each tool is said to do in `tools.toml`. They are built in only as the last
+Markdown, and the short framings, nudges and refusals in `texts.toml`; what
+each tool is said to do is in `ghost-work`'s `tools.toml`, one file for every
+tool of both loops, read from the same directories. They are built in only as the last
 resort; a file of the same name in her own `prompts/`, or in the configured
 directory, is used instead, and taken in again when it changes.
+
+In a conversation she has the same abilities as at work, at a conversation's
+pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
+needs; where her brain takes tools, `search`, `fetch` and, in private with a
+friend, her machine (`shell`, `read`, `write`, `edit`) run off to the side,
+each for at most `[mind] talk_tool_seconds`, within `talk_steps` turns. A page
+or picture she opens is in her journal as `Opened`, so that she can keep or
+send a picture by the name she was shown, in that conversation only. What she
+is offered here is listed in what she is told about herself, under "What you
+can do here", from each tool's `ability` in `tools.toml`.
 
 What it adds to a look at a conversation, so that she is one person and not
 one per platform: the rest of her day (what she has taken on, what has been

@@ -84,7 +84,7 @@ impl Mind {
                     .section("browse_craft", "craft", &self.craft_lines()?),
             ),
         ];
-        let (system, right_now) = self.portrait_on(now, Some(&channel))?;
+        let (system, right_now) = self.portrait_on(now, Some(&channel), "")?;
         let (brain, body, max_tokens) =
             (self.think.clone(), self.body.clone(), self.cfg.max_tokens);
         let seen: HashSet<String> = self

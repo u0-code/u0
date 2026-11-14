@@ -15,7 +15,11 @@ use ghost_brain::Call;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{tool::Toolbox, undertaking::Undertaking};
+use crate::{
+    prompts::{self, Loop, Shared},
+    tool::Toolbox,
+    undertaking::Undertaking,
+};
 
 /// The protocol revision offered when a client does not name one.
 const PROTOCOL: &str = "2025-06-18";
@@ -28,15 +32,23 @@ fn answer(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
+/// The tools as the files describe them now.
+fn specs(tools: &Toolbox, words: &Shared) -> Vec<ghost_brain::ToolSpec> {
+    let mut words = prompts::hold(words);
+    words.refresh_now();
+    tools.specs(&words, Loop::Work)
+}
+
 fn refuse(id: &Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
-/// Serve `tools` until the input ends. Once `undertaking` has an outcome
-/// every further call is refused: an agent that keeps going after `done`
-/// must not keep changing things.
+/// Serve `tools`, described in `words`, until the input ends. Once
+/// `undertaking` has an outcome every further call is refused: an agent
+/// that keeps going after `done` must not keep changing things.
 pub async fn serve(
     tools: Toolbox,
+    words: Shared,
     undertaking: Arc<Undertaking>,
     input: impl AsyncBufRead + Unpin,
     mut output: impl AsyncWrite + Unpin,
@@ -64,7 +76,7 @@ pub async fn serve(
             "tools/list" => answer(
                 id,
                 json!({
-                    "tools": tools.specs().iter().map(|t| json!({
+                    "tools": specs(&tools, &words).iter().map(|t| json!({
                         "name": t.name,
                         "description": t.description,
                         "inputSchema": t.parameters,
@@ -144,6 +156,7 @@ mod tests {
         let mut out = Vec::new();
         serve(
             toolbox,
+            crate::Prompts::shipped().shared(),
             undertaking,
             tokio::io::BufReader::new(input.as_bytes()),
             &mut out,

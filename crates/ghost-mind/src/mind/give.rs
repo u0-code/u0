@@ -70,6 +70,10 @@ impl Mind {
                 what: held.note,
             }));
         }
+        // An image she opened here, by the name she was shown.
+        if let Ok((file, what)) = self.opened_here(place, wanted)? {
+            return Ok(Ok(Gift::Image { file, what }));
+        }
         // A file she made for the people here, by the name she was given or
         // the end of it.
         let made = self.deliverables(place)?.into_iter().find(|path| {

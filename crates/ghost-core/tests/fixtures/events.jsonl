@@ -61,3 +61,5 @@
 {"kind":"said","data":{"channel":"t","place":"wen","id":"out-2","text":"[image: The cat lying flat. For when someone has had enough of a day.] same","file":"9f2c1d0e8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d.png"}}
 {"kind":"reported","data":{"id":"20261112-150000-00cd","text":"The park's own page and the city listing agree: nine on weekdays."}}
 {"kind":"reported","data":{"id":"20261112-150000-00cd","text":"The hours are written up, ready to send.","files":["/home/weiwei/hours.md"]}}
+{"kind":"opened","data":{"url":"https://chengdu.example/heming","text":"# Heming tea house\n\nThe tea house in People's Park closes for good on December 20.","place":"t:wen"}}
+{"kind":"opened","data":{"url":"https://chengdu.example/heming.png","text":"https://chengdu.example/heming.png is an image (image/png, 4 KB, 64×48).","file":"9f2c1d0e8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d.png","place":"t:wen"}}
