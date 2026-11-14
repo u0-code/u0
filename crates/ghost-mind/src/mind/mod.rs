@@ -676,12 +676,43 @@ impl Mind {
             if *key == "examples" {
                 *value = self.prompts.section("examples", "examples", value);
             }
+            if *key == "state" {
+                *value = self.state_words(&moment);
+            }
         }
         pairs.push(("abilities", abilities.to_owned()));
         Ok((
             narrate::fill(&self.prompts.this, &pairs),
             narrate::fill(&self.prompts.now, &pairs),
         ))
+    }
+
+    /// What she is doing as she reads, in the words of her prompt files.
+    fn state_words(&self, moment: &ghost_core::life::Moment) -> String {
+        if moment.phase == ghost_core::life::Phase::Asleep {
+            return self.prompts.text("state_asleep").to_owned();
+        }
+        let Some(doing) = &moment.doing else {
+            return self.prompts.text("state_idle").to_owned();
+        };
+        let reach = match doing.reach {
+            ghost_core::life::Reach::Free => "reach_free",
+            ghost_core::life::Reach::Glance => "reach_glance",
+            ghost_core::life::Reach::Busy => "reach_busy",
+            ghost_core::life::Reach::Away => "reach_away",
+        };
+        let tz = self.life.clock().tz();
+        self.prompts.fill(
+            "state_doing",
+            &[
+                ("what", doing.what.clone()),
+                (
+                    "until",
+                    doing.to.with_timezone(&tz).format("%H:%M").to_string(),
+                ),
+                ("reach", self.prompts.text(reach).to_owned()),
+            ],
+        )
     }
 
     /// Who she is: the system prompt.
