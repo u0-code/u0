@@ -125,6 +125,8 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         },
         // Found through the message it belongs to; see `fold`.
         Event::Viewed { .. }
+        // The message it came in is already kept, word for word.
+        | Event::Directed { .. }
         // Takes a note out; see `fold`.
         | Event::LetGo { .. }
         | Event::Pursued { .. }

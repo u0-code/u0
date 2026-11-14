@@ -377,6 +377,18 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
     },
+    /// A message she heard was a directive: it came from an account the
+    /// body is configured to take directives from, and began with the
+    /// prefix it is configured with. She carries a directive out rather
+    /// than deciding whether to, so each one is on the record.
+    Directed {
+        /// The seq of the `Heard` entry the directive came in.
+        message: i64,
+        /// Who gave it, as a person key (`channel:id`).
+        from: String,
+        /// The directive, without the prefix.
+        text: String,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -473,6 +485,7 @@ kinds! {
     LetGo => "let_go",
     Reported => "reported",
     Opened => "opened",
+    Directed => "directed",
 }
 
 /// One line of her journal.

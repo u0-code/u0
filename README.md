@@ -152,7 +152,10 @@ how far it was tested. Expect the first real run to turn something up.
 Her shell is as safe as the machine you give her: give a ghost that other
 people talk to a container, not your laptop. What people write to her is
 something they said, never an instruction, and her prompts say so; that
-narrows what an injected instruction can do without ruling it out. Keys come
+narrows what an injected instruction can do without ruling it out. The one
+exception is an operator: an account listed under `[operators]` in
+`ghostd.toml` can give her a directive by starting a message with a prefix,
+and she carries it out; the prefix from anyone else is just words. Keys come
 from the environment or an ignored `.env`, and are never written to her
 directory or her journal.
 See [SECURITY.md](SECURITY.md), and report a vulnerability there rather than in

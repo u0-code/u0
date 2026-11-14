@@ -87,11 +87,16 @@ impl Mind {
     }
 
     /// She decided to take something on. Returns why not, if it is refused.
+    /// `directed` is what an operator of hers directed in the look this
+    /// came from, if anything: then it is a piece of work of its own,
+    /// whatever she has already taken on today or for whom, and its brief
+    /// says it was directed.
     pub(super) fn undertake(
         &mut self,
         brief: &str,
         asked_by: Option<&Person>,
         place: Option<&PlaceState>,
+        directed: &[String],
         now: DateTime<Utc>,
     ) -> Result<Option<String>> {
         let brief = brief.trim();
@@ -104,7 +109,8 @@ impl Mind {
         let memory = self.ghost.memory();
         // More about something she is already doing for the same person is
         // added to it, not started as a second thing.
-        if let Some(person) = asked_by
+        if directed.is_empty()
+            && let Some(person) = asked_by
             && let Some(open) = memory
                 .undertakings(true, 20)?
                 .into_iter()
@@ -137,12 +143,19 @@ impl Mind {
                 },
             );
         }
-        if memory.undertaken_since(now - Duration::hours(24))? >= i64::from(self.cfg.work.per_day) {
+        // How much she takes on, and for whom, is hers to decide, and a
+        // directive is not something she decides on.
+        if directed.is_empty()
+            && memory.undertaken_since(now - Duration::hours(24))?
+                >= i64::from(self.cfg.work.per_day)
+        {
             return Ok(Some("she has taken on enough for one day".into()));
         }
         // Her will decides what she agrees to. This is only the floor under
         // it: a stranger does not get her hands on a shell.
-        if let Some(person) = asked_by {
+        if directed.is_empty()
+            && let Some(person) = asked_by
+        {
             let stage = will::standing(person, now).stage;
             let needed = if self.workshop.machine.is_some() {
                 Stage::Friend
@@ -160,10 +173,18 @@ impl Mind {
         let id = format!("{}-{:04x}", now.format("%Y%m%d-%H%M%S"), self.rng.u16(..));
         // Her own account of what is wanted, and under it what they said.
         let brief = format!(
-            "{brief}{}",
+            "{brief}{}{}",
             match (place, asked_by) {
                 (Some(place), Some(person)) => self.their_words(place, person)?,
                 _ => String::new(),
+            },
+            if directed.is_empty() {
+                String::new()
+            } else {
+                self.prompts.fill(
+                    "directive_brief",
+                    &[("directives", self.directives(directed))],
+                )
             }
         );
         self.record(Event::Undertook {

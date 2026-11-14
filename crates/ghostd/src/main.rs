@@ -249,6 +249,18 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
             }
         );
     }
+    if !cfg.operators.accounts.is_empty() {
+        info!(
+            "directives begin with {:?}, from operators on {}",
+            cfg.operators.prefix,
+            cfg.operators
+                .accounts
+                .iter()
+                .map(|(channel, ids)| format!("{channel} ({})", ids.len()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let (mind, handle) = Mind::new(Parts {
         ghost,
         think,
@@ -256,7 +268,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         body: presences.clone(),
         senses,
         prompts,
-        config: cfg.mind.clone(),
+        config: cfg.mind(),
         workshop,
     });
 
