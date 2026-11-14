@@ -7,7 +7,9 @@
 //!
 //! Three rules shape this crate:
 //!
-//! 1. **Identity is sealed.** [`identity::SealedIdentity`] has no mutator.
+//! 1. **Every version of her is on record.** Her certificate can be revised;
+//!    each version is written into her journal (`Described`) before it takes
+//!    effect, so the journal alone says who she was at any point.
 //! 2. **The journal is append-only.** [`journal::Journal`] has no update or
 //!    delete, and the storage refuses both. [`Ghost::record`] is the only way
 //!    in.

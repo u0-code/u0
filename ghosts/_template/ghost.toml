@@ -1,8 +1,8 @@
 # A birth certificate.
 #
-# Copy this directory, fill it in, then run `ghostd birth <dir>`. That seals it.
-# After birth, nothing here can change. If you edit this file, ghostd will
-# refuse to run her: "this is not her".
+# Copy this directory, fill it in, then run `ghostd birth <dir>`.
+# You can revise it later. The next `ghostd run` writes the new version into
+# her journal before it takes effect, so every version of her stays on record.
 #
 # Write her like a person you would want to know, not a product you would
 # want to use. Prose fields are read by her brain as who she is.

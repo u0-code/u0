@@ -4,8 +4,8 @@
 //! Wanting to be read is hers, written into who she is or not. Nothing here
 //! optimises her. A channel reports numbers; she sees them when she scrolls
 //! and when she looks back on a day; if they show her something, she writes
-//! a lesson in her own words, and later she may replace it. Her certificate
-//! is sealed and stays as it is. What changes is her craft.
+//! a lesson in her own words, and later she may replace it. None of it
+//! touches her certificate. What changes is her craft.
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Brain, Completion};

@@ -47,7 +47,8 @@ struct Cli {
 enum Cmd {
     /// Give birth to the ghost described by DIR/ghost.toml. Happens once.
     Birth { dir: PathBuf },
-    /// Run her: verify the seal, start her mind, listen for presences.
+    /// Run her: verify her journal, record any revision of ghost.toml, start
+    /// her mind, listen for presences.
     Run {
         dir: PathBuf,
         /// Path to ghostd.toml.
@@ -62,7 +63,8 @@ enum Cmd {
         #[arg(long, default_value_t = 50)]
         last: usize,
     },
-    /// Verify her seal and the whole hash chain.
+    /// Verify her journal: that it begins with her birth and its whole hash
+    /// chain holds.
     Verify { dir: PathBuf },
     /// List configured brains; with --probe, ask each for one word; with
     /// --discover, look for what this machine could think with instead.
@@ -271,7 +273,15 @@ fn status(dir: &Path) -> anyhow::Result<()> {
         id.seed().home.timezone
     );
     println!("born      {}", id.seed().born);
-    println!("seal      {}", id.seal());
+    println!(
+        "seal      {}{}",
+        id.seal(),
+        if peek.revised {
+            " (ghost.toml revised; recorded and in effect at the next run)"
+        } else {
+            ""
+        }
+    );
     println!("local     {}", local.format("%Y-%m-%d %H:%M %Z"));
     println!(
         "now       {}",
@@ -300,7 +310,7 @@ fn journal(dir: &Path, last: usize) -> anyhow::Result<()> {
 
 fn verify(dir: &Path) -> anyhow::Result<()> {
     let peek = Ghost::peek(dir)?;
-    println!("seal ok, chain ok, {} entries", peek.journal.len()?);
+    println!("chain ok, {} entries", peek.journal.len()?);
     Ok(())
 }
 

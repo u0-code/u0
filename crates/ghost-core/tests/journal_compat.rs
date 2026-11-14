@@ -13,7 +13,10 @@
 
 use std::collections::BTreeSet;
 
-use ghost_core::{Ghost, journal::Event};
+use ghost_core::{
+    Ghost,
+    journal::{Event, Journal},
+};
 use serde_json::Value;
 
 const WRITTEN: &str = include_str!("fixtures/events.jsonl");
@@ -121,7 +124,19 @@ fn every_kind_of_event_has_an_entry_as_it_is_written() {
 fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("ghost.toml"), CERTIFICATE).unwrap();
-    let mut ghost = Ghost::birth(dir.path()).unwrap();
+    // Born the way earlier versions did it, with one entry, so that the seqs
+    // the fixture refers to ("replaces") are the seqs it was written with.
+    {
+        let mut journal = Journal::create(&dir.path().join("journal.db")).unwrap();
+        let identity = ghost_core::identity::read_certificate(dir.path()).unwrap();
+        journal
+            .append(Event::Born {
+                name: "Lin".into(),
+                seal: identity.seal().clone(),
+            })
+            .unwrap();
+    }
+    let mut ghost = Ghost::open(dir.path()).unwrap();
     let mut lived = 0;
     for (at, line) in written() {
         let event: Event = serde_json::from_str(line).unwrap();
