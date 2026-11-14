@@ -17,7 +17,10 @@
 //! ```
 //!
 //! Only the bookkeeping is kept there. The files the work produces are
-//! wherever its machine put them.
+//! wherever its machine put them. Images a tool showed the model are kept
+//! beside the database, under `media/` and named by their hash; the history
+//! names them and does not hold them, and the saved transcript holds the
+//! name of each one still in front of the model, to be read back from there.
 
 use std::{
     fs, io,
@@ -27,9 +30,11 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use ghost_brain::{Item, Usage};
+use ghost_brain::{Item, Picture, Usage};
+use ghost_core::media;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -266,6 +271,79 @@ pub struct Undertaking {
     state: Mutex<State>,
 }
 
+/// The line that stands for a picture wherever its bytes are not kept.
+pub fn placeholder(file: &str) -> String {
+    format!("[image: {file}]")
+}
+
+/// An item as the history keeps it: a result's pictures become the lines
+/// that name their files, where those are not already in its output.
+fn without_pictures(item: &Item) -> std::borrow::Cow<'_, Item> {
+    let Item::Result {
+        id,
+        name,
+        output,
+        failed,
+        pictures,
+    } = item
+    else {
+        return std::borrow::Cow::Borrowed(item);
+    };
+    if pictures.is_empty() {
+        return std::borrow::Cow::Borrowed(item);
+    }
+    let mut output = output.clone();
+    for p in pictures {
+        let line = placeholder(&media::name(&p.bytes, &p.mime));
+        if !output.contains(&line) {
+            output.push('\n');
+            output.push_str(&line);
+        }
+    }
+    std::borrow::Cow::Owned(Item::result(id, name, output, *failed))
+}
+
+/// An item from a saved transcript. A picture is either a reference to a
+/// file under `root/media/`, which is read back, or, as this was first
+/// written, its bytes in base64. A reference whose file is gone is dropped,
+/// and the result says so.
+fn from_disk(mut saved: Value, root: &Path) -> Option<Item> {
+    let written = saved
+        .as_object_mut()
+        .and_then(|item| item.remove("pictures"));
+    let mut item: Item = serde_json::from_value(saved).ok()?;
+    let (
+        Some(Value::Array(written)),
+        Item::Result {
+            output, pictures, ..
+        },
+    ) = (written, &mut item)
+    else {
+        return Some(item);
+    };
+    for picture in written {
+        let Some(file) = picture["file"].as_str() else {
+            pictures.push(serde_json::from_value(picture).ok()?);
+            continue;
+        };
+        // Only a bare name is looked for, and only under `media/`.
+        let bytes = Path::new(file)
+            .file_name()
+            .filter(|bare| *bare == file)
+            .and_then(|_| fs::read(root.join(media::MEDIA_DIR).join(file)).ok());
+        match bytes {
+            Some(bytes) => pictures.push(Picture {
+                mime: picture["mime"].as_str().unwrap_or_default().to_owned(),
+                bytes,
+            }),
+            None => output.push_str(&format!(
+                "\n[The image {file} is no longer on disk, so it cannot be shown.]"
+            )),
+        }
+    }
+    Some(item)
+}
+
 fn other(e: impl std::error::Error + Send + Sync + 'static) -> io::Error {
     io::Error::other(e)
 }
@@ -496,7 +574,13 @@ impl Undertaking {
         out
     }
 
-    /// The sitting in progress, if one was left unfinished.
+    /// Where pictures are kept: beside the database.
+    fn media_root(&self) -> &Path {
+        self.db.parent().unwrap_or_else(|| Path::new("."))
+    }
+
+    /// The sitting in progress, if one was left unfinished. Pictures saved
+    /// as references are read back from `media/`.
     pub fn transcript(&self) -> Option<Vec<Item>> {
         let text: String = self
             .conn()
@@ -507,13 +591,25 @@ impl Undertaking {
             )
             .optional()
             .ok()??;
-        serde_json::from_str(&text).ok()
+        let saved: Vec<Value> = serde_json::from_str(&text).ok()?;
+        saved
+            .into_iter()
+            .map(|item| from_disk(item, self.media_root()))
+            .collect()
     }
 
     /// Replace the transcript with `items`. Done after every step, so that
     /// a process stopped anywhere can be picked up from the last one.
+    ///
+    /// It is rewritten whole every time, so it holds no image bytes: each
+    /// picture is kept under `media/` first, and saved as the name of its
+    /// file.
     pub fn save_transcript(&self, items: &[Item]) {
-        let saved = serde_json::to_string(items)
+        let saved = items
+            .iter()
+            .map(|item| self.to_disk(item))
+            .collect::<Result<Vec<Value>, _>>()
+            .and_then(|items| serde_json::to_string(&items))
             .map_err(other)
             .and_then(|text| {
                 self.conn()
@@ -529,14 +625,74 @@ impl Undertaking {
         }
     }
 
+    /// Keep images a tool returned beside this database, under `media/`,
+    /// the way a ghost keeps what she is shown. Returns the name each one
+    /// is kept under, which names the same bytes whether or not keeping
+    /// them worked.
+    pub fn keep(&self, pictures: &[Picture]) -> Vec<String> {
+        pictures
+            .iter()
+            .map(
+                |p| match media::store(self.media_root(), &p.bytes, &p.mime) {
+                    Ok(name) => name,
+                    Err(e) => {
+                        tracing::warn!("could not keep an image: {e}");
+                        media::name(&p.bytes, &p.mime)
+                    }
+                },
+            )
+            .collect()
+    }
+
+    /// An item as the saved transcript holds it. A picture is kept before
+    /// it is named, so a name on disk always has its file; one that cannot
+    /// be kept is left out, and its result says so.
+    fn to_disk(&self, item: &Item) -> serde_json::Result<Value> {
+        let Item::Result {
+            id,
+            name,
+            output,
+            failed,
+            pictures,
+        } = item
+        else {
+            return serde_json::to_value(item);
+        };
+        if pictures.is_empty() {
+            return serde_json::to_value(item);
+        }
+        let mut output = output.clone();
+        let mut refs = Vec::new();
+        for p in pictures {
+            match media::store(self.media_root(), &p.bytes, &p.mime) {
+                Ok(file) => refs.push(json!({"mime": p.mime, "file": file})),
+                Err(e) => {
+                    tracing::warn!("could not keep an image: {e}");
+                    output.push_str("\n[An image could not be kept on disk, and was dropped.]");
+                }
+            }
+        }
+        let mut v = serde_json::to_value(Item::result(id, name, output, *failed))?;
+        if !refs.is_empty() {
+            v["pictures"] = Value::Array(refs);
+        }
+        Ok(v)
+    }
+
     /// Add items to the history, in the order they entered the transcript.
     /// The transcript is trimmed and cleared as it fills; this is the copy
     /// nothing is ever taken out of.
+    ///
+    /// Pictures are not written here: the bytes are under `media/`, and the
+    /// history says which file each one is with a line `[image: <file>]`.
     pub fn remember(&self, items: &[Item]) {
         if items.is_empty() {
             return;
         }
-        let rows: Result<Vec<String>, _> = items.iter().map(serde_json::to_string).collect();
+        let rows: Result<Vec<String>, _> = items
+            .iter()
+            .map(|item| serde_json::to_string(&without_pictures(item)))
+            .collect();
         let written = rows
             .map_err(other)
             .and_then(|rows| self.appending("history", "item", rows).map_err(other));
@@ -697,6 +853,141 @@ mod tests {
         assert_eq!(second.id(), "main/2");
         assert_eq!(second.state().brief, "second");
         assert!(parent.open_part("  ").is_err(), "a part needs a brief");
+    }
+
+    #[test]
+    fn a_transcript_saved_before_tools_returned_pictures_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        // Exactly as an earlier version wrote it.
+        let old = r#"[{"is":"user","text":"list the files"},{"is":"assistant","text":"","calls":[{"id":"c1","name":"shell","args":{"command":"ls"}}]},{"is":"result","id":"c1","name":"shell","output":"a.txt","failed":false}]"#;
+        Connection::open(db(&dir))
+            .unwrap()
+            .execute(
+                "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
+                [old],
+            )
+            .unwrap();
+        let items = u.transcript().expect("it loads");
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[2], Item::result("c1", "shell", "a.txt", false));
+    }
+
+    fn seen(bytes: &[u8]) -> Item {
+        Item::Result {
+            id: "c1".into(),
+            name: "fetch".into(),
+            output: "An image.".into(),
+            failed: false,
+            pictures: vec![Picture {
+                mime: "image/png".into(),
+                bytes: bytes.to_vec(),
+            }],
+        }
+    }
+
+    fn saved_row(dir: &tempfile::TempDir) -> String {
+        Connection::open(db(dir))
+            .unwrap()
+            .query_row("SELECT items FROM transcript", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_saved_transcript_names_a_picture_by_its_file_and_holds_no_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        let bytes = b"\x89PNG\r\n\x1a\n and the rest";
+        // Never handed to `keep`: saving keeps it first.
+        u.save_transcript(&[Item::user("look"), seen(bytes)]);
+        let file = media::name(bytes, "image/png");
+        let row = saved_row(&dir);
+        let written: Value = serde_json::from_str(&row).unwrap();
+        assert_eq!(
+            written[1]["pictures"],
+            json!([{"mime": "image/png", "file": file}])
+        );
+        assert!(!row.contains("\"data\""), "{row}");
+        assert!(dir.path().join(media::MEDIA_DIR).join(&file).exists());
+        // And it comes back whole.
+        assert_eq!(u.transcript().unwrap()[1], seen(bytes));
+    }
+
+    #[test]
+    fn a_picture_whose_file_is_gone_comes_back_as_a_line_of_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        let bytes = b"GIF89a gone";
+        u.save_transcript(&[seen(bytes)]);
+        let file = media::name(bytes, "image/png");
+        fs::remove_file(dir.path().join(media::MEDIA_DIR).join(&file)).unwrap();
+        let items = u.transcript().expect("the rest still loads");
+        assert_eq!(
+            items,
+            [Item::result(
+                "c1",
+                "fetch",
+                format!(
+                    "An image.\n[The image {file} is no longer on disk, so it cannot be shown.]"
+                ),
+                false
+            )]
+        );
+    }
+
+    #[test]
+    fn a_picture_saved_as_base64_still_loads_and_a_path_is_not_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        fs::write(dir.path().join("outside.png"), "not to be read").unwrap();
+        let row = r#"[{"is":"result","id":"c1","name":"fetch","output":"An image.","failed":false,"pictures":[{"mime":"image/png","data":"AQID"}]},
+            {"is":"result","id":"c2","name":"fetch","output":"Another.","failed":false,"pictures":[{"mime":"image/png","file":"../outside.png"}]}]"#;
+        Connection::open(db(&dir))
+            .unwrap()
+            .execute(
+                "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
+                [row],
+            )
+            .unwrap();
+        let items = u.transcript().unwrap();
+        assert_eq!(items[0], seen(&[1, 2, 3]));
+        assert!(matches!(&items[1], Item::Result { pictures, output, .. }
+            if pictures.is_empty() && output.contains("no longer on disk")));
+    }
+
+    #[test]
+    fn the_history_names_a_picture_and_does_not_hold_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        let picture = Picture {
+            mime: "image/png".into(),
+            bytes: b"\x89PNG not really".to_vec(),
+        };
+        let kept = u.keep(std::slice::from_ref(&picture));
+        let file = media::name(&picture.bytes, &picture.mime);
+        assert_eq!(kept, std::slice::from_ref(&file));
+        assert!(dir.path().join(media::MEDIA_DIR).join(&file).exists());
+        u.remember(&[Item::Result {
+            id: "c1".into(),
+            name: "fetch".into(),
+            output: "An image.".into(),
+            failed: false,
+            pictures: vec![picture],
+        }]);
+        let conn = Connection::open(db(&dir)).unwrap();
+        let written: String = conn
+            .query_row("SELECT item FROM history", [], |row| row.get(0))
+            .unwrap();
+        assert!(!written.contains("pictures"), "{written}");
+        assert_eq!(
+            u.history(),
+            [Item::result(
+                "c1",
+                "fetch",
+                format!("An image.\n[image: {file}]"),
+                false
+            )]
+        );
     }
 
     #[test]

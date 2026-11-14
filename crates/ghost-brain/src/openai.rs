@@ -233,9 +233,16 @@ fn chat(req: &Completion, sees: bool) -> Vec<Value> {
 }
 
 /// A working transcript in the wire format.
-fn wire(system: &str, items: &[Item]) -> Vec<Value> {
+///
+/// A `tool` message takes text only, so pictures a tool returned follow
+/// the results of that step in one `user` message: for each call, a line
+/// naming it and then its images. It comes after all of the step's results
+/// because the API wants every call answered before anything else is said.
+/// A model that cannot see is told how many images there were instead.
+fn wire(system: &str, items: &[Item], sees: bool) -> Vec<Value> {
     let mut messages = vec![json!({"role": "system", "content": system})];
-    for item in items {
+    let mut shown: Vec<Value> = Vec::new();
+    for (at, item) in items.iter().enumerate() {
         match item {
             Item::User { text } => messages.push(json!({"role": "user", "content": text})),
             Item::Assistant { text, calls, carry } => {
@@ -267,8 +274,34 @@ fn wire(system: &str, items: &[Item]) -> Vec<Value> {
                 }
                 messages.push(m);
             }
-            Item::Result { id, output, .. } => {
-                messages.push(json!({"role": "tool", "tool_call_id": id, "content": output}));
+            Item::Result {
+                id,
+                name,
+                output,
+                pictures,
+                ..
+            } => {
+                let content = if pictures.is_empty() || sees {
+                    output.clone()
+                } else {
+                    format!("{output}\n{}", crate::not_shown(pictures.len()))
+                };
+                messages.push(json!({"role": "tool", "tool_call_id": id, "content": content}));
+                if sees && !pictures.is_empty() {
+                    shown.push(json!({
+                        "type": "text",
+                        "text": format!("The images returned by the `{name}` call {id}:"),
+                    }));
+                    shown.extend(
+                        pictures.iter().map(
+                            |p| json!({"type": "image_url", "image_url": {"url": p.data_url()}}),
+                        ),
+                    );
+                }
+                let last_result = !matches!(items.get(at + 1), Some(Item::Result { .. }));
+                if last_result && !shown.is_empty() {
+                    messages.push(json!({"role": "user", "content": std::mem::take(&mut shown)}));
+                }
             }
         }
     }
@@ -357,7 +390,7 @@ impl Brain for OpenAi {
     async fn step(&self, turn: &Turn) -> Result<Step> {
         let mut body = json!({
             "model": self.model,
-            "messages": wire(&turn.system, &turn.items),
+            "messages": wire(&turn.system, &turn.items, self.sees),
         });
         body[&self.max_tokens_param] = json!(turn.max_tokens);
         if !turn.tools.is_empty() {
@@ -485,14 +518,9 @@ mod tests {
                 }],
                 carry: Some(json!({"reasoning_content": "they want a listing"})),
             },
-            Item::Result {
-                id: "c1".into(),
-                name: "shell".into(),
-                output: "a.txt".into(),
-                failed: false,
-            },
+            Item::result("c1", "shell", "a.txt", false),
         ];
-        let m = wire("sys", &items);
+        let m = wire("sys", &items, false);
         assert_eq!(m.len(), 4);
         assert_eq!(m[0]["role"], "system");
         assert_eq!(
@@ -502,6 +530,73 @@ mod tests {
         assert_eq!(m[2]["reasoning_content"], "they want a listing");
         assert_eq!(m[3]["role"], "tool");
         assert_eq!(m[3]["tool_call_id"], "c1");
+    }
+
+    fn two_calls_one_with_a_picture() -> Vec<Item> {
+        let call = |id: &str, name: &str| Call {
+            id: id.into(),
+            name: name.into(),
+            args: json!({}),
+        };
+        vec![
+            Item::user("look"),
+            Item::Assistant {
+                text: String::new(),
+                calls: vec![call("c1", "fetch"), call("c2", "shell")],
+                carry: None,
+            },
+            Item::Result {
+                id: "c1".into(),
+                name: "fetch".into(),
+                output: "An image.".into(),
+                failed: false,
+                pictures: vec![crate::Picture {
+                    mime: "image/png".into(),
+                    bytes: b"\x89PNG".to_vec(),
+                }],
+            },
+            Item::result("c2", "shell", "ok", false),
+            Item::user("go on"),
+        ]
+    }
+
+    #[test]
+    fn pictures_a_tool_returned_follow_the_results_in_a_user_message() {
+        let m = wire("sys", &two_calls_one_with_a_picture(), true);
+        let roles: Vec<&str> = m.iter().map(|m| m["role"].as_str().unwrap()).collect();
+        // Every call is answered before the pictures are shown.
+        assert_eq!(
+            roles,
+            [
+                "system",
+                "user",
+                "assistant",
+                "tool",
+                "tool",
+                "user",
+                "user"
+            ]
+        );
+        assert_eq!(m[3]["content"], "An image.");
+        let parts = m[5]["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert!(parts[0]["text"].as_str().unwrap().contains("c1"));
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "data:image/png;base64,iVBORw=="
+        );
+        assert_eq!(m[6]["content"], "go on");
+    }
+
+    #[test]
+    fn a_model_that_cannot_see_is_told_how_many_images_it_missed() {
+        let m = wire("sys", &two_calls_one_with_a_picture(), false);
+        assert_eq!(m.len(), 6, "no message of pictures");
+        assert_eq!(
+            m[3]["content"],
+            "An image.\n[1 image, not shown: this model cannot see images]"
+        );
+        assert!(!m.iter().any(|m| m.to_string().contains("base64")));
     }
 
     #[test]

@@ -222,7 +222,7 @@ async fn fetch(client: &reqwest::Client, url: &str) -> std::result::Result<Pictu
         }
         bytes.extend_from_slice(&chunk);
     }
-    let mime = sniff(&bytes)
+    let mime = media::sniff(&bytes)
         .map(str::to_owned)
         .or_else(|| declared.filter(|kind| taken(kind)))
         .ok_or("not an image she can look at")?;
@@ -237,32 +237,13 @@ fn taken(kind: &str) -> bool {
     )
 }
 
-/// The type of an image from its first bytes.
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if bytes.starts_with(b"\xff\xd8\xff") {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn an_image_is_known_by_its_first_bytes() {
-        assert_eq!(sniff(b"\x89PNG\r\n\x1a\n...."), Some("image/png"));
-        assert_eq!(sniff(b"\xff\xd8\xff\xe0"), Some("image/jpeg"));
-        assert_eq!(sniff(b"GIF89a..."), Some("image/gif"));
-        assert_eq!(sniff(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
-        assert_eq!(sniff(b"<html>"), None);
+    fn only_web_links_are_fetched() {
+        assert!(fetchable("https://example.com/a.png"));
         assert!(!fetchable("file:///etc/passwd"));
         assert!(!fetchable(""));
     }

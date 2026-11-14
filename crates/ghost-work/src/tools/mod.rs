@@ -87,6 +87,35 @@ impl Desk {
     }
 }
 
+/// The largest image a tool shows the model: 5 MB, the most Anthropic
+/// takes in one image. Others take more; none takes less.
+pub(crate) const MAX_PICTURE: usize = 5 * 1024 * 1024;
+
+/// An image the model can be shown, if `bytes` is one: PNG, JPEG, GIF or
+/// WebP, known by its first bytes and not by what anything says it is.
+pub(crate) fn picture(bytes: Vec<u8>) -> Option<ghost_brain::Picture> {
+    let mime = ghost_core::media::sniff(&bytes)?;
+    Some(ghost_brain::Picture {
+        mime: mime.to_owned(),
+        bytes,
+    })
+}
+
+/// A line about an image: its type, its size, and how large it is drawn
+/// where its header says.
+pub(crate) fn about(picture: &ghost_brain::Picture) -> String {
+    const MB: usize = 1024 * 1024;
+    let size = match picture.bytes.len() {
+        n if n >= MB => format!("{}.{} MB", n / MB, n % MB * 10 / MB),
+        n if n >= 1024 => format!("{} KB", n / 1024),
+        n => format!("{n} bytes"),
+    };
+    match ghost_core::media::dimensions(&picture.bytes) {
+        Some((w, h)) => format!("{}, {size}, {w}×{h}", picture.mime),
+        None => format!("{}, {size}", picture.mime),
+    }
+}
+
 /// Keep the beginning and the end of long text, and say what was cut.
 pub(crate) fn clip(text: &str, head: usize, tail: usize) -> String {
     let total = text.chars().count();
@@ -133,6 +162,42 @@ pub fn with_web(tools: Toolbox, config: &WebConfig) -> Toolbox {
         None => tools,
     };
     tools.with(Fetch::new(config.reader_key.clone()))
+}
+
+/// What tests of the tools that reach out need, with no network.
+#[cfg(test)]
+pub(crate) mod testing {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// The smallest PNG there is: one transparent pixel.
+    pub const PIXEL: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89\0\0\0\nIDATx\x9cc\0\x01\0\0\x05\0\x01\r\n-\xb4\0\0\0\0IEND\xaeB`\x82";
+
+    /// A web server on this machine that answers each path in `routes`
+    /// with its type and body, and anything else with 404. Returns the
+    /// address it is at, without a trailing slash.
+    pub async fn serve(routes: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut request = [0u8; 4096];
+                let n = socket.read(&mut request).await.unwrap_or(0);
+                let line = String::from_utf8_lossy(&request[..n]);
+                let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let (status, kind, body) = routes.iter().find(|(p, _, _)| *p == path).map_or(
+                    ("404 Not Found", "text/plain", b"no".to_vec()),
+                    |(_, k, b)| ("200 OK", *k, b.clone()),
+                );
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.write_all(&body).await;
+            }
+        });
+        format!("http://{addr}")
+    }
 }
 
 #[cfg(test)]

@@ -666,12 +666,8 @@ impl Mind {
                             place: Some(place.key.clone()),
                         })?;
                     }
-                    job.items.push(Item::Result {
-                        id: f.call,
-                        name: "look_up".into(),
-                        output: f.output,
-                        failed: f.failed,
-                    });
+                    job.items
+                        .push(Item::result(f.call, "look_up", f.output, f.failed));
                 }
                 return self.go_on(job, &place, now);
             }
@@ -798,12 +794,8 @@ impl Mind {
                     ("ok".to_owned(), false)
                 }
             };
-            job.items.push(Item::Result {
-                id: call.id,
-                name: call.name,
-                output,
-                failed,
-            });
+            job.items
+                .push(Item::result(call.id, call.name, output, failed));
         }
         if !searches.is_empty() {
             // The web is slow: it is looked up off to the side, and the
