@@ -17,7 +17,8 @@ use ghost_brain::ToolSpec;
 pub use ghost_core::prompts::{DIR, File, Kind, Listed, Loop, Origin, Store};
 use serde_json::{Value, json};
 
-const TEXTS: &str = "work_texts.toml";
+/// The file of what a worker is told along the way.
+pub const TEXTS: &str = "work_texts.toml";
 
 /// Every file the work loop reads, with what is built in.
 pub const FILES: &[File] = &[

@@ -127,6 +127,21 @@ not_started = """\
     This was not run: the work was interrupted before it began. \
     Run it again if it is still needed."""
 
+# What a tool brought back from outside reaches a brain inside an
+# <outside> tag, in a conversation as at work, and its `from` is one of
+# these: where it came from, by tool. Pages, files, searches and what a
+# command printed were written by someone else for reasons of their own,
+# and saying where each came from is what lets her treat it as what it
+# is. A tool the catalog does not know, such as one installed from
+# elsewhere, is outside too. What the tag means is said in self.md and
+# work.md, not here.
+outside_search = "a web search for: {{query}}"
+outside_fetch = "the web page {{url}}"
+outside_read = "the file {{path}}"
+outside_shell = "what this command printed: {{command}}"
+outside_job = "what background job {{job}} printed"
+outside_tool = "the tool {{tool}}, which is not one of yours"
+
 # Put after a result whose images were taken out of the transcript.
 no_longer_shown_one = "[This image is no longer shown, to save room. Ask for it again if you need to see it.]"
 no_longer_shown_many = "[These images are no longer shown, to save room. Ask for them again if you need to see them.]"

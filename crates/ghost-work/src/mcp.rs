@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
+    outside,
     prompts::{self, Loop, Shared},
     tool::Toolbox,
     undertaking::Undertaking,
@@ -85,21 +86,27 @@ pub async fn serve(
             ),
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default();
+                let call = Call {
+                    id: id.to_string(),
+                    name: name.to_owned(),
+                    args: message["params"]
+                        .get("arguments")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                };
                 let outcome = if undertaking.state().finish.is_some() {
                     crate::tool::Outcome::fail(
                         "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here.",
                     )
+                } else if tools.has(name) {
+                    // What came from outside is marked here as it is in
+                    // the worker's own loop: an agent that steps the work
+                    // reads the same transcript.
+                    let outcome = tools.run(&call).await;
+                    let output = outside::mark(&prompts::hold(&words), &call, outcome.output);
+                    crate::tool::Outcome { output, ..outcome }
                 } else {
-                    tools
-                        .run(&Call {
-                            id: id.to_string(),
-                            name: name.to_owned(),
-                            args: message["params"]
-                                .get("arguments")
-                                .cloned()
-                                .unwrap_or_else(|| json!({})),
-                        })
-                        .await
+                    tools.run(&call).await
                 };
                 undertaking.log(&json!({
                     "at": chrono::Utc::now().to_rfc3339(),
