@@ -88,6 +88,7 @@ impl Mind {
             "life": self.agenda.life,
             "intention": self.agenda.intention,
             "phone": self.agenda.phone,
+            "report": self.agenda.report,
         })
     }
 

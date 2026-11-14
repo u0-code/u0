@@ -251,6 +251,28 @@ mod operator_tests {
     }
 
     #[test]
+    fn she_reports_at_nine_in_the_evening_unless_told_another_time_or_none() {
+        let at = |h, m| chrono::NaiveTime::from_hms_opt(h, m, 0);
+        assert_eq!(parse("").mind().operators.report, at(21, 0));
+        let ops = parse("[operators]\nreport = \"07:30\"\nqq = [\"A\"]\n")
+            .mind()
+            .operators;
+        assert_eq!(ops.report, at(7, 30));
+        // The time is not taken for a channel.
+        assert_eq!(ops.accounts.len(), 1);
+        assert_eq!(
+            parse("[operators]\nreport = \"\"\n")
+                .mind()
+                .operators
+                .report,
+            None
+        );
+        let wrong: Result<Config, _> =
+            toml::from_str(&format!("{BRAIN}[operators]\nreport = \"9pm\"\n"));
+        assert!(wrong.is_err());
+    }
+
+    #[test]
     fn operators_are_not_read_from_under_mind() {
         let wrong: Result<Config, _> =
             toml::from_str(&format!("{BRAIN}[mind.operators]\nqq = [\"A\"]\n"));

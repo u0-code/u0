@@ -106,9 +106,12 @@ fn describe(event: &Event, tz: Tz) -> String {
         }
         Event::Felt { toward, delta, why } => format!("{delta:+} toward {toward}: {}", flat(why)),
         Event::Noted { about, text, .. } => format!("{about}: {}", flat(text)),
-        Event::Intended { due, what, .. } => format!(
-            "by {}: {}",
+        Event::Intended {
+            due, what, report, ..
+        } => format!(
+            "by {}{}: {}",
             due.with_timezone(&tz).format("%m-%d %H:%M"),
+            if *report { " (report)" } else { "" },
             flat(what)
         ),
         Event::Settled { intention, outcome } => format!("#{intention}: {}", flat(outcome)),

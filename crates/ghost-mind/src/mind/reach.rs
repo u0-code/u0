@@ -63,7 +63,11 @@ impl Mind {
                 (Some(a), Some(b)) => a == b,
                 _ => place.is_some() && place == open.place,
             };
-            same && open.owed == owed && (open.due - due).abs() < Duration::hours(12)
+            // Her daily report is not this: what she means to do for an
+            // operator is not swallowed by meaning to report to them.
+            same && !open.report
+                && open.owed == owed
+                && (open.due - due).abs() < Duration::hours(12)
         });
         if held {
             debug!("already means to: {what}");
@@ -76,6 +80,7 @@ impl Mind {
             place,
             owed,
             directed,
+            report: false,
         })?;
         Ok(true)
     }

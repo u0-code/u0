@@ -191,4 +191,9 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
             .iter()
             .any(|i| i.directed)
     );
+    // Her daily report to an operator is remembered as one, and found as
+    // her last report to them.
+    let reports = again.memory().reports_to("qq:B7D1C0", i64::MAX, 5).unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].report && reports[0].owed && !reports[0].directed);
 }

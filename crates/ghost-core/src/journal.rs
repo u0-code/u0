@@ -161,6 +161,11 @@ pub enum Event {
         /// does not wait on her day: not on sleep, not on being busy.
         #[serde(default, skip_serializing_if = "is_false")]
         directed: bool,
+        /// It is her daily report to an operator, `about`, of what she has
+        /// done and seen. Her last one to them is where the next one starts,
+        /// and there is never more than one to them in a day.
+        #[serde(default, skip_serializing_if = "is_false")]
+        report: bool,
     },
     /// An intention was carried out or dropped. `intention` is its seq.
     Settled {

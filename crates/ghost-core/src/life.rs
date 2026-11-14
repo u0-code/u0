@@ -153,6 +153,12 @@ impl Clock {
         self.resolve(date.and_time(t))
     }
 
+    /// The instant a local time falls on, on the calendar date `date`,
+    /// whatever her waking day.
+    pub fn on(&self, date: NaiveDate, t: NaiveTime) -> DateTime<Utc> {
+        self.resolve(date.and_time(t))
+    }
+
     /// The next time she wakes, strictly after `now`.
     pub fn next_wake(&self, now: DateTime<Utc>) -> DateTime<Utc> {
         self.next_at(now, self.wake)

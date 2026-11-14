@@ -47,6 +47,16 @@ pub struct Elsewhere {
     pub last: Line,
 }
 
+/// A place and how much was said there over some stretch, without what.
+#[derive(Debug, Clone, Serialize)]
+pub struct Talked {
+    pub place: PlaceState,
+    /// Messages that reached her there.
+    pub heard: i64,
+    /// Messages she sent there.
+    pub said: i64,
+}
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS places (
     key TEXT PRIMARY KEY, channel TEXT NOT NULL, id TEXT NOT NULL,
@@ -176,6 +186,33 @@ impl Memory {
                 said,
                 last,
             });
+        }
+        Ok(out)
+    }
+
+    /// Every place on every platform, other than `except`, where something
+    /// was said after entry `after`, and how much each way: the busiest
+    /// first, and no more than `limit` of them.
+    pub fn talked_after(&self, after: i64, except: &str, limit: usize) -> Result<Vec<Talked>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT place, SUM(dir = 'in'), SUM(dir = 'out') FROM messages
+             WHERE seq > ?1 AND place != ?2
+             GROUP BY place ORDER BY COUNT(*) DESC, MAX(seq) DESC LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(params![after, except, as_i64(limit)], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (key, heard, said) in rows {
+            if let Some(place) = self.place(&key)? {
+                out.push(Talked { place, heard, said });
+            }
         }
         Ok(out)
     }
@@ -320,5 +357,22 @@ mod tests {
         // Every place is still listed together.
         assert_eq!(m.places().unwrap().len(), 2);
         assert_eq!(m.places_unread().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn what_was_said_after_an_entry_is_counted_on_every_platform_but_here() {
+        let (_, m) = fold(vec![
+            heard("a", PlaceKind::Direct, "a", "1", "before", true),
+            heard("a", PlaceKind::Direct, "a", "2", "after", true),
+            said("a", "yes"),
+            on("qq", heard("g", PlaceKind::Group, "b", "3", "on qq", false)),
+            heard("boss", PlaceKind::Direct, "boss", "4", "hi", true),
+        ]);
+        let talked = m.talked_after(1, "t:boss", 5).unwrap();
+        let counted: Vec<(&str, i64, i64)> = talked
+            .iter()
+            .map(|t| (t.place.key.as_str(), t.heard, t.said))
+            .collect();
+        assert_eq!(counted, [("t:a", 1, 1), ("qq:g", 1, 0)]);
     }
 }
