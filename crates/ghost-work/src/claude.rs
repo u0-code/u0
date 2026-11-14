@@ -2,8 +2,8 @@
 //!
 //! The installed `claude` is started headless with every built-in tool
 //! turned off and one MCP server attached: ours (see [`crate::mcp`]). The
-//! system prompt is ours, the tools are ours, the undertaking on disk is
-//! ours. What the CLI contributes is the model behind whatever it is signed
+//! system prompt is ours, the tools are ours, the undertaking in its
+//! database is ours. What the CLI contributes is the model behind whatever it is signed
 //! in to, and the stepping between tool calls.
 //!
 //! Nothing here reads the CLI's stored credentials.
@@ -14,7 +14,7 @@
 //! review.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{
         Arc,
@@ -84,16 +84,31 @@ fn usage_of(message: &Value) -> Usage {
     }
 }
 
+/// The directory a command-line agent is started in for `undertaking`, and
+/// where its instructions and tool configuration are written:
+/// `sittings/<id>` beside the work database. It is the same one at every
+/// sitting, because Claude Code finds the session it resumes by the
+/// directory it was started in. Absolute, because the agent is started from
+/// inside it.
+pub(crate) fn room(undertaking: &Undertaking) -> std::io::Result<PathBuf> {
+    let base = undertaking
+        .db()
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let dir = base.join("sittings").join(undertaking.id());
+    std::fs::create_dir_all(&dir)?;
+    dir.canonicalize()
+}
+
 /// Run one sitting. Returns when the CLI exits or its time is up.
 pub async fn sit(seat: &Seat) -> Report {
     let started = Instant::now();
-    // Absolute, because the CLI is started from inside it.
-    let dir: PathBuf = seat
-        .undertaking
-        .dir()
-        .canonicalize()
-        .unwrap_or_else(|_| seat.undertaking.dir().to_path_buf());
     let fail = |why: String| report(&seat.undertaking, Ended::Failed(why));
+    let dir = match room(&seat.undertaking) {
+        Ok(dir) => dir,
+        Err(e) => return fail(format!("could not make a place to start it in: {e}")),
+    };
 
     let Some(found) = installed(&seat.agent.program).await else {
         return fail(format!(
@@ -258,14 +273,9 @@ pub async fn sit(seat: &Seat) -> Report {
     };
 
     // The tool server was another process writing the same undertaking.
-    // What it wrote is on disk, not in this process's copy.
-    let on_disk = Undertaking::open(&dir, None).ok().map(|u| u.state());
+    // An update starts from what is in the database, so what it wrote is
+    // built on, not written over.
     seat.undertaking.update(|state| {
-        if let Some(disk) = on_disk {
-            let session = state.session.take();
-            *state = disk;
-            state.session = session.or(state.session.take());
-        }
         state.steps += steps;
         state.usage.add(usage);
         state.seconds += started.elapsed().as_secs_f64();

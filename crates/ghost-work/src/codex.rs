@@ -11,7 +11,6 @@
 //! the machine, so the rule that only our tools act still holds.
 
 use std::{
-    path::PathBuf,
     process::Stdio,
     sync::atomic::Ordering,
     time::{Duration, Instant},
@@ -25,7 +24,7 @@ use tokio::{
 };
 
 use crate::{
-    claude::Seat,
+    claude::{Seat, room},
     undertaking::{Outcome, Undertaking},
     worker::{Ended, Report},
 };
@@ -38,12 +37,11 @@ fn toml_string(text: &str) -> String {
 /// Run one sitting. Returns when Codex exits or its time is up.
 pub async fn sit(seat: &Seat) -> Report {
     let started = Instant::now();
-    let dir: PathBuf = seat
-        .undertaking
-        .dir()
-        .canonicalize()
-        .unwrap_or_else(|_| seat.undertaking.dir().to_path_buf());
     let fail = |why: String| report(&seat.undertaking, Ended::Failed(why));
+    let dir = match room(&seat.undertaking) {
+        Ok(dir) => dir,
+        Err(e) => return fail(format!("could not make a place to start it in: {e}")),
+    };
 
     let system_file = dir.join("codex-system.md");
     if let Err(e) = std::fs::write(&system_file, &seat.system) {
@@ -211,14 +209,9 @@ pub async fn sit(seat: &Seat) -> Report {
         None => String::new(),
     };
 
-    // The tool server was another process writing the same undertaking.
-    let on_disk = Undertaking::open(&dir, None).ok().map(|u| u.state());
+    // The tool server was another process writing the same undertaking;
+    // an update builds on what it wrote.
     seat.undertaking.update(|state| {
-        if let Some(disk) = on_disk {
-            let session = state.session.take();
-            *state = disk;
-            state.session = session.or(state.session.take());
-        }
         state.steps += steps;
         state.usage.add(usage);
         state.seconds += started.elapsed().as_secs_f64();

@@ -26,7 +26,7 @@ use ghost_core::{
     will::{self, Stage},
 };
 use ghost_work::{
-    Ended, Limits, Report, Undertaking, Worker, claude, codex, tools,
+    Ended, Limits, Report, Undertaking, WORK_DB, Worker, claude, codex, tools,
     worker::{opening_text, system_prompt},
 };
 use tracing::{info, warn};
@@ -64,6 +64,12 @@ impl Mind {
         self.think.cli().map(Stepper::Cli)
     }
 
+    /// The undertaking `id` in her work database, started from `brief` if
+    /// it has not been opened before.
+    pub(super) fn undertaking(&self, id: &str, brief: &str) -> std::io::Result<Undertaking> {
+        Undertaking::open(&self.ghost.dir().join(WORK_DB), id, Some(brief))
+    }
+
     /// Whether taking things on is possible at all in this body.
     pub(super) fn can_work(&self) -> bool {
         self.cfg.work.enabled && self.stepper().is_some()
@@ -93,7 +99,6 @@ impl Mind {
                 .into_iter()
                 .find(|u| u.asked_by.as_deref() == Some(person.key.as_str()))
         {
-            let dir = self.ghost.dir().join("work").join(&open.id);
             let added = format!(
                 "{brief}{}",
                 match place {
@@ -102,7 +107,10 @@ impl Mind {
                 }
             );
             return Ok(
-                match Undertaking::open(dir, Some(&open.brief)).and_then(|u| u.add(&added)) {
+                match self
+                    .undertaking(&open.id, &open.brief)
+                    .and_then(|u| u.add(&added))
+                {
                     Ok(()) => {
                         info!("added to {}: {}", open.id, clip(brief, 80));
                         self.record(Event::Added {
@@ -188,8 +196,10 @@ impl Mind {
             // Nobody answered. She goes on without, and says so in the work.
             let said = "No answer came to your question. Go on with your best judgement, \
                         and say in your summary what you assumed.";
-            let dir = self.ghost.dir().join("work").join(&stale.id);
-            if let Err(e) = Undertaking::open(dir, Some(&stale.brief)).and_then(|u| u.add(said)) {
+            if let Err(e) = self
+                .undertaking(&stale.id, &stale.brief)
+                .and_then(|u| u.add(said))
+            {
                 warn!("cannot go on with {} unanswered: {e}", stale.id);
             }
             self.record(Event::Added {
@@ -228,15 +238,14 @@ impl Mind {
             return Ok(());
         }
 
-        let dir = self.ghost.dir().join("work").join(&next.id);
-        let undertaking = match Undertaking::open(dir, Some(&next.brief)) {
+        let undertaking = match self.undertaking(&next.id, &next.brief) {
             Ok(u) => Arc::new(u),
             Err(e) => {
                 warn!("cannot open the undertaking {}: {e}", next.id);
                 self.record(Event::Concluded {
                     id: next.id,
                     outcome: "blocked".into(),
-                    summary: format!("Its files could not be opened: {e}"),
+                    summary: format!("Its record could not be opened: {e}"),
                 })?;
                 return Ok(());
             }
@@ -316,14 +325,17 @@ impl Mind {
                         .map(|p| p.display().to_string())
                         .unwrap_or_default(),
                     "--serve-mcp".to_owned(),
-                    "--state".to_owned(),
+                    // Her work database, and which undertaking in it.
                     // Absolute: the agent starts the server from elsewhere.
-                    undertaking
+                    "--state".to_owned(),
+                    self.ghost
                         .dir()
                         .canonicalize()
-                        .unwrap_or_else(|_| undertaking.dir().to_path_buf())
+                        .unwrap_or_else(|_| self.ghost.dir().to_path_buf())
                         .display()
                         .to_string(),
+                    "--id".to_owned(),
+                    id.clone(),
                 ];
                 tool_server.extend(self.workshop.runner_args.iter().cloned());
                 let seat = claude::Seat {

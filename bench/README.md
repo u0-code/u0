@@ -82,8 +82,8 @@ harbor run $COMMON -a claude-code -m deepseek/deepseek-flash \
 
 An interrupted job is picked up with `harbor jobs resume -p jobs/<job>`.
 `jobs/<job>/result.json` has the pass rate; each trial directory has the
-reward, timings and, for `ghost-work`, `agent/state/log.jsonl` with one line
-per step.
+reward, timings and, for `ghost-work`, `agent/state/work.db`, whose `log`
+table has one line per step.
 
 ## Which tasks
 

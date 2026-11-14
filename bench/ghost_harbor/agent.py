@@ -17,6 +17,8 @@ import asyncio
 import json
 import os
 import re
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from harbor.agents.base import BaseAgent
@@ -130,8 +132,10 @@ class GhostAgent(BaseAgent):
         """Token totals come from the state on disk, so a run that was cut
         off is still counted."""
         try:
-            usage = json.loads((state / "state.json").read_text())["usage"]
-        except (OSError, ValueError, KeyError):
+            with closing(sqlite3.connect(state / "work.db")) as db:
+                row = db.execute("SELECT state FROM undertakings WHERE id = 'main'").fetchone()
+            usage = json.loads(row[0])["usage"]
+        except (sqlite3.Error, TypeError, ValueError, KeyError):
             return
         read, cached, wrote = usage["input"], usage["cached"], usage["output"]
         context.n_input_tokens = read

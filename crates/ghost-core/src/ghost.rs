@@ -4,6 +4,7 @@
 //! weiwei/
 //! ├── ghost.toml   her certificate: who she is. It can be revised.
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
+//! ├── work.db      the state of what she has taken on: plans, notes, transcripts
 //! └── derived/     anything that can be rebuilt from the journal
 //! ```
 

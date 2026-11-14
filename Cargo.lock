@@ -815,6 +815,7 @@ dependencies = [
  "clap",
  "ghost-brain",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
