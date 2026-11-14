@@ -42,6 +42,11 @@ const THINK_RETRIES: u8 = 3;
 /// How much of what a search returned, or of a page she opened, is kept in
 /// her journal.
 const LOOKED_UP: usize = 3000;
+/// The tools that bring something back and so ask for another turn. None of
+/// them is offered on a look's last turn.
+const BRINGS_BACK: &[&str] = &[
+    "recall", "reread", "search", "fetch", "read", "write", "edit", "shell",
+];
 /// How much of what reached beyond the conversation she is shown in it: a
 /// page is read at a glance, and the rest of it is work.
 const TALK_RESULT: usize = 6000;
@@ -403,7 +408,15 @@ impl Mind {
         };
         let with_tools = self.cfg.talk_tools && brain.works();
         let offer = self.offer(place, with_tools, now)?;
-        let tools = actions::tools(&self.prompts, &offer);
+        let mut tools = actions::tools(&self.prompts, &offer);
+        // On the last turn of a look nothing more can come back to her, so
+        // only what acts is offered, and she is told so: a look that runs out
+        // of turns must still end in an answer, never in silence.
+        let last = with_tools && job.round > 0 && job.round + 1 >= self.cfg.talk_steps;
+        if last {
+            tools.retain(|t| !BRINGS_BACK.contains(&t.name.as_str()));
+            job.items.push(Item::user(self.prompts.text("last_turn")));
+        }
         // What she sees is put together once for a look made of tool
         // calls, and again for each round of one made of JSON replies.
         let request = if with_tools && !job.items.is_empty() {

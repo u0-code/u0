@@ -15,6 +15,12 @@
 # Before the exchanges in her persona; only when there are some.
 examples = "This is how you sound. These are not lines to reuse; you say new things, in this voice:\n\n{{examples}}"
 
+# --- The last turn of a look (attend.md, tool calls) ---
+
+# Added before the last turn a look is allowed; the tools that bring
+# something back are not offered on it.
+last_turn = "This is your last turn in this look: nothing more can be looked up or opened now. Answer with what you have: say it, send what you found, and if there is more to do, take it on as work and say so. Leaving them with no answer at all is the one thing not to do."
+
 # --- Her moment (now.md) ---
 
 # What she is doing as she reads this. The words say how far her phone is
