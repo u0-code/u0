@@ -21,5 +21,5 @@ pub mod worker;
 
 pub use machine::{Docker, Local, Machine};
 pub use tool::{Outcome, Tool, Toolbox};
-pub use undertaking::Undertaking;
+pub use undertaking::{Undertaking, WORK_DB};
 pub use worker::{Ended, Limits, Report, Worker};

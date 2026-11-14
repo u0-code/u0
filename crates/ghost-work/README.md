@@ -13,16 +13,19 @@ handed in by whoever starts it. `ghost-mind` is what makes it hers.
 
 What makes it hold up over hours:
 
-- The plan, the notes and the outcome live on disk, and the transcript is
-  saved after every step. Kill the process anywhere; run it again with the
-  same state directory and it carries on.
+- The plan, the notes and the outcome live in a SQLite database, `work.db`,
+  and the transcript is saved there after every step. Kill the process
+  anywhere; run it again with the same state directory and it carries on.
+  One database holds any number of undertakings by id: a ghost keeps all of
+  hers in `<ghost>/work.db`, beside her journal. Only the bookkeeping is
+  there; the files the work produces are wherever its machine put them.
 - The transcript may fill most of the model's context window. When it nears
   that, long tool output is trimmed to its head and tail, then old output is
   dropped. If that is not enough the worker writes itself a handoff and goes
   on from the task, the plan, its notes and the last stretch of the
   transcript word for word.
 - Nothing is lost to that: every item the transcript ever held is appended to
-  `history.jsonl`, which is never rewritten.
+  the `history` table, which refuses any change to what is in it.
 - How to finish is said beforehand, the way Codex does it: the instructions
   say that checking is part of the work and what `finished` means, and work
   that has outlived a context is told again, at length, when it is picked
@@ -47,7 +50,12 @@ cargo run --release -p ghost-work -- \
 ```
 
 The report is JSON on stdout: why it ended, steps, sittings, tokens (read,
-cached, written) and seconds. `./run1/log.jsonl` has a line per step.
+cached, written) and seconds. The `log` table in `./run1/work.db` has a line
+per step:
+
+```bash
+sqlite3 ./run1/work.db "SELECT line FROM log WHERE id = 'main' ORDER BY n"
+```
 
 `--local <dir>` works in a directory on this computer instead. That is not a
 sandbox: commands the model writes run as you. Use a container for anything

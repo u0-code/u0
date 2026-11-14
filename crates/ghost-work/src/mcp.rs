@@ -119,8 +119,14 @@ mod tests {
     use crate::{machine::Local, tools};
 
     async fn talk(dir: &std::path::Path, requests: &[Value]) -> Vec<Value> {
-        let undertaking =
-            Arc::new(Undertaking::open(dir.join("state"), Some("make hi.txt")).unwrap());
+        let undertaking = Arc::new(
+            Undertaking::open(
+                &dir.join("state").join(crate::WORK_DB),
+                "main",
+                Some("make hi.txt"),
+            )
+            .unwrap(),
+        );
         let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking);
         let input = requests
             .iter()

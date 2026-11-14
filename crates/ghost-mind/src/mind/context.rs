@@ -277,8 +277,7 @@ impl Mind {
             if !theirs || u.outcome.as_deref() != Some("finished") {
                 continue;
             }
-            let dir = self.ghost.dir().join("work").join(&u.id);
-            if let Ok(done) = ghost_work::Undertaking::open(dir, Some(&u.brief))
+            if let Ok(done) = self.undertaking(&u.id, &u.brief)
                 && let Some(finish) = done.state().finish
             {
                 files.extend(finish.files);

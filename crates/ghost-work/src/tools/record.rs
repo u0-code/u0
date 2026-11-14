@@ -291,7 +291,14 @@ mod tests {
 
     fn undertaking() -> (tempfile::TempDir, Arc<Undertaking>) {
         let dir = tempfile::tempdir().unwrap();
-        let u = Arc::new(Undertaking::open(dir.path(), Some("make a.txt say hi")).unwrap());
+        let u = Arc::new(
+            Undertaking::open(
+                &dir.path().join(crate::WORK_DB),
+                "main",
+                Some("make a.txt say hi"),
+            )
+            .unwrap(),
+        );
         (dir, u)
     }
 

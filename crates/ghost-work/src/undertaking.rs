@@ -4,23 +4,31 @@
 //! A transcript is short-lived: it fills up, it is folded away, the process
 //! running it can stop at any moment. An undertaking is what remains: what
 //! was asked, the plan as it stands, the notes written along the way, and how
-//! it ended. It is a directory, and any sitting can be picked up from it.
+//! it ended. It is kept in a `SQLite` database, `work.db`, that holds every
+//! undertaking of one ghost by id, and any sitting can be picked up from it.
 //!
 //! ```text
-//! <dir>/state.json        brief, plan, notes, outcome, running totals
-//! <dir>/transcript.json   what the model is shown now, saved after every step
-//! <dir>/history.jsonl     every item the transcript ever held, never rewritten
-//! <dir>/log.jsonl         one line per step: what was called, what it cost
+//! undertakings   brief, plan, notes, outcome, running totals
+//! transcript     what the model is shown now, saved after every step
+//! history        every item the transcript ever held; append-only
+//! log            one line per step: what was called, what it cost
+//! inbox          what was added from outside while it ran, and whether it
+//!                has been taken
 //! ```
+//!
+//! Only the bookkeeping is kept there. The files the work produces are
+//! wherever its machine put them.
 
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, MutexGuard, PoisonError},
+    time::Duration,
 };
 
 use chrono::{DateTime, Utc};
 use ghost_brain::{Item, Usage};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,27 +205,153 @@ impl State {
     }
 }
 
+/// The database a ghost keeps her work in, beside her journal.
+pub const WORK_DB: &str = "work.db";
+
+/// The version of the schema below. Raised, with a way forward from the
+/// last one, when a table changes: this is state nothing else can rebuild.
+const SCHEMA_VERSION: i64 = 1;
+
+/// Every undertaking in one database, keyed by id. `history` is append-only
+/// the way the journal is: triggers abort any change to what is written.
+/// The others are bookkeeping and may be replaced; `inbox` keeps what was
+/// added, and marks it once it has been taken.
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS undertakings (
+    id    TEXT PRIMARY KEY,
+    state TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS transcript (
+    id    TEXT PRIMARY KEY,
+    items TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS history (
+    id   TEXT    NOT NULL,
+    n    INTEGER NOT NULL,
+    item TEXT    NOT NULL,
+    PRIMARY KEY (id, n)
+);
+CREATE TRIGGER IF NOT EXISTS history_no_update BEFORE UPDATE ON history
+BEGIN SELECT RAISE(ABORT, 'history is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS history_no_delete BEFORE DELETE ON history
+BEGIN SELECT RAISE(ABORT, 'history is append-only'); END;
+CREATE TABLE IF NOT EXISTS log (
+    id   TEXT    NOT NULL,
+    n    INTEGER NOT NULL,
+    line TEXT    NOT NULL,
+    PRIMARY KEY (id, n)
+);
+CREATE TABLE IF NOT EXISTS inbox (
+    id    TEXT    NOT NULL,
+    n     INTEGER NOT NULL,
+    text  TEXT    NOT NULL,
+    taken INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (id, n)
+);
+";
+
+/// One undertaking in a work database, with a connection of its own.
+///
+/// Others may hold the same undertaking at the same time: a helper's parent,
+/// the mind adding to it, or the tool server a command-line agent starts in
+/// another process. So every change is read, made and written inside one
+/// write transaction, and [`Undertaking::state`] reads what is in the
+/// database, not what this handle last wrote.
 pub struct Undertaking {
-    dir: PathBuf,
+    db: PathBuf,
+    id: String,
+    conn: Mutex<Connection>,
+    /// The state as last read or written: what is shown if the database
+    /// cannot be read, so that work goes on without its record.
     state: Mutex<State>,
 }
 
-fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes)?;
-    fs::rename(tmp, path)
+fn other(e: impl std::error::Error + Send + Sync + 'static) -> io::Error {
+    io::Error::other(e)
+}
+
+fn load(conn: &Connection, id: &str) -> rusqlite::Result<Option<State>> {
+    conn.query_row(
+        "SELECT state FROM undertakings WHERE id = ?1",
+        [id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()?
+    .map(|text| {
+        serde_json::from_str(&text).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+        })
+    })
+    .transpose()
+}
+
+fn store(conn: &Connection, id: &str, state: &State) -> rusqlite::Result<()> {
+    let text = serde_json::to_string(state)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    conn.execute(
+        "INSERT INTO undertakings (id, state) VALUES (?1, ?2)
+         ON CONFLICT (id) DO UPDATE SET state = excluded.state",
+        params![id, text],
+    )?;
+    Ok(())
+}
+
+/// Append `rows` to `table` for `id`, numbered on from the last one. The
+/// caller holds a write transaction, so two writers cannot take one number.
+fn append(
+    tx: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    id: &str,
+    rows: impl IntoIterator<Item = String>,
+) -> rusqlite::Result<()> {
+    let last: i64 = tx.query_row(
+        &format!("SELECT COALESCE(MAX(n), 0) FROM {table} WHERE id = ?1"),
+        [id],
+        |row| row.get(0),
+    )?;
+    let mut insert = tx.prepare(&format!(
+        "INSERT INTO {table} (id, n, {column}) VALUES (?1, ?2, ?3)"
+    ))?;
+    for (n, row) in (last + 1..).zip(rows) {
+        insert.execute(params![id, n, row])?;
+    }
+    Ok(())
 }
 
 impl Undertaking {
-    /// Start something new in `dir`, or pick up what is already there. A
-    /// brief is only taken the first time: what was asked does not change.
-    pub fn open(dir: impl Into<PathBuf>, brief: Option<&str>) -> io::Result<Self> {
-        let dir = dir.into();
-        fs::create_dir_all(&dir)?;
-        let path = dir.join("state.json");
-        let state = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+    /// Start the undertaking `id` in the database at `db`, or pick up what
+    /// is already there. A brief is only taken the first time: what was
+    /// asked does not change.
+    pub fn open(db: &Path, id: &str, brief: Option<&str>) -> io::Result<Self> {
+        if let Some(parent) = db.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)?;
+        }
+        let mut conn = Connection::open(db).map_err(other)?;
+        // Several handles write here at once, from more than one process.
+        // A writer waits its turn rather than failing.
+        conn.busy_timeout(Duration::from_secs(10)).map_err(other)?;
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(other)?;
+        let state = {
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(other)?;
+            let version: i64 = tx
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .map_err(other)?;
+            if version > SCHEMA_VERSION {
+                return Err(io::Error::other(format!(
+                    "{} was written by a newer ghost-work (schema {version})",
+                    db.display()
+                )));
+            }
+            tx.execute_batch(SCHEMA).map_err(other)?;
+            tx.pragma_update(None, "user_version", SCHEMA_VERSION)
+                .map_err(other)?;
+            let state = if let Some(state) = load(&tx, id).map_err(other)? {
+                state
+            } else {
                 let brief = brief
                     .map(str::trim)
                     .filter(|b| !b.is_empty())
@@ -227,146 +361,237 @@ impl Undertaking {
                             "a new undertaking needs a brief",
                         )
                     })?;
-                State {
+                let state = State {
                     brief: brief.to_owned(),
                     ..State::default()
-                }
-            }
-            Err(e) => return Err(e),
+                };
+                store(&tx, id, &state).map_err(other)?;
+                state
+            };
+            tx.commit().map_err(other)?;
+            state
         };
-        let this = Self {
-            dir,
+        Ok(Self {
+            db: db.to_path_buf(),
+            id: id.to_owned(),
+            conn: Mutex::new(conn),
             state: Mutex::new(state),
-        };
-        this.save()?;
-        Ok(this)
+        })
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    /// The database this undertaking is kept in.
+    pub fn db(&self) -> &Path {
+        &self.db
     }
 
+    /// Its key in that database.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn cached(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The state as it is in the database now, whoever wrote it.
     pub fn state(&self) -> State {
-        self.lock().clone()
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn save(&self) -> io::Result<()> {
-        let bytes = serde_json::to_vec_pretty(&*self.lock()).map_err(io::Error::other)?;
-        write_atomically(&self.dir.join("state.json"), &bytes)
-    }
-
-    /// Change the state and write it down. A failed write is logged, not
-    /// fatal: the work in hand matters more than the record of it.
-    pub fn update<T>(&self, change: impl FnOnce(&mut State) -> T) -> T {
-        let out = change(&mut self.lock());
-        if let Err(e) = self.save() {
-            tracing::warn!("could not save {}: {e}", self.dir.display());
+        let read = load(&self.conn(), &self.id);
+        match read {
+            Ok(Some(state)) => {
+                *self.cached() = state.clone();
+                state
+            }
+            Ok(None) => self.cached().clone(),
+            Err(e) => {
+                tracing::warn!("could not read the undertaking {}: {e}", self.id);
+                self.cached().clone()
+            }
         }
+    }
+
+    /// Change the state and write it down, in one transaction, so that a
+    /// change made meanwhile through another handle is built on and not
+    /// lost. A failed write is logged, not fatal: the work in hand matters
+    /// more than the record of it.
+    pub fn update<T>(&self, change: impl FnOnce(&mut State) -> T) -> T {
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate);
+        let base = match &tx {
+            Ok(tx) => load(tx, &self.id),
+            Err(_) => Ok(None),
+        };
+        let readable = base.is_ok();
+        let mut state = match base {
+            Ok(Some(state)) => state,
+            Ok(None) => self.cached().clone(),
+            Err(e) => {
+                tracing::warn!("could not read the undertaking {}: {e}", self.id);
+                self.cached().clone()
+            }
+        };
+        let out = change(&mut state);
+        let saved = match tx {
+            // What could not be read is not written over.
+            Ok(tx) if readable => store(&tx, &self.id, &state).and_then(|()| tx.commit()),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = saved {
+            tracing::warn!("could not save the undertaking {}: {e}", self.id);
+        }
+        *self.cached() = state;
         out
     }
 
     /// The sitting in progress, if one was left unfinished.
     pub fn transcript(&self) -> Option<Vec<Item>> {
-        let bytes = fs::read(self.dir.join("transcript.json")).ok()?;
-        serde_json::from_slice(&bytes).ok()
+        let text: String = self
+            .conn()
+            .query_row(
+                "SELECT items FROM transcript WHERE id = ?1",
+                [&self.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()??;
+        serde_json::from_str(&text).ok()
     }
 
+    /// Replace the transcript with `items`. Done after every step, so that
+    /// a process stopped anywhere can be picked up from the last one.
     pub fn save_transcript(&self, items: &[Item]) {
-        let saved = serde_json::to_vec(items)
-            .map_err(io::Error::other)
-            .and_then(|bytes| write_atomically(&self.dir.join("transcript.json"), &bytes));
+        let saved = serde_json::to_string(items)
+            .map_err(other)
+            .and_then(|text| {
+                self.conn()
+                    .execute(
+                        "INSERT INTO transcript (id, items) VALUES (?1, ?2)
+                     ON CONFLICT (id) DO UPDATE SET items = excluded.items",
+                        params![self.id, text],
+                    )
+                    .map_err(other)
+            });
         if let Err(e) = saved {
             tracing::warn!("could not save the transcript: {e}");
         }
     }
 
-    /// Add items to the history: one line each, appended, in the order they
-    /// entered the transcript. The transcript is trimmed and cleared as it
-    /// fills; this is the copy nothing is ever taken out of.
+    /// Add items to the history, in the order they entered the transcript.
+    /// The transcript is trimmed and cleared as it fills; this is the copy
+    /// nothing is ever taken out of.
     pub fn remember(&self, items: &[Item]) {
-        use std::io::Write as _;
-        let written = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.dir.join("history.jsonl"))
-            .and_then(|mut history| {
-                let mut lines = Vec::new();
-                for item in items {
-                    serde_json::to_writer(&mut lines, item).map_err(io::Error::other)?;
-                    lines.push(b'\n');
-                }
-                history.write_all(&lines)
-            });
+        if items.is_empty() {
+            return;
+        }
+        let rows: Result<Vec<String>, _> = items.iter().map(serde_json::to_string).collect();
+        let written = rows
+            .map_err(other)
+            .and_then(|rows| self.appending("history", "item", rows).map_err(other));
         if let Err(e) = written {
             tracing::warn!("could not add to the history: {e}");
         }
     }
 
+    fn appending(
+        &self,
+        table: &str,
+        column: &str,
+        rows: impl IntoIterator<Item = String>,
+    ) -> rusqlite::Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        append(&tx, table, column, &self.id, rows)?;
+        tx.commit()
+    }
+
     /// Everything the transcript ever held, in order.
     pub fn history(&self) -> Vec<Item> {
-        fs::read_to_string(self.dir.join("history.jsonl"))
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
+        self.column("SELECT item FROM history WHERE id = ?1 ORDER BY n")
+            .iter()
+            .filter_map(|text| serde_json::from_str(text).ok())
             .collect()
     }
 
+    fn column(&self, sql: &str) -> Vec<String> {
+        let conn = self.conn();
+        let read = conn.prepare(sql).and_then(|mut query| {
+            query
+                .query_map([&self.id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+        });
+        read.unwrap_or_else(|e| {
+            tracing::warn!("could not read the undertaking {}: {e}", self.id);
+            Vec::new()
+        })
+    }
+
     /// Add something to the task from outside, while it may be under way.
-    /// It goes into a file beside the state, because whoever is working on
-    /// this may be another process; the worker picks it up before its next
-    /// step.
+    /// Whoever is working on this may hold another handle, in another
+    /// process; the worker picks it up before its next step.
     pub fn add(&self, text: &str) -> io::Result<()> {
-        use std::io::Write as _;
-        let mut inbox = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.dir.join("inbox.jsonl"))?;
-        writeln!(
-            inbox,
-            "{}",
-            serde_json::Value::String(text.trim().to_owned())
-        )
+        self.appending("inbox", "text", [text.trim().to_owned()])
+            .map_err(other)
     }
 
     /// Take what has been added since the last look, and make it part of
-    /// the task.
+    /// the task. Taking it and adding it to the task are one transaction:
+    /// whichever handle takes a line takes it alone, and only once.
     pub fn take_added(&self) -> Vec<String> {
-        let path = self.dir.join("inbox.jsonl");
-        let taken = path.with_extension("taken");
-        // Renamed first, so that something added during the read is not lost.
-        if fs::rename(&path, &taken).is_err() {
-            return Vec::new();
+        let mut conn = self.conn();
+        let taken = (|| -> rusqlite::Result<(Vec<String>, Option<State>)> {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let lines: Vec<String> = {
+                let mut query =
+                    tx.prepare("SELECT text FROM inbox WHERE id = ?1 AND taken = 0 ORDER BY n")?;
+                query
+                    .query_map([&self.id], |row| row.get(0))?
+                    .collect::<rusqlite::Result<_>>()?
+            };
+            if lines.is_empty() {
+                return Ok((lines, None));
+            }
+            tx.execute(
+                "UPDATE inbox SET taken = 1 WHERE id = ?1 AND taken = 0",
+                [&self.id],
+            )?;
+            let added: Vec<String> = lines.into_iter().filter(|t| !t.is_empty()).collect();
+            let mut state = load(&tx, &self.id)?.unwrap_or_else(|| self.cached().clone());
+            state.additions.extend(added.iter().cloned());
+            store(&tx, &self.id, &state)?;
+            tx.commit()?;
+            Ok((added, Some(state)))
+        })();
+        match taken {
+            Ok((added, state)) => {
+                if let Some(state) = state {
+                    *self.cached() = state;
+                }
+                added
+            }
+            Err(e) => {
+                tracing::warn!("could not take what was added: {e}");
+                Vec::new()
+            }
         }
-        let added: Vec<String> = fs::read_to_string(&taken)
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|line| serde_json::from_str::<String>(line).ok())
-            .filter(|text| !text.is_empty())
-            .collect();
-        let _ = fs::remove_file(&taken);
-        if !added.is_empty() {
-            self.update(|state| state.additions.extend(added.iter().cloned()));
-        }
-        added
     }
 
     /// Append one line to the step log.
     pub fn log(&self, line: &serde_json::Value) {
-        use std::io::Write as _;
-        let written = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.dir.join("log.jsonl"))
-            .and_then(|mut f| writeln!(f, "{line}"));
-        if let Err(e) = written {
+        if let Err(e) = self.appending("log", "line", [line.to_string()]) {
             tracing::warn!("could not write the step log: {e}");
         }
+    }
+
+    /// The step log, oldest line first.
+    pub fn logged(&self) -> Vec<serde_json::Value> {
+        self.column("SELECT line FROM log WHERE id = ?1 ORDER BY n")
+            .iter()
+            .filter_map(|text| serde_json::from_str(text).ok())
+            .collect()
     }
 }
 
@@ -374,10 +599,14 @@ impl Undertaking {
 mod tests {
     use super::*;
 
+    fn db(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join(WORK_DB)
+    }
+
     #[test]
-    fn what_was_written_is_there_when_picked_up_again() {
+    fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
         let dir = tempfile::tempdir().unwrap();
-        let first = Undertaking::open(dir.path(), Some("build the thing")).unwrap();
+        let first = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
         first.update(|s| {
             s.plan.push(PlanStep {
                 text: "look around".into(),
@@ -389,14 +618,121 @@ mod tests {
             });
         });
         first.save_transcript(&[Item::user("build the thing")]);
+        first.remember(&[Item::user("build the thing"), Item::user("and test it")]);
+        first.log(&serde_json::json!({"step": 1}));
         drop(first);
 
-        let again = Undertaking::open(dir.path(), Some("something else")).unwrap();
+        let again = Undertaking::open(&db(&dir), "u1", Some("something else")).unwrap();
         let state = again.state();
         assert_eq!(state.brief, "build the thing", "the brief does not change");
         assert_eq!(state.plan_text(), "[x] 1. look around");
         assert_eq!(state.notes_text(1000), "- python is 3.12");
         assert_eq!(again.transcript().unwrap().len(), 1);
+        assert_eq!(again.history().len(), 2);
+        assert_eq!(again.logged(), [serde_json::json!({"step": 1})]);
+    }
+
+    #[test]
+    fn history_refuses_rewriting() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+        u.remember(&[Item::user("first"), Item::user("second")]);
+        let conn = Connection::open(db(&dir)).unwrap();
+        assert!(
+            conn.execute("UPDATE history SET item = '\"changed\"'", [])
+                .is_err()
+        );
+        assert!(conn.execute("DELETE FROM history", []).is_err());
+        u.remember(&[Item::user("third")]);
+        assert_eq!(u.history().len(), 3, "and it is still added to");
+    }
+
+    #[test]
+    fn two_undertakings_in_one_database_do_not_see_each_others_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Undertaking::open(&db(&dir), "a", Some("paint the fence")).unwrap();
+        let b = Undertaking::open(&db(&dir), "b", Some("mend the gate")).unwrap();
+        a.update(|s| s.steps = 7);
+        a.save_transcript(&[Item::user("fence")]);
+        a.remember(&[Item::user("fence")]);
+        a.log(&serde_json::json!({"step": 1}));
+        a.add("white").unwrap();
+
+        assert_eq!(b.state().brief, "mend the gate");
+        assert_eq!(b.state().steps, 0);
+        assert!(b.transcript().is_none());
+        assert!(b.history().is_empty());
+        assert!(b.logged().is_empty());
+        assert!(b.take_added().is_empty(), "what was added to a is not b's");
+        assert_eq!(a.take_added(), ["white"]);
+    }
+
+    #[test]
+    fn changes_made_through_different_handles_at_once_are_all_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        Undertaking::open(&db(&dir), "u1", Some("count")).unwrap();
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let path = db(&dir);
+                std::thread::spawn(move || {
+                    let u = Undertaking::open(&path, "u1", None).unwrap();
+                    for _ in 0..25 {
+                        u.update(|s| s.steps += 1);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let u = Undertaking::open(&db(&dir), "u1", None).unwrap();
+        assert_eq!(u.state().steps, 100);
+    }
+
+    #[test]
+    fn items_added_from_another_connection_are_taken_exactly_once() {
+        let dir = tempfile::tempdir().unwrap();
+        Undertaking::open(&db(&dir), "u1", Some("find when it closes")).unwrap();
+        let adders: Vec<_> = (0..3)
+            .map(|who| {
+                let path = db(&dir);
+                std::thread::spawn(move || {
+                    let u = Undertaking::open(&path, "u1", None).unwrap();
+                    for i in 0..20 {
+                        u.add(&format!("{who}-{i}")).unwrap();
+                    }
+                })
+            })
+            .collect();
+        // Two takers racing the adders and each other.
+        let takers: Vec<_> = (0..2)
+            .map(|_| {
+                let path = db(&dir);
+                std::thread::spawn(move || {
+                    let u = Undertaking::open(&path, "u1", None).unwrap();
+                    let mut got = Vec::new();
+                    for _ in 0..200 {
+                        got.extend(u.take_added());
+                    }
+                    got
+                })
+            })
+            .collect();
+        for t in adders {
+            t.join().unwrap();
+        }
+        let mut taken: Vec<String> = takers.into_iter().flat_map(|t| t.join().unwrap()).collect();
+        let last = Undertaking::open(&db(&dir), "u1", None).unwrap();
+        taken.extend(last.take_added());
+
+        let mut sorted = taken.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), taken.len(), "nothing was taken twice");
+        assert_eq!(taken.len(), 60, "nothing was lost");
+        let mut additions = last.state().additions;
+        additions.sort();
+        assert_eq!(additions, sorted, "each became part of the task once");
     }
 
     #[test]
@@ -418,9 +754,9 @@ mod tests {
     #[test]
     fn what_is_added_from_outside_becomes_part_of_the_task() {
         let dir = tempfile::tempdir().unwrap();
-        let worker = Undertaking::open(dir.path(), Some("find when it closes")).unwrap();
-        // Someone else, with their own handle on the same directory.
-        let outside = Undertaking::open(dir.path(), None).unwrap();
+        let worker = Undertaking::open(&db(&dir), "u1", Some("find when it closes")).unwrap();
+        // Someone else, with their own handle on the same database.
+        let outside = Undertaking::open(&db(&dir), "u1", None).unwrap();
         outside.add("weekends too").unwrap();
         outside.add("and whether it takes bookings").unwrap();
         assert_eq!(
@@ -429,7 +765,7 @@ mod tests {
         );
         assert!(worker.take_added().is_empty(), "taken once");
         assert_eq!(
-            worker.state().task_text(),
+            outside.state().task_text(),
             "find when it closes\n\nAdded later: weekends too\n\nAdded later: and whether it takes bookings"
         );
     }
@@ -437,6 +773,16 @@ mod tests {
     #[test]
     fn nothing_starts_without_a_brief() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(Undertaking::open(dir.path(), None).is_err());
+        assert!(Undertaking::open(&db(&dir), "u1", None).is_err());
+    }
+
+    #[test]
+    fn a_database_from_a_newer_version_is_not_written_to() {
+        let dir = tempfile::tempdir().unwrap();
+        Connection::open(db(&dir))
+            .unwrap()
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
+        assert!(Undertaking::open(&db(&dir), "u1", Some("anything")).is_err());
     }
 }

@@ -251,8 +251,9 @@ impl Tool for Delegate {
             return tool::Outcome::fail("the task is empty");
         }
         let nth = self.given.fetch_add(1, Ordering::Relaxed) + 1;
-        let dir = self.parent.dir().join("sub").join(nth.to_string());
-        let helper = match Undertaking::open(dir, Some(task)) {
+        // Kept beside the work it is part of, under an id that says so.
+        let id = format!("{}/{nth}", self.parent.id());
+        let helper = match Undertaking::open(self.parent.db(), &id, Some(task)) {
             Ok(helper) => Arc::new(helper),
             Err(e) => return tool::Outcome::fail(format!("no helper could be set up: {e}")),
         };
@@ -1135,9 +1136,15 @@ mod tests {
         }
     }
 
+    /// Kept apart from the directory the work is done in.
+    fn state_db(dir: &std::path::Path) -> std::path::PathBuf {
+        dir.join("state").join(crate::WORK_DB)
+    }
+
     fn worker(dir: &std::path::Path, script: Vec<Step>, limits: Limits) -> (Worker, Arc<Scripted>) {
-        let undertaking =
-            Arc::new(Undertaking::open(dir.join("state"), Some("make hi.txt say hi")).unwrap());
+        let undertaking = Arc::new(
+            Undertaking::open(&state_db(dir), "main", Some("make hi.txt say hi")).unwrap(),
+        );
         let brain = Arc::new(Scripted {
             steps: Mutex::new(script),
             seen: Mutex::new(vec![]),
@@ -1187,8 +1194,7 @@ mod tests {
         // How to finish was said at the start, in the instructions.
         assert!(seen[0].system.contains("Nobody checks after you"));
         // The log has one line per step.
-        let log = std::fs::read_to_string(dir.path().join("state/log.jsonl")).unwrap();
-        assert_eq!(log.lines().count(), 3);
+        assert_eq!(worker.undertaking.logged().len(), 3);
     }
 
     #[tokio::test]
@@ -1199,8 +1205,8 @@ mod tests {
             calls("done", json!({"outcome": "gave_up", "summary": "enough"})),
         ];
         let (worker, brain) = worker(dir.path(), script, Limits::default());
-        // Added by someone with their own handle on the same directory.
-        Undertaking::open(dir.path().join("state"), None)
+        // Added by someone with their own handle on the same database.
+        Undertaking::open(&state_db(dir.path()), "main", None)
             .unwrap()
             .add("also make it say hi twice")
             .unwrap();
@@ -1356,10 +1362,12 @@ mod tests {
         assert!(tail.len() < before.len() / 2);
 
         // Nothing was lost: the history holds every step, in order.
-        let history = std::fs::read_to_string(dir.path().join("state/history.jsonl")).unwrap();
-        let commands = history
-            .lines()
-            .filter(|l| l.contains(r#""is":"assistant""#) && l.contains("echo "))
+        let commands = worker
+            .undertaking
+            .history()
+            .iter()
+            .filter(|item| matches!(item, Item::Assistant { calls, .. }
+                if calls.iter().any(|c| c.args["command"].as_str().is_some_and(|c| c.starts_with("echo ")))))
             .count();
         assert_eq!(commands, 60);
     }
@@ -1514,7 +1522,9 @@ mod tests {
             && matches!(item, Item::Result { output, .. } if output.contains("needle-in-a-file"))));
         // What it spent is counted with the work it was part of.
         assert!(report.usage.input >= seen.iter().map(|_| 100).sum::<u64>());
-        assert!(dir.path().join("state/sub/1/state.json").exists());
+        // The helper's record is kept beside the work it was part of.
+        let helper = Undertaking::open(&state_db(dir.path()), "main/1", None).unwrap();
+        assert_eq!(helper.state().brief, "say what is in a.txt");
     }
 
     #[tokio::test]

@@ -6,8 +6,9 @@
 //! ghost-work --task "..." --state ./run1 --local ./workspace --runtime claude
 //! ```
 //!
-//! Run it again with the same `--state` to pick up where it stopped. The
-//! report is printed to stdout as JSON; progress goes to stderr.
+//! The plan, notes, transcript and log are kept in `<state>/work.db`. Run it
+//! again with the same `--state` to pick up where it stopped. The report is
+//! printed to stdout as JSON; progress goes to stderr.
 //!
 //! `--runtime claude` or `--runtime codex` has that installed CLI do the
 //! stepping, with this program's tools and not its own. `--serve-mcp` is the other
@@ -19,7 +20,7 @@ use anyhow::{Context, bail};
 use clap::Parser;
 use ghost_brain::{Brain, CliAgent, CliKind, Effort, anthropic::Anthropic, openai::OpenAi};
 use ghost_work::{
-    Docker, Limits, Local, Machine, Undertaking, Worker, claude, codex, mcp, tools,
+    Docker, Limits, Local, Machine, Undertaking, WORK_DB, Worker, claude, codex, mcp, tools,
     worker::{opening_text, system_prompt},
 };
 
@@ -36,9 +37,16 @@ struct Args {
     /// A file holding the task.
     #[arg(long)]
     task_file: Option<PathBuf>,
-    /// Where this undertaking's plan, notes, transcript and log are kept.
+    /// The directory whose `work.db` keeps this undertaking's plan, notes,
+    /// transcript and log. With `--no-machine` it is also where the tools
+    /// would work.
     #[arg(long)]
     state: PathBuf,
+    /// Which undertaking in that database. One database can hold many: a
+    /// ghost keeps all of hers in one, and names this when she has a
+    /// command-line agent serve her tools.
+    #[arg(long, default_value = "main")]
+    id: String,
 
     /// Work in this directory on this computer.
     #[arg(long, conflicts_with = "docker")]
@@ -169,9 +177,10 @@ async fn main() -> anyhow::Result<()> {
         ),
         (None, None) => None,
     };
+    let db = args.state.join(WORK_DB);
     let undertaking = Arc::new(
-        Undertaking::open(&args.state, brief.as_deref())
-            .with_context(|| format!("open {}", args.state.display()))?,
+        Undertaking::open(&db, &args.id, brief.as_deref())
+            .with_context(|| format!("open {} in {}", args.id, db.display()))?,
     );
 
     let machine: Arc<dyn Machine> = match (&args.local, &args.docker) {
@@ -266,6 +275,8 @@ async fn main() -> anyhow::Result<()> {
                 "--serve-mcp".to_owned(),
                 "--state".to_owned(),
                 state.display().to_string(),
+                "--id".to_owned(),
+                args.id.clone(),
             ];
             // A relative directory would mean something else to the child.
             let mut place_args = args.place();
