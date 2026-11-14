@@ -114,10 +114,18 @@ impl Mind {
         let said_here = format!("said in {key}");
         let here = |c: &str, p: &str| c == channel && p == id;
         let mut intentions: Vec<i64> = Vec::new();
+        let mut heard: Vec<i64> = Vec::new();
         let mut entries: Vec<Entry> = Vec::new();
         for entry in self.ghost.journal().tail(SCAN)? {
             let belongs = match &entry.event {
-                Event::Heard { channel, place, .. } => here(channel, &place.id),
+                Event::Heard { channel, place, .. } => {
+                    let mine = here(channel, &place.id);
+                    if mine {
+                        heard.push(entry.seq);
+                    }
+                    mine
+                }
+                Event::Viewed { message, .. } => heard.contains(message),
                 Event::Read { channel, place, .. }
                 | Event::Said { channel, place, .. }
                 | Event::Reacted { channel, place, .. } => here(channel, place),

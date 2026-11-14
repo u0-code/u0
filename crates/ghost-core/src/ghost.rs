@@ -5,6 +5,7 @@
 //! ├── ghost.toml   her persona: who she is. It can be revised.
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
 //! ├── work.db      the state of what she has taken on: plans, notes, transcripts
+//! ├── media/       images she was sent and looked at, named by their hash
 //! └── derived/     anything that can be rebuilt from the journal
 //! ```
 

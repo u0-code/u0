@@ -53,6 +53,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             text,
             reply_to,
             addressed,
+            ..
         } => {
             tx.execute(
                 "INSERT INTO messages (seq, at, channel, place, dir, person, name, platform_id, reply_to, addressed, text)
@@ -92,9 +93,71 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                 ],
             )?;
         }
+        // What she made of an image goes where the image was, so that the
+        // line reads as she saw it from then on.
+        Event::Viewed {
+            message,
+            image,
+            what,
+            ..
+        } => {
+            let text: Option<String> = tx
+                .query_row("SELECT text FROM messages WHERE seq = ?1", [message], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            if let Some(seen) = text.and_then(|t| described(&t, *image, what)) {
+                tx.execute(
+                    "UPDATE messages SET text = ?1 WHERE seq = ?2",
+                    params![seen, message],
+                )?;
+            }
+        }
         _ => {}
     }
     Ok(())
+}
+
+/// `text` with its `index`th image placeholder replaced by `[image: what]`.
+/// A placeholder is `[image]`, or one already described; the description is
+/// kept on one line and free of brackets, so it can be found again.
+fn described(text: &str, index: u32, what: &str) -> Option<String> {
+    let what = what
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('[', "(")
+        .replace(']', ")");
+    if what.is_empty() {
+        return None;
+    }
+    let mut seen = 0;
+    let mut from = 0;
+    while let Some(at) = text[from..].find("[image") {
+        let start = from + at;
+        let rest = &text[start + "[image".len()..];
+        let len = if rest.starts_with(']') {
+            Some("[image]".len())
+        } else if rest.starts_with(": ") {
+            rest.find(']').map(|end| "[image".len() + end + 1)
+        } else {
+            None
+        };
+        let Some(len) = len else {
+            from = start + "[image".len();
+            continue;
+        };
+        if seen == index {
+            return Some(format!(
+                "{}[image: {what}]{}",
+                &text[..start],
+                &text[start + len..]
+            ));
+        }
+        seen += 1;
+        from = start + len;
+    }
+    None
 }
 
 impl Memory {
@@ -264,7 +327,54 @@ fn line_at(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<Line> {
 #[cfg(test)]
 mod tests {
     use super::super::testing::{fold, heard, on, said};
-    use crate::social::PlaceKind;
+    use super::described;
+    use crate::{journal::Event, social::PlaceKind};
+
+    fn viewed(message: i64, image: u32, what: &str) -> Event {
+        Event::Viewed {
+            message,
+            image,
+            what: what.into(),
+            file: None,
+        }
+    }
+
+    #[test]
+    fn what_she_saw_in_an_image_replaces_its_placeholder() {
+        let (_, m) = fold(vec![
+            heard(
+                "a",
+                PlaceKind::Direct,
+                "a",
+                "1",
+                "look [image] and [image]",
+                true,
+            ),
+            // The second image is described first, then the first.
+            viewed(1, 1, "A cat asleep\non a [keyboard]."),
+            viewed(1, 0, "A bowl of noodles."),
+            // An image that is not there changes nothing.
+            viewed(1, 5, "Nothing."),
+        ]);
+        assert_eq!(
+            m.thread("t:a", 5).unwrap()[0].text,
+            "look [image: A bowl of noodles.] and [image: A cat asleep on a (keyboard).]"
+        );
+    }
+
+    #[test]
+    fn placeholders_are_counted_whether_or_not_they_are_described() {
+        assert_eq!(
+            described("[image: one] [image]", 1, "two").as_deref(),
+            Some("[image: one] [image: two]")
+        );
+        assert_eq!(
+            described("[image: old]", 0, "new").as_deref(),
+            Some("[image: new]")
+        );
+        assert_eq!(described("[images] [imagex]", 0, "x"), None);
+        assert_eq!(described("[image]", 0, "   "), None);
+    }
 
     #[test]
     fn what_was_said_on_a_platform_is_only_found_from_that_platform() {

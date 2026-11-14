@@ -28,6 +28,9 @@ pub enum Role {
 pub struct Message {
     pub role: Role,
     pub text: String,
+    /// Images that go with the text. Only a brain that [`Brain::sees`] is
+    /// shown them; the rest read the text alone.
+    pub images: Vec<Picture>,
 }
 
 impl Message {
@@ -35,6 +38,7 @@ impl Message {
         Self {
             role: Role::User,
             text: text.into(),
+            images: Vec::new(),
         }
     }
 
@@ -42,7 +46,43 @@ impl Message {
         Self {
             role: Role::Assistant,
             text: text.into(),
+            images: Vec::new(),
         }
+    }
+
+    /// The same message, with images to look at.
+    #[must_use]
+    pub fn with_images(mut self, images: Vec<Picture>) -> Self {
+        self.images = images;
+        self
+    }
+}
+
+/// An image, as bytes and the type they are.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Picture {
+    /// e.g. `image/png`.
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+impl Picture {
+    /// The bytes as base64, which is how every provider takes them.
+    pub fn base64(&self) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(&self.bytes)
+    }
+
+    /// A `data:` URL holding the image.
+    pub fn data_url(&self) -> String {
+        format!("data:{};base64,{}", self.mime, self.base64())
+    }
+}
+
+// The bytes are left out: an image in a log is noise at best.
+impl std::fmt::Debug for Picture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Picture({}, {} bytes)", self.mime, self.bytes.len())
     }
 }
 
@@ -198,6 +238,12 @@ pub trait Brain: Send + Sync {
         false
     }
 
+    /// Whether this brain is shown the images in a [`Message`]. One that is
+    /// not reads the text and nothing else.
+    fn sees(&self) -> bool {
+        false
+    }
+
     /// One step of work. The default refuses.
     async fn step(&self, _turn: &Turn) -> Result<Step> {
         Err(Error::NoTools(self.label()))
@@ -290,6 +336,16 @@ mod tests {
         assert!(t.starts_with("Be Weiwei."));
         assert!(t.contains("[someone]: hi\n[Weiwei]: hey\n[someone]: ?"));
         assert!(t.ends_with("Output only the message text."));
+    }
+
+    #[test]
+    fn a_picture_is_a_data_url_and_its_bytes_stay_out_of_logs() {
+        let p = Picture {
+            mime: "image/png".into(),
+            bytes: vec![1, 2, 3],
+        };
+        assert_eq!(p.data_url(), "data:image/png;base64,AQID");
+        assert_eq!(format!("{p:?}"), "Picture(image/png, 3 bytes)");
     }
 
     #[test]

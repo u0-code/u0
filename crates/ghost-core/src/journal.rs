@@ -71,6 +71,11 @@ pub enum Event {
         /// It was meant for her: a direct message, a mention, or a reply.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         addressed: bool,
+        /// Where the channel kept the images in it, in the order of their
+        /// `[image]` placeholders in `text`. The links expire; what she made
+        /// of each image is a `Viewed` entry.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<String>,
     },
     /// She looked at a place and saw everything up to journal entry `upto`.
     Read {
@@ -297,6 +302,17 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         replaces: Option<i64>,
     },
+    /// She looked at an image in a message she heard. `message` is the seq
+    /// of that `Heard` entry and `image` the image's place among its images.
+    Viewed {
+        message: i64,
+        image: u32,
+        /// What she saw: what is in it, what it says, what it means.
+        what: String,
+        /// The name it is kept under in `media/`, if it was kept.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -388,6 +404,7 @@ kinds! {
     Practised => "practised",
     LookedUp => "looked_up",
     Described => "described",
+    Viewed => "viewed",
 }
 
 /// One line of her journal.

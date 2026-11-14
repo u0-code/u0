@@ -105,6 +105,12 @@ review_days = 7
 [providers.anthropic]
 kind = "anthropic"
 model = "claude-sonnet-5-5"
+# The model takes images. When the `tick` or `think` brain does, she looks at
+# the images people send her and sees what they are, what they say and, for a
+# meme or a sticker, what it means. Off by default, because a server that is
+# sent an image it cannot read refuses the whole request. Only `anthropic`
+# and `openai` providers take this.
+# vision = true
 
 # Any OpenAI-compatible endpoint. Reads OPENAI_API_KEY by default.
 [providers.openai]
@@ -114,11 +120,13 @@ model = "gpt-5-mini"
 # The same kind reaches DeepSeek, OpenRouter, Moonshot, Groq, Ollama, vLLM...
 [providers.deepseek]
 kind = "openai"
-model = "deepseek-chat"
+model = "deepseek-flash"
 base_url = "https://api.deepseek.com/v1"
 api_key_env = "DEEPSEEK_API_KEY"
 # Ask the server to enforce JSON output. Leave off for servers that reject it.
 json_mode = true
+# deepseek-flash takes images; deepseek-v4-pro does not.
+vision = true
 
 [providers.ollama]
 kind = "openai"

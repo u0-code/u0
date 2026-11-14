@@ -25,6 +25,8 @@ pub struct OpenAi {
     max_output: Option<u32>,
     /// The server takes `reasoning_effort` and `thinking`.
     thinks: bool,
+    /// The model takes images.
+    sees: bool,
 }
 
 impl OpenAi {
@@ -56,7 +58,16 @@ impl OpenAi {
             base_url,
             max_tokens_param,
             json_mode,
+            sees: false,
         }
+    }
+
+    /// Say whether the model takes images. Nothing is guessed from its name:
+    /// a server that is sent an image it cannot read refuses the request.
+    #[must_use]
+    pub fn with_vision(mut self, sees: bool) -> Self {
+        self.sees = sees;
+        self
     }
 
     /// Say whether the server can be told how hard to think, when the
@@ -197,6 +208,30 @@ fn gather(events: &[Value]) -> Value {
     })
 }
 
+/// A completion's messages in the wire format. A message with images,
+/// sent to a model that sees, is a list of parts: the text, then each image
+/// as a `data:` URL, since a platform's own link may be private or expired.
+fn chat(req: &Completion, sees: bool) -> Vec<Value> {
+    let mut messages = vec![json!({"role": "system", "content": req.system})];
+    messages.extend(req.messages.iter().map(|m| {
+        let role = match m.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        };
+        if !sees || m.images.is_empty() {
+            return json!({"role": role, "content": m.text});
+        }
+        let mut parts = vec![json!({"type": "text", "text": m.text})];
+        parts.extend(
+            m.images
+                .iter()
+                .map(|p| json!({"type": "image_url", "image_url": {"url": p.data_url()}})),
+        );
+        json!({"role": role, "content": parts})
+    }));
+    messages
+}
+
 /// A working transcript in the wire format.
 fn wire(system: &str, items: &[Item]) -> Vec<Value> {
     let mut messages = vec![json!({"role": "system", "content": system})];
@@ -263,16 +298,9 @@ impl Brain for OpenAi {
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
-        let mut messages = vec![json!({"role": "system", "content": req.system})];
-        messages.extend(req.messages.iter().map(|m| {
-            json!({
-                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": m.text,
-            })
-        }));
         let mut body = json!({
             "model": self.model,
-            "messages": messages,
+            "messages": chat(req, self.sees),
         });
         body[&self.max_tokens_param] = json!(req.max_tokens);
         if req.json && self.json_mode {
@@ -312,6 +340,10 @@ impl Brain for OpenAi {
 
     fn works(&self) -> bool {
         true
+    }
+
+    fn sees(&self) -> bool {
+        self.sees
     }
 
     fn window(&self) -> Option<u64> {
@@ -470,6 +502,29 @@ mod tests {
         assert_eq!(m[2]["reasoning_content"], "they want a listing");
         assert_eq!(m[3]["role"], "tool");
         assert_eq!(m[3]["tool_call_id"], "c1");
+    }
+
+    #[test]
+    fn an_image_goes_to_a_model_that_sees_as_a_data_url_after_the_text() {
+        let picture = crate::Picture {
+            mime: "image/png".into(),
+            bytes: b"\x89PNG".to_vec(),
+        };
+        let req = Completion {
+            messages: vec![crate::Message::user("what is this?").with_images(vec![picture])],
+            ..Completion::ask("look", "", 100)
+        };
+        let m = chat(&req, true);
+        assert_eq!(m[0], json!({"role": "system", "content": "look"}));
+        let parts = m[1]["content"].as_array().unwrap();
+        assert_eq!(parts[0], json!({"type": "text", "text": "what is this?"}));
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "data:image/png;base64,iVBORw=="
+        );
+        // A model that cannot see is sent the words alone.
+        assert_eq!(chat(&req, false)[1]["content"], "what is this?");
     }
 
     #[test]

@@ -60,13 +60,19 @@ fn describe(event: &Event, tz: Tz) -> String {
             from,
             text,
             addressed,
+            images,
             ..
         } => format!(
-            "[{channel}:{}] {}{}: {}",
+            "[{channel}:{}] {}{}: {}{}",
             place.name.as_deref().unwrap_or(&place.id),
             from.name,
             if *addressed { "" } else { " (not to her)" },
-            flat(text)
+            flat(text),
+            match images.len() {
+                0 => String::new(),
+                1 => " (1 image)".to_owned(),
+                n => format!(" ({n} images)"),
+            }
         ),
         Event::Read {
             channel,
@@ -139,6 +145,17 @@ fn describe(event: &Event, tz: Tz) -> String {
         Event::Linked { one, other } => format!("{one} and {other} are one person"),
         Event::Digested { place, text, .. } => format!("[{place}] {}", flat(text)),
         Event::Profiled { person, shared, .. } => format!("{person}: {}", flat(shared)),
+        Event::Viewed {
+            message,
+            image,
+            what,
+            file,
+        } => format!(
+            "#{message} image {image}{}: {}",
+            file.as_deref()
+                .map_or_else(String::new, |f| format!(" (media/{f})")),
+            flat(what)
+        ),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

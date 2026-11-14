@@ -7,7 +7,7 @@
 //! one platform carries that platform; everything else carries none.
 
 use chrono::{DateTime, Utc};
-use rusqlite::{Transaction, params, types::Value};
+use rusqlite::{OptionalExtension, Transaction, params, types::Value};
 use serde::Serialize;
 
 use super::{Memory, as_i64};
@@ -108,7 +108,9 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
             place: None,
             channel: None,
         },
-        Event::Pursued { .. }
+        // Found through the message it belongs to; see `fold`.
+        Event::Viewed { .. }
+        | Event::Pursued { .. }
         | Event::Born { .. }
         | Event::Described { .. }
         | Event::Dormant { .. }
@@ -133,6 +135,24 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
 }
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
+    // What she saw in an image is kept as part of the conversation it was
+    // sent in: found from that platform, and from nowhere else.
+    if let Event::Viewed { message, what, .. } = &entry.event {
+        let sent: Option<(String, String, String)> = tx
+            .query_row(
+                "SELECT channel, place, name FROM messages WHERE seq = ?1",
+                [message],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        if let Some((channel, place, name)) = sent {
+            tx.execute(
+                "INSERT INTO recall (text, kind, seq, at, place, channel) VALUES (?1, 'viewed', ?2, ?3, ?4, ?5)",
+                params![format!("{name} sent an image: {what}"), entry.seq, at, place, channel],
+            )?;
+        }
+        return Ok(());
+    }
     if let Some(k) = kept(&entry.event) {
         tx.execute(
             "INSERT INTO recall (text, kind, seq, at, place, channel) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -300,6 +320,32 @@ mod tests {
         assert!(from_qq.iter().any(|t| t.contains("shop closed")));
         assert!(from_qq.iter().any(|t| t == "runs the lantern stall"));
         assert!(!from_qq.iter().any(|t| t.contains("festival is friday")));
+    }
+
+    #[test]
+    fn what_she_saw_in_an_image_is_found_from_the_platform_it_was_sent_on() {
+        let (_, m) = fold(vec![
+            on(
+                "qq",
+                heard("b", PlaceKind::Direct, "b", "1", "[image]", true),
+            ),
+            Event::Viewed {
+                message: 1,
+                image: 0,
+                what: "A sticker of a panda shrugging, captioned 无所谓.".into(),
+                file: None,
+            },
+        ]);
+        let hits = m.search("qq", "panda", 5).unwrap();
+        let viewed: Vec<&Hit> = hits.iter().filter(|h| h.kind == "viewed").collect();
+        assert_eq!(viewed.len(), 1);
+        assert_eq!(
+            viewed[0].text,
+            "B sent an image: A sticker of a panda shrugging, captioned 无所谓."
+        );
+        assert_eq!(viewed[0].place.as_deref(), Some("qq:b"));
+        assert!(m.search("t", "panda", 5).unwrap().is_empty());
+        assert_eq!(m.search("qq", "无所谓", 5).unwrap().len(), 1);
     }
 
     #[test]

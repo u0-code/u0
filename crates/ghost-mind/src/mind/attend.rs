@@ -146,7 +146,8 @@ impl Mind {
                 Some(id) => self.ghost.memory().is_hers(&place_key, id)?,
                 None => false,
             };
-        self.record(Event::Heard {
+        let images = m.images;
+        let heard = self.record(Event::Heard {
             channel: channel.to_owned(),
             place: m.place,
             from: m.from,
@@ -154,7 +155,11 @@ impl Mind {
             text: m.text,
             reply_to: m.reply_to,
             addressed,
+            images: images.clone(),
         })?;
+        if !images.is_empty() {
+            self.view(heard.seq, &place_key, &images, now)?;
+        }
         self.schedule_attend(&place_key, now)
     }
 

@@ -19,6 +19,7 @@ mod reread;
 mod speak;
 #[cfg(test)]
 mod tests;
+mod view;
 mod work;
 
 use std::{
@@ -260,6 +261,12 @@ enum Outcome {
         before: u64,
         report: ghost_work::Report,
         progress: String,
+    },
+    /// She looked at the images in message `message`: for each, what she
+    /// saw, or why she could not.
+    Viewed {
+        message: i64,
+        seen: Vec<(u32, std::result::Result<view::Sight, String>)>,
     },
     /// A fire-and-forget act finished.
     Done,
@@ -583,6 +590,7 @@ impl Mind {
                 report,
                 progress,
             } => self.on_worked(&id, before, &report, progress, now),
+            Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }
     }

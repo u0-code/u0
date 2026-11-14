@@ -259,6 +259,7 @@ impl Mind {
                             text: target.text.clone(),
                             reply_to: target.reply_to.clone(),
                             addressed: false,
+                            images: target.images.clone(),
                         })?
                         .seq
                     };

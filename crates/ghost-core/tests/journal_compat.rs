@@ -156,4 +156,7 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     assert!(again.memory().place("t:wen").unwrap().is_some());
     assert!(again.memory().digest("t:wen").unwrap().is_some());
     assert_eq!(again.memory().practice(5).unwrap().len(), 1);
+    // What she saw in an image is in the line it came in, as she last saw it.
+    let line = &again.memory().thread("qq:c2c:E4F2A9", 1).unwrap()[0];
+    assert_eq!(line.text, "哈哈 [image: A cartoon cat lying flat.]");
 }

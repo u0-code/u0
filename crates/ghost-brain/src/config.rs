@@ -36,6 +36,9 @@ pub enum ProviderConfig {
         /// The model's context window in tokens, when it is not one this
         /// crate knows. Work is paced by it.
         context_window: Option<u64>,
+        /// The model takes images, and is shown the ones people send.
+        #[serde(default)]
+        vision: bool,
     },
     Openai {
         model: String,
@@ -59,6 +62,11 @@ pub enum ProviderConfig {
         /// The server takes `reasoning_effort` and `thinking`, so the model
         /// can be told how hard to think. Known for DeepSeek's models.
         reasoning_effort: Option<bool>,
+        /// The model takes images, and is shown the ones people send. Off
+        /// by default: a server sent an image it cannot read refuses the
+        /// whole request.
+        #[serde(default)]
+        vision: bool,
     },
     ClaudeCode {
         /// Path to the `claude` binary. Default: found on PATH.
@@ -116,13 +124,15 @@ impl ProviderConfig {
                 api_key,
                 base_url,
                 context_window,
+                vision,
             } => std::sync::Arc::new(
                 Anthropic::new(
                     key(api_key.as_ref(), api_key_env)?,
                     model.clone(),
                     base_url.clone(),
                 )
-                .with_window(*context_window),
+                .with_window(*context_window)
+                .with_vision(*vision),
             ),
             Self::Openai {
                 model,
@@ -134,6 +144,7 @@ impl ProviderConfig {
                 context_window,
                 max_output,
                 reasoning_effort,
+                vision,
             } => std::sync::Arc::new(
                 OpenAi::new(
                     key(api_key.as_ref(), api_key_env)?,
@@ -144,7 +155,8 @@ impl ProviderConfig {
                 )
                 .with_window(*context_window)
                 .with_max_output(*max_output)
-                .with_effort(*reasoning_effort),
+                .with_effort(*reasoning_effort)
+                .with_vision(*vision),
             ),
             Self::ClaudeCode {
                 program,
@@ -210,6 +222,37 @@ model = "gpt-5-codex"
     }
 
     #[test]
+    fn a_provider_sees_only_when_it_says_so() {
+        let text = r#"
+[blind]
+kind = "openai"
+model = "deepseek-flash"
+api_key = "x"
+
+[eyes]
+kind = "openai"
+model = "deepseek-flash"
+api_key = "x"
+vision = true
+
+[claude]
+kind = "anthropic"
+model = "claude-sonnet-5"
+api_key = "x"
+vision = true
+
+[cli]
+kind = "claude-code"
+"#;
+        let m: std::collections::BTreeMap<String, ProviderConfig> = toml::from_str(text).unwrap();
+        let sees = |k: &str| m[k].build().unwrap().sees();
+        assert!(!sees("blind"));
+        assert!(sees("eyes"));
+        assert!(sees("claude"));
+        assert!(!sees("cli"));
+    }
+
+    #[test]
     fn missing_key_fails_early() {
         let cfg = ProviderConfig::Anthropic {
             model: "m".into(),
@@ -217,6 +260,7 @@ model = "gpt-5-codex"
             api_key: None,
             base_url: None,
             context_window: None,
+            vision: false,
         };
         assert!(matches!(cfg.build(), Err(Error::MissingKey(_))));
     }

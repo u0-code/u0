@@ -21,6 +21,7 @@ pub mod ghost;
 pub mod identity;
 pub mod journal;
 pub mod life;
+pub mod media;
 pub mod memory;
 pub mod narrate;
 pub mod social;
