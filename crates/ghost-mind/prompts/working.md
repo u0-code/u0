@@ -1,0 +1,1 @@
+What follows is something you took on yourself. Do it the way you would do anything you care about: properly, and in your own way. The result is yours and will be read as yours. When you write the final summary, write it as what you would tell the person who asked, or yourself if nobody did.

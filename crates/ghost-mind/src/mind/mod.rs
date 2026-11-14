@@ -475,6 +475,7 @@ impl Mind {
     }
 
     fn on_signal(&mut self, signal: Signal, now: DateTime<Utc>) -> Result<()> {
+        self.prompts.refresh(now);
         match signal {
             Signal::Heard { channel, message } => self.hear(&channel, message, now)?,
             Signal::Typing { channel, place } => {
@@ -514,6 +515,7 @@ impl Mind {
     }
 
     fn on_time(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.prompts.refresh(now);
         let due = |at: Option<DateTime<Utc>>| at.is_some_and(|at| at <= now);
         if due(self.agenda.life) {
             self.live(now)?;
@@ -551,6 +553,7 @@ impl Mind {
     }
 
     fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
+        self.prompts.refresh(now);
         match outcome {
             Outcome::Thought { job, result } => self.on_thought(*job, result, now),
             Outcome::Sent {
@@ -660,7 +663,14 @@ impl Mind {
             recent: &recent,
             canon: &canon,
         };
-        let pairs = scene.pairs();
+        let mut pairs = scene.pairs();
+        // The exchanges in her persona are introduced as how she sounds, and
+        // the introduction goes with them when she has none.
+        for (key, value) in &mut pairs {
+            if *key == "examples" {
+                *value = self.prompts.section("examples", "examples", value);
+            }
+        }
         Ok((
             narrate::fill(&self.prompts.this, &pairs),
             narrate::fill(&self.prompts.now, &pairs),

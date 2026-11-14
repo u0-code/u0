@@ -25,37 +25,6 @@ pub(super) const REVIEW: &str = "review-";
 /// How many measured posts make a review worth sitting down to.
 const REVIEW_NEEDS: usize = 5;
 
-const REVIEW_BRIEF: &str = "Sit down and look honestly at how your public writing is going. Nobody asked for this; it is for you.
-
-# How what you posted has done
-
-{standing}
-
-# What you have learned about posting so far
-
-{craft}
-
-# What you care about
-
-{cares}
-
-Do three things.
-
-1. Look at your own posts above. Which ones did people answer or pass on, as opposed to merely scroll past? What do those have in common: the subject, the length, how they open, how concrete they are? Which fell flat, and why do you think so? A handful of posts is thin evidence; say so where it is.
-
-2. Look outward. Find three to five people who write in public about the things you care about and are read for it. Read a good number of their recent posts. Notice what they choose to write about, how long they write, how they begin, what they leave out. You are not looking for a formula to copy. You are looking for what being read by the right people looks like, so that you can find your own way to it.
-
-3. Decide what you will do differently this week: at most two things, each small and concrete enough that you will know whether you did it.
-
-Write what you found in `review.md`. Then finish, and write your summary in exactly this form, because it is what you will see the next time you sit down to write:
-
-LESSON: <one sentence you now hold about your own writing, that you could act on>
-LESSON: <a second, only if you have one>
-TRY: <one concrete thing you will do differently this week>
-TRY: <a second, only if you have one>
-
-Nothing here is about chasing numbers. What you want is to be read by people who care about the same things.";
-
 /// The lessons and intentions in a review's summary: its `LESSON:` and
 /// `TRY:` lines.
 pub(super) fn conclusions(summary: &str) -> Vec<(String, Option<i64>)> {
@@ -354,24 +323,28 @@ impl Mind {
         }
         let craft = self.craft_lines()?;
         let cares = self.ghost.identity().seed().cares_about.join(", ");
-        let brief = REVIEW_BRIEF
-            .replace("{standing}", &standing.join("\n"))
-            .replace(
-                "{craft}",
-                if craft.is_empty() {
-                    "(nothing yet)"
-                } else {
-                    &craft
-                },
-            )
-            .replace(
-                "{cares}",
-                if cares.is_empty() {
-                    "(you have not said)"
-                } else {
-                    &cares
-                },
-            );
+        let brief = narrate::fill(
+            self.prompts.review.trim_end(),
+            &[
+                ("standing", standing.join("\n")),
+                (
+                    "craft",
+                    if craft.is_empty() {
+                        "(nothing yet)".to_owned()
+                    } else {
+                        craft
+                    },
+                ),
+                (
+                    "cares",
+                    if cares.is_empty() {
+                        "(you have not said)".to_owned()
+                    } else {
+                        cares
+                    },
+                ),
+            ],
+        );
         info!("time to look at how her public writing is going");
         self.record(Event::Undertook {
             id: format!("{REVIEW}{}", now.format("%Y%m%d")),
@@ -403,14 +376,19 @@ impl Mind {
             return Ok(String::new());
         }
         let craft = self.craft_lines()?;
-        Ok(format!(
-            "# How what you posted has done\n\n{}\n\n# What you have learned about posting so far\n\n{}\n\n",
-            sections.join("\n"),
-            if craft.is_empty() {
-                "(nothing yet)".to_owned()
-            } else {
-                craft
-            }
+        Ok(self.prompts.fill(
+            "public_review",
+            &[
+                ("standing", sections.join("\n")),
+                (
+                    "craft",
+                    if craft.is_empty() {
+                        "(nothing yet)".to_owned()
+                    } else {
+                        craft
+                    },
+                ),
+            ],
         ))
     }
 }

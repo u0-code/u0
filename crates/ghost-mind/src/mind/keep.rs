@@ -17,14 +17,14 @@ impl Mind {
     /// some other act.
     pub(super) fn refusal(&self, place: &PlaceState, action: &Action) -> Result<Option<String>> {
         Ok(match action {
-            Action::Keep { note, .. } if note.trim().is_empty() => Some(
-                "The note is empty: say what it is and when you would want it again. Nothing was kept."
-                    .into(),
-            ),
+            Action::Keep { note, .. } if note.trim().is_empty() => Some(self.prompts.fill(
+                "nothing_kept",
+                &[("why", self.prompts.text("keep_no_note").to_owned())],
+            )),
             Action::Keep { message, image, .. } => self
                 .seen_here(place, *message, *image)?
                 .err()
-                .map(|why| format!("{why} Nothing was kept.")),
+                .map(|why| self.prompts.fill("nothing_kept", &[("why", why)])),
             Action::LetGo { thing } => self.cannot_let_go(*thing)?,
             Action::SendFile {
                 file,
@@ -49,10 +49,12 @@ impl Mind {
         image: Option<i64>,
     ) -> Result<std::result::Result<(String, String), String>> {
         let image = image.unwrap_or(1);
+        let numbers = [
+            ("image", image.to_string()),
+            ("message", message.to_string()),
+        ];
         let Some(index) = u32::try_from(image - 1).ok() else {
-            return Ok(Err(format!(
-                "There is no image {image}: images are counted from 1."
-            )));
+            return Ok(Err(self.prompts.fill("no_image_index", &numbers)));
         };
         let in_here = self
             .ghost
@@ -60,9 +62,7 @@ impl Mind {
             .line(message)?
             .is_some_and(|(key, _)| key == place.key);
         if !in_here {
-            return Ok(Err(format!(
-                "There is no message m{message} in this conversation."
-            )));
+            return Ok(Err(self.prompts.fill("no_message", &numbers)));
         }
         // What she made of it the last time she looked.
         let seen = self
@@ -84,12 +84,8 @@ impl Mind {
             Some((Some(file), what)) if media::path(self.ghost.dir(), &file).is_some() => {
                 Ok((file, what))
             }
-            Some(_) => Err(format!(
-                "Image {image} of m{message} was not saved when you looked at it, so you do not have it."
-            )),
-            None => Err(format!(
-                "You have not seen image {image} of m{message}, so you do not have it."
-            )),
+            Some(_) => Err(self.prompts.fill("image_not_saved", &numbers)),
+            None => Err(self.prompts.fill("image_not_seen", &numbers)),
         })
     }
 
@@ -123,9 +119,16 @@ impl Mind {
     fn cannot_let_go(&self, thing: i64) -> Result<Option<String>> {
         Ok(match self.ghost.memory().belonging(thing)? {
             Some(_) => None,
-            None => Some(format!(
-                "You hold nothing numbered {thing}. Nothing was let go."
-            )),
+            None => Some(
+                self.prompts.fill(
+                    "nothing_let_go",
+                    &[(
+                        "why",
+                        self.prompts
+                            .fill("hold_nothing", &[("thing", thing.to_string())]),
+                    )],
+                ),
+            ),
         })
     }
 

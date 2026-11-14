@@ -7,9 +7,12 @@
 //! deliberation.
 
 use ghost_brain::{Call, ToolSpec};
+use ghost_core::narrate;
 use serde::{Deserialize, Deserializer};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tracing::debug;
+
+use crate::Prompts;
 
 /// One thing she decides to do.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -165,147 +168,99 @@ pub fn from_call(call: &Call) -> Result<Action, String> {
 
 /// What a brain that takes tools is offered while she looks at a place.
 /// The names and arguments are those of [`Action`], so a call reads straight
-/// into one.
-pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
-    let tool = |name: &str, description: &str, properties: Value, required: &[&str]| ToolSpec {
-        name: name.to_owned(),
-        description: description.to_owned(),
-        parameters: json!({"type": "object", "properties": properties, "required": required}),
+/// into one. The shape of each is here; what each is said to be is in
+/// `tools.toml`, and `work` is what fills `{{means}}` in `undertake`.
+pub fn tools(words: &Prompts, work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
+    // Each argument by name and JSON type, described if `tools.toml` says
+    // something about it.
+    let tool = |name: &str, arguments: &[(&str, &str)], required: &[&str]| {
+        let properties: Map<String, Value> = arguments
+            .iter()
+            .map(|(argument, kind)| {
+                let mut schema = json!({"type": kind});
+                if let Some(said) = words.parameter(name, argument) {
+                    schema["description"] = Value::String(said.to_owned());
+                }
+                ((*argument).to_owned(), schema)
+            })
+            .collect();
+        ToolSpec {
+            name: name.to_owned(),
+            description: words.tool(name).to_owned(),
+            parameters: json!({"type": "object", "properties": properties, "required": required}),
+        }
     };
-    let text = |description: &str| json!({"type": "string", "description": description});
     let mut tools = vec![
         tool(
             "say",
-            "Send one message bubble. Call it several times for several bubbles.",
-            json!({
-                "text": text("The message, as you would type it."),
-                "reply_to": {"type": "integer", "description": "The m number of an earlier message, only when you are quoting that specific message."},
-            }),
+            &[("text", "string"), ("reply_to", "integer")],
             &["text"],
         ),
         tool(
             "react",
-            "React to a message, instead of or as well as replying.",
-            json!({
-                "to": {"type": "integer", "description": "The m number of the message."},
-                "emoji": text("One emoji."),
-            }),
+            &[("to", "integer"), ("emoji", "string")],
             &["to", "emoji"],
         ),
         tool(
             "later",
-            "Not now. You will come back to this conversation yourself in about this many minutes.",
-            json!({"minutes": {"type": "number"}, "why": text("Why not now.")}),
+            &[("minutes", "number"), ("why", "string")],
             &["minutes"],
         ),
         tool(
             "note",
-            "Keep something about a person for a long time. Facts and impressions, not a summary of the chat.",
-            json!({"about": text("Their name."), "text": text("What to remember.")}),
+            &[("about", "string"), ("text", "string")],
             &["text"],
         ),
         tool(
             "feel",
-            "This moment shifted how you feel about someone. Most moments shift nothing and need no such call.",
-            json!({
-                "toward": text("Their name."),
-                "delta": {"type": "number", "description": "From -3 to 3."},
-                "why": text("What did it."),
-            }),
+            &[("toward", "string"), ("delta", "number"), ("why", "string")],
             &["delta"],
         ),
         tool(
             "intend",
-            "Something you mean to do or ask later, such as finding out how their interview went.",
-            json!({
-                "hours": {"type": "number", "description": "How many hours from now."},
-                "what": text("What you mean to do."),
-                "about": text("Whom it concerns."),
-            }),
+            &[("hours", "number"), ("what", "string"), ("about", "string")],
             &["hours", "what"],
         ),
-        tool(
-            "canon",
-            "Required whenever a message of yours states something about your own life, habits or history that is not already listed as true: a place you go, a thing you own, something you did. One plain sentence, so that you say the same thing next month.",
-            json!({"fact": text("The fact.")}),
-            &["fact"],
-        ),
-        tool(
-            "recall",
-            "Search your memory for something older before answering. You get what you find, each with its number, and another turn.",
-            json!({"query": text("A few words.")}),
-            &["query"],
-        ),
-        tool(
-            "reread",
-            "Go back to what one memory came from: the messages a note or an account was made from, or the stretch around a message. For when the words themselves matter and your memory of them is not enough. You get them, and another turn.",
-            json!({"memory": {"type": "integer", "description": "The memory's number, as recall showed it."}}),
-            &["memory"],
-        ),
+        tool("canon", &[("fact", "string")], &["fact"]),
+        tool("recall", &[("query", "string")], &["query"]),
+        tool("reread", &[("memory", "integer")], &["memory"]),
         tool(
             "keep",
-            "Keep something you have seen and want to have again, the way people save a picture on their phone: \
-             for now, an image in a message here. It stays yours after the conversation has moved on, and your note \
-             is how you will find it again with `recall`. Keeping the same image again replaces the note.",
-            json!({
-                "message": {"type": "integer", "description": "The m number of the message it is in."},
-                "image": {"type": "integer", "description": "Which image in that message, counting from 1. Leave out for the first."},
-                "note": text("In your own words: what it is, and when you would want it again."),
-            }),
+            &[
+                ("message", "integer"),
+                ("image", "integer"),
+                ("note", "string"),
+            ],
             &["message", "note"],
         ),
-        tool(
-            "let_go",
-            "Let go of something you kept and no longer want, so that it stops coming back to you.",
-            json!({"thing": {"type": "integer", "description": "Its number, as recall showed it."}}),
-            &["thing"],
-        ),
+        tool("let_go", &[("thing", "integer")], &["thing"]),
     ];
     if look_up {
-        tools.push(tool(
-            "look_up",
-            "Look something up on the web, the way you would glance at a search on your phone in the middle of a conversation: a fact, a date, what something is. You get what comes back, and another turn. For anything that takes real work, take it on instead.",
-            json!({"query": text("What to search for.")}),
-            &["query"],
-        ));
+        tools.push(tool("look_up", &[("query", "string")], &["query"]));
     }
     if let Some(means) = work {
-        tools.push(tool(
+        let mut undertake = tool(
             "undertake",
-            &format!(
-                "Take on something that needs real work {means}: finding something out properly, making something, checking something. \
-                 It is not done in this reply. You will work on it in your own time and come back with what you found. \
-                 If you have already taken something on for them and they add to it or change it, call this again with just what is new: it is added to what you are doing. \
-                 Only for things you want to do or have agreed to do: nobody is owed your afternoon. Say something as well, the way you would."
-            ),
-            json!({
-                "brief": text("A complete instruction to yourself, with everything needed to do it without this conversation in front of you."),
-                "for": text("Who it is for. Leave out when it is for yourself."),
-            }),
+            &[("brief", "string"), ("for", "string")],
             &["brief"],
-        ));
+        );
+        undertake.description =
+            narrate::fill(&undertake.description, &[("means", means.to_owned())]);
+        tools.push(undertake);
     }
     if files {
         tools.push(tool(
             "send_file",
-            "Hand over a file or an image you have, in this conversation: something you kept, an image sent here, \
-             or a file you made. It arrives as itself, not as words about it, so they see what you see. \
-             It can go on its own, without words, the way people sometimes answer with just a picture.",
-            json!({
-                "file": text("Something you kept, by its number or its file name as recall showed it; or a file you made, as it was named to you."),
-                "message": {"type": "integer", "description": "Instead of `file`: the m number of a message here with the image in it."},
-                "image": {"type": "integer", "description": "With `message`: which image in it, counting from 1. Leave out for the first."},
-                "text": text("A line to go with it, if you have one."),
-            }),
+            &[
+                ("file", "string"),
+                ("message", "integer"),
+                ("image", "integer"),
+                ("text", "string"),
+            ],
             &[],
         ));
     }
-    tools.push(tool(
-        "leave",
-        "End this relationship for good. Rare and grave, and only after things have already gone cold.",
-        json!({"why": text("Why.")}),
-        &[],
-    ));
+    tools.push(tool("leave", &[("why", "string")], &[]));
     tools
 }
 

@@ -3,7 +3,8 @@
 //! `run` is the daemon: it opens her directory, starts her mind, and listens
 //! for presences and consoles. The other subcommands either read her
 //! directory without disturbing a running daemon (`status`, `journal`,
-//! `verify`) or connect to one as a console (`watch`, `agenda`, `people`).
+//! `verify`, `prompts`) or connect to one as a console (`watch`, `agenda`,
+//! `people`).
 
 mod config;
 mod server;
@@ -26,7 +27,7 @@ use ghost_core::{
     life::{Life, Phase},
 };
 use ghost_link::Console;
-use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses};
+use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses, prompts::Origin};
 use ghost_protocol::GhostCard;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -94,6 +95,32 @@ enum Cmd {
         #[command(flatten)]
         daemon: Daemon,
     },
+    /// The words her brain reads: where each comes from, and a copy of the
+    /// built-in ones to change.
+    Prompts {
+        #[command(subcommand)]
+        cmd: PromptsCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum PromptsCmd {
+    /// Every template, text and tool description, with where what is in use
+    /// comes from (DIR/prompts, the config's directory, or built in) and
+    /// whether it differs from the built-in.
+    List {
+        dir: PathBuf,
+        /// Path to ghostd.toml, for its `[mind] prompts`.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Write the built-in prompts into DIR/prompts, to be changed there.
+    Export {
+        dir: PathBuf,
+        /// Overwrite files that are already there.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// How to reach a running daemon.
@@ -146,6 +173,12 @@ async fn main() -> anyhow::Result<()> {
             show::people(&daemon.console().await?.people().await?);
             Ok(())
         }
+        Cmd::Prompts {
+            cmd: PromptsCmd::List { dir, config },
+        } => list_prompts(&dir, config.as_deref()),
+        Cmd::Prompts {
+            cmd: PromptsCmd::Export { dir, force },
+        } => export_prompts(&dir, force),
     }
 }
 
@@ -202,7 +235,8 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     } else {
         Arc::new(Numb)
     };
-    let prompts = Prompts::load(cfg.mind.prompts.as_deref()).context("load prompts")?;
+    let prompts = Prompts::load(dir, cfg.mind.prompts.as_deref());
+    say_overrides(&prompts);
     let workshop = workshop(&cfg.mind.work, dir)?;
     if cfg.mind.work.enabled {
         info!(
@@ -345,6 +379,69 @@ async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
         print(value);
     }
     eprintln!("the daemon went away");
+    Ok(())
+}
+
+/// Say which prompts are not the built-in ones, and where they come from.
+fn say_overrides(prompts: &Prompts) {
+    let mut from: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    for listed in prompts.listing() {
+        let Some(path) = listed.path else { continue };
+        let what = listed.key.unwrap_or_else(|| listed.file.to_owned());
+        match from.iter_mut().find(|(p, _)| *p == path) {
+            Some((_, names)) => names.push(what),
+            None => from.push((path, vec![what])),
+        }
+    }
+    if from.is_empty() {
+        info!("prompts: all built in");
+    }
+    for (path, names) in from {
+        info!("prompts from {}: {}", path.display(), names.join(", "));
+    }
+}
+
+/// `ghostd prompts list`.
+fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
+    let configured = if Config::exists(config) {
+        Config::load(config)?.0.mind.prompts
+    } else {
+        None
+    };
+    let prompts = Prompts::load(dir, configured.as_deref());
+    for listed in prompts.listing() {
+        let name = match &listed.key {
+            Some(key) => format!("{} {key}", listed.file),
+            None => listed.file.to_owned(),
+        };
+        let from = match (&listed.origin, &listed.path) {
+            (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
+            (origin, Some(path)) => format!("{origin:<8} {}", path.display()),
+        };
+        println!(
+            "{name:<36} {:<8} {from}",
+            if listed.differs { "changed" } else { "" }
+        );
+    }
+    Ok(())
+}
+
+/// `ghostd prompts export`.
+fn export_prompts(dir: &Path, force: bool) -> anyhow::Result<()> {
+    let target = dir.join(ghost_mind::prompts::DIR);
+    let done = Prompts::export(&target, force)
+        .with_context(|| format!("write into {}", target.display()))?;
+    let skipped = done.iter().filter(|(_, written)| !written).count();
+    for (path, written) in &done {
+        if *written {
+            println!("wrote    {}", path.display());
+        } else {
+            println!("skipped  {} (already there)", path.display());
+        }
+    }
+    if skipped > 0 {
+        println!("{skipped} left as they were; --force overwrites them");
+    }
     Ok(())
 }
 

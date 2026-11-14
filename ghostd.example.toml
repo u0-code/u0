@@ -58,7 +58,10 @@ public_replies = false
 gate = true
 # Hours between asking a channel how her posts are doing. 0 is never.
 measure_hours = 12
-# A directory of prompt templates overriding the ones in ghost-mind/prompts.
+# A directory of prompts overriding the built-in ones: any of the files that
+# `ghostd prompts export <dir>` writes. Her own <dir>/prompts/ overrides this
+# in turn and needs no setting. A changed file is taken in without a restart;
+# `ghostd prompts list <dir>` says where each prompt in use comes from.
 # prompts = "prompts"
 
 # Taking things on: work that needs more than one thought, done in sittings

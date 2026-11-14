@@ -23,14 +23,14 @@ impl Mind {
     pub(super) fn pursuit_block(&self) -> Result<String> {
         let held = self.ghost.memory().pursuits(HELD)?;
         let lines = if held.is_empty() {
-            "(Nothing you have put into words yet.)".to_owned()
+            self.prompts.text("pursuits_none").to_owned()
         } else {
             held.iter()
                 .map(|p| format!("- [{}] {}", p.seq, p.lesson))
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        Ok(format!("# What you are after\n\n{lines}\n\n"))
+        Ok(self.prompts.fill("pursuits", &[("pursuits", lines)]))
     }
 
     /// Whether she may take something on tonight for herself: she is after
@@ -54,14 +54,12 @@ impl Mind {
 
     /// How she is told about taking something on for herself.
     pub(super) fn own_work_line(&self, now: DateTime<Utc>) -> Result<String> {
-        Ok(if self.may_start_own_work(now)? {
-            "- \"undertake\" is for one piece of real work you want to do tomorrow toward something you are after: \
-             finding something out properly, making something. Write it as a complete instruction to yourself. \
-             Leave it empty unless there is something you actually want to get done; on most nights there is not."
-                .to_owned()
+        let key = if self.may_start_own_work(now)? {
+            "own_work_yes"
         } else {
-            "- Leave \"undertake\" empty.".to_owned()
-        })
+            "own_work_no"
+        };
+        Ok(self.prompts.text(key).to_owned())
     }
 
     /// She changed what she is after: a new direction, a changed one, or
@@ -116,16 +114,12 @@ impl Mind {
     /// piece of it.
     pub(super) fn practice_block(&self) -> Result<String> {
         let held = self.ghost.memory().practice(SHOWN)?;
-        if held.is_empty() {
-            return Ok(String::new());
-        }
-        Ok(format!(
-            "\n\n# What doing things has taught you\n\n{}",
-            held.iter()
-                .map(|l| format!("- {}", l.lesson))
-                .collect::<Vec<_>>()
-                .join("\n")
-        ))
+        let lessons = held
+            .iter()
+            .map(|l| format!("- {}", l.lesson))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(self.prompts.section("practice", "lessons", &lessons))
     }
 
     /// A piece of work ended and left something worth keeping about how

@@ -133,14 +133,7 @@ impl Mind {
         let seed = self.ghost.identity().seed();
         let past = narrate::past(&seed.past.iter().collect::<Vec<_>>());
         let pairs = vec![
-            (
-                "past",
-                if past.is_empty() {
-                    String::new()
-                } else {
-                    format!("\nWhat you carry with you from before:\n{past}\n")
-                },
-            ),
+            ("past", self.prompts.section("plan_past", "past", &past)),
             ("date", local.format("%A %Y-%m-%d").to_string()),
             ("time", local.format("%H:%M").to_string()),
             ("sleep", clock.sleep().format("%H:%M").to_string()),
@@ -159,6 +152,7 @@ impl Mind {
             (home.city.clone(), home.country.clone())
         };
         let (brain, senses) = (self.tick.clone(), self.senses.clone());
+        let about_weather = self.prompts.text("weather").to_owned();
         let (want_weather, max_tokens) = (self.cfg.weather, self.cfg.max_tokens);
         self.planning = true;
         self.budget.spend(now);
@@ -173,7 +167,7 @@ impl Mind {
                 "weather",
                 weather
                     .as_ref()
-                    .map(|w| format!("The weather today: {w}."))
+                    .map(|w| narrate::fill(&about_weather, &[("weather", w.clone())]))
                     .unwrap_or_default(),
             ));
             let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
@@ -403,14 +397,9 @@ impl Mind {
                 ))
             })
             .collect::<Vec<_>>();
-        let talked = if channels.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "You also talked with people today, on {}. Each of those is looked back on by itself; this is for your own day.\n\n",
-                channels.join(", ")
-            )
-        };
+        let talked = self
+            .prompts
+            .section("talked", "channels", &channels.join(", "));
         let prompt = narrate::fill(
             &self.prompts.reflect,
             &[

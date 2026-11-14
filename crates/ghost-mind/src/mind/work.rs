@@ -35,11 +35,6 @@ use tracing::{info, warn};
 use super::{Mind, Outcome};
 use crate::{Result, actions::clip};
 
-const WHO: &str = "What follows is something you took on yourself. Do it the way you would do \
-anything you care about: properly, and in your own way. The result is yours and will be read as \
-yours. When you write the final summary, write it as what you would tell the person who asked, \
-or yourself if nobody did.";
-
 /// A sitting in progress.
 pub(super) struct Working {
     pub id: String,
@@ -195,17 +190,16 @@ impl Mind {
             .cloned();
         if let Some(stale) = unanswered {
             // Nobody answered. She goes on without, and says so in the work.
-            let said = "No answer came to your question. Go on with your best judgement, \
-                        and say in your summary what you assumed.";
+            let said = self.prompts.text("no_answer").to_owned();
             if let Err(e) = self
                 .undertaking(&stale.id, &stale.brief)
-                .and_then(|u| u.add(said))
+                .and_then(|u| u.add(&said))
             {
                 warn!("cannot go on with {} unanswered: {e}", stale.id);
             }
             self.record(Event::Added {
                 id: stale.id,
-                text: said.to_owned(),
+                text: said,
             })?;
             self.agenda.work = Some(now);
             return Ok(());
@@ -254,8 +248,7 @@ impl Mind {
         let before = undertaking.state().steps;
         let place = match &self.workshop.machine {
             Some(machine) => machine.describe(),
-            None => "You have no computer to run things on for this: only what you can look up and think through."
-                .to_owned(),
+            None => self.prompts.text("no_machine").to_owned(),
         };
         // What she works with, for this and for any part of it she hands
         // to a helper: her machine if she has one, and the web.
@@ -289,7 +282,12 @@ impl Mind {
         // Who she is, without what moment it is: the same words at every
         // sitting, so that a sitting picked up later reads its transcript
         // from the provider's cache instead of afresh.
-        let who = format!("{}\n\n{WHO}{}", self.who(now)?, self.practice_block()?);
+        let who = format!(
+            "{}\n\n{}{}",
+            self.who(now)?,
+            self.prompts.working.trim_end(),
+            self.practice_block()?
+        );
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
         self.working = Some(Working {
             id: next.id.clone(),
@@ -445,18 +443,14 @@ impl Mind {
                     question: question.clone(),
                 })?;
                 if let Some(u) = self.ghost.memory().undertaking(id)? {
-                    self.intend(
-                        now + Duration::minutes(1),
-                        format!(
-                            "ask them what you need to know to go on with what you took on (\"{}\"). \
-                             Your question, to put in your own words: {}",
-                            clip(&u.brief, 160),
-                            clip(&question, 600)
-                        ),
-                        u.asked_by,
-                        u.place,
-                        true,
-                    )?;
+                    let ask = self.prompts.fill(
+                        "ask_them",
+                        &[
+                            ("brief", clip(&u.brief, 160)),
+                            ("question", clip(&question, 600)),
+                        ],
+                    );
+                    self.intend(now + Duration::minutes(1), ask, u.asked_by, u.place, true)?;
                     self.refresh_intentions()?;
                 }
                 // Something else may be waiting to be done meanwhile.
@@ -497,11 +491,11 @@ impl Mind {
         if let Some(u) = undertaking
             && (u.asked_by.is_some() || u.place.is_some())
         {
-            let how = match outcome {
-                "finished" => "It is done",
-                "blocked" => "You could not finish it",
-                _ => "You gave up on it",
-            };
+            let how = self.prompts.text(match outcome {
+                "finished" => "how_finished",
+                "blocked" => "how_blocked",
+                _ => "how_gave_up",
+            });
             // What she made, if it is files, and whether this place can
             // take a file at all.
             let made = if report.files.is_empty() {
@@ -512,27 +506,29 @@ impl Mind {
                         .as_deref()
                         .and_then(ghost_core::social::split_key)
                         .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
-                format!(
-                    " What you made is in: {}. {}",
-                    report.files.join(", "),
-                    if can_send {
-                        "Hand it over with `send_file`."
-                    } else {
-                        "It cannot be sent as a file here, so tell them what is in it."
-                    }
+                self.prompts.fill(
+                    "made",
+                    &[
+                        ("files", report.files.join(", ")),
+                        (
+                            "send",
+                            self.prompts
+                                .text(if can_send { "made_send" } else { "made_tell" })
+                                .to_owned(),
+                        ),
+                    ],
                 )
             };
-            self.intend(
-                now + Duration::minutes(1),
-                format!(
-                    "tell them what came of what you took on (\"{}\"). {how}. What you found: {}{made}",
-                    clip(&u.brief, 160),
-                    clip(&summary, 6000)
-                ),
-                u.asked_by,
-                u.place,
-                true,
-            )?;
+            let tell = self.prompts.fill(
+                "tell_them",
+                &[
+                    ("brief", clip(&u.brief, 160)),
+                    ("how", how.to_owned()),
+                    ("summary", clip(&summary, 6000)),
+                    ("made", made),
+                ],
+            );
+            self.intend(now + Duration::minutes(1), tell, u.asked_by, u.place, true)?;
             self.refresh_intentions()?;
         }
         // On to the next thing, if there is one.

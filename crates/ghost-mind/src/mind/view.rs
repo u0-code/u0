@@ -30,8 +30,6 @@ const AT_MOST: usize = 4;
 const VIEW_TOKENS: u32 = 600;
 /// How much of the conversation she has in mind while looking.
 const CONTEXT_LINES: usize = 8;
-/// The words that go with the image; what to do with it is in `view.md`.
-const LOOK: &str = "Here is the image.";
 
 /// What she made of one image.
 pub(super) struct Sight {
@@ -120,7 +118,9 @@ impl Mind {
                 ),
             ],
         );
-        Ok(Completion::ask(system, LOOK, VIEW_TOKENS).thinking(Effort::Off))
+        // The words that go with the image; what to do with it is in `view.md`.
+        let look = self.prompts.text("look");
+        Ok(Completion::ask(system, look, VIEW_TOKENS).thinking(Effort::Off))
     }
 
     pub(super) fn on_viewed(
@@ -173,7 +173,9 @@ async fn look(
         }
     };
     let mut request = request.clone();
-    request.messages = vec![Message::user(LOOK).with_images(vec![picture])];
+    // The words that go with the image are the ones the request was made with.
+    let words = request.messages.pop().map(|m| m.text).unwrap_or_default();
+    request.messages = vec![Message::user(words).with_images(vec![picture])];
     let reply = brain.complete(&request).await.map_err(|e| e.to_string())?;
     let what = reply.text.trim().to_owned();
     if what.is_empty() {
