@@ -175,4 +175,20 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let line = &again.memory().thread("qq:c2c:B7D1C0", 1).unwrap()[0];
     assert_eq!(line.text, "fox：send me the weather");
     assert_eq!(line.directive.as_deref(), Some("send me the weather"));
+    // Work an operator directed, and what she means to do because of it,
+    // are remembered as directed.
+    let work = again
+        .memory()
+        .undertaking("20261114-090000-00ef")
+        .unwrap()
+        .unwrap();
+    assert!(work.directed);
+    assert!(
+        again
+            .memory()
+            .open_intentions()
+            .unwrap()
+            .iter()
+            .any(|i| i.directed)
+    );
 }

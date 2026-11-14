@@ -44,6 +44,20 @@ impl Mind {
         place: Option<String>,
         owed: bool,
     ) -> Result<bool> {
+        self.intend_as(due, what, about, place, owed, false)
+    }
+
+    /// The same, saying whether it comes of work an operator directed: then
+    /// it is acted on whatever her day is, as the directive was.
+    pub(super) fn intend_as(
+        &mut self,
+        due: DateTime<Utc>,
+        what: String,
+        about: Option<String>,
+        place: Option<String>,
+        owed: bool,
+        directed: bool,
+    ) -> Result<bool> {
         let held = self.ghost.memory().open_intentions()?.iter().any(|open| {
             let same = match (&about, &open.about) {
                 (Some(a), Some(b)) => a == b,
@@ -61,6 +75,7 @@ impl Mind {
             about,
             place,
             owed,
+            directed,
         })?;
         Ok(true)
     }
@@ -161,7 +176,8 @@ impl Mind {
         if self.thinking.contains(&place.key) || self.agenda.speaking.contains_key(&place.key) {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
-        if !self.tempo.instant() {
+        // What comes of a directive does not wait on her day either.
+        if !self.tempo.instant() && !intention.directed {
             let moment = self.life.moment(self.ghost.journal(), now)?;
             if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy {
                 let slack = Duration::seconds(i64::from(self.rng.u32(60..600)));
@@ -169,7 +185,9 @@ impl Mind {
             }
         }
         if !self.budget.allow(now) {
-            return Ok(Err(Wait::Until(now + Duration::minutes(10))));
+            // The budget holds for it too: it waits a minute rather than ten.
+            let wait = if intention.directed { 1 } else { 10 };
+            return Ok(Err(Wait::Until(now + Duration::minutes(wait))));
         }
         Ok(Ok(()))
     }
