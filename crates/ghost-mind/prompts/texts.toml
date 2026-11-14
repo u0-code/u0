@@ -68,6 +68,17 @@ work_told_files = " (ready to hand over: {{files}})"
 # And what she kept from it so far, which `send_file` can hand over by its
 # number or file name.
 work_kept = "\n  You kept from it #{{thing}} ({{file}}): {{note}}"
+# And the newest few parts of it that it handed to other workers, one line
+# each: what each was given, where it stands and the latest it said. They
+# report to the work, not to her.
+work_part = "\n  Part {{part}} of it ({{status}}), given \"{{brief}}\": {{latest}}"
+part_running = "running"
+part_paused = "paused until you sit down to the work again"
+part_asking = "waiting for the work to answer it"
+part_finished = "finished"
+part_blocked = "stuck"
+part_gave_up = "gave up"
+part_dropped = "stopped"
 waiting_answer = "You stopped to ask them: \"{{question}}\". It waits for their answer. When they give one, take it on again with just the answer, so that it reaches the work."
 
 addressed_direct = "This is a private conversation. Whatever is new was written to you."

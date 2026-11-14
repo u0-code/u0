@@ -92,6 +92,11 @@ sitting_steps = 40
 sitting_minutes = 15
 rest_minutes = 10
 max_sittings = 12
+# A piece of work can be handed out in parts, each done by a worker of its
+# own alongside her while her sitting runs. At most this many run at once,
+# and each may take this many steps over all the sittings it runs in.
+parts = 4
+part_steps = 200
 # Things she will take on in a day.
 per_day = 4
 # Once she has put into words something she is after, she may take a piece

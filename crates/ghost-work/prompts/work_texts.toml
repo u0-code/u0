@@ -106,10 +106,58 @@ not_started = """\
 no_longer_shown_one = "[This image is no longer shown, to save room. Ask for it again if you need to see it.]"
 no_longer_shown_many = "[These images are no longer shown, to save room. Ask for them again if you need to see them.]"
 
-# What comes back from `delegate`: how the helper did, and its report.
-helper_report = "The helper {{how}} after {{steps}} steps. Its report:\n\n{{report}}"
-helper_finished = "finished"
-helper_blocked = "could not go on"
-helper_gave_up = "gave up"
-helper_failed = "failed ({{why}})"
-helper_ran_out = "ran out of steps or time before finishing"
+# Parts: pieces of the work handed out with `delegate`, each done by a
+# worker of its own while the one that handed it out goes on with its
+# share. {{part}} is a part's number.
+
+# What a part is told about where it stands, before its instructions.
+part_who = """\
+    You are doing one part of a larger piece of work. Another worker is doing the whole of it: it handed \
+    this part to you and goes on with its own share while you do yours. It sees nothing of what you do, only \
+    what you `tell` it, what you `ask` it, and the summary you give `done`. That summary is your report to it \
+    and all it will have of your work, so make it complete enough to act on: what you found or did, where it \
+    is, what you checked, and what is still open. Keep to the part you were given. The rest is being done by \
+    others, and work outside your part can undo theirs."""
+
+# What `delegate` returns: the part's number, and nothing of its work yet.
+part_started = "Part {{part}} has started on it, alongside you."
+part_queued = "Part {{part}} is queued, because as many parts as may run at once ({{running}}) already are. It starts when one of them ends."
+
+# What reaches the worker from its parts between its steps, each as a
+# message of its own that says whom it is from and what it is.
+part_told = "A message from part {{part}}, which goes on working:\n\n{{text}}{{files}}"
+part_told_files = "\n\nFiles it made: {{files}}"
+part_asked = "A question from part {{part}}, which has stopped until you answer it with `steer`:\n\n{{text}}"
+part_ended = "Part {{part}} {{how}} after {{steps}} steps. Its report:\n\n{{report}}"
+part_finished = "finished"
+part_blocked = "could not go on"
+part_gave_up = "gave up"
+part_dropped = "was stopped"
+part_failed = "failed ({{why}})"
+part_ran_out = "ran out of steps before finishing"
+part_stalled = "stopped acting, and was ended"
+
+# What `steer`, `stop`, `wait` and `parts` return at work.
+steered = "Passed on to part {{part}}. It reads it before its next step."
+part_stopped = "Part {{part}} is stopped. If it is in the middle of a step it ends after that step, and its report reaches you."
+no_part = "There is no part {{part}}. Call `parts` to see the parts you have handed out."
+part_over = "Part {{part}} has already ended. Hand out a new part if there is more to do."
+wait_arrived = "Something arrived. It follows."
+wait_timed_out = "Nothing arrived in {{seconds}} seconds."
+wait_idle = "No part is running or queued, so nothing will arrive. Call `parts` to see where each one stands."
+parts_none = "You have not handed out any parts."
+parts_line = "- part {{part}} ({{status}}, {{steps}} steps), given \"{{task}}\": {{latest}}"
+status_running = "running"
+status_queued = "queued"
+status_asking = "waiting for your answer"
+status_finished = "finished"
+status_blocked = "blocked"
+status_gave_up = "gave_up"
+status_dropped = "dropped"
+
+# What `done` says when the work is called finished while parts of it
+# have not ended.
+parts_open = """\
+    Not recorded. These parts have not ended: {{parts}}. Their results are not in, so the work is not \
+    finished yet. Wait for them with `wait`, or stop the ones you no longer need with `stop`, then call \
+    `done` again. Calling it blocked or gave_up instead ends them along with the work."""

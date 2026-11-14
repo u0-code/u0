@@ -12,8 +12,8 @@
 //! transcript     what the model is shown now, saved after every step
 //! history        every item the transcript ever held; append-only
 //! log            one line per step: what was called, what it cost
-//! inbox          what was added from outside while it ran, and whether it
-//!                has been taken
+//! inbox          what reached it from outside while it ran, of what kind,
+//!                and whether it has been taken
 //! ```
 //!
 //! What goes the other way, from the work to whoever it is for while it
@@ -21,6 +21,11 @@
 //! (`kept`), oldest first. Whoever the work is for reads those lists and
 //! takes what it has not had yet; the worker only appends to them, and
 //! never reads them back.
+//!
+//! A part of a piece of work, `<id>/<n>`, is an undertaking like any other,
+//! and its parent is whoever it is for. What it says to its parent goes
+//! into the parent's inbox, beside what was added to the parent's task, so
+//! that a worker hears from its parts the way it hears from outside.
 //!
 //! Only the bookkeeping is kept there. The files the work produces are
 //! wherever its machine put them. Images a tool showed the model are kept
@@ -153,6 +158,12 @@ pub struct State {
     /// them. Only ever appended to.
     #[serde(default)]
     pub told: Vec<Told>,
+    /// The undertaking this is a part of, for a part handed out by a
+    /// worker. Helpers from before parts ran on their own have none, and
+    /// are not counted as parts: each of them ended in the step that
+    /// started it.
+    #[serde(default)]
+    pub parent: Option<String>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,
@@ -226,6 +237,26 @@ impl State {
         }
     }
 
+    /// The latest thing it has to say for itself: its report if it has
+    /// ended, the question it is waiting on, what it last told, or where it
+    /// stands.
+    pub fn latest(&self) -> String {
+        if let Some(finish) = self
+            .finish
+            .as_ref()
+            .filter(|f| !f.summary.trim().is_empty())
+        {
+            return finish.summary.trim().to_owned();
+        }
+        if let Some(question) = &self.waiting {
+            return question.trim().to_owned();
+        }
+        match self.told.last() {
+            Some(told) => told.text.trim().to_owned(),
+            None => self.progress(),
+        }
+    }
+
     /// The newest notes that fit in `budget` characters, oldest first.
     pub fn notes_text(&self, budget: usize) -> String {
         if self.notes.is_empty() {
@@ -255,12 +286,12 @@ pub const WORK_DB: &str = "work.db";
 
 /// The version of the schema below. Raised, with a way forward from the
 /// last one, when a table changes: this is state nothing else can rebuild.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// Every undertaking in one database, keyed by id. `history` is append-only
 /// the way the journal is: triggers abort any change to what is written.
-/// The others are bookkeeping and may be replaced; `inbox` keeps what was
-/// added, and marks it once it has been taken.
+/// The others are bookkeeping and may be replaced; `inbox` keeps what
+/// reached the work, and marks it once it has been taken.
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS undertakings (
     id    TEXT PRIMARY KEY,
@@ -291,9 +322,55 @@ CREATE TABLE IF NOT EXISTS inbox (
     n     INTEGER NOT NULL,
     text  TEXT    NOT NULL,
     taken INTEGER NOT NULL DEFAULT 0,
+    kind  TEXT    NOT NULL DEFAULT 'added',
     PRIMARY KEY (id, n)
 );
 ";
+
+/// What schema 1 lacked: the kind of what is in the inbox. Everything
+/// written before it was added to the task.
+const KIND_COLUMN: &str = "ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'added'";
+
+/// What reached a piece of work from outside while it ran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailKind {
+    /// Added to its task, by whoever it is for.
+    Added,
+    /// Something one of its parts told it.
+    Told,
+    /// A question one of its parts is waiting on.
+    Asked,
+    /// One of its parts ended, and this is its report.
+    Ended,
+}
+
+impl MailKind {
+    fn word(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Told => "told",
+            Self::Asked => "asked",
+            Self::Ended => "ended",
+        }
+    }
+
+    fn from_word(word: &str) -> Self {
+        match word {
+            "told" => Self::Told,
+            "asked" => Self::Asked,
+            "ended" => Self::Ended,
+            _ => Self::Added,
+        }
+    }
+}
+
+/// One thing from the inbox. What came from a part is written as the
+/// worker is to read it: who it is from and what kind of thing it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mail {
+    pub kind: MailKind,
+    pub text: String,
+}
 
 /// One undertaking in a work database, with a connection of its own.
 ///
@@ -465,6 +542,16 @@ impl Undertaking {
                 )));
             }
             tx.execute_batch(SCHEMA).map_err(other)?;
+            let has_kind: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('inbox') WHERE name = 'kind'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(other)?;
+            if has_kind == 0 {
+                tx.execute_batch(KIND_COLUMN).map_err(other)?;
+            }
             tx.pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(other)?;
             let state = if let Some(state) = load(&tx, id).map_err(other)? {
@@ -537,6 +624,7 @@ impl Undertaking {
             let id = format!("{prefix}{}", last + 1);
             let state = State {
                 brief: brief.to_owned(),
+                parent: Some(self.id.clone()),
                 ..State::default()
             };
             store(&tx, &id, &state).map_err(other)?;
@@ -554,6 +642,57 @@ impl Undertaking {
     /// Its key in that database.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Its parts, by number: every undertaking started with
+    /// [`Undertaking::open_part`] as part of this one, as they are now.
+    pub fn parts(&self) -> Vec<(u64, State)> {
+        let prefix = format!("{}/", self.id);
+        let conn = self.conn();
+        let read = conn
+            .prepare(
+                "SELECT substr(id, length(?1) + 1), state FROM undertakings
+                 WHERE substr(id, 1, length(?1)) = ?1",
+            )
+            .and_then(|mut query| {
+                query
+                    .query_map([&prefix], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            });
+        let rows = read.unwrap_or_else(|e| {
+            tracing::warn!("could not read the parts of {}: {e}", self.id);
+            Vec::new()
+        });
+        let mut parts: Vec<(u64, State)> = rows
+            .into_iter()
+            .filter_map(|(rest, state)| {
+                let n = rest.parse::<u64>().ok()?;
+                let state: State = serde_json::from_str(&state).ok()?;
+                (state.parent.as_deref() == Some(self.id.as_str())).then_some((n, state))
+            })
+            .collect();
+        parts.sort_by_key(|(n, _)| *n);
+        parts
+    }
+
+    /// Its part numbered `n`, with a handle of its own.
+    pub fn part(&self, n: u64) -> io::Result<Self> {
+        let part = Self::open(&self.db, &format!("{}/{n}", self.id), None)?;
+        if part.state().parent.as_deref() != Some(self.id.as_str()) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} has no part {n}", self.id),
+            ));
+        }
+        Ok(part)
+    }
+
+    /// The number this undertaking has among its parent's parts, if it is
+    /// a part.
+    pub fn number(&self) -> Option<u64> {
+        self.id.rsplit_once('/')?.1.parse().ok()
     }
 
     fn conn(&self) -> MutexGuard<'_, Connection> {
@@ -789,22 +928,59 @@ impl Undertaking {
     /// Whoever is working on this may hold another handle, in another
     /// process; the worker picks it up before its next step.
     pub fn add(&self, text: &str) -> io::Result<()> {
-        self.appending("inbox", "text", [text.trim().to_owned()])
-            .map_err(other)
+        self.post(MailKind::Added, text)
     }
 
-    /// Take what has been added since the last look, and make it part of
-    /// the task. Taking it and adding it to the task are one transaction:
-    /// whichever handle takes a line takes it alone, and only once.
-    pub fn take_added(&self) -> Vec<String> {
-        let mut conn = self.conn();
-        let taken = (|| -> rusqlite::Result<(Vec<String>, Option<State>)> {
+    /// Put something in the inbox, to be taken before the next step of
+    /// whoever works on this.
+    pub fn post(&self, kind: MailKind, text: &str) -> io::Result<()> {
+        let posted = (|| -> rusqlite::Result<()> {
+            let mut conn = self.conn();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let lines: Vec<String> = {
-                let mut query =
-                    tx.prepare("SELECT text FROM inbox WHERE id = ?1 AND taken = 0 ORDER BY n")?;
+            let last: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(n), 0) FROM inbox WHERE id = ?1",
+                [&self.id],
+                |row| row.get(0),
+            )?;
+            tx.execute(
+                "INSERT INTO inbox (id, n, text, kind) VALUES (?1, ?2, ?3, ?4)",
+                params![self.id, last + 1, text.trim(), kind.word()],
+            )?;
+            tx.commit()
+        })();
+        posted.map_err(other)
+    }
+
+    /// How many things in the inbox have not been taken yet.
+    pub fn pending(&self) -> usize {
+        self.conn()
+            .query_row(
+                "SELECT COUNT(*) FROM inbox WHERE id = ?1 AND taken = 0",
+                [&self.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_or(0, |n| usize::try_from(n).unwrap_or(0))
+    }
+
+    /// Take what has reached the work since the last look, oldest first.
+    /// What was added becomes part of the task. Taking it and adding it to
+    /// the task are one transaction: whichever handle takes a line takes it
+    /// alone, and only once.
+    pub fn take_inbox(&self) -> Vec<Mail> {
+        let mut conn = self.conn();
+        let taken = (|| -> rusqlite::Result<(Vec<Mail>, Option<State>)> {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let lines: Vec<Mail> = {
+                let mut query = tx.prepare(
+                    "SELECT text, kind FROM inbox WHERE id = ?1 AND taken = 0 ORDER BY n",
+                )?;
                 query
-                    .query_map([&self.id], |row| row.get(0))?
+                    .query_map([&self.id], |row| {
+                        Ok(Mail {
+                            text: row.get(0)?,
+                            kind: MailKind::from_word(&row.get::<_, String>(1)?),
+                        })
+                    })?
                     .collect::<rusqlite::Result<_>>()?
             };
             if lines.is_empty() {
@@ -814,22 +990,26 @@ impl Undertaking {
                 "UPDATE inbox SET taken = 1 WHERE id = ?1 AND taken = 0",
                 [&self.id],
             )?;
-            let added: Vec<String> = lines.into_iter().filter(|t| !t.is_empty()).collect();
+            let mail: Vec<Mail> = lines.into_iter().filter(|m| !m.text.is_empty()).collect();
             let mut state = load(&tx, &self.id)?.unwrap_or_else(|| self.cached().clone());
-            state.additions.extend(added.iter().cloned());
+            state.additions.extend(
+                mail.iter()
+                    .filter(|m| m.kind == MailKind::Added)
+                    .map(|m| m.text.clone()),
+            );
             store(&tx, &self.id, &state)?;
             tx.commit()?;
-            Ok((added, Some(state)))
+            Ok((mail, Some(state)))
         })();
         match taken {
-            Ok((added, state)) => {
+            Ok((mail, state)) => {
                 if let Some(state) = state {
                     *self.cached() = state;
                 }
-                added
+                mail
             }
             Err(e) => {
-                tracing::warn!("could not take what was added: {e}");
+                tracing::warn!("could not take what reached the work: {e}");
                 Vec::new()
             }
         }
@@ -837,10 +1017,10 @@ impl Undertaking {
 
     /// End the work from outside, as `dropped`, unless it has already
     /// ended. A worker stepping it sees this before its next step, and a
-    /// tool server refuses every call after it. Returns whether it was
-    /// still going.
+    /// tool server refuses every call after it. Its parts end with it.
+    /// Returns whether it was still going.
     pub fn stop(&self) -> bool {
-        self.update(|state| {
+        let stopped = self.update(|state| {
             if state.finish.is_some() {
                 return false;
             }
@@ -852,7 +1032,23 @@ impl Undertaking {
                 at: Utc::now(),
             });
             true
-        })
+        });
+        self.stop_parts();
+        stopped
+    }
+
+    /// End every part that has not ended, as `dropped`.
+    pub fn stop_parts(&self) {
+        for (n, state) in self.parts() {
+            if state.finish.is_none() {
+                match self.part(n) {
+                    Ok(part) => {
+                        part.stop();
+                    }
+                    Err(e) => tracing::warn!("could not stop part {n} of {}: {e}", self.id),
+                }
+            }
+        }
     }
 
     /// Append one line to the step log.
@@ -874,6 +1070,13 @@ impl Undertaking {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Undertaking {
+        /// The words of what was taken from the inbox, whatever their kind.
+        fn taken(&self) -> Vec<String> {
+            self.take_inbox().into_iter().map(|m| m.text).collect()
+        }
+    }
 
     fn db(dir: &tempfile::TempDir) -> PathBuf {
         dir.path().join(WORK_DB)
@@ -1092,8 +1295,8 @@ mod tests {
         assert!(b.transcript().is_none());
         assert!(b.history().is_empty());
         assert!(b.logged().is_empty());
-        assert!(b.take_added().is_empty(), "what was added to a is not b's");
-        assert_eq!(a.take_added(), ["white"]);
+        assert!(b.taken().is_empty(), "what was added to a is not b's");
+        assert_eq!(a.taken(), ["white"]);
     }
 
     #[test]
@@ -1141,7 +1344,7 @@ mod tests {
                     let u = Undertaking::open(&path, "u1", None).unwrap();
                     let mut got = Vec::new();
                     for _ in 0..200 {
-                        got.extend(u.take_added());
+                        got.extend(u.taken());
                     }
                     got
                 })
@@ -1152,7 +1355,7 @@ mod tests {
         }
         let mut taken: Vec<String> = takers.into_iter().flat_map(|t| t.join().unwrap()).collect();
         let last = Undertaking::open(&db(&dir), "u1", None).unwrap();
-        taken.extend(last.take_added());
+        taken.extend(last.taken());
 
         let mut sorted = taken.clone();
         sorted.sort();
@@ -1189,13 +1392,114 @@ mod tests {
         outside.add("weekends too").unwrap();
         outside.add("and whether it takes bookings").unwrap();
         assert_eq!(
-            worker.take_added(),
+            worker.taken(),
             ["weekends too", "and whether it takes bookings"]
         );
-        assert!(worker.take_added().is_empty(), "taken once");
+        assert!(worker.taken().is_empty(), "taken once");
         assert_eq!(
             outside.state().task_text(),
             "find when it closes\n\nAdded later: weekends too\n\nAdded later: and whether it takes bookings"
+        );
+    }
+
+    #[test]
+    fn an_inbox_written_by_schema_one_is_kept_and_what_is_in_it_still_joins_the_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = serde_json::to_string(&State {
+            brief: "find when it closes".into(),
+            ..State::default()
+        })
+        .unwrap();
+        // As schema 1 left it, with a line not yet taken.
+        let conn = Connection::open(db(&dir)).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE undertakings (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+             CREATE TABLE inbox (
+                 id TEXT NOT NULL, n INTEGER NOT NULL, text TEXT NOT NULL,
+                 taken INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (id, n));
+             INSERT INTO inbox (id, n, text) VALUES ('u1', 1, 'weekends too');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO undertakings (id, state) VALUES ('u1', ?1)",
+            [&state],
+        )
+        .unwrap();
+        drop(conn);
+
+        let u = Undertaking::open(&db(&dir), "u1", None).unwrap();
+        assert_eq!(
+            u.take_inbox(),
+            [Mail {
+                kind: MailKind::Added,
+                text: "weekends too".into()
+            }]
+        );
+        assert_eq!(u.state().additions, ["weekends too"]);
+        u.post(MailKind::Told, "from a part").unwrap();
+        assert_eq!(u.take_inbox()[0].kind, MailKind::Told);
+    }
+
+    #[test]
+    fn what_a_part_says_to_its_parent_does_not_join_the_parents_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = Undertaking::open(&db(&dir), "main", Some("find when it closes")).unwrap();
+        parent.add("weekends too").unwrap();
+        parent
+            .post(MailKind::Told, "part 1 says two sources agree")
+            .unwrap();
+        parent
+            .post(MailKind::Asked, "part 1 asks which year")
+            .unwrap();
+        parent.post(MailKind::Ended, "part 1 finished").unwrap();
+        assert_eq!(parent.pending(), 4);
+        let kinds: Vec<MailKind> = parent.take_inbox().iter().map(|m| m.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                MailKind::Added,
+                MailKind::Told,
+                MailKind::Asked,
+                MailKind::Ended
+            ]
+        );
+        assert_eq!(parent.pending(), 0);
+        assert_eq!(parent.state().additions, ["weekends too"]);
+    }
+
+    #[test]
+    fn the_parts_of_a_work_are_listed_by_number_and_end_when_it_is_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = Undertaking::open(&db(&dir), "main", Some("the whole")).unwrap();
+        let first = parent.open_part("first").unwrap();
+        let second = parent.open_part("second").unwrap();
+        second.update(|s| {
+            s.finish = Some(Finish {
+                outcome: Outcome::Finished,
+                summary: "done".into(),
+                files: vec![],
+                lesson: None,
+                at: Utc::now(),
+            });
+        });
+        // A helper from before parts ran on their own is not one of them.
+        Undertaking::open(&db(&dir), "main/3", Some("an old helper")).unwrap();
+        let listed: Vec<(u64, String)> = parent
+            .parts()
+            .into_iter()
+            .map(|(n, s)| (n, s.brief))
+            .collect();
+        assert_eq!(listed, [(1, "first".into()), (2, "second".into())]);
+        assert_eq!(parent.part(2).unwrap().number(), Some(2));
+        assert!(parent.part(3).is_err());
+
+        assert!(parent.stop());
+        assert_eq!(first.state().finish.unwrap().outcome, Outcome::Dropped);
+        assert_eq!(
+            second.state().finish.unwrap().outcome,
+            Outcome::Finished,
+            "what had ended stays as it ended"
         );
     }
 

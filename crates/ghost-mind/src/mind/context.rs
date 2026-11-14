@@ -26,6 +26,8 @@ const FRESH: Duration = Duration::hours(12);
 /// her, and how many of the things she kept from it.
 const REPORTS_SHOWN: usize = 3;
 const KEPT_SHOWN: usize = 6;
+/// How many of the newest parts of a piece of work are shown under it.
+const PARTS_SHOWN: usize = 6;
 
 impl Mind {
     /// A place in a few words, as she would refer to it from elsewhere.
@@ -202,6 +204,7 @@ impl Mind {
                             ],
                         ));
                     }
+                    line.push_str(&self.parts_of(&u.id));
                     lines.push(line);
                 }
                 Some(outcome) if now - u.last_at < FRESH => lines.push(format!(
@@ -239,6 +242,46 @@ impl Mind {
         Ok(self
             .prompts
             .section("elsewhere", "lines", &lines.join("\n")))
+    }
+
+    /// The newest parts the work `id` has handed out, a line each, to go
+    /// under it: what each was given, where it stands and the latest it
+    /// said. Empty when it has none, or its record cannot be read.
+    fn parts_of(&self, id: &str) -> String {
+        let db = self.ghost.dir().join(ghost_work::WORK_DB);
+        // Opening a record that is not there would make one.
+        if !db.exists() {
+            return String::new();
+        }
+        let Ok(record) = ghost_work::Undertaking::open(&db, id, None) else {
+            return String::new();
+        };
+        let parts = record.parts();
+        let sitting = self.working.as_ref().is_some_and(|w| w.id == id);
+        let from = parts.len().saturating_sub(PARTS_SHOWN);
+        parts[from..]
+            .iter()
+            .map(|(n, state)| {
+                let status = match state.finish.as_ref().map(|f| f.outcome) {
+                    Some(ghost_work::undertaking::Outcome::Finished) => "part_finished",
+                    Some(ghost_work::undertaking::Outcome::Blocked) => "part_blocked",
+                    Some(ghost_work::undertaking::Outcome::GaveUp) => "part_gave_up",
+                    Some(ghost_work::undertaking::Outcome::Dropped) => "part_dropped",
+                    None if state.waiting.is_some() => "part_asking",
+                    None if sitting => "part_running",
+                    None => "part_paused",
+                };
+                self.prompts.fill(
+                    "work_part",
+                    &[
+                        ("part", n.to_string()),
+                        ("status", self.prompts.text(status).to_owned()),
+                        ("brief", clip(&state.brief, 120)),
+                        ("latest", clip(&state.latest(), 160)),
+                    ],
+                )
+            })
+            .collect()
     }
 
     /// The messages she has in front of her in a place, as the stretch of

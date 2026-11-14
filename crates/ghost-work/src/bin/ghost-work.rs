@@ -285,6 +285,7 @@ async fn main() -> anyhow::Result<()> {
             Some(other) => bail!("unknown effort {other:?}: use off, low, high or max"),
         },
         temperature: args.temperature,
+        ..Limits::default()
     };
 
     let report = match args.runtime.as_str() {

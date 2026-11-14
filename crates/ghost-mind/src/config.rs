@@ -154,6 +154,11 @@ pub struct WorkConfig {
     pub rest_minutes: u32,
     /// Sittings she gives one thing before letting it go.
     pub max_sittings: u32,
+    /// Parts of one piece of work that may run at once, each a worker of
+    /// its own. One handed out beyond this waits for one of them to end.
+    pub parts: u32,
+    /// Steps one part may take, over every sitting it runs in.
+    pub part_steps: u32,
     /// Things she will take on in a day.
     pub per_day: u32,
     /// Days between the times she may take something on unasked, toward
@@ -184,6 +189,8 @@ impl Default for WorkConfig {
             sitting_minutes: 15,
             rest_minutes: 10,
             max_sittings: 12,
+            parts: 4,
+            part_steps: 200,
             per_day: 4,
             pursue_days: 2,
             ask_hours: 24,

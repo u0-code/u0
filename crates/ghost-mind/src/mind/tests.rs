@@ -3550,6 +3550,57 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
 }
 
 #[tokio::test]
+async fn the_parts_of_her_work_show_under_it_a_line_each() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let work = at_work_for_wen(&mut rig, "Survey the tea houses.", t0);
+    // Not sitting down to it here: only how it is shown is looked at.
+    rig.mind.agenda.work = None;
+    let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
+    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let first = record
+        .open_part("Read the reviews of the east one")
+        .unwrap();
+    first.update(|s| {
+        s.finish = Some(ghost_work::undertaking::Finish {
+            outcome: ghost_work::undertaking::Outcome::Finished,
+            summary: "Mostly about the tea, which they love.".into(),
+            files: vec![],
+            lesson: None,
+            at: t0,
+        });
+    });
+    let second = record.open_part("Find their opening hours").unwrap();
+    second.update(|s| {
+        s.told.push(ghost_work::undertaking::Told {
+            text: "Nine on weekdays.".into(),
+            files: vec![],
+            at: t0,
+        });
+    });
+
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"soon"}]}"#);
+    rig.hear(dm("wen", "2", "any luck?"), t0 + Duration::minutes(1));
+    rig.until(|r| r.think.calls() >= 1).await;
+    let prompt = rig.think.last_prompt();
+    let at = prompt
+        .find(&format!("[work #{work}]"))
+        .expect("the work is in the rest of her day");
+    let under: Vec<&str> = prompt[at..]
+        .lines()
+        .filter(|l| l.starts_with("  Part "))
+        .collect();
+    assert_eq!(
+        under,
+        [
+            "  Part 1 of it (finished), given \"Read the reviews of the east one\": Mostly about the tea, which they love.",
+            "  Part 2 of it (paused until you sit down to the work again), given \"Find their opening hours\": Nine on weekdays.",
+        ]
+    );
+}
+
+#[tokio::test]
 async fn nothing_kept_is_recorded_twice_when_the_sitting_ends() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);

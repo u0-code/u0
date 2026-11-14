@@ -94,6 +94,21 @@ impl Toolbox {
         self
     }
 
+    /// The same tools, with the one called `name` replaced, in its place,
+    /// by what `wrap` makes of it.
+    #[must_use]
+    pub fn wrapping(
+        mut self,
+        name: &str,
+        wrap: impl FnOnce(Arc<dyn Tool>) -> Arc<dyn Tool>,
+    ) -> Self {
+        if let Some(at) = self.tools.iter().position(|t| t.name() == name) {
+            let tool = self.tools[at].clone();
+            self.tools[at] = wrap(tool);
+        }
+        self
+    }
+
     /// What the model is told about each tool, in `lp`.
     pub fn specs(&self, words: &Store, lp: Loop) -> Vec<ToolSpec> {
         self.tools.iter().map(|t| t.spec(words, lp)).collect()

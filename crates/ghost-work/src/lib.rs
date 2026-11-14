@@ -15,6 +15,7 @@ pub mod claude;
 pub mod codex;
 pub mod machine;
 pub mod mcp;
+pub mod parts;
 pub mod prompts;
 pub mod tool;
 pub mod tools;
