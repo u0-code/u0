@@ -123,7 +123,7 @@ people talk to on a personal subscription; an API key is the safe choice.
           memory                            derived; rebuilt from the journal
 ```
 
-**A certificate, a journal, a clock, and a brain she can change. That is the
+**A persona, a journal, a clock, and a brain she can change. That is the
 whole of her.**
 
 | Crate | What it is |

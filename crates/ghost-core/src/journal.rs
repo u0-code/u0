@@ -32,7 +32,7 @@ const COLUMNS: &str = "seq, at, kind, payload, prev_hash, hash";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Event {
-    /// The first entry of every journal. Carries the seal of her certificate
+    /// The first entry of every journal. Carries the seal of her persona
     /// as it was at birth.
     Born {
         name: String,
@@ -280,10 +280,12 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
     },
-    /// Her certificate as it stands from here on: written at birth and again
+    /// Her persona as it stands from here on: written at birth and again
     /// whenever it is revised. The whole text is kept, so the journal alone
     /// says who she was at any point in her life.
     Described {
+        /// Her persona. The field keeps the name it was first written
+        /// under: the journal is a forever format.
         certificate: String,
         seal: Seal,
     },

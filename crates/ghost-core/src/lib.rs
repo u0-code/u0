@@ -7,7 +7,7 @@
 //!
 //! Three rules shape this crate:
 //!
-//! 1. **Every version of her is on record.** Her certificate can be revised;
+//! 1. **Every version of her is on record.** Her persona can be revised;
 //!    each version is written into her journal (`Described`) before it takes
 //!    effect, so the journal alone says who she was at any point.
 //! 2. **The journal is append-only.** [`journal::Journal`] has no update or

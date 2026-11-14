@@ -110,7 +110,7 @@ impl Console {
         self.conn.call(method::PEOPLE, &()).await
     }
 
-    /// Her birth certificate as it stands.
+    /// Her persona as it stands.
     pub async fn identity(&mut self) -> anyhow::Result<Value> {
         self.conn.call(method::IDENTITY, &()).await
     }

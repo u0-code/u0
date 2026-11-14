@@ -21,7 +21,7 @@ use serde_json::Value;
 
 const WRITTEN: &str = include_str!("fixtures/events.jsonl");
 
-const CERTIFICATE: &str = r#"
+const PERSONA: &str = r#"
 name = "Weiwei"
 pronouns = "she/her"
 born = "2026-11-01"
@@ -123,12 +123,12 @@ fn every_kind_of_event_has_an_entry_as_it_is_written() {
 #[test]
 fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("ghost.toml"), CERTIFICATE).unwrap();
+    std::fs::write(dir.path().join("ghost.toml"), PERSONA).unwrap();
     // Born the way earlier versions did it, with one entry, so that the seqs
     // the fixture refers to ("replaces") are the seqs it was written with.
     {
         let mut journal = Journal::create(&dir.path().join("journal.db")).unwrap();
-        let identity = ghost_core::identity::read_certificate(dir.path()).unwrap();
+        let identity = ghost_core::identity::read_persona(dir.path()).unwrap();
         journal
             .append(Event::Born {
                 name: "Weiwei".into(),

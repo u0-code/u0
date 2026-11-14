@@ -91,7 +91,7 @@ impl Clock {
     /// Resolve her rhythm.
     ///
     /// # Panics
-    /// Never in practice: the times were validated when the certificate was parsed.
+    /// Never in practice: the times were validated when the persona was parsed.
     pub fn of(identity: &Identity) -> Self {
         let seed = identity.seed();
         Self {
@@ -101,7 +101,7 @@ impl Clock {
         }
     }
 
-    /// A rhythm given directly, for when there is no certificate to read it from.
+    /// A rhythm given directly, for when there is no persona to read it from.
     pub fn new(tz: Tz, wake: NaiveTime, sleep: NaiveTime) -> Self {
         Self { tz, wake, sleep }
     }

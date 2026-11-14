@@ -3,7 +3,7 @@
 The domain core. Who she is, what has happened to her, what she can recall,
 where she stands with people, and what time does to her.
 
-**Is:** her certificate and its versions, the append-only hash-chained journal, memory derived
+**Is:** her persona and its versions, the append-only hash-chained journal, memory derived
 from it (places, people, notes, intentions, canon, full-text recall), her clock
 and day plan, the timing of human attention (`tempo`), and relationship
 standing (`will`). Pure Rust plus SQLite. No network, no async. Embeddable

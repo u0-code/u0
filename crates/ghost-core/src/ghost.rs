@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! weiwei/
-//! ├── ghost.toml   her certificate: who she is. It can be revised.
+//! ├── ghost.toml   her persona: who she is. It can be revised.
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
 //! ├── work.db      the state of what she has taken on: plans, notes, transcripts
 //! └── derived/     anything that can be rebuilt from the journal
@@ -46,10 +46,10 @@ pub struct Peek {
 impl Ghost {
     /// Give birth to the ghost described by `dir/ghost.toml`. Happens once.
     ///
-    /// Writes the `Born` entry and the certificate as it stands. Fails if she
+    /// Writes the `Born` entry and the persona as it stands. Fails if she
     /// already has a journal.
     pub fn birth(dir: &Path) -> Result<Self> {
-        let identity = identity::read_certificate(dir)?;
+        let identity = identity::read_persona(dir)?;
         if dir.join(JOURNAL_FILE).exists() {
             return Err(Error::AlreadyBorn(dir.to_path_buf()));
         }
@@ -104,7 +104,7 @@ impl Ghost {
     /// Verify a ghost and open her journal without taking the lock or
     /// touching derived state. Safe while a daemon is running her.
     pub fn peek(dir: &Path) -> Result<Peek> {
-        let identity = identity::read_certificate(dir)?;
+        let identity = identity::read_persona(dir)?;
         let journal = Journal::open(&dir.join(JOURNAL_FILE))
             .map_err(|_| Error::NotHer("no journal; was she ever born?".into()))?;
         match journal.first()? {
@@ -124,7 +124,7 @@ impl Ghost {
         })
     }
 
-    /// Write her certificate, as it stands, into her journal.
+    /// Write her persona, as it stands, into her journal.
     fn describe(&mut self) -> Result<()> {
         let event = Event::Described {
             certificate: self.identity.text().to_owned(),
@@ -164,7 +164,7 @@ impl Ghost {
     }
 }
 
-/// The seal of the certificate her journal last recorded: the latest
+/// The seal of the persona her journal last recorded: the latest
 /// `Described`, or, in a journal from before those were written, her birth.
 fn recorded_seal(journal: &Journal) -> Result<Option<Seal>> {
     if let Some(entry) = journal.last_of(&["described"])?
@@ -241,7 +241,7 @@ sleep = "00:30"
     }
 
     #[test]
-    fn a_revised_certificate_is_who_she_is_from_then_on() {
+    fn a_revised_persona_is_who_she_is_from_then_on() {
         let d = dir_with_seed();
         drop(Ghost::birth(d.path()).unwrap());
         let revised = SAMPLE.replace("quiet", "cheerful").replace("Weiwei", "Wei");
@@ -274,13 +274,13 @@ sleep = "00:30"
     }
 
     #[test]
-    fn a_journal_from_before_revisions_learns_her_certificate_only_when_it_changes() {
+    fn a_journal_from_before_revisions_learns_her_persona_only_when_it_changes() {
         let d = dir_with_seed();
         // As earlier versions wrote her: birth alone.
         {
             fs::create_dir_all(d.path().join("derived")).unwrap();
             let mut journal = Journal::create(&d.path().join(JOURNAL_FILE)).unwrap();
-            let id = identity::read_certificate(d.path()).unwrap();
+            let id = identity::read_persona(d.path()).unwrap();
             journal
                 .append(Event::Born {
                     name: "Weiwei".into(),
@@ -297,7 +297,7 @@ sleep = "00:30"
     }
 
     #[test]
-    fn a_certificate_that_does_not_parse_is_refused() {
+    fn a_persona_that_does_not_parse_is_refused() {
         let d = dir_with_seed();
         drop(Ghost::birth(d.path()).unwrap());
         fs::write(d.path().join("ghost.toml"), SAMPLE.replace("08:30", "8am")).unwrap();

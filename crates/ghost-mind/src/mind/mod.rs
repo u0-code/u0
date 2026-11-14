@@ -99,7 +99,7 @@ pub enum Question {
     Agenda,
     /// Everyone she knows and where she stands with them.
     People,
-    /// Her birth certificate and its seal.
+    /// Her persona and its seal.
     Identity,
     /// What is true about her life, oldest first.
     Canon,

@@ -309,7 +309,7 @@ pub fn capital(text: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Her voice, shown: the exchanges in her certificate, introduced so that
+/// Her voice, shown: the exchanges in her persona, introduced so that
 /// they are read as how she sounds and not as things to say again. Empty
 /// when she has none.
 fn examples(text: &str) -> String {
