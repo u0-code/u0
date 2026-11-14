@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn transcript_labels_both_sides() {
         let c = Completion {
-            system: "Be Lin.".into(),
+            system: "Be Weiwei.".into(),
             messages: vec![
                 Message::user("hi"),
                 Message::assistant("hey"),
@@ -286,15 +286,15 @@ mod tests {
             json: false,
             effort: None,
         };
-        let t = c.transcript("someone", "Lin");
-        assert!(t.starts_with("Be Lin."));
-        assert!(t.contains("[someone]: hi\n[Lin]: hey\n[someone]: ?"));
+        let t = c.transcript("someone", "Weiwei");
+        assert!(t.starts_with("Be Weiwei."));
+        assert!(t.contains("[someone]: hi\n[Weiwei]: hey\n[someone]: ?"));
         assert!(t.ends_with("Output only the message text."));
     }
 
     #[test]
     fn a_lone_message_passes_through() {
-        let c = Completion::ask("Be Lin.", "What now?", 10);
-        assert_eq!(c.transcript("them", "you"), "Be Lin.\n\nWhat now?");
+        let c = Completion::ask("Be Weiwei.", "What now?", 10);
+        assert_eq!(c.transcript("them", "you"), "Be Weiwei.\n\nWhat now?");
     }
 }

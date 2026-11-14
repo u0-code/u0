@@ -120,7 +120,7 @@ mod tests {
     }
 
     fn her() -> serenity::json::Value {
-        json!({"id": "99", "username": "lin", "global_name": "Lin", "discriminator": "0", "avatar": null, "bot": true})
+        json!({"id": "99", "username": "weiwei", "global_name": "Weiwei", "discriminator": "0", "avatar": null, "bot": true})
     }
 
     #[test]
@@ -147,7 +147,7 @@ mod tests {
         mention["mentions"] = json!([her()]);
         let mention = inbound(&message(&mention), ME, None).unwrap();
         assert!(mention.addressed);
-        assert_eq!(mention.text, "@Lin what do you think");
+        assert_eq!(mention.text, "@Weiwei what do you think");
 
         let mut reply = guild;
         reply["type"] = json!(19);

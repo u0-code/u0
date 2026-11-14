@@ -1,7 +1,7 @@
 //! A ghost is a directory on disk. The binary is her body; the directory is her.
 //!
 //! ```text
-//! lin/
+//! weiwei/
 //! ├── ghost.toml   her certificate: who she is. It can be revised.
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
 //! └── derived/     anything that can be rebuilt from the journal
@@ -193,7 +193,7 @@ mod tests {
     use super::*;
 
     pub(crate) const SAMPLE: &str = r#"
-name = "Lin"
+name = "Weiwei"
 pronouns = "she/her"
 born = "2026-11-12"
 temperament = "quiet"
@@ -220,7 +220,7 @@ sleep = "00:30"
     fn birth_then_open() {
         let d = dir_with_seed();
         let g = Ghost::birth(d.path()).unwrap();
-        assert_eq!(g.identity().name(), "Lin");
+        assert_eq!(g.identity().name(), "Weiwei");
         // Her birth, and who she is.
         assert_eq!(g.journal().len().unwrap(), 2);
         drop(g);
@@ -243,7 +243,7 @@ sleep = "00:30"
     fn a_revised_certificate_is_who_she_is_from_then_on() {
         let d = dir_with_seed();
         drop(Ghost::birth(d.path()).unwrap());
-        let revised = SAMPLE.replace("quiet", "cheerful").replace("Lin", "Weiwei");
+        let revised = SAMPLE.replace("quiet", "cheerful").replace("Weiwei", "Wei");
         fs::write(d.path().join("ghost.toml"), &revised).unwrap();
 
         // Looking sees the revision but writes nothing.
@@ -252,7 +252,7 @@ sleep = "00:30"
         assert_eq!(peek.journal.len().unwrap(), 2);
 
         let g = Ghost::open(d.path()).unwrap();
-        assert_eq!(g.identity().name(), "Weiwei");
+        assert_eq!(g.identity().name(), "Wei");
         assert_eq!(g.identity().seed().temperament, "cheerful");
         // Both versions are in her journal, in order.
         let described: Vec<String> = g
@@ -282,7 +282,7 @@ sleep = "00:30"
             let id = identity::read_certificate(d.path()).unwrap();
             journal
                 .append(Event::Born {
-                    name: "Lin".into(),
+                    name: "Weiwei".into(),
                     seal: id.seal().clone(),
                 })
                 .unwrap();

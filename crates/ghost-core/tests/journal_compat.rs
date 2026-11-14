@@ -22,7 +22,7 @@ use serde_json::Value;
 const WRITTEN: &str = include_str!("fixtures/events.jsonl");
 
 const CERTIFICATE: &str = r#"
-name = "Lin"
+name = "Weiwei"
 pronouns = "she/her"
 born = "2026-11-01"
 temperament = "quiet"
@@ -131,7 +131,7 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
         let identity = ghost_core::identity::read_certificate(dir.path()).unwrap();
         journal
             .append(Event::Born {
-                name: "Lin".into(),
+                name: "Weiwei".into(),
                 seal: identity.seal().clone(),
             })
             .unwrap();
