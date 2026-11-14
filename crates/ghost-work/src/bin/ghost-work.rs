@@ -221,7 +221,9 @@ async fn main() -> anyhow::Result<()> {
             }
         })
     };
-    let toolbox = equip(&undertaking);
+    // What it keeps stays in this undertaking's record. A helper is not
+    // given `keep`: its record is its own, and nobody reads what it kept.
+    let toolbox = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
 
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());

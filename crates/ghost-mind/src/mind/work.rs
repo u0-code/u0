@@ -27,6 +27,7 @@ use ghost_core::{
 };
 use ghost_work::{
     Ended, Limits, Report, Undertaking, WORK_DB, Worker, claude, codex, tools,
+    undertaking::Kept,
     worker::{opening_text, system_prompt},
 };
 use tracing::{info, warn};
@@ -268,7 +269,9 @@ impl Mind {
                 tools::with_web(tools, &web)
             })
         };
-        let tools = equip(&undertaking);
+        // What she keeps while she works is hers to have again afterwards.
+        // A helper given part of the work does not keep anything: it reports.
+        let tools = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
         // With someone to ask and her own loop to carry the question, she
         // can stop and ask.
         let tools = if next.asked_by.is_some() && matches!(stepper, Stepper::Own(_)) {
@@ -307,12 +310,13 @@ impl Mind {
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;
-                    let progress = worker.undertaking.state().progress();
+                    let state = worker.undertaking.state();
                     Outcome::Worked {
                         id,
                         before,
                         report,
-                        progress,
+                        progress: state.progress(),
+                        kept: state.kept,
                     }
                 });
             }
@@ -353,15 +357,35 @@ impl Mind {
                         CliKind::Claude => claude::sit(&seat).await,
                         CliKind::Codex => codex::sit(&seat).await,
                     };
-                    let progress = seat.undertaking.state().progress();
+                    let state = seat.undertaking.state();
                     Outcome::Worked {
                         id,
                         before,
                         report,
-                        progress,
+                        progress: state.progress(),
+                        kept: state.kept,
                     }
                 });
             }
+        }
+        Ok(())
+    }
+
+    /// What she kept while working on `id` becomes hers, kept as anything
+    /// else she keeps is. The record of the work lists everything kept in
+    /// it, in every sitting; what she has already kept from it with the
+    /// same note, even if she has since let it go, is not kept twice.
+    fn take_home(&mut self, id: &str, kept: &[Kept]) -> Result<()> {
+        for k in kept {
+            if self.ghost.memory().ever_kept(&k.file, &k.note, id)? {
+                continue;
+            }
+            info!("kept {} from {id}", k.file);
+            self.record(Event::Kept {
+                file: k.file.clone(),
+                note: k.note.clone(),
+                from: Some(id.to_owned()),
+            })?;
         }
         Ok(())
     }
@@ -385,9 +409,11 @@ impl Mind {
         before: u64,
         report: &Report,
         progress: String,
+        kept: &[Kept],
         now: DateTime<Utc>,
     ) -> Result<()> {
         self.working = None;
+        self.take_home(id, kept)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]

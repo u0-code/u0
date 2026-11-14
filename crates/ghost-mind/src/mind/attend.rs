@@ -702,12 +702,26 @@ impl Mind {
         let clock = self.life.clock();
         let mut found = Vec::with_capacity(hits.len());
         for h in &hits {
+            // Something she keeps is shown as what it is, so that she can
+            // refer to it by its number.
+            let kept = match h.kind.as_str() {
+                "kept" => self.ghost.memory().belonging(h.seq)?,
+                _ => None,
+            };
+            let text = match kept {
+                Some(kept) => format!(
+                    "you kept an image ({}): {}",
+                    kept.file,
+                    clip(&kept.note, 300)
+                ),
+                None => clip(&h.text, 300),
+            };
             found.push(format!(
                 "- [#{}] {}{}{}",
                 h.seq,
                 h.at.map(|at| format!("{}: ", narrate::capital(&when(at, now, clock))))
                     .unwrap_or_default(),
-                clip(&h.text, 300),
+                text,
                 self.learned_where(h.place.as_deref(), &place.key)?
             ));
         }
@@ -788,6 +802,17 @@ impl Mind {
                     }
                     again = true;
                     ("You have no way to look that up here.".to_owned(), true)
+                }
+                // Told at once when it cannot be done, so that she can
+                // put it right, as with a call she got wrong.
+                Ok(action @ (Action::Keep { .. } | Action::LetGo { .. })) => {
+                    if let Some(why) = self.refusal(place, &action)? {
+                        again = true;
+                        (why, true)
+                    } else {
+                        job.took.push(action);
+                        ("ok".to_owned(), false)
+                    }
                 }
                 Ok(action) => {
                     job.took.push(action);
@@ -1057,6 +1082,20 @@ impl Mind {
                         false,
                     )? {
                         did.push("made a note to self".to_owned());
+                    }
+                }
+                Action::Keep {
+                    message,
+                    image,
+                    note,
+                } => match self.keep(place, message, image, &note)? {
+                    None => did.push("kept something".to_owned()),
+                    // Nothing to keep is nothing done: there is no entry.
+                    Some(why) => debug!("{}: kept nothing: {why}", place.key),
+                },
+                Action::LetGo { thing } => {
+                    if self.let_go(thing)? {
+                        did.push("let something go".to_owned());
                     }
                 }
                 Action::Canon { fact } => {

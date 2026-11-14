@@ -83,6 +83,17 @@ pub struct Finish {
     pub at: DateTime<Utc>,
 }
 
+/// An image the worker was shown and kept, to be had again after the work
+/// is over.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kept {
+    /// Its name under `media/`, beside the database.
+    pub file: String,
+    /// What it is, and when it would be wanted again.
+    pub note: String,
+    pub at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
     /// What was asked, as it was asked.
@@ -113,6 +124,10 @@ pub struct State {
     /// transcript is kept well under it from then on.
     #[serde(default)]
     pub refused_at: Option<u64>,
+    /// What the worker kept, in the order it was kept. Keeping a file again
+    /// replaces its note and moves it to the end.
+    #[serde(default)]
+    pub kept: Vec<Kept>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,
@@ -577,6 +592,17 @@ impl Undertaking {
     /// Where pictures are kept: beside the database.
     fn media_root(&self) -> &Path {
         self.db.parent().unwrap_or_else(|| Path::new("."))
+    }
+
+    /// Where the file `name` is kept under `media/`, if it is there. Only
+    /// a bare name is looked for: a path is never followed.
+    pub fn media(&self, name: &str) -> Option<PathBuf> {
+        let bare = !name.starts_with('.')
+            && Path::new(name)
+                .file_name()
+                .is_some_and(|n| n.to_str() == Some(name));
+        let path = self.media_root().join(media::MEDIA_DIR).join(name);
+        (bare && path.is_file()).then_some(path)
     }
 
     /// The sitting in progress, if one was left unfinished. Pictures saved

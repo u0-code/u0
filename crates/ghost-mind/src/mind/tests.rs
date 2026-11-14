@@ -2513,3 +2513,298 @@ async fn looking_at_images_spends_from_the_hourly_budget() {
     assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(viewed(&rig).len(), 1);
 }
+
+/// A picture is sent to her and she has looked at it: the message is
+/// heard, its image is on disk, and what she saw is in her journal, as if
+/// a brain that sees had glanced at it. Returns the message's seq and the
+/// file.
+fn sent_and_seen(
+    rig: &mut Rig,
+    from: &str,
+    id: &str,
+    what: &str,
+    now: DateTime<Utc>,
+) -> (i64, String) {
+    // Nobody here can see, so nothing is fetched from the link.
+    rig.hear(picture_from(from, id, "https://example.invalid/a.png"), now);
+    let message = rig.mind.ghost.journal().last_seq().unwrap();
+    let file = ghost_core::media::store(rig.mind.ghost.dir(), PIXEL, "image/png").unwrap();
+    rig.mind
+        .record(Event::Viewed {
+            message,
+            image: 0,
+            what: what.into(),
+            file: Some(file.clone()),
+        })
+        .unwrap();
+    (message, file)
+}
+
+fn kept(rig: &Rig) -> Vec<(i64, String, String, Option<String>)> {
+    rig.mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["kept"], 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            Event::Kept { file, note, from } => Some((e.seq, file, note, from)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the last call to `name` gave back, as the brain was shown it.
+fn last_result(rig: &Rig, name: &str) -> (String, bool) {
+    let turns = rig.think.turns.lock().unwrap();
+    turns
+        .iter()
+        .flat_map(|t| t.items.iter())
+        .filter_map(|item| match item {
+            ghost_brain::Item::Result {
+                name: called,
+                output,
+                failed,
+                ..
+            } if called == name => Some((output.clone(), *failed)),
+            _ => None,
+        })
+        .next_back()
+        .expect("it was called")
+}
+
+#[tokio::test]
+async fn a_viewed_image_is_kept_with_her_note_and_found_again_by_recall() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let (message, file) = sent_and_seen(
+        &mut rig,
+        "wen",
+        "1",
+        "A heron standing in the rain, looking cross about it.",
+        t0,
+    );
+    rig.think.then_turn(
+        "",
+        &[
+            (
+                "keep",
+                serde_json::json!({"message": message, "note": "The cross heron. For grey mornings when nothing goes right."}),
+            ),
+            ("say", serde_json::json!({"text": "ha"})),
+        ],
+    );
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let held = kept(&rig);
+    assert_eq!(held.len(), 1);
+    let (seq, kept_file, note, from) = &held[0];
+    assert_eq!(kept_file, &file);
+    assert!(note.starts_with("The cross heron."));
+    assert_eq!(from.as_deref(), Some("t:wen"));
+    assert!(rig.decisions().iter().any(|d| d.contains("kept something")));
+
+    // Hours later, somewhere else, it comes back by what her note says,
+    // with the number she can refer to it by and the file it is.
+    let later = t0 + Duration::hours(3);
+    rig.think.then_turn(
+        "",
+        &[("recall", serde_json::json!({"query": "grey mornings"}))],
+    );
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "hold on"}))]);
+    rig.hear(dm("mei", "2", "rough morning"), later);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    let (found, failed) = last_result(&rig, "recall");
+    assert!(!failed);
+    assert!(
+        found.contains(&format!("[#{seq}]"))
+            && found.contains(&format!("you kept an image ({file}): The cross heron.")),
+        "{found}"
+    );
+}
+
+#[tokio::test]
+async fn keeping_the_same_image_again_replaces_the_note() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let (message, file) = sent_and_seen(&mut rig, "wen", "1", "A heron in the rain.", t0);
+    // Answering in JSON, she keeps it, and thinks better of the note.
+    rig.think.then(&format!(
+        r#"{{"thought":"","actions":[
+            {{"do":"keep","message":"m{message}","note":"A heron."}},
+            {{"do":"keep","message":"m{message}","image":1,"note":"The cross heron, for grey mornings."}}]}}"#
+    ));
+    rig.until(|r| r.kinds().contains(&"decided")).await;
+    assert_eq!(kept(&rig).len(), 2);
+    let held = rig.mind.ghost.memory().belongings(5).unwrap();
+    assert_eq!(held.len(), 1);
+    assert_eq!(
+        (held[0].file.as_str(), held[0].note.as_str()),
+        (file.as_str(), "The cross heron, for grey mornings.")
+    );
+}
+
+#[tokio::test]
+async fn something_let_go_is_no_longer_found() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let (message, _) = sent_and_seen(&mut rig, "wen", "1", "A heron in the rain.", t0);
+    rig.think.then_turn(
+        "",
+        &[(
+            "keep",
+            serde_json::json!({"message": message, "note": "The cross heron, for grey mornings."}),
+        )],
+    );
+    rig.until(|r| r.kinds().contains(&"kept")).await;
+    let seq = kept(&rig)[0].0;
+
+    let later = t0 + Duration::hours(1);
+    // A number she holds nothing under is put back to her; the right one
+    // lets it go.
+    rig.think
+        .then_turn("", &[("let_go", serde_json::json!({"thing": seq + 100}))]);
+    rig.think
+        .then_turn("", &[("let_go", serde_json::json!({"thing": seq}))]);
+    rig.hear(dm("wen", "2", "do you still have that heron?"), later);
+    rig.until(|r| r.kinds().contains(&"let_go")).await;
+    assert_eq!(rig.kinds().iter().filter(|k| **k == "let_go").count(), 1);
+    assert!(rig.mind.ghost.memory().belongings(5).unwrap().is_empty());
+    assert!(
+        !rig.mind
+            .ghost
+            .memory()
+            .search("t", "grey mornings", 5)
+            .unwrap()
+            .iter()
+            .any(|h| h.kind == "kept")
+    );
+}
+
+#[tokio::test]
+async fn keeping_an_image_that_was_not_viewed_is_refused_without_an_event() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    // An image she has seen, in another conversation, which she has read
+    // and left.
+    let (elsewhere, _) = sent_and_seen(&mut rig, "mei", "1", "A heron.", t0);
+    rig.until(|r| {
+        r.mind
+            .ghost
+            .memory()
+            .place("t:mei")
+            .unwrap()
+            .unwrap()
+            .unread
+            == 0
+    })
+    .await;
+
+    // Here, an image was sent and not looked at: nobody here can see.
+    rig.hear(
+        picture_from("wen", "2", "https://example.invalid/a.png"),
+        t0 + Duration::hours(1),
+    );
+    let message = rig.mind.ghost.journal().last_seq().unwrap();
+    rig.think.then_turn(
+        "",
+        &[
+            (
+                "keep",
+                serde_json::json!({"message": message, "note": "whatever that was"}),
+            ),
+            (
+                "keep",
+                serde_json::json!({"message": elsewhere, "note": "the heron"}),
+            ),
+        ],
+    );
+    rig.think.then_turn(
+        "",
+        &[("say", serde_json::json!({"text": "it didn't load"}))],
+    );
+    rig.until(|r| r.body.sent().len() == 1).await;
+
+    // Each refusal is put back to her, and nothing is written.
+    let refused: Vec<(String, bool)> = rig
+        .think
+        .turns
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ghost_brain::Item::Result {
+                name,
+                output,
+                failed,
+                ..
+            } if name == "keep" => Some((output.clone(), *failed)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refused.len(), 2);
+    assert!(
+        refused[0].1 && refused[0].0.contains("have not seen"),
+        "{refused:?}"
+    );
+    assert!(
+        refused[1].1
+            && refused[1]
+                .0
+                .contains(&format!("no message m{elsewhere} in this conversation")),
+        "{refused:?}"
+    );
+    assert!(kept(&rig).is_empty());
+}
+
+#[tokio::test]
+async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaking() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(
+        MindConfig {
+            live: false,
+            browse_minutes: [0, 0],
+            work: crate::WorkConfig {
+                sitting_steps: 2,
+                ..crate::WorkConfig::default()
+            },
+            ..MindConfig::default()
+        },
+        t0,
+    );
+    rig.think
+        .hands
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    // An image a tool showed her at work, kept beside her work database.
+    let file = ghost_core::media::store(rig.mind.ghost.dir(), PIXEL, "image/png").unwrap();
+    rig.mind
+        .undertake("Find a good picture of a heron.", None, None, t0)
+        .unwrap();
+    // The first sitting keeps it and runs out of steps; the second finishes.
+    rig.think.then_call(
+        "keep",
+        serde_json::json!({"file": file, "note": "A heron, wings out. For when someone is about to leave."}),
+    );
+    rig.think
+        .then_call("note", serde_json::json!({"text": "found one"}));
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "Found one."}),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let kinds = rig.kinds();
+    assert!(kinds.contains(&"worked"), "two sittings: {kinds:?}");
+
+    let id = rig.mind.ghost.memory().undertakings(false, 5).unwrap()[0]
+        .id
+        .clone();
+    let held = kept(&rig);
+    assert_eq!(held.len(), 1, "kept once, not once a sitting: {held:?}");
+    let (_, kept_file, note, from) = &held[0];
+    assert_eq!(kept_file, &file);
+    assert!(note.starts_with("A heron, wings out."));
+    assert_eq!(from.as_deref(), Some(id.as_str()));
+}

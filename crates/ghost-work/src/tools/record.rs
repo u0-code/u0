@@ -217,6 +217,69 @@ impl Tool for Ask {
     }
 }
 
+/// Keep an image the work came across, to be had again once the work is
+/// over. Whoever the work is done for takes the list from the record; the
+/// worker itself writes nowhere else.
+pub struct Keep {
+    undertaking: Arc<Undertaking>,
+}
+
+impl Keep {
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
+    }
+}
+
+#[async_trait]
+impl Tool for Keep {
+    fn spec(&self) -> ToolSpec {
+        spec(
+            "keep",
+            "Keep an image you were shown, because you want to have it again after this work is over: \
+             something worth looking at or using later. What you do not keep is gone with the work. \
+             Keeping the same image again replaces the note.",
+            json!({
+                "file": {"type": "string", "description": "The image's name, as a result showed it in `[image: <name>]`."},
+                "note": {"type": "string", "description": "In your own words: what it is, and when you would want it again. This is how it will be found later."},
+            }),
+            &["file", "note"],
+        )
+    }
+
+    async fn call(&self, args: &Value) -> Outcome {
+        let (file, note) = match (text(args, "file"), text(args, "note")) {
+            (Ok(f), Ok(n)) => (f.trim(), n.trim()),
+            (Err(refusal), _) | (_, Err(refusal)) => return refusal,
+        };
+        // As it was shown, or as its place under `media/`.
+        let file = file
+            .strip_prefix("[image:")
+            .and_then(|f| f.strip_suffix(']'))
+            .unwrap_or(file)
+            .trim();
+        let file = file.strip_prefix("media/").unwrap_or(file);
+        if note.is_empty() {
+            return Outcome::fail("the note is empty: say what it is and when you would want it");
+        }
+        if self.undertaking.media(file).is_none() {
+            return Outcome::fail(format!(
+                "there is no image called `{file}` among those you were shown. \
+                 Use the name a result gave it, as in `[image: <name>]`."
+            ));
+        }
+        let count = self.undertaking.update(|state| {
+            state.kept.retain(|k| k.file != file);
+            state.kept.push(undertaking::Kept {
+                file: file.to_owned(),
+                note: note.to_owned(),
+                at: Utc::now(),
+            });
+            state.kept.len()
+        });
+        Outcome::ok(format!("kept ({count} so far)"))
+    }
+}
+
 pub struct Done {
     undertaking: Arc<Undertaking>,
 }
@@ -319,6 +382,44 @@ mod tests {
             out.output
         );
         assert_eq!(u.state().plan.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn an_image_the_worker_was_shown_is_kept_with_its_note_and_kept_again_replaces_it() {
+        let (_dir, u) = undertaking();
+        let shown = u.keep(&[ghost_brain::Picture {
+            mime: "image/png".into(),
+            bytes: crate::tools::testing::PIXEL.to_vec(),
+        }]);
+        let file = &shown[0];
+        let keep = Keep::new(u.clone());
+        let out = keep
+            .call(&json!({"file": format!("[image: {file}]"), "note": "one clear pixel"}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+        let out = keep
+            .call(&json!({"file": file, "note": "a pixel, for testing"}))
+            .await;
+        assert!(!out.failed, "{}", out.output);
+        let kept = u.state().kept;
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            (kept[0].file.as_str(), kept[0].note.as_str()),
+            (file.as_str(), "a pixel, for testing")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_the_worker_never_stored_cannot_be_kept() {
+        let (dir, u) = undertaking();
+        // A file beside the database, and one that is nowhere at all.
+        std::fs::write(dir.path().join("secret.txt"), b"x").unwrap();
+        let keep = Keep::new(u.clone());
+        for file in ["../secret.txt", "secret.txt", "nothing.png", "/etc/hosts"] {
+            let out = keep.call(&json!({"file": file, "note": "mine"})).await;
+            assert!(out.failed, "{file} was kept");
+        }
+        assert!(u.state().kept.is_empty());
     }
 
     #[tokio::test]

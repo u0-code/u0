@@ -87,6 +87,20 @@ pub enum Action {
         #[serde(default)]
         text: Option<String>,
     },
+    /// Keep something she has seen, to have it again: for now, an image in
+    /// a message. `image` counts from 1, and is the first when left out.
+    Keep {
+        #[serde(deserialize_with = "reference")]
+        message: i64,
+        #[serde(default, deserialize_with = "opt_reference")]
+        image: Option<i64>,
+        note: String,
+    },
+    /// Let go of something she kept. `thing` is its number.
+    LetGo {
+        #[serde(deserialize_with = "reference")]
+        thing: i64,
+    },
     /// Take on something that needs real work, to be done in her own time.
     Undertake {
         brief: String,
@@ -219,6 +233,24 @@ pub fn tools(work: Option<&str>, look_up: bool, files: bool) -> Vec<ToolSpec> {
             "Go back to what one memory came from: the messages a note or an account was made from, or the stretch around a message. For when the words themselves matter and your memory of them is not enough. You get them, and another turn.",
             json!({"memory": {"type": "integer", "description": "The memory's number, as recall showed it."}}),
             &["memory"],
+        ),
+        tool(
+            "keep",
+            "Keep something you have seen and want to have again, the way people save a picture on their phone: \
+             for now, an image in a message here. It stays yours after the conversation has moved on, and your note \
+             is how you will find it again with `recall`. Keeping the same image again replaces the note.",
+            json!({
+                "message": {"type": "integer", "description": "The m number of the message it is in."},
+                "image": {"type": "integer", "description": "Which image in that message, counting from 1. Leave out for the first."},
+                "note": text("In your own words: what it is, and when you would want it again."),
+            }),
+            &["message", "note"],
+        ),
+        tool(
+            "let_go",
+            "Let go of something you kept and no longer want, so that it stops coming back to you.",
+            json!({"thing": {"type": "integer", "description": "Its number, as recall showed it."}}),
+            &["thing"],
         ),
     ];
     if look_up {
@@ -453,6 +485,30 @@ mod tests {
         );
         assert!(parse("").is_err());
         assert!(parse("{\"thought\": \"cut off").is_err());
+    }
+
+    #[test]
+    fn keeping_reads_a_message_number_and_counts_images_from_one() {
+        let d = parse(
+            r#"{"actions":[{"do":"keep","message":"m12","note":"for later"},{"do":"keep","message":12,"image":"2","note":"x"},{"do":"let_go","thing":"[40]"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            d.actions,
+            vec![
+                Action::Keep {
+                    message: 12,
+                    image: None,
+                    note: "for later".into()
+                },
+                Action::Keep {
+                    message: 12,
+                    image: Some(2),
+                    note: "x".into()
+                },
+                Action::LetGo { thing: 40 },
+            ]
+        );
     }
 
     #[test]

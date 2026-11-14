@@ -26,6 +26,10 @@ Actions, in the order you would do them:
   You need to remember something older before answering. Use this alone; you will be asked again with what you find, each memory with its number.
 - {"do":"reread","memory":<number>}
   Go back to the messages one of those memories came from, when the words themselves matter. Use this alone; you will be asked again with them.
+- {"do":"keep","message":<m number>,"image":<n>,"note":"..."}
+  Keep something you have seen and want to have again, the way people save a picture on their phone: for now, an image in a message here, counting from 1 ("image" can be left out for the first). The note, in your own words, says what it is and when you would want it again; it is how you will find it with recall. Keeping the same image again replaces the note.
+- {"do":"let_go","thing":<number>}
+  Let go of something you kept and no longer want, by the number recall showed it with, so that it stops coming back to you.
 {{abilities}}- {"do":"leave","why":"..."}
   End this relationship for good. Rare and grave, and only after things have already gone cold.
 

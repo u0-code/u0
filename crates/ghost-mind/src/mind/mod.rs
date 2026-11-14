@@ -11,6 +11,7 @@ mod attend;
 mod browse;
 mod context;
 mod digest;
+mod keep;
 mod living;
 mod public;
 mod pursuit;
@@ -261,6 +262,8 @@ enum Outcome {
         before: u64,
         report: ghost_work::Report,
         progress: String,
+        /// Everything the record of the work says was kept in it.
+        kept: Vec<ghost_work::undertaking::Kept>,
     },
     /// She looked at the images in message `message`: for each, what she
     /// saw, or why she could not.
@@ -589,7 +592,8 @@ impl Mind {
                 before,
                 report,
                 progress,
-            } => self.on_worked(&id, before, &report, progress, now),
+                kept,
+            } => self.on_worked(&id, before, &report, progress, &kept, now),
             Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }

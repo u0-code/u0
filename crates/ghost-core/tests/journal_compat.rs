@@ -159,4 +159,8 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     // What she saw in an image is in the line it came in, as she last saw it.
     let line = &again.memory().thread("qq:c2c:E4F2A9", 1).unwrap()[0];
     assert_eq!(line.text, "哈哈 [image: A cartoon cat lying flat.]");
+    // Of the two things she kept she let one go, and holds the other.
+    let held = again.memory().belongings(5).unwrap();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].seq, 59);
 }

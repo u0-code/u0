@@ -313,6 +313,32 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file: Option<String>,
     },
+    /// She kept something she had seen, to have it again: the way people
+    /// save a picture on their phone. Keeping the same thing again replaces
+    /// the note; the latest `Kept` of a thing is the one that holds.
+    ///
+    /// What is kept is named by its own field. Today that is `file`, a name
+    /// in `media/`; another kind of thing (a link, a quote) comes as an
+    /// optional field of its own beside it.
+    Kept {
+        /// The name it is kept under in `media/`.
+        file: String,
+        /// In her own words: what it is, and when she would want it again.
+        note: String,
+        /// Where she got it. A place key (`channel:id`) when it was sent to
+        /// her in a conversation; the id of an undertaking, as its
+        /// `Undertook` names it, when she came across it in a piece of work;
+        /// a link (with its `scheme://`) when it came straight from the web.
+        /// They are told apart by their shape: a link has `://`, a place key
+        /// has a `:`, and an undertaking's id has neither.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+    },
+    /// She let go of something she kept. `kept` is the seq of its `Kept`
+    /// entry.
+    LetGo {
+        kept: i64,
+    },
 }
 
 /// The stretch of her journal a piece of memory was made from: entries
@@ -405,6 +431,8 @@ kinds! {
     LookedUp => "looked_up",
     Described => "described",
     Viewed => "viewed",
+    Kept => "kept",
+    LetGo => "let_go",
 }
 
 /// One line of her journal.
