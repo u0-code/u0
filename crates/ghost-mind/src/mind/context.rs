@@ -22,6 +22,10 @@ use crate::{Result, actions::clip};
 const WINDOW: Duration = Duration::hours(6);
 /// How long a finished undertaking stays on her mind.
 const FRESH: Duration = Duration::hours(12);
+/// How many of the latest things a piece of work told her are in front of
+/// her, and how many of the things she kept from it.
+const REPORTS_SHOWN: usize = 3;
+const KEPT_SHOWN: usize = 6;
 
 impl Mind {
     /// A place in a few words, as she would refer to it from elsewhere.
@@ -161,10 +165,44 @@ impl Mind {
                             clip(u.summary.as_deref().unwrap_or_default(), 200)
                         )
                     };
-                    lines.push(format!(
-                        "- You have taken something on{whom}: \"{}\". {state}",
-                        clip(&u.brief, 160)
-                    ));
+                    let mut line = self.prompts.fill(
+                        "work_open",
+                        &[
+                            ("work", u.seq.to_string()),
+                            ("whom", whom.clone()),
+                            ("brief", clip(&u.brief, 160)),
+                            ("state", state),
+                        ],
+                    );
+                    // What it chose to tell her, and never how it got there.
+                    for report in memory.reports(&u.id, REPORTS_SHOWN)? {
+                        line.push_str(&self.prompts.fill(
+                            "work_told",
+                            &[
+                                ("when", when(report.at, now, self.life.clock())),
+                                ("text", clip(&report.text, 240)),
+                                (
+                                    "files",
+                                    self.prompts.section(
+                                        "work_told_files",
+                                        "files",
+                                        &report.files.join(", "),
+                                    ),
+                                ),
+                            ],
+                        ));
+                    }
+                    for held in memory.kept_from(&u.id, KEPT_SHOWN)? {
+                        line.push_str(&self.prompts.fill(
+                            "work_kept",
+                            &[
+                                ("thing", held.seq.to_string()),
+                                ("file", held.file),
+                                ("note", clip(&held.note, 200)),
+                            ],
+                        ));
+                    }
+                    lines.push(line);
                 }
                 Some(outcome) if now - u.last_at < FRESH => lines.push(format!(
                     "- {} you {} what you took on{whom} (\"{}\"): {}",
@@ -266,10 +304,15 @@ impl Mind {
         for u in memory.undertakings(false, 12)? {
             let theirs = u.place.as_deref() == Some(place.key.as_str())
                 || u.asked_by.as_ref().is_some_and(|who| here.contains(who));
-            if !theirs || u.outcome.as_deref() != Some("finished") {
+            if !theirs {
                 continue;
             }
-            if let Ok(done) = self.undertaking(&u.id, &u.brief)
+            // What the work said was ready while it ran, finished or not.
+            for report in memory.reports(&u.id, 20)? {
+                files.extend(report.files);
+            }
+            if u.outcome.as_deref() == Some("finished")
+                && let Ok(done) = self.undertaking(&u.id, &u.brief)
                 && let Some(finish) = done.state().finish
             {
                 files.extend(finish.files);
@@ -279,8 +322,9 @@ impl Mind {
     }
 
     /// The actions that exist only in a body that can do them. `files`
-    /// says whether the place she is looking at can take a file.
-    pub(super) fn abilities(&self, files: bool) -> String {
+    /// says whether the place she is looking at can take a file, and
+    /// `under_way` whether she has work she could steer or stop.
+    pub(super) fn abilities(&self, files: bool, under_way: bool) -> String {
         let mut abilities = String::new();
         if let Some(means) = self.work_means() {
             abilities.push_str(
@@ -291,6 +335,9 @@ impl Mind {
         }
         if files {
             abilities.push_str(self.prompts.text("ability_send_file"));
+        }
+        if under_way {
+            abilities.push_str(self.prompts.text("ability_steer"));
         }
         abilities
     }

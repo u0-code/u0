@@ -390,6 +390,7 @@ impl Mind {
                     self.work_means(),
                     self.can_look_up(),
                     self.can(&place.channel, Can::Files),
+                    self.has_work_under_way()?,
                 ),
                 max_tokens: self.cfg.max_tokens,
                 temperature: None,
@@ -557,7 +558,10 @@ impl Mind {
                 &self.prompts.reply_json,
                 &[(
                     "abilities",
-                    self.abilities(self.can(&place.channel, Can::Files)),
+                    self.abilities(
+                        self.can(&place.channel, Can::Files),
+                        self.has_work_under_way()?,
+                    ),
                 )],
             )
         };
@@ -756,6 +760,11 @@ impl Mind {
         })
     }
 
+    /// Whether she has work under way that she could steer or stop.
+    fn has_work_under_way(&self) -> Result<bool> {
+        Ok(!self.ghost.memory().undertakings(true, 1)?.is_empty())
+    }
+
     /// Whether she can glance something up in the middle of a conversation.
     fn can_look_up(&self) -> bool {
         self.cfg.work.web && self.workshop.web.search.is_some()
@@ -823,7 +832,11 @@ impl Mind {
                 // Told at once when it cannot be done, so that she can
                 // put it right, as with a call she got wrong.
                 Ok(
-                    action @ (Action::Keep { .. } | Action::LetGo { .. } | Action::SendFile { .. }),
+                    action @ (Action::Keep { .. }
+                    | Action::LetGo { .. }
+                    | Action::SendFile { .. }
+                    | Action::Steer { .. }
+                    | Action::Stop { .. }),
                 ) => {
                     if let Some(why) = self.refusal(place, &action)? {
                         again = true;
@@ -1055,6 +1068,26 @@ impl Mind {
                         }
                     }
                 }
+                Action::Steer { work, text } => match self.steer(work, &text, now)? {
+                    None => did.push("passed something on to her work".to_owned()),
+                    Some(why) => {
+                        self.record(Event::Decided {
+                            about: place.key.clone(),
+                            decision: "did not pass it on to her work".into(),
+                            reason: why,
+                        })?;
+                    }
+                },
+                Action::Stop { work } => match self.stop_work(work, now)? {
+                    None => did.push("stopped a piece of work".to_owned()),
+                    Some(why) => {
+                        self.record(Event::Decided {
+                            about: place.key.clone(),
+                            decision: "did not stop the work".into(),
+                            reason: why,
+                        })?;
+                    }
+                },
                 Action::Note { about, text } => {
                     if let Some(person) = self.resolve(place, about.as_deref())? {
                         let sources = self.shown(place)?;

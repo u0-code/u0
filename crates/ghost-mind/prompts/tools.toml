@@ -128,6 +128,28 @@ message = "Instead of `file`: the m number of a message here with the image in i
 image = "With `message`: which image in it, counting from 1. Leave out for the first."
 text = "A line to go with it, if you have one."
 
+# Offered only when she has work under way. Its number is the one the rest
+# of her day shows it by, as "work #<number>".
+[steer]
+description = """\
+    Pass something on to a piece of work you have under way, without starting it again: more of what is \
+    wanted, a change of mind, something you just learned that it should know. It reaches the work before its \
+    next step, whether it is running right now or waiting for you to sit down to it again. Say something here \
+    as well if someone is waiting on you."""
+
+[steer.parameters]
+work = "Its number, as the rest of your day shows it: work #<number>."
+text = "What the work should know, complete enough to act on without this conversation in front of it."
+
+[stop]
+description = """\
+    Stop a piece of work you have under way, for good, because it is no longer wanted or no longer worth \
+    doing. It ends after the step it is on. Whatever it already kept is still yours, and what it told you \
+    stays with you. To change what it is doing instead, use `steer`."""
+
+[stop.parameters]
+work = "Its number, as the rest of your day shows it: work #<number>."
+
 [leave]
 description = "End this relationship for good. Rare and grave, and only after things have already gone cold."
 

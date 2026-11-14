@@ -163,6 +163,15 @@ fn describe(event: &Event, tz: Tz) -> String {
             flat(note)
         ),
         Event::LetGo { kept } => format!("let #{kept} go"),
+        Event::Reported { id, text, files } => format!(
+            "[{id}] {}{}",
+            flat(text),
+            if files.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", files.join(", "))
+            }
+        ),
         Event::LookedUp { query, found, .. } => format!(
             "\"{query}\": {}",
             flat(&found.chars().take(200).collect::<String>())

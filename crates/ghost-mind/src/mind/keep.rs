@@ -12,9 +12,9 @@ use super::Mind;
 use crate::{Result, actions::Action};
 
 impl Mind {
-    /// Why keeping, letting go or handing over, as she asked for it, cannot
-    /// be done, as a sentence for her; `None` when it can, or when it is
-    /// some other act.
+    /// Why keeping, letting go, handing over, or steering or stopping her
+    /// work, as she asked for it, cannot be done, as a sentence for her;
+    /// `None` when it can, or when it is some other act.
     pub(super) fn refusal(&self, place: &PlaceState, action: &Action) -> Result<Option<String>> {
         Ok(match action {
             Action::Keep { note, .. } if note.trim().is_empty() => Some(self.prompts.fill(
@@ -34,6 +34,18 @@ impl Mind {
             } => self
                 .giveable(place, file.as_deref(), *message, *image)?
                 .err(),
+            Action::Steer { text, .. } if text.trim().is_empty() => Some(self.prompts.fill(
+                "nothing_steered",
+                &[("why", self.prompts.text("steer_nothing").to_owned())],
+            )),
+            Action::Steer { work, .. } => self
+                .open_work(*work)?
+                .err()
+                .map(|why| self.prompts.fill("nothing_steered", &[("why", why)])),
+            Action::Stop { work } => self
+                .open_work(*work)?
+                .err()
+                .map(|why| self.prompts.fill("nothing_stopped", &[("why", why)])),
             _ => None,
         })
     }

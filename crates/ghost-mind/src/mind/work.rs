@@ -11,6 +11,16 @@
 //! she does look at her phone, the sitting is asked to stop after the step
 //! it is on; everything it needs to go on is on disk. She returns to it when
 //! she is done talking.
+//!
+//! The work and she talk while it runs, and only through its record in
+//! `work.db`, which both the worker here and the tool server a command-line
+//! agent starts can write. The work leaves there what it chose to tell her
+//! and what it kept; she glances at it every so often while a sitting runs,
+//! and once more when it ends, and writes into her journal what she has not
+//! had yet. Nothing of what it did to get there reaches her. She speaks to
+//! it the same way: what she adds goes into its inbox, taken before its
+//! next step, and stopping it is an outcome written into its record, which
+//! it sees before its next step too.
 
 use std::sync::{
     Arc,
@@ -30,6 +40,9 @@ use ghost_work::{
     undertaking::Kept,
     worker::{opening_text, system_prompt},
 };
+
+/// How often she glances at what a sitting in progress has told her.
+const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
 use super::{Mind, Outcome};
@@ -40,6 +53,8 @@ pub(super) struct Working {
     pub id: String,
     /// Set to stop the sitting after the step it is on.
     pub pause: Arc<AtomicBool>,
+    /// Its record, which the sitting writes to as it goes.
+    pub record: Arc<Undertaking>,
 }
 
 /// What moves a sitting from one step to the next.
@@ -164,8 +179,12 @@ impl Mind {
     /// Time to sit down to something, if there is something.
     pub(super) fn work(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.agenda.work = None;
-        if self.working.is_some() {
-            return Ok(());
+        // At a sitting already, this is when she glances at what it has
+        // told her so far.
+        if let Some(working) = &self.working {
+            let (id, record) = (working.id.clone(), working.record.clone());
+            self.agenda.work = Some(now + GLANCE);
+            return self.hear_from_work(&id, &record, now);
         }
         let Some(stepper) = self.stepper().filter(|_| self.cfg.work.enabled) else {
             return Ok(());
@@ -262,9 +281,12 @@ impl Mind {
                 tools::with_web(tools, &web)
             })
         };
-        // What she keeps while she works is hers to have again afterwards.
-        // A helper given part of the work does not keep anything: it reports.
-        let tools = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
+        // What she keeps while she works is hers to have again, and so is
+        // what she tells herself from it. A helper given part of the work
+        // does neither: it reports to the work.
+        let tools = equip(&undertaking)
+            .with(tools::Keep::new(undertaking.clone()))
+            .with(tools::Tell::new(undertaking.clone()));
         // With someone to ask and her own loop to carry the question, she
         // can stop and ask.
         let tools = if next.asked_by.is_some() && matches!(stepper, Stepper::Own(_)) {
@@ -292,7 +314,9 @@ impl Mind {
         self.working = Some(Working {
             id: next.id.clone(),
             pause: pause.clone(),
+            record: undertaking.clone(),
         });
+        self.agenda.work = Some(now + GLANCE);
         let id = next.id;
         match stepper {
             Stepper::Own(brain) => {
@@ -308,13 +332,12 @@ impl Mind {
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;
-                    let state = worker.undertaking.state();
                     Outcome::Worked {
                         id,
                         before,
                         report,
-                        progress: state.progress(),
-                        kept: state.kept,
+                        progress: worker.undertaking.state().progress(),
+                        record: worker.undertaking,
                     }
                 });
             }
@@ -338,6 +361,8 @@ impl Mind {
                         .to_string(),
                     "--id".to_owned(),
                     id.clone(),
+                    // She follows it as it runs.
+                    "--tell".to_owned(),
                 ];
                 tool_server.extend(self.workshop.runner_args.iter().cloned());
                 let seat = claude::Seat {
@@ -355,13 +380,12 @@ impl Mind {
                         CliKind::Claude => claude::sit(&seat).await,
                         CliKind::Codex => codex::sit(&seat).await,
                     };
-                    let state = seat.undertaking.state();
                     Outcome::Worked {
                         id,
                         before,
                         report,
-                        progress: state.progress(),
-                        kept: state.kept,
+                        progress: seat.undertaking.state().progress(),
+                        record: seat.undertaking,
                     }
                 });
             }
@@ -373,7 +397,9 @@ impl Mind {
     /// else she keeps is. The record of the work lists everything kept in
     /// it, in every sitting; what she has already kept from it with the
     /// same note, even if she has since let it go, is not kept twice.
-    fn take_home(&mut self, id: &str, kept: &[Kept]) -> Result<()> {
+    /// Returns the notes of what was kept just now.
+    fn take_home(&mut self, id: &str, kept: &[Kept]) -> Result<Vec<String>> {
+        let mut new = Vec::new();
         for k in kept {
             if self.ghost.memory().ever_kept(&k.file, &k.note, id)? {
                 continue;
@@ -384,7 +410,167 @@ impl Mind {
                 note: k.note.clone(),
                 from: Some(id.to_owned()),
             })?;
+            new.push(k.note.clone());
         }
+        Ok(new)
+    }
+
+    /// What the work `id` has told her and kept that she has not had yet,
+    /// from its record, into her journal. Her journal is the receipt: what
+    /// it already holds is not written twice, however often she looks and
+    /// whichever process the work ran in.
+    ///
+    /// Most of it waits until she next looks at anything. Something she
+    /// could hand over now, a kept image or a file made, also brings her
+    /// back to whoever asked for the work, as something she means to do.
+    fn hear_from_work(&mut self, id: &str, record: &Undertaking, now: DateTime<Utc>) -> Result<()> {
+        let state = record.state();
+        let heard = self.ghost.memory().reported(id)?;
+        let mut to_hand_over = Vec::new();
+        let mut made = false;
+        for told in state.told.iter().skip(heard) {
+            info!("{id} says: {}", clip(&told.text, 120));
+            self.record(Event::Reported {
+                id: id.to_owned(),
+                text: told.text.clone(),
+                files: told.files.clone(),
+            })?;
+            if !told.files.is_empty() {
+                made = true;
+                to_hand_over.push(format!(
+                    "{} ({})",
+                    clip(&told.text, 200),
+                    told.files.join(", ")
+                ));
+            }
+        }
+        to_hand_over.extend(
+            self.take_home(id, &state.kept)?
+                .iter()
+                .map(|note| clip(note, 200)),
+        );
+        if to_hand_over.is_empty() {
+            return Ok(());
+        }
+        let Some(u) = self.ghost.memory().undertaking(id)? else {
+            return Ok(());
+        };
+        if u.asked_by.is_none() && u.place.is_none() {
+            return Ok(());
+        }
+        // A kept image is read from her own directory; a file made is read
+        // off her machine, so it can only be sent where she has one.
+        let can_send = (!made || self.workshop.machine.is_some())
+            && u.place
+                .as_deref()
+                .and_then(ghost_core::social::split_key)
+                .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
+        let share = self.prompts.fill(
+            "share_found",
+            &[
+                ("brief", clip(&u.brief, 160)),
+                ("found", to_hand_over.join("; ")),
+                (
+                    "send",
+                    self.prompts
+                        .text(if can_send { "made_send" } else { "made_tell" })
+                        .to_owned(),
+                ),
+            ],
+        );
+        if self.intend(now + Duration::minutes(1), share, u.asked_by, u.place, true)? {
+            self.refresh_intentions()?;
+        }
+        Ok(())
+    }
+
+    /// The open piece of work she knows by `number`, or, as a sentence for
+    /// her, why there is none.
+    pub(super) fn open_work(
+        &self,
+        number: i64,
+    ) -> Result<std::result::Result<ghost_core::memory::Undertaking, String>> {
+        let n = [("work", number.to_string())];
+        Ok(match self.ghost.memory().undertaking_numbered(number)? {
+            Some(u) if u.outcome.is_none() => Ok(u),
+            Some(_) => Err(self.prompts.fill("work_over", &n)),
+            None => Err(self.prompts.fill("no_work", &n)),
+        })
+    }
+
+    /// She passes something on to work she has under way. It reaches the
+    /// worker before its next step, in this sitting or the next. Returns
+    /// why not, if it cannot.
+    pub(super) fn steer(
+        &mut self,
+        number: i64,
+        text: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<String>> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(Some(self.prompts.text("steer_nothing").to_owned()));
+        }
+        let u = match self.open_work(number)? {
+            Ok(u) => u,
+            Err(why) => return Ok(Some(why)),
+        };
+        if let Err(e) = self
+            .undertaking(&u.id, &u.brief)
+            .and_then(|record| record.add(text))
+        {
+            warn!("cannot pass anything on to {}: {e}", u.id);
+            return Ok(Some(format!("its record could not be written to: {e}")));
+        }
+        info!("passed on to {}: {}", u.id, clip(text, 80));
+        self.record(Event::Added {
+            id: u.id,
+            text: text.to_owned(),
+        })?;
+        self.agenda.work.get_or_insert(now);
+        Ok(None)
+    }
+
+    /// She stops work she has under way. A sitting on it ends after the
+    /// step it is on and comes back as dropped; with none running, it ends
+    /// now. Either way what it kept and told is hers first. Returns why
+    /// not, if it cannot.
+    pub(super) fn stop_work(&mut self, number: i64, now: DateTime<Utc>) -> Result<Option<String>> {
+        let u = match self.open_work(number)? {
+            Ok(u) => u,
+            Err(why) => return Ok(Some(why)),
+        };
+        if let Some(working) = self.working.as_ref().filter(|w| w.id == u.id) {
+            working.record.stop();
+            working.pause.store(true, Ordering::Relaxed);
+            info!("stopping {}", u.id);
+            return Ok(None);
+        }
+        let progress = match self.undertaking(&u.id, &u.brief) {
+            Ok(record) => {
+                record.stop();
+                self.hear_from_work(&u.id, &record, now)?;
+                record.state().progress()
+            }
+            Err(e) => {
+                warn!("cannot open the undertaking {}: {e}", u.id);
+                u.summary.unwrap_or_default()
+            }
+        };
+        info!("stopped {}", u.id);
+        self.dropped(&u.id, &progress)?;
+        Ok(None)
+    }
+
+    /// The work `id` ends because she stopped it.
+    fn dropped(&mut self, id: &str, progress: &str) -> Result<()> {
+        self.record(Event::Concluded {
+            id: id.to_owned(),
+            outcome: "dropped".into(),
+            summary: self
+                .prompts
+                .fill("stopped", &[("progress", progress.to_owned())]),
+        })?;
         Ok(())
     }
 
@@ -407,11 +593,12 @@ impl Mind {
         before: u64,
         report: &Report,
         progress: String,
-        kept: &[Kept],
+        record: &Undertaking,
         now: DateTime<Utc>,
     ) -> Result<()> {
         self.working = None;
-        self.take_home(id, kept)?;
+        // Whatever it said and kept up to the end.
+        self.hear_from_work(id, record, now)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]
@@ -420,6 +607,12 @@ impl Mind {
             Ended::Finished => "finished",
             Ended::Blocked => "blocked",
             Ended::GaveUp => "gave_up",
+            Ended::Dropped => {
+                info!("{id} stopped after {} steps", report.steps);
+                self.dropped(id, &progress)?;
+                self.agenda.work = Some(now + rest);
+                return Ok(());
+            }
             Ended::Failed(why) => {
                 warn!("the sitting on {id} failed: {why}");
                 self.record(Event::Worked {

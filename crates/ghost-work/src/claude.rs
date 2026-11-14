@@ -31,7 +31,7 @@ use tokio::{
 };
 
 use crate::{
-    undertaking::{Outcome, Undertaking},
+    undertaking::Undertaking,
     worker::{Ended, Report},
 };
 
@@ -282,9 +282,7 @@ pub async fn sit(seat: &Seat) -> Report {
     });
 
     let ended = match seat.undertaking.state().finish.map(|f| f.outcome) {
-        Some(Outcome::Finished) => Ended::Finished,
-        Some(Outcome::Blocked) => Ended::Blocked,
-        Some(Outcome::GaveUp) => Ended::GaveUp,
+        Some(outcome) => outcome.into(),
         None if stopped => Ended::Paused,
         None if timed_out => Ended::OutOfTime,
         None => match &last {

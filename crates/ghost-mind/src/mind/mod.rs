@@ -263,8 +263,8 @@ enum Outcome {
         before: u64,
         report: ghost_work::Report,
         progress: String,
-        /// Everything the record of the work says was kept in it.
-        kept: Vec<ghost_work::undertaking::Kept>,
+        /// Its record, with everything it kept and told in it.
+        record: Arc<ghost_work::Undertaking>,
     },
     /// She looked at the images in message `message`: for each, what she
     /// saw, or why she could not.
@@ -596,8 +596,8 @@ impl Mind {
                 before,
                 report,
                 progress,
-                kept,
-            } => self.on_worked(&id, before, &report, progress, &kept, now),
+                record,
+            } => self.on_worked(&id, before, &report, progress, &record, now),
             Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }

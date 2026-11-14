@@ -217,9 +217,9 @@ impl Tool for Ask {
     }
 }
 
-/// Keep an image the work came across, to be had again once the work is
-/// over. Whoever the work is done for takes the list from the record; the
-/// worker itself writes nowhere else.
+/// Keep an image the work came across, to be had again. Whoever the work
+/// is done for takes the list from the record as the work goes, not only
+/// once it is over; the worker itself writes nowhere else.
 pub struct Keep {
     undertaking: Arc<Undertaking>,
 }
@@ -235,9 +235,9 @@ impl Tool for Keep {
     fn spec(&self) -> ToolSpec {
         spec(
             "keep",
-            "Keep an image you were shown, because you want to have it again after this work is over: \
-             something worth looking at or using later. What you do not keep is gone with the work. \
-             Keeping the same image again replaces the note.",
+            "Keep an image you were shown, because you want to have it: something worth looking at or \
+             using, now or later. It is had at once, while you go on working, and stays after the work is \
+             over. What you do not keep is gone with the work. Keeping the same image again replaces the note.",
             json!({
                 "file": {"type": "string", "description": "The image's name, as a result showed it in `[image: <name>]`."},
                 "note": {"type": "string", "description": "In your own words: what it is, and when you would want it again. This is how it will be found later."},
@@ -277,6 +277,71 @@ impl Tool for Keep {
             state.kept.len()
         });
         Outcome::ok(format!("kept ({count} so far)"))
+    }
+}
+
+/// Something worth knowing before the work is done, for whoever it is
+/// for. Only offered where someone follows the work as it runs and takes
+/// what it tells them from the record.
+//
+// What this tool is said to be is still a literal here, like every other
+// tool description in ghost-work, until ghost-work's prose moves to files
+// of its own as ghost-mind's has.
+pub struct Tell {
+    undertaking: Arc<Undertaking>,
+}
+
+impl Tell {
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
+    }
+}
+
+#[async_trait]
+impl Tool for Tell {
+    fn spec(&self) -> ToolSpec {
+        spec(
+            "tell",
+            "Tell whoever this work is for something worth their knowing now, before the work is done: a \
+             finding they would want straight away, a partial result, a file ready to hand over. It reaches \
+             them while you go on working; it asks nothing and ends nothing. Most steps need none: the whole \
+             account belongs in `done`, and what is only on the way to it belongs in `note`. For an image you \
+             were shown, use `keep`.",
+            json!({
+                "text": {"type": "string", "description": "What they should know, in a sentence or two that make sense without your work in front of them."},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "Files you made that are ready to hand over now: their absolute paths. Leave out when there are none."},
+            }),
+            &["text"],
+        )
+    }
+
+    async fn call(&self, args: &Value) -> Outcome {
+        let words = match text(args, "text") {
+            Ok(t) => t.trim(),
+            Err(refusal) => return refusal,
+        };
+        if words.is_empty() {
+            return Outcome::fail("there is nothing to tell");
+        }
+        let files: Vec<String> = args["files"]
+            .as_array()
+            .map(|files| {
+                files
+                    .iter()
+                    .filter_map(|f| f.as_str().map(str::trim))
+                    .filter(|f| !f.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.undertaking.update(|state| {
+            state.told.push(undertaking::Told {
+                text: words.to_owned(),
+                files,
+                at: Utc::now(),
+            });
+        });
+        Outcome::ok("Told. Go on with the work.")
     }
 }
 
@@ -420,6 +485,34 @@ mod tests {
             assert!(out.failed, "{file} was kept");
         }
         assert!(u.state().kept.is_empty());
+    }
+
+    #[tokio::test]
+    async fn what_the_worker_tells_is_appended_to_the_record_in_order() {
+        let (_dir, u) = undertaking();
+        let tell = Tell::new(u.clone());
+        let said = tell
+            .call(&json!({"text": "  two sources agree  ", "files": [" /work/a.md ", ""]}))
+            .await;
+        assert!(!said.failed, "{}", said.output);
+        tell.call(&json!({"text": "the third disagrees"})).await;
+        assert!(tell.call(&json!({"text": "  "})).await.failed);
+        let told: Vec<(String, Vec<String>)> = u
+            .state()
+            .told
+            .into_iter()
+            .map(|t| (t.text, t.files))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                (
+                    "two sources agree".to_owned(),
+                    vec!["/work/a.md".to_owned()]
+                ),
+                ("the third disagrees".to_owned(), vec![]),
+            ]
+        );
     }
 
     #[tokio::test]

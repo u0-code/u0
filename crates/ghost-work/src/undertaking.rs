@@ -16,6 +16,12 @@
 //!                has been taken
 //! ```
 //!
+//! What goes the other way, from the work to whoever it is for while it
+//! runs, is part of the state: what it told them (`told`) and what it kept
+//! (`kept`), oldest first. Whoever the work is for reads those lists and
+//! takes what it has not had yet; the worker only appends to them, and
+//! never reads them back.
+//!
 //! Only the bookkeeping is kept there. The files the work produces are
 //! wherever its machine put them. Images a tool showed the model are kept
 //! beside the database, under `media/` and named by their hash; the history
@@ -67,6 +73,9 @@ pub enum Outcome {
     Blocked,
     /// Out of ideas.
     GaveUp,
+    /// Ended from outside before it was done: whoever it is for no longer
+    /// wants it. What it kept and told stays theirs.
+    Dropped,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +100,18 @@ pub struct Kept {
     pub file: String,
     /// What it is, and when it would be wanted again.
     pub note: String,
+    pub at: DateTime<Utc>,
+}
+
+/// Something the worker told whoever the work is for while it ran: worth
+/// their knowing before the work is done.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Told {
+    pub text: String,
+    /// Files it made that are ready to hand over: paths as the machine
+    /// knows them.
+    #[serde(default)]
+    pub files: Vec<String>,
     pub at: DateTime<Utc>,
 }
 
@@ -128,6 +149,10 @@ pub struct State {
     /// replaces its note and moves it to the end.
     #[serde(default)]
     pub kept: Vec<Kept>,
+    /// What the worker told whoever the work is for, in the order it told
+    /// them. Only ever appended to.
+    #[serde(default)]
+    pub told: Vec<Told>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
     pub steps: u64,
@@ -808,6 +833,26 @@ impl Undertaking {
                 Vec::new()
             }
         }
+    }
+
+    /// End the work from outside, as `dropped`, unless it has already
+    /// ended. A worker stepping it sees this before its next step, and a
+    /// tool server refuses every call after it. Returns whether it was
+    /// still going.
+    pub fn stop(&self) -> bool {
+        self.update(|state| {
+            if state.finish.is_some() {
+                return false;
+            }
+            state.finish = Some(Finish {
+                outcome: Outcome::Dropped,
+                summary: String::new(),
+                files: Vec::new(),
+                lesson: None,
+                at: Utc::now(),
+            });
+            true
+        })
     }
 
     /// Append one line to the step log.
