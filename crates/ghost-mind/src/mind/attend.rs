@@ -105,10 +105,11 @@ pub(super) enum Thought {
     Looked(Vec<Found>),
 }
 
-/// One call that reached beyond the conversation, and what came of it.
+/// One call that reached beyond the conversation, and what came of it:
+/// nothing, when it took longer than a conversation allows.
 pub(super) struct Found {
     pub call: Call,
-    pub outcome: ghost_work::Outcome,
+    pub outcome: Option<ghost_work::Outcome>,
 }
 
 /// What made her look.
@@ -538,16 +539,6 @@ impl Mind {
         if let Some(kept) = &kept {
             lines.retain(|l| l.seq > kept.upto);
         }
-        // A directive reads as one, so that she can tell it from what people
-        // say to her.
-        for line in &mut lines {
-            if line.directive.is_some() {
-                line.text = self.prompts.fill(
-                    "directive_line",
-                    &[("text", std::mem::take(&mut line.text))],
-                );
-            }
-        }
         job.upto = lines
             .iter()
             .filter(|l| l.incoming)
@@ -700,7 +691,16 @@ impl Mind {
                             }),
                             d.text
                         )),
-                        narrate::transcript(&lines, place.read_upto, self.life.clock(), now)
+                        // A directive is marked in its line's heading,
+                        // where nothing anyone types can reach, so that she
+                        // can tell it from what people say to her.
+                        narrate::transcript(
+                            &lines,
+                            place.read_upto,
+                            self.prompts.text("directive_mark"),
+                            self.life.clock(),
+                            now
+                        )
                     ),
                 ),
                 ("recalled", recalled),
@@ -961,22 +961,32 @@ impl Mind {
 
     /// What came back from beyond the conversation, as an item of the look,
     /// with what it was kept as in her journal: a search as `LookedUp`, a
-    /// page or an image she opened as `Opened`. An image is kept under
-    /// `media/` and named in the result, so that she can keep it or send it
-    /// by that name; a brain that sees is shown it.
+    /// page or an image she opened as `Opened`. What came from outside is
+    /// shown to her marked with where it came from (see
+    /// [`ghost_work::outside`]); her journal keeps it as it was. An image
+    /// is kept under `media/` and named in the result, after the mark, so
+    /// that she can keep it or send it by that name; a brain that sees is
+    /// shown it.
     fn took_in(
         &mut self,
         place: &PlaceState,
         call: Call,
-        outcome: ghost_work::Outcome,
+        outcome: Option<ghost_work::Outcome>,
         sees: bool,
     ) -> Result<Item> {
-        let ghost_work::Outcome {
+        let Some(ghost_work::Outcome {
             output,
             failed,
             mut pictures,
-        } = outcome;
-        let mut output = clip(&output, TALK_RESULT);
+        }) = outcome
+        else {
+            let too_slow = self.prompts.fill(
+                "too_slow",
+                &[("seconds", self.cfg.talk_tool_seconds.to_string())],
+            );
+            return Ok(Item::result(call.id, call.name, too_slow, true));
+        };
+        let output = clip(&output, TALK_RESULT);
         let opened = call.args["url"]
             .as_str()
             .or_else(|| call.args["path"].as_str())
@@ -1002,6 +1012,7 @@ impl Mind {
                 _ => {}
             }
         }
+        let mut shown = ghost_work::outside::mark(self.prompts.store(), &call, output.clone());
         for picture in &pictures {
             let file = media::store(self.ghost.dir(), &picture.bytes, &picture.mime)?;
             self.record(Event::Opened {
@@ -1010,18 +1021,18 @@ impl Mind {
                 file: Some(file.clone()),
                 place: Some(place.key.clone()),
             })?;
-            output.push('\n');
-            output.push_str(&placeholder(&file));
+            shown.push('\n');
+            shown.push_str(&placeholder(&file));
         }
         if !pictures.is_empty() && !sees {
-            output.push('\n');
-            output.push_str(&ghost_brain::not_shown(pictures.len()));
+            shown.push('\n');
+            shown.push_str(&ghost_brain::not_shown(pictures.len()));
             pictures.clear();
         }
         Ok(Item::Result {
             id: call.id,
             name: call.name,
-            output,
+            output: shown,
             failed,
             pictures,
         })
@@ -1124,10 +1135,6 @@ impl Mind {
             // the side, each for a few seconds at most, and the look goes
             // on when what they return is in.
             let budget = std::time::Duration::from_secs(self.cfg.talk_tool_seconds);
-            let too_slow = self.prompts.fill(
-                "too_slow",
-                &[("seconds", self.cfg.talk_tool_seconds.to_string())],
-            );
             for call in &outside {
                 tracing::info!(
                     "{}: {} {}",
@@ -1140,9 +1147,7 @@ impl Mind {
             self.jobs.spawn(async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
-                    let outcome = tokio::time::timeout(budget, reaching.run(&call))
-                        .await
-                        .unwrap_or_else(|_| ghost_work::Outcome::fail(too_slow.clone()));
+                    let outcome = tokio::time::timeout(budget, reaching.run(&call)).await.ok();
                     found.push(Found { call, outcome });
                 }
                 Outcome::Thought {

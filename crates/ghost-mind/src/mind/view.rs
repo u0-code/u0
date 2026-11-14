@@ -114,7 +114,13 @@ impl Mind {
                 ("where", place),
                 (
                     "transcript",
-                    narrate::transcript(&lines, i64::MAX, self.life.clock(), now),
+                    narrate::transcript(
+                        &lines,
+                        i64::MAX,
+                        self.prompts.text("directive_mark"),
+                        self.life.clock(),
+                        now,
+                    ),
                 ),
             ],
         );

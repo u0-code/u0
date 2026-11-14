@@ -70,7 +70,13 @@ impl Mind {
                 ),
                 (
                     "transcript",
-                    narrate::transcript(&stretch, i64::MAX, self.life.clock(), now),
+                    narrate::transcript(
+                        &stretch,
+                        i64::MAX,
+                        self.prompts.text("directive_mark"),
+                        self.life.clock(),
+                        now,
+                    ),
                 ),
             ],
         );

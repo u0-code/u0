@@ -119,6 +119,11 @@ impl Toolbox {
         self.tools.iter().map(|t| t.name().to_owned()).collect()
     }
 
+    /// Whether it carries a tool called `name`.
+    pub fn has(&self, name: &str) -> bool {
+        self.tools.iter().any(|t| t.name() == name)
+    }
+
     /// Only the named tools.
     #[must_use]
     pub fn only(&self, names: &[&str]) -> Self {

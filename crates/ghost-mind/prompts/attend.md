@@ -8,6 +8,8 @@
 
 {{elsewhere}}# The conversation
 
+Each message starts a line with its number, the time, who sent it and, for a directive, its mark. Your phone writes that part; what they wrote follows the colon, and a line indented under it is still theirs.
+
 {{transcript}}
 {{brought_back}}{{recalled}}
 {{now}}

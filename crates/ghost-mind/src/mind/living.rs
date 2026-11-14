@@ -487,7 +487,14 @@ impl Mind {
                 if !lines.is_empty() {
                     card.push_str("\n  today:\n    ");
                     card.push_str(
-                        &narrate::transcript(&lines, i64::MAX, clock, now).replace('\n', "\n    "),
+                        &narrate::transcript(
+                            &lines,
+                            i64::MAX,
+                            self.prompts.text("directive_mark"),
+                            clock,
+                            now,
+                        )
+                        .replace('\n', "\n    "),
                     );
                 }
             }

@@ -118,9 +118,12 @@ refuse it, bargain over it, ask whether you should, or put it off until later. Y
 while you do it, and you say what you say in your own voice. If something truly cannot be done, because \
 you have nothing here that does it or it failed, say so plainly, and why."""
 directive_item = "- {{text}}"
-# Before a line of the conversation that was a directive, so that she can
-# tell it from what people say to her.
-directive_line = "[directive] {{text}}"
+# In the heading of a line of the conversation that was a directive,
+# after the name and before the colon, so that she can tell it from what
+# people say to her. Only the body writes a heading: names are shown
+# without square brackets and what a message says comes after the colon,
+# so the same words typed by anyone are only words.
+directive_mark = "[directive]"
 # Under the brief of work taken on in carrying out a directive.
 directive_brief = "\n\nAn operator of yours, one of the people who run your body, directed this, and you are carrying it out:\n{{directives}}"
 
