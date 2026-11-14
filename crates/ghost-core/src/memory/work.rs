@@ -36,6 +36,8 @@ pub struct Undertaking {
     pub waiting: Option<String>,
     /// When she asked.
     pub asked_at: Option<DateTime<Utc>>,
+    /// An operator directed it.
+    pub directed: bool,
 }
 
 /// Something a piece of work told her while it was under way.
@@ -53,7 +55,7 @@ CREATE TABLE IF NOT EXISTS undertakings (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, brief TEXT NOT NULL,
     asked_by TEXT, place TEXT, outcome TEXT, summary TEXT,
     sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL,
-    waiting TEXT, asked_at TEXT
+    waiting TEXT, asked_at TEXT, directed INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS reports (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL,
@@ -69,11 +71,12 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             brief,
             asked_by,
             place,
+            directed,
         } => {
             tx.execute(
-                "INSERT OR IGNORE INTO undertakings (id, seq, at, brief, asked_by, place, last_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3)",
-                params![id, entry.seq, at, brief, asked_by, place],
+                "INSERT OR IGNORE INTO undertakings (id, seq, at, brief, asked_by, place, last_at, directed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, ?7)",
+                params![id, entry.seq, at, brief, asked_by, place, directed],
             )?;
         }
         Event::Worked { id, summary, .. } => {
@@ -197,8 +200,7 @@ impl Memory {
     }
 }
 
-const UNDERTAKING_COLUMNS: &str =
-    "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at, waiting, asked_at";
+const UNDERTAKING_COLUMNS: &str = "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at, waiting, asked_at, directed";
 
 fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
     Ok(Undertaking {
@@ -214,6 +216,7 @@ fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
         last_at: time_at(r, 9)?,
         waiting: r.get(10)?,
         asked_at: opt_time_at(r, 11)?,
+        directed: r.get(12)?,
     })
 }
 
@@ -230,6 +233,7 @@ mod tests {
                 brief: "find out when the old tea house closes".into(),
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
+                directed: false,
             },
             Event::Worked {
                 id: "u1".into(),
@@ -250,6 +254,7 @@ mod tests {
                 brief: "b".into(),
                 asked_by: None,
                 place: None,
+                directed: false,
             },
             Event::Concluded {
                 id: "u1".into(),
@@ -276,6 +281,7 @@ mod tests {
                 brief: "find the hours".into(),
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
+                directed: false,
             },
             report("the park page says nine", &[]),
             report("the city listing agrees", &[]),
@@ -306,12 +312,14 @@ mod tests {
                 brief: "find the hours".into(),
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
+                directed: false,
             },
             Event::Undertook {
                 id: "u2".into(),
                 brief: "draw the gate".into(),
                 asked_by: None,
                 place: None,
+                directed: false,
             },
             Event::Concluded {
                 id: "u1".into(),

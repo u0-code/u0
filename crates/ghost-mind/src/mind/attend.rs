@@ -219,7 +219,8 @@ impl Mind {
         let notice = Notice {
             phase: moment.phase,
             // At her desk on something of her own, she looks up rarely.
-            reach: if self.working.is_some() {
+            // Work that runs apart from her day does not keep her there.
+            reach: if self.cfg.work.runs == crate::Runs::Awake && !self.working.is_empty() {
                 moment.reach.max(Reach::Busy)
             } else {
                 moment.reach
@@ -276,10 +277,11 @@ impl Mind {
         if moment.phase == Phase::Asleep && !self.tempo.instant() && !directed {
             return self.schedule_attend(place_key, now);
         }
-        // One thing at a time. If she is in the middle of a sitting, it is
-        // put down first, and she looks once it has stopped; for a
-        // directive she looks at once, and the sitting stops after the step
-        // it is on.
+        // One thing at a time, when work is something she sits down to:
+        // if she is in the middle of a sitting, it is put down first, and
+        // she looks once it has stopped; for a directive she looks at once,
+        // and the sitting stops after the step it is on. Work that runs
+        // apart from her day is not put down.
         if self.set_work_aside() && !directed {
             self.agenda.attend.insert(
                 place_key.to_owned(),

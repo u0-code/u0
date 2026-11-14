@@ -86,8 +86,23 @@ enabled = true
 # Let her search and read the web while working. Search uses DEEPSEEK_API_KEY,
 # BRAVE_API_KEY or SEARXNG_URL, whichever is set first.
 web = true
-# One sitting is at most this many steps or minutes. Between sittings she
-# rests, and after max_sittings she lets the thing go.
+# When work runs.
+#   "always"  on her machine, apart from her day: sittings run while she is
+#             asleep, talking or reading, looking at her phone does not stop
+#             one, and a conversation does not wait for work. A sitting that
+#             runs out of steps or minutes is followed at once by the next.
+#   "awake"   only while she is awake and not talking, as something she sits
+#             down to: reading a message stops the sitting after its step,
+#             and she rests between sittings.
+runs = "always"
+# How many pieces of work may have a sitting running at once. Work an
+# operator directed goes first, then whatever has waited longest. Each
+# sitting that starts takes one call from calls_per_hour, and none starts
+# while that is spent.
+at_once = 2
+# One sitting is at most this many steps or minutes. A piece of work rests
+# this long between sittings, except a sitting that ran out of steps or time
+# with runs = "always"; after max_sittings it is let go.
 sitting_steps = 40
 sitting_minutes = 15
 rest_minutes = 10

@@ -155,8 +155,13 @@ impl Mind {
                     let state = if let Some(question) = &u.waiting {
                         self.prompts
                             .fill("waiting_answer", &[("question", clip(question, 200))])
-                    } else if self.working.as_ref().is_some_and(|w| w.id == u.id) {
-                        "You were in the middle of it just now.".to_owned()
+                    } else if self.working.contains_key(&u.id) {
+                        self.prompts
+                            .text(match self.cfg.work.runs {
+                                crate::Runs::Always => "work_running",
+                                crate::Runs::Awake => "work_running_awake",
+                            })
+                            .to_owned()
                     } else if u.sittings == 0 {
                         "You have not started yet.".to_owned()
                     } else {
@@ -257,7 +262,7 @@ impl Mind {
             return String::new();
         };
         let parts = record.parts();
-        let sitting = self.working.as_ref().is_some_and(|w| w.id == id);
+        let sitting = self.working.contains_key(id);
         let from = parts.len().saturating_sub(PARTS_SHOWN);
         parts[from..]
             .iter()

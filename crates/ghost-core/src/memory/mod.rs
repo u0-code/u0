@@ -63,7 +63,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 /// How far the journal has been folded in.
 const META: &str =

@@ -351,6 +351,7 @@ impl Mind {
             brief,
             asked_by: None,
             place: None,
+            directed: false,
         })?;
         self.agenda.work.get_or_insert(now + Duration::minutes(30));
         Ok(())

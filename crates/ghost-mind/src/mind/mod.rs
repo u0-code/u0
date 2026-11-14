@@ -25,7 +25,7 @@ mod view;
 mod work;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::Arc,
     time::Duration as StdDuration,
 };
@@ -359,8 +359,11 @@ pub struct Mind {
     rng: Rng,
     budget: Budget,
     workshop: Workshop,
-    /// The sitting in progress, if she is at one.
-    working: Option<work::Working>,
+    /// The sittings in progress, by the work they are on.
+    working: BTreeMap<String, work::Working>,
+    /// Work that is not to be sat down to again before the time given: it
+    /// is resting after a sitting.
+    resting: HashMap<String, DateTime<Utc>>,
     /// Channels that have been asked how her posts are doing and have not
     /// answered yet.
     measuring: HashSet<String>,
@@ -413,7 +416,8 @@ impl Mind {
             agenda: Agenda::default(),
             jobs: JoinSet::new(),
             workshop: parts.workshop,
-            working: None,
+            working: BTreeMap::new(),
+            resting: HashMap::new(),
             measuring: HashSet::new(),
             rng: Rng::new(),
             started: Utc::now(),

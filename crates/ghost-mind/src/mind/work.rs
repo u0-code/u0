@@ -2,25 +2,52 @@
 //!
 //! When she decides to take something on, it becomes an undertaking: a
 //! directory with a brief, a plan and notes, and an entry in her journal.
-//! She works on it in sittings. A sitting is a bounded run of the loop in
+//! It is worked on in sittings. A sitting is a bounded run of the loop in
 //! `ghost-work`, sent off as a job like any brain call, so the actor stays
 //! the only writer of her journal and stays free to notice everything else.
 //!
-//! Work is one foreground activity among others. While a sitting is running
-//! she is busy, and messages wait as they would for anyone at a desk. When
-//! she does look at her phone, the sitting is asked to stop after the step
-//! it is on; everything it needs to go on is on disk. She returns to it when
-//! she is done talking.
+//! When sittings run is the body's to say, in `[work] runs`:
+//!
+//! - `"always"`, the default. Work runs on her machine, apart from her day
+//!   and her attention. A sitting starts while she is asleep, talking or
+//!   reading; looking at her phone does not stop one, and a conversation
+//!   does not wait for work. A sitting that ends because it ran out of
+//!   steps or time is followed at once by the next sitting of the same
+//!   work, up to `max_sittings`. What she is doing in her day stays what
+//!   it was: the work is the machine's, not something she sits at.
+//! - `"awake"`. Work is one foreground activity among others. Sittings
+//!   start only while she is awake and not in a conversation, and a piece
+//!   of work rests between them. While one runs she is busy, and messages
+//!   wait as they would for anyone at a desk. When she does look at her
+//!   phone, the sitting is asked to stop after the step it is on;
+//!   everything it needs to go on is on disk. She returns to it when she is
+//!   done talking.
+//!
+//! In either mode up to `at_once` pieces of work have a sitting running at
+//! the same time. When a place is free, what an operator directed goes
+//! first, then whatever has waited longest since it was last touched,
+//! leaving aside what waits on somebody's answer and what is resting.
+//!
+//! Starting a sitting takes one call from the body's hourly budget, and
+//! none starts while that budget is spent. The steps inside a sitting are
+//! not counted one by one: they are bounded by the sitting's own steps and
+//! minutes, and counting them against the hour would let a long piece of
+//! work leave her nothing to answer anyone with. What the budget bounds is
+//! how many sittings start in an hour, and so, with those limits, what
+//! work can spend.
 //!
 //! The work and she talk while it runs, and only through its record in
 //! `work.db`, which both the worker here and the tool server a command-line
 //! agent starts can write. The work leaves there what it chose to tell her
-//! and what it kept; she glances at it every so often while a sitting runs,
-//! and once more when it ends, and writes into her journal what she has not
-//! had yet. Nothing of what it did to get there reaches her. She speaks to
-//! it the same way: what she adds goes into its inbox, taken before its
-//! next step, and stopping it is an outcome written into its record, which
-//! it sees before its next step too.
+//! and what it kept; she glances at every running sitting every so often,
+//! and once more when each ends, and writes into her journal what she has
+//! not had yet. Something she could hand over makes her mean to go back to
+//! whoever asked; like anything she means to do, that waits for her to be
+//! awake and free, unless an operator directed the work. Nothing of what
+//! it did to get there reaches her. She speaks to it the same way: what
+//! she adds goes into its inbox, taken before its next step, and stopping
+//! it is an outcome written into its record, which it sees before its next
+//! step too.
 //!
 //! The work may hand parts of itself to other workers that run alongside
 //! it during a sitting. They report to the work, through the same inbox,
@@ -51,11 +78,10 @@ const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
 use super::{Mind, Outcome};
-use crate::{Result, actions::clip};
+use crate::{Result, Runs, actions::clip};
 
 /// A sitting in progress.
 pub(super) struct Working {
-    pub id: String,
     /// Set to stop the sitting after the step it is on.
     pub pause: Arc<AtomicBool>,
     /// Its record, which the sitting writes to as it goes.
@@ -139,7 +165,7 @@ impl Mind {
                             id: open.id,
                             text: added,
                         })?;
-                        self.agenda.work.get_or_insert(now);
+                        self.work_at(now);
                         None
                     }
                     Err(e) => Some(format!(
@@ -197,36 +223,60 @@ impl Mind {
             brief,
             asked_by: asked_by.map(|p| p.key.clone()),
             place: place.map(|p| p.key.clone()),
+            directed: !directed.is_empty(),
         })?;
-        self.agenda.work.get_or_insert(now);
+        self.work_at(now);
         Ok(None)
     }
 
-    /// Time to sit down to something, if there is something.
+    /// Time to look at her work: glance at every sitting in progress, and
+    /// sit down to whatever else can be.
     pub(super) fn work(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.agenda.work = None;
-        // At a sitting already, this is when she glances at what it has
+        // At sittings already, this is when she glances at what each has
         // told her so far.
-        if let Some(working) = &self.working {
-            let (id, record) = (working.id.clone(), working.record.clone());
-            self.agenda.work = Some(now + GLANCE);
-            return self.hear_from_work(&id, &record, now);
+        let running: Vec<(String, Arc<Undertaking>)> = self
+            .working
+            .iter()
+            .map(|(id, w)| (id.clone(), w.record.clone()))
+            .collect();
+        for (id, record) in &running {
+            self.hear_from_work(id, record, now)?;
         }
+        if !running.is_empty() {
+            self.work_at(now + GLANCE);
+        }
+        self.resting.retain(|_, until| *until > now);
+        let at_once = usize::try_from(self.cfg.work.at_once.max(1)).unwrap_or(usize::MAX);
+        while self.working.len() < at_once && self.sit_down(now)? {}
+        Ok(())
+    }
+
+    /// Look at her work again no later than `at`.
+    fn work_at(&mut self, at: DateTime<Utc>) {
+        self.agenda.work = Some(self.agenda.work.map_or(at, |due| due.min(at)));
+    }
+
+    /// Sit down to the next piece of work, if one can be. Returns whether
+    /// anything changed that makes it worth looking for another.
+    fn sit_down(&mut self, now: DateTime<Utc>) -> Result<bool> {
         let Some(stepper) = self.stepper().filter(|_| self.cfg.work.enabled) else {
-            return Ok(());
+            return Ok(false);
         };
-        let moment = self.life.moment(self.ghost.journal(), now)?;
-        if moment.phase == Phase::Asleep && !self.tempo.instant() {
-            self.agenda.work = Some(moment.until + Duration::minutes(20));
-            return Ok(());
+        // Work she sits down to waits on her day; work that runs apart
+        // from it does not.
+        if self.cfg.work.runs == Runs::Awake {
+            let moment = self.life.moment(self.ghost.journal(), now)?;
+            if moment.phase == Phase::Asleep && !self.tempo.instant() {
+                self.work_at(moment.until + Duration::minutes(20));
+                return Ok(false);
+            }
+            // A conversation in progress comes first.
+            if !self.agenda.speaking.is_empty() || !self.thinking.is_empty() {
+                self.work_at(now + Duration::seconds(30));
+                return Ok(false);
+            }
         }
-        // A conversation in progress comes first.
-        if !self.agenda.speaking.is_empty() || !self.thinking.is_empty() {
-            self.agenda.work = Some(now + Duration::seconds(30));
-            return Ok(());
-        }
-        // Whatever has waited longest since it was last touched, leaving
-        // aside what is waiting on somebody's answer.
         let open = self.ghost.memory().undertakings(true, 20)?;
         let patience = Duration::hours(i64::from(self.cfg.work.ask_hours));
         let unanswered = open
@@ -246,23 +296,37 @@ impl Mind {
                 id: stale.id,
                 text: said,
             })?;
-            self.agenda.work = Some(now);
-            return Ok(());
+            return Ok(true);
         }
-        // If all that is left is waiting to be answered, come back when
-        // the first of those has waited long enough.
-        let give_up_at = open
+        // What is waiting to be answered is come back to when the first of
+        // it has waited long enough.
+        if let Some(give_up_at) = open
             .iter()
             .filter_map(|u| u.asked_at)
             .min()
-            .map(|at| at + patience);
-        let Some(next) = open
+            .map(|at| at + patience)
+        {
+            self.work_at(give_up_at);
+        }
+        // Of the rest, what is not running already, nor resting after a
+        // sitting.
+        let mut ready = Vec::new();
+        for u in open {
+            if u.waiting.is_some() || self.working.contains_key(&u.id) {
+                continue;
+            }
+            match self.resting.get(&u.id) {
+                Some(&until) => self.work_at(until),
+                None => ready.push(u),
+            }
+        }
+        // What an operator directed goes first; then whatever has waited
+        // longest since it was last touched.
+        let Some(next) = ready
             .into_iter()
-            .filter(|u| u.waiting.is_none())
-            .min_by_key(|u| u.last_at)
+            .min_by_key(|u| (!u.directed, u.last_at, u.seq))
         else {
-            self.agenda.work = give_up_at;
-            return Ok(());
+            return Ok(false);
         };
         if next.sittings >= i64::from(self.cfg.work.max_sittings) {
             self.record(Event::Concluded {
@@ -274,10 +338,16 @@ impl Mind {
                     next.summary.unwrap_or_default()
                 ),
             })?;
-            self.agenda.work = Some(now);
-            return Ok(());
+            return Ok(true);
         }
-
+        // A sitting is one call from the body's budget: its steps are
+        // bounded by the sitting's own limits, and the budget bounds how
+        // many sittings start.
+        if !self.budget.allow(now) {
+            warn!("brain budget for this hour is spent; work waits");
+            self.work_at(now + Duration::minutes(10));
+            return Ok(false);
+        }
         let undertaking = match self.undertaking(&next.id, &next.brief) {
             Ok(u) => Arc::new(u),
             Err(e) => {
@@ -287,9 +357,22 @@ impl Mind {
                     outcome: "blocked".into(),
                     summary: format!("Its record could not be opened: {e}"),
                 })?;
-                return Ok(());
+                return Ok(true);
             }
         };
+        self.budget.spend(now);
+        self.sit(&next, undertaking, stepper, now)?;
+        Ok(true)
+    }
+
+    /// Start a sitting on `next`, whose record is `undertaking`.
+    fn sit(
+        &mut self,
+        next: &ghost_core::memory::Undertaking,
+        undertaking: Arc<Undertaking>,
+        stepper: Stepper,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
         let before = undertaking.state().steps;
         let place = match &self.workshop.machine {
             Some(machine) => machine.describe(),
@@ -342,13 +425,15 @@ impl Mind {
         // told, and is looked at again before each step.
         let words = self.prompts.for_work();
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
-        self.working = Some(Working {
-            id: next.id.clone(),
-            pause: pause.clone(),
-            record: undertaking.clone(),
-        });
-        self.agenda.work = Some(now + GLANCE);
-        let id = next.id;
+        self.working.insert(
+            next.id.clone(),
+            Working {
+                pause: pause.clone(),
+                record: undertaking.clone(),
+            },
+        );
+        self.work_at(now + GLANCE);
+        let id = next.id.clone();
         match stepper {
             Stepper::Own(brain) => {
                 let worker = Worker {
@@ -521,7 +606,14 @@ impl Mind {
                 ),
             ],
         );
-        if self.intend(now + Duration::minutes(1), share, u.asked_by, u.place, true)? {
+        if self.intend_as(
+            now + Duration::minutes(1),
+            share,
+            u.asked_by,
+            u.place,
+            true,
+            u.directed,
+        )? {
             self.refresh_intentions()?;
         }
         Ok(())
@@ -570,7 +662,7 @@ impl Mind {
             id: u.id,
             text: text.to_owned(),
         })?;
-        self.agenda.work.get_or_insert(now);
+        self.work_at(now);
         Ok(None)
     }
 
@@ -583,7 +675,7 @@ impl Mind {
             Ok(u) => u,
             Err(why) => return Ok(Some(why)),
         };
-        if let Some(working) = self.working.as_ref().filter(|w| w.id == u.id) {
+        if let Some(working) = self.working.get(&u.id) {
             working.record.stop();
             working.pause.store(true, Ordering::Relaxed);
             info!("stopping {}", u.id);
@@ -617,16 +709,17 @@ impl Mind {
         Ok(())
     }
 
-    /// Ask a sitting in progress to stop after its current step. Returns
-    /// whether there was one.
+    /// Ask the sittings in progress to stop after their current step,
+    /// when work is something she sits down to. Returns whether there were
+    /// any. Work that runs apart from her day is not put down.
     pub(super) fn set_work_aside(&mut self) -> bool {
-        match &self.working {
-            Some(working) => {
-                working.pause.store(true, Ordering::Relaxed);
-                true
-            }
-            None => false,
+        if self.cfg.work.runs == Runs::Always {
+            return false;
         }
+        for working in self.working.values() {
+            working.pause.store(true, Ordering::Relaxed);
+        }
+        !self.working.is_empty()
     }
 
     /// A sitting ended.
@@ -639,13 +732,15 @@ impl Mind {
         record: &Undertaking,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.working = None;
+        self.working.remove(id);
         // Whatever it said and kept up to the end.
         self.hear_from_work(id, record, now)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]
         let rest = Duration::seconds(secs as i64);
+        // A slot is free: look at what is next now, whatever this work does.
+        self.work_at(now);
         let outcome = match &report.ended {
             Ended::Finished => "finished",
             Ended::Blocked => "blocked",
@@ -653,7 +748,6 @@ impl Mind {
             Ended::Dropped => {
                 info!("{id} stopped after {} steps", report.steps);
                 self.dropped(id, &progress)?;
-                self.agenda.work = Some(now + rest);
                 return Ok(());
             }
             Ended::Failed(why) => {
@@ -663,7 +757,7 @@ impl Mind {
                     summary: format!("Could not think: {}", clip(why, 200)),
                     steps,
                 })?;
-                self.agenda.work = Some(now + Duration::minutes(10).max(rest));
+                self.rest(id, now + Duration::minutes(10).max(rest));
                 return Ok(());
             }
             Ended::Waiting => {
@@ -686,11 +780,18 @@ impl Mind {
                             ("question", clip(&question, 600)),
                         ],
                     );
-                    self.intend(now + Duration::minutes(1), ask, u.asked_by, u.place, true)?;
+                    self.intend_as(
+                        now + Duration::minutes(1),
+                        ask,
+                        u.asked_by,
+                        u.place,
+                        true,
+                        u.directed,
+                    )?;
                     self.refresh_intentions()?;
                 }
                 // Something else may be waiting to be done meanwhile.
-                self.agenda.work = Some(now + rest);
+                self.rest(id, now + rest);
                 return Ok(());
             }
             Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused | Ended::Stalled => {
@@ -699,7 +800,14 @@ impl Mind {
                     summary: progress,
                     steps,
                 })?;
-                self.agenda.work = Some(now + rest);
+                // Work that runs apart from her day goes straight on when a
+                // sitting only ran up against its limits. Otherwise it rests
+                // first: she was taken away from it, or it was going nowhere.
+                let straight_on = self.cfg.work.runs == Runs::Always
+                    && matches!(report.ended, Ended::OutOfSteps | Ended::OutOfTime);
+                if !straight_on {
+                    self.rest(id, now + rest);
+                }
                 return Ok(());
             }
         };
@@ -764,11 +872,22 @@ impl Mind {
                     ("made", made),
                 ],
             );
-            self.intend(now + Duration::minutes(1), tell, u.asked_by, u.place, true)?;
+            self.intend_as(
+                now + Duration::minutes(1),
+                tell,
+                u.asked_by,
+                u.place,
+                true,
+                u.directed,
+            )?;
             self.refresh_intentions()?;
         }
-        // On to the next thing, if there is one.
-        self.agenda.work = Some(now + rest);
         Ok(())
+    }
+
+    /// The work `id` is not sat down to again before `until`.
+    fn rest(&mut self, id: &str, until: DateTime<Utc>) {
+        self.resting.insert(id.to_owned(), until);
+        self.work_at(until);
     }
 }

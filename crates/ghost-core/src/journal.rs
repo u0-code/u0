@@ -157,6 +157,10 @@ pub enum Event {
         /// is not chasing.
         #[serde(default, skip_serializing_if = "is_false")]
         owed: bool,
+        /// It comes of work an operator directed. Like the directive, it
+        /// does not wait on her day: not on sleep, not on being busy.
+        #[serde(default, skip_serializing_if = "is_false")]
+        directed: bool,
     },
     /// An intention was carried out or dropped. `intention` is its seq.
     Settled {
@@ -193,6 +197,10 @@ pub enum Event {
         /// Where they asked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
+        /// An operator directed it. It goes ahead of other work, and what
+        /// she means to do because of it does not wait on her day.
+        #[serde(default, skip_serializing_if = "is_false")]
+        directed: bool,
     },
     /// One sitting of work on an undertaking.
     Worked {
