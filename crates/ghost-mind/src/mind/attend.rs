@@ -391,7 +391,7 @@ impl Mind {
                 tools: actions::tools(
                     self.work_means(),
                     self.can_look_up(),
-                    !self.deliverables(place)?.is_empty(),
+                    self.can(&place.channel, Can::Files),
                 ),
                 max_tokens: self.cfg.max_tokens,
                 temperature: None,
@@ -558,7 +558,13 @@ impl Mind {
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
         } else {
-            narrate::fill(&self.prompts.reply_json, &[("abilities", self.abilities())])
+            narrate::fill(
+                &self.prompts.reply_json,
+                &[(
+                    "abilities",
+                    self.abilities(self.can(&place.channel, Can::Files)),
+                )],
+            )
         };
         let prompt = narrate::fill(
             &self.prompts.attend,
@@ -805,7 +811,9 @@ impl Mind {
                 }
                 // Told at once when it cannot be done, so that she can
                 // put it right, as with a call she got wrong.
-                Ok(action @ (Action::Keep { .. } | Action::LetGo { .. })) => {
+                Ok(
+                    action @ (Action::Keep { .. } | Action::LetGo { .. } | Action::SendFile { .. }),
+                ) => {
                     if let Some(why) = self.refusal(place, &action)? {
                         again = true;
                         (why, true)
@@ -999,36 +1007,30 @@ impl Mind {
                 }
                 // Handled before this, as another round of thought.
                 Action::LookUp { .. } => {}
-                Action::SendFile { file, text } => {
-                    // By the name she was given, or the end of it.
-                    let wanted = file.trim();
-                    let found = self.deliverables(place)?.into_iter().find(|path| {
-                        path == wanted
-                            || std::path::Path::new(path)
-                                .file_name()
-                                .is_some_and(|n| n.to_string_lossy() == wanted)
-                            || path.ends_with(wanted)
-                    });
-                    match found {
-                        Some(path) => {
-                            bubbles.push_back(Bubble {
-                                text: text.unwrap_or_default().trim().to_owned(),
-                                reply_to: None,
-                                file: Some(path),
-                            });
-                            did.push("sent a file".to_owned());
-                        }
-                        None => {
-                            self.record(Event::Decided {
-                                about: place.key.clone(),
-                                decision: "did not send a file".into(),
-                                reason: format!(
-                                    "there is no file of hers called {wanted} to give here"
-                                ),
-                            })?;
-                        }
+                Action::SendFile {
+                    file,
+                    message,
+                    image,
+                    text,
+                } => match self.giveable(place, file.as_deref(), message, image)? {
+                    Ok(gift) => {
+                        bubbles.push_back(Bubble {
+                            text: text.unwrap_or_default().trim().to_owned(),
+                            reply_to: None,
+                            file: Some(gift),
+                        });
+                        did.push("sent a file".to_owned());
                     }
-                }
+                    // Where what she does is tool calls she was told at
+                    // once; answering in JSON, it is only written down.
+                    Err(why) => {
+                        self.record(Event::Decided {
+                            about: place.key.clone(),
+                            decision: "did not send a file".into(),
+                            reason: why,
+                        })?;
+                    }
+                },
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
                     match self.undertake(&brief, asker.as_ref(), Some(place), now)? {

@@ -28,6 +28,8 @@ use crate::{api::Api, convert::Me, gateway::Event, replies::Replies};
 
 /// How long to wait for the gateway to accept the bot before giving up.
 const READY_WITHIN: Duration = Duration::from_secs(60);
+/// The most QQ takes in one upload, as Tencent's own SDK has it.
+const LARGEST_UPLOAD: usize = 20 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(
@@ -97,43 +99,124 @@ impl Platform for QqBot {
     }
 
     async fn act(&self, action: Action) -> anyhow::Result<Acted> {
-        let Action::Send {
-            place,
-            text,
-            reply_to,
-        } = action
-        else {
-            anyhow::bail!("qq bots cannot {:?} here", action.needs());
+        let id = match action {
+            Action::Send {
+                place,
+                text,
+                reply_to,
+            } => self.say(&place, &text, reply_to.as_deref()).await?,
+            Action::File {
+                place,
+                name,
+                data,
+                text,
+            } => {
+                self.hand_over(&place, &name, &data, text.as_deref())
+                    .await?
+            }
+            other => anyhow::bail!("qq bots cannot {:?} here", other.needs()),
         };
+        Ok(Acted {
+            id,
+            items: Vec::new(),
+            measure: None,
+        })
+    }
+}
+
+impl QqBot {
+    /// Send `text` to `place`, in as many messages as it takes. Returns the
+    /// id of the last.
+    async fn say(
+        &self,
+        place: &str,
+        text: &str,
+        reply_to: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
         let path =
-            convert::target(&place).with_context(|| format!("{place:?} is not somewhere on qq"))?;
+            convert::target(place).with_context(|| format!("{place:?} is not somewhere on qq"))?;
         let mut last = None;
-        for part in text::chunks(&text, convert::MESSAGE_LIMIT) {
-            let passive = self
-                .replies()
-                .answer(&place, reply_to.as_deref(), Instant::now());
+        for part in text::chunks(text, convert::MESSAGE_LIMIT) {
+            let passive = self.replies().answer(place, reply_to, Instant::now());
             let body = convert::outgoing(&part, passive.as_ref());
             let sent = self
                 .api
                 .call(Method::POST, &path, Some(&body))
                 .await
-                .with_context(|| {
-                    if passive.is_some() {
-                        "send a reply on qq".to_owned()
-                    } else {
-                        // Most refusals come from here: QQ allows a bot to
-                        // speak first only rarely.
-                        "send on qq with nothing recent here to answer, which qq allows only rarely"
-                            .to_owned()
-                    }
-                })?;
+                .with_context(|| sending(passive.is_some()))?;
             last = sent["id"].as_str().map(str::to_owned);
         }
-        Ok(Acted {
-            id: last,
-            items: Vec::new(),
-            measure: None,
-        })
+        Ok(last)
+    }
+
+    /// Send an image to `place`: uploaded first, then sent as a message
+    /// that carries it, after `text` if there is any. QQ takes other kinds
+    /// of file from a bot only in ways not built here, so they are refused.
+    async fn hand_over(
+        &self,
+        place: &str,
+        name: &str,
+        data: &str,
+        text: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
+        use base64::Engine as _;
+        let (messages, uploads) = convert::target(place)
+            .zip(convert::uploads(place))
+            .with_context(|| format!("{place:?} is not somewhere on qq"))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .with_context(|| format!("{name} did not come as base64"))?;
+        if !convert::is_image(&bytes) {
+            anyhow::bail!(
+                "{name} is not an image: a qq bot here sends images (PNG, JPEG, GIF or WebP) and no other files"
+            );
+        }
+        if bytes.len() > LARGEST_UPLOAD {
+            anyhow::bail!(
+                "{name} is {} bytes, more than qq takes in one upload",
+                bytes.len()
+            );
+        }
+        // Uploaded before anything is said, so that an image qq will not
+        // take leaves no words behind waiting for it.
+        let uploaded = self
+            .api
+            .call(Method::POST, &uploads, Some(&convert::upload(data)))
+            .await
+            .context("upload an image to qq")?;
+        let file_info = uploaded["file_info"]
+            .as_str()
+            .filter(|f| !f.is_empty())
+            .context("qq took the image and gave nothing to send it with")?;
+        let mut last = match text.map(str::trim).filter(|t| !t.is_empty()) {
+            Some(text) => self.say(place, text, None).await?,
+            None => None,
+        };
+        let passive = self.replies().answer(place, None, Instant::now());
+        let sent = self
+            .api
+            .call(
+                Method::POST,
+                &messages,
+                Some(&convert::media(file_info, passive.as_ref())),
+            )
+            .await
+            .with_context(|| sending(passive.is_some()))?;
+        if let Some(id) = sent["id"].as_str() {
+            last = Some(id.to_owned());
+        }
+        Ok(last)
+    }
+}
+
+/// What was being done when a send was refused.
+fn sending(passive: bool) -> &'static str {
+    if passive {
+        "send a reply on qq"
+    } else {
+        // Most refusals come from here: QQ allows a bot to speak first
+        // only rarely.
+        "send on qq with nothing recent here to answer, which qq allows only rarely"
     }
 }
 
@@ -211,7 +294,7 @@ async fn main() -> anyhow::Result<()> {
             handle: None,
             automated: true,
         }),
-        can: vec![Capability::Send],
+        can: vec![Capability::Send, Capability::Files],
     };
     let bot = QqBot {
         api,
@@ -219,4 +302,171 @@ async fn main() -> anyhow::Result<()> {
         events: tokio::sync::Mutex::new(Some(events)),
     };
     presence::run(Arc::new(bot), link).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use base64::Engine as _;
+    use serde_json::{Value, json};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::*;
+
+    /// One request the stand-in for QQ was sent: its path and its body.
+    type Seen = Arc<Mutex<Vec<(String, Value)>>>;
+
+    /// A stand-in for QQ's token service and open API on this machine. It
+    /// hands out a token, takes any upload, and gives each message an id.
+    async fn stand_in() -> (String, Seen) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen: Seen = Arc::default();
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut got = Vec::new();
+                let mut buf = [0u8; 8192];
+                // The head, then as much body as it says there is.
+                let (head, body) = loop {
+                    let n = socket.read(&mut buf).await.unwrap();
+                    got.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&got).into_owned();
+                    let Some(end) = text.find("\r\n\r\n") else {
+                        continue;
+                    };
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    if got.len() >= end + 4 + length {
+                        break (
+                            text[..end].to_owned(),
+                            got[end + 4..end + 4 + length].to_vec(),
+                        );
+                    }
+                    if n == 0 {
+                        break (text[..end].to_owned(), got[end + 4..].to_vec());
+                    }
+                };
+                let path = head
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_owned();
+                let body: Value = serde_json::from_slice(&body).unwrap_or_default();
+                let answer = if path.ends_with("/getAppAccessToken") {
+                    json!({"access_token": "t-1", "expires_in": 7200})
+                } else if path.ends_with("/files") {
+                    json!({"file_uuid": "u-1", "file_info": "INFO-1", "ttl": 3600})
+                } else {
+                    let seen = log.lock().unwrap();
+                    json!({"id": format!("sent-{}", seen.len() + 1)})
+                };
+                if !path.ends_with("/getAppAccessToken") {
+                    log.lock().unwrap().push((path, body));
+                }
+                let answer = answer.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        (base, seen)
+    }
+
+    fn bot(base: &str) -> QqBot {
+        QqBot {
+            api: Arc::new(Api::new(base, base, "app", "secret").unwrap()),
+            replies: Mutex::new(Replies::default()),
+            events: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+
+    fn file(place: &str, name: &str, bytes: &[u8], text: Option<&str>) -> Action {
+        Action::File {
+            place: place.into(),
+            name: name.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            text: text.map(str::to_owned),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_image_is_uploaded_then_sent_as_a_media_message_after_her_words() {
+        let (base, seen) = stand_in().await;
+        let bot = bot(&base);
+        bot.replies().received("c2c:U1", "m-1", Instant::now());
+        let data = base64::engine::general_purpose::STANDARD.encode(PNG);
+
+        let acted = bot
+            .act(file("c2c:U1", "a.png", PNG, Some("这个")))
+            .await
+            .unwrap();
+
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [
+                (
+                    "/v2/users/U1/files".to_owned(),
+                    json!({"file_type": 1, "file_data": data, "srv_send_msg": false})
+                ),
+                (
+                    "/v2/users/U1/messages".to_owned(),
+                    json!({"content": "这个", "msg_type": 0, "msg_id": "m-1", "msg_seq": 1})
+                ),
+                (
+                    "/v2/users/U1/messages".to_owned(),
+                    json!({"msg_type": 7, "media": {"file_info": "INFO-1"}, "msg_id": "m-1", "msg_seq": 2})
+                ),
+            ]
+        );
+        // Each message is charged to what she was sent; the id is the image's.
+        assert_eq!(acted.id.as_deref(), Some("sent-3"));
+    }
+
+    #[tokio::test]
+    async fn in_a_group_an_image_alone_is_uploaded_there_and_sent_with_no_words() {
+        let (base, seen) = stand_in().await;
+        let bot = bot(&base);
+        bot.replies().received("group:G7", "m-9", Instant::now());
+        bot.act(file("group:G7", "a.png", PNG, None)).await.unwrap();
+        let paths: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(p, _)| p.clone())
+            .collect();
+        assert_eq!(paths, ["/v2/groups/G7/files", "/v2/groups/G7/messages"]);
+        assert_eq!(seen.lock().unwrap()[1].1["msg_type"], 7);
+    }
+
+    #[tokio::test]
+    async fn a_file_that_is_not_an_image_is_refused_and_nothing_is_sent() {
+        let (base, seen) = stand_in().await;
+        let bot = bot(&base);
+        bot.replies().received("c2c:U1", "m-1", Instant::now());
+        let refused = bot
+            .act(file("c2c:U1", "notes.pdf", b"%PDF-1.7 ...", Some("here")))
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{refused:#}").contains("notes.pdf is not an image"),
+            "{refused:#}"
+        );
+        assert!(seen.lock().unwrap().is_empty(), "not even her words go out");
+    }
 }

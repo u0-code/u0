@@ -15,7 +15,7 @@ use ghost_core::{
 };
 use tracing::warn;
 
-use super::{Mind, Outcome, after, attend::Thinking};
+use super::{Mind, Outcome, after, attend::Thinking, give::Gift};
 use crate::{Act, Acted, Can, Result};
 
 /// How often a typing indicator has to be renewed to stay visible.
@@ -25,8 +25,8 @@ const TYPING_LASTS: Duration = Duration::seconds(4);
 pub(super) struct Bubble {
     pub text: String,
     pub reply_to: Option<String>,
-    /// A file to hand over with it: its path on her machine.
-    pub file: Option<String>,
+    /// Something of hers to hand over with it.
+    pub file: Option<Gift>,
 }
 
 /// The largest file she hands over.
@@ -37,6 +37,17 @@ fn file_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
         .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// The bytes of `file` under `dir/media/`, if it is there and not too
+/// large to hand over.
+fn read_media(dir: &std::path::Path, file: &str) -> std::result::Result<Vec<u8>, String> {
+    let path = ghost_core::media::path(dir, file).ok_or_else(|| format!("{file} is not kept"))?;
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > LARGEST_FILE {
+        return Err(format!("{file} is too large to hand over ({size} bytes)"));
+    }
+    std::fs::read(&path).map_err(|e| format!("{file} could not be read: {e}"))
 }
 
 pub(super) struct Speaking {
@@ -165,16 +176,33 @@ impl Mind {
                 let body = self.body.clone();
                 let place = key.to_owned();
                 let machine = self.workshop.machine.clone();
+                let dir = self.ghost.dir().to_path_buf();
                 self.jobs.spawn(async move {
+                    let text = Some(front.text.clone()).filter(|t| !t.is_empty());
                     let act = match &front.file {
                         None => Ok(Act::Send {
                             place: place_id,
                             text: front.text.clone(),
                             reply_to: front.reply_to.clone(),
                         }),
-                        // The file is read off her machine at the moment
-                        // it is sent, so what arrives is what is there.
-                        Some(path) => match &machine {
+                        // What she kept or saw is in her own directory, and
+                        // is read from there: never through her machine.
+                        Some(Gift::Image { file, .. }) => {
+                            let name = file.clone();
+                            let file = file.clone();
+                            tokio::task::spawn_blocking(move || read_media(&dir, &file))
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()))
+                                .map(|data| Act::File {
+                                    place: place_id,
+                                    name,
+                                    data,
+                                    text,
+                                })
+                        }
+                        // What she made is read off her machine at the
+                        // moment it is sent, so what arrives is what is there.
+                        Some(Gift::Made { path }) => match &machine {
                             Some(machine) => machine
                                 .read(path, LARGEST_FILE)
                                 .await
@@ -182,7 +210,7 @@ impl Mind {
                                     place: place_id,
                                     name: file_name(path),
                                     data,
-                                    text: Some(front.text.clone()).filter(|t| !t.is_empty()),
+                                    text,
                                 })
                                 .map_err(|e| format!("{path} could not be read: {e}")),
                             None => Err(format!("there is no machine to read {path} from")),
@@ -245,17 +273,36 @@ impl Mind {
             }
         };
         let sent_as = acted.id.clone();
+        // What she handed over is written into her line as what it was, so
+        // that she can see later what she sent.
+        let (text, file) = match &bubble.file {
+            Some(Gift::Image { file, what }) => {
+                let what = what.split_whitespace().collect::<Vec<_>>().join(" ");
+                let shown = if what.is_empty() {
+                    "[image]".to_owned()
+                } else {
+                    format!("[image: {}]", what.replace('[', "(").replace(']', ")"))
+                };
+                (
+                    format!("{shown} {}", bubble.text).trim_end().to_owned(),
+                    Some(file.clone()),
+                )
+            }
+            Some(Gift::Made { path }) => (
+                format!("[file: {}] {}", file_name(path), bubble.text)
+                    .trim_end()
+                    .to_owned(),
+                None,
+            ),
+            None => (bubble.text.clone(), None),
+        };
         self.record(Event::Said {
             channel,
             place: place_id,
             id: acted.id,
-            text: match &bubble.file {
-                Some(path) => format!("[file: {}] {}", file_name(path), bubble.text)
-                    .trim_end()
-                    .to_owned(),
-                None => bubble.text,
-            },
+            text,
             reply_to: bubble.reply_to,
+            file,
         })?;
         let next = self.agenda.speaking.get_mut(key).and_then(|s| {
             s.bubbles.pop_front();

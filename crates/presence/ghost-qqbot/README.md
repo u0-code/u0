@@ -42,6 +42,8 @@ conversations anyway.
 | quoting a message | not carried; QQ quotes by an index of its own, not by message id |
 | images | she sees what is in them, the words in them and, for a meme or a sticker, what it means, when her brain can see (`vision = true`); otherwise only that one was sent (`[image]`). The image's link is handed to the daemon, which fetches and keeps it |
 | video, files | she sees that one was sent (`[video]`, `[file]`), not its content |
+| sending images | yes: something she kept, an image sent to her in the same conversation, or one her work made. It is uploaded to QQ and sent as a media message, after her words if she has any, and counts as an answer like any other message |
+| sending other files | no; the send is refused, and her journal says why |
 | voice messages | she sees QQ's transcript, `[voice message: …]`, when it gives one |
 | names | QQ gives no names in private chats; the sender is `qq-` and the start of their id |
 
@@ -61,6 +63,7 @@ cost the account; see [`ghost-onebot`](../ghost-onebot).
 
 Written against the QQ Bot API as Tencent's own SDK and plugins use it. The
 gateway (identify, heartbeat, resume after a dropped socket) was exercised
-against a local stand-in for it, and the message conversion and reply
-allowance by tests. **Not yet run against the real QQ open platform with a
-real bot.**
+against a local stand-in for it, sending an image (upload, then a media
+message) against a local stand-in for the open API, and the message
+conversion and reply allowance by tests. **Not yet run against the real QQ
+open platform with a real bot.**

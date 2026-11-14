@@ -183,27 +183,70 @@ fn tags(content: &str, data: &Value) -> String {
     out.trim().to_owned()
 }
 
-/// The API path that sends to a place.
-pub fn target(place: &str) -> Option<String> {
+/// Where a place is on the open API: `users/<openid>` or
+/// `groups/<openid>`.
+fn scope(place: &str) -> Option<String> {
     let (kind, openid) = place.split_once(':')?;
     if openid.is_empty() || openid.contains('/') {
         return None;
     }
     match kind {
-        "c2c" => Some(format!("/v2/users/{openid}/messages")),
-        "group" => Some(format!("/v2/groups/{openid}/messages")),
+        "c2c" => Some(format!("users/{openid}")),
+        "group" => Some(format!("groups/{openid}")),
         _ => None,
     }
+}
+
+/// The API path that sends to a place.
+pub fn target(place: &str) -> Option<String> {
+    Some(format!("/v2/{}/messages", scope(place)?))
+}
+
+/// The API path that takes an image (or other media) for a place, to be
+/// sent there afterwards.
+pub fn uploads(place: &str) -> Option<String> {
+    Some(format!("/v2/{}/files", scope(place)?))
 }
 
 /// A plain text message, answering a received one where it can.
 pub fn outgoing(text: &str, passive: Option<&Passive>) -> Value {
     let mut body = json!({"content": text, "msg_type": 0});
+    answering(&mut body, passive);
+    body
+}
+
+/// What QQ calls an image in an upload.
+const IMAGE: u8 = 1;
+
+/// An upload of an image, its bytes given as base64. QQ is told not to send
+/// it on its own (`srv_send_msg`), so that it goes out as a message of hers,
+/// answering what she was sent, like everything else she says.
+pub fn upload(base64: &str) -> Value {
+    json!({"file_type": IMAGE, "file_data": base64, "srv_send_msg": false})
+}
+
+/// A message carrying what an upload gave back.
+pub fn media(file_info: &str, passive: Option<&Passive>) -> Value {
+    let mut body = json!({"msg_type": 7, "media": {"file_info": file_info}});
+    answering(&mut body, passive);
+    body
+}
+
+fn answering(body: &mut Value, passive: Option<&Passive>) {
     if let Some(passive) = passive {
         body["msg_id"] = json!(passive.msg_id);
         body["msg_seq"] = json!(passive.seq);
     }
-    body
+}
+
+/// Whether `bytes` are an image QQ will show as one: PNG, JPEG, GIF or
+/// WebP, by their first bytes, whatever the file is called.
+pub fn is_image(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || bytes.starts_with(b"\xff\xd8\xff")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || (bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
 }
 
 #[cfg(test)]
@@ -352,10 +395,42 @@ mod tests {
             outgoing("好", None),
             json!({"content": "好", "msg_type": 0})
         );
+        assert_eq!(uploads("c2c:U1").as_deref(), Some("/v2/users/U1/files"));
+        assert_eq!(
+            uploads("group:G77").as_deref(),
+            Some("/v2/groups/G77/files")
+        );
+        assert_eq!(uploads("group:"), None);
         assert_eq!(
             Me::from_ready(&json!({"id": "9001", "username": "薇薇", "bot": true}))
                 .map(|me| (me.id, me.name)),
             Some(("9001".into(), "薇薇".into()))
         );
+    }
+
+    #[test]
+    fn an_image_is_uploaded_as_one_and_sent_as_a_media_message() {
+        assert_eq!(
+            upload("iVBORw0KGgo="),
+            json!({"file_type": 1, "file_data": "iVBORw0KGgo=", "srv_send_msg": false})
+        );
+        let passive = Passive {
+            msg_id: "m-2".into(),
+            seq: 3,
+        };
+        assert_eq!(
+            media("INFO", Some(&passive)),
+            json!({"msg_type": 7, "media": {"file_info": "INFO"}, "msg_id": "m-2", "msg_seq": 3})
+        );
+        assert_eq!(
+            media("INFO", None),
+            json!({"msg_type": 7, "media": {"file_info": "INFO"}})
+        );
+        assert!(is_image(b"\x89PNG\r\n\x1a\n...."));
+        assert!(is_image(b"\xff\xd8\xff\xe0"));
+        assert!(is_image(b"GIF89a..."));
+        assert!(is_image(b"RIFF\0\0\0\0WEBPVP8 "));
+        assert!(!is_image(b"%PDF-1.7"));
+        assert!(!is_image(b""));
     }
 }

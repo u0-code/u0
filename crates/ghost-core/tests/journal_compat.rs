@@ -163,4 +163,11 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let held = again.memory().belongings(5).unwrap();
     assert_eq!(held.len(), 1);
     assert_eq!(held[0].seq, 59);
+    // An image she sent reads, in her own line, as what it was.
+    let line = &again.memory().thread("t:wen", 1).unwrap()[0];
+    assert!(!line.incoming);
+    assert_eq!(
+        line.text,
+        "[image: The cat lying flat. For when someone has had enough of a day.] same"
+    );
 }
