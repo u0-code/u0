@@ -128,7 +128,19 @@ impl Mind {
             .collect::<Vec<_>>()
             .join("\n");
         let template = self.prompts.plan.clone();
+        // Her own day draws on all of her past, not only what someone
+        // happened to mention.
+        let seed = self.ghost.identity().seed();
+        let past = narrate::past(&seed.past.iter().collect::<Vec<_>>());
         let pairs = vec![
+            (
+                "past",
+                if past.is_empty() {
+                    String::new()
+                } else {
+                    format!("\nWhat you carry with you from before:\n{past}\n")
+                },
+            ),
             ("date", local.format("%A %Y-%m-%d").to_string()),
             ("time", local.format("%H:%M").to_string()),
             ("sleep", clock.sleep().format("%H:%M").to_string()),

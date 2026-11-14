@@ -2,7 +2,7 @@ It is {{date}}, {{time}} where you are. {{weather}}
 
 Last time you looked back on a day, you thought:
 {{yesterday}}
-
+{{past}}
 Sketch the rest of your day, from now until you sleep around {{sleep}}. This is your own ordinary day: what you actually do with your time, given who you are, where you live, and what is already true about your life. Real days are mostly routine, with one or two things that are specific to today. Leave gaps; not every hour is accounted for.
 
 Reply with one JSON object and nothing else:

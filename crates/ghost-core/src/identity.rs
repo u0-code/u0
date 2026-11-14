@@ -38,14 +38,43 @@ pub struct Seed {
     pub temperament: String,
     /// How she talks.
     pub voice: String,
-    /// Her own account of where she came from, including who made her.
+    /// Her own account of where she came from, including who made her. Kept
+    /// short: it is in front of her in every conversation.
     pub origin: String,
+    /// How she sounds, shown rather than described: a few short exchanges.
+    /// They teach her voice; they are never lines to reuse.
+    #[serde(default)]
+    pub examples: String,
+    /// Pieces of her past that come up in a conversation only when
+    /// something said there touches them.
+    #[serde(default)]
+    pub past: Vec<Past>,
     #[serde(default)]
     pub values: Vec<String>,
     #[serde(default)]
     pub cares_about: Vec<String>,
     #[serde(default)]
     pub cannot_stand: Vec<String>,
+}
+
+/// One piece of her past, and the words that bring it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Past {
+    /// Words that, said in a conversation, bring this to mind. Matched as
+    /// plain text, ignoring case.
+    pub keys: Vec<String>,
+    pub text: String,
+}
+
+impl Past {
+    /// Whether any of `texts` touches this.
+    pub fn touched_by(&self, texts: &[&str]) -> bool {
+        self.keys
+            .iter()
+            .map(|k| k.trim().to_lowercase())
+            .any(|key| !key.is_empty() && texts.iter().any(|t| t.to_lowercase().contains(&key)))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,6 +246,22 @@ sleep = "00:30"
         let seed = Seed::parse(SAMPLE).unwrap();
         assert_eq!(seed.name, "Weiwei");
         assert_eq!(seed.home.tz().unwrap(), chrono_tz::Asia::Shanghai);
+    }
+
+    #[test]
+    fn a_certificate_may_show_her_voice_and_key_her_past() {
+        // Plain keys go before the first table; `[[past]]` entries after it.
+        let text = format!(
+            "examples = \"them: hi\\nme: hey\"\n{SAMPLE}\n[[past]]\nkeys = [\"Clinic\", \"诊所\"]\ntext = \"She runs a clinic.\"\n"
+        );
+        let seed = Seed::parse(&text).unwrap();
+        assert_eq!(seed.examples, "them: hi\nme: hey");
+        let past = &seed.past[0];
+        assert!(past.touched_by(&["is the clinic open?"]));
+        assert!(past.touched_by(&["你的诊所在哪"]));
+        assert!(!past.touched_by(&["hello", "how are you"]));
+        // Certificates written before these fields still read.
+        assert!(Seed::parse(SAMPLE).unwrap().past.is_empty());
     }
 
     #[test]
