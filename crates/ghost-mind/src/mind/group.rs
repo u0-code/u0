@@ -16,10 +16,14 @@
 //!   else's, and how her last unasked line went down. The rule for what to
 //!   do with them is said once, in the words of the prompt files, and the
 //!   decision is hers.
-//! - **Two floors**, which can only make her quieter, for what a model does
-//!   not reliably hold to on its own: she does not keep answering bots
-//!   with no person in between, and when she has agreed to be quiet in a
-//!   group she does not look at its chatter until the time is up.
+//! - **Three floors**, which can only make her quieter, for what a model
+//!   does not reliably hold to on its own: she does not keep answering bots
+//!   with no person in between; when she has agreed to be quiet in a group
+//!   she does not look at its chatter until the time is up; and when she
+//!   spoke up there unasked and nobody has taken it up, she leaves the
+//!   chatter alone for a while rather than say more. A simulated group
+//!   showed the last one is needed: told the rule and shown that her line
+//!   had gone unanswered, she still answered the next message too.
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
@@ -51,6 +55,9 @@ const BOT_TURNS: usize = 2;
 /// How many of the latest messages are read to tell whether she is in a
 /// loop with bots.
 const BOT_WINDOW: usize = 60;
+/// How long, at human pace, she leaves a group's chatter alone after
+/// speaking up unasked when nobody has answered her or turned to her.
+const UNANSWERED_PAUSE_MINUTES: f64 = 30.0;
 /// The longest she can agree to be quiet for at once.
 const QUIET_AT_MOST_HOURS: f64 = 7.0 * 24.0;
 
@@ -177,6 +184,27 @@ impl Mind {
         Ok(false)
     }
 
+    /// Until when what the others say in a group is left unlooked at
+    /// because the last thing she said there was unasked and nobody has
+    /// answered her or turned to her since. She said her piece; saying more
+    /// before anyone takes it up is pressing it on them. `None` when that
+    /// is not so, or the pause is over.
+    pub(super) fn waiting_to_be_answered(
+        &self,
+        place: &PlaceState,
+        now: DateTime<Utc>,
+    ) -> Result<Option<DateTime<Utc>>> {
+        if place.kind != PlaceKind::Group {
+            return Ok(None);
+        }
+        let lines = self.ghost.memory().thread(&place.key, UNPROMPTED_WINDOW)?;
+        let Some(said) = unanswered_unasked(&lines) else {
+            return Ok(None);
+        };
+        let until = said + minutes_from(UNANSWERED_PAUSE_MINUTES * f64::from(self.tempo.scale()));
+        Ok((until > now).then_some(until))
+    }
+
     /// She agreed to be quiet in a group for `hours`.
     pub(super) fn go_quiet(
         &mut self,
@@ -279,5 +307,79 @@ impl Mind {
             );
         }
         Ok(facts)
+    }
+}
+
+/// When her latest turn in `lines` (oldest first) ended, if it was unasked,
+/// meaning nothing said to her came in since her turn before it, and
+/// nobody has said anything to her since.
+fn unanswered_unasked(lines: &[Line]) -> Option<DateTime<Utc>> {
+    let last = lines.iter().rposition(|l| !l.incoming)?;
+    if lines[last + 1..].iter().any(|l| l.addressed) {
+        return None;
+    }
+    let start = lines[..=last]
+        .iter()
+        .rposition(|l| l.incoming)
+        .map_or(0, |i| i + 1);
+    let before = lines[..start].iter().rposition(|l| !l.incoming);
+    let asked = lines[before.map_or(0, |i| i + 1)..start]
+        .iter()
+        .any(|l| l.addressed);
+    (!asked).then(|| lines[last].at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(minute: i64, incoming: bool, addressed: bool) -> Line {
+        Line {
+            seq: minute,
+            at: DateTime::<Utc>::UNIX_EPOCH + Duration::minutes(minute),
+            incoming,
+            person: None,
+            name: String::new(),
+            platform_id: None,
+            reply_to: None,
+            addressed,
+            text: String::new(),
+            directive: None,
+        }
+    }
+
+    #[test]
+    fn a_line_she_said_unasked_waits_until_someone_turns_to_her() {
+        let at = |m| DateTime::<Utc>::UNIX_EPOCH + Duration::minutes(m);
+        // Others talk, she chimes in, others go on without her.
+        let ignored = [
+            line(1, true, false),
+            line(2, false, false),
+            line(3, true, false),
+        ];
+        assert_eq!(unanswered_unasked(&ignored), Some(at(2)));
+        // Someone answers her: nothing to wait for.
+        let answered = [
+            line(1, true, false),
+            line(2, false, false),
+            line(3, true, true),
+        ];
+        assert_eq!(unanswered_unasked(&answered), None);
+        // She was asked: what she said was an answer, not a chime-in.
+        let asked = [
+            line(1, true, true),
+            line(2, false, false),
+            line(3, true, false),
+        ];
+        assert_eq!(unanswered_unasked(&asked), None);
+        // Her turn of several lines ends at its last line.
+        let turn = [
+            line(1, true, false),
+            line(2, false, false),
+            line(4, false, false),
+        ];
+        assert_eq!(unanswered_unasked(&turn), Some(at(4)));
+        // She never said anything here.
+        assert_eq!(unanswered_unasked(&[line(1, true, false)]), None);
     }
 }

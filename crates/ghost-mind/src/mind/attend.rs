@@ -225,6 +225,19 @@ impl Mind {
         if !addressed && self.holds_back(&place, now) {
             return Ok(());
         }
+        // Her last word here went unanswered: the chatter is looked at once
+        // the pause is over, not before.
+        if !addressed && let Some(until) = self.waiting_to_be_answered(&place, now)? {
+            self.agenda.attend.insert(
+                place_key.to_owned(),
+                Attend {
+                    due: until,
+                    addressed: false,
+                    backoff: 1.0,
+                },
+            );
+            return Ok(());
+        }
         let backoff = if addressed {
             1.0
         } else {
@@ -308,6 +321,9 @@ impl Mind {
         let addressed = directed || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
         if !addressed && self.holds_back(&place, now) {
             return Ok(());
+        }
+        if !addressed && self.waiting_to_be_answered(&place, now)?.is_some() {
+            return self.schedule_attend(place_key, now);
         }
         let moment = self.life.moment(self.ghost.journal(), now)?;
         if moment.phase == Phase::Asleep && !self.tempo.instant() && !directed {

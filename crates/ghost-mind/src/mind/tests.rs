@@ -5425,6 +5425,31 @@ async fn quiet_stops_unaddressed_looks_until_it_runs_out_and_she_still_answers_w
 }
 
 #[tokio::test]
+async fn a_word_she_put_in_unasked_and_nobody_took_up_leaves_the_chatter_alone_for_a_while() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.tick
+        .then(r#"{"actions":[{"do":"say","text":"湿毛巾擦脖子"}]}"#);
+    rig.hear(group("room", "lao", "1", "热死了", false), t0);
+    let now = rig.until(|r| r.body.sent().len() == 1).await;
+
+    // The others go on without a word to her: no look, and none due before
+    // the pause is over.
+    rig.hear(group("room", "mei", "2", "空调也坏了", false), now);
+    let due = rig.mind.agenda.attend["t:room"].due;
+    assert!(due >= now + Duration::minutes(29), "{due} vs {now}");
+    rig.pump(now + Duration::minutes(20)).await;
+    assert_eq!(rig.tick.calls(), 1);
+
+    // Spoken to, she answers at once.
+    rig.think.then(r#"{"actions":[{"do":"say","text":"热"}]}"#);
+    let later = now + Duration::minutes(20);
+    rig.hear(group("room", "lao", "3", "@weiwei 你那边热吗", true), later);
+    rig.until(|r| r.body.sent().len() == 2).await;
+    assert_eq!(rig.tick.calls(), 1);
+}
+
+#[tokio::test]
 async fn quiet_is_offered_only_in_groups() {
     let t0 = at(14, 0);
     let offered = |rig: &Rig| -> Vec<String> {
