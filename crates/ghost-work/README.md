@@ -67,6 +67,24 @@ differently from the day it was installed. The protocol is spoken by
 Installs are recorded in the ghost's journal by `ghost-mind`, and a command-
 line agent stepping the work does not get these tools.
 
+## Skills
+
+A skill is a folder with a `SKILL.md`, in the open format Claude Code reads:
+a procedure someone wrote down for a kind of job. `find_skills` searches the
+index at [skills.sh](https://skills.sh), with what its auditors say of each
+skill; `install_skill` takes one skill's folder from its GitHub repository
+at the commit the default branch points at; `uninstall_skill` takes one out;
+and `use_skill` reads a skill's instructions, or one of its files, when a job
+calls for it. Each skill she has costs one line until it is read. Nobody
+approves an install; what is checked, in `src/skills/`: only skills the index
+lists, from the repository their id names; none an auditor rates high or
+critical, and none with scripts that nobody audited; frontmatter as the
+format says, named as its folder; at most 100 files and 2 MB, no links,
+nothing outside its folder, text except assets of up to 1 MB. Nothing in a
+skill is run, and everything it says reaches the model marked as outside
+content, naming the repository and commit. A folder that changes on disk is
+put aside when the ghost next starts.
+
 ## Run one
 
 ```bash

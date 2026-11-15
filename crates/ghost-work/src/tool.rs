@@ -19,6 +19,11 @@ pub struct Outcome {
     pub failed: bool,
     /// Images to show the model with the output. Most tools have none.
     pub pictures: Vec<Picture>,
+    /// Who wrote what came back, when the tool knows and its arguments do
+    /// not say: a skill, by the repository and commit it was installed
+    /// from. Named where it is marked as from outside (see
+    /// [`crate::outside`]). Most tools leave it out.
+    pub origin: Option<String>,
 }
 
 impl Outcome {
@@ -27,6 +32,7 @@ impl Outcome {
             output: output.into(),
             failed: false,
             pictures: Vec::new(),
+            origin: None,
         }
     }
 
@@ -35,6 +41,7 @@ impl Outcome {
             output: output.into(),
             failed: true,
             pictures: Vec::new(),
+            origin: None,
         }
     }
 
@@ -43,6 +50,15 @@ impl Outcome {
         Self {
             pictures: vec![picture],
             ..Self::ok(output)
+        }
+    }
+
+    /// The same, saying who wrote it.
+    #[must_use]
+    pub fn from(self, origin: impl Into<String>) -> Self {
+        Self {
+            origin: Some(origin.into()),
+            ..self
         }
     }
 }

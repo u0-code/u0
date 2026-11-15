@@ -381,7 +381,7 @@ async fn loaded_tools_are_callable_natively_as_server_tool_and_not_offered_until
         name: "echo__read".into(),
         args: json!({}),
     };
-    let from = ghost_work::outside::source(&words, &call).unwrap();
+    let from = ghost_work::outside::source(&words, &call, None).unwrap();
     assert!(from.contains("the tool read of echo"), "{from}");
 }
 

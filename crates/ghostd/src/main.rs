@@ -872,6 +872,12 @@ fn workshop(config: &Config, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Wor
         runner,
         runner_args,
         servers: servers(config, ghost_dir)?,
+        // Kept under `skills/` in her directory. Always there, so that the
+        // skills she has stay hers when she may no longer install more.
+        skills: Some(ghost_work::skills::Skills::new(
+            config.skills.clone(),
+            ghost_dir.join("skills"),
+        )),
     })
 }
 

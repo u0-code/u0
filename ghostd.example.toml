@@ -237,6 +237,24 @@ review_days = 7
 # name = "weather"
 # url = "https://weather.example.com/mcp"
 
+# Agent skills: procedures others wrote down for a kind of job, a folder
+# with a SKILL.md, in the open format Claude Code reads. She finds them in
+# the index at skills.sh and installs them herself, as a piece of work,
+# with nobody approving. Each is taken from its GitHub repository at a
+# commit, checked for shape (frontmatter, at most 100 files and 2 MB, no
+# links, text except small assets), and kept under `skills/` in her
+# directory. One rated high or critical risk by an auditor is never
+# installed, nor one with scripts that nobody audited. Nothing in a skill
+# is ever run. A skill whose folder changes on disk is put aside under
+# `skills/.aside/` when she next starts.
+# [skills]
+# enabled = true                 # let her find and install skills; those she has stay hers either way
+# max = 30                       # the most skills she may have at once
+# search = "https://skills.sh/api/search"
+# audit = "https://www.skills.sh/tele/audit"
+# github = "https://api.github.com"
+# raw = "https://raw.githubusercontent.com"
+
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"

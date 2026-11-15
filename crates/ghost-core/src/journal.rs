@@ -446,6 +446,33 @@ pub enum Event {
         name: String,
         why: String,
     },
+    /// She installed an agent skill: a folder of written know-how, a
+    /// `SKILL.md` and the files it points to, that someone published in a
+    /// repository on GitHub and an index of skills lists. A skill is read,
+    /// not run, so it is not an `Installed` server: what it takes to have
+    /// the same one again is where it came from and the commit, and the
+    /// hash says whether the folder on disk is still what was taken.
+    SkillInstalled {
+        /// Its name, as its `SKILL.md` gives it and its folder is called.
+        name: String,
+        /// The repository it came from, as `owner/repo` on GitHub.
+        source: String,
+        /// The folder it was taken from inside that repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        path: String,
+        /// The commit it was taken at.
+        sha: String,
+        /// A hash of every file of it as it was written to disk.
+        hash: String,
+        /// What its `SKILL.md` says it is for: the line she is shown it by.
+        description: String,
+    },
+    /// A skill she had installed is gone: she took it out, or its files
+    /// changed on disk after she installed it. `why` says which.
+    SkillUninstalled {
+        name: String,
+        why: String,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -566,6 +593,8 @@ kinds! {
     Quieted => "quieted",
     Installed => "installed",
     Uninstalled => "uninstalled",
+    SkillInstalled => "skill_installed",
+    SkillUninstalled => "skill_uninstalled",
 }
 
 /// One line of her journal.

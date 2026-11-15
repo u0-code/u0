@@ -72,3 +72,5 @@
 {"kind":"installed","data":{"name":"io.github.microsoft/playwright-mcp","version":"0.0.85","description":"Playwright Tools for MCP","source":"npm:@playwright/mcp@0.0.85","owner":"github.com/microsoft","how":{"command":["npx","--yes","--ignore-scripts","--prefer-offline","@playwright/mcp@0.0.85","--headless"],"pass":["PLAYWRIGHT_BROWSERS_PATH"]},"tools":["browser_navigate","browser_snapshot","browser_click"],"hash":"5d1f0c3a9e"}}
 {"kind":"installed","data":{"name":"com.example/weather","version":"1.2.0","source":"https://mcp.example.com/mcp","how":{"url":"https://mcp.example.com/mcp"},"tools":["forecast"],"hash":"77ab01"}}
 {"kind":"uninstalled","data":{"name":"com.example/weather","why":"its tools changed after you installed it"}}
+{"kind":"skill_installed","data":{"name":"pdf","source":"anthropics/skills","path":"skills/pdf","sha":"0f3a9c1e2b4d5f60718293a4b5c6d7e8f9012345","hash":"9b2e41c7d0","description":"Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging and splitting documents."}}
+{"kind":"skill_uninstalled","data":{"name":"pdf","why":"its files changed on disk after you installed it"}}

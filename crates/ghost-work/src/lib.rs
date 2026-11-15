@@ -19,6 +19,7 @@ pub mod outside;
 pub mod parts;
 pub mod prompts;
 pub mod servers;
+pub mod skills;
 pub mod tool;
 pub mod tools;
 pub mod undertaking;

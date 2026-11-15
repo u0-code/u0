@@ -96,6 +96,9 @@ pub struct Workshop {
     /// Servers of tools: those she installs from the registry, and those
     /// whoever runs her body gives her. `None` is none of either.
     pub servers: Option<Arc<ghost_work::servers::Servers>>,
+    /// The skills she has and the index she finds more in. `None` is no
+    /// skills at all.
+    pub skills: Option<Arc<ghost_work::skills::Skills>>,
 }
 
 /// Something an observer can ask a running mind.
@@ -487,6 +490,13 @@ impl Mind {
         if let Some(servers) = &self.workshop.servers {
             servers.know(self.ghost.memory().installed()?);
         }
+        // So are her skills, unless their folders changed while her body
+        // was not running: those are put aside, and she is told why at
+        // once.
+        if let Some(skills) = &self.workshop.skills {
+            skills.know(self.ghost.memory().skills()?);
+            self.installs_changed()?;
+        }
         // Whatever she had taken on is still hers.
         if self.can_work() && !self.ghost.memory().undertakings(true, 1)?.is_empty() {
             self.agenda.work = Some(now + Duration::minutes(1));
@@ -497,16 +507,20 @@ impl Mind {
         self.refresh_intentions()
     }
 
-    /// Put in her journal what happened to her servers of tools since the
-    /// last look: what she installed at work, and what is gone and why.
-    /// They happen in whatever loop used them; only she writes them down,
-    /// at every moment of her day and as each job comes back, so a sitting
-    /// that installs something has it on the record within one glance.
-    fn servers_changed(&mut self) -> Result<()> {
-        let changes = match &self.workshop.servers {
-            Some(servers) => servers.take_changes(),
-            None => return Ok(()),
-        };
+    /// Put in her journal what happened to her servers of tools and her
+    /// skills since the last look: what she installed at work, and what is
+    /// gone and why. They happen in whatever loop used them; only she
+    /// writes them down, at every moment of her day and as each job comes
+    /// back, so a sitting that installs something has it on the record
+    /// within one glance.
+    fn installs_changed(&mut self) -> Result<()> {
+        let mut changes = Vec::new();
+        if let Some(servers) = &self.workshop.servers {
+            changes.extend(servers.take_changes());
+        }
+        if let Some(skills) = &self.workshop.skills {
+            changes.extend(skills.take_changes());
+        }
         for event in changes {
             info!("tools: {}", event.kind());
             self.record(event)?;
@@ -556,7 +570,7 @@ impl Mind {
 
     fn on_time(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.prompts.refresh(now);
-        self.servers_changed()?;
+        self.installs_changed()?;
         let due = |at: Option<DateTime<Utc>>| at.is_some_and(|at| at <= now);
         if due(self.agenda.life) {
             self.live(now)?;
@@ -599,7 +613,7 @@ impl Mind {
 
     fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
         self.prompts.refresh(now);
-        self.servers_changed()?;
+        self.installs_changed()?;
         match outcome {
             Outcome::Thought { job, result } => self.on_thought(*job, result, now),
             Outcome::Sent {

@@ -9,6 +9,7 @@ mod files;
 mod record;
 mod servers;
 mod shell;
+mod skills;
 mod web;
 
 use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
@@ -18,6 +19,7 @@ pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
 pub(crate) use record::{list, outcome_of, step_number};
 pub use servers::{FindTools, Install, LoadTools, Loaded, Uninstall};
 pub use shell::Shell;
+pub use skills::{FindSkills, InstallSkill, UninstallSkill, UseSkill};
 pub use web::{Fetch, Search, Source, WebConfig};
 
 use crate::{
@@ -195,6 +197,33 @@ pub fn with_servers(
     };
     if installing || servers.any() {
         tools.with(LoadTools::new(servers.clone(), loaded.clone()))
+    } else {
+        tools
+    }
+}
+
+/// Add skills to a toolbox. At work, with `installing`, that is
+/// `find_skills`, `install_skill` and `uninstall_skill`; anywhere,
+/// `use_skill`. In a conversation `use_skill` is only there when she has
+/// a skill to use; at work it is there from the start, so that a skill
+/// installed in a sitting can be read in the same sitting.
+#[must_use]
+pub fn with_skills(
+    tools: Toolbox,
+    skills: &Arc<crate::skills::Skills>,
+    installing: bool,
+) -> Toolbox {
+    let installing = installing && skills.installs();
+    let tools = if installing {
+        tools
+            .with(FindSkills::new(skills.clone()))
+            .with(InstallSkill::new(skills.clone()))
+            .with(UninstallSkill::new(skills.clone()))
+    } else {
+        tools
+    };
+    if installing || skills.any() {
+        tools.with(UseSkill::new(skills.clone()))
     } else {
         tools
     }

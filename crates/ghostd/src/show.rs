@@ -203,7 +203,15 @@ fn describe(event: &Event, tz: Tz) -> String {
             tools,
             ..
         } => format!("{name} {version} ({source}): {}", tools.join(", ")),
-        Event::Uninstalled { name, why } => format!("{name}: {}", flat(why)),
+        Event::Uninstalled { name, why } | Event::SkillUninstalled { name, why } => {
+            format!("{name}: {}", flat(why))
+        }
+        Event::SkillInstalled {
+            name, source, sha, ..
+        } => format!(
+            "{name} ({source} at {})",
+            sha.chars().take(12).collect::<String>()
+        ),
     }
 }
 

@@ -149,8 +149,20 @@ outside_server = "the tool {{tool}} of {{server}}, a server of tools written by 
 outside_registry = "the registry of tools, searched for: {{query}}"
 outside_install = "the registry and the server {{name}}, as it was installed"
 
+# What the index of skills lists, what a skill says of itself when it is
+# installed, and everything a skill says when she reads it, are their
+# writers' words. A skill is named with the repository and commit it came
+# from, so that she knows whose words she is following.
+outside_skills = "the index of skills, searched for: {{query}}"
+outside_install_skill = "the index of skills and the skill {{id}}, as it was installed"
+outside_skill = "the skill {{skill}}, from {{origin}} on GitHub, written by someone else"
+outside_skill_file = "the file {{file}} of the skill {{skill}}, from {{origin}} on GitHub, written by someone else"
+
 # One line of `load_tools`, for each server of tools she has.
 server_line = "- {{server}}: {{description}} Tools: {{tools}}."
+
+# One line of `use_skill`, for each skill she has.
+skill_line = "- {{skill}}: {{description}}"
 
 # Put after a result whose images were taken out of the transcript.
 no_longer_shown_one = "[This image is no longer shown, to save room. Ask for it again if you need to see it.]"

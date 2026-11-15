@@ -17,7 +17,8 @@
 //! Steering and stopping belong to both: in a conversation they act on her
 //! work, and at work on its parts. Finding and installing tools belong to
 //! work, since installing takes time and is something she sets out to do;
-//! loading what she has belongs to both, as the web does.
+//! loading what she has belongs to both, as the web does. Skills are the
+//! same: found and installed at work, read in either loop.
 
 use crate::prompts::Loop;
 
@@ -51,6 +52,10 @@ pub enum Need {
     Registry,
     /// Servers of tools she has, to load.
     Servers,
+    /// An index to find skills in, and leave to install them.
+    SkillIndex,
+    /// Skills she has, to use.
+    Skills,
 }
 
 /// One tool: its name, the loops it belongs to, and what it needs.
@@ -104,6 +109,10 @@ pub const TOOLS: &[Entry] = &[
     entry("find_tools", WORK, &[Need::Registry]),
     entry("install", WORK, &[Need::Registry]),
     entry("uninstall", WORK, &[Need::Registry]),
+    entry("use_skill", BOTH, &[Need::Skills]),
+    entry("find_skills", WORK, &[Need::SkillIndex]),
+    entry("install_skill", WORK, &[Need::SkillIndex]),
+    entry("uninstall_skill", WORK, &[Need::SkillIndex]),
     entry("undertake", TALK, &[Need::Work]),
     entry("steer", BOTH, &[Need::UnderWay]),
     entry("stop", BOTH, &[Need::UnderWay]),

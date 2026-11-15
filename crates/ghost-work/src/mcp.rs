@@ -103,7 +103,12 @@ pub async fn serve(
                     // the worker's own loop: an agent that steps the work
                     // reads the same transcript.
                     let outcome = tools.run(&call).await;
-                    let output = outside::mark(&prompts::hold(&words), &call, outcome.output);
+                    let output = outside::mark(
+                        &prompts::hold(&words),
+                        &call,
+                        outcome.origin.as_deref(),
+                        outcome.output,
+                    );
                     crate::tool::Outcome { output, ..outcome }
                 } else {
                     tools.run(&call).await
