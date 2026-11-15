@@ -151,7 +151,10 @@ pub async fn remote(
     addresses: &[std::net::SocketAddr],
     timeout: Duration,
 ) -> Result<Connection, String> {
-    let http = reqwest::Client::builder()
+    // The one way out to the network everything she does takes. Through a
+    // proxy, the addresses checked are where it would have gone direct;
+    // the proxy resolves the name itself.
+    let http = ghost_net::builder()
         .resolve_to_addrs(host, addresses)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("ghost/", env!("CARGO_PKG_VERSION")))
