@@ -10,7 +10,7 @@
 # its words from the next source. Mind the newlines at the start and end of
 # some of these: they are what keeps a piece apart from its neighbours.
 
-# --- Who she is (self.md) ---
+# --- Who she is (persona.md) ---
 
 # Before the exchanges in her persona; only when there are some.
 examples = "This is how you sound. These are not lines to reuse; you say new things, in this voice:\n\n{{examples}}"
