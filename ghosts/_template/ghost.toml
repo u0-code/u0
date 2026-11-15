@@ -77,3 +77,17 @@ keys = ["a word", "another"]
 text = """
 What happened, in a few sentences.
 """
+
+# Her sides, if she has more than one: clingy and sharp-tongued, say, each
+# really her. Which one shows is never drawn at random: it comes out of what
+# is happening, who she is talking to, how they have treated her lately, the
+# hour and her day, and she is told those facts each time she looks. Say what
+# each side is and when it tends to come out; a few exchanges in its voice
+# are optional. Optional; uncomment and repeat the block for each side.
+# [[facet]]
+# name = "her word for this side"
+# when = "When it tends to come out, in prose."
+# examples = """
+# them: one line
+# Her name: her answer, in this side's voice
+# """

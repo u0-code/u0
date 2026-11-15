@@ -13,7 +13,7 @@ Each message starts a line with its number, the time, who sent it and, for a dir
 {{transcript}}
 {{brought_back}}{{recalled}}
 {{now}}
-# What is happening
+{{right_now}}# What is happening
 
 {{why}}
 

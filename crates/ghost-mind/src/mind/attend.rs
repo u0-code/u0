@@ -730,6 +730,7 @@ impl Mind {
                 ("where", self.describe_place(place, &people)),
                 ("elsewhere", self.elsewhere(place, now)?),
                 ("now", right_now),
+                ("right_now", self.right_now(place, &lines, now)?),
                 ("reply", reply),
                 (
                     "people",
