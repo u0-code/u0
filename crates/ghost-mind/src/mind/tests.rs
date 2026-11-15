@@ -4317,6 +4317,71 @@ async fn what_happens_to_her_servers_of_tools_is_written_in_her_journal_by_her()
 }
 
 #[tokio::test]
+async fn she_is_told_she_can_add_skills_and_sees_each_one_she_has_as_a_line() {
+    let t0 = at(14, 0);
+    let folder = tempfile::tempdir().unwrap();
+    let skills = || {
+        ghost_work::skills::Skills::new(
+            ghost_work::skills::Config {
+                search: "http://127.0.0.1:1/search".into(),
+                ..ghost_work::skills::Config::default()
+            },
+            folder.path().to_path_buf(),
+        )
+    };
+    let first_turn = |rig: &Rig| rig.think.turns.lock().unwrap()[0].clone();
+
+    // None yet: adding one is work she can take on, and there is nothing
+    // to read.
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.workshop.skills = Some(skills());
+    rig.hear(dm("wen", "1", "can you make me a slide deck?"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let turn = first_turn(&rig);
+    let ability = rig.mind.prompts.store().ability("find_skills").unwrap();
+    assert!(turn.system.contains(ability), "{}", turn.system);
+    assert!(!turn.tools.iter().any(|t| t.name == "use_skill"));
+    // Installing belongs to work, not to a conversation.
+    assert!(!turn.tools.iter().any(|t| t.name == "install_skill"));
+
+    // With one, it is a line under `use_skill`.
+    std::fs::create_dir_all(folder.path().join("slides")).unwrap();
+    std::fs::write(
+        folder.path().join("slides/SKILL.md"),
+        "---\nname: slides\ndescription: Build a slide deck.\n---\nStart with the outline.\n",
+    )
+    .unwrap();
+    let have = skills();
+    have.know(vec![ghost_core::memory::Skill {
+        seq: 1,
+        at: t0,
+        name: "slides".into(),
+        source: "someone/skills".into(),
+        path: "skills/slides".into(),
+        sha: "a".repeat(40),
+        hash: ghost_work::skills::guard::hash(&folder.path().join("slides")).unwrap(),
+        description: "Build a slide deck.".into(),
+    }]);
+    let mut rig = Rig::with_tools(t0);
+    rig.mind.workshop.skills = Some(have);
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
+        .await;
+    let turn = first_turn(&rig);
+    let using = turn
+        .tools
+        .iter()
+        .find(|t| t.name == "use_skill")
+        .expect("use_skill is offered");
+    assert!(
+        using.description.contains("- slides: Build a slide deck."),
+        "{}",
+        using.description
+    );
+}
+
+#[tokio::test]
 async fn her_machine_is_hers_to_use_in_private_with_a_friend_and_not_with_a_stranger() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);

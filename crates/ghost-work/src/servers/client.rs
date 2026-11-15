@@ -302,5 +302,6 @@ fn read(result: &Value) -> Outcome {
         output: text.join("\n"),
         failed: result["isError"].as_bool().unwrap_or(false),
         pictures,
+        origin: None,
     }
 }

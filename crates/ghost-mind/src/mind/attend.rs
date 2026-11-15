@@ -54,6 +54,7 @@ const BRINGS_BACK: &[&str] = &[
     "edit",
     "shell",
     "load_tools",
+    "use_skill",
 ];
 /// How much of what reached beyond the conversation she is shown in it: a
 /// page is read at a glance, and the rest of it is work.
@@ -964,8 +965,8 @@ impl Mind {
 
     /// The tools that reach beyond a conversation, as she has them in
     /// `place`: the web, if she has it; her machine, if she has one and
-    /// may use it here; and the servers of tools she has, with the tools
-    /// of those `loaded` in this look.
+    /// may use it here; the servers of tools she has, with the tools of
+    /// those `loaded` in this look; and her skills.
     fn reaching(
         &self,
         place: &PlaceState,
@@ -979,8 +980,12 @@ impl Mind {
             None
         };
         let tools = ghost_work::tools::reaching(web, machine);
-        Ok(match &self.workshop.servers {
+        let tools = match &self.workshop.servers {
             Some(servers) => ghost_work::tools::with_servers(tools, servers, loaded, false),
+            None => tools,
+        };
+        Ok(match &self.workshop.skills {
+            Some(skills) => ghost_work::tools::with_skills(tools, skills, false),
             None => tools,
         })
     }
@@ -1045,6 +1050,7 @@ impl Mind {
     fn at_work_has(&self, need: Need) -> bool {
         match need {
             Need::Registry => self.workshop.servers.as_ref().is_some_and(|s| s.installs()),
+            Need::SkillIndex => self.workshop.skills.as_ref().is_some_and(|s| s.installs()),
             _ => false,
         }
     }
@@ -1077,6 +1083,7 @@ impl Mind {
             output,
             failed,
             mut pictures,
+            origin,
         }) = outcome
         else {
             let too_slow = self.prompts.fill(
@@ -1111,7 +1118,12 @@ impl Mind {
                 _ => {}
             }
         }
-        let mut shown = ghost_work::outside::mark(self.prompts.store(), &call, output.clone());
+        let mut shown = ghost_work::outside::mark(
+            self.prompts.store(),
+            &call,
+            origin.as_deref(),
+            output.clone(),
+        );
         for picture in &pictures {
             let file = media::store(self.ghost.dir(), &picture.bytes, &picture.mime)?;
             self.record(Event::Opened {

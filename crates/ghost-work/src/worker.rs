@@ -668,9 +668,10 @@ impl Worker {
             output,
             failed,
             mut pictures,
+            origin,
         } = outcome;
         let mut output = if ran {
-            outside::mark(words, call, output)
+            outside::mark(words, call, origin.as_deref(), output)
         } else {
             output
         };

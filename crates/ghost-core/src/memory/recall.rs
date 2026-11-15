@@ -137,6 +137,21 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
             place: None,
             channel: None,
         },
+        // Like a server of tools: what she knows how to do is hers.
+        Event::SkillInstalled {
+            name, description, ..
+        } => Kept {
+            kind: "skill_installed",
+            text: format!("you installed the skill {name}: {description}"),
+            place: None,
+            channel: None,
+        },
+        Event::SkillUninstalled { name, why } => Kept {
+            kind: "skill_uninstalled",
+            text: format!("you no longer have the skill {name}: {why}"),
+            place: None,
+            channel: None,
+        },
         // Found through the message it belongs to; see `fold`.
         Event::Viewed { .. }
         // The message it came in is already kept, word for word.

@@ -46,6 +46,9 @@ pub struct Config {
     /// Servers of tools whoever runs her gives her, one `[[mcp]]` each.
     #[serde(default)]
     pub mcp: Vec<ghost_work::servers::Configured>,
+    /// How she finds and keeps agent skills.
+    #[serde(default)]
+    pub skills: ghost_work::skills::Config,
 }
 
 #[derive(Debug, Deserialize)]

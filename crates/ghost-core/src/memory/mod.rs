@@ -41,6 +41,7 @@ mod people;
 mod places;
 mod public;
 mod recall;
+mod skills;
 mod work;
 
 pub use belongings::Belonging;
@@ -56,6 +57,7 @@ pub use people::Person;
 pub use places::{Elsewhere, PlaceState, Talked};
 pub use public::Standing;
 pub use recall::Hit;
+pub use skills::Skill;
 pub use work::{Undertaking, WorkReport};
 
 /// Where the derived memory lives inside a ghost directory.
@@ -65,7 +67,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -138,6 +140,7 @@ impl Memory {
             links::SCHEMA,
             belongings::SCHEMA,
             installed::SCHEMA,
+            skills::SCHEMA,
             recall::SCHEMA,
         ] {
             conn.execute_batch(tables)?;
@@ -207,6 +210,7 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     links::fold(tx, entry, at)?;
     belongings::fold(tx, entry, at)?;
     installed::fold(tx, entry, at)?;
+    skills::fold(tx, entry, at)?;
     recall::fold(tx, entry, at)
 }
 
