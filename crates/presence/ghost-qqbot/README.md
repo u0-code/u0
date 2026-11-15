@@ -25,6 +25,11 @@ ghost-qqbot
 It connects out to QQ's gateway, so it needs no public address. Run one
 process per bot.
 
+A bot is one character's. When the daemon runs several, say whose with
+`--ghost <her directory's name>` or `GHOST_NAME`. Her name, description and
+avatar are set on the open platform by hand: the bot API has no call for
+them, as far as its documentation says, and it says so once at start.
+
 It registers as the `qq` channel, as `ghost-onebot` does. Run one or the
 other: people have different ids in each, so they are not the same
 conversations anyway.

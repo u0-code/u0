@@ -5,8 +5,8 @@ Carries a ghost on Discord as a bot, through the gateway.
 ## Setup
 
 1. In the [developer portal](https://discord.com/developers/applications),
-   create an application and add a bot to it. Her name and avatar are set
-   there. Say what she is in the bot's "About me".
+   create an application and add a bot to it. Her avatar is set there. Say
+   what she is in the bot's "About me", beside her `bio`.
 2. On the bot page, enable the **Message Content Intent**. Without it Discord
    sends her empty messages and the gateway refuses to start.
 3. Invite her to a server with the `bot` scope and these permissions: View
@@ -17,6 +17,14 @@ Carries a ghost on Discord as a bot, through the gateway.
 export DISCORD_BOT_TOKEN=...
 ghost-discord
 ```
+
+A bot is one character's. When the daemon runs several, say whose with
+`--ghost <her directory's name>` or `GHOST_NAME`.
+
+At start it makes the bot's username her name from her `ghost.toml`, if it
+differs; Discord allows a couple of changes an hour. Her bio and avatar it
+leaves to the developer portal, and says so once at start. The renaming has
+not yet been run against Discord.
 
 ## What she can do here
 

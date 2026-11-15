@@ -153,7 +153,12 @@ impl Parts {
         for (n, part) in ready {
             let this = self.clone();
             let part = Arc::new(part);
-            running.insert(n, tokio::spawn(async move { this.sit(n, part).await }));
+            running.insert(
+                n,
+                tokio::spawn(tracing::Instrument::in_current_span(async move {
+                    this.sit(n, part).await;
+                })),
+            );
         }
     }
 

@@ -13,13 +13,14 @@ use anyhow::Context as _;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Link, Platform, Uplink},
-    protocol::{Acted, Action, Capability},
+    presence::{self, Field, Link, Platform, Uplink},
+    protocol::{Acted, Action, Capability, GhostCard},
     text,
 };
 use serenity::all::{
-    Channel, ChannelId, ClientBuilder, Context, CreateMessage, EventHandler, GatewayIntents, Http,
-    HttpBuilder, Message, MessageId, ReactionType, Ready, TypingStartEvent, UserId,
+    Channel, ChannelId, ClientBuilder, Context, CreateMessage, EditProfile, EventHandler,
+    GatewayIntents, Http, HttpBuilder, Message, MessageId, ReactionType, Ready, TypingStartEvent,
+    UserId,
 };
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -36,6 +37,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// The character this bot is: the name of her directory. Needed when
+    /// the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// The channel name to register as.
     #[arg(long, default_value = "discord")]
     channel: String,
@@ -165,6 +170,34 @@ impl Platform for Discord {
             other => anyhow::bail!("discord bots cannot {:?}", other.needs()),
         }
     }
+
+    /// Her name is the bot's username, set if it differs: Discord allows a
+    /// couple of changes an hour. Her bio is the application's description
+    /// and her picture the bot's icon, which are left to the developer
+    /// portal: Discord gives back nothing to tell whether the icon there is
+    /// already hers, and uploading it at every start would run into the
+    /// same limit.
+    async fn appear(&self, card: &GhostCard) {
+        match self.http.get_current_user().await {
+            Ok(me) if me.name == card.name => {}
+            Ok(_) => {
+                let rename = EditProfile::new().username(&card.name);
+                match self.http.edit_profile(&rename).await {
+                    Ok(_) => info!("her name on discord is now {}", card.name),
+                    Err(e) => warn!(
+                        "could not rename her to {} on discord ({e}); set it by hand in the developer portal",
+                        card.name
+                    ),
+                }
+            }
+            Err(e) => warn!("could not look at her discord profile: {e}"),
+        }
+        presence::set_by_hand(
+            card,
+            &[Field::Bio, Field::Avatar],
+            "the Discord developer portal (the application's description and the bot's icon)",
+        );
+    }
 }
 
 /// Discord's HTTP API as the bot, going the way the network setting says.
@@ -206,6 +239,7 @@ async fn main() -> anyhow::Result<()> {
     let link = Link {
         url: args.url,
         token: args.token,
+        ghost: args.ghost,
         channel: args.channel,
         me: Some(convert::actor(&me, None)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],

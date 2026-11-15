@@ -16,8 +16,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Link, Platform, Uplink},
-    protocol::{Acted, Action, Actor, Capability},
+    presence::{self, Field, Link, Platform, Uplink},
+    protocol::{Acted, Action, Actor, Capability, GhostCard},
     text,
 };
 use reqwest::Method;
@@ -50,6 +50,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// The character this bot is: the name of her directory. Needed when
+    /// the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// The channel name to register as.
     #[arg(long, default_value = "qq")]
     channel: String,
@@ -121,6 +125,16 @@ impl Platform for QqBot {
             items: Vec::new(),
             measure: None,
         })
+    }
+
+    /// The bot API has no call for a bot's name, description or avatar, as
+    /// far as its documentation says: they are set on the open platform.
+    async fn appear(&self, card: &GhostCard) {
+        presence::set_by_hand(
+            card,
+            &[Field::Name, Field::Bio, Field::Avatar],
+            "the QQ open platform's bot settings (q.qq.com)",
+        );
     }
 }
 
@@ -287,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
     let link = Link {
         url: args.url,
         token: args.token,
+        ghost: args.ghost,
         channel: args.channel,
         me: Some(Actor {
             id: me.id,

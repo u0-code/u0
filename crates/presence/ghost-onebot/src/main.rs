@@ -13,8 +13,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Link, Platform, Uplink},
-    protocol::{Acted, Action, Actor, Capability},
+    presence::{self, Field, Link, Platform, Uplink},
+    protocol::{Acted, Action, Actor, Capability, GhostCard},
     text,
 };
 use serde_json::{Value, json};
@@ -42,6 +42,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// The character this account is: the name of her directory. Needed
+    /// when the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// The channel name to register as.
     #[arg(long, default_value = "qq")]
     channel: String,
@@ -113,6 +117,17 @@ impl Platform for OneBot {
             other => anyhow::bail!("this adapter cannot {:?} on qq", other.needs()),
         }
     }
+
+    /// OneBot v11 has no call for an account's name, signature or picture.
+    /// Some implementations add their own, each differently, and none is
+    /// relied on here.
+    async fn appear(&self, card: &GhostCard) {
+        presence::set_by_hand(
+            card,
+            &[Field::Name, Field::Bio, Field::Avatar],
+            "the QQ client signed in to the account OneBot runs",
+        );
+    }
 }
 
 /// Ask who we are logged in as, waiting for the socket to come up.
@@ -154,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
     let link = Link {
         url: args.url,
         token: args.token,
+        ghost: args.ghost,
         channel: args.channel,
         me: Some(Actor {
             id: me.id.clone(),

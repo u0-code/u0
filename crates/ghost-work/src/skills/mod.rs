@@ -308,7 +308,9 @@ impl Skills {
             }
             let (index, source, skill) =
                 (self.index.clone(), hit.source.clone(), hit.skill.clone());
-            asked.spawn(async move { (at, index.audit(&source, &skill).await) });
+            asked.spawn(tracing::Instrument::in_current_span(async move {
+                (at, index.audit(&source, &skill).await)
+            }));
         }
         let mut audits = vec![None; hits.len()];
         while let Some(Ok((at, audit))) = asked.join_next().await {

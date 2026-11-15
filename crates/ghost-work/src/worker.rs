@@ -593,11 +593,11 @@ impl Worker {
             let mut running = tokio::task::JoinSet::new();
             for (at, call) in calls.iter().enumerate() {
                 let (tools, call) = (tools.clone(), call.clone());
-                running.spawn(async move {
+                running.spawn(tracing::Instrument::in_current_span(async move {
                     let started = Instant::now();
                     let outcome = tools.run(&call).await;
                     (at, outcome, started.elapsed().as_millis())
-                });
+                }));
             }
             while let Some(done) = running.join_next().await {
                 if let Ok((at, outcome, ms)) = done {

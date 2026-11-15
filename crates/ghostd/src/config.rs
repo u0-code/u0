@@ -4,6 +4,15 @@
 //!
 //! Search order: `--config`, `$GHOSTD_CONFIG`, `./ghostd.toml`,
 //! `~/.config/ghost/ghostd.toml`.
+//!
+//! One file serves every character a daemon runs. Most of it is the
+//! deployment's alone: the brains, where it listens, the network, the
+//! prompts. How each character lives may differ: `[ghosts.<id>]`, where
+//! `<id>` is the name of her directory, holds any of `mind`, `operators`,
+//! `places`, `tools`, `mcp` and `skills`, laid over the top level for her
+//! alone. Tables are merged a key at a time, so what she leaves out she
+//! inherits; any other value, a list included, replaces the deployment's.
+//! That is the whole of the rule, and [`Config::hers`] is all of it.
 
 use std::{
     collections::BTreeMap,
@@ -19,6 +28,9 @@ use serde::Deserialize;
 
 pub const FILE: &str = "ghostd.toml";
 
+/// The file. What a character may have her own of is kept here as it was
+/// written, and read only through [`Config::hers`], so that there is one
+/// way to read it whether or not anything is laid over it.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -27,6 +39,32 @@ pub struct Config {
     pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
     pub listen: Listen,
+    /// How requests leave this machine. `GHOST_PROXY` and `GHOST_DIRECT`
+    /// in the environment win over it, a part at a time: see `ghost_net`.
+    #[serde(default)]
+    pub network: ghost_net::Setting,
+    #[serde(default)]
+    mind: toml::Table,
+    #[serde(default)]
+    operators: toml::Table,
+    #[serde(default)]
+    places: toml::Table,
+    #[serde(default)]
+    tools: toml::Table,
+    #[serde(default)]
+    mcp: toml::value::Array,
+    #[serde(default)]
+    skills: toml::Table,
+    /// What differs for one character, by the name of her directory.
+    #[serde(default)]
+    ghosts: BTreeMap<String, toml::Table>,
+}
+
+/// How one character lives: the deployment's settings with hers laid over
+/// them. Nothing in it is shared with another character once she runs.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hers {
     #[serde(default)]
     pub mind: MindConfig,
     /// The accounts that run her, per channel, and the prefix of a
@@ -36,10 +74,6 @@ pub struct Config {
     /// What they say about particular places, by place key.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceConfig>,
-    /// How requests leave this machine. `GHOST_PROXY` and `GHOST_DIRECT`
-    /// in the environment win over it, a part at a time: see `ghost_net`.
-    #[serde(default)]
-    pub network: ghost_net::Setting,
     /// How she finds and runs servers of tools.
     #[serde(default)]
     pub tools: ghost_work::servers::Config,
@@ -49,6 +83,17 @@ pub struct Config {
     /// How she finds and keeps agent skills.
     #[serde(default)]
     pub skills: ghost_work::skills::Config,
+}
+
+impl Hers {
+    /// How she lives, with who runs her and what they say about places.
+    pub fn mind(&self) -> MindConfig {
+        MindConfig {
+            operators: self.operators.clone(),
+            places: self.places.clone(),
+            ..self.mind.clone()
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,9 +173,86 @@ impl Config {
             usable.name,
             usable.toml()
         );
-        let cfg: Self =
-            toml::from_str(&text).context("build a configuration from what was found")?;
+        let cfg = Self::parse(&text).context("build a configuration from what was found")?;
         Ok((cfg, usable.what.clone()))
+    }
+
+    /// Read a configuration from the text of a file, and check what it says
+    /// for each character.
+    pub fn parse(text: &str) -> anyhow::Result<Self> {
+        let cfg: Self = toml::from_str(text)?;
+        cfg.deployment()?;
+        for id in cfg.ghosts.keys() {
+            cfg.hers(id)?;
+        }
+        Ok(cfg)
+    }
+
+    /// The deployment's directory of prompts, shared by every character.
+    pub fn prompts(&self) -> anyhow::Result<Option<PathBuf>> {
+        Ok(self.deployment()?.mind.prompts)
+    }
+
+    /// The settings as the top level of the file has them, for a character
+    /// with nothing of her own.
+    fn deployment(&self) -> anyhow::Result<Hers> {
+        Ok(toml::Value::Table(self.top()).try_into()?)
+    }
+
+    /// What the top level of the file says about how a character lives.
+    fn top(&self) -> toml::Table {
+        let mut top = toml::Table::new();
+        for (key, table) in [
+            ("mind", &self.mind),
+            ("operators", &self.operators),
+            ("places", &self.places),
+            ("tools", &self.tools),
+            ("skills", &self.skills),
+        ] {
+            top.insert(key.to_owned(), toml::Value::Table(table.clone()));
+        }
+        top.insert("mcp".to_owned(), toml::Value::Array(self.mcp.clone()));
+        top
+    }
+
+    /// The settings of the character whose directory is called `id`: the
+    /// deployment's, with `[ghosts.<id>]` laid over them.
+    pub fn hers(&self, id: &str) -> anyhow::Result<Hers> {
+        let mut merged = self.top();
+        if let Some(own) = self.ghosts.get(id) {
+            if own
+                .get("mind")
+                .and_then(toml::Value::as_table)
+                .is_some_and(|mind| mind.contains_key("prompts"))
+            {
+                bail!(
+                    "[ghosts.{id}.mind] sets prompts: the prompts are shared by every character, \
+                     so they are set under [mind] alone"
+                );
+            }
+            lay_over(&mut merged, own);
+        }
+        toml::Value::Table(merged)
+            .try_into()
+            .with_context(|| format!("[ghosts.{id}]"))
+    }
+
+    /// Refuse a `[ghosts.<id>]` for a character this daemon is not running:
+    /// most likely a misspelled directory, whose settings would otherwise
+    /// silently not apply.
+    pub fn check_ids(&self, running: &[&str]) -> anyhow::Result<()> {
+        if let Some(stray) = self
+            .ghosts
+            .keys()
+            .find(|id| !running.contains(&id.as_str()))
+        {
+            bail!(
+                "ghostd.toml has [ghosts.{stray}], and no character called {stray:?} is running; \
+                 the ids are the names of the ghost directories: {}",
+                running.join(", ")
+            );
+        }
+        Ok(())
     }
 
     pub fn load(explicit: Option<&Path>) -> anyhow::Result<(Self, PathBuf)> {
@@ -147,23 +269,13 @@ impl Config {
         };
         let text =
             std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let cfg: Self =
-            toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        let cfg = Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
         for tier in [&cfg.brain.think, &cfg.brain.tick] {
             if !cfg.providers.contains_key(tier) {
                 bail!("brain tier refers to unknown provider {tier:?}");
             }
         }
         Ok((cfg, path))
-    }
-
-    /// How she lives, with who runs her and what they say about places.
-    pub fn mind(&self) -> MindConfig {
-        MindConfig {
-            operators: self.operators.clone(),
-            places: self.places.clone(),
-            ..self.mind.clone()
-        }
     }
 
     pub fn brain(&self, name: &str) -> anyhow::Result<Arc<dyn Brain>> {
@@ -180,6 +292,19 @@ impl Config {
 
     pub fn tick(&self) -> anyhow::Result<Arc<dyn Brain>> {
         self.brain(&self.brain.tick)
+    }
+}
+
+/// Lay `over` onto `base`: a table into a table a key at a time, anything
+/// else in place of what was there.
+fn lay_over(base: &mut toml::Table, over: &toml::Table) {
+    for (key, value) in over {
+        match (base.get_mut(key), value) {
+            (Some(toml::Value::Table(below)), toml::Value::Table(above)) => lay_over(below, above),
+            _ => {
+                base.insert(key.clone(), value.clone());
+            }
+        }
     }
 }
 
@@ -234,7 +359,70 @@ mod operator_tests {
     const BRAIN: &str = "[brain]\nthink = \"a\"\ntick = \"a\"\n";
 
     fn parse(operators: &str) -> Config {
-        toml::from_str(&format!("{BRAIN}{operators}")).unwrap()
+        Config::parse(&format!("{BRAIN}{operators}")).unwrap()
+    }
+
+    impl Config {
+        /// How a character with nothing of her own lives.
+        fn mind(&self) -> MindConfig {
+            self.deployment().unwrap().mind()
+        }
+    }
+
+    #[test]
+    fn a_characters_own_settings_apply_to_her_and_what_she_leaves_out_she_inherits() {
+        let cfg = parse(
+            "[mind]\ntempo = 0.5\ncalls_per_hour = 60\nweather = false\n\
+             [mind.work]\nenabled = true\nper_day = 4\n\
+             [operators]\nprefix = \"op:\"\nqq = [\"A\"]\n\
+             [places.\"qq:group:1\"]\nnote = \"everyone's\"\n\
+             [ghosts.lin.mind]\ncalls_per_hour = 10\n\
+             [ghosts.lin.mind.work]\nper_day = 1\n\
+             [ghosts.lin.operators]\nqq = [\"B\"]\ntelegram = [\"7\"]\n\
+             [ghosts.lin.places.\"qq:group:2\"]\naddressed_only = true\n\
+             [[ghosts.lin.mcp]]\nname = \"notes\"\ncommand = \"notes-mcp\"\n",
+        );
+        let lin = cfg.hers("lin").unwrap().mind();
+        // Hers.
+        assert_eq!(lin.calls_per_hour, 10);
+        assert_eq!(lin.work.per_day, 1);
+        assert!(lin.operators.includes("qq", "B") && !lin.operators.includes("qq", "A"));
+        assert!(lin.operators.includes("telegram", "7"));
+        assert!(lin.places["qq:group:2"].addressed_only);
+        assert_eq!(cfg.hers("lin").unwrap().mcp.len(), 1);
+        // Inherited, beside hers in the same tables.
+        assert!((lin.tempo - 0.5).abs() < f32::EPSILON);
+        assert!(!lin.weather && lin.work.enabled);
+        assert_eq!(lin.operators.prefix, "op:");
+        assert_eq!(lin.places["qq:group:1"].note.as_deref(), Some("everyone's"));
+        // Someone with nothing of her own has the deployment's, untouched.
+        let mei = cfg.hers("mei").unwrap().mind();
+        assert_eq!((mei.calls_per_hour, mei.work.per_day), (60, 4));
+        assert!(mei.operators.includes("qq", "A") && !mei.places.contains_key("qq:group:2"));
+        assert!(cfg.hers("mei").unwrap().mcp.is_empty());
+    }
+
+    #[test]
+    fn a_characters_settings_are_checked_and_must_name_a_character_that_runs() {
+        // What is not hers to set, or not a setting, is refused at load.
+        for wrong in [
+            "[ghosts.lin.brain]\nthink = \"b\"\n",
+            "[ghosts.lin.mind]\ntempoo = 1.0\n",
+            "[ghosts.lin.mind]\nprompts = \"elsewhere\"\n",
+            "[ghosts.lin.listen]\naddr = \"127.0.0.1:1\"\n",
+        ] {
+            let said = Config::parse(&format!("{BRAIN}{wrong}")).unwrap_err();
+            assert!(format!("{said:#}").contains("lin"), "{wrong}: {said:#}");
+        }
+        let cfg = parse("[ghosts.lin.mind]\ntempo = 0.1\n");
+        assert!(cfg.check_ids(&["lin", "mei"]).is_ok());
+        let said = cfg.check_ids(&["mei"]).unwrap_err().to_string();
+        assert!(
+            said.contains("[ghosts.lin]") && said.contains("mei"),
+            "{said}"
+        );
+        // A file with no [ghosts] runs whoever it is given.
+        assert!(parse("").check_ids(&["anyone"]).is_ok());
     }
 
     #[test]
@@ -285,7 +473,7 @@ mod operator_tests {
             None
         );
         let wrong: Result<Config, _> =
-            toml::from_str(&format!("{BRAIN}[operators]\nreport = \"9pm\"\n"));
+            Config::parse(&format!("{BRAIN}[operators]\nreport = \"9pm\"\n"));
         assert!(wrong.is_err());
     }
 
@@ -304,7 +492,7 @@ mod operator_tests {
         assert!(!places["qq:group:77"].addressed_only);
         assert!(parse("").mind().places.is_empty());
         let wrong: Result<Config, _> =
-            toml::from_str(&format!("{BRAIN}[places.\"x:y\"]\nadressed_only = true\n"));
+            Config::parse(&format!("{BRAIN}[places.\"x:y\"]\nadressed_only = true\n"));
         assert!(wrong.is_err());
     }
 
@@ -342,18 +530,18 @@ mod operator_tests {
         let bare = parse("");
         assert_eq!(bare.network, ghost_net::Setting::default());
         let wrong: Result<Config, _> =
-            toml::from_str(&format!("{BRAIN}[network]\nproxies = \"none\"\n"));
+            Config::parse(&format!("{BRAIN}[network]\nproxies = \"none\"\n"));
         assert!(wrong.is_err());
     }
 
     #[test]
     fn operators_are_not_read_from_under_mind() {
         let wrong: Result<Config, _> =
-            toml::from_str(&format!("{BRAIN}[mind.operators]\nqq = [\"A\"]\n"));
+            Config::parse(&format!("{BRAIN}[mind.operators]\nqq = [\"A\"]\n"));
         assert!(wrong.is_err());
         // Nor is anything but a list of accounts taken for a channel.
         let wrong: Result<Config, _> =
-            toml::from_str(&format!("{BRAIN}[operators]\nprefx = \"op:\"\n"));
+            Config::parse(&format!("{BRAIN}[operators]\nprefx = \"op:\"\n"));
         assert!(wrong.is_err());
     }
 }

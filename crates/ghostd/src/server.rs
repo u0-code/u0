@@ -1,13 +1,19 @@
 //! The Ghost Protocol, server side.
 //!
-//! Each connection says hello and is then either a presence or a console.
-//! Presences are also her [`Body`]: when the mind acts on a channel, the
-//! request goes to whichever presence registered that channel and the mind
-//! waits for the platform's answer.
+//! Each connection says hello and is then either a presence or a console,
+//! for one character: the one its hello names, or the only one there is.
+//! Everything that arrives on it goes to her mind and no other, and a
+//! console sees her alone.
+//!
+//! Each character's presences are her [`Body`]: when her mind acts on a
+//! channel, the request goes to whichever of her presences registered that
+//! channel, and the mind waits for the platform's answer. Two characters
+//! may each have a channel of the same name; they are different accounts.
 
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -16,11 +22,12 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, MindHandle, Question};
 use ghost_protocol::{
-    Action, Capability, Frame, GhostCard, Hello, Inbound, JournalRead, PROTOCOL, PlaceRead,
+    Action, Actor, Avatar, Capability, Frame, Hello, Inbound, JournalRead, PROTOCOL, PlaceRead,
     PresenceHello, Role, Typing, Welcome, code, method,
 };
 use tokio::{
@@ -31,14 +38,20 @@ use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse, Request, Response},
     http::StatusCode,
 };
-use tracing::{debug, info, warn};
+use tracing::{Instrument as _, debug, info, info_span, warn};
 
-use crate::wire;
+use crate::{
+    cast::{Cast, Character},
+    wire,
+};
 
 /// How long a client has to say hello.
 const HELLO_WITHIN: Duration = Duration::from_secs(10);
 /// How long a presence has to carry out an action.
 const ACT_WITHIN: Duration = Duration::from_secs(45);
+/// The largest picture handed out as her avatar. Platforms take far
+/// smaller ones; anything this big is a mistake in her directory.
+const AVATAR_MOST: u64 = 8 << 20;
 
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Frame>>>>;
 
@@ -49,14 +62,38 @@ struct Presence {
     displaced: Arc<Notify>,
     out: mpsc::Sender<Frame>,
     pending: Pending,
+    me: Option<Actor>,
     can: Vec<Capability>,
 }
 
-/// The presences currently connected, keyed by channel. This is her body.
+/// The presences currently connected for one character, keyed by channel.
+/// This is her body.
 #[derive(Default)]
 pub struct Presences {
     channels: Mutex<HashMap<String, Presence>>,
     next_id: AtomicU64,
+}
+
+impl Presences {
+    /// Tell `mind`, which has just started, about every channel already
+    /// connected: after her mind is started again, her presences are still
+    /// there and have nothing new to say.
+    pub async fn announce(&self, mind: &MindHandle) {
+        let present: Vec<(String, Option<Actor>, Vec<Capability>)> =
+            self.channels.lock().map_or_else(
+                |_| Vec::new(),
+                |channels| {
+                    channels
+                        .iter()
+                        .map(|(channel, p)| (channel.clone(), p.me.clone(), p.can.clone()))
+                        .collect()
+                },
+            );
+        for (channel, me, can) in present {
+            let can = can.into_iter().map(wire::can).collect();
+            let _ = mind.online(&channel, me.map(wire::actor), can).await;
+        }
+    }
 }
 
 #[async_trait]
@@ -110,10 +147,8 @@ impl Body for Presences {
 
 /// What every connection needs.
 pub struct Shared {
-    pub mind: MindHandle,
-    pub presences: Arc<Presences>,
+    pub cast: Cast,
     pub token: Option<String>,
-    pub card: GhostCard,
     /// Web origins allowed to connect, beyond this machine's own.
     pub origins: Vec<String>,
 }
@@ -194,6 +229,13 @@ async fn connection(
         .await?;
         return Ok(());
     }
+    let who = match shared.cast.pick(hello.ghost.as_deref()) {
+        Ok(who) => who.clone(),
+        Err(why) => {
+            send(&mut sink, &refuse(code::NO_SUCH_GHOST, &why)).await?;
+            return Ok(());
+        }
+    };
 
     // Everything outgoing funnels through one writer.
     let (out, mut outgoing) = mpsc::channel::<Frame>(256);
@@ -208,12 +250,15 @@ async fn connection(
         id,
         &Welcome {
             protocol: PROTOCOL,
-            ghost: shared.card.clone(),
+            ghost: who.card.clone(),
         },
     );
+    let span = info_span!("ghost", id = %who.id);
     match (hello.role, hello.presence) {
         (Role::Presence, Some(presence)) => {
-            carry(presence, welcome, id, out, &mut stream, &shared, peer).await;
+            carry(presence, welcome, id, out, &mut stream, &who, peer)
+                .instrument(span)
+                .await;
         }
         (Role::Presence, None) => {
             let _ = out
@@ -225,7 +270,7 @@ async fn connection(
         }
         (Role::Console, _) => {
             let _ = out.send(welcome).await;
-            watch(out, &mut stream, &shared).await;
+            watch(out, &mut stream, &who).instrument(span).await;
         }
     }
     // Let the writer flush whatever is queued, then end with the connection.
@@ -262,7 +307,7 @@ async fn carry<S>(
     hello_id: u64,
     out: mpsc::Sender<Frame>,
     stream: &mut S,
-    shared: &Shared,
+    who: &Character,
     peer: SocketAddr,
 ) where
     S: StreamExt<
@@ -277,9 +322,9 @@ async fn carry<S>(
     // The newest presence for a channel carries it. Whoever held it before is
     // told and let go: a window left open, or an adapter that was restarted,
     // must not be able to hold a channel against its replacement.
-    let id = shared.presences.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    let id = who.body.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let displaced = Arc::new(Notify::new());
-    let Ok(replaced) = shared.presences.channels.lock().map(|mut channels| {
+    let Ok(replaced) = who.body.channels.lock().map(|mut channels| {
         channels.insert(
             channel.clone(),
             Presence {
@@ -287,6 +332,7 @@ async fn carry<S>(
                 displaced: displaced.clone(),
                 out: out.clone(),
                 pending: pending.clone(),
+                me: hello.me.clone(),
                 can: hello.can.clone(),
             },
         )
@@ -309,8 +355,8 @@ async fn carry<S>(
     }
     let _ = out.send(welcome).await;
     let can = hello.can.into_iter().map(wire::can).collect();
-    let _ = shared
-        .mind
+    let _ = who
+        .mind()
         .online(&channel, hello.me.map(wire::actor), can)
         .await;
 
@@ -340,13 +386,18 @@ async fn carry<S>(
         match frame.method.as_deref() {
             Some(method::INBOUND) => match frame.params::<Inbound>() {
                 Ok(message) => {
-                    let _ = shared.mind.heard(&channel, wire::incoming(message)).await;
+                    who.hear(&channel, wire::incoming(message)).await;
                 }
                 Err(e) => warn!("{channel}: malformed inbound: {e}"),
             },
             Some(method::TYPING) => {
                 if let Ok(typing) = frame.params::<Typing>() {
-                    let _ = shared.mind.typing(&channel, &typing.place).await;
+                    let _ = who.mind().typing(&channel, &typing.place).await;
+                }
+            }
+            Some(method::AVATAR) => {
+                if let Some(id) = frame.id {
+                    let _ = out.send(avatar(id, &who.dir).await).await;
                 }
             }
             other => {
@@ -361,7 +412,7 @@ async fn carry<S>(
     }
 
     // Only the connection that still holds the channel may give it up.
-    let held = shared.presences.channels.lock().is_ok_and(|mut channels| {
+    let held = who.body.channels.lock().is_ok_and(|mut channels| {
         let mine = channels.get(&channel).is_some_and(|p| p.id == id);
         if mine {
             channels.remove(&channel);
@@ -370,12 +421,12 @@ async fn carry<S>(
     });
     if held {
         info!("{channel} disconnected");
-        let _ = shared.mind.offline(&channel).await;
+        let _ = who.mind().offline(&channel).await;
     }
 }
 
 /// A console: answer its questions and, if asked, stream her journal.
-async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, shared: &Shared)
+async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, who: &Character)
 where
     S: StreamExt<
             Item = Result<
@@ -394,6 +445,14 @@ where
             Some(method::IDENTITY) => Question::Identity,
             Some(method::CANON) => Question::Canon,
             Some(method::PLACES) => Question::Places,
+            // Read from her directory, not asked of her mind: her picture
+            // is not something she lived.
+            Some(method::AVATAR) => {
+                if out.send(avatar(id, &who.dir).await).await.is_err() {
+                    break;
+                }
+                continue;
+            }
             Some(method::JOURNAL_PLACE) => match frame.params::<PlaceRead>() {
                 Ok(read) => Question::Thread {
                     place: read.place,
@@ -417,7 +476,8 @@ where
             Some(method::JOURNAL_SUBSCRIBE) => {
                 if !subscribed {
                     subscribed = true;
-                    let mut entries = shared.mind.watch();
+                    let mut minds = who.minds();
+                    let mut entries = minds.borrow_and_update().watch();
                     let out = out.clone();
                     tokio::spawn(async move {
                         loop {
@@ -431,7 +491,14 @@ where
                                 Err(RecvError::Lagged(missed)) => {
                                     debug!("a console fell {missed} entries behind");
                                 }
-                                Err(RecvError::Closed) => break,
+                                // Her mind stopped. If it is started again,
+                                // her journal goes on, and so does this.
+                                Err(RecvError::Closed) => {
+                                    if minds.changed().await.is_err() {
+                                        break;
+                                    }
+                                    entries = minds.borrow_and_update().watch();
+                                }
                             }
                         }
                     });
@@ -448,12 +515,52 @@ where
                 continue;
             }
         };
-        let reply = match shared.mind.ask(question).await {
+        let reply = match who.mind().ask(question).await {
             Ok(value) => Frame::ok(id, &value),
             Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
         };
         if out.send(reply).await.is_err() {
             break;
+        }
+    }
+}
+
+/// The answer to request `id` for the avatar in the ghost directory `dir`:
+/// her picture, or `null` if she has none.
+async fn avatar(id: u64, dir: &Path) -> Frame {
+    let Some(path) = ghost_core::ghost::avatar(dir) else {
+        return Frame::ok(id, &None::<Avatar>);
+    };
+    let mime = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/jpeg",
+    };
+    let read = async {
+        let size = tokio::fs::metadata(&path).await?.len();
+        if size > AVATAR_MOST {
+            return Err(std::io::Error::other(format!(
+                "it is {size} bytes, more than the {AVATAR_MOST} handed out"
+            )));
+        }
+        tokio::fs::read(&path).await
+    };
+    match read.await {
+        Ok(bytes) => Frame::ok(
+            id,
+            &Avatar {
+                mime: mime.to_owned(),
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            },
+        ),
+        Err(e) => {
+            warn!("her avatar {} cannot be handed out: {e}", path.display());
+            Frame::err(
+                id,
+                code::INTERNAL,
+                format!("her avatar cannot be read: {e}"),
+            )
         }
     }
 }

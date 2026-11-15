@@ -39,6 +39,11 @@ export ONEBOT_ACCESS_TOKEN=...        # if the implementation requires one
 ghost-onebot
 ```
 
+An account is one character's. When the daemon runs several, say whose with
+`--ghost <her directory's name>` or `GHOST_NAME`. Her name, bio and avatar
+are set by hand in QQ: OneBot v11 has no call for them, and it says so once
+at start.
+
 ## What she can do here
 
 | | |

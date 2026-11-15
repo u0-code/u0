@@ -5,8 +5,8 @@ Carries a ghost on Telegram through the Bot API.
 ## Setup
 
 1. Talk to [@BotFather](https://t.me/BotFather): `/newbot`, pick a name and a
-   username. Her name and photo are hers; set them there. Put what she is in
-   the bot's description, so people know before they write.
+   username. Her photo is set there (`/setuserpic`). Put what she is in the
+   bot's description, so people know before they write.
 2. For group chats, send BotFather `/setprivacy` and choose **Disable**.
    Otherwise Telegram only shows her messages that mention her, and she cannot
    follow a conversation.
@@ -19,6 +19,15 @@ ghost-telegram
 
 It uses long polling, so it needs no public address. One process per bot
 token: Telegram refuses a second poller.
+
+A bot is one character's. When the daemon runs several, say whose with
+`--ghost <her directory's name>` or `GHOST_NAME`.
+
+At start it makes the bot's name her name, and its short description (what
+its profile shows) her `bio`, from her `ghost.toml`, each only if it differs:
+Telegram limits how often they change. A bio over Telegram's 120 characters
+is not set, and it says so. Her photo it cannot set, and says so once at
+start. This part has not yet been run against Telegram.
 
 ## What she can do here
 

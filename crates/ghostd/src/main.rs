@@ -1,11 +1,12 @@
-//! `ghostd`: runs one ghost.
+//! `ghostd`: runs ghosts.
 //!
-//! `run` is the daemon: it opens her directory, starts her mind, and listens
-//! for presences and consoles. The other subcommands either read her
-//! directory without disturbing a running daemon (`status`, `journal`,
-//! `verify`, `prompts`) or connect to one as a console (`watch`, `agenda`,
-//! `people`).
+//! `run` is the daemon: it opens each character's directory, starts her
+//! mind, and listens for presences and consoles, each of which is for one
+//! of them. The other subcommands either read one directory without
+//! disturbing a running daemon (`status`, `journal`, `verify`, `prompts`)
+//! or connect to one character as a console (`watch`, `agenda`, `people`).
 
+mod cast;
 mod config;
 mod server;
 mod show;
@@ -25,7 +26,7 @@ use ghost_brain::Completion;
 use ghost_core::{
     Ghost,
     journal::Entry,
-    life::{Life, Phase},
+    life::{Life as Day, Phase},
     memory::Memory,
     prompts::{
         self as words, Store,
@@ -35,16 +36,17 @@ use ghost_core::{
 use ghost_link::Console;
 use ghost_mind::{Mind, Numb, OpenMeteo, Parts, Prompts, Senses, prompts::Origin};
 use ghost_protocol::GhostCard;
-use tokio::net::TcpListener;
-use tracing::{info, warn};
+use tokio::{net::TcpListener, sync::watch, task::JoinSet};
+use tracing::{Instrument as _, info, info_span, warn};
 
 use crate::{
-    config::Config,
+    cast::{Cast, Character, Life, Maker, Pauses},
+    config::{Config, Hers},
     server::{Presences, Shared},
 };
 
 #[derive(Parser)]
-#[command(name = "ghostd", version, about = "Runs one ghost.")]
+#[command(name = "ghostd", version, about = "Runs ghosts.")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -54,10 +56,14 @@ struct Cli {
 enum Cmd {
     /// Give birth to the ghost described by DIR/ghost.toml. Happens once.
     Birth { dir: PathBuf },
-    /// Run her: verify her journal, record any revision of ghost.toml, start
-    /// her mind, listen for presences.
+    /// Run them: for each, verify her journal, record any revision of
+    /// ghost.toml and start her mind; then listen for presences.
     Run {
-        dir: PathBuf,
+        /// Ghost directories, or directories of them: every directory in one
+        /// that has a ghost.toml, except `_template`. Each character is
+        /// known by her directory's name.
+        #[arg(required = true, num_args = 1..)]
+        dirs: Vec<PathBuf>,
         /// Path to ghostd.toml.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -167,7 +173,7 @@ impl PromptsDir {
         if !Config::exists(self.config.as_deref()) {
             return Ok(None);
         }
-        Ok(Config::load(self.config.as_deref())?.0.mind.prompts)
+        Config::load(self.config.as_deref())?.0.prompts()
     }
 
     /// The directory, which has to be given or configured.
@@ -178,7 +184,7 @@ impl PromptsDir {
     }
 }
 
-/// How to reach a running daemon.
+/// How to reach a character in a running daemon.
 #[derive(clap::Args)]
 struct Daemon {
     /// The daemon's address.
@@ -187,11 +193,15 @@ struct Daemon {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// Which character: the name of her directory. Needed when the daemon
+    /// runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
 }
 
 impl Daemon {
     async fn console(self) -> anyhow::Result<Console> {
-        let (console, _) = Console::connect(&self.url, self.token).await?;
+        let (console, _) = Console::connect(&self.url, self.token, self.ghost).await?;
         Ok(console)
     }
 }
@@ -212,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().cmd {
         Cmd::Birth { dir } => birth(&dir),
-        Cmd::Run { dir, config } => run(&dir, config.as_deref()).await,
+        Cmd::Run { dirs, config } => run(&dirs, config.as_deref()).await,
         Cmd::Status { dir } => status(&dir),
         Cmd::Journal { dir, last } => journal(&dir, last),
         Cmd::Verify { dir } => verify(&dir),
@@ -256,7 +266,7 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
+async fn run(paths: &[PathBuf], config: Option<&Path>) -> anyhow::Result<()> {
     let loaded = if Config::exists(config) {
         Some(Config::load(config)?)
     } else {
@@ -278,73 +288,53 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         (cfg, PathBuf::from("(none)"))
     };
     let token = cfg.listen.token()?;
-    let ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
-    let seed = ghost.identity().seed();
-    let card = GhostCard {
-        name: seed.name.clone(),
-        pronouns: seed.pronouns.clone(),
-        city: seed.home.city.clone(),
-        country: seed.home.country.clone(),
-        seal: ghost.identity().seal().to_string(),
-    };
-    let (think, tick) = (cfg.think()?, cfg.tick()?);
-    info!(
-        "{} is in {}. seal {}. config {}",
-        card.name,
-        card.city,
-        ghost.identity().seal().short(),
-        cfg_path.display()
-    );
-    info!(
-        "think on {}, tick on {}, tempo {}",
-        think.label(),
-        tick.label(),
-        cfg.mind.tempo
-    );
+    info!("config {}", cfg_path.display());
+    let found = cast::find(paths)?;
+    let ids: Vec<&str> = found.iter().map(|(id, _)| id.as_str()).collect();
+    cfg.check_ids(&ids)?;
+    let hers: Vec<Hers> = ids
+        .iter()
+        .map(|id| cfg.hers(id))
+        .collect::<anyhow::Result<_>>()?;
+    no_shared_machine(&ids, &hers)?;
 
-    let presences = Arc::new(Presences::default());
-    let senses: Arc<dyn Senses> = if cfg.mind.weather {
-        Arc::new(OpenMeteo::new())
-    } else {
-        Arc::new(Numb)
-    };
-    let prompts = prompts_for(dir, cfg.mind.prompts.as_deref());
+    // The prompts are the deployment's, read by every character's mind for
+    // itself; what there is to say about them is said once.
+    let deployment = cfg.prompts()?;
+    if let Some(said) = deployment.as_deref().and_then(retired) {
+        warn!("{said}");
+    }
+    let prompts = Prompts::load(deployment.as_deref());
     say_overrides(&prompts);
     say_stale(&prompts);
-    let workshop = workshop(&cfg, dir)?;
-    if cfg.mind.work.enabled {
-        info!(
-            "work: {}, {}",
-            cfg.mind.work.machine.as_deref().unwrap_or("no machine"),
-            if workshop.web.search.is_some() {
-                "can search the web"
-            } else {
-                "cannot search the web"
-            }
-        );
+
+    // Each is made in full before anyone is listened to: one that cannot
+    // be started stops the daemon here, as a single ghost always has.
+    let cfg = Arc::new(cfg);
+    let mut cast = Vec::new();
+    let mut lives = Vec::new();
+    for ((id, dir), hers) in found.into_iter().zip(hers) {
+        let span = info_span!("ghost", id = %id);
+        let hers = Arc::new(hers);
+        let body = Arc::new(Presences::default());
+        let (life, card) =
+            span.in_scope(|| begin(&cfg, &hers, &dir, deployment.as_deref(), &body))?;
+        let make: Maker = {
+            let (cfg, hers, dir, deployment, body) = (
+                cfg.clone(),
+                hers.clone(),
+                dir.clone(),
+                deployment.clone(),
+                body.clone(),
+            );
+            Box::new(move || {
+                begin(&cfg, &hers, &dir, deployment.as_deref(), &body).map(|(life, _)| life)
+            })
+        };
+        let who = Arc::new(Character::new(id, dir, card, body, life.handle.clone()));
+        cast.push(who.clone());
+        lives.push((who, life, make, span));
     }
-    if !cfg.operators.accounts.is_empty() {
-        info!(
-            "directives begin with {:?}, from operators on {}",
-            cfg.operators.prefix,
-            cfg.operators
-                .accounts
-                .iter()
-                .map(|(channel, ids)| format!("{channel} ({})", ids.len()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    let (mind, handle) = Mind::new(Parts {
-        ghost,
-        think,
-        tick,
-        body: presences.clone(),
-        senses,
-        prompts,
-        config: cfg.mind(),
-        workshop,
-    });
 
     let listener = TcpListener::bind(&cfg.listen.addr)
         .await
@@ -361,25 +351,142 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     let server = tokio::spawn(server::serve(
         listener,
         Arc::new(Shared {
-            mind: handle.clone(),
-            presences,
+            cast: Cast(cast),
             token,
-            card,
             origins: cfg.listen.origins.clone(),
         }),
     ));
 
-    let mut living = tokio::spawn(mind.run());
-    let outcome = tokio::select! {
-        ended = &mut living => ended,
+    let (stop, stopping) = watch::channel(false);
+    let mut keepers = JoinSet::new();
+    for (who, life, make, span) in lives {
+        let keeping = cast::keep(who, life, make, stopping.clone(), Pauses::default());
+        keepers.spawn(keeping.instrument(span));
+    }
+    tokio::select! {
         why = told_to_stop() => {
             info!("{why}: stopping");
-            handle.stop().await;
-            living.await
+            stop.send_replace(true);
         }
-    };
+        // Every mind stopped of its own accord: there is nobody to serve.
+        () = async { while keepers.join_next().await.is_some() {} } => {}
+    }
+    while keepers.join_next().await.is_some() {}
     server.abort();
-    outcome??;
+    Ok(())
+}
+
+/// Open her directory and make her mind from it, living as `hers` says,
+/// with `body` as her body. Says what she runs on. Done once at start and
+/// again each time her mind is started after it failed, so that all that
+/// carries over is what is on disk.
+fn begin(
+    cfg: &Config,
+    hers: &Hers,
+    dir: &Path,
+    deployment: Option<&Path>,
+    body: &Arc<Presences>,
+) -> anyhow::Result<(Life, GhostCard)> {
+    let ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
+    let seed = ghost.identity().seed();
+    let card = GhostCard {
+        name: seed.name.clone(),
+        pronouns: seed.pronouns.clone(),
+        city: seed.home.city.clone(),
+        country: seed.home.country.clone(),
+        seal: ghost.identity().seal().to_string(),
+        bio: seed.bio.clone(),
+    };
+    let (think, tick) = (cfg.think()?, cfg.tick()?);
+    let mind = hers.mind();
+    info!(
+        "{} is in {}. seal {}. {}",
+        card.name,
+        card.city,
+        ghost.identity().seal().short(),
+        dir.display()
+    );
+    info!(
+        "think on {}, tick on {}, tempo {}, at most {} calls an hour",
+        think.label(),
+        tick.label(),
+        mind.tempo,
+        mind.calls_per_hour
+    );
+    let senses: Arc<dyn Senses> = if mind.weather {
+        Arc::new(OpenMeteo::new())
+    } else {
+        Arc::new(Numb)
+    };
+    let workshop = workshop(hers, dir)?;
+    if mind.work.enabled {
+        info!(
+            "work: {}, {}",
+            mind.work.machine.as_deref().unwrap_or("no machine"),
+            if workshop.web.search.is_some() {
+                "can search the web"
+            } else {
+                "cannot search the web"
+            }
+        );
+    }
+    if !mind.operators.accounts.is_empty() {
+        info!(
+            "directives begin with {:?}, from operators on {}",
+            mind.operators.prefix,
+            mind.operators
+                .accounts
+                .iter()
+                .map(|(channel, ids)| format!("{channel} ({})", ids.len()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    let (mind, handle) = Mind::new(Parts {
+        ghost,
+        think,
+        tick,
+        body: body.clone(),
+        senses,
+        prompts: prompts_for(dir, deployment),
+        config: mind,
+        workshop,
+    });
+    Ok((
+        Life {
+            run: Box::pin(mind.run()),
+            handle,
+        },
+        card,
+    ))
+}
+
+/// Refuse two characters whose machine is the same directory of the same
+/// container: each one's work would be in the other's way. A `local:`
+/// machine is always under her own directory, and so always hers.
+fn no_shared_machine(ids: &[&str], hers: &[Hers]) -> anyhow::Result<()> {
+    let mut seen: Vec<(&str, Option<&str>, &str)> = Vec::new();
+    for (id, hers) in ids.iter().zip(hers) {
+        let work = &hers.mind.work;
+        let Some(("docker", container)) = work
+            .machine
+            .as_deref()
+            .and_then(|m| m.trim().split_once(':'))
+        else {
+            continue;
+        };
+        let workdir = work.workdir.as_deref();
+        if let Some((_, _, other)) = seen
+            .iter()
+            .find(|(c, w, _)| *c == container && *w == workdir)
+        {
+            bail!(
+                "{other} and {id} would work in the same directory of the container {container}; \
+                 give one of them a workdir of her own under [ghosts.{id}.mind.work]"
+            );
+        }
+        seen.push((container, workdir, id));
+    }
     Ok(())
 }
 
@@ -424,7 +531,7 @@ async fn told_to_stop() -> &'static str {
 fn status(dir: &Path) -> anyhow::Result<()> {
     let peek = Ghost::peek(dir)?;
     let id = &peek.identity;
-    let life = Life::new(id);
+    let life = Day::new(id);
     let now = Utc::now();
     let local = now.with_timezone(&life.clock().tz());
     let moment = life.moment(&peek.journal, now)?;
@@ -533,7 +640,7 @@ fn verify(dir: &Path) -> anyhow::Result<()> {
 }
 
 async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
-    let (mut console, welcome) = Console::connect(&daemon.url, daemon.token).await?;
+    let (mut console, welcome) = Console::connect(&daemon.url, daemon.token, daemon.ghost).await?;
     let status = console.status().await?;
     let tz: chrono_tz::Tz = status["timezone"]
         .as_str()
@@ -563,13 +670,11 @@ async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
 }
 
 /// The prompts for the ghost in `ghost_dir`, from the deployment's
-/// directory `deployment` if there is one. Prompts in her own directory are
-/// warned about, once, and not used.
+/// directory `deployment` if there is one: her own copy, which her mind
+/// takes changes into by itself. Prompts in her own directory are warned
+/// about and not used.
 fn prompts_for(ghost_dir: &Path, deployment: Option<&Path>) -> Prompts {
     if let Some(said) = misplaced(ghost_dir, deployment) {
-        warn!("{said}");
-    }
-    if let Some(said) = deployment.and_then(retired) {
         warn!("{said}");
     }
     Prompts::load(deployment)
@@ -799,10 +904,11 @@ fn update_prompts(target: &Path, looked_at: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What she has to work with, from `[mind.work]`.
-fn workshop(config: &Config, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Workshop> {
+/// What she has to work with, from her `[mind.work]`. Everything in it that
+/// keeps anything is under her own directory.
+fn workshop(hers: &Hers, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Workshop> {
     use ghost_work::{Docker, Local, Machine, tools::WebConfig};
-    let cfg = &config.mind.work;
+    let cfg = &hers.mind.work;
     let machine: Option<Arc<dyn Machine>> = match cfg.machine.as_deref().map(str::trim) {
         None | Some("" | "none") => None,
         Some(spec) => match spec.split_once(':') {
@@ -871,11 +977,11 @@ fn workshop(config: &Config, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Wor
         },
         runner,
         runner_args,
-        servers: servers(config, ghost_dir)?,
+        servers: servers(hers, ghost_dir)?,
         // Kept under `skills/` in her directory. Always there, so that the
         // skills she has stay hers when she may no longer install more.
         skills: Some(ghost_work::skills::Skills::new(
-            config.skills.clone(),
+            hers.skills.clone(),
             ghost_dir.join("skills"),
         )),
     })
@@ -884,18 +990,18 @@ fn workshop(config: &Config, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Wor
 /// Her servers of tools, kept under `tools/` in her directory, if she may
 /// install any or has been given any.
 fn servers(
-    config: &Config,
+    hers: &Hers,
     ghost_dir: &Path,
 ) -> anyhow::Result<Option<Arc<ghost_work::servers::Servers>>> {
-    if !config.tools.enabled && config.mcp.is_empty() {
+    if !hers.tools.enabled && hers.mcp.is_empty() {
         return Ok(None);
     }
     // Absolute: each server runs with its own folder as its home.
     let dir = ghost_dir.canonicalize()?.join("tools");
     Ok(Some(ghost_work::servers::Servers::new(
-        config.tools.clone(),
+        hers.tools.clone(),
         dir,
-        config.mcp.clone(),
+        hers.mcp.clone(),
     )))
 }
 

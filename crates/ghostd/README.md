@@ -1,17 +1,18 @@
 # ghostd
 
-The daemon. Runs exactly one ghost.
+The daemon. Runs one ghost, or several that never touch each other.
 
-**Is:** the process that keeps her alive. It opens her directory, verifies her
-journal, records any revision of her persona, starts her mind, and serves the Ghost Protocol so presences and
-consoles can connect. Connected presences are her body.
+**Is:** the process that keeps them alive. For each character it opens her
+directory, verifies her journal, records any revision of her persona and
+starts her mind; then it serves the Ghost Protocol so presences and consoles
+can connect. Connected presences are her body.
 
 **Is not:** a chat interface, and not aware of any platform. You do not talk to
 ghostd; you talk to her, wherever she lives.
 
 ```
 ghostd birth <dir>     write her birth and her persona into a new journal
-ghostd run <dir>       live
+ghostd run <dir>...    live: each directory a ghost's, or one holding them
 ghostd status <dir>    who she is, what she is doing, what is     (reads the directory)
                        unread, and her open work
 ghostd journal <dir>   tail of her journal                        (reads the directory)
@@ -27,6 +28,33 @@ ghostd agenda          what she will do unasked, and when         (connects to a
 ```
 
 The commands that read the directory are safe while a daemon is running her.
+
+## Several characters
+
+`ghostd run ghosts/lin ghosts/mei` runs both; `ghostd run ghosts` runs every
+directory in `ghosts/` that has a `ghost.toml`, except `_template`. A
+character is known by her directory's name.
+
+Nothing that changes is shared between them. Each has her own mind, journal,
+memory, work, media, tools, skills and machine directory, all in her own
+directory, and her own budget, agenda, operators and places. What they share
+keeps nothing of theirs: the program, the brains in `ghostd.toml`, the
+network setting, the listening address and its token, and the prompts, which
+each mind reads and reloads for itself. `[ghosts.<id>]` in `ghostd.toml`
+changes how one of them lives; `ghostd.example.toml` shows how.
+
+A presence or console says which character it is for (`--ghost` or
+`GHOST_NAME`), and is refused if it names one that is not running, or names
+none while several are. With one running, it may name none, as before. Every
+log line from a character's mind and work begins `ghost{id=<her id>}`.
+
+If one character's mind panics or fails, that is logged with her id and her
+mind is started again from her directory, after a second, then longer while
+it keeps failing, up to two minutes. The others carry on, her presences stay
+connected, and what they hear in between is held for her. Two characters on
+one Docker machine need different `workdir`s; the daemon refuses to start
+otherwise. Tokens of their own per character are not offered: the one token
+admits a client to every character.
 
 ## Prompts
 

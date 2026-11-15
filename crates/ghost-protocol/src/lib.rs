@@ -14,6 +14,11 @@
 //! A connection begins with one [`method::HELLO`] request. Everything after
 //! depends on the role declared in it.
 //!
+//! One daemon can run several characters. A client is for one of them: its
+//! hello names her in [`Hello::ghost`], and everything on that connection
+//! goes to her alone. A daemon running one character takes a hello that
+//! names nobody, so clients from before there could be several still work.
+//!
 //! These types are deliberately separate from the journal's own. The journal
 //! format is forever; this one is versioned by [`PROTOCOL`] and will change.
 
@@ -51,6 +56,12 @@ pub mod method {
     pub const PEOPLE: &str = "memory.people";
     /// Console → daemon request. No params. Her persona as it stands.
     pub const IDENTITY: &str = "ghost.identity";
+    /// Client → daemon request, from a console or a presence. No params.
+    /// Result: [`Avatar`](super::Avatar), or `null` when she has none. Her
+    /// picture is asked for apart from the hello because it can be large,
+    /// and only a client that shows it or sets a platform's profile picture
+    /// needs it.
+    pub const AVATAR: &str = "ghost.avatar";
     /// Console → daemon request. No params. What is true about her life.
     pub const CANON: &str = "memory.canon";
     /// Console → daemon request. No params. Every place she is in.
@@ -81,6 +92,9 @@ pub mod code {
     pub const VERSION: i64 = -32002;
     /// Unused since the newest presence for a channel replaces the older one.
     pub const CHANNEL_TAKEN: i64 = -32003;
+    /// The hello named a character this daemon does not run, or named
+    /// nobody when it runs several. Retrying cannot fix it.
+    pub const NO_SUCH_GHOST: i64 = -32004;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
 }
@@ -95,10 +109,23 @@ pub struct Frame {
     pub method: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Present on every successful response, even when what it carries is
+    /// `null`: a response that answers "nothing" is still an answer.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
     pub result: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<RpcError>,
+}
+
+/// A field that is there, `null` included. Serde's default reads `null` as
+/// absent, which would make a response whose result is `null` look like no
+/// response at all.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -201,6 +228,13 @@ pub struct Hello {
     pub role: Role,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Which character this client is for: the name of her directory, such
+    /// as `weiwei`. It may be left out when the daemon runs only one; when
+    /// it runs several, a hello without it is refused. It is here rather
+    /// than in [`PresenceHello`] because a console is for one character as
+    /// much as a presence is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ghost: Option<String>,
     /// Required when `role` is `presence`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presence: Option<PresenceHello>,
@@ -235,6 +269,19 @@ pub struct GhostCard {
     pub country: String,
     /// The seal of her persona.
     pub seal: String,
+    /// A line or two about her for the profile of an account she has, in
+    /// her own words, if her persona has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
+}
+
+/// Her picture, the result of [`method::AVATAR`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Avatar {
+    /// Its type, such as `image/png`.
+    pub mime: String,
+    /// The file's bytes, base64.
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -456,6 +503,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_response_whose_result_is_null_is_still_a_response() {
+        let sent = serde_json::to_string(&Frame::ok(3, &None::<Avatar>)).unwrap();
+        assert_eq!(sent, r#"{"jsonrpc":"2.0","id":3,"result":null}"#);
+        let read: Frame = serde_json::from_str(&sent).unwrap();
+        assert_eq!(read.result, Some(Value::Null));
+        // And a frame with no result at all still has none.
+        let bare: Frame = serde_json::from_str(r#"{"jsonrpc":"2.0","id":3}"#).unwrap();
+        assert_eq!(bare.result, None);
+    }
+
+    #[test]
     fn frames_have_the_json_rpc_shape() {
         let req = Frame::request(7, method::ACT, &Action::Typing { place: "42".into() });
         assert_eq!(
@@ -492,6 +550,22 @@ mod tests {
             bad.params::<Action>().unwrap_err().code,
             code::INVALID_PARAMS
         );
+    }
+
+    #[test]
+    fn a_hello_and_a_card_from_before_there_could_be_several_characters_still_read() {
+        let hello: Hello = serde_json::from_str(
+            r#"{"protocol":1,"role":"presence","presence":{"channel":"qq","can":["send"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(hello.ghost, None);
+        // A client that names nobody says nothing new on the wire.
+        assert!(!serde_json::to_string(&hello).unwrap().contains("ghost"));
+        let card: GhostCard = serde_json::from_str(
+            r#"{"name":"W","pronouns":"she/her","city":"C","country":"CN","seal":"s"}"#,
+        )
+        .unwrap();
+        assert_eq!(card.bio, None);
     }
 
     #[test]

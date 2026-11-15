@@ -16,4 +16,7 @@ many seconds, so a piped script can behave like a person:
 printf 'hey\n/wait 30\nyou there?\n' | ghost-term --as haoran --linger 60
 ```
 
+When the daemon runs several characters, say which with `--ghost <her
+directory's name>` or `GHOST_NAME`.
+
 Capabilities: send, typing, react.
