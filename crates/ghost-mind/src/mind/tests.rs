@@ -5561,6 +5561,25 @@ async fn a_word_she_put_in_unasked_and_nobody_took_up_leaves_the_chatter_alone_f
 }
 
 #[tokio::test]
+async fn her_name_ends_the_pause_after_an_unasked_word_even_without_an_at() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let name = rig.mind.ghost.identity().name().to_owned();
+    rig.tick
+        .then(r#"{"actions":[{"do":"say","text":"湿毛巾擦脖子"}]}"#);
+    rig.hear(group("room", "lao", "1", "热死了", false), t0);
+    let now = rig.until(|r| r.body.sent().len() == 1).await;
+
+    // Called by name, not @-ed: that is someone turning to her.
+    rig.tick.then(r#"{"actions":[{"do":"say","text":"还行"}]}"#);
+    let text = format!("{name}你那边热不热");
+    rig.hear(group("room", "mei", "2", &text, false), now);
+    let due = rig.mind.agenda.attend["t:room"].due;
+    assert!(due < now + Duration::minutes(29), "{due} vs {now}");
+    rig.until(|r| r.body.sent().len() == 2).await;
+}
+
+#[tokio::test]
 async fn quiet_is_offered_only_in_groups() {
     let t0 = at(14, 0);
     let offered = |rig: &Rig| -> Vec<String> {
