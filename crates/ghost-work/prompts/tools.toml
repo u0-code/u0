@@ -384,7 +384,7 @@ all = "Replace every occurrence instead of requiring exactly one."
 # each server she has.
 
 [find_tools]
-ability = "find new tools made by others and add them to yourself as a piece of work, when something calls for what you cannot do yet: a browser, the tools of a site, makers of pictures or video"
+ability = "add new tools to yourself, made by others: a real browser, the tools of a site, makers of pictures or video. You do it by taking it on with `undertake`; the work searches a registry of tools and installs what fits, and from then on you have it. So when something calls for what you cannot do yet, the answer is to take that on, not that you cannot"
 description = """\
     Search the registry of tools for servers you could install. Each result shows its exact name, what \
     it is, how it runs, what it needs from whoever runs your body, and whether it can be installed here \
