@@ -336,6 +336,9 @@ async fn run(paths: &[PathBuf], config: Option<&Path>) -> anyhow::Result<()> {
         lives.push((who, life, make, span));
     }
 
+    // Listened for before anything is said about listening, so that a
+    // SIGTERM sent the moment she is up still stops her in order.
+    let told_to_stop = told_to_stop();
     let listener = TcpListener::bind(&cfg.listen.addr)
         .await
         .with_context(|| format!("listen on {}", cfg.listen.addr))?;
@@ -364,7 +367,7 @@ async fn run(paths: &[PathBuf], config: Option<&Path>) -> anyhow::Result<()> {
         keepers.spawn(keeping.instrument(span));
     }
     tokio::select! {
-        why = told_to_stop() => {
+        why = told_to_stop => {
             info!("{why}: stopping");
             stop.send_replace(true);
         }
@@ -505,25 +508,28 @@ fn network(setting: &ghost_net::Setting) -> anyhow::Result<()> {
 /// is how systemd, docker and a shutting-down machine ask. Either way she
 /// is stopped in order, so that nothing is cut off halfway through being
 /// written. Says which it was.
-async fn told_to_stop() -> &'static str {
+fn told_to_stop() -> impl std::future::Future<Output = &'static str> {
+    // The handlers are set up here, when this is called, not when the
+    // future is first polled: a signal that comes in between is kept.
     #[cfg(unix)]
-    {
+    let term = {
         use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
-            Ok(mut term) => tokio::select! {
-                _ = tokio::signal::ctrl_c() => "interrupted",
-                _ = term.recv() => "terminated",
-            },
-            Err(e) => {
+        signal(SignalKind::terminate())
+            .inspect_err(|e| {
                 warn!("cannot listen for SIGTERM ({e}); only Ctrl-C stops her in order");
-                let _ = tokio::signal::ctrl_c().await;
-                "interrupted"
-            }
+            })
+            .ok()
+    };
+    let ctrl_c = tokio::signal::ctrl_c();
+    async move {
+        #[cfg(unix)]
+        if let Some(mut term) = term {
+            return tokio::select! {
+                _ = ctrl_c => "interrupted",
+                _ = term.recv() => "terminated",
+            };
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
+        let _ = ctrl_c.await;
         "interrupted"
     }
 }
