@@ -84,11 +84,18 @@ pub struct Console {
 }
 
 impl Console {
-    pub async fn connect(url: &str, token: Option<String>) -> anyhow::Result<(Self, Welcome)> {
+    /// Connect to the character called `ghost`, the name of her directory.
+    /// It may be `None` when the daemon runs only one.
+    pub async fn connect(
+        url: &str,
+        token: Option<String>,
+        ghost: Option<String>,
+    ) -> anyhow::Result<(Self, Welcome)> {
         let hello = Hello {
             protocol: PROTOCOL,
             role: Role::Console,
             token,
+            ghost,
             presence: None,
         };
         let (conn, welcome) = Conn::open(url, &hello).await?;
@@ -113,6 +120,11 @@ impl Console {
     /// Her persona as it stands.
     pub async fn identity(&mut self) -> anyhow::Result<Value> {
         self.conn.call(method::IDENTITY, &()).await
+    }
+
+    /// Her picture, if she has one.
+    pub async fn avatar(&mut self) -> anyhow::Result<Option<ghost_protocol::Avatar>> {
+        self.conn.call(method::AVATAR, &()).await
     }
 
     /// What is true about her life, oldest first.

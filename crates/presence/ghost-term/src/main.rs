@@ -44,6 +44,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// Which character to talk to: the name of her directory. Needed when
+    /// the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// Who you are.
     #[arg(long = "as", default_value = "you")]
     who: String,
@@ -218,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Ask who is there before settling in.
-    let (_, welcome) = Console::connect(&args.url, args.token.clone()).await?;
+    let (_, welcome) = Console::connect(&args.url, args.token.clone(), args.ghost.clone()).await?;
     let her = welcome.ghost.name;
     eprintln!(
         "{her} is in {}. She answers when she gets to it. Ctrl-D to leave.",
@@ -239,6 +243,7 @@ async fn main() -> anyhow::Result<()> {
         Link {
             url: args.url,
             token: args.token,
+            ghost: args.ghost,
             channel: args.channel,
             me: Some(Actor {
                 id: "ghost".into(),

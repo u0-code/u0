@@ -88,8 +88,35 @@ sudo systemctl edit ghost-presence@x
 # ExecStart=/opt/ghost/bin/ghost-x --state /var/lib/ghost-presence/x/cursor.json
 ```
 
+### More than one character
+
+Both ways are supported:
+
+- **One per process**, as above: `ghostd@lin`, `ghostd@mei`. A crash, a
+  stuck brain or a full disk in one is that process alone, and each can be
+  stopped and upgraded on its own. But each needs its own `ghostd.toml`
+  with its own `[listen] addr`, since two daemons cannot share a port: edit
+  the unit's `ExecStart` for each (`systemctl edit ghostd@mei`) to name
+  `/etc/ghost/mei.toml`, and give each presence `--url` for its daemon.
+- **Several in one**: `ghostd run /var/lib/ghost/lin /var/lib/ghost/mei`,
+  or a directory holding them. One port, one `ghostd.toml` with
+  `[ghosts.<id>]` for whatever differs, one unit to look after. A mind that
+  fails is started again inside the process without touching the others,
+  but they share a process: whatever kills it, or a restart of it, takes
+  every character down together.
+
+Either way each platform account is one character's: run one presence per
+account, and tell it whose it is with `GHOST_NAME` in its environment file
+(`/etc/ghost/presence-<platform>.env`), which a daemon running several
+requires. To run two accounts on one platform, make a copy of
+`ghost-presence@.service` per account, or start the second by hand with its
+own credentials and `--ghost`. `GHOSTD_TOKEN` is one for the deployment;
+tokens per character are not offered.
+
 Her errors and warnings are in the journal of the unit, not in her
-directory: `journalctl -u ghostd@weiwei -p warning -n 50`. What she has on
+directory: `journalctl -u ghostd@weiwei -p warning -n 50`. With several
+characters in one process, each line from one of them begins
+`ghost{id=<her directory's name>}`. What she has on
 hand, read without disturbing her: `sudo -u ghost /opt/ghost/bin/ghostd
 status /var/lib/ghost/weiwei`.
 

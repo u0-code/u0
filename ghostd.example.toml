@@ -255,6 +255,34 @@ review_days = 7
 # github = "https://api.github.com"
 # raw = "https://raw.githubusercontent.com"
 
+# One daemon can run several characters: `ghostd run ghosts/lin ghosts/mei`,
+# or `ghostd run ghosts` for every directory in it with a ghost.toml except
+# _template. Each lives entirely apart: her own mind, journal, memory, work,
+# tools, skills and machine directory, all in her own directory. They share
+# the brains, where the daemon listens and its token, the network setting
+# and the prompts above.
+#
+# Everything above about how she lives applies to each of them. A table
+# named for one, by her directory's name, changes it for her alone: any of
+# mind (and mind.work), operators, places, tools, mcp and skills. Tables are
+# merged a key at a time, so what is left out is inherited; any other value,
+# a list included, replaces the one above for her. A table for a character
+# who is not running stops the daemon at start, so a misspelled name is not
+# silently ignored. Without any [ghosts] tables nothing here changes.
+#
+# Each presence names the character it carries with --ghost or GHOST_NAME;
+# with only one running it may leave that out. A platform account belongs to
+# one character, so each runs its own presence with its own credentials.
+#
+# [ghosts.mei.mind]
+# calls_per_hour = 40           # her own budget; tempo and the rest as above
+# [ghosts.mei.mind.work]
+# machine = "local:"            # work under ghosts/mei/home
+# [ghosts.mei.operators]
+# telegram = ["42"]             # added beside the operators above; qq stays
+# [ghosts.mei.places."telegram:-100123"]
+# addressed_only = true
+
 # Direct API. Reads ANTHROPIC_API_KEY unless api_key_env or api_key is set.
 [providers.anthropic]
 kind = "anthropic"

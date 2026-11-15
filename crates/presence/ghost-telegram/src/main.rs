@@ -13,8 +13,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Link, Platform, Uplink},
-    protocol::{Acted, Action, Capability},
+    presence::{self, Field, Link, Platform, Uplink},
+    protocol::{Acted, Action, Capability, GhostCard},
     text,
 };
 use serde_json::{Value, json};
@@ -24,6 +24,8 @@ use crate::api::{ApiError, Bot, Update, User};
 
 /// Seconds Telegram holds a `getUpdates` call open when nothing is new.
 const LONG_POLL: u64 = 50;
+/// The longest short description a bot may have: what its profile shows.
+const SHORT_DESCRIPTION: usize = 120;
 
 #[derive(Parser)]
 #[command(
@@ -41,6 +43,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// The character this bot is: the name of her directory. Needed when
+    /// the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// The channel name to register as.
     #[arg(long, default_value = "telegram")]
     channel: String,
@@ -146,6 +152,47 @@ impl Platform for Telegram {
             other => anyhow::bail!("telegram bots cannot {:?}", other.needs()),
         }
     }
+
+    async fn appear(&self, card: &GhostCard) {
+        if let Err(e) = self.introduce(card).await {
+            warn!("could not set her name and bio on telegram: {e:#}");
+        }
+        // The Bot API has no call for a bot's own picture.
+        presence::set_by_hand(card, &[Field::Avatar], "@BotFather (/setuserpic)");
+    }
+}
+
+impl Telegram {
+    /// Her name, and her bio as the bot's short description, which is what
+    /// its profile shows. Each is asked for first and set only if it
+    /// differs: Telegram limits how often they may be changed.
+    async fn introduce(&self, card: &GhostCard) -> anyhow::Result<()> {
+        let now: Value = self.bot.call("getMyName", &json!({})).await?;
+        if now["name"].as_str() != Some(card.name.as_str()) {
+            self.bot
+                .call::<Value>("setMyName", &json!({"name": card.name}))
+                .await?;
+            info!("her name on telegram is now {}", card.name);
+        }
+        let Some(bio) = &card.bio else {
+            return Ok(());
+        };
+        if bio.chars().count() > SHORT_DESCRIPTION {
+            warn!(
+                "her bio is longer than the {SHORT_DESCRIPTION} characters telegram allows a bot's \
+                 short description; shorten it in her ghost.toml, or set one by hand with @BotFather"
+            );
+            return Ok(());
+        }
+        let now: Value = self.bot.call("getMyShortDescription", &json!({})).await?;
+        if now["short_description"].as_str() != Some(bio.as_str()) {
+            self.bot
+                .call::<Value>("setMyShortDescription", &json!({"short_description": bio}))
+                .await?;
+            info!("her bio on telegram is set");
+        }
+        Ok(())
+    }
 }
 
 fn chat_id(place: &str) -> anyhow::Result<i64> {
@@ -181,6 +228,7 @@ async fn main() -> anyhow::Result<()> {
     let link = Link {
         url: args.url,
         token: args.token,
+        ghost: args.ghost,
         channel: args.channel,
         me: Some(convert::actor(&me)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],

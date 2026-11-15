@@ -48,7 +48,7 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     task::JoinSet,
 };
-use tracing::{info, warn};
+use tracing::{Instrument as _, info, warn};
 
 use self::{
     attend::{Thinking, Thought},
@@ -332,6 +332,26 @@ impl Agenda {
     }
 }
 
+/// The jobs she has sent off. Each runs in the span she was in when she
+/// sent it, so that whatever it logs says whose it is when one daemon runs
+/// several characters.
+#[derive(Default)]
+struct Jobs(JoinSet<Outcome>);
+
+impl Jobs {
+    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) {
+        self.0.spawn(job.in_current_span());
+    }
+
+    async fn join_next(&mut self) -> Option<std::result::Result<Outcome, tokio::task::JoinError>> {
+        self.0.join_next().await
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// A ceiling on brain calls per hour.
 struct Budget {
     cap: u32,
@@ -369,7 +389,7 @@ pub struct Mind {
     entries: broadcast::Sender<Entry>,
     channels: HashMap<String, Channel>,
     agenda: Agenda,
-    jobs: JoinSet<Outcome>,
+    jobs: Jobs,
     rng: Rng,
     budget: Budget,
     workshop: Workshop,
@@ -428,7 +448,7 @@ impl Mind {
             entries: entries.clone(),
             channels: HashMap::new(),
             agenda: Agenda::default(),
-            jobs: JoinSet::new(),
+            jobs: Jobs::default(),
             workshop: parts.workshop,
             working: BTreeMap::new(),
             resting: HashMap::new(),

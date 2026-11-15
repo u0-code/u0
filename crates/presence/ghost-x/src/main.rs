@@ -19,8 +19,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Link, Platform, Uplink},
-    protocol::{Acted, Action, Actor, Capability, Feed},
+    presence::{self, Field, Link, Platform, Uplink},
+    protocol::{Acted, Action, Actor, Capability, Feed, GhostCard},
     text,
 };
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,10 @@ struct Args {
     /// The daemon's token, if it has one.
     #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    /// The character this account is: the name of her directory. Needed
+    /// when the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    ghost: Option<String>,
     /// The channel name to register as.
     #[arg(long, default_value = "x")]
     channel: String,
@@ -324,6 +328,16 @@ impl Platform for Account {
             other => anyhow::bail!("this adapter cannot {:?} on x", other.needs()),
         }
     }
+
+    /// X's v2 API, which this adapter speaks, has no call that changes a
+    /// profile.
+    async fn appear(&self, card: &GhostCard) {
+        presence::set_by_hand(
+            card,
+            &[Field::Name, Field::Bio, Field::Avatar],
+            "her X account's profile settings",
+        );
+    }
 }
 
 #[tokio::main]
@@ -367,6 +381,7 @@ async fn main() -> anyhow::Result<()> {
     let link = Link {
         url: args.url,
         token: args.token,
+        ghost: args.ghost,
         channel: args.channel,
         me: Some(Actor {
             id: me.clone(),

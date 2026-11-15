@@ -27,6 +27,11 @@ export X_ACCESS_TOKEN=...  X_ACCESS_SECRET=...
 ghost-x --state ~/.local/state/ghost-x.json
 ```
 
+An account is one character's. When the daemon runs several, say whose with
+`--ghost <her directory's name>` or `GHOST_NAME`. Her name, bio and picture
+are set by hand in the account's settings: API v2 has no call that changes
+a profile, and it says so once at start.
+
 Without `--state` each run starts from now. With it, a restart picks up what
 arrived while the adapter was not running. On its very first look she does not
 answer old mentions; she starts from that moment.
