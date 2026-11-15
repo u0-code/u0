@@ -12,8 +12,11 @@
 #   journal.db  her life. It is append-only and forever, and nothing can
 #               rebuild it. This is the one file that must never be lost.
 #   work.db     the state of what she has taken on: plans, notes, transcripts.
-#   files.tar   ghost.toml, prompts/ and media/: who she is as last written,
-#               the words her brain is given, and the images she was sent.
+#   files.tar   ghost.toml, assets/ and media/: who she is as last written,
+#               how she looks to others, and the images she was sent. The
+#               words her brain is given are shared by every character and
+#               are not in her directory: back up the deployment's prompts
+#               directory with the rest of /etc/ghost.
 # What is not: derived/, which is rebuilt from the journal when she starts.
 #
 # Needs sqlite3 and tar. To restore: stop her, put journal.db and work.db
@@ -56,7 +59,7 @@ fi
 # These files are written whole and not changed afterwards, so an archive
 # taken while she runs is consistent.
 set --
-for part in ghost.toml prompts media; do
+for part in ghost.toml assets media; do
     if [ -e "$ghost/$part" ]; then
         set -- "$@" "$part"
     fi

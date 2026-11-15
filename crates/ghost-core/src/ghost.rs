@@ -3,11 +3,16 @@
 //! ```text
 //! weiwei/
 //! ├── ghost.toml   her persona: who she is. It can be revised.
+//! ├── assets/      how she looks to others: her avatar. Optional.
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
 //! ├── work.db      the state of what she has taken on: plans, notes, transcripts
 //! ├── media/       images she was sent and looked at, named by their hash
 //! └── derived/     anything that can be rebuilt from the journal
 //! ```
+//!
+//! Everything in her directory is hers alone. How she works, the words her
+//! brain is given included, is shared by every character and lives with
+//! whoever runs her (see [`prompts`](crate::prompts)).
 
 use std::{
     fs::{self, File},
@@ -24,6 +29,10 @@ use crate::{
 };
 
 const LOCK_FILE: &str = "derived/lock";
+/// Where what she looks like to others is kept in her directory.
+pub const ASSETS_DIR: &str = "assets";
+/// The kinds of picture her avatar may be, in the order they are looked for.
+const AVATAR_KINDS: &[&str] = &["png", "webp", "jpg", "jpeg", "gif"];
 
 /// A ghost opened for living: the only handle that can write her journal.
 pub struct Ghost {
@@ -163,6 +172,23 @@ impl Ghost {
     pub fn memory(&self) -> &Memory {
         &self.memory
     }
+
+    /// Her picture, for the profile of an account she has on a platform:
+    /// `assets/avatar.png`, or a `.webp`, `.jpg` or `.gif`, if there is
+    /// one. It is not in her journal; like the rest of `assets/`, it is how
+    /// others see her, not something she lived.
+    pub fn avatar(&self) -> Option<PathBuf> {
+        avatar(&self.dir)
+    }
+}
+
+/// The avatar in the ghost directory `dir`, if there is one.
+pub fn avatar(dir: &Path) -> Option<PathBuf> {
+    let assets = dir.join(ASSETS_DIR);
+    AVATAR_KINDS
+        .iter()
+        .map(|kind| assets.join(format!("avatar.{kind}")))
+        .find(|path| path.is_file())
 }
 
 /// The seal of the persona her journal last recorded: the latest
@@ -232,6 +258,26 @@ sleep = "00:30"
             Event::Born { .. }
         ));
         assert_eq!(g.memory().last_seq().unwrap(), 2);
+    }
+
+    #[test]
+    fn her_avatar_and_bio_are_hers_and_optional() {
+        let d = dir_with_seed();
+        let g = Ghost::birth(d.path()).unwrap();
+        assert_eq!(g.avatar(), None);
+        assert_eq!(g.identity().seed().bio, None);
+        drop(g);
+
+        fs::create_dir_all(d.path().join(ASSETS_DIR)).unwrap();
+        fs::write(d.path().join("assets/avatar.webp"), b"RIFF").unwrap();
+        fs::write(
+            d.path().join("ghost.toml"),
+            SAMPLE.replace("origin = \"made\"", "origin = \"made\"\nbio = \"Quiet.\""),
+        )
+        .unwrap();
+        let g = Ghost::open(d.path()).unwrap();
+        assert_eq!(g.avatar(), Some(d.path().join("assets/avatar.webp")));
+        assert_eq!(g.identity().seed().bio.as_deref(), Some("Quiet."));
     }
 
     #[test]

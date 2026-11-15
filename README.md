@@ -72,6 +72,13 @@ than a real friend would be.
 > into her journal before it takes effect, so every version of her stays on
 > record.
 
+`ghost.toml` is everything that makes her herself: name, temperament, voice,
+examples, story, values and past, with an optional `bio` for her profiles and
+her avatar in `assets/`. How she lives and works is the same for every
+character, so another character is another `ghost.toml` and nothing else. The
+words her brain is given can be changed for a whole deployment: see
+[ghostd](crates/ghostd#prompts).
+
 To run her on a Linux server, under systemd, with her own account and
 backups of her journal, see [deploy/](deploy).
 

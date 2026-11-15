@@ -49,9 +49,11 @@ struct Args {
     #[arg(long, default_value = "main")]
     id: String,
     /// A directory of prompts: `work.md`, `work_texts.toml` and
-    /// `tools.toml`, or any of them. A `prompts/` directory inside `--state`
-    /// wins over it, and what is built in is used for anything neither has.
-    /// A file changed while the work runs is taken in at the next step.
+    /// `tools.toml`, or any of them. What is built in is used for anything
+    /// it does not have. A file changed while the work runs is taken in at
+    /// the next step. Nothing in `--state` is read as a prompt: when a ghost
+    /// has her tools served, that is her own directory, and how she works
+    /// is not kept there.
     #[arg(long)]
     prompts: Option<PathBuf>,
 
@@ -217,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
     // The tools for a piece of work with its own record: this one, and any
     // helper it hands part of itself to.
     let (no_machine, web) = (args.no_machine, args.web);
-    let words = Prompts::load(&args.state, args.prompts.as_deref()).shared();
+    let words = Prompts::load(args.prompts.as_deref()).shared();
     let equip: ghost_work::worker::ToolsFor = {
         let (machine, words) = (machine.clone(), words.clone());
         Arc::new(move |undertaking| {

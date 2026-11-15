@@ -2922,7 +2922,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_tool_described_anew_in_the_ghosts_tools_toml_reaches_work_already_running() {
+    async fn a_tool_described_anew_in_tools_toml_reaches_work_already_running() {
         let dir = tempfile::tempdir().unwrap();
         // The work writes the file itself, between its first step and its
         // second, as a person editing it would.
@@ -2937,7 +2937,7 @@ mod tests {
             calls("done", json!({"outcome": "finished", "summary": "ok"})),
         ];
         let (mut worker, brain) = worker(dir.path(), script, Limits::default());
-        worker.prompts = Prompts::load(dir.path(), None).shared();
+        worker.prompts = Prompts::load(Some(&dir.path().join("prompts"))).shared();
         worker.run().await;
         let seen = brain.seen.lock().unwrap();
         let shell = |turn: &Turn| {
@@ -2988,7 +2988,7 @@ mod tests {
             calls("done", json!({"outcome": "finished", "summary": "ok"})),
         ];
         let (mut worker, brain) = worker(dir.path(), script, Limits::default());
-        worker.prompts = Prompts::load(&dir.path().join("state"), Some(&prompts)).shared();
+        worker.prompts = Prompts::load(Some(&prompts)).shared();
         worker.run().await;
         let seen = brain.seen.lock().unwrap();
         assert_eq!(seen[0].system, "Work here: a test directory. 200 steps.");

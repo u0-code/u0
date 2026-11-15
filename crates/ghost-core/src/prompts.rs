@@ -2,17 +2,29 @@
 //! change. Data, not code.
 //!
 //! A crate that talks to a brain lists the files it reads, each with what
-//! is built into it, and gets a [`Store`] that looks for every one of them
-//! in three places, the first that has it winning: a ghost's own
-//! `prompts/`, a configured directory, and the binary. The built-ins are
-//! only the last resort, so that a lone binary still runs; anything a
-//! person might want to change is a file.
+//! is built into it and the layer it belongs to, and gets a [`Store`] that
+//! looks for every one of them in two places, the first that has it
+//! winning: the deployment's directory of prompts (`[mind] prompts` in
+//! `ghostd.toml`), and the binary. The built-ins are only the last resort,
+//! so that a lone binary still runs; anything a person might want to change
+//! is a file.
+//!
+//! Every file belongs to one of four [`Layer`]s: the persona template, which
+//! arranges her own fields into prose; her being, what she is and the
+//! ground rules she lives by; the logic of her conversations and her day;
+//! and her work. All four are shared by every character a deployment runs.
+//! What makes one character herself, her name, temperament, voice, story,
+//! values and past, is her `ghost.toml`, which is in her journal; nothing
+//! in these files is about anyone in particular. So a ghost's own directory
+//! holds no prompts: a copy there would make one character work unlike the
+//! others, and swapping her persona would no longer be all it takes to
+//! swap her. What [`misplaced`] finds there is warned about and not read.
 //!
 //! A changed file is taken in at the next use, without a restart: whoever
 //! holds a store asks it to refresh, and at most every couple of seconds
 //! that looks at the modification time of each file it could read. Only a
 //! file that changed is read again. A file that goes away gives way to the
-//! next place; one that cannot be read, or does not parse, is warned about
+//! built-in; one that cannot be read, or does not parse, is warned about
 //! and what was in use stays in use.
 //!
 //! There are three kinds of file. A template is used whole. A file of texts
@@ -22,9 +34,11 @@
 //!
 //! The mind and the work loop read the same directory: one `tools.toml`
 //! says what every tool of both is, and each has its templates and texts
-//! beside it under names of its own. This is how a brain reads a ghost, not
-//! who she is: none of it is in her journal, and changing it does not
-//! change her.
+//! beside it under names of its own. Names are unique across layers, so a
+//! directory of overrides is flat: a person edits `attend.md`, not
+//! `logic/attend.md`, and the built-ins can be arranged differently later
+//! without moving anybody's copies. None of it is in her journal, and
+//! changing it does not change who she is.
 //!
 //! A person's copy of a built-in file outlives the build it came from; how
 //! a copy that has fallen behind is noticed is [`exported`].
@@ -44,7 +58,8 @@ use tracing::{info, warn};
 
 use crate::narrate;
 
-/// The directory of prompts inside a ghost's own.
+/// What a directory of prompts inside a ghost's own would be called. It is
+/// not read: see [`misplaced`].
 pub const DIR: &str = "prompts";
 /// The least time between two looks at the files.
 const CHECK_EVERY: Duration = Duration::seconds(2);
@@ -60,12 +75,42 @@ pub enum Kind {
     Tools,
 }
 
+/// Which part of what a brain is told a file is. The built-ins sit in a
+/// directory per layer; an override is found by its name alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Layer {
+    /// The template that arranges her own fields from `ghost.toml` into
+    /// prose. It holds no rules, only the arrangement, so that two
+    /// characters differ in what fills it and in nothing else.
+    Persona,
+    /// What she is, a person made of language, and the ground rules: whose
+    /// word counts, the safety line, how she keeps things.
+    Being,
+    /// How a conversation and a day go: looking, replying, planning,
+    /// living, reflecting, posting.
+    Logic,
+    /// How a piece of work goes, and what every tool is.
+    Work,
+}
+
+impl fmt::Display for Layer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(match self {
+            Self::Persona => "persona",
+            Self::Being => "being",
+            Self::Logic => "logic",
+            Self::Work => "work",
+        })
+    }
+}
+
 /// One file a store reads, and what is built in for it.
 #[derive(Debug, Clone, Copy)]
 pub struct File {
     pub name: &'static str,
     pub built_in: &'static str,
     pub kind: Kind,
+    pub layer: Layer,
 }
 
 /// The two loops a tool can be offered in. A tool may be described
@@ -82,10 +127,8 @@ pub enum Loop {
 /// Where a prompt came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// The ghost's own directory's `prompts/`.
-    Ghost,
-    /// A directory named in configuration.
-    Config,
+    /// The deployment's directory of prompts, named in configuration.
+    Deployment,
     /// This binary.
     BuiltIn,
 }
@@ -93,8 +136,7 @@ pub enum Origin {
 impl fmt::Display for Origin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad(match self {
-            Self::Ghost => "ghost",
-            Self::Config => "config",
+            Self::Deployment => "deployment",
             Self::BuiltIn => "built-in",
         })
     }
@@ -105,6 +147,8 @@ impl fmt::Display for Origin {
 pub struct Listed {
     /// The file it is in.
     pub file: &'static str,
+    /// The layer that file belongs to.
+    pub layer: Layer,
     /// The text or tool in that file, for a file of texts or tools.
     pub key: Option<String>,
     pub origin: Origin,
@@ -265,15 +309,14 @@ impl Store {
         }
     }
 
-    /// `files` as they are for the ghost in `ghost`: from her own
-    /// `prompts/`, then from `config` if there is one, then built in.
-    /// Nothing here fails: a file that cannot be used is warned about and
-    /// passed over.
-    pub fn load(files: &[File], ghost: &Path, config: Option<&Path>) -> Self {
-        let mut layers = vec![(Origin::Ghost, ghost.join(DIR))];
-        if let Some(config) = config {
-            layers.push((Origin::Config, config.to_owned()));
-        }
+    /// `files` as they are: from the deployment's directory `dir` if there
+    /// is one, then built in. Nothing here fails: a file that cannot be
+    /// used is warned about and passed over.
+    pub fn load(files: &[File], dir: Option<&Path>) -> Self {
+        let layers: Vec<(Origin, PathBuf)> = dir
+            .map(|dir| (Origin::Deployment, dir.to_owned()))
+            .into_iter()
+            .collect();
         Self::layered(files, &layers)
     }
 
@@ -367,6 +410,7 @@ impl Store {
                     let (origin, path) = self.provider(file.name, |_| true);
                     out.push(Listed {
                         file: file.name,
+                        layer: file.layer,
                         key: None,
                         origin,
                         path,
@@ -383,6 +427,7 @@ impl Store {
                         });
                         out.push(Listed {
                             file: file.name,
+                            layer: file.layer,
                             key: Some(key.clone()),
                             origin,
                             path,
@@ -397,6 +442,7 @@ impl Store {
                         });
                         out.push(Listed {
                             file: file.name,
+                            layer: file.layer,
                             key: Some(name.clone()),
                             origin,
                             path,
@@ -626,6 +672,19 @@ impl Store {
     }
 }
 
+/// The files of `files` in the `prompts/` of the ghost in `ghost`, which
+/// are not read. Everything a brain is told is shared by every character a
+/// deployment runs, the persona template included; what is hers alone is
+/// her `ghost.toml`. Whoever starts her says where these belong instead.
+pub fn misplaced(files: &[File], ghost: &Path) -> Vec<PathBuf> {
+    let dir = ghost.join(DIR);
+    files
+        .iter()
+        .map(|file| dir.join(file.name))
+        .filter(|path| path.exists())
+        .collect()
+}
+
 fn stamp(path: &Path) -> Stamp {
     match fs::metadata(path) {
         Ok(meta) => Stamp::At(
@@ -658,17 +717,20 @@ mod tests {
             name: "plan.md",
             built_in: "built in",
             kind: Kind::Whole,
+            layer: Layer::Logic,
         },
         File {
             name: "texts.toml",
             built_in: "look = \"built in\"\nother = \"built in\"\n",
             kind: Kind::Texts,
+            layer: Layer::Logic,
         },
         File {
             name: "tools.toml",
             built_in: "[keep]\ndescription = \"Keep it.\"\n\n[keep.parameters]\nnote = \"Why.\"\n\n\
                        [keep.conversation]\ndescription = \"Keep it here.\"\n",
             kind: Kind::Tools,
+            layer: Layer::Work,
         },
     ];
 
@@ -691,13 +753,13 @@ mod tests {
 
     #[test]
     fn a_tool_is_said_in_each_loop_as_that_loop_says_it_or_as_the_tool_does() {
-        let ghost = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         write_at(
-            &ghost.path().join("prompts/tools.toml"),
+            &dir.path().join("tools.toml"),
             "[keep.work.parameters]\nnote = \"For the work.\"\n",
             1,
         );
-        let store = Store::load(FILES, ghost.path(), None);
+        let store = Store::load(FILES, Some(dir.path()));
         assert_eq!(store.tool("keep", Loop::Conversation), "Keep it here.");
         assert_eq!(store.tool("keep", Loop::Work), "Keep it.");
         assert_eq!(
@@ -711,24 +773,37 @@ mod tests {
     }
 
     #[test]
-    fn a_ghosts_own_file_wins_and_a_change_to_it_is_taken_in_without_a_restart() {
-        let (ghost, config) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let texts = ghost.path().join("prompts/texts.toml");
-        write_at(&texts, "look = \"hers\"\n", 1);
-        write_at(
-            &config.path().join("texts.toml"),
-            "look = \"the config's\"\nother = \"the config's\"\n",
-            1,
-        );
-        let mut store = Store::load(FILES, ghost.path(), Some(config.path()));
-        assert_eq!(store.text("texts.toml", "look"), "hers");
-        assert_eq!(store.text("texts.toml", "other"), "the config's");
+    fn the_deployments_file_wins_and_a_change_to_it_is_taken_in_without_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let texts = dir.path().join("texts.toml");
+        write_at(&texts, "look = \"the deployment's\"\n", 1);
+        let mut store = Store::load(FILES, Some(dir.path()));
+        assert_eq!(store.text("texts.toml", "look"), "the deployment's");
+        assert_eq!(store.text("texts.toml", "other"), "built in");
         assert!(!store.refresh(t0()));
 
-        write_at(&texts, "look = \"hers, again\"\n", 2);
+        write_at(&texts, "look = \"the deployment's, again\"\n", 2);
         assert!(!store.refresh(t0() + Duration::seconds(1)));
         assert!(store.refresh(t0() + Duration::seconds(2)));
-        assert_eq!(store.text("texts.toml", "look"), "hers, again");
+        assert_eq!(store.text("texts.toml", "look"), "the deployment's, again");
         assert_eq!(store.whole("plan.md"), "built in");
+    }
+
+    #[test]
+    fn a_prompt_in_a_ghosts_own_directory_is_found_as_misplaced_and_never_read() {
+        let (ghost, dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        write_at(&ghost.path().join(DIR).join("plan.md"), "hers", 1);
+        write_at(&ghost.path().join(DIR).join("notes.txt"), "not a prompt", 1);
+        assert_eq!(
+            misplaced(FILES, ghost.path()),
+            [ghost.path().join(DIR).join("plan.md")]
+        );
+        assert_eq!(Store::load(FILES, None).whole("plan.md"), "built in");
+        write_at(&dir.path().join("plan.md"), "the deployment's", 1);
+        assert_eq!(
+            Store::load(FILES, Some(dir.path())).whole("plan.md"),
+            "the deployment's"
+        );
+        assert!(misplaced(FILES, dir.path()).is_empty());
     }
 }

@@ -28,7 +28,7 @@ use ghost_core::{
     life::{Life, Phase},
     memory::Memory,
     prompts::{
-        Store,
+        self as words, Store,
         exported::{self, Updated},
     },
 };
@@ -101,48 +101,81 @@ enum Cmd {
         #[command(flatten)]
         daemon: Daemon,
     },
-    /// The words her brain reads: where each comes from, and a copy of the
-    /// built-in ones to change.
+    /// The words a brain reads, shared by every character this deployment
+    /// runs: where each comes from, and a copy of the built-in ones to
+    /// change in the deployment's directory of prompts.
     Prompts {
         #[command(subcommand)]
         cmd: PromptsCmd,
     },
 }
 
+/// Each prompts command works on the deployment's directory of prompts:
+/// DIR if it is given, or else `[mind] prompts` in ghostd.toml.
 #[derive(Subcommand)]
 enum PromptsCmd {
-    /// Every template, text and tool description, with where what is in use
-    /// comes from (DIR/prompts, the config's directory, or built in) and
-    /// whether it differs from the built-in.
+    /// Every template, text and tool description, with its layer, where
+    /// what is in use comes from (the deployment's directory, or built in)
+    /// and whether it differs from the built-in.
     List {
-        dir: PathBuf,
-        /// Path to ghostd.toml, for its `[mind] prompts`.
-        #[arg(long)]
-        config: Option<PathBuf>,
+        #[command(flatten)]
+        at: PromptsDir,
     },
-    /// Write the built-in prompts into DIR/prompts, to be changed there,
-    /// with a note of what each was copied from.
+    /// Write the built-in prompts into the deployment's directory, to be
+    /// changed there, with a note of what each was copied from.
     Export {
-        dir: PathBuf,
+        #[command(flatten)]
+        at: PromptsDir,
         /// Overwrite files that are already there.
         #[arg(long)]
         force: bool,
-        /// Only these files, such as `self.md texts.toml`: the ones you
+        /// Only these files, such as `persona.md texts.toml`: the ones you
         /// mean to change. A copy you leave as it is still hides the
         /// built-in after an upgrade.
         #[arg(long, num_args = 1.., value_name = "FILE")]
         only: Vec<String>,
     },
-    /// Bring the copies in DIR/prompts that nobody edited up to this
-    /// build's built-ins. Edited copies are left as they are; one that has
-    /// been brought up to date by hand is named with --looked-at, so that
-    /// it is no longer warned about.
+    /// Bring the copies in the deployment's directory that nobody edited up
+    /// to this build's built-ins. Edited copies are left as they are; one
+    /// that has been brought up to date by hand is named with --looked-at,
+    /// so that it is no longer warned about.
     Update {
-        dir: PathBuf,
+        #[command(flatten)]
+        at: PromptsDir,
         /// Copies you have compared with this build's built-in and kept.
         #[arg(long, num_args = 1.., value_name = "FILE")]
         looked_at: Vec<String>,
     },
+}
+
+/// Where the deployment's prompts are.
+#[derive(clap::Args)]
+struct PromptsDir {
+    /// The directory of prompts. Without it, `[mind] prompts` in ghostd.toml.
+    dir: Option<PathBuf>,
+    /// Path to ghostd.toml, for its `[mind] prompts`.
+    #[arg(long)]
+    config: Option<PathBuf>,
+}
+
+impl PromptsDir {
+    /// The directory, if one is given or configured.
+    fn found(&self) -> anyhow::Result<Option<PathBuf>> {
+        if let Some(dir) = &self.dir {
+            return Ok(Some(dir.clone()));
+        }
+        if !Config::exists(self.config.as_deref()) {
+            return Ok(None);
+        }
+        Ok(Config::load(self.config.as_deref())?.0.mind.prompts)
+    }
+
+    /// The directory, which has to be given or configured.
+    fn needed(&self) -> anyhow::Result<PathBuf> {
+        self.found()?.context(
+            "no directory of prompts: name one, or set `prompts` under [mind] in ghostd.toml",
+        )
+    }
 }
 
 /// How to reach a running daemon.
@@ -196,14 +229,17 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Prompts {
-            cmd: PromptsCmd::List { dir, config },
-        } => list_prompts(&dir, config.as_deref()),
+            cmd: PromptsCmd::List { at },
+        } => {
+            list_prompts(at.found()?.as_deref());
+            Ok(())
+        }
         Cmd::Prompts {
-            cmd: PromptsCmd::Export { dir, force, only },
-        } => export_prompts(&dir, force, &only),
+            cmd: PromptsCmd::Export { at, force, only },
+        } => export_prompts(&at.needed()?, force, &only),
         Cmd::Prompts {
-            cmd: PromptsCmd::Update { dir, looked_at },
-        } => update_prompts(&dir, &looked_at),
+            cmd: PromptsCmd::Update { at, looked_at },
+        } => update_prompts(&at.needed()?, &looked_at),
     }
 }
 
@@ -272,7 +308,7 @@ async fn run(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
     } else {
         Arc::new(Numb)
     };
-    let prompts = Prompts::load(dir, cfg.mind.prompts.as_deref());
+    let prompts = prompts_for(dir, cfg.mind.prompts.as_deref());
     say_overrides(&prompts);
     say_stale(&prompts);
     let workshop = workshop(&cfg, dir)?;
@@ -526,6 +562,63 @@ async fn watch(daemon: Daemon, last: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The prompts for the ghost in `ghost_dir`, from the deployment's
+/// directory `deployment` if there is one. Prompts in her own directory are
+/// warned about, once, and not used.
+fn prompts_for(ghost_dir: &Path, deployment: Option<&Path>) -> Prompts {
+    if let Some(said) = misplaced(ghost_dir, deployment) {
+        warn!("{said}");
+    }
+    if let Some(said) = deployment.and_then(retired) {
+        warn!("{said}");
+    }
+    Prompts::load(deployment)
+}
+
+/// What there is to say about prompts in the ghost directory `ghost_dir`,
+/// if it has any. They are not read: how she works is shared by every
+/// character, and only her persona is hers.
+fn misplaced(ghost_dir: &Path, deployment: Option<&Path>) -> Option<String> {
+    let mut found = words::misplaced(&ghost_mind::prompts::all_files(), ghost_dir);
+    found.extend(
+        retired(&ghost_dir.join(words::DIR)).map(|_| ghost_dir.join(words::DIR).join(RETIRED)),
+    );
+    if found.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = found
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    let to = deployment.map_or_else(
+        || "a directory of prompts named by `prompts` under [mind] in ghostd.toml".to_owned(),
+        |dir| dir.display().to_string(),
+    );
+    Some(format!(
+        "{} holds {}, which are not used: how she works is shared by every character this deployment runs, \
+         and what is hers alone is in her ghost.toml. Move them to {to} to use them for everyone",
+        ghost_dir.join(words::DIR).display(),
+        names.join(", ")
+    ))
+}
+
+/// The prompt that was split into the persona template and her being.
+const RETIRED: &str = "self.md";
+
+/// What there is to say about a copy of `self.md` in `dir`, if there is
+/// one: nothing reads it any more.
+fn retired(dir: &Path) -> Option<String> {
+    let path = dir.join(RETIRED);
+    path.exists().then(|| {
+        format!(
+            "{} is no longer read: it is now persona.md, her own fields arranged, and being.md, what she is \
+             and the ground rules. `ghostd prompts export --only persona.md being.md` writes this build's, \
+             to carry your changes into",
+            path.display()
+        )
+    })
+}
+
 /// Say which prompts are not the built-in ones, and where they come from.
 fn say_overrides(prompts: &Prompts) {
     let mut from: Vec<(PathBuf, Vec<String>)> = Vec::new();
@@ -584,33 +677,28 @@ fn say_stale(prompts: &Prompts) {
         let mut names: Vec<&str> = stale.iter().map(|s| s.file).collect();
         names.dedup();
         let names = names.join(" ");
-        // The commands take the directory a `prompts/` is in.
-        if let Some(parent) = dir
-            .parent()
-            .filter(|_| dir.ends_with(ghost_mind::prompts::DIR))
-        {
-            warn!(
-                "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
-                 If you did, write this build's next to them with `ghostd prompts export <somewhere> --only {names}`, \
-                 carry over what you want, then `ghostd prompts update {0} --looked-at {names}`",
-                parent.display()
-            );
-        } else {
-            warn!(
-                "compare them with this build's (`ghostd prompts export <somewhere> --only {names}`) and carry over what you want"
-            );
-        }
+        warn!(
+            "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
+             If you did, write this build's next to them with `ghostd prompts export <somewhere> --only {names}`, \
+             carry over what you want, then `ghostd prompts update {0} --looked-at {names}`",
+            dir.display()
+        );
     }
 }
 
 /// `ghostd prompts list`.
-fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
-    let configured = if Config::exists(config) {
-        Config::load(config)?.0.mind.prompts
-    } else {
-        None
-    };
-    let prompts = Prompts::load(dir, configured.as_deref());
+fn list_prompts(dir: Option<&Path>) {
+    if let Some(said) = dir.and_then(retired) {
+        warn!("{said}");
+    }
+    for line in listing(&Prompts::load(dir)) {
+        println!("{line}");
+    }
+}
+
+/// A line for each template, text and tool: its layer, whether it is not
+/// the built-in or hides a newer one, and where it comes from.
+fn listing(prompts: &Prompts) -> Vec<String> {
     // What hides something newer in this build, by where it is.
     let files = ghost_mind::prompts::all_files();
     let behind: Vec<(PathBuf, Option<String>)> = prompts
@@ -620,32 +708,35 @@ fn list_prompts(dir: &Path, config: Option<&Path>) -> anyhow::Result<()> {
         .flat_map(|(_, dir)| exported::stale(&files, dir))
         .map(|s| (s.path, s.key))
         .collect();
-    for listed in prompts.listing() {
-        let name = match &listed.key {
-            Some(key) => format!("{} {key}", listed.file),
-            None => listed.file.to_owned(),
-        };
-        let from = match (&listed.origin, &listed.path) {
-            (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
-            (origin, Some(path)) => format!("{origin:<8} {}", path.display()),
-        };
-        let is_behind = listed.path.as_ref().is_some_and(|path| {
-            behind
-                .iter()
-                .any(|(p, key)| p == path && (key.is_none() || *key == listed.key))
-        });
-        println!(
-            "{name:<36} {:<8} {from}",
-            if is_behind {
+    prompts
+        .listing()
+        .into_iter()
+        .map(|listed| {
+            let name = match &listed.key {
+                Some(key) => format!("{} {key}", listed.file),
+                None => listed.file.to_owned(),
+            };
+            let from = match (&listed.origin, &listed.path) {
+                (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
+                (origin, Some(path)) => format!("{origin:<10} {}", path.display()),
+            };
+            let is_behind = listed.path.as_ref().is_some_and(|path| {
+                behind
+                    .iter()
+                    .any(|(p, key)| p == path && (key.is_none() || *key == listed.key))
+            });
+            let state = if is_behind {
                 "behind"
             } else if listed.differs {
                 "changed"
             } else {
                 ""
-            }
-        );
-    }
-    Ok(())
+            };
+            format!("{:<8} {name:<36} {state:<8} {from}", listed.layer)
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
 }
 
 /// The prompt files called `names`, or every one if there are none.
@@ -665,9 +756,8 @@ fn prompt_files(names: &[String]) -> anyhow::Result<Vec<ghost_mind::prompts::Fil
 }
 
 /// `ghostd prompts export`.
-fn export_prompts(dir: &Path, force: bool, only: &[String]) -> anyhow::Result<()> {
-    let target = dir.join(ghost_mind::prompts::DIR);
-    let done = Store::export(&prompt_files(only)?, &target, force)
+fn export_prompts(target: &Path, force: bool, only: &[String]) -> anyhow::Result<()> {
+    let done = Store::export(&prompt_files(only)?, target, force)
         .with_context(|| format!("write into {}", target.display()))?;
     let skipped = done.iter().filter(|(_, written)| !written).count();
     for (path, written) in &done {
@@ -684,11 +774,10 @@ fn export_prompts(dir: &Path, force: bool, only: &[String]) -> anyhow::Result<()
 }
 
 /// `ghostd prompts update`.
-fn update_prompts(dir: &Path, looked_at: &[String]) -> anyhow::Result<()> {
-    let target = dir.join(ghost_mind::prompts::DIR);
+fn update_prompts(target: &Path, looked_at: &[String]) -> anyhow::Result<()> {
     prompt_files(looked_at)?;
     let looked_at: Vec<&str> = looked_at.iter().map(String::as_str).collect();
-    let done = exported::update(&ghost_mind::prompts::all_files(), &target, &looked_at)
+    let done = exported::update(&ghost_mind::prompts::all_files(), target, &looked_at)
         .with_context(|| format!("update {}", target.display()))?;
     if done.is_empty() {
         println!("no copies in {}", target.display());
@@ -854,4 +943,84 @@ async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn a_shared_prompt_in_a_ghosts_own_directory_is_warned_about_and_the_deployments_is_used() {
+        let (ghost, deployment) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let hers = ghost.path().join(words::DIR);
+        fs::create_dir_all(&hers).unwrap();
+        fs::write(hers.join("plan.md"), "hers").unwrap();
+        fs::write(hers.join("persona.md"), "hers too").unwrap();
+
+        let said = misplaced(ghost.path(), Some(deployment.path())).unwrap();
+        assert!(said.contains("persona.md, plan.md"), "{said}");
+        assert!(
+            said.contains(&deployment.path().display().to_string()),
+            "{said}"
+        );
+        // Not read, with or without a deployment's directory.
+        assert_eq!(
+            prompts_for(ghost.path(), None).plan,
+            Prompts::shipped().plan
+        );
+        assert_eq!(
+            prompts_for(ghost.path(), None).persona,
+            Prompts::shipped().persona
+        );
+        fs::write(deployment.path().join("plan.md"), "the deployment's").unwrap();
+        assert_eq!(
+            prompts_for(ghost.path(), Some(deployment.path())).plan,
+            "the deployment's"
+        );
+        // A ghost with no prompts of her own is not warned about.
+        assert_eq!(misplaced(deployment.path(), None), None);
+    }
+
+    #[test]
+    fn a_copy_of_the_retired_self_md_is_named_wherever_it_is() {
+        let (ghost, deployment) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        fs::create_dir_all(ghost.path().join(words::DIR)).unwrap();
+        fs::write(ghost.path().join(words::DIR).join(RETIRED), "old").unwrap();
+        fs::write(deployment.path().join(RETIRED), "old").unwrap();
+        assert!(misplaced(ghost.path(), None).unwrap().contains("self.md"));
+        let said = retired(deployment.path()).unwrap();
+        assert!(
+            said.contains("persona.md") && said.contains("being.md"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn prompts_list_shows_each_files_layer() {
+        let deployment = tempfile::tempdir().unwrap();
+        fs::write(
+            deployment.path().join("being.md"),
+            "Being.\n\n{{abilities}}{{canon}}\n",
+        )
+        .unwrap();
+        let lines = listing(&Prompts::load(Some(deployment.path())));
+        let line = |name: &str| {
+            lines
+                .iter()
+                .find(|l| l.split_whitespace().nth(1) == Some(name))
+                .unwrap_or_else(|| panic!("no {name} in {lines:#?}"))
+                .clone()
+        };
+        assert!(line("persona.md").starts_with("persona "));
+        assert!(line("being.md").starts_with("being "));
+        assert!(line("being.md").contains("changed"));
+        assert!(line("being.md").contains("deployment"));
+        assert!(line("attend.md").starts_with("logic "));
+        assert!(line("texts.toml").starts_with("logic "));
+        assert!(line("working.md").starts_with("work "));
+        assert!(line("work.md").starts_with("work "));
+        assert!(line("tools.toml").starts_with("work "));
+    }
 }

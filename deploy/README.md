@@ -28,9 +28,19 @@ Docker, or keep her on `local:` under this account.
 /opt/ghost/bin/          ghostd, ghost-work, ghost-qqbot, ...   root's; she cannot change them
 /etc/ghost/ghostd.toml   which brains, where to listen, [network]   root:ghost, 640
 /etc/ghost/ghost.env     keys and tokens (the .env)              root:root, 600
+/etc/ghost/prompts/      prompts you changed, for every character   root:ghost, optional
 /var/lib/ghost/          her account's home: caches of the tools she installs
-/var/lib/ghost/weiwei/   her directory: ghost.toml, journal.db, work.db, media/, derived/
+/var/lib/ghost/weiwei/   her directory: ghost.toml, assets/, journal.db, work.db,
+                         media/, derived/
 ```
+
+Her directory holds what is hers alone: her persona in `ghost.toml`, her
+avatar in `assets/`, and what she has lived. How she works is the same for
+every character and is not kept there. If you change any of the words her
+brain is given, export them with `ghostd prompts export /etc/ghost/prompts
+--only <file>`, edit them there, and set `prompts = "/etc/ghost/prompts"`
+under `[mind]` in `ghostd.toml`. `ghostd` warns about prompts it finds in her
+directory, and does not use them.
 
 ```bash
 cargo build --release
@@ -101,7 +111,9 @@ it too.
 ## Backups
 
 `journal.db` is her life, append-only and forever, and nothing can rebuild
-it. Back it up, with `work.db` and `media/`, often and off the machine.
+it. Back it up, with `work.db`, `assets/` and `media/`, often and off the
+machine. Keep `/etc/ghost`, with any prompts you changed, with the rest of the
+machine's configuration.
 `deploy/backup.sh` does it while she runs, with SQLite's online backup:
 
 ```bash

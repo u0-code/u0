@@ -45,6 +45,12 @@ pub struct Seed {
     /// They teach her voice; they are never lines to reuse.
     #[serde(default)]
     pub examples: String,
+    /// A line or two about her for the profile of an account she has on a
+    /// platform, in her own words. Her brain is not given it: it is how
+    /// others see her at a glance, and everything in it is already in the
+    /// fields above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
     /// Pieces of her past that come up in a conversation only when
     /// something said there touches them.
     #[serde(default)]

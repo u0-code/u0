@@ -7,12 +7,18 @@ will look at each place with something unread, hands a look to a brain, turns
 the actions that come back into journal entries, delivers what she says at the
 pace a person types, plans and lives her day, pursues her own intentions,
 scrolls feeds, and works on what she has taken on, a sitting at a time. The
-prompts it uses are data, in [`prompts/`](prompts/): whole templates as
-Markdown, and the short framings, nudges and refusals in `texts.toml`; what
-each tool is said to do is in `ghost-work`'s `tools.toml`, one file for every
-tool of both loops, read from the same directories. They are built in only as the last
-resort; a file of the same name in her own `prompts/`, or in the configured
-directory, is used instead, and taken in again when it changes.
+prompts it uses are data, in [`prompts/`](prompts/), a directory per layer:
+`persona/persona.md` arranges her own fields from `ghost.toml` into prose;
+`being/being.md` is what she is and the ground rules; `logic/` is how a
+conversation and a day go, whole templates as Markdown and the short
+framings, nudges and refusals in `texts.toml`; `work/working.md` is what she
+is told about a piece of work. Her system prompt is the persona, then her
+being, which ends with what is true of her life. What each tool is said to do
+is in `ghost-work`'s `tools.toml`, one file for every tool of both loops, read
+from the same directory. All of it is shared by every character: swapping
+one for another changes only her `ghost.toml`. The files are built in only
+as the last resort; a file of the same name in the deployment's directory
+(`[mind] prompts`) is used instead, and taken in again when it changes.
 
 In a conversation she has the same abilities as at work, at a conversation's
 pace. `ghost-work`'s catalog says which loops each tool belongs to and what it

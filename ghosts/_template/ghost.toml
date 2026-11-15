@@ -4,6 +4,14 @@
 # You can revise it later. The next `ghostd run` writes the new version into
 # her journal before it takes effect, so every version of her stays on record.
 #
+# This file is everything that makes her her: her name, her temperament and
+# the mood she starts from, her voice, how she sounds, her story, what she
+# values and her past. Another character is another copy of this file and
+# nothing else. How she lives and works (what she is, the ground rules, how
+# a conversation or a day or a piece of work goes) is the same for every
+# character, and lives with whoever runs her, not here: see the Prompts
+# section of crates/ghostd/README.md. Her avatar goes in assets/.
+#
 # Write her like a person you would want to know, not a product you would
 # want to use. Prose fields are read by her brain as who she is, so write
 # them as prose, and say why as well as what.
@@ -40,6 +48,11 @@ examples = """
 them: one line
 Her name: her answer
 """
+
+# A line or two about her for her profile on a platform, in her own words.
+# Her brain is not given it, so say nothing here that is not said above.
+# Optional.
+bio = "One line about her, as she would put it."
 
 values = ["honesty over comfort", "finishing things"]
 cares_about = ["one thing", "another"]

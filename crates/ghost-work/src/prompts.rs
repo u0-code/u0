@@ -4,8 +4,10 @@
 //!
 //! `work.md` is the working instructions, `work_texts.toml` what is said
 //! along the way, and `tools.toml` what every tool is, in a conversation as
-//! at work. A worker looks at the files before each step, so an edit
-//! reaches work that is already running at its next step.
+//! at work. All three are the work layer, shared by every character, and
+//! are built in from `prompts/work/`. A worker looks at the files before
+//! each step, so an edit reaches work that is already running at its next
+//! step.
 
 use std::{
     path::{Path, PathBuf},
@@ -14,7 +16,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use ghost_brain::ToolSpec;
-pub use ghost_core::prompts::{DIR, File, Kind, Listed, Loop, Origin, Store};
+pub use ghost_core::prompts::{DIR, File, Kind, Layer, Listed, Loop, Origin, Store};
 use serde_json::{Value, json};
 
 /// The file of what a worker is told along the way.
@@ -24,18 +26,21 @@ pub const TEXTS: &str = "work_texts.toml";
 pub const FILES: &[File] = &[
     File {
         name: "work.md",
-        built_in: include_str!("../prompts/work.md"),
+        built_in: include_str!("../prompts/work/work.md"),
         kind: Kind::Whole,
+        layer: Layer::Work,
     },
     File {
         name: TEXTS,
-        built_in: include_str!("../prompts/work_texts.toml"),
+        built_in: include_str!("../prompts/work/work_texts.toml"),
         kind: Kind::Texts,
+        layer: Layer::Work,
     },
     File {
         name: "tools.toml",
-        built_in: include_str!("../prompts/tools.toml"),
+        built_in: include_str!("../prompts/work/tools.toml"),
         kind: Kind::Tools,
+        layer: Layer::Work,
     },
 ];
 
@@ -57,11 +62,11 @@ impl Prompts {
         }
     }
 
-    /// The words for work kept in `dir`: its own `prompts/` first, then
-    /// `config` if there is one, then what is built in.
-    pub fn load(dir: &Path, config: Option<&Path>) -> Self {
+    /// The words for work kept in the directory of prompts `dir`, if
+    /// there is one, then what is built in.
+    pub fn load(dir: Option<&Path>) -> Self {
         Self {
-            store: Store::load(FILES, dir, config),
+            store: Store::load(FILES, dir),
         }
     }
 
