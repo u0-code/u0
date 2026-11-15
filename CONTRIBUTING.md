@@ -82,7 +82,9 @@ request title.
   is, `ghostd` does not know what Telegram is. If a change needs one to learn
   about another, say so in the pull request.
 - Prompts are code. They live in `prompts/` beside the crate that uses them,
-  and a change to one is tested like any other.
+  a directory per layer (`persona/`, `being/`, `logic/`, `work/`), and a
+  change to one is tested like any other. None of them is about a
+  particular character: that is her `ghost.toml`.
 
 ## Written by a model
 

@@ -728,7 +728,7 @@ impl Mind {
         }
         pairs.push(("abilities", abilities.to_owned()));
         Ok((
-            narrate::fill(&self.prompts.this, &pairs),
+            self.prompts.system(&pairs),
             narrate::fill(&self.prompts.now, &pairs),
         ))
     }

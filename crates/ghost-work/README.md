@@ -95,12 +95,14 @@ Any OpenAI-compatible server works (`--base-url`, `--model`,
 ## What it is told
 
 Every word the model reads from this crate is a file in
-[`prompts/`](prompts/): the working instructions in `work.md`, what is said
-along the way in `work_texts.toml`, and in `tools.toml` what every tool is,
-for work and for a ghost's conversations alike. What is built in is only the
-last resort: `<state>/prompts/` wins, then `--prompts <dir>`, file by file,
-and `work_texts.toml` and `tools.toml` entry by entry. The files are looked
-at before each step, so an edit reaches work that is already running.
+[`prompts/work/`](prompts/work/): the working instructions in `work.md`, what
+is said along the way in `work_texts.toml`, and in `tools.toml` what every
+tool is, for work and for a ghost's conversations alike. They are the work
+layer, the same for every character. What is built in is only the last
+resort: a file of the same name in `--prompts <dir>` wins, file by file, and
+`work_texts.toml` and `tools.toml` entry by entry. Nothing in `--state` is
+read as a prompt. The files are looked at before each step, so an edit
+reaches work that is already running.
 
 
 [`Worker`]: src/worker.rs

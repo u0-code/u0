@@ -58,9 +58,9 @@ pub struct MindConfig {
     pub live: bool,
     /// Look up the real weather where she lives when planning a day.
     pub weather: bool,
-    /// A directory of prompts that override the built-in ones. Her own
-    /// directory's `prompts/` overrides this in turn, without being named
-    /// anywhere. A file changed in either is taken in without a restart.
+    /// The deployment's directory of prompts, overriding the built-in ones
+    /// for every character it runs. A ghost's own directory holds none. A
+    /// file changed here is taken in without a restart.
     pub prompts: Option<PathBuf>,
     /// Whether and how she takes things on.
     pub work: WorkConfig,

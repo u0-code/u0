@@ -272,18 +272,20 @@ fn placeholders(text: &str) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prompts::Store;
+    use crate::prompts::{Layer, Store};
 
     const THEN: &[File] = &[
         File {
             name: "plan.md",
             built_in: "Plan {{day}}.",
             kind: Kind::Whole,
+            layer: Layer::Logic,
         },
         File {
             name: "texts.toml",
             built_in: "look = \"Look at {{place}}.\"\nother = \"Other.\"\n",
             kind: Kind::Texts,
+            layer: Layer::Logic,
         },
     ];
 
@@ -293,11 +295,13 @@ mod tests {
             name: "plan.md",
             built_in: "Plan {{day}} around {{weather}}.",
             kind: Kind::Whole,
+            layer: Layer::Logic,
         },
         File {
             name: "texts.toml",
             built_in: "look = \"Look at {{place}} with {{who}}.\"\nother = \"Other.\"\nnew = \"New.\"\n",
             kind: Kind::Texts,
+            layer: Layer::Logic,
         },
     ];
 

@@ -491,8 +491,8 @@ impl Mind {
                     // She follows it as it runs.
                     "--tell".to_owned(),
                 ];
-                // Her own `prompts/` is found in her directory; the
-                // configured one has to be named.
+                // The deployment's prompts, so that the server describes
+                // her tools in the same words she is given them.
                 if let Some(dir) = &self.cfg.prompts {
                     tool_server.extend([
                         "--prompts".to_owned(),

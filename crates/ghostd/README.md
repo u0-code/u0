@@ -17,9 +17,9 @@ ghostd status <dir>    who she is, what she is doing, what is     (reads the dir
 ghostd journal <dir>   tail of her journal                        (reads the directory)
 ghostd verify <dir>    chain check                                (reads the directory)
 ghostd brains --probe  ask each configured brain for one word
-ghostd prompts list <dir>    where each prompt comes from         (reads the directory)
-ghostd prompts export <dir>  copy the built-in prompts to change
-ghostd prompts update <dir>  bring unedited copies up to this build
+ghostd prompts list         each prompt's layer and where it comes from
+ghostd prompts export       copy the built-in prompts to change
+ghostd prompts update       bring unedited copies up to this build
 
 ghostd watch           her journal, live                          (connects to a daemon)
 ghostd people          who she knows and where she stands         (connects to a daemon)
@@ -30,15 +30,35 @@ The commands that read the directory are safe while a daemon is running her.
 
 ## Prompts
 
-Everything her brain reads that is not her persona or her journal is a file:
-the templates (`attend.md`, `self.md`, …), the short framings and refusals in
-`texts.toml`, what her work is told in `work.md` and `work_texts.toml`, and
-in `tools.toml` what every tool is, in a conversation and at work alike.
-Each is looked for in three places, and the first that has it wins:
+Everything her brain reads that is not her persona or her journal is a file,
+in one of four layers, and every layer is shared by every character:
 
-1. `<dir>/prompts/`, her own, found without any configuration;
-2. the `[mind] prompts` directory in `ghostd.toml`, if it is set;
-3. what is built into the binary.
+| layer   | files | what it is |
+|---------|-------|------------|
+| persona | `persona.md` | the template that arranges her own fields from `ghost.toml` into prose, and nothing else |
+| being   | `being.md` | what she is, a person made of language; whose word counts; the ground rules |
+| logic   | `attend.md`, `now.md`, `plan.md`, … and `texts.toml` | how a conversation and her day go |
+| work    | `working.md`, `work.md`, `work_texts.toml`, `tools.toml` | how a piece of work goes, and what every tool is |
+
+Her system prompt is `persona.md` then `being.md`, filled in; `being.md` ends
+with what is true of her life, from her journal. What makes one character
+herself, her name, temperament, voice, examples, story, values and past, is
+her `ghost.toml` alone, so swapping her for another character changes that
+file and nothing here.
+
+Each file is looked for in two places, and the first that has it wins:
+
+1. the deployment's directory, `[mind] prompts` in `ghostd.toml`, if it is
+   set;
+2. what is built into the binary.
+
+The directory is flat: a file is found by its name, whatever its layer.
+
+A ghost's own directory holds no prompts. If `<dir>/prompts/` has any of
+these files, `ghostd run` says so once at start, names them, and does not use
+them: move them to the deployment's directory to use them for every
+character. A copy of `self.md`, which earlier builds read, is named the same
+way: it is now `persona.md` and `being.md`.
 
 `texts.toml`, `work_texts.toml` and `tools.toml` are merged one entry at a
 time, so an override need only carry the texts or tools it changes. A tool
@@ -49,17 +69,21 @@ changed: no restart. A file that is removed gives way to the next place; one
 that cannot be read or does not parse is warned about, and what was in use
 stays. At startup, and on every change, the log says which files are in use.
 
+Each command works on the deployment's directory: the one it is given, or
+else `[mind] prompts` in `ghostd.toml` (`--config` names that file).
+
 ```
-ghostd prompts export <dir>                   write the built-ins into <dir>/prompts/
-ghostd prompts export <dir> --only self.md    only the files you mean to change
-ghostd prompts export <dir> --force           and overwrite what is already there
-ghostd prompts list <dir>                     each prompt, text and tool: where it comes
-                                              from; "changed" if it is not the built-in,
-                                              "behind" if the built-in moved on since
-ghostd prompts update <dir>                   replace copies nobody edited with this
+ghostd prompts export                         write the built-ins into the directory
+ghostd prompts export --only attend.md        only the files you mean to change
+ghostd prompts export --force                 and overwrite what is already there
+ghostd prompts export /etc/ghost/prompts      into a directory named here instead
+ghostd prompts list                           each prompt, text and tool: its layer,
+                                              where it comes from; "changed" if it is
+                                              not the built-in, "behind" if the
+                                              built-in moved on since
+ghostd prompts update                         replace copies nobody edited with this
                                               build's built-ins; leave edited ones be
-ghostd prompts update <dir> --looked-at self.md
-                                              say an edited copy has been brought up
+ghostd prompts update --looked-at attend.md   say an edited copy has been brought up
                                               to date by hand
 ```
 

@@ -9,7 +9,7 @@
 //!
 //! Nothing inside can end the tag early or open one of its own: wherever
 //! the text has something that would read as the tag, its `<` is swapped
-//! for a `‹`. What she is told the tag means is in `self.md` and
+//! for a `‹`. What she is told the tag means is in `being.md` and
 //! `work.md`; what each `from` says is in `work_texts.toml`. The tag
 //! itself is structure, like `[image: …]`, and is here.
 //!

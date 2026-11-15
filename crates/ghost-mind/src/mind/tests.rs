@@ -44,6 +44,48 @@ keys = ["teahouse", "茶馆"]
 text = "Her grandmother ran a teahouse on Wenshu street until it closed."
 "#;
 
+/// Another character altogether, living by the same clock: everything that
+/// makes her herself differs from [`SEED`], and nothing else does.
+const OTHER: &str = r#"
+name = "大肥鱼"
+pronouns = "he/him"
+born = "2026-11-01"
+temperament = "loud, warm, easily delighted"
+voice = "long run-on sentences, an exclamation mark at the end of most"
+origin = "A fishmonger's son from a river town."
+examples = "them: 在吗\n大肥鱼: 在在在！"
+values = ["generosity"]
+cares_about = ["the river"]
+cannot_stand = ["stinginess"]
+
+[home]
+city = "Wuhan"
+country = "CN"
+timezone = "Asia/Shanghai"
+
+[rhythm]
+wake = "08:30"
+sleep = "00:30"
+
+[[past]]
+keys = ["market", "菜场"]
+text = "He grew up under his father's stall at the fish market."
+"#;
+
+/// What in [`OTHER`] is his alone, as it would appear in what he is told.
+const OTHERS_OWN: &[&str] = &[
+    "大肥鱼",
+    "he/him",
+    "Wuhan",
+    "loud, warm",
+    "long run-on",
+    "fishmonger",
+    "在在在",
+    "generosity",
+    "the river",
+    "stinginess",
+];
+
 /// A brain that says what it is told to, in order. Given steps, it can
 /// also work.
 #[derive(Default)]
@@ -312,8 +354,13 @@ impl Rig {
     }
 
     fn build(config: MindConfig, now: DateTime<Utc>) -> Self {
+        Self::build_as(SEED, config, now)
+    }
+
+    /// The same, for the character `seed` describes.
+    fn build_as(seed: &str, config: MindConfig, now: DateTime<Utc>) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("ghost.toml"), SEED).unwrap();
+        std::fs::write(dir.path().join("ghost.toml"), seed).unwrap();
         let ghost = Ghost::birth(dir.path()).unwrap();
         Self::assemble(ghost, dir, config, now)
     }
@@ -3160,11 +3207,12 @@ async fn send_file_is_offered_with_no_machine_where_the_presence_can_take_files(
 }
 
 #[tokio::test]
-async fn a_tool_described_anew_in_her_prompts_reaches_the_brain_without_a_restart() {
+async fn a_tool_described_anew_in_the_deployments_prompts_reaches_the_brain_without_a_restart() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);
-    // Her prompts are looked for in her own directory, as a daemon does.
-    rig.mind.prompts = Prompts::load(rig.mind.ghost.dir(), None);
+    // The deployment's prompts, as a daemon given `[mind] prompts` reads.
+    let deployment = tempfile::tempdir().unwrap();
+    rig.mind.prompts = Prompts::load(Some(deployment.path()));
     let say = |rig: &Rig, turn: usize| {
         rig.think.turns.lock().unwrap()[turn]
             .tools
@@ -3180,10 +3228,8 @@ async fn a_tool_described_anew_in_her_prompts_reaches_the_brain_without_a_restar
     assert_eq!(say(&rig, 0).description, shipped.tool("say"));
 
     // While she runs, someone describes `say` differently.
-    let dir = rig.mind.ghost.dir().join(crate::prompts::DIR);
-    std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("tools.toml"),
+        deployment.path().join("tools.toml"),
         "[say]\ndescription = \"Say one thing.\"\n\n[say.parameters]\ntext = \"What you say.\"\n",
     )
     .unwrap();
@@ -5531,4 +5577,118 @@ async fn in_a_private_chat_silence_neither_stretches_her_next_look_nor_shows_gro
     let prompt = rig.think.last_prompt();
     assert!(prompt.contains("This is a private conversation."));
     assert!(!prompt.contains("What is so here"));
+}
+
+/// Her system prompt split where being begins: her persona, then the rest.
+fn persona_and_being(system: &str) -> (&str, &str) {
+    let begins = Prompts::shipped().being.lines().next().unwrap().to_owned();
+    let at = system.find(&begins).expect("being is in the system prompt");
+    system.split_at(at)
+}
+
+#[test]
+fn the_system_prompt_is_her_persona_then_her_being_then_what_is_true_of_her_life() {
+    let t0 = at(14, 0);
+    let quiet = MindConfig {
+        live: false,
+        browse_minutes: [0, 0],
+        ..MindConfig::default()
+    };
+    let rig = Rig::build_as(OTHER, quiet, t0);
+    let system = rig.mind.who(t0).unwrap();
+    // The order, as a brain reads it.
+    let order = [
+        "You are 大肥鱼 (he/him). You live in Wuhan, CN.",
+        "# Who you are",
+        "# How you talk",
+        "# Where you came from",
+        "You value: generosity",
+        "You are not an assistant and not a character being played.",
+        "You keep things you like",
+        "# Whose word counts",
+        "# Ground rules",
+        "# Things that are true about your life",
+        "(nothing registered yet beyond who you are)",
+    ];
+    let at: Vec<usize> = order
+        .iter()
+        .map(|part| system.find(part).unwrap_or_else(|| panic!("no {part:?}")))
+        .collect();
+    assert!(at.is_sorted(), "{order:?} are at {at:?}");
+    assert!(system.starts_with(order[0]));
+    let (persona, being) = persona_and_being(&system);
+    for own in OTHERS_OWN {
+        assert!(persona.contains(own), "{own} is not in his persona");
+        assert!(!being.contains(own), "{own} is in what is shared");
+    }
+
+    // With the persona template emptied, nothing of his is left in it: his
+    // fields reach his brain through that template and no other.
+    let deployment = tempfile::tempdir().unwrap();
+    std::fs::write(deployment.path().join("persona.md"), "").unwrap();
+    let mut rig = rig;
+    rig.mind.prompts = Prompts::load(Some(deployment.path()));
+    let system = rig.mind.who(t0).unwrap();
+    assert!(system.trim_start().starts_with(order[5]));
+    for own in OTHERS_OWN {
+        assert!(!system.contains(own), "{own} came in without the persona");
+    }
+}
+
+#[tokio::test]
+async fn two_characters_are_told_the_same_being_logic_and_work_in_their_own_persona() {
+    let t0 = at(14, 0);
+    let talk = |seed: &'static str| async move {
+        let mut rig = Rig::build_as(
+            seed,
+            MindConfig {
+                live: false,
+                browse_minutes: [0, 0],
+                ..MindConfig::default()
+            },
+            t0,
+        );
+        rig.think
+            .hands
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        rig.think
+            .then_turn("", &[("say", serde_json::json!({"text": "nine"}))]);
+        rig.hear(dm("wen", "1", "is the tea house open?"), t0);
+        rig.until(|r| r.body.sent().len() == 1).await;
+        rig.think.turns.lock().unwrap()[0].clone()
+    };
+    let work = |seed: &'static str| async move {
+        let mut rig = Rig::build_as(
+            seed,
+            MindConfig {
+                live: false,
+                browse_minutes: [0, 0],
+                ..MindConfig::default()
+            },
+            t0,
+        );
+        at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+        rig.think.then_call(
+            "done",
+            serde_json::json!({"outcome": "finished", "summary": "Nine on weekdays."}),
+        );
+        rig.until(|r| r.kinds().contains(&"concluded")).await;
+        rig.think.turns.lock().unwrap()[0].clone()
+    };
+    for (hers, his) in [
+        (talk(SEED).await, talk(OTHER).await),
+        (work(SEED).await, work(OTHER).await),
+    ] {
+        let (her_persona, her_being) = persona_and_being(&hers.system);
+        let (his_persona, his_being) = persona_and_being(&his.system);
+        assert_ne!(her_persona, his_persona);
+        assert!(his_persona.contains("大肥鱼") && !her_persona.contains("大肥鱼"));
+        // Being, and for work what she is told about it after: the same.
+        assert_eq!(her_being, his_being);
+        // The conversation or the work itself, and the tools: the same.
+        let rest = |turn: &ghost_brain::Turn| {
+            without_times(&format!("{:#?}\n{:#?}", turn.items, turn.tools))
+        };
+        assert_eq!(rest(&hers), rest(&his));
+    }
 }
