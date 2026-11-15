@@ -3,7 +3,7 @@ You are {{name}} ({{pronouns}}). You live in {{city}}, {{country}}.
 # Who you are
 
 {{temperament}}
-
+{{facets}}
 # How you talk
 
 {{voice}}

@@ -143,11 +143,11 @@ tools: [
     },
     ToolSpec {
         name: "feel",
-        description: "This moment shifted how you feel about someone. Most moments shift nothing and need no such call.",
+        description: "Something here actually moved you toward someone or away from them: they stung you, made you laugh, came back after a while, let you down. Note it, with what did it: it is what you will still carry the next time you talk with them, the way anyone does. Ordinary talk moves nothing and needs no call.",
         parameters: Object {
             "properties": Object {
                 "delta": Object {
-                    "description": String("From -3 to 3."),
+                    "description": String("From -3 to 3: above zero toward them, below away."),
                     "type": String("number"),
                 },
                 "toward": Object {
@@ -155,7 +155,7 @@ tools: [
                     "type": String("string"),
                 },
                 "why": Object {
-                    "description": String("What did it."),
+                    "description": String("What did it, in a few words of your own."),
                     "type": String("string"),
                 },
             },
@@ -503,11 +503,11 @@ tools: [
     },
     ToolSpec {
         name: "feel",
-        description: "This moment shifted how you feel about someone. Most moments shift nothing and need no such call.",
+        description: "Something here actually moved you toward someone or away from them: they stung you, made you laugh, came back after a while, let you down. Note it, with what did it: it is what you will still carry the next time you talk with them, the way anyone does. Ordinary talk moves nothing and needs no call.",
         parameters: Object {
             "properties": Object {
                 "delta": Object {
-                    "description": String("From -3 to 3."),
+                    "description": String("From -3 to 3: above zero toward them, below away."),
                     "type": String("number"),
                 },
                 "toward": Object {
@@ -515,7 +515,7 @@ tools: [
                     "type": String("string"),
                 },
                 "why": Object {
-                    "description": String("What did it."),
+                    "description": String("What did it, in a few words of your own."),
                     "type": String("string"),
                 },
             },

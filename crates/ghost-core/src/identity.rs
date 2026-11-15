@@ -55,6 +55,10 @@ pub struct Seed {
     /// something said there touches them.
     #[serde(default)]
     pub past: Vec<Past>,
+    /// Her sides, when she has more than one: written `[[facet]]`. Which one
+    /// shows is never set or stored; it follows from what is happening.
+    #[serde(default, rename = "facet", skip_serializing_if = "Vec::is_empty")]
+    pub facets: Vec<Facet>,
     #[serde(default)]
     pub values: Vec<String>,
     #[serde(default)]
@@ -81,6 +85,21 @@ impl Past {
             .map(|k| k.trim().to_lowercase())
             .any(|key| !key.is_empty() && texts.iter().any(|t| t.to_lowercase().contains(&key)))
     }
+}
+
+/// One side of her: what it is called, when it tends to come out, and how
+/// it sounds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Facet {
+    /// Her own word for it, such as "粘人".
+    pub name: String,
+    /// When it tends to come out, in prose.
+    pub when: String,
+    /// A few short exchanges in this side's voice. Like her other examples,
+    /// they teach a voice and are never lines to reuse.
+    #[serde(default)]
+    pub examples: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +131,9 @@ impl Seed {
     fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
             return Err(Error::BadSeed("name is empty".into()));
+        }
+        if self.facets.iter().any(|f| f.name.trim().is_empty()) {
+            return Err(Error::BadSeed("a facet has no name".into()));
         }
         self.born_date()?;
         self.home.tz()?;
@@ -268,6 +290,32 @@ sleep = "00:30"
         assert!(!past.touched_by(&["hello", "how are you"]));
         // Personas written before these fields still read.
         assert!(Seed::parse(SAMPLE).unwrap().past.is_empty());
+    }
+
+    #[test]
+    fn a_persona_may_have_sides_and_one_without_them_still_reads() {
+        let text = format!(
+            r#"{SAMPLE}
+[[facet]]
+name = "粘人"
+when = "When someone comes back."
+examples = "them: 我回来了\nme: 你还知道回来"
+
+[[facet]]
+name = "嘴毒"
+when = "When teased."
+"#
+        );
+        let seed = Seed::parse(&text).unwrap();
+        let names: Vec<&str> = seed.facets.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["粘人", "嘴毒"]);
+        assert_eq!(seed.facets[0].examples, "them: 我回来了\nme: 你还知道回来");
+        assert_eq!(seed.facets[1].examples, "");
+        // Personas written before sides existed still read, with none.
+        assert!(Seed::parse(SAMPLE).unwrap().facets.is_empty());
+        // A side with no name cannot be told apart from the others.
+        let unnamed = format!("{SAMPLE}\n[[facet]]\nname = \" \"\nwhen = \"never\"\n");
+        assert!(matches!(Seed::parse(&unnamed), Err(Error::BadSeed(_))));
     }
 
     #[test]

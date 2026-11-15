@@ -19,6 +19,15 @@ use crate::{
 const WARMTH_MIN: i64 = -20;
 const WARMTH_MAX: i64 = 20;
 
+/// One shift in how she feels about someone, and what did it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Feeling {
+    pub at: DateTime<Utc>,
+    /// Which way, and how far: above zero toward them, below away.
+    pub delta: i64,
+    pub why: String,
+}
+
 /// Someone she has heard from.
 #[derive(Debug, Clone, Serialize)]
 pub struct Person {
@@ -55,6 +64,11 @@ CREATE TABLE IF NOT EXISTS people (
     gone INTEGER NOT NULL DEFAULT 0, direct TEXT
 );
 CREATE INDEX IF NOT EXISTS people_channel ON people (channel);
+CREATE TABLE IF NOT EXISTS feelings (
+    seq INTEGER PRIMARY KEY, toward TEXT NOT NULL, at TEXT NOT NULL,
+    delta INTEGER NOT NULL, why TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feelings_toward ON feelings (toward, seq);
 ";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
@@ -86,11 +100,16 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             )?;
         }
         // How she stands with an account, and whether she has left it, are
-        // kept with the account, on its platform.
-        Event::Felt { toward, delta, .. } => {
+        // kept with the account, on its platform. Each shift is kept as well,
+        // with what did it, so that what she last felt can be said.
+        Event::Felt { toward, delta, why } => {
             tx.execute(
                 "UPDATE people SET warmth = MAX(?3, MIN(?4, warmth + ?2)) WHERE key = ?1",
                 params![toward, i64::from(*delta), WARMTH_MIN, WARMTH_MAX],
+            )?;
+            tx.execute(
+                "INSERT INTO feelings (seq, toward, at, delta, why) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![entry.seq, toward, at, i64::from(*delta), why],
             )?;
         }
         Event::Left { person, .. } => {
@@ -162,6 +181,31 @@ impl Memory {
             };
         }
         Ok(Some(person))
+    }
+
+    /// The latest shifts in how she feels about the account `key` since
+    /// `since`, at most `limit` of them, oldest first.
+    pub fn feelings_toward(
+        &self,
+        key: &str,
+        since: DateTime<Utc>,
+        limit: usize,
+    ) -> Result<Vec<Feeling>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT at, delta, why FROM feelings WHERE toward = ?1 AND at >= ?2
+             ORDER BY seq DESC LIMIT ?3",
+        )?;
+        let mut feelings = stmt
+            .query_map(params![key, stamp(&since), as_i64(limit)], |r| {
+                Ok(Feeling {
+                    at: time_at(r, 0)?,
+                    delta: r.get(1)?,
+                    why: r.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        feelings.reverse();
+        Ok(feelings)
     }
 
     /// The person on the other side of a private place.
@@ -293,6 +337,15 @@ mod tests {
         assert_eq!(there.channel, "qq");
         let since = Utc::now() - chrono::Duration::hours(1);
         assert_eq!(m.people_since(since).unwrap().len(), 2);
+        // What she felt is kept with the account it was toward, and why.
+        let felt = m.feelings_toward("qq:a", since, 5).unwrap();
+        assert_eq!(
+            felt.iter()
+                .map(|f| (f.delta, f.why.as_str()))
+                .collect::<Vec<_>>(),
+            [(3, "kind")]
+        );
+        assert!(m.feelings_toward("t:a", since, 5).unwrap().is_empty());
         assert_eq!(m.people().unwrap().len(), 2);
     }
 }

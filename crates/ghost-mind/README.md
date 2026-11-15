@@ -34,6 +34,11 @@ What it adds to a look at a conversation, so that she is one person and not
 one per platform: the rest of her day (what she has taken on, what has been
 going on elsewhere), where each thing she knows was learned, and for each
 person an account that keeps what they said in private apart from the rest.
+Late in it, when there is something to say, how she comes to this: the hour
+against her rhythm, what she last felt toward this person and why, how long
+they kept her waiting, and, when her persona gives her sides (`[[facet]]`),
+which one her day leans toward. All of it is worked out afresh each time from
+her journal and the date; no mood is stored.
 
 A message from an operator's account (`[operators]` in `ghostd.toml`) that
 begins with the configured prefix is a directive. It is recorded as

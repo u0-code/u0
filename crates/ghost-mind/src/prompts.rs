@@ -328,6 +328,7 @@ mod tests {
             "voice",
             "origin",
             "examples",
+            "facets",
             "values",
             "cares_about",
             "cannot_stand",

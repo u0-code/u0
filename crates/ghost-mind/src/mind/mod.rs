@@ -20,6 +20,7 @@ mod pursuit;
 mod reach;
 mod report;
 mod reread;
+mod sides;
 mod speak;
 #[cfg(test)]
 mod tests;
@@ -760,6 +761,7 @@ impl Mind {
                 *value = self.state_words(&moment);
             }
         }
+        pairs.push(("facets", self.facets_words()));
         pairs.push(("abilities", abilities.to_owned()));
         Ok((
             self.prompts.system(&pairs),
