@@ -135,7 +135,7 @@ impl Registry {
     pub fn new(base: &str) -> Self {
         Self {
             base: base.trim_end_matches('/').to_owned(),
-            http: reqwest::Client::builder()
+            http: ghost_net::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .user_agent(concat!("ghost/", env!("CARGO_PKG_VERSION")))
                 .build()
