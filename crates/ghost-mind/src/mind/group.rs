@@ -81,13 +81,11 @@ impl Mind {
         if place.unread >= BURST {
             return Ok(true);
         }
+        if self.names_her(place)? {
+            return Ok(true);
+        }
         let memory = self.ghost.memory();
-        let names = self.names_on(&place.channel);
         for line in self.unread_lines(place)? {
-            let text = line.text.to_lowercase();
-            if names.iter().any(|name| text.contains(name.as_str())) {
-                return Ok(true);
-            }
             let close = match line.person.as_deref() {
                 Some(key) => memory
                     .person(key)?
@@ -99,6 +97,16 @@ impl Mind {
             }
         }
         Ok(false)
+    }
+
+    /// Whether what is unread in a place calls her by any name she goes
+    /// by there, with or without an @.
+    fn names_her(&self, place: &PlaceState) -> Result<bool> {
+        let names = self.names_on(&place.channel);
+        Ok(self.unread_lines(place)?.iter().any(|line| {
+            let text = line.text.to_lowercase();
+            names.iter().any(|name| text.contains(name.as_str()))
+        }))
     }
 
     /// The names she goes by on a platform, in lower case: her own, and
@@ -201,6 +209,10 @@ impl Mind {
         let Some(said) = unanswered_unasked(&lines) else {
             return Ok(None);
         };
+        // Her name in what came since is someone turning to her, @ or not.
+        if self.names_her(place)? {
+            return Ok(None);
+        }
         let until = said + minutes_from(UNANSWERED_PAUSE_MINUTES * f64::from(self.tempo.scale()));
         Ok((until > now).then_some(until))
     }
