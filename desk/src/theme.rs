@@ -88,11 +88,19 @@ pub fn amber2() -> Hsla {
 }
 
 /// The colour each brain's mark is drawn in: GPUI draws an icon in one
-/// colour, so each gets its brand's own.
+/// colour, so each gets its brand's own. A brand whose mark is black is
+/// drawn in the text colour, as it would be on a dark ground.
 pub fn brand(icon: &str) -> Hsla {
     match icon {
         "claude" => c(0xD977_57),
         "deepseek" => c(0x4D6B_FE),
+        "gemini" => c(0x3186_FF),
+        "openrouter" => c(0x7B7C_F4),
+        "qwen" => c(0x7D79_F0),
+        "zhipu" => c(0x5B78_FF),
+        "mistral" => c(0xFA52_0F),
+        "groq" => c(0xF550_36),
+        "plug" => muted(),
         _ => text(),
     }
 }

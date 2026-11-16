@@ -12,10 +12,11 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use ghost_link::protocol::{Work, WorkState};
 use gpui::{
-    AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, Svg, div, prelude::*, px,
+    AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
 };
 
 use crate::{
+    brains::Mark,
     desk::{At, Desk, Menu, Open, RIGHT},
     fonts::Faces,
     model::LinkState,
@@ -70,23 +71,23 @@ fn action(faces: &Faces, id: &'static str, text: &'static str) -> Stateful<Div> 
 
 /// The one line of a row: an icon if it has one, the label, and what is
 /// on the right.
-fn line(icon: Option<Svg>, label: Div, right: Option<AnyElement>) -> Div {
+fn line(icon: Option<AnyElement>, label: Div, right: Option<AnyElement>) -> Div {
     div()
         .flex()
         .items_center()
         .gap(px(10.))
-        .children(icon.map(gpui::Styled::flex_none))
+        .children(icon)
         .child(ui::one_line(label))
         .children(right)
 }
 
 /// A row of one line.
-fn row(icon: Option<Svg>, label: Div, right: Option<AnyElement>) -> Div {
+fn row(icon: Option<AnyElement>, label: Div, right: Option<AnyElement>) -> Div {
     line(icon, label, right).h(px(ROW))
 }
 
 /// A row with a second line of small print under its label.
-fn row_with(icon: Option<Svg>, label: Div, right: Option<AnyElement>, under: Div) -> Div {
+fn row_with(icon: Option<AnyElement>, label: Div, right: Option<AnyElement>, under: Div) -> Div {
     let indent = if icon.is_some() { ICON_ROOM } else { 0. };
     div()
         .flex()
@@ -106,8 +107,11 @@ fn under(faces: &Faces, text: impl Into<SharedString>) -> Div {
 }
 
 /// A muted icon at the head of a row.
-fn row_icon(name: &str) -> Svg {
-    ui::icon(name, 16.).text_color(theme::muted())
+fn row_icon(name: &str) -> AnyElement {
+    ui::icon(name, 16.)
+        .text_color(theme::muted())
+        .flex_none()
+        .into_any_element()
 }
 
 /// Where a piece of work stands, as a glyph: a ring while it is open, a
@@ -380,23 +384,15 @@ impl Desk {
             .as_ref()
             .map(|s| s.think.clone())
             .filter(|t| !t.is_empty());
-        let (icon, name) = provider.as_ref().map_or_else(
-            || {
-                (
-                    "openai",
-                    told.unwrap_or_else(|| "No brain chosen".to_owned()),
-                )
-            },
-            |p| (p.icon(), p.label()),
-        );
+        let (mark, name) = match (&provider, told) {
+            (Some(p), _) => (ui::mark(faces, p.mark(), 16.), p.label()),
+            (None, Some(told)) => (ui::mark(faces, Mark::from_words(&told), 16.), told),
+            (None, None) => (row_icon("plug"), "No brain chosen".to_owned()),
+        };
         let change = action(faces, "change-brain", "Change")
             .on_click(cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, At::Aside, cx)));
         row(
-            Some(ui::icon(icon, 16.).text_color(if provider.is_some() {
-                theme::brand(icon)
-            } else {
-                theme::ghost_line()
-            })),
+            Some(mark),
             label(faces, name),
             Some(change.into_any_element()),
         )
@@ -551,25 +547,16 @@ fn her_environment(faces: &Faces, open: &Open) -> Div {
         ))
         .child({
             let think = status.map(|s| s.think.clone()).filter(|t| !t.is_empty());
-            let icon = think.as_deref().map_or("openai", brain_icon);
+            let mark = think.as_deref().map_or_else(
+                || row_icon("plug"),
+                |t| ui::mark(faces, Mark::from_words(t), 16.),
+            );
             row(
-                Some(ui::icon(icon, 16.).text_color(theme::brand(icon))),
+                Some(mark),
                 label(faces, "Brain"),
                 Some(value(faces, think.unwrap_or_else(dash), theme::muted())),
             )
         })
-}
-
-/// The mark for a brain, from the daemon's word for it.
-fn brain_icon(think: &str) -> &'static str {
-    let think = think.to_lowercase();
-    if think.contains("claude") || think.contains("anthropic") {
-        "claude"
-    } else if think.contains("deepseek") {
-        "deepseek"
-    } else {
-        "openai"
-    }
 }
 
 /// A piece of her work: where it stands, its brief, how far it has gone

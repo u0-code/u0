@@ -97,13 +97,25 @@ there is one.
 
 ## Brains
 
-The brain chip under the line lists every `[providers]` table of the
-deployment, each with its mark, and whether this machine can run it (a key
-set, a CLI installed). Picking one writes `[brain]` and restarts the daemon
-the desk runs. Claude Code and Codex are added in one click, as the CLIs you
-are signed in to: they work through tasks with the solver's tools, and talk
-without them. An API is added by its name, model, base URL and the name of
-the variable its key is in; the key itself is never written.
+The brain chip under the line, and the solver's row at the foot of the
+sidebar, open a small picker: every `[providers]` table of the deployment,
+with its mark, its name and model, and a check on the one in use. An amber
+dot means this machine cannot run it, and hovering the dot says why: its
+key's variable is set neither in the environment nor in the checkout's
+`.env`, its CLI is not installed, or nothing answers at a local API's
+address. Picking one writes `[brain]` and restarts the daemon the desk runs.
+
+**Add brain…** opens a sheet with a tile for each provider the desk knows:
+DeepSeek, OpenAI, Anthropic, Gemini, OpenRouter, Kimi, Qwen, GLM, Grok,
+Mistral, Groq, Ollama on this machine, the Claude Code and Codex CLIs you
+are signed in to, and any other OpenAI-compatible API. A tile fills in the
+provider's base URL, the variable its key is conventionally in, and a model
+to start from; the model field offers the provider's own list once the key
+is there. Test makes one real request (the model list, or a one-token
+answer; a CLI's version), through the same proxy setting as the daemon.
+The pencil on a row of the picker opens that brain in the sheet, where it
+can also be removed. Only the name of the variable is written to
+`solver/ghostd.toml`, never the key.
 
 ## The look
 

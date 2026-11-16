@@ -19,6 +19,15 @@ const FILES: &[(&str, &[u8])] = icons![
     "openai",
     "claude",
     "deepseek",
+    "gemini",
+    "openrouter",
+    "kimi",
+    "qwen",
+    "zhipu",
+    "grok",
+    "mistral",
+    "groq",
+    "ollama",
     "sidebar",
     "chevron-left",
     "chevron-right",
@@ -29,6 +38,9 @@ const FILES: &[(&str, &[u8])] = icons![
     "server",
     "plug",
     "file",
+    "check",
+    "pencil",
+    "x",
 ];
 
 impl AssetSource for Assets {

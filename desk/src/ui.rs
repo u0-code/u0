@@ -3,9 +3,12 @@
 
 use std::path::Path;
 
-use gpui::{Div, Hsla, SharedString, Svg, div, prelude::*, px, svg};
+use gpui::{
+    AnyElement, AnyView, App, Context, Div, Hsla, Render, SharedString, Svg, Window, div,
+    prelude::*, px, svg,
+};
 
-use crate::{fonts::Faces, theme};
+use crate::{brains::Mark, fonts::Faces, theme};
 
 /// A line icon by name, in the current text colour.
 pub fn icon(name: &str, size: f32) -> Svg {
@@ -49,6 +52,58 @@ pub fn serif(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .font_family(faces.serif.clone())
         .text_color(theme::text())
         .child(text.into())
+}
+
+/// A brain's mark at `size`: its brand's icon in its brand's colour, or its
+/// letter on a neutral tile.
+pub fn mark(faces: &Faces, mark: Mark, size: f32) -> AnyElement {
+    match mark {
+        Mark::Icon(name) => icon(name, size)
+            .text_color(theme::brand(name))
+            .flex_none()
+            .into_any_element(),
+        Mark::Letter(letter) => div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(size))
+            .rounded(px(size / 4.))
+            .bg(theme::border2())
+            .font_family(faces.mono.clone())
+            .text_size(px(size * 0.62))
+            .line_height(px(size))
+            .text_color(theme::text2())
+            .child(SharedString::from(letter.to_string()))
+            .into_any_element(),
+    }
+}
+
+/// A short note shown on hover, for `.tooltip`.
+pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| {
+        let text = text.clone();
+        cx.new(|_| Tip(text)).into()
+    }
+}
+
+struct Tip(SharedString);
+
+impl Render for Tip {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(8.))
+            .py(px(4.))
+            .rounded(px(6.))
+            .bg(theme::panel2())
+            .border_1()
+            .border_color(theme::border2())
+            .font_family(crate::fonts::faces(cx).ui.clone())
+            .text_size(px(12.))
+            .text_color(theme::text2())
+            .child(self.0.clone())
+    }
 }
 
 /// A six-pixel dot: a state.
