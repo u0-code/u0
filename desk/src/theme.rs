@@ -1,5 +1,8 @@
-//! The look: a dark ground, warm text, and one amber accent that is used
+//! The look: dark grounds, warm text, and one amber accent that is used
 //! only where she is alive. Everything else is told apart by lightness.
+//! None of the grounds is black: the sidebar is a shade lighter than the
+//! thread and the right column, the way a coding agent's app sets its
+//! panes apart, and all of them are easy on the eyes for a day's use.
 //!
 //! The journal's kinds each have a fixed colour, the same on every page, so
 //! that a glance at a column says what sort of day it was.
@@ -10,37 +13,37 @@ fn c(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
-/// The window's ground.
+/// The window's ground: the thread and the right column.
 pub fn bg() -> Hsla {
-    c(0x1111_10)
+    c(0x1818_17)
 }
-/// The rail down the left.
+/// The rail down the left, a shade lighter than the ground.
 pub fn rail() -> Hsla {
-    c(0x0D0D_0C)
+    c(0x1F1F_1E)
 }
-/// A panel on the ground.
+/// A panel on the ground: the composer, a menu, a sheet.
 pub fn panel() -> Hsla {
-    c(0x1515_14)
+    c(0x2626_25)
 }
 /// A panel's deeper inset, or a selected row.
 pub fn panel2() -> Hsla {
-    c(0x1D1D_1B)
+    c(0x3434_33)
 }
-/// A code block's ground.
+/// A code block's ground, a little under the window's.
 pub fn well() -> Hsla {
-    c(0x0F0F_0E)
+    c(0x1212_11)
 }
 /// Lines between things.
 pub fn border() -> Hsla {
-    c(0x2222_20)
+    c(0x2A2A_28)
 }
 /// A stronger line: a control's edge.
 pub fn border2() -> Hsla {
-    c(0x2A2A_28)
+    c(0x3838_36)
 }
-/// A hover.
+/// A hover, on the ground or on the rail.
 pub fn hover() -> Hsla {
-    c(0x1A1A_19)
+    c(0x2A2A_29)
 }
 /// Text.
 pub fn text() -> Hsla {
@@ -56,11 +59,11 @@ pub fn muted() -> Hsla {
 }
 /// The faintest readable grey: footnotes and hashes.
 pub fn faint() -> Hsla {
-    c(0x5F5B_52)
+    c(0x6B67_5E)
 }
 /// A disabled or empty mark.
 pub fn ghost_line() -> Hsla {
-    c(0x3A3A_37)
+    c(0x4646_42)
 }
 /// The one accent: her being awake, the prompt's chevron.
 pub fn accent() -> Hsla {
