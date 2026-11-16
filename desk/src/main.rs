@@ -13,6 +13,7 @@
 
 mod aside;
 mod assets;
+mod brains;
 mod daemons;
 mod desk;
 mod fonts;
@@ -22,6 +23,7 @@ mod link;
 mod markdown;
 mod model;
 mod settings;
+mod sheet;
 mod sidebar;
 mod solver;
 mod theme;
@@ -71,6 +73,7 @@ fn main() {
                 KeyBinding::new("end", input::End, Some(input::CONTEXT)),
                 KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
                 KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
+                KeyBinding::new("escape", sheet::Close, Some(sheet::CONTEXT)),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 

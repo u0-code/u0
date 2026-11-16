@@ -38,6 +38,7 @@ use crate::{
     link::{self, Link},
     model::{Entry, LinkState, Message, PersonView, Status, Update},
     settings::{self, Connection, SOLVER_URL, Session, Settings},
+    sheet::Sheet,
     solver::{Abilities, Deployment, Provider},
     theme, thread, ui,
 };
@@ -191,19 +192,12 @@ impl Watched {
     }
 }
 
-/// The kind of API being added from the brain menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ApiKind {
-    OpenAi,
-    Anthropic,
-}
-
-/// The brain menu, and the page of it that shows.
+/// Whether the brain picker is open. Adding and editing a brain is done in
+/// the sheet (`sheet.rs`), never inside the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Menu {
     Closed,
     Brains,
-    AddApi(ApiKind),
 }
 
 /// The control the brain menu opened from. It is one menu, anchored to
@@ -291,8 +285,8 @@ pub struct Desk {
     pub(crate) form: Form,
     pub(crate) deployment: Deployment,
     /// The brains the deployment names, and which one it thinks with.
-    providers: Vec<Provider>,
-    brain: Option<String>,
+    pub(crate) providers: Vec<Provider>,
+    pub(crate) brain: Option<String>,
     /// What the deployment lets the solver do besides talk.
     pub(crate) abilities: Abilities,
     /// Index into the sessions.
@@ -304,8 +298,8 @@ pub struct Desk {
     /// Whether anything has been typed into the search since it opened:
     /// emptying it again closes it, opening it does not.
     search_typed: bool,
-    /// The fields of an API being added: name, model, base URL, key variable.
-    api: [Entity<TextInput>; 4],
+    /// The sheet a brain is added or edited in.
+    pub(crate) sheet: Sheet,
     pub(crate) menu: Menu,
     pub(crate) menu_at: At,
     /// Cards and lines opened in the thread, and lists shown in full, by key.
@@ -379,16 +373,7 @@ impl Desk {
             this.open_first_match(query, window, cx);
         })
         .detach();
-        let api = [
-            cx.new(|cx| TextInput::new(cx, "name, e.g. openrouter")),
-            cx.new(|cx| TextInput::new(cx, "model")),
-            cx.new(|cx| TextInput::new(cx, "base URL")),
-            cx.new(|cx| TextInput::new(cx, "key variable, e.g. OPENROUTER_API_KEY")),
-        ];
-        for field in &api {
-            cx.subscribe(field, |this, _, Submitted(_), cx| this.add_api(cx))
-                .detach();
-        }
+        let sheet = Sheet::new(window, cx);
 
         // The solver on this machine is the desk's to look after: whoever
         // sits here may use its machine, and if nothing runs it, the desk
@@ -472,7 +457,7 @@ impl Desk {
             search,
             searching: false,
             search_typed: false,
-            api,
+            sheet,
             menu: Menu::Closed,
             menu_at: At::Composer,
             expanded: HashSet::new(),
@@ -826,7 +811,7 @@ impl Desk {
 
     /// Think with another brain from now on: written into the deployment,
     /// and the daemon restarted if the desk runs it.
-    fn use_brain(&mut self, name: &str, cx: &mut Context<Self>) {
+    pub(crate) fn use_brain(&mut self, name: &str, cx: &mut Context<Self>) {
         self.menu = Menu::Closed;
         if let Err(e) = self.deployment.choose(name) {
             self.notice = Some(format!("{e:#}"));
@@ -837,7 +822,7 @@ impl Desk {
         self.restart(cx);
     }
 
-    fn restart(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn restart(&mut self, cx: &mut Context<Self>) {
         self.notice = if self.deployment.owns_running() {
             match self.deployment.restart() {
                 Ok(()) => Some("Restarting the solver with its new brain.".to_owned()),
@@ -850,64 +835,6 @@ impl Desk {
             )
         };
         cx.notify();
-    }
-
-    /// Add one of the CLIs you are signed in to as a brain, and use it.
-    fn add_cli(&mut self, kind: &str, cx: &mut Context<Self>) {
-        let exists = self.providers.iter().any(|p| p.kind == kind);
-        if !exists {
-            let model = if kind == "claude-code" { "sonnet" } else { "" };
-            if let Err(e) = self.deployment.add_provider(
-                kind,
-                &[("kind", kind), ("model", model), ("timeout_secs", "")],
-            ) {
-                self.notice = Some(format!("{e:#}"));
-                cx.notify();
-                return;
-            }
-        }
-        let name = self
-            .deployment
-            .providers()
-            .into_iter()
-            .find(|p| p.kind == kind)
-            .map_or_else(|| kind.to_owned(), |p| p.name);
-        self.use_brain(&name, cx);
-    }
-
-    /// Add the API whose fields are filled in, and use it.
-    fn add_api(&mut self, cx: &mut Context<Self>) {
-        let Menu::AddApi(kind) = self.menu else {
-            return;
-        };
-        let [name, model, base, key] = self.api.clone().map(|f| f.read(cx).text());
-        if name.is_empty() || model.is_empty() {
-            self.notice = Some("An API needs a name and a model.".to_owned());
-            cx.notify();
-            return;
-        }
-        let fields: Vec<(&str, &str)> = match kind {
-            ApiKind::OpenAi => vec![
-                ("kind", "openai"),
-                ("model", &model),
-                ("base_url", &base),
-                ("api_key_env", &key),
-            ],
-            ApiKind::Anthropic => vec![
-                ("kind", "anthropic"),
-                ("model", &model),
-                ("api_key_env", &key),
-            ],
-        };
-        if let Err(e) = self.deployment.add_provider(&name, &fields) {
-            self.notice = Some(format!("{e:#}"));
-            cx.notify();
-            return;
-        }
-        for f in &self.api {
-            f.update(cx, |f, cx| f.set_text("", cx));
-        }
-        self.use_brain(&name, cx);
     }
 
     /// A small square control in the row beside the window's lights.
@@ -1132,234 +1059,121 @@ impl Desk {
         })
     }
 
-    /// The menu of brains.
+    /// The brain picker: one row per brain the deployment names, with its
+    /// mark, its name and model, an amber dot when this machine cannot run
+    /// it (hover it for why), and a check on the one in use. A row's pencil
+    /// opens it in the sheet; adding a brain is done there too.
     fn brain_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let item = |id: SharedString, icon: &'static str, label: String, note: String, on: bool| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .h(px(34.))
-                .px(px(10.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon(icon, 15.).text_color(theme::brand(icon)))
-                .child(ui::one_line(ui::text(faces, label).text_size(px(13.))))
-                .child(
-                    ui::mono(faces, note)
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .flex_none(),
-                )
-                .child(
-                    ui::mono(faces, if on { "✓" } else { " " })
-                        .text_size(px(12.))
-                        .text_color(theme::accent())
-                        .w(px(12.)),
-                )
-        };
         let mut menu = div()
             .id("brain-menu")
             .occlude()
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .w(px(340.))
-            .p(px(6.))
+            .w(px(260.))
+            .max_h(px(420.))
+            .overflow_y_scroll()
+            .p(px(4.))
             .bg(theme::panel())
             .border_1()
             .border_color(theme::border2())
-            .rounded(px(12.))
+            .rounded(px(10.))
             .shadow_lg()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.menu = Menu::Closed;
                 cx.notify();
             }));
-
-        if let Menu::AddApi(kind) = self.menu {
-            let tab = |id: &'static str, label: &'static str, on: bool, k: ApiKind| {
+        for p in &self.providers {
+            let on = self.brain.as_deref() == Some(p.name.as_str());
+            let group = SharedString::from(format!("brain-{}", p.name));
+            let (name, edit) = (p.name.clone(), p.name.clone());
+            let dot = p.blocker.clone().map(|why| {
                 div()
-                    .id(id)
+                    .id(SharedString::from(format!("brain-why-{}", p.name)))
+                    .flex_none()
+                    .p(px(3.))
+                    .child(ui::dot(theme::accent()))
+                    .tooltip(ui::tip(why))
+            });
+            let pencil = div()
+                .id(SharedString::from(format!("brain-edit-{}", p.name)))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(px(20.))
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::panel2()))
+                .child(
+                    ui::icon("pencil", 12.)
+                        .text_color(gpui::transparent_black())
+                        .group_hover(group.clone(), |s| s.text_color(theme::muted())),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.menu = Menu::Closed;
+                    this.open_sheet(Some(edit.clone()), window, cx);
+                }));
+            menu = menu.child(
+                div()
+                    .id(group.clone())
+                    .group(group)
                     .flex()
                     .items_center()
-                    .h(px(26.))
-                    .px(px(10.))
-                    .rounded_full()
+                    .gap(px(8.))
+                    .h(px(30.))
+                    .pl(px(8.))
+                    .pr(px(4.))
+                    .rounded(px(6.))
                     .cursor_pointer()
-                    .when(on, |d| d.bg(theme::panel2()))
                     .hover(|s| s.bg(theme::hover()))
+                    .child(ui::mark(faces, p.mark(), 16.))
                     .child(
-                        ui::text(faces, label)
-                            .text_size(px(12.5))
-                            .text_color(if on { theme::text() } else { theme::muted() }),
+                        ui::text(faces, p.title())
+                            .text_size(px(13.))
+                            .flex_none()
+                            .max_w(px(110.))
+                            .overflow_hidden()
+                            .text_ellipsis(),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.menu = Menu::AddApi(k);
-                        cx.notify();
-                    }))
-            };
-            let field = |label: &'static str, input: &Entity<TextInput>| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(
-                        ui::mono(faces, label)
-                            .text_size(px(10.5))
+                    .child(ui::one_line(
+                        ui::mono(faces, p.model.clone())
+                            .text_size(px(11.))
                             .text_color(theme::faint()),
-                    )
-                    .child(
-                        div()
-                            .px(px(10.))
-                            .rounded(px(7.))
-                            .bg(theme::bg())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .child(input.clone()),
-                    )
-            };
-            menu = menu
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .px(px(4.))
-                        .pb(px(4.))
-                        .child(tab("api-openai", "OpenAI-compatible", kind == ApiKind::OpenAi, ApiKind::OpenAi))
-                        .child(tab("api-anthropic", "Anthropic", kind == ApiKind::Anthropic, ApiKind::Anthropic)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .px(px(6.))
-                        .child(field("NAME", &self.api[0]))
-                        .child(field("MODEL", &self.api[1]))
-                        .when(kind == ApiKind::OpenAi, |d| d.child(field("BASE URL", &self.api[2])))
-                        .child(field("KEY VARIABLE", &self.api[3]))
-                        .child(
-                            ui::text(faces, "The key itself stays in your environment or .env; only its name is written.")
-                                .text_size(px(11.5))
-                                .text_color(theme::faint())
-                                .line_height(px(16.)),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap(px(6.))
-                        .px(px(6.))
-                        .py(px(6.))
-                        .child(
-                            div()
-                                .id("api-back")
-                                .flex()
-                                .items_center()
-                                .h(px(28.))
-                                .px(px(12.))
-                                .rounded(px(7.))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .child(ui::text(faces, "Back").text_size(px(12.5)).text_color(theme::muted()))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.menu = Menu::Brains;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id("api-add")
-                                .flex()
-                                .items_center()
-                                .h(px(28.))
-                                .px(px(12.))
-                                .rounded(px(7.))
-                                .cursor_pointer()
-                                .bg(theme::accent())
-                                .child(ui::text(faces, "Add and use").text_size(px(12.5)).text_color(theme::bg()))
-                                .on_click(cx.listener(|this, _, _, cx| this.add_api(cx))),
-                        ),
-                );
-        } else {
-            menu = menu.child(
-                ui::eyebrow(faces, "think with")
-                    .px(px(10.))
-                    .pt(px(4.))
-                    .pb(px(2.)),
-            );
-            for p in &self.providers {
-                // A CLI steps work with the solver's own tools, but cannot
-                // step a conversation: it talks, and does the hands-on part
-                // as work it takes on.
-                let cli = p.kind == "claude-code" || p.kind == "codex";
-                let note = if p.ready && cli {
-                    "tools in tasks".to_owned()
-                } else if p.ready {
-                    p.name.clone()
-                } else if cli {
-                    "not installed".to_owned()
-                } else {
-                    format!("{} unset", p.key_env.as_deref().unwrap_or("key"))
-                };
-                let name = p.name.clone();
-                menu = menu.child(
-                    item(
-                        SharedString::from(format!("brain-{}", p.name)),
-                        p.icon(),
-                        p.label(),
-                        note,
-                        self.brain.as_deref() == Some(p.name.as_str()),
-                    )
+                    ))
+                    .children(dot)
+                    .child(pencil)
+                    .child(div().flex_none().w(px(14.)).when(on, |d| {
+                        d.child(ui::icon("check", 13.).text_color(theme::accent()))
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| this.use_brain(&name, cx))),
-                );
-            }
-            let has = |kind: &str| self.providers.iter().any(|p| p.kind == kind);
-            menu = menu.child(div().h(px(1.)).mx(px(6.)).my(px(4.)).bg(theme::border()));
-            menu = menu.child(ui::eyebrow(faces, "add").px(px(10.)).pt(px(2.)).pb(px(2.)));
-            if !has("claude-code") {
-                menu = menu.child(
-                    item(
-                        "add-claude".into(),
-                        "claude",
-                        "Claude Code".to_owned(),
-                        "the CLI you are signed in to".to_owned(),
-                        false,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.add_cli("claude-code", cx))),
-                );
-            }
-            if !has("codex") {
-                menu = menu.child(
-                    item(
-                        "add-codex".into(),
-                        "openai",
-                        "Codex".to_owned(),
-                        "the CLI you are signed in to".to_owned(),
-                        false,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.add_cli("codex", cx))),
-                );
-            }
-            menu = menu.child(
-                item(
-                    "add-api".into(),
-                    "openai",
-                    "API…".to_owned(),
-                    "OpenAI-compatible or Anthropic".to_owned(),
-                    false,
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.menu = Menu::AddApi(ApiKind::OpenAi);
-                    cx.notify();
-                })),
             );
         }
-        menu
+        if !self.providers.is_empty() {
+            menu = menu.child(div().h(px(1.)).mx(px(4.)).my(px(4.)).bg(theme::border()));
+        }
+        menu.child(
+            div()
+                .id("add-brain")
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(30.))
+                .px(px(8.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(ui::icon("plus", 16.).text_color(theme::muted()))
+                .child(
+                    ui::text(faces, "Add brain…")
+                        .text_size(px(13.))
+                        .text_color(theme::text2()),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.menu = Menu::Closed;
+                    this.open_sheet(None, window, cx);
+                })),
+        )
     }
 
     /// The line you type into, the way a coding agent's is: a box with the
@@ -1379,9 +1193,17 @@ impl Desk {
                 cx,
             );
         }
-        let (icon, label) = provider
-            .as_ref()
-            .map_or(("openai", "no brain".to_owned()), |p| (p.icon(), p.label()));
+        let (mark, label) = provider.as_ref().map_or_else(
+            || {
+                (
+                    ui::icon("plug", 14.)
+                        .text_color(theme::muted())
+                        .into_any_element(),
+                    "no brain".to_owned(),
+                )
+            },
+            |p| (ui::mark(faces, p.mark(), 14.), p.label()),
+        );
         let mut chip = div().relative().child(
             div()
                 .id("brain")
@@ -1394,7 +1216,7 @@ impl Desk {
                 .cursor_pointer()
                 .when(self.menu_open_at(At::Composer), |d| d.bg(theme::panel2()))
                 .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon(icon, 14.).text_color(theme::brand(icon)))
+                .child(mark)
                 .child(
                     ui::text(faces, label)
                         .text_size(px(12.5))
@@ -1527,6 +1349,7 @@ impl Render for Desk {
             .child(thread)
             .child(self.composer(&faces, cx));
         div()
+            .relative()
             .flex()
             .size_full()
             .bg(theme::bg())
@@ -1536,5 +1359,6 @@ impl Render for Desk {
             .when(self.sidebar, |d| d.child(self.left(&faces, lights, cx)))
             .child(middle)
             .child(self.right(&faces, cx))
+            .children(self.sheet_overlay(&faces, cx))
     }
 }

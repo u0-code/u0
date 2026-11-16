@@ -40,7 +40,7 @@ const RETRY: Duration = Duration::from_secs(3);
 pub const CHANNEL: &str = "desk";
 
 /// Where every link runs: two threads are plenty for a handful of sockets.
-fn runtime() -> &'static Runtime {
+pub(crate) fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()

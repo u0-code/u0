@@ -62,6 +62,9 @@ pub struct TextInput {
     /// Room above and below the text: a prompt breathes, a field in a
     /// list row sits as tall as its neighbours.
     pad_y: f32,
+    /// A field in a form keeps what is typed when Return submits it; the
+    /// line you speak into is emptied.
+    keep: bool,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
@@ -81,7 +84,16 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             pad_y: 12.,
+            keep: false,
         }
+    }
+
+    /// A field of a form: compact, and Return leaves its text in place.
+    #[must_use]
+    pub fn field(mut self) -> Self {
+        self.pad_y = 4.;
+        self.keep = true;
+        self
     }
 
     /// A field as tall as a list row: 34 pixels with its line.
@@ -105,7 +117,9 @@ impl TextInput {
         if text.is_empty() {
             return;
         }
-        self.reset();
+        if !self.keep {
+            self.reset();
+        }
         cx.emit(Submitted(text));
         cx.notify();
     }
@@ -658,8 +672,8 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .line_height(px(22.))
-            .text_size(px(14.))
+            .line_height(px(if self.keep { 20. } else { 22. }))
+            .text_size(px(if self.keep { 13. } else { 14. }))
             .text_color(theme::text())
             .child(
                 div()

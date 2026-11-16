@@ -1,10 +1,22 @@
 ghost.svg      Ghost's own mark.
 sidebar.svg, chevron-*.svg, plus.svg, search.svg, laptop.svg,
-server.svg, plug.svg, file.svg
+server.svg, plug.svg, file.svg, check.svg, pencil.svg, x.svg
                Line icons drawn for the desk.
-openai.svg     OpenAI's mark, from lobehub/lobe-icons (MIT), for the Codex CLI
-               and OpenAI-compatible providers. The mark belongs to OpenAI.
-claude.svg     Claude's mark, from lobehub/lobe-icons (MIT), for the Claude
-               Code CLI and the Anthropic API. The mark belongs to Anthropic.
-deepseek.svg   DeepSeek's mark, from simple-icons (CC0). The mark belongs to
-               DeepSeek.
+
+The brains' marks. Each mark belongs to its company; the files are from
+lobehub/lobe-icons (MIT), as published in @lobehub/icons-static-svg 1.102.0,
+except deepseek.svg, from simple-icons (CC0).
+
+openai.svg     OpenAI, for its API, the Codex CLI, and OpenAI-compatible
+               providers with no mark of their own.
+claude.svg     Claude (Anthropic), for the Claude Code CLI and the Anthropic API.
+deepseek.svg   DeepSeek.
+gemini.svg     Gemini (Google), lobe-icons' gemini.svg.
+openrouter.svg OpenRouter, lobe-icons' openrouter.svg.
+kimi.svg       Kimi (Moonshot AI), lobe-icons' kimi.svg.
+qwen.svg       Qwen (Alibaba Cloud), lobe-icons' qwen.svg.
+zhipu.svg      Zhipu AI, for GLM, lobe-icons' zhipu.svg.
+grok.svg       Grok (xAI), lobe-icons' grok.svg.
+mistral.svg    Mistral AI, lobe-icons' mistral.svg.
+groq.svg       Groq, lobe-icons' groq.svg.
+ollama.svg     Ollama, lobe-icons' ollama.svg.
