@@ -3,15 +3,24 @@
 use chrono::{DateTime, Utc};
 use ghost_core::{
     journal::{Entry, Event},
+    memory::Undertaking,
     social, will,
 };
+use ghost_work::{
+    WORK_DB,
+    undertaking::{self, Look, Outcome},
+};
 use serde_json::{Value, json};
+use tracing::warn;
 
 use super::{Mind, Question};
 use crate::Result;
 
 /// How far back in her journal a place's thread is looked for.
 const SCAN: usize = 5000;
+/// How many pieces of work that have ended are shown beside those still
+/// open.
+const ENDED: usize = 20;
 
 impl Mind {
     pub(super) fn answer(&self, question: &Question, now: DateTime<Utc>) -> Result<Value> {
@@ -25,6 +34,7 @@ impl Mind {
             }),
             Question::Canon => json!(self.ghost.memory().canon(500)?),
             Question::Places => self.places_view()?,
+            Question::Work => self.work_view()?,
             Question::Thread { place, limit } => self.thread_view(place, *limit)?,
             Question::Journal { from, limit } => {
                 let journal = self.ghost.journal();
@@ -164,4 +174,135 @@ impl Mind {
         }
         Ok(json!(people))
     }
+
+    /// What she has taken on: every piece still open and the latest that
+    /// ended, most recently active first. That she took it on, and how it
+    /// ended, is her journal's; its steps, plan and parts are in the work's
+    /// own record, which is only read here.
+    fn work_view(&self) -> Result<Value> {
+        let memory = self.ghost.memory();
+        let mut taken = memory.undertakings(true, 500)?;
+        taken.extend(
+            memory
+                .undertakings(false, 500)?
+                .into_iter()
+                .filter(|u| u.outcome.is_some())
+                .take(ENDED),
+        );
+        let db = self.ghost.dir().join(WORK_DB);
+        let ids: Vec<String> = taken.iter().map(|u| u.id.clone()).collect();
+        let looks = if db.exists() {
+            undertaking::look(&db, &ids).unwrap_or_else(|e| {
+                warn!("could not read {}: {e}", db.display());
+                Vec::new()
+            })
+        } else {
+            Vec::new()
+        };
+        let mut works: Vec<(DateTime<Utc>, Value)> = taken
+            .iter()
+            .map(|u| self.work_of(u, looks.iter().find(|l| l.id == u.id)))
+            .collect();
+        works.sort_by_key(|(last, _)| std::cmp::Reverse(*last));
+        Ok(json!(works.into_iter().map(|(_, w)| w).collect::<Vec<_>>()))
+    }
+
+    /// One piece of work as she knows it, with what its record adds, and
+    /// when anything last happened in it.
+    fn work_of(&self, u: &Undertaking, look: Option<&Look>) -> (DateTime<Utc>, Value) {
+        let running = self.working.contains_key(&u.id);
+        let state = match (&u.outcome, look) {
+            (Some(outcome), _) => outcome.clone(),
+            (None, Some(look)) => state_of(look, running),
+            (None, None) if u.waiting.is_some() => "waiting".to_owned(),
+            (None, None) if running => "running".to_owned(),
+            (None, None) => "open".to_owned(),
+        };
+        let mut last = u.last_at;
+        let mut work = json!({
+            "id": u.id,
+            "seq": u.seq,
+            "brief": u.brief,
+            "state": state,
+            "steps": 0,
+            "started": u.at,
+            "question": u.waiting,
+            "summary": u.summary,
+        });
+        if let Some(look) = look {
+            last = last_of(look).map_or(last, |at| at.max(last));
+            let parts: Vec<Value> = look
+                .parts
+                .iter()
+                .map(|(_, part)| {
+                    let mut seen = seen(part);
+                    seen["state"] = json!(state_of(part, running));
+                    seen
+                })
+                .collect();
+            let seen = seen(look);
+            work["steps"] = seen["steps"].clone();
+            work["plan"] = seen["plan"].clone();
+            work["parts"] = json!(parts);
+            if u.waiting.is_none() {
+                work["question"] = seen["question"].clone();
+            }
+            if u.summary.is_none() {
+                work["summary"] = seen["summary"].clone();
+            }
+        }
+        work["last"] = json!(last);
+        (last, work)
+    }
+}
+
+/// Where a piece of work stands by its own record. A part is running
+/// while the sitting it belongs to is.
+fn state_of(look: &Look, running: bool) -> String {
+    let state = &look.state;
+    match state.finish.as_ref().map(|f| f.outcome) {
+        Some(Outcome::Finished) => "finished",
+        Some(Outcome::Blocked) => "blocked",
+        Some(Outcome::GaveUp) => "gave_up",
+        Some(Outcome::Dropped) => "dropped",
+        None if state.waiting.is_some() => "waiting",
+        None if running => "running",
+        None => "open",
+    }
+    .to_owned()
+}
+
+/// When anything last happened in a piece of work, by its own record.
+fn last_of(look: &Look) -> Option<DateTime<Utc>> {
+    let state = &look.state;
+    [
+        look.last_step,
+        state.finish.as_ref().map(|f| f.at),
+        state.told.last().map(|t| t.at),
+        state.notes.last().map(|n| n.at),
+    ]
+    .into_iter()
+    .flatten()
+    .max()
+}
+
+/// A piece of work or a part as its own record has it, with no state: who
+/// is at it is not in the record.
+fn seen(look: &Look) -> Value {
+    let state = &look.state;
+    let plan: Vec<Value> = state
+        .plan
+        .iter()
+        .map(|step| json!({"text": step.text, "status": step.status, "part": step.part}))
+        .collect();
+    json!({
+        "id": look.id,
+        "brief": state.brief,
+        "steps": state.steps,
+        "started": look.first_step,
+        "last": last_of(look),
+        "question": state.waiting,
+        "summary": state.finish.as_ref().map(|f| &f.summary),
+        "plan": plan,
+    })
 }

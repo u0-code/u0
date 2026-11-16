@@ -3333,6 +3333,73 @@ async fn something_the_work_tells_her_reaches_her_journal_while_it_is_still_runn
     assert!(told < kinds.iter().position(|k| *k == "concluded").unwrap());
 }
 
+/// What she answers a console asking after her work, read as a console
+/// reads it.
+fn work_seen(rig: &Rig, now: DateTime<Utc>) -> Vec<ghost_protocol::Work> {
+    let answer = rig.mind.answer(&super::Question::Work, now).unwrap();
+    serde_json::from_value(answer).expect("it reads as the protocol's work")
+}
+
+#[tokio::test]
+async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing_is_written() {
+    use ghost_protocol::WorkState;
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let seq = at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    rig.think.then_call(
+        "delegate",
+        serde_json::json!({"task": "Read the tea house's own page."}),
+    );
+    // The work and its part each ask for a step after that, side by side;
+    // both are held in the middle of it.
+    let first = rig.think.hold(1);
+    let second = rig.think.hold(2);
+    rig.think.then_turn("Looking.", &[]);
+    rig.think.then_turn("Looking.", &[]);
+    rig.mind.on_time(t0).unwrap();
+    rig.meanwhile(|r| r.think.turns.lock().unwrap().len() == 3)
+        .await;
+
+    let written = rig.mind.ghost.journal().last_seq().unwrap();
+    let seen = work_seen(&rig, t0);
+    assert_eq!(rig.mind.ghost.journal().last_seq().unwrap(), written);
+    assert_eq!(seen.len(), 1);
+    let work = &seen[0];
+    assert_eq!(work.seq, Some(seq));
+    assert!(
+        work.brief
+            .starts_with("Find out when the tea house closes.")
+    );
+    assert_eq!(work.state, WorkState::Running);
+    assert_eq!(work.steps, 1, "the step that handed the part out");
+    assert!(work.started.is_some() && work.last.is_some());
+    assert_eq!(work.parts.len(), 1);
+    let part = &work.parts[0];
+    assert_eq!(part.id, format!("{}/1", work.id));
+    assert_eq!(part.brief, "Read the tea house's own page.");
+    assert_eq!(part.state, WorkState::Running);
+    assert_eq!((part.steps, part.seq), (0, None));
+    assert!(part.started.is_none(), "it is still in its first step");
+    assert!(part.parts.is_empty());
+
+    // Whichever of them comes to it first ends the work as blocked.
+    for _ in 0..2 {
+        rig.think.then_call(
+            "done",
+            serde_json::json!({"outcome": "blocked", "summary": "The page is down."}),
+        );
+    }
+    first.notify_one();
+    second.notify_one();
+    rig.until(|r| r.mind.working.is_empty()).await;
+    let seen = work_seen(&rig, t0);
+    assert_eq!(seen.len(), 1, "work that ended is still shown");
+    assert_eq!(seen[0].state, WorkState::Blocked);
+    assert_eq!(seen[0].summary.as_deref(), Some("The page is down."));
+    assert_eq!(seen[0].parts.len(), 1);
+    assert_ne!(seen[0].parts[0].state, WorkState::Running);
+}
+
 #[tokio::test]
 async fn mail_with_kept_files_wakes_her_attention_to_the_askers_place_and_plain_mail_does_not() {
     let t0 = at(14, 0);

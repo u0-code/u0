@@ -137,6 +137,12 @@ impl Console {
         self.conn.call(method::PLACES, &()).await
     }
 
+    /// What she has in hand and what ended lately, most recently active
+    /// first, each with the parts it handed out.
+    pub async fn work(&mut self) -> anyhow::Result<Vec<ghost_protocol::Work>> {
+        self.conn.call(method::WORK, &()).await
+    }
+
     /// The journal entries that belong to one place, oldest first.
     pub async fn thread(&mut self, place: &str, limit: u32) -> anyhow::Result<Vec<Value>> {
         let params = ghost_protocol::PlaceRead {
