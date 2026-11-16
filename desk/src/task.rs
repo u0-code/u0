@@ -308,55 +308,29 @@ impl Desk {
             .child(rule())
     }
 
-    /// Cancel, and Give task, where send is for the line: Give task is
-    /// lit once the task says what is to be done.
+    /// Cancel, and Give task, where send is for the line: Give task can
+    /// be pressed once the task says what is to be done.
     pub(crate) fn task_buttons(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let ready = !self.task.what.read(cx).is_empty();
+        let give = if ready {
+            ui::Weight::Primary
+        } else {
+            ui::Weight::Off
+        };
         div()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(4.))
             .child(
-                div()
-                    .id("task-cancel")
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .px(px(10.))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        ui::text(faces, "Cancel")
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
-                    )
+                ui::button(faces, "task-cancel", "Cancel", ui::Weight::Quiet)
                     .tooltip(ui::tip("Back to the line · Esc"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.set_mode(Mode::Say, window, cx);
                     })),
             )
             .child(
-                div()
-                    .id("task-give")
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .px(px(12.))
-                    .rounded(px(8.))
-                    .bg(if ready {
-                        theme::accent()
-                    } else {
-                        theme::border2()
-                    })
-                    .when(ready, |d| d.cursor_pointer().hover(|s| s.opacity(0.9)))
-                    .child(
-                        ui::text(faces, "Give task")
-                            .text_size(px(12.5))
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(if ready { theme::bg() } else { theme::muted() }),
-                    )
+                ui::button(faces, "task-give", "Give task", give)
                     .on_click(cx.listener(|this, _, _, cx| this.give_task(cx))),
             )
     }

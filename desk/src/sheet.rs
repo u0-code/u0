@@ -954,25 +954,12 @@ fn small_button(id: &'static str) -> Stateful<Div> {
         .hover(|s| s.bg(theme::hover()))
 }
 
-/// A button: quiet, or the accent for the one that finishes.
+/// A button: an outline, or the desk's primary for the one that finishes.
 fn button(faces: &Faces, id: &'static str, label: &'static str, primary: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .h(px(28.))
-        .px(px(12.))
-        .rounded(px(7.))
-        .cursor_pointer()
-        .when(primary, |d| d.bg(theme::accent()))
-        .when(!primary, |d| {
-            d.border_1()
-                .border_color(theme::border2())
-                .hover(|s| s.bg(theme::hover()))
-        })
-        .child(
-            ui::text(faces, label)
-                .text_size(px(12.5))
-                .text_color(if primary { theme::bg() } else { theme::text2() }),
-        )
+    let weight = if primary {
+        ui::Weight::Primary
+    } else {
+        ui::Weight::Secondary
+    };
+    ui::button(faces, id, label, weight)
 }

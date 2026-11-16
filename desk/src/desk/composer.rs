@@ -302,39 +302,43 @@ impl Desk {
         chip
     }
 
-    /// Send, a small round arrow; or, while she is busy with what you said
+    /// Send, a small arrow in the grey of the desk's primary button, lit
+    /// once something is typed; or, while she is busy with what you said
     /// here and nothing new is typed, Stop, a square.
     fn send_button(faces: &Faces, empty: bool, busy: bool, cx: &mut Context<Self>) -> AnyElement {
         let button = div()
             .size(px(28.))
             .flex_none()
-            .rounded_full()
+            .rounded(px(7.))
             .flex()
             .items_center()
             .justify_center()
-            .cursor_pointer();
+            .border_1();
         if busy && empty {
             return button
                 .id("stop")
-                .bg(theme::text2())
-                .hover(|s| s.bg(theme::text()))
-                .child(div().size(px(9.)).rounded(px(2.)).bg(theme::bg()))
+                .cursor_pointer()
+                .bg(theme::border2())
+                .border_color(theme::ghost_line())
+                .hover(|s| s.bg(theme::ghost_line()))
+                .child(div().size(px(8.)).rounded(px(2.)).bg(theme::text()))
                 .tooltip(ui::tip("Stop"))
                 .on_click(cx.listener(|this, _, _, cx| this.stop_here(cx)))
                 .into_any_element();
         }
         button
             .id("send")
-            .bg(if empty {
-                theme::border2()
-            } else {
-                theme::accent()
+            .when(empty, |d| d.border_color(theme::border2()))
+            .when(!empty, |d| {
+                d.cursor_pointer()
+                    .bg(theme::border2())
+                    .border_color(theme::ghost_line())
+                    .hover(|s| s.bg(theme::ghost_line()))
             })
-            .when(!empty, |d| d.hover(|s| s.opacity(0.9)))
             .child(
                 ui::mono(faces, "↑")
                     .text_size(px(14.))
-                    .text_color(if empty { theme::muted() } else { theme::bg() }),
+                    .text_color(if empty { theme::faint() } else { theme::text() }),
             )
             .tooltip(ui::tip("Send · Return"))
             .on_click(cx.listener(|this, _, _, cx| this.send(cx)))

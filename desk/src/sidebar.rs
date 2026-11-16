@@ -645,21 +645,12 @@ impl Desk {
                 )
         };
         let button = |id: &'static str, label: &'static str, strong: bool| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .h(px(26.))
-                .px(px(10.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(strong, |d| d.bg(theme::accent()))
-                .when(!strong, |d| d.hover(|s| s.bg(theme::hover())))
-                .child(
-                    ui::text(faces, label)
-                        .text_size(px(12.5))
-                        .text_color(if strong { theme::bg() } else { theme::muted() }),
-                )
+            let weight = if strong {
+                ui::Weight::Primary
+            } else {
+                ui::Weight::Quiet
+            };
+            ui::button(faces, id, label, weight)
         };
         div()
             .flex()
