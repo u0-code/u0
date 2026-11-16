@@ -7,9 +7,15 @@
 //! thread and the line you type into, with the brain it thinks with under
 //! your hand. Down the right, the solver's environment, its context and
 //! its work. Characters, who live online and are somebody, come later.
+//!
+//! Nothing on screen is made up: every line is the daemon's, the
+//! journal's or the deployment's, or a control that does what it says.
+//! Where there is nothing yet, the page says so. The two side columns are
+//! drawn in `sidebar.rs` and `aside.rs`.
 
 use std::{
     collections::HashSet,
+    path::Path,
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -17,32 +23,27 @@ use std::{
 use chrono::Utc;
 use chrono_tz::Tz;
 use gpui::{
-    Context, Corner, Entity, FontWeight, MouseButton, SharedString, Window, anchored, deferred,
-    div, prelude::*, px,
+    AnyElement, Context, Corner, Entity, Focusable as _, FontWeight, MouseButton, SharedString,
+    Window, anchored, deferred, div, prelude::*, px,
 };
-use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::{
     fonts::{self, Faces},
-    input::{Submitted, TextInput},
+    input::{Cancelled, Changed, Submitted, TextInput},
     link::{self, Outgoing},
     model::{Entry, LinkState, Message, PersonView, Status, Update},
-    settings::{SOLVER_URL, Session, Settings},
-    solver::{Deployment, Provider},
-    theme,
-    thread::{self, State},
-    ui,
+    settings::{self, SOLVER_URL, Session, Settings},
+    solver::{Abilities, Deployment, Provider},
+    theme, thread, ui,
 };
 
 /// The side columns' widths, the top bar's height.
-pub const LEFT: f32 = 256.;
-pub const RIGHT: f32 = 288.;
+pub const LEFT: f32 = 272.;
+pub const RIGHT: f32 = 304.;
 pub const TOPBAR: f32 = 52.;
 /// Room the window's lights take at the left of the top row.
 pub const LIGHTS: f32 = 76.;
-/// The session that shows how the thread draws things, with nothing sent.
-pub const DEMO: &str = "demo";
 
 /// The solver, as the desk follows it: one ghost on one daemon.
 pub struct Solver {
@@ -152,37 +153,59 @@ impl Solver {
 
 /// The kind of API being added from the brain menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ApiKind {
+pub(crate) enum ApiKind {
     OpenAi,
     Anthropic,
 }
 
-/// The brain menu over the line you type into.
+/// The brain menu, and the page of it that shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Menu {
+pub(crate) enum Menu {
     Closed,
     Brains,
     AddApi(ApiKind),
 }
 
+/// The control the brain menu opened from. It is one menu, anchored to
+/// whichever of the three places to change the brain was used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum At {
+    /// The chip under the line you type into.
+    Composer,
+    /// The solver's row at the foot of the sidebar.
+    Account,
+    /// The Brain row of the environment, down the right.
+    Aside,
+}
+
 pub struct Desk {
     pub settings: Settings,
     pub solver: Solver,
-    deployment: Deployment,
+    pub(crate) deployment: Deployment,
     /// The brains the deployment names, and which one it thinks with.
     providers: Vec<Provider>,
     brain: Option<String>,
-    /// Index into the sessions, the demo last.
+    /// What the deployment lets the solver do besides talk.
+    pub(crate) abilities: Abilities,
+    /// Index into the sessions.
     pub current: usize,
     pub input: Entity<TextInput>,
+    /// The sidebar's search, and whether it is open in place of its row.
+    pub(crate) search: Entity<TextInput>,
+    pub(crate) searching: bool,
+    /// Whether anything has been typed into the search since it opened:
+    /// emptying it again closes it, opening it does not.
+    search_typed: bool,
     /// The fields of an API being added: name, model, base URL, key variable.
     api: [Entity<TextInput>; 4],
-    menu: Menu,
-    /// Cards and lines opened in the thread, by key.
+    pub(crate) menu: Menu,
+    pub(crate) menu_at: At,
+    /// Cards and lines opened in the thread, and lists shown in full, by key.
     pub expanded: HashSet<String>,
+    /// Groups and sections folded away, by key, for as long as the desk runs.
+    pub(crate) collapsed: HashSet<String>,
     /// A line at the foot of the composer: what the desk just did or could not.
     notice: Option<String>,
-    demo: Vec<Entry>,
     last_tick: Instant,
     /// Whether the sidebar shows.
     sidebar: bool,
@@ -199,7 +222,7 @@ fn token() -> Option<String> {
 }
 
 /// A strip dragging which moves the window; a double click zooms it.
-fn draggable() -> gpui::Div {
+pub(crate) fn draggable() -> gpui::Div {
     div().on_mouse_down(MouseButton::Left, |event, window, _| {
         if event.click_count == 2 {
             window.titlebar_double_click();
@@ -222,7 +245,7 @@ fn listening(url: &str) -> bool {
 }
 
 impl Desk {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut settings = Settings::load();
         if settings.sessions.is_empty() {
             settings.sessions.push(Session::new());
@@ -230,6 +253,19 @@ impl Desk {
         let input = cx.new(|cx| TextInput::new(cx, "Ask for anything on this machine"));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
             this.say(text.clone(), cx);
+        })
+        .detach();
+        let search = cx.new(|cx| TextInput::new(cx, "Search sessions").dense());
+        cx.subscribe_in(&search, window, |this, _, _: &Changed, window, cx| {
+            this.search_changed(window, cx);
+        })
+        .detach();
+        cx.subscribe_in(&search, window, |this, _, _: &Cancelled, window, cx| {
+            this.close_search(window, cx);
+        })
+        .detach();
+        cx.subscribe_in(&search, window, |this, _, Submitted(query), window, cx| {
+            this.open_first_match(query, window, cx);
         })
         .detach();
         let api = [
@@ -269,6 +305,7 @@ impl Desk {
         }
         let providers = deployment.providers();
         let brain = deployment.brain();
+        let abilities = deployment.abilities();
 
         let solver = Solver::start(&settings.solver_url, &settings.who, token());
         cx.spawn(async move |this, cx| {
@@ -288,13 +325,18 @@ impl Desk {
             deployment,
             providers,
             brain,
+            abilities,
             current: 0,
             input,
+            search,
+            searching: false,
+            search_typed: false,
             api,
             menu: Menu::Closed,
+            menu_at: At::Composer,
             expanded: HashSet::new(),
+            collapsed: HashSet::new(),
             notice,
-            demo: demo_journal(),
             last_tick: Instant::now(),
             sidebar: true,
             back: Vec::new(),
@@ -333,21 +375,15 @@ impl Desk {
         }
     }
 
-    /// The session on screen: one of yours, or the demo after them.
+    /// The session on screen. There is always one: the desk opens a new
+    /// one when it has none.
     pub fn session(&self) -> Session {
         self.settings
             .sessions
             .get(self.current)
+            .or_else(|| self.settings.sessions.first())
             .cloned()
-            .unwrap_or_else(|| Session {
-                id: DEMO.to_owned(),
-                title: "How the thread draws things".to_owned(),
-                at: Utc::now(),
-            })
-    }
-
-    fn on_demo(&self) -> bool {
-        self.current >= self.settings.sessions.len()
+            .unwrap_or_else(Session::new)
     }
 
     pub fn who(&self) -> &str {
@@ -359,6 +395,67 @@ impl Desk {
             self.expanded.insert(key.to_owned());
         }
         cx.notify();
+    }
+
+    /// Fold a group or a section away, or open it again.
+    pub(crate) fn toggle_collapsed(&mut self, key: &str, cx: &mut Context<Self>) {
+        if !self.collapsed.remove(key) {
+            self.collapsed.insert(key.to_owned());
+        }
+        cx.notify();
+    }
+
+    /// Put a line into the composer, to be read, changed or sent.
+    pub fn prefill(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |input, cx| input.set_text(text, cx));
+        self.input.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Show a file or directory in Finder, if it is still there.
+    pub(crate) fn reveal(&mut self, path: &Path, cx: &mut Context<Self>) {
+        if path.exists() {
+            cx.reveal_path(path);
+        } else {
+            self.notice = Some(format!("{} is not there.", path.display()));
+            cx.notify();
+        }
+    }
+
+    /// Turn the Search row into a field and type into it.
+    pub(crate) fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.searching = true;
+        self.search_typed = false;
+        self.search.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Close the search, show every session again, and go back to the line
+    /// you type into.
+    pub(crate) fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.searching = false;
+        self.search_typed = false;
+        self.search.update(cx, |search, cx| search.set_text("", cx));
+        self.input.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    fn search_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let empty = self.search.read(cx).is_empty();
+        if empty && self.search_typed {
+            self.close_search(window, cx);
+            return;
+        }
+        self.search_typed = !empty;
+        cx.notify();
+    }
+
+    /// Return in the search opens the first session it found.
+    fn open_first_match(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(&i) = settings::matching(&self.settings.sessions, query).first() {
+            self.choose(i, cx);
+        }
+        self.close_search(window, cx);
     }
 
     pub fn new_session(&mut self, cx: &mut Context<Self>) {
@@ -382,7 +479,7 @@ impl Desk {
 
     pub fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
         let was = self.session().id;
-        self.current = index.min(self.settings.sessions.len());
+        self.current = index.min(self.settings.sessions.len().saturating_sub(1));
         self.visited(was);
         cx.notify();
     }
@@ -395,11 +492,8 @@ impl Desk {
         }
     }
 
-    /// Where a session id is now, the demo after yours.
+    /// Where a session id is now.
     fn index_of(&self, id: &str) -> Option<usize> {
-        if id == DEMO {
-            return Some(self.settings.sessions.len());
-        }
         self.settings.sessions.iter().position(|s| s.id == id)
     }
 
@@ -433,12 +527,6 @@ impl Desk {
     }
 
     pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
-        if self.on_demo() {
-            self.notice =
-                Some("The demo session sends nothing. Start a new task to work.".to_owned());
-            cx.notify();
-            return;
-        }
         let Some(session) = self.settings.sessions.get_mut(self.current) else {
             return;
         };
@@ -461,12 +549,12 @@ impl Desk {
         self.input.update(cx, TextInput::send);
     }
 
-    fn open_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
-        self.menu = if self.menu == menu {
-            Menu::Closed
-        } else {
-            menu
-        };
+    /// Open the brain menu from one of the places it opens from, or close
+    /// it if it is open there already.
+    pub(crate) fn open_menu(&mut self, menu: Menu, at: At, cx: &mut Context<Self>) {
+        let same = self.menu == menu && self.menu_at == at;
+        self.menu = if same { Menu::Closed } else { menu };
+        self.menu_at = at;
         if self.menu != Menu::Closed {
             self.providers = self.deployment.providers();
             self.brain = self.deployment.brain();
@@ -581,7 +669,7 @@ impl Desk {
 
     /// The controls beside the window's lights: the sidebar, back, forward.
     /// They sit at the top of the sidebar, or of the thread when it is hidden.
-    fn controls(&self, cx: &mut Context<Self>) -> gpui::Div {
+    pub(crate) fn controls(&self, cx: &mut Context<Self>) -> gpui::Div {
         div()
             .flex()
             .items_center()
@@ -598,230 +686,6 @@ impl Desk {
                 Self::control("forward", "chevron-right", !self.forward.is_empty())
                     .on_click(cx.listener(|this, _, _, cx| this.go_forward(cx))),
             )
-    }
-
-    /// A row of the sidebar's menu: an icon and a word.
-    fn menu_row(
-        id: &'static str,
-        faces: &Faces,
-        icon: &'static str,
-        label: &'static str,
-    ) -> gpui::Stateful<gpui::Div> {
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .h(px(32.))
-            .px(px(10.))
-            .rounded(px(8.))
-            .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()))
-            .child(ui::icon(icon, 16.).text_color(theme::muted()))
-            .child(
-                ui::text(faces, label)
-                    .text_size(px(13.5))
-                    .text_color(theme::text2()),
-            )
-    }
-
-    /// How a session is doing, as its row shows it: running work, a
-    /// question waiting on you, or nothing.
-    fn session_state(&self, id: &str) -> Option<State> {
-        let journal = if id == DEMO {
-            &self.demo
-        } else {
-            &self.solver.journal
-        };
-        let place = thread::place_key(id);
-        thread::tasks(journal)
-            .iter()
-            .filter(|t| {
-                journal.iter().any(|e| {
-                    e.kind == "undertook"
-                        && e.data.get("id").and_then(Value::as_str) == Some(t.id.as_str())
-                        && e.data.get("place").and_then(Value::as_str) == Some(place.as_str())
-                })
-            })
-            .map(thread::Task::state)
-            .find(|s| matches!(s, State::Running | State::Waiting))
-    }
-
-    fn session_row(
-        &self,
-        faces: &Faces,
-        index: usize,
-        s: &Session,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let on = index == self.current;
-        let state = self.session_state(&s.id);
-        div()
-            .id(SharedString::from(format!("session-{}", s.id)))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(8.))
-            .h(px(32.))
-            .px(px(10.))
-            .rounded(px(8.))
-            .cursor_pointer()
-            .when(on, |d| d.bg(theme::panel2()))
-            .hover(|x| x.bg(theme::hover()))
-            .child(ui::one_line(
-                ui::text(faces, s.label())
-                    .text_size(px(13.5))
-                    .text_color(if on { theme::text() } else { theme::text2() })
-                    .when(s.title.is_empty(), |d| d.text_color(theme::muted())),
-            ))
-            .children(state.map(|st| {
-                ui::dot(match st {
-                    State::Waiting => theme::purple(),
-                    _ => theme::accent(),
-                })
-                .size(px(6.))
-            }))
-            .when(s.id == DEMO, |d| {
-                d.child(
-                    ui::mono(faces, "demo")
-                        .text_size(px(10.5))
-                        .text_color(theme::faint()),
-                )
-            })
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(index, cx)))
-    }
-
-    fn left(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
-        // The window's lights sit in this row; the controls follow them.
-        let top = draggable()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .h(px(TOPBAR))
-            .pl(px(LIGHTS))
-            .pr(px(10.))
-            .child(self.controls(cx));
-
-        let menu = div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .px(px(8.))
-            .pb(px(8.))
-            .child(
-                Self::menu_row("new", faces, "plus", "New task")
-                    .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
-            )
-            .child(Self::menu_row("search", faces, "search", "Search"));
-
-        let mut list = div()
-            .id("sessions")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll()
-            .px(px(8.))
-            .gap(px(1.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(10.))
-                    .pt(px(12.))
-                    .pb(px(6.))
-                    .child(
-                        ui::text(faces, "This machine")
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
-                    )
-                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint())),
-            );
-        for (i, s) in self.settings.sessions.iter().enumerate() {
-            list = list.child(self.session_row(faces, i, s, cx));
-        }
-        let demo = Session {
-            id: DEMO.to_owned(),
-            title: "How the thread draws things".to_owned(),
-            at: Utc::now(),
-        };
-        list = list
-            .child(self.session_row(faces, self.settings.sessions.len(), &demo, cx))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(10.))
-                    .pt(px(18.))
-                    .pb(px(6.))
-                    .child(
-                        ui::text(faces, "Characters")
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
-                    )
-                    .child(ui::icon("chevron-right", 12.).text_color(theme::faint())),
-            );
-
-        let provider = self.current_provider();
-        let link_color = match &self.solver.link {
-            LinkState::Connected => theme::green(),
-            LinkState::Connecting => theme::muted(),
-            LinkState::Lost(_) => theme::coral(),
-        };
-        let bottom = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(10.))
-            .h(px(52.))
-            .px(px(16.))
-            .border_t_1()
-            .border_color(theme::border())
-            .child(ui::icon("ghost", 18.).text_color(theme::text()))
-            .child(
-                div()
-                    .flex()
-                    .items_baseline()
-                    .gap(px(6.))
-                    .min_w(px(0.))
-                    .flex_1()
-                    .child(
-                        ui::text(faces, self.solver.name())
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM),
-                    )
-                    .child(ui::one_line(
-                        ui::mono(
-                            faces,
-                            format!(
-                                "· {}",
-                                provider
-                                    .as_ref()
-                                    .map_or_else(|| "no brain".to_owned(), Provider::label)
-                            ),
-                        )
-                        .text_size(px(11.5))
-                        .text_color(theme::muted()),
-                    )),
-            )
-            .child(ui::dot(link_color).size(px(6.)));
-
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(LEFT))
-            .h_full()
-            .bg(theme::rail())
-            .border_r_1()
-            .border_color(theme::border())
-            .child(top)
-            .child(menu)
-            .child(list)
-            .child(bottom)
     }
 
     /// The bar across the top of the thread: the session's name, the clock,
@@ -864,198 +728,36 @@ impl Desk {
             .children(right)
     }
 
-    fn current_provider(&self) -> Option<Provider> {
+    pub(crate) fn current_provider(&self) -> Option<Provider> {
         let brain = self.brain.as_deref()?;
         self.providers.iter().find(|p| p.name == brain).cloned()
     }
 
-    /// The solver's environment and its work, down the right.
-    fn right(&self, faces: &Faces) -> impl IntoElement {
-        let sv = &self.solver;
-        let s = sv.status.as_ref();
-        let row = |label: &str, value: String, color| {
-            div()
-                .flex()
-                .items_baseline()
-                .justify_between()
-                .gap(px(12.))
-                .py(px(4.))
-                .child(
-                    ui::text(faces, label.to_owned())
-                        .text_size(px(13.))
-                        .text_color(theme::text2()),
-                )
-                .child(ui::one_line(
-                    ui::mono(faces, value).text_color(color).text_right(),
-                ))
-        };
-        let head = |title: &str, aside: Option<String>| {
-            div()
-                .flex()
-                .items_baseline()
-                .justify_between()
-                .pb(px(6.))
-                .child(
-                    ui::text(faces, title.to_owned())
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::MEDIUM),
-                )
-                .children(aside.map(|a| ui::mono(faces, a).text_size(px(11.5))))
-        };
-        let dash = || "—".to_owned();
-        let link = match &sv.link {
-            LinkState::Connected => ("connected".to_owned(), theme::green()),
-            LinkState::Connecting => ("connecting".to_owned(), theme::muted()),
-            LinkState::Lost(why) => (why.clone(), theme::coral()),
-        };
-        let host = self
-            .settings
-            .solver_url
-            .trim_start_matches("ws://")
-            .trim_start_matches("wss://")
-            .to_owned();
-        let provider = self.current_provider();
-        let environment = div()
-            .flex()
-            .flex_col()
-            .child(head("Environment", None))
-            .child(row("Daemon", host, theme::text()))
-            .child(row("Link", link.0, link.1))
-            .child(row(
-                "Brain",
-                provider
-                    .as_ref()
-                    .map_or_else(|| s.map_or_else(dash, |s| s.think.clone()), Provider::label),
-                theme::text(),
-            ))
-            .child(row(
-                "Machine",
-                self.deployment
-                    .ghost_dir()
-                    .join("home")
-                    .strip_prefix(&self.deployment.root)
-                    .map_or_else(|_| dash(), |p| p.display().to_string()),
-                theme::text(),
-            ))
-            .child(row(
-                "Desk",
-                if sv.desk_online {
-                    "registered".to_owned()
-                } else {
-                    "not yet".to_owned()
-                },
-                theme::text(),
-            ));
-
-        let context = div()
-            .flex()
-            .flex_col()
-            .child(head("Context", s.map(|s| format!("tempo {:.2}", s.tempo))))
-            .child(row(
-                "Journal",
-                s.map_or_else(dash, |s| format!("{} events", s.journal)),
-                theme::text(),
-            ))
-            .child(row(
-                "Sessions",
-                self.settings.sessions.len().to_string(),
-                theme::text(),
-            ))
-            .child(row(
-                "You",
-                sv.you(self.who()).map_or_else(
-                    || "not yet known".to_owned(),
-                    |p| format!("operator · {} lines", p.heard),
-                ),
-                theme::text(),
-            ));
-
-        let journal = if self.on_demo() {
-            &self.demo
-        } else {
-            &sv.journal
-        };
-        let tasks = thread::tasks(journal);
-        let mut work = div()
-            .flex()
-            .flex_col()
-            .child(head("Work", Some(tasks.len().to_string())));
-        if tasks.is_empty() {
-            work = work.child(
-                ui::text(faces, "Nothing taken on.")
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .py(px(4.)),
-            );
-        }
-        for t in tasks.iter().rev().take(8) {
-            let st = t.state();
-            let running = t
-                .parts
-                .iter()
-                .filter(|p| p.state() == State::Running)
-                .count();
-            let mut meta = format!("{} steps", t.steps());
-            if !t.parts.is_empty() {
-                meta = format!("{meta} · {} parts", t.parts.len());
-                if running > 0 {
-                    meta = format!("{meta}, {running} running");
-                }
-            }
-            work = work.child(
-                div()
-                    .flex()
-                    .items_start()
-                    .gap(px(10.))
-                    .py(px(5.))
-                    .child(
-                        ui::dot(match st {
-                            State::Running => theme::accent(),
-                            State::Waiting => theme::purple(),
-                            State::Finished => theme::green(),
-                            State::Blocked => theme::coral(),
-                            State::Dropped => theme::muted(),
-                        })
-                        .size(px(6.))
-                        .mt(px(7.)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(ui::one_line(
-                                ui::text(faces, t.brief.clone()).text_size(px(13.)),
-                            ))
-                            .child(
-                                ui::mono(faces, meta)
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint()),
-                            ),
-                    ),
-            );
-        }
-
-        div()
-            .id("environment")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(RIGHT))
-            .h_full()
-            .overflow_y_scroll()
-            .gap(px(20.))
-            .px(px(20.))
-            .py(px(18.))
-            .border_l_1()
-            .border_color(theme::border())
-            .child(environment)
-            .child(context)
-            .child(work)
+    pub(crate) fn menu_open_at(&self, at: At) -> bool {
+        self.menu != Menu::Closed && self.menu_at == at
     }
 
-    /// The menu of brains, over the brain chip.
+    /// The brain menu, if it is open from `at`, anchored by `corner` to
+    /// where the caller puts it.
+    pub(crate) fn menu_over(
+        &self,
+        at: At,
+        corner: Corner,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        self.menu_open_at(at).then(|| {
+            deferred(
+                anchored()
+                    .anchor(corner)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(self.brain_menu(faces, cx)),
+            )
+            .into_any_element()
+        })
+    }
+
+    /// The menu of brains.
     fn brain_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let item = |id: SharedString, icon: &'static str, label: String, note: String, on: bool| {
             div()
@@ -1304,7 +1006,7 @@ impl Desk {
                 .px(px(10.))
                 .rounded_full()
                 .cursor_pointer()
-                .when(self.menu != Menu::Closed, |d| d.bg(theme::panel2()))
+                .when(self.menu_open_at(At::Composer), |d| d.bg(theme::panel2()))
                 .hover(|s| s.bg(theme::hover()))
                 .child(ui::icon(icon, 14.).text_color(theme::brand(icon)))
                 .child(
@@ -1313,17 +1015,12 @@ impl Desk {
                         .text_color(theme::text2()),
                 )
                 .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
-                .on_click(cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, cx))),
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, At::Composer, cx)),
+                ),
         );
-        if self.menu != Menu::Closed {
-            chip = chip.child(
-                div().absolute().top(px(-8.)).left(px(0.)).child(deferred(
-                    anchored()
-                        .anchor(Corner::BottomLeft)
-                        .snap_to_window_with_margin(px(8.))
-                        .child(self.brain_menu(faces, cx)),
-                )),
-            );
+        if let Some(menu) = self.menu_over(At::Composer, Corner::BottomLeft, faces, cx) {
+            chip = chip.child(div().absolute().top(px(-8.)).left(px(0.)).child(menu));
         }
         let send = div()
             .id("send")
@@ -1402,23 +1099,16 @@ impl Render for Desk {
         let faces = fonts::faces(cx).clone();
         let session = self.session();
         let typing = self.solver.typing.as_deref() == Some(session.id.as_str());
-        let no_pending: &[Message] = &[];
         let view = thread::View {
-            journal: if self.on_demo() {
-                &self.demo
-            } else {
-                &self.solver.journal
-            },
-            pending: if self.on_demo() {
-                no_pending
-            } else {
-                &self.solver.pending
-            },
+            journal: &self.solver.journal,
+            pending: &self.solver.pending,
             session: &session.id,
             name: self.solver.name(),
             who: self.who().to_owned(),
             tz: self.solver.tz(),
             typing,
+            connected: self.solver.link == LinkState::Connected,
+            abilities: &self.abilities,
             expanded: &self.expanded,
         };
         let thread = thread::render(&view, &faces, cx);
@@ -1440,106 +1130,6 @@ impl Render for Desk {
             .text_color(theme::text())
             .when(self.sidebar, |d| d.child(self.left(&faces, cx)))
             .child(middle)
-            .child(self.right(&faces))
+            .child(self.right(&faces, cx))
     }
-}
-
-/// The demo session: what a task looks like in the thread, a question, a
-/// look at the machine, an answer, a piece of work with two parts, one
-/// done and one still going. Nothing in it was lived; it is only drawn.
-fn demo_journal() -> Vec<Entry> {
-    let now = Utc::now();
-    let ago = |mins: i64| now - chrono::Duration::minutes(mins);
-    let place = thread::place_key(DEMO);
-    let entry = |seq: i64, mins: i64, kind: &str, data: Value| Entry {
-        seq,
-        at: ago(mins),
-        kind: kind.to_owned(),
-        data,
-    };
-    vec![
-        entry(
-            1,
-            18,
-            "heard",
-            json!({"channel": "desk", "place": {"id": DEMO, "kind": "direct"},
-            "from": {"id": "you", "name": "you"}, "text": "My disk is nearly full. What is taking the space?"}),
-        ),
-        entry(
-            2,
-            17,
-            "opened",
-            json!({"url": "~/Library/Caches", "place": place,
-            "text": "41G\t~/Library/Caches\n28G\t~/Library/Developer/Xcode/DerivedData\n9.1G\t~/Downloads\n3.4G\t~/Library/Caches/com.spotify.client"}),
-        ),
-        entry(
-            3,
-            17,
-            "looked_up",
-            json!({"query": "is it safe to delete Xcode DerivedData", "place": place,
-            "found": "DerivedData holds build products and indexes. Xcode recreates it on the next build; deleting it is safe when Xcode is closed."}),
-        ),
-        entry(
-            4,
-            16,
-            "said",
-            json!({"channel": "desk", "place": DEMO, "text":
-            "Three things take most of it:\n\n- **Xcode DerivedData**: 28 GB, rebuilt on demand, safe to clear\n- **Caches**: 41 GB in all, most of it the line above\n- **Downloads**: 9.1 GB, 540 files, never sorted\n\nTo clear DerivedData:\n\n```sh\nrm -rf ~/Library/Developer/Xcode/DerivedData\n```\n\nSay the word and I clear it, and sort `~/Downloads` by kind while I am at it."}),
-        ),
-        entry(
-            5,
-            12,
-            "heard",
-            json!({"channel": "desk", "place": {"id": DEMO, "kind": "direct"},
-            "from": {"id": "you", "name": "you"}, "text": "Go ahead, both."}),
-        ),
-        entry(
-            6,
-            11,
-            "undertook",
-            json!({"id": "w-7", "brief": "Clear DerivedData and sort ~/Downloads by kind", "place": place}),
-        ),
-        entry(
-            7,
-            11,
-            "undertook",
-            json!({"id": "w-7/1", "brief": "Clear Xcode DerivedData"}),
-        ),
-        entry(
-            8,
-            11,
-            "undertook",
-            json!({"id": "w-7/2", "brief": "Sort ~/Downloads into folders by kind"}),
-        ),
-        entry(
-            9,
-            8,
-            "worked",
-            json!({"id": "w-7/1", "summary": "Removed 28 GB from DerivedData; Xcode was closed", "steps": 4}),
-        ),
-        entry(
-            10,
-            8,
-            "concluded",
-            json!({"id": "w-7/1", "outcome": "finished", "summary": "28 GB back"}),
-        ),
-        entry(
-            11,
-            6,
-            "reported",
-            json!({"id": "w-7", "text": "DerivedData cleared: 28 GB back. Downloads is half sorted."}),
-        ),
-        entry(
-            12,
-            3,
-            "worked",
-            json!({"id": "w-7/2", "summary": "312 of 540 files moved into Images, Documents, Archives", "steps": 9}),
-        ),
-        entry(
-            13,
-            2,
-            "worked",
-            json!({"id": "w-7", "summary": "Waiting on the sorting part", "steps": 3}),
-        ),
-    ]
 }

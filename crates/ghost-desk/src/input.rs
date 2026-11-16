@@ -1,6 +1,8 @@
 //! A one-line text input: the line you speak into. GPUI draws text but has
 //! no input of its own, so this is the usual one, trimmed to what a prompt
-//! needs. Return submits; the owner hears it as an [`Submitted`] event.
+//! needs. Return submits; the owner hears it as an [`Submitted`] event,
+//! every edit as [`Changed`], and Esc as [`Cancelled`], so that a field
+//! which filters as you type can follow it and close itself.
 
 use std::ops::Range;
 
@@ -31,6 +33,7 @@ actions!(
         Cut,
         Copy,
         Submit,
+        Cancel,
     ]
 );
 
@@ -39,6 +42,12 @@ pub const CONTEXT: &str = "DeskInput";
 
 /// The line was submitted with Return.
 pub struct Submitted(pub String);
+
+/// What is typed changed under the user's hand.
+pub struct Changed;
+
+/// Esc was pressed in the line.
+pub struct Cancelled;
 
 pub struct TextInput {
     focus_handle: FocusHandle,
@@ -50,9 +59,14 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    /// Room above and below the text: a prompt breathes, a field in a
+    /// list row sits as tall as its neighbours.
+    pad_y: f32,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
+impl EventEmitter<Changed> for TextInput {}
+impl EventEmitter<Cancelled> for TextInput {}
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
@@ -66,7 +80,19 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            pad_y: 12.,
         }
+    }
+
+    /// A field as tall as a list row: 34 pixels with its line.
+    #[must_use]
+    pub fn dense(mut self) -> Self {
+        self.pad_y = 6.;
+        self
+    }
+
+    fn cancel(_: &mut Self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(Cancelled);
     }
 
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
@@ -349,6 +375,7 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
+        cx.emit(Changed);
         cx.notify();
     }
 
@@ -380,6 +407,7 @@ impl EntityInputHandler for TextInput {
                 || range.start + new_text.len()..range.start + new_text.len(),
                 |new_range| new_range.start + range.start..new_range.end + range.end,
             );
+        cx.emit(Changed);
         cx.notify();
     }
 
@@ -615,6 +643,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::submit))
+            .on_action(cx.listener(Self::cancel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -625,7 +654,7 @@ impl Render for TextInput {
             .child(
                 div()
                     .w_full()
-                    .py(px(12.))
+                    .py(px(self.pad_y))
                     .child(TextElement { input: cx.entity() }),
             )
     }

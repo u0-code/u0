@@ -1,6 +1,8 @@
 //! The small pieces every page is built from: mono labels, dots, panels,
 //! buttons, section heads. None of them knows about her.
 
+use std::path::Path;
+
 use gpui::{Div, Hsla, SharedString, Svg, div, prelude::*, px, svg};
 
 use crate::{fonts::Faces, theme};
@@ -57,4 +59,53 @@ pub fn dot(color: Hsla) -> Div {
 /// A piece of text that stays on one line and trails off.
 pub fn one_line(d: Div) -> Div {
     d.flex_1().min_w(px(0.)).overflow_hidden().text_ellipsis()
+}
+
+/// A path as a person writes it: your home as `~`, and when it is long,
+/// only its first and last two directories, so that the end, which says
+/// what it is, survives a narrow column.
+pub fn short_path(path: &Path, home: Option<&Path>) -> String {
+    let (lead, rest) = match home.and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) => ("~".to_owned(), rest.to_path_buf()),
+        None => (String::new(), path.to_path_buf()),
+    };
+    let parts: Vec<String> = rest
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(p) => Some(p.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    let shown = if parts.len() > 3 {
+        vec![
+            parts[0].clone(),
+            "…".to_owned(),
+            parts[parts.len() - 2].clone(),
+            parts[parts.len() - 1].clone(),
+        ]
+    } else {
+        parts
+    };
+    format!("{lead}/{}", shown.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_path_keeps_its_home_its_head_and_its_end() {
+        let home = Path::new("/Users/fox");
+        let short = |p: &str| short_path(Path::new(p), Some(home));
+        assert_eq!(
+            short("/Users/fox/code/ghosts/solver/home"),
+            "~/code/…/solver/home"
+        );
+        assert_eq!(short("/Users/fox/ghosts/solver"), "~/ghosts/solver");
+        assert_eq!(
+            short_path(Path::new("/srv/a/b/c/d"), Some(home)),
+            "/srv/…/c/d"
+        );
+        assert_eq!(short_path(Path::new("/srv/a"), None), "/srv/a");
+    }
 }

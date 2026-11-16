@@ -50,6 +50,39 @@ impl Provider {
     }
 }
 
+/// What the solver can do besides talk, as `[mind.work]` sets it: the
+/// empty page says so, and offers only what it can do.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Abilities {
+    /// Work is on at all.
+    pub work: bool,
+    /// The machine its work runs on, as written: `local:` is this one.
+    pub machine: Option<String>,
+    /// It may search and read the web.
+    pub web: bool,
+}
+
+impl Abilities {
+    /// Whether it has a shell on this machine, as you.
+    pub fn local(&self) -> bool {
+        self.work && self.machine.as_deref() == Some("local:")
+    }
+
+    /// One line saying what it can do, for the empty page.
+    pub fn sentence(&self) -> String {
+        let web = self.work && self.web;
+        match (self.local(), web) {
+            (true, true) => {
+                "It has a shell on this machine, as you, and can search and read the web."
+            }
+            (true, false) => "It has a shell on this machine, as you. It has no web.",
+            (false, true) => "It can search and read the web. It has no machine here.",
+            (false, false) => "It can only talk: its deployment gives it no machine and no web.",
+        }
+        .to_owned()
+    }
+}
+
 /// Where the deployment is, and the daemon if the desk started it.
 pub struct Deployment {
     /// The checkout: `solver/`, `ghosts/` and `target/` are under it.
@@ -168,6 +201,36 @@ impl Deployment {
                 }
             })
             .collect()
+    }
+
+    /// What `[mind.work]` lets it do. Work is on unless it says otherwise.
+    pub fn abilities(&self) -> Abilities {
+        let Some(doc) = std::fs::read_to_string(self.config())
+            .ok()
+            .and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+        else {
+            return Abilities::default();
+        };
+        let work = doc.get("mind").and_then(|m| m.get("work"));
+        let field = |k: &str| work.and_then(|w| w.get(k));
+        Abilities {
+            work: work.is_some()
+                && field("enabled")
+                    .and_then(toml_edit::Item::as_bool)
+                    .unwrap_or(true),
+            machine: field("machine")
+                .and_then(toml_edit::Item::as_str)
+                .map(str::to_owned),
+            web: field("web")
+                .and_then(toml_edit::Item::as_bool)
+                .unwrap_or(false),
+        }
+    }
+
+    /// The directory its machine works in: `machine = "local:"` runs as
+    /// you, under the ghost's own `home`.
+    pub fn home(&self) -> PathBuf {
+        self.ghost_dir().join("home")
     }
 
     /// Which brain `[brain] think` names.
@@ -386,10 +449,23 @@ mod tests {
         std::fs::create_dir_all(root.join("solver")).unwrap();
         std::fs::write(
             root.join("solver/ghostd.example.toml"),
-            "# how it thinks\n[brain]\nthink = \"main\"\ntick = \"main\"\n\n[operators]\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"m\"\napi_key_env = \"NO_SUCH_KEY_FOR_A_TEST\"\n",
+            "# how it thinks\n[brain]\nthink = \"main\"\ntick = \"main\"\n\n[mind.work]\nenabled = true\nmachine = \"local:\"\nweb = true\n\n[operators]\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"m\"\napi_key_env = \"NO_SUCH_KEY_FOR_A_TEST\"\n",
         )
         .unwrap();
         Deployment { root, child: None }
+    }
+
+    #[test]
+    fn the_empty_page_says_only_what_the_deployment_allows() {
+        let d = checkout("abilities");
+        let a = d.abilities();
+        assert!(a.local() && a.web);
+        assert!(a.sentence().contains("shell on this machine"));
+        let none = Abilities::default();
+        assert!(!none.local());
+        assert!(none.sentence().starts_with("It can only talk"));
+        let off = Abilities { work: false, ..a };
+        assert!(!off.local(), "a machine is nothing with work turned off");
     }
 
     #[test]

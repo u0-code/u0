@@ -41,6 +41,21 @@ impl Session {
     }
 }
 
+/// The sessions a search finds, by their place in the list: those whose
+/// name has every word typed, in any case. An empty search finds all.
+pub fn matching(sessions: &[Session], query: &str) -> Vec<usize> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    sessions
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            let label = s.label().to_lowercase();
+            words.iter().all(|w| label.contains(w.as_str()))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub who: String,
@@ -129,5 +144,36 @@ impl Settings {
         if let Ok(text) = serde_json::to_string_pretty(&v) {
             let _ = std::fs::write(path, text);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn named(title: &str) -> Session {
+        Session {
+            title: title.to_owned(),
+            ..Session::new()
+        }
+    }
+
+    #[test]
+    fn a_search_finds_sessions_by_every_word_of_their_name_in_any_case() {
+        let sessions = [
+            named("Free some disk space"),
+            named("Summarise the commits"),
+            named(""),
+            named("Clear the Disk cache"),
+        ];
+        assert_eq!(matching(&sessions, "disk"), [0, 3]);
+        assert_eq!(matching(&sessions, "DISK clear"), [3]);
+        assert_eq!(matching(&sessions, "nothing like it"), Vec::<usize>::new());
+        assert_eq!(matching(&sessions, "  "), [0, 1, 2, 3]);
+        assert_eq!(
+            matching(&sessions, "new task"),
+            [2],
+            "an untitled session goes by its label"
+        );
     }
 }

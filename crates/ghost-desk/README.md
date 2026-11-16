@@ -47,7 +47,18 @@ waiting on you, finished, blocked) and opens to every sitting, report and
 question, with its parts, the workers it handed pieces to, underneath.
 Everything is read from the solver's journal. A part is drawn when its
 entries are there; today the daemon keeps parts in the work database and
-not in the journal, which the demo session shows anyway.
+not in the journal, so most work shows none yet. A session with nothing in
+it says what the solver can do here, as its deployment's `[mind.work]`
+allows, and offers a few things to ask for, which only fill in the line.
+
+Nothing on the desk is made up. Down the left, a session shows a dot only
+while its work runs (amber) or waits on you (purple), with the parts of
+open work under it. Down the right: Environment (the machine its work runs
+on, which Open shows in Finder; the daemon and its link; the brain; whether
+the desk's channel is registered), Context (the journal, the tempo, your
+sessions, you as its operator), Work (this session's, newest first), and
+Outputs (the files its work reported or kept), which is left out until
+there is one.
 
 ## Brains
 

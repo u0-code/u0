@@ -25,6 +25,10 @@ const FILES: &[(&str, &[u8])] = icons![
     "chevron-down",
     "plus",
     "search",
+    "laptop",
+    "server",
+    "plug",
+    "file",
 ];
 
 impl AssetSource for Assets {
