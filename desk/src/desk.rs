@@ -276,13 +276,20 @@ impl Desk {
         let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
         let connection_fields = [
-            cx.new(|cx| TextInput::new(cx, "name, e.g. studio")),
-            cx.new(|cx| TextInput::new(cx, "wss://… or ws://127.0.0.1:…")),
-            cx.new(|cx| TextInput::new(cx, "token variable, e.g. STUDIO_TOKEN")),
+            cx.new(|cx| TextInput::new(cx, "studio").field()),
+            cx.new(|cx| TextInput::new(cx, "wss://host:7437").field()),
+            cx.new(|cx| TextInput::new(cx, "STUDIO_TOKEN · optional").field()),
         ];
         for field in &connection_fields {
             cx.subscribe(field, |this, _, Submitted(_), cx| this.add_connection(cx))
                 .detach();
+            // Escape in any field puts the form away, as Cancel does.
+            cx.subscribe_in(field, window, |this, _, _: &Cancelled, window, cx| {
+                if this.form.open {
+                    this.toggle_adding(window, cx);
+                }
+            })
+            .detach();
         }
         cx.spawn(async move |this, cx| {
             loop {
