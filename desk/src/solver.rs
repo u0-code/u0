@@ -378,8 +378,12 @@ impl Deployment {
             .arg(self.ghost_dir())
             .arg("--config")
             .arg(self.config())
+            // Her lifeline: the desk holds this pipe open, and when the
+            // desk goes, however it goes, the system closes it and she
+            // stops in order. The desk's own ghost never outlives it.
+            .arg("--with-parent")
             .current_dir(&self.root)
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
@@ -397,7 +401,9 @@ impl Deployment {
 
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            // SIGTERM first: ghostd listens for it and closes properly.
+            // Letting go of her lifeline stops her in order; SIGTERM as
+            // well, for a ghostd built before it read one.
+            drop(child.stdin.take());
             let pid = child.id();
             let _ = Command::new("kill").arg(pid.to_string()).status();
             for _ in 0..40 {
