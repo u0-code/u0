@@ -10,6 +10,7 @@ use chrono_tz::Tz;
 use ghost_link::protocol::{CONSOLE, SayMode, Work};
 
 use crate::{
+    cache,
     daemons::Host,
     follow::Following,
     link::{self, Link, Order},
@@ -43,10 +44,19 @@ pub struct Watched {
     /// What has been read of her steps: her looks at the places shown, and
     /// the work whose cards were opened.
     pub following: Following,
+    /// Keeps a copy of the journal's tail and the work on this machine,
+    /// for the first screen next time.
+    keeper: cache::Keeper,
+    /// Her clock's zone as it was kept, until her daemon says.
+    kept_tz: Option<Tz>,
 }
 
 impl Watched {
+    /// Start following, with what was seen of this daemon last time on
+    /// screen until it answers.
     pub(super) fn start(cfg: link::Config, fallback: &str) -> Self {
+        let kept = cache::load(&cfg.url, cfg.ghost.as_deref());
+        let keeper = cache::Keeper::new(&cfg.url, cfg.ghost.as_deref());
         Self {
             conn: Link::watch(cfg),
             fallback: fallback.to_owned(),
@@ -54,12 +64,14 @@ impl Watched {
             reach: Reach::default(),
             card: None,
             status: None,
-            journal: Vec::new(),
+            journal: kept.journal,
             pending: Vec::new(),
-            work: Vec::new(),
+            work: kept.work,
             refused: None,
             stops: Vec::new(),
             following: Following::default(),
+            keeper,
+            kept_tz: kept.timezone.and_then(|z| z.parse().ok()),
         }
     }
 
@@ -78,6 +90,12 @@ impl Watched {
             self.take(update);
             changed = true;
         }
+        let (journal, work, status) = (&self.journal, &self.work, &self.status);
+        self.keeper.settle(|| cache::Cached {
+            journal: journal.clone(),
+            work: work.clone(),
+            timezone: status.as_ref().map(|s| s.tz.name().to_owned()),
+        });
         changed
     }
 
@@ -126,7 +144,11 @@ impl Watched {
     }
 
     pub fn tz(&self) -> Tz {
-        self.status.as_ref().map_or(chrono_tz::UTC, |s| s.tz)
+        self.status
+            .as_ref()
+            .map(|s| s.tz)
+            .or(self.kept_tz)
+            .unwrap_or(chrono_tz::UTC)
     }
 
     fn take(&mut self, update: Update) {
@@ -143,9 +165,13 @@ impl Watched {
             Update::Looks { place, looks } => self.following.looks(&place, Instant::now(), looks),
             Update::Steps { work, log } => self.following.steps(&work, Instant::now(), log),
             Update::Welcome(card) => self.card = Some(card),
-            Update::Status(status) => self.status = Some(*status),
+            Update::Status(status) => {
+                self.status = Some(*status);
+                self.keeper.changed();
+            }
             Update::Journal(entries) => {
                 self.journal = entries;
+                self.keeper.changed();
                 // Each line the journal holds settles one shown before it,
                 // so the same words sent twice still show twice.
                 for written in self.journal.iter().filter_map(thread::console_message) {
@@ -165,6 +191,7 @@ impl Watched {
                         self.journal.remove(0);
                     }
                     self.journal.push(entry);
+                    self.keeper.changed();
                 }
             }
             Update::Refused { order, why } => {
@@ -184,7 +211,10 @@ impl Watched {
                 at: Utc::now(),
                 stopped,
             }),
-            Update::Work(work) => self.work = work,
+            Update::Work(work) => {
+                self.work = work;
+                self.keeper.changed();
+            }
             Update::Roster(_) | Update::Attention { .. } | Update::Ordered { .. } => {}
         }
     }

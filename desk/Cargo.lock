@@ -710,6 +710,7 @@ checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "num-traits",
+ "serde",
  "windows-link 0.2.1",
 ]
 
@@ -1775,6 +1776,7 @@ dependencies = [
  "ghost-link",
  "ghost-net",
  "gpui",
+ "serde",
  "serde_json",
  "tokio",
  "toml_edit 0.22.27",
