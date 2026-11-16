@@ -5,7 +5,6 @@ extend-exclude = [
     "Cargo.lock",
     "assets/",
     # Other people's words: exercises, tasks and model output.
-    "bench/samples/",
 ]
 
 [default]
