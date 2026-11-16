@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use gpui::{AnyElement, Context, Div, Hsla, SharedString, Stateful, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, Hsla, SharedString, Stateful, div, prelude::*, px, relative};
 use serde_json::Value;
 
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
     fonts::Faces,
     link, markdown,
     model::{Entry, Message},
+    solver::Abilities,
     theme, ui,
 };
 
@@ -78,7 +79,7 @@ pub enum State {
 }
 
 impl State {
-    fn color(self) -> Hsla {
+    pub fn color(self) -> Hsla {
         match self {
             State::Running => theme::accent(),
             State::Waiting => theme::purple(),
@@ -88,7 +89,7 @@ impl State {
         }
     }
 
-    fn word(self) -> &'static str {
+    pub fn word(self) -> &'static str {
         match self {
             State::Running => "running",
             State::Waiting => "waiting on you",
@@ -134,6 +135,29 @@ impl Task<'_> {
             .filter(|e| e.kind == "worked")
             .filter_map(|e| e.data.get("steps").and_then(Value::as_i64))
             .sum()
+    }
+
+    /// Whether it is still going: running, or waiting on you.
+    pub fn open(&self) -> bool {
+        matches!(self.state(), State::Running | State::Waiting)
+    }
+
+    /// When it last changed: its latest entry, or its start.
+    pub fn changed(&self) -> DateTime<Utc> {
+        self.events.last().map_or(self.started, |e| e.at)
+    }
+
+    /// One line about it in figures: steps, parts, how many still run.
+    pub fn figures(&self) -> String {
+        let mut meta = format!("{} steps", self.steps());
+        if !self.parts.is_empty() {
+            meta = format!("{meta} · {} parts", self.parts.len());
+            let running = self.parts.iter().filter(|p| p.open()).count();
+            if running > 0 {
+                meta = format!("{meta}, {running} open");
+            }
+        }
+        meta
     }
 
     pub fn ended(&self) -> Option<DateTime<Utc>> {
@@ -209,14 +233,137 @@ pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
     top
 }
 
-/// Which session a piece of work belongs to: the place its `undertook`
-/// names, when it names one on the desk.
-fn task_place(journal: &[Entry], id: &str) -> Option<String> {
-    journal
+/// The work taken on in one session, oldest first, parts under each: the
+/// work whose `undertook` names the session's place. One pass over the
+/// journal, since the sidebar asks this of every session on every tick.
+pub fn session_tasks<'a>(journal: &'a [Entry], session: &str) -> Vec<Task<'a>> {
+    let place = place_key(session);
+    let ours: HashSet<&str> = journal
         .iter()
-        .find(|e| e.kind == "undertook" && s(&e.data, "id") == id)
-        .and_then(|e| e.data.get("place").and_then(Value::as_str))
-        .map(str::to_owned)
+        .filter(|e| e.kind == "undertook" && s(&e.data, "place") == place)
+        .map(|e| s(&e.data, "id"))
+        .collect();
+    if ours.is_empty() {
+        return Vec::new();
+    }
+    tasks(journal)
+        .into_iter()
+        .filter(|t| ours.contains(t.id.as_str()))
+        .collect()
+}
+
+/// The parts of a session's work still going, each with the work it is a
+/// part of, for the rows nested under the session in the sidebar.
+pub fn open_parts<'t, 'a>(tasks: &'t [Task<'a>]) -> Vec<&'t Task<'a>> {
+    tasks
+        .iter()
+        .filter(|t| t.open())
+        .flat_map(|t| t.parts.iter())
+        .collect()
+}
+
+/// How a session stands at a glance: waiting on you if any of its work
+/// asks something, running if any runs, otherwise nothing to show.
+pub fn session_state(tasks: &[Task<'_>]) -> Option<State> {
+    let states: Vec<State> = tasks.iter().map(Task::state).collect();
+    [State::Waiting, State::Running]
+        .into_iter()
+        .find(|s| states.contains(s))
+}
+
+/// How many of a list to show, and how many are held back behind a "Show
+/// more": everything once it has been asked for, else at most `limit`.
+pub fn shown(total: usize, limit: usize, all: bool) -> (usize, usize) {
+    if all || total <= limit {
+        (total, 0)
+    } else {
+        (limit, total - limit)
+    }
+}
+
+/// Where a file handed over by work came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// A path on its machine, named by a `reported` entry.
+    Report,
+    /// A file it kept in its `media/` while working, from a `kept` entry.
+    Kept,
+}
+
+/// A file a session's work handed over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Output {
+    /// As the journal names it: a path on the machine for a report, a name
+    /// in `media/` for something kept.
+    pub file: String,
+    pub source: Source,
+}
+
+impl Output {
+    /// Its file name, without the directories.
+    pub fn name(&self) -> &str {
+        self.file.rsplit('/').next().unwrap_or(&self.file)
+    }
+
+    /// What sort of file it is, by its extension, and where it came from.
+    pub fn kind(&self) -> String {
+        let ext = self
+            .name()
+            .rsplit_once('.')
+            .map_or("file", |(_, e)| e)
+            .to_lowercase();
+        let from = match self.source {
+            Source::Report => "handed over",
+            Source::Kept => "kept",
+        };
+        format!("{ext} · {from}")
+    }
+}
+
+/// The files one session's work handed over, newest first and each once:
+/// those its reports name, and those it kept along the way and has not
+/// let go of. Read from the journal alone.
+pub fn outputs(journal: &[Entry], session: &str) -> Vec<Output> {
+    let tasks = session_tasks(journal, session);
+    let ids: HashSet<&str> = tasks
+        .iter()
+        .flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parts.iter().map(|p| p.id.as_str())))
+        .collect();
+    let let_go: HashSet<i64> = journal
+        .iter()
+        .filter(|e| e.kind == "let_go")
+        .filter_map(|e| e.data.get("kept").and_then(Value::as_i64))
+        .collect();
+    let mut out: Vec<Output> = Vec::new();
+    for e in journal.iter().rev() {
+        let found: Vec<Output> = match e.kind.as_str() {
+            "reported" if ids.contains(s(&e.data, "id")) => e
+                .data
+                .get("files")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(|f| Output {
+                    file: f.to_owned(),
+                    source: Source::Report,
+                })
+                .collect(),
+            "kept" if ids.contains(s(&e.data, "from")) && !let_go.contains(&e.seq) => {
+                vec![Output {
+                    file: s(&e.data, "file").to_owned(),
+                    source: Source::Kept,
+                }]
+            }
+            _ => Vec::new(),
+        };
+        for o in found {
+            if !o.file.is_empty() && !out.iter().any(|x| x.file == o.file) {
+                out.push(o);
+            }
+        }
+    }
+    out
 }
 
 /// One thing in the stream.
@@ -236,6 +383,17 @@ fn directed(journal: &[Entry]) -> HashMap<i64, i64> {
         .collect()
 }
 
+/// Things to ask for on an empty page. Clicking one only puts it in the
+/// line you type into; nothing is sent until you send it.
+pub const STARTERS: [&str; 3] = [
+    "Find what is filling up my disk",
+    "Summarise the last 20 commits in a repo",
+    "Check whether port 7438 is in use",
+];
+
+/// The space between one turn and the next.
+const TURN: f32 = 22.;
+
 /// Everything the thread needs to draw one session.
 pub struct View<'a> {
     pub journal: &'a [Entry],
@@ -245,24 +403,23 @@ pub struct View<'a> {
     pub who: String,
     pub tz: Tz,
     pub typing: bool,
+    /// Whether the daemon is there to hear what you send.
+    pub connected: bool,
+    pub abilities: &'a Abilities,
     pub expanded: &'a HashSet<String>,
 }
 
-pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
+/// Everything in one session, in order of time: what was said, what was
+/// opened or looked up there, the work taken on there, and what you sent
+/// that the journal has not shown yet.
+fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     let place = place_key(view.session);
-    let marks = directed(view.journal);
-    let mut items: Vec<(DateTime<Utc>, i64, Item<'_>)> = Vec::new();
+    let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
     for e in view.journal {
         if let Some(m) = desk_message(e) {
             if m.place == view.session {
-                items.push((
-                    e.at,
-                    e.seq,
-                    Item::Said {
-                        m,
-                        seq: Some(e.seq),
-                    },
-                ));
+                let seq = Some(e.seq);
+                items.push((e.at, e.seq, Item::Said { m, seq }));
             }
         } else if matches!(e.kind.as_str(), "opened" | "looked_up")
             && e.data.get("place").and_then(Value::as_str) == Some(place.as_str())
@@ -270,38 +427,33 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
             items.push((e.at, e.seq, Item::Tool(e)));
         }
     }
-    for t in tasks(view.journal) {
-        if task_place(view.journal, &t.id).as_deref() == Some(place.as_str()) {
-            items.push((t.started, 0, Item::Task(t)));
-        }
+    for t in session_tasks(view.journal, view.session) {
+        items.push((t.started, 0, Item::Task(t)));
     }
     for m in view.pending.iter().filter(|m| m.place == view.session) {
-        items.push((
-            m.at,
-            i64::MAX,
-            Item::Said {
-                m: m.clone(),
-                seq: None,
-            },
-        ));
+        let said = Item::Said {
+            m: m.clone(),
+            seq: None,
+        };
+        items.push((m.at, i64::MAX, said));
     }
     items.sort_by_key(|(at, seq, _)| (*at, *seq));
+    items
+}
 
+pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
+    let items = items(view);
+    if items.is_empty() && !view.typing {
+        return empty(view, faces, cx);
+    }
+    let marks = directed(view.journal);
     let mut column = div()
         .flex()
         .flex_col()
-        .gap(px(20.))
+        .gap(px(TURN))
         .w_full()
         .max_w(px(COLUMN))
         .mx_auto();
-    if items.is_empty() {
-        column = column.child(
-            ui::serif(faces, "What needs doing?")
-                .text_size(px(34.))
-                .line_height(px(40.))
-                .pt(px(48.)),
-        );
-    }
 
     // When you spoke last and nothing has answered since, the solver is
     // working on it.
@@ -312,24 +464,22 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         let d = at.with_timezone(&view.tz).format("%A %-d %B").to_string();
         if day.as_ref() != Some(&d) {
             day = Some(d.clone());
-            column = column.child(ui::eyebrow(faces, d).text_center().py(px(4.)));
+            column = column.child(ui::eyebrow(faces, d).text_center());
         }
         let el = match item {
+            Item::Said { m, .. } if m.hers => {
+                let took = last_yours
+                    .filter(|y| *y <= m.at)
+                    .map(|y| format!(" · {}", span((m.at - y).num_seconds())))
+                    .unwrap_or_default();
+                waiting_since = None;
+                hers(faces, &m, &view.name, view.tz, &took).into_any_element()
+            }
             Item::Said { m, seq } => {
-                if m.hers {
-                    let took = last_yours
-                        .filter(|y| *y <= m.at)
-                        .map(|y| span((m.at - y).num_seconds()))
-                        .map(|t| format!(" · {t}"))
-                        .unwrap_or_default();
-                    waiting_since = None;
-                    hers(faces, &m, &view.name, view.tz, &took).into_any_element()
-                } else {
-                    last_yours = Some(m.at);
-                    waiting_since = Some(m.at);
-                    let directed = seq.and_then(|x| marks.get(&x).copied());
-                    yours(faces, &m, &view.who, view.tz, directed).into_any_element()
-                }
+                last_yours = Some(m.at);
+                waiting_since = Some(m.at);
+                let directed = seq.and_then(|x| marks.get(&x).copied());
+                yours(faces, &m, &view.who, view.tz, directed).into_any_element()
             }
             Item::Tool(e) => tool(faces, e, view.tz, view.expanded, cx).into_any_element(),
             Item::Task(t) => {
@@ -340,33 +490,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         column = column.child(el);
     }
     if view.typing || waiting_since.is_some() {
-        let since = waiting_since.map_or_else(String::new, |w| {
-            format!(" · {}", span((Utc::now() - w).num_seconds()))
-        });
-        column = column.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(14.))
-                .child(
-                    div()
-                        .w(px(20.))
-                        .flex()
-                        .justify_center()
-                        .child(ui::dot(theme::accent()).size(px(7.))),
-                )
-                .child(
-                    ui::mono(
-                        faces,
-                        format!(
-                            "{}{since}",
-                            if view.typing { "writing" } else { "thinking" }
-                        ),
-                    )
-                    .text_size(px(12.))
-                    .text_color(theme::muted()),
-                ),
-        );
+        column = column.child(working(faces, view, waiting_since));
     }
 
     div()
@@ -377,79 +501,160 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .min_h(px(0.))
         .overflow_y_scroll()
         .px(px(32.))
-        .py(px(24.))
+        .pt(px(28.))
+        .pb(px(24.))
         .child(column)
         .into_any_element()
 }
 
-/// The gutter every line in the thread starts with: a glyph, centred.
-fn gutter(child: impl IntoElement) -> Div {
+/// The line under the last thing you said while nothing has answered: the
+/// solver writing or thinking, for how long; or, with no daemon to hear
+/// it, that your line is waiting to be delivered.
+fn working(faces: &Faces, view: &View<'_>, since: Option<DateTime<Utc>>) -> Div {
+    let (color, word) = if !view.connected {
+        (theme::muted(), "waiting for the daemon")
+    } else if view.typing {
+        (theme::accent(), "writing")
+    } else {
+        (theme::accent(), "thinking")
+    };
+    let since = since.map_or_else(String::new, |w| {
+        format!(" · {}", span((Utc::now() - w).num_seconds()))
+    });
     div()
-        .w(px(20.))
-        .h(px(23.))
         .flex()
-        .flex_none()
         .items_center()
-        .justify_center()
-        .child(child)
+        .gap(px(10.))
+        .child(ui::dot(color).size(px(7.)))
+        .child(
+            ui::mono(faces, format!("{word}{since}"))
+                .text_size(px(12.))
+                .text_color(theme::muted()),
+        )
 }
 
+/// A session with nothing in it yet: what the solver is, what it can do on
+/// this machine as its deployment says, and a few things to ask for.
+fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
+    let mut column = div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .w_full()
+        .max_w(px(520.))
+        .child(ui::icon("ghost", 40.).text_color(theme::muted()))
+        .child(
+            ui::serif(faces, "What needs doing?")
+                .text_size(px(34.))
+                .line_height(px(40.))
+                .mt(px(18.)),
+        )
+        .child(
+            ui::text(faces, view.abilities.sentence())
+                .text_size(px(14.))
+                .line_height(px(22.))
+                .text_color(theme::muted())
+                .text_center()
+                .mt(px(10.)),
+        );
+    // The starters all need the machine; without it they would only be
+    // promises.
+    if view.abilities.local() {
+        let mut starters = div().flex().flex_col().gap(px(8.)).w_full().mt(px(28.));
+        for (i, text) in STARTERS.iter().enumerate() {
+            starters = starters.child(starter(faces, i, text, cx));
+        }
+        column = column.child(starters);
+    }
+    div()
+        .id("thread")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .items_center()
+        .justify_center()
+        .px(px(32.))
+        .pb(px(40.))
+        .child(column)
+        .into_any_element()
+}
+
+/// One thing to ask for, which goes into the line you type into.
+fn starter(faces: &Faces, i: usize, text: &'static str, cx: &mut Context<Desk>) -> Stateful<Div> {
+    div()
+        .id(("starter", i))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(12.))
+        .h(px(42.))
+        .px(px(16.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::border())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()).border_color(theme::border2()))
+        .child(ui::one_line(
+            ui::text(faces, text)
+                .text_size(px(13.5))
+                .text_color(theme::text2()),
+        ))
+        .child(ui::icon("chevron-right", 14.).text_color(theme::faint()))
+        .on_click(cx.listener(move |this, _, window, cx| this.prefill(text, window, cx)))
+}
+
+/// A line of small print under a message: who, when, and anything else.
+fn meta(faces: &Faces, text: String) -> Div {
+    ui::mono(faces, text)
+        .text_size(px(11.))
+        .text_color(theme::faint())
+}
+
+/// What you said: a bubble on the right, the way a chat has it.
 fn yours(faces: &Faces, m: &Message, who: &str, tz: Tz, directed: Option<i64>) -> Div {
-    let mut meta = format!("{who} · {}", clock(m.at, tz));
+    let mut line = format!("{who} · {}", clock(m.at, tz));
     if let Some(seq) = directed {
-        meta = format!("{meta} · directed · #{seq}");
+        line = format!("{line} · directed · #{seq}");
     }
     div()
         .flex()
         .flex_col()
-        .gap(px(4.))
+        .items_end()
+        .gap(px(6.))
         .child(
             div()
-                .flex()
-                .gap(px(14.))
-                .items_start()
-                .child(gutter(
-                    ui::mono(faces, if directed.is_some() { "!" } else { "›" })
-                        .text_size(px(15.))
-                        .text_color(if directed.is_some() {
-                            theme::purple()
-                        } else {
-                            theme::muted()
-                        }),
-                ))
-                .child(
-                    ui::text(faces, m.text.clone())
-                        .text_color(theme::text2())
-                        .line_height(px(23.)),
-                ),
+                .max_w(relative(0.8))
+                .px(px(16.))
+                .py(px(11.))
+                .rounded(px(14.))
+                .bg(theme::panel2())
+                .when(directed.is_some(), |d| {
+                    d.border_1().border_color(theme::purple().opacity(0.4))
+                })
+                .child(ui::text(faces, m.text.clone()).line_height(px(22.))),
         )
-        .child(
-            ui::mono(faces, meta)
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .ml(px(34.)),
-        )
+        .child(meta(faces, line).mr(px(4.)))
 }
 
+/// What the solver said: plain text in the reading column.
 fn hers(faces: &Faces, m: &Message, name: &str, tz: Tz, took: &str) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .child(
-            div()
-                .flex()
-                .gap(px(14.))
-                .items_start()
-                .child(gutter(ui::icon("ghost", 14.).text_color(theme::text2())))
-                .child(markdown::render(faces, &m.text).flex_1()),
-        )
-        .child(
-            ui::mono(faces, format!("{name} · {}{took}", clock(m.at, tz)))
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .ml(px(34.)),
-        )
+        .gap(px(8.))
+        .child(markdown::render(faces, &m.text))
+        .child(meta(faces, format!("{name} · {}{took}", clock(m.at, tz))))
+}
+
+/// A quiet card: the frame tools and work are drawn in.
+fn card() -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::border())
 }
 
 /// Something opened or looked up while answering: one line, opened on a click.
@@ -474,57 +679,46 @@ fn tool(
         (verb, url, s(&e.data, "text"))
     };
     let body: String = body.chars().take(1600).collect();
-    let toggle = key.clone();
-    div()
-        .id(SharedString::from(key))
+    let head = div()
         .flex()
-        .flex_col()
-        .gap(px(6.))
-        .cursor_pointer()
+        .items_center()
+        .gap(px(10.))
+        .h(px(36.))
+        .px(px(14.))
+        .child(ui::dot(theme::green()).size(px(6.)))
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(14.))
-                .child(gutter(ui::dot(theme::green()).size(px(6.))))
-                .child(
-                    div()
-                        .flex()
-                        .items_baseline()
-                        .gap(px(8.))
-                        .flex_1()
-                        .min_w(px(0.))
-                        .child(
-                            ui::text(faces, verb)
-                                .text_size(px(13.))
-                                .font_weight(gpui::FontWeight::MEDIUM),
-                        )
-                        .child(ui::one_line(
-                            ui::mono(faces, what.to_owned())
-                                .text_size(px(12.))
-                                .text_color(theme::muted()),
-                        )),
-                )
-                .child(
-                    ui::mono(
-                        faces,
-                        format!("{} {}", clock(e.at, tz), if open { "⌃" } else { "⌄" }),
-                    )
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .flex_none(),
-                ),
+            ui::text(faces, verb)
+                .text_size(px(13.))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .flex_none(),
         )
+        .child(ui::one_line(
+            ui::mono(faces, what.to_owned())
+                .text_size(px(12.))
+                .text_color(theme::muted()),
+        ))
+        .child(
+            meta(
+                faces,
+                format!("{} {}", clock(e.at, tz), if open { "⌃" } else { "⌄" }),
+            )
+            .flex_none(),
+        );
+    let toggle = key.clone();
+    card()
+        .id(SharedString::from(key))
+        .cursor_pointer()
+        .hover(|s| s.border_color(theme::border2()))
+        .child(head)
         .when(open && !body.is_empty(), |d| {
             d.child(
                 div()
-                    .ml(px(34.))
-                    .px(px(12.))
+                    .px(px(14.))
                     .py(px(10.))
-                    .rounded(px(8.))
-                    .bg(theme::well())
-                    .border_1()
+                    .border_t_1()
                     .border_color(theme::border())
+                    .bg(theme::well())
+                    .rounded_b(px(10.))
                     .font_family(faces.mono.clone())
                     .text_size(px(11.5))
                     .line_height(px(17.))
@@ -548,18 +742,7 @@ fn task(
     let open = expanded.contains(&key);
     let state = t.state();
     let elapsed = (t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds();
-    let running_parts = t
-        .parts
-        .iter()
-        .filter(|p| matches!(p.state(), State::Running))
-        .count();
-    let mut meta = format!("{} · {} steps", span(elapsed), t.steps());
-    if !t.parts.is_empty() {
-        meta = format!("{meta} · {} parts", t.parts.len());
-        if running_parts > 0 {
-            meta = format!("{meta}, {running_parts} running");
-        }
-    }
+    let figures = format!("{} · {}", span(elapsed), t.figures());
 
     let head = div()
         .flex()
@@ -589,147 +772,119 @@ fn task(
                 .text_size(px(12.5))
                 .text_color(theme::muted()),
         ))
-        .child(
-            ui::mono(faces, format!("{meta} {}", if open { "⌃" } else { "⌄" }))
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .flex_none(),
-        );
+        .child(meta(faces, format!("{figures} {}", if open { "⌃" } else { "⌄" })).flex_none());
 
-    let mut card = div()
+    let mut body = div()
         .flex()
         .flex_col()
         .gap(px(6.))
         .px(px(14.))
         .py(px(12.))
-        .rounded(px(10.))
-        .bg(theme::panel())
-        .border_1()
-        .border_color(if matches!(state, State::Running | State::Waiting) {
-            theme::border2()
-        } else {
-            theme::border()
-        })
         .child(head)
         .child(summary);
-
     if open {
-        let mut timeline = div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .mt(px(6.))
-            .pt(px(10.))
-            .pl(px(17.))
-            .border_t_1()
-            .border_color(theme::border());
-        for e in &t.events {
-            let (tag, text) = match e.kind.as_str() {
-                "worked" => (
-                    format!(
-                        "worked · {}",
-                        e.data
-                            .get("steps")
-                            .and_then(Value::as_i64)
-                            .unwrap_or_default()
-                    ),
-                    s(&e.data, "summary"),
-                ),
-                "concluded" => (s(&e.data, "outcome").to_owned(), s(&e.data, "summary")),
-                "asked" => ("asked".to_owned(), s(&e.data, "question")),
-                other => (other.to_owned(), s(&e.data, "text")),
-            };
-            timeline = timeline.child(
-                div()
-                    .flex()
-                    .gap(px(10.))
-                    .items_baseline()
-                    .child(
-                        ui::mono(faces, clock(e.at, tz))
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .w(px(38.))
-                            .flex_none(),
-                    )
-                    .child(
-                        ui::mono(faces, tag)
-                            .text_size(px(11.))
-                            .text_color(theme::kind_color(&e.kind))
-                            .w(px(76.))
-                            .flex_none(),
-                    )
-                    .child(
-                        ui::text(faces, text.to_owned())
-                            .flex_1()
-                            .min_w(px(0.))
-                            .text_size(px(12.5))
-                            .text_color(theme::text2())
-                            .line_height(px(18.)),
-                    ),
-            );
-        }
-        if !t.parts.is_empty() {
-            let mut parts = div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .mt(px(4.))
-                .child(ui::eyebrow(faces, "parts").text_size(px(10.5)).pb(px(2.)));
-            for p in &t.parts {
-                let ps = p.state();
-                let n = p.id.rsplit('/').next().unwrap_or_default().to_owned();
-                parts = parts.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .py(px(3.))
-                        .child(
-                            ui::mono(faces, "└")
-                                .text_size(px(11.))
-                                .text_color(theme::ghost_line()),
-                        )
-                        .child(ui::dot(ps.color()).size(px(6.)))
-                        .child(
-                            ui::mono(faces, format!("#{n}"))
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .flex_none(),
-                        )
-                        .child(ui::one_line(
-                            ui::text(faces, p.brief.clone()).text_size(px(12.5)),
-                        ))
-                        .child(
-                            ui::mono(faces, format!("{} · {}", ps.word(), p.last_line()))
-                                .text_size(px(11.))
-                                .text_color(theme::muted())
-                                .max_w(px(260.))
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .flex_none(),
-                        ),
-                );
-            }
-            timeline = timeline.child(parts);
-        }
-        card = card.child(timeline);
+        body = body.child(timeline(faces, t, tz));
     }
 
     let toggle = key.clone();
-    div()
+    card()
         .id(SharedString::from(key))
-        .flex()
-        .gap(px(14.))
-        .items_start()
+        .bg(theme::panel())
+        .when(t.open(), |d| d.border_color(theme::border2()))
         .cursor_pointer()
-        .child(gutter(
-            ui::mono(faces, "⚙")
-                .text_size(px(12.))
-                .text_color(theme::muted()),
-        ))
-        .child(card.flex_1().min_w(px(0.)))
+        .child(body)
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
+}
+
+/// Everything a piece of work said along the way, then its parts.
+fn timeline(faces: &Faces, t: &Task<'_>, tz: Tz) -> Div {
+    let mut timeline = div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .mt(px(6.))
+        .pt(px(10.))
+        .pl(px(17.))
+        .border_t_1()
+        .border_color(theme::border());
+    for e in &t.events {
+        let (tag, text) = match e.kind.as_str() {
+            "worked" => (
+                format!(
+                    "worked · {}",
+                    e.data
+                        .get("steps")
+                        .and_then(Value::as_i64)
+                        .unwrap_or_default()
+                ),
+                s(&e.data, "summary"),
+            ),
+            "concluded" => (s(&e.data, "outcome").to_owned(), s(&e.data, "summary")),
+            "asked" => ("asked".to_owned(), s(&e.data, "question")),
+            other => (other.to_owned(), s(&e.data, "text")),
+        };
+        timeline = timeline.child(
+            div()
+                .flex()
+                .gap(px(10.))
+                .items_baseline()
+                .child(meta(faces, clock(e.at, tz)).w(px(38.)).flex_none())
+                .child(
+                    ui::mono(faces, tag)
+                        .text_size(px(11.))
+                        .text_color(theme::kind_color(&e.kind))
+                        .w(px(76.))
+                        .flex_none(),
+                )
+                .child(
+                    ui::text(faces, text.to_owned())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .text_size(px(12.5))
+                        .text_color(theme::text2())
+                        .line_height(px(18.)),
+                ),
+        );
+    }
+    if !t.parts.is_empty() {
+        let mut parts = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .mt(px(4.))
+            .child(ui::eyebrow(faces, "parts").text_size(px(10.5)).pb(px(2.)));
+        for p in &t.parts {
+            parts = parts.child(part(faces, p));
+        }
+        timeline = timeline.child(parts);
+    }
+    timeline
+}
+
+/// One part of a piece of work, in its card.
+fn part(faces: &Faces, p: &Task<'_>) -> Div {
+    let ps = p.state();
+    let n = p.id.rsplit('/').next().unwrap_or_default().to_owned();
+    div()
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .py(px(3.))
+        .child(ui::dot(ps.color()).size(px(6.)))
+        .child(meta(faces, format!("#{n}")).flex_none())
+        .child(ui::one_line(
+            ui::text(faces, p.brief.clone()).text_size(px(12.5)),
+        ))
+        .child(
+            ui::mono(faces, format!("{} · {}", ps.word(), p.last_line()))
+                .text_size(px(11.))
+                .text_color(theme::muted())
+                .max_w(px(260.))
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .flex_none(),
+        )
 }
 
 #[cfg(test)]
@@ -779,5 +934,127 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].parts.len(), 1);
         assert_eq!(all[0].parts[0].steps(), 4);
+    }
+
+    /// Two sessions' worth of journal, as the daemon writes it: work taken
+    /// on in `s1` with two parts, one done; work in `s2`; a file reported
+    /// and one kept by `s1`'s work, one kept and let go, one kept by `s2`.
+    fn two_sessions() -> Vec<Entry> {
+        vec![
+            entry(
+                1,
+                "undertook",
+                json!({"id": "w1", "brief": "tidy downloads", "place": "desk:s1"}),
+            ),
+            entry(2, "undertook", json!({"id": "w1/1", "brief": "images"})),
+            entry(3, "undertook", json!({"id": "w1/2", "brief": "archives"})),
+            entry(
+                4,
+                "concluded",
+                json!({"id": "w1/1", "outcome": "finished", "summary": "done"}),
+            ),
+            entry(
+                5,
+                "undertook",
+                json!({"id": "w2", "brief": "other", "place": "desk:s2"}),
+            ),
+            entry(
+                6,
+                "reported",
+                json!({"id": "w1", "text": "listed", "files": ["/home/x/list.md"]}),
+            ),
+            entry(
+                7,
+                "kept",
+                json!({"file": "abc.png", "note": "a chart", "from": "w1/2"}),
+            ),
+            entry(
+                8,
+                "kept",
+                json!({"file": "old.png", "note": "gone", "from": "w1"}),
+            ),
+            entry(9, "let_go", json!({"kept": 8})),
+            entry(
+                10,
+                "kept",
+                json!({"file": "theirs.png", "note": "", "from": "w2"}),
+            ),
+            entry(
+                11,
+                "reported",
+                json!({"id": "w1", "text": "again", "files": ["/home/x/list.md"]}),
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_session_holds_only_the_work_taken_on_in_its_place() {
+        let journal = two_sessions();
+        let s1 = session_tasks(&journal, "s1");
+        assert_eq!(s1.len(), 1);
+        assert_eq!(s1[0].id, "w1");
+        assert_eq!(session_tasks(&journal, "s2")[0].id, "w2");
+        assert!(session_tasks(&journal, "s3").is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_nests_every_part_of_open_work_and_none_of_finished_work() {
+        let mut journal = two_sessions();
+        let s1 = session_tasks(&journal, "s1");
+        let parts: Vec<&str> = open_parts(&s1).iter().map(|p| p.brief.as_str()).collect();
+        assert_eq!(parts, ["images", "archives"]);
+        assert_eq!(open_parts(&s1)[0].state(), State::Finished);
+        assert_eq!(session_state(&s1), Some(State::Running));
+
+        journal.push(entry(
+            12,
+            "concluded",
+            json!({"id": "w1", "outcome": "finished", "summary": ""}),
+        ));
+        let s1 = session_tasks(&journal, "s1");
+        assert!(open_parts(&s1).is_empty());
+        assert_eq!(session_state(&s1), None);
+    }
+
+    #[test]
+    fn a_session_shows_waiting_before_running() {
+        let journal = vec![
+            entry(
+                1,
+                "undertook",
+                json!({"id": "a", "brief": "x", "place": "desk:s"}),
+            ),
+            entry(
+                2,
+                "undertook",
+                json!({"id": "b", "brief": "y", "place": "desk:s"}),
+            ),
+            entry(3, "asked", json!({"id": "b", "question": "which?"})),
+        ];
+        assert_eq!(
+            session_state(&session_tasks(&journal, "s")),
+            Some(State::Waiting)
+        );
+    }
+
+    #[test]
+    fn outputs_are_the_files_this_sessions_work_handed_over_each_once() {
+        let journal = two_sessions();
+        let out = outputs(&journal, "s1");
+        let files: Vec<&str> = out.iter().map(|o| o.file.as_str()).collect();
+        assert_eq!(files, ["/home/x/list.md", "abc.png"], "{out:?}");
+        assert_eq!(out[0].name(), "list.md");
+        assert_eq!(out[0].kind(), "md · handed over");
+        assert_eq!(out[1].kind(), "png · kept");
+        assert_eq!(outputs(&journal, "s2")[0].file, "theirs.png");
+        assert!(outputs(&journal, "s3").is_empty());
+    }
+
+    #[test]
+    fn a_long_list_shows_five_until_the_rest_are_asked_for() {
+        assert_eq!(shown(3, 5, false), (3, 0));
+        assert_eq!(shown(5, 5, false), (5, 0));
+        assert_eq!(shown(8, 5, false), (5, 3));
+        assert_eq!(shown(8, 5, true), (8, 0));
     }
 }

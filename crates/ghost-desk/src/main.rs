@@ -11,6 +11,7 @@
 //! watches, and a presence named `desk` for the conversation between you
 //! and her. It never touches a ghost's files, and holds no key of hers.
 
+mod aside;
 mod assets;
 mod desk;
 mod fonts;
@@ -20,6 +21,7 @@ mod link;
 mod markdown;
 mod model;
 mod settings;
+mod sidebar;
 mod solver;
 mod theme;
 mod thread;
@@ -67,6 +69,7 @@ fn main() {
                 KeyBinding::new("home", input::Home, Some(input::CONTEXT)),
                 KeyBinding::new("end", input::End, Some(input::CONTEXT)),
                 KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
+                KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
@@ -84,7 +87,9 @@ fn main() {
                 ..Default::default()
             };
             let window = cx
-                .open_window(options, |_, cx| cx.new(desk::Desk::new))
+                .open_window(options, |window, cx| {
+                    cx.new(|cx| desk::Desk::new(window, cx))
+                })
                 .expect("open the window");
             let desk = window
                 .update(cx, |desk, window, cx| {
