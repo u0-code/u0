@@ -164,17 +164,18 @@ impl Watched {
             Update::People(people) => self.people = people,
             Update::Journal(entries) => {
                 self.journal = entries;
-                let journal = &self.journal;
-                self.pending.retain(|m| {
-                    !journal
-                        .iter()
-                        .any(|e| thread::desk_message(e).as_ref() == Some(m))
-                });
+                // Each line the journal holds settles one shown before it,
+                // so the same words sent twice still show twice.
+                for written in self.journal.iter().filter_map(thread::desk_message) {
+                    if let Some(i) = self.pending.iter().position(|m| m.written_as(&written)) {
+                        self.pending.remove(i);
+                    }
+                }
             }
             Update::Entry(entry) => {
                 if self.journal.last().is_none_or(|last| last.seq < entry.seq) {
                     if let Some(m) = thread::desk_message(&entry)
-                        && let Some(i) = self.pending.iter().position(|p| *p == m)
+                        && let Some(i) = self.pending.iter().position(|p| p.written_as(&m))
                     {
                         self.pending.remove(i);
                     }

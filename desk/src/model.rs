@@ -242,6 +242,22 @@ pub struct Message {
     pub at: DateTime<Utc>,
 }
 
+impl Message {
+    /// Whether `written`, a line her journal holds, is this one, shown
+    /// before the journal had it. The time cannot be compared: this one has
+    /// the desk's clock at sending, the journal the daemon's at writing. So
+    /// the same words, by the same side, in the same place, written no
+    /// earlier than a little before this was sent (clocks differ), so that
+    /// the same words said yesterday do not take its place.
+    pub fn written_as(&self, written: &Self) -> bool {
+        const SKEW: chrono::Duration = chrono::Duration::minutes(2);
+        self.place == written.place
+            && self.hers == written.hers
+            && self.text == written.text
+            && written.at + SKEW >= self.at
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +319,30 @@ mod tests {
         assert_eq!(r.tries, 2);
         r.note(&LinkState::Lost("refused".into()), &LinkState::Connected);
         assert_eq!((r.why, r.tries), (None, 0));
+    }
+
+    fn line(text: &str, at: DateTime<Utc>) -> Message {
+        Message {
+            place: "desk-1".into(),
+            hers: false,
+            text: text.into(),
+            at,
+        }
+    }
+
+    #[test]
+    fn a_line_is_known_in_the_journal_whatever_clock_wrote_it() {
+        let now = Utc::now();
+        let shown = line("你是?", now);
+        assert!(shown.written_as(&line("你是?", now + chrono::Duration::milliseconds(800))));
+        assert!(shown.written_as(&line("你是?", now - chrono::Duration::seconds(30))));
+    }
+
+    #[test]
+    fn the_same_words_said_long_before_are_another_line() {
+        let now = Utc::now();
+        let shown = line("你是?", now);
+        assert!(!shown.written_as(&line("你是?", now - chrono::Duration::hours(20))));
+        assert!(!shown.written_as(&line("你是谁?", now)));
     }
 }
