@@ -14,7 +14,6 @@
 //! says it runs, or a control that does what it says; there are no entries
 //! for things that do not work yet.
 
-use chrono::{Datelike as _, NaiveDate, Utc};
 use ghost_link::protocol::Listed;
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, MouseButton, SharedString, Stateful, anchored,
@@ -305,9 +304,8 @@ impl Desk {
             .children(self.form.open.then(|| self.connection_form(faces, cx)))
     }
 
-    /// This machine's sessions, or those the search finds, newest first
-    /// under a head for each day in Ghost's clock, each with the parts of
-    /// its open work under it.
+    /// This machine's sessions, or those the search finds, newest first,
+    /// each with the parts of its open work under it.
     fn sessions(
         &self,
         mut list: Stateful<Div>,
@@ -328,16 +326,8 @@ impl Desk {
                     .py(px(8.)),
             );
         }
-        let tz = self.solver.tz();
-        let today = Utc::now().with_timezone(&tz).date_naive();
-        let mut last_day = None;
         for i in found {
             let session = &self.settings.sessions[i];
-            let day = session.at.with_timezone(&tz).date_naive();
-            if last_day != Some(day) {
-                last_day = Some(day);
-                list = list.child(day_head(faces, day_label(day, today)));
-            }
             let tasks = thread::session_tasks(&self.solver.journal, &session.id);
             list = list.child(self.session_row(faces, i, session, &tasks, cx));
             let parts = thread::open_parts(&tasks);
@@ -571,30 +561,6 @@ impl Desk {
                     .map(|menu| div().absolute().top(px(-4.)).left(px(8.)).child(menu)),
             )
     }
-}
-
-/// What a day is called over its sessions: today and yesterday by name,
-/// any other by its date, with the year once it is not this one.
-pub fn day_label(day: NaiveDate, today: NaiveDate) -> String {
-    match (today - day).num_days() {
-        // A clock ahead of this one can date a session a little later.
-        n if n <= 0 => "Today".to_owned(),
-        1 => "Yesterday".to_owned(),
-        _ if day.year() == today.year() => day.format("%-d %B").to_string(),
-        _ => day.format("%-d %B %Y").to_string(),
-    }
-}
-
-/// The head over a day's sessions: small print, the way the thread names
-/// a day.
-fn day_head(faces: &Faces, label: String) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .h(px(22.))
-        .mt(px(6.))
-        .px(px(10.))
-        .child(ui::eyebrow(faces, label))
 }
 
 /// A part of a session's open work, under the session: the └, its state,
@@ -883,21 +849,4 @@ fn add_connection_row(faces: &Faces, cx: &mut Context<Desk>) -> Stateful<Div> {
                 .text_color(theme::muted()),
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_day_is_named_by_how_far_back_it_is() {
-        let today = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
-        let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
-        assert_eq!(day_label(today, today), "Today");
-        assert_eq!(day_label(day(2026, 11, 15), today), "Yesterday");
-        assert_eq!(day_label(day(2026, 11, 3), today), "3 November");
-        assert_eq!(day_label(day(2025, 12, 31), today), "31 December 2025");
-        // A session from a clock ahead of this one is still today's.
-        assert_eq!(day_label(day(2026, 11, 17), today), "Today");
-    }
 }

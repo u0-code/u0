@@ -110,9 +110,8 @@ When she looked and could not think (her brain refused, or is signed out),
 her journal says so, and the thread says it where her answer would be, in
 a quiet line, with Retry to say your last line again.
 
-Nothing on the desk is made up. Down the left, sessions sit newest first
-under a head for each day in Ghost's clock (Today, Yesterday, then the
-date), and a session shows a dot only while its work runs (amber) or
+Nothing on the desk is made up. Down the left, sessions sit newest
+first, and a session shows a dot only while its work runs (amber) or
 waits on you (purple), with the parts of open work under it. Hover a
 session for its `…`, or right-click it: Rename turns the row into a
 field (Return keeps the name, Escape leaves it); Copy puts the thread on
