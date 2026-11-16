@@ -85,7 +85,8 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         thread.contains("5e1d") && thread.contains(&said.id),
         "{thread}"
     );
-    assert!(!rig.journal(0).await.contains("\"directed\""));
+    let events = rig.events(0).await;
+    assert!(!events.iter().any(|e| matches!(e, Event::Directed { .. })));
 
     // Asked for a directive, in a place of its own, it is one.
     let directed = fox
@@ -123,7 +124,7 @@ async fn a_console_says_who_is_at_it_before_it_speaks_and_has_something_to_say()
         .unwrap();
     let e = fox.say(None, "   ", SayMode::Say).await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
-    assert!(!rig.journal(0).await.contains("\"heard\""));
+    assert!(rig.heard(0).await.is_empty());
 }
 
 #[tokio::test]
@@ -136,8 +137,9 @@ async fn a_console_with_the_daemon_s_token_speaks_as_its_owner() {
     fox.say(None, "evening, 3c9a", SayMode::Directive)
         .await
         .unwrap();
-    rig.until_written(0, "3c9a").await;
-    rig.until_written(0, "\"directed\"").await;
+    rig.until_heard(0, "evening, 3c9a").await;
+    rig.until(0, "the directive", |e| matches!(e, Event::Directed { .. }))
+        .await;
 }
 
 #[tokio::test]
@@ -193,23 +195,25 @@ async fn an_operator_at_a_console_answers_what_her_work_asked_and_stops_it() {
     assert_eq!(work[0].question.as_deref(), Some("which week?"));
 
     fox.answer("w1", "next week, 7d4f").await.unwrap();
-    let (id, text, by) = {
-        let journal = rig.journal(0).await;
-        let entries: Vec<Entry> = serde_json::from_str(&journal).unwrap();
-        entries
-            .into_iter()
-            .find_map(|e| match e.event {
-                Event::Added { id, text, by } => Some((id, text, by)),
-                _ => None,
-            })
-            .expect("the answer is in her journal")
-    };
+    let (id, text, by) = rig
+        .events(0)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            Event::Added { id, text, by } => Some((id, text, by)),
+            _ => None,
+        })
+        .expect("the answer is in her journal");
     assert_eq!((id.as_str(), text.as_str()), ("w1", "next week, 7d4f"));
     assert_eq!(by.as_deref(), Some("console:fox"));
     assert_eq!(fox.work().await.unwrap()[0].question, None);
 
     fox.stop("w1").await.unwrap();
-    rig.until_written(0, "Fox, who runs you, stopped it").await;
+    rig.until(0, "the end of her work", |e| {
+        matches!(e, Event::Concluded { outcome, summary, .. }
+            if outcome == "dropped" && summary.starts_with("Fox, who runs you, stopped it"))
+    })
+    .await;
     // It is over: neither can be done to it again.
     let e = fox.stop("w1").await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
@@ -235,7 +239,8 @@ async fn only_an_operator_who_says_who_they_are_answers_her_work_and_only_work_s
     assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
     let e = fox.answer("w1", "  ").await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
-    assert!(!rig.journal(0).await.contains("\"added\""));
+    let events = rig.events(0).await;
+    assert!(!events.iter().any(|e| matches!(e, Event::Added { .. })));
     assert_eq!(
         fox.work().await.unwrap()[0].state,
         ghost_protocol::WorkState::Waiting
