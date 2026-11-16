@@ -47,3 +47,10 @@ cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 # Colours read as the six hex digits a designer writes, not as a u32.
 unusual_byte_groupings = "allow"
+
+# Stripped, and nothing more: that is two thirds of what the main
+# workspace's profile saves here (11.2 to 9.3 MB, against 8.3), and a
+# rebuild after a change to one file stays at about 11 seconds rather than
+# 35, which matters while the app is changed and bundled many times a day.
+[profile.release]
+strip = true
