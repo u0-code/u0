@@ -889,6 +889,32 @@ pub struct LookRound {
     /// (`say`, `react`) as well, which comes back as `ok`.
     #[serde(default)]
     pub calls: Vec<ToolCall>,
+    /// What the brain read and wrote for this round, in tokens, where
+    /// the provider says; none from a daemon from before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<LookUsage>,
+    /// What was put in front of the brain for this look, in characters,
+    /// by part: `system` (who she is), `people` (what she knows of who is
+    /// here), `transcript` (the conversation), `recalled` (what she asked
+    /// her memory for), `past` (pieces of her past the talk touched),
+    /// `tools` (what she may call), `frame` (the rest of the prompt). A
+    /// console can show what fills her context from this, against the
+    /// tokens `usage` measures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<std::collections::BTreeMap<String, u64>>,
+}
+
+/// Tokens one round of a look cost, as the provider counted them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LookUsage {
+    /// Everything the brain read, cached or not.
+    pub input: u64,
+    /// The part of `input` served from the provider's prompt cache.
+    #[serde(default)]
+    pub cached: u64,
+    /// Everything the brain wrote, thinking included.
+    #[serde(default)]
+    pub output: u64,
 }
 
 /// One thing waiting on whoever runs her, in the result of

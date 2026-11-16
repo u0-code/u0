@@ -549,6 +549,23 @@ async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_wher
     );
     assert_eq!(shell["failed"], false);
     assert_eq!(shell["cut"], false);
+    // The round says what the brain read and wrote, as the provider
+    // counted it, and what was in front of it, by part.
+    let round = &going[0]["rounds"][0];
+    assert_eq!(round["usage"]["input"], 1200);
+    assert_eq!(round["usage"]["cached"], 300);
+    assert_eq!(round["usage"]["output"], 40);
+    let context = round["context"].as_object().expect("the context by part");
+    for part in ["system", "people", "transcript", "tools", "frame"] {
+        assert!(
+            context[part].as_u64().unwrap_or(0) > 0,
+            "{part} is measured: {context:?}"
+        );
+    }
+    assert!(
+        context["transcript"].as_u64().unwrap() >= "what does your computer say?".len() as u64,
+        "the transcript holds what Wen said"
+    );
 
     gate.notify_one();
     rig.pump(now).await;

@@ -253,7 +253,13 @@ impl Mind {
         if calls.is_empty() {
             return;
         }
-        let round = json!({"at": at.to_rfc3339(), "calls": calls});
+        let mut round = json!({"at": at.to_rfc3339(), "calls": calls});
+        if let Some(u) = job.usage.take() {
+            round["usage"] = json!({"input": u.input, "cached": u.cached, "output": u.output});
+        }
+        if !job.context.is_empty() {
+            round["context"] = json!(job.context);
+        }
         if let Err(e) = self.kept_round(job, at, &round) {
             warn!("{}: could not keep a round of the look: {e}", job.place);
         }
@@ -307,6 +313,7 @@ impl Mind {
             job.thought.clone_from(&said);
         }
         let calls = step.calls.clone();
+        job.usage = Some(step.usage);
         job.items.push(step.into_item());
         job.round += 1;
         if calls.is_empty() {

@@ -173,7 +173,14 @@ impl Script {
             } else {
                 ghost_brain::Stop::Calls
             },
-            usage: ghost_brain::Usage::default(),
+            // A round costs the same made-up tokens every time, so that a
+            // test can see them kept with the round.
+            usage: ghost_brain::Usage {
+                input: 1200,
+                cached: 300,
+                output: 40,
+                thought: 0,
+            },
             model: "script".into(),
             carry: None,
         });

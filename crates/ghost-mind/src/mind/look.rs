@@ -90,6 +90,11 @@ impl Mind {
             let abilities = self.abilities_here(&names);
             Some(self.compose(place, &mut job, now, with_tools, &abilities)?)
         };
+        if with_tools {
+            let spec = serde_json::to_string(&tools).unwrap_or_default();
+            job.context
+                .insert("tools".to_owned(), spec.chars().count() as u64);
+        }
         self.budget.spend(now);
         if job.look == 0 {
             self.looks += 1;
@@ -185,6 +190,8 @@ impl Mind {
     /// Put together what she sees when she looks at a place.
     /// Returns the system prompt and the prompt: who she is, and what is
     /// in front of her. `with_tools` chooses how she is told to answer.
+    /// What each part of it comes to, in characters, is left on the job,
+    /// for the record of her looks.
     fn compose(
         &self,
         place: &PlaceState,
@@ -321,6 +328,47 @@ impl Mind {
                 )],
             )
         };
+        let people_text = if cards.is_empty() {
+            "(nobody you know yet)".to_owned()
+        } else {
+            cards.join("\n")
+        };
+        let transcript = format!(
+            "{}{}{}",
+            kept.map_or_else(String::new, |d| format!(
+                "What you kept of this conversation{} before the messages below:\n{}\n\n",
+                d.sources.map_or_else(String::new, |s| {
+                    let clock = self.life.clock();
+                    format!(
+                        ", from {} until {},",
+                        when(s.since, now, clock),
+                        when(s.until, now, clock)
+                    )
+                }),
+                d.text
+            )),
+            // A directive is marked in its line's heading,
+            // where nothing anyone types can reach, so that she
+            // can tell it from what people say to her.
+            narrate::transcript(
+                &lines,
+                place.read_upto,
+                self.prompts.text("directive_mark"),
+                self.life.clock(),
+                now
+            ),
+            // Being stopped here goes with the conversation it
+            // happened in, for as long as it is in front of her.
+            stopped_here
+        );
+        let chars = |s: &str| s.chars().count() as u64;
+        let parts = [
+            ("system", chars(&who)),
+            ("people", chars(&people_text)),
+            ("transcript", chars(&transcript)),
+            ("recalled", chars(&recalled)),
+            ("past", chars(&brought_back)),
+        ];
         let prompt = narrate::fill(
             &self.prompts.attend,
             &[
@@ -329,51 +377,22 @@ impl Mind {
                 ("now", right_now),
                 ("right_now", self.right_now(place, &lines, now)?),
                 ("reply", reply),
-                (
-                    "people",
-                    if cards.is_empty() {
-                        "(nobody you know yet)".to_owned()
-                    } else {
-                        cards.join("\n")
-                    },
-                ),
-                (
-                    "transcript",
-                    format!(
-                        "{}{}{}",
-                        kept.map_or_else(String::new, |d| format!(
-                            "What you kept of this conversation{} before the messages below:\n{}\n\n",
-                            d.sources.map_or_else(String::new, |s| {
-                                let clock = self.life.clock();
-                                format!(
-                                    ", from {} until {},",
-                                    when(s.since, now, clock),
-                                    when(s.until, now, clock)
-                                )
-                            }),
-                            d.text
-                        )),
-                        // A directive is marked in its line's heading,
-                        // where nothing anyone types can reach, so that she
-                        // can tell it from what people say to her.
-                        narrate::transcript(
-                            &lines,
-                            place.read_upto,
-                            self.prompts.text("directive_mark"),
-                            self.life.clock(),
-                            now
-                        ),
-                        // Being stopped here goes with the conversation it
-                        // happened in, for as long as it is in front of her.
-                        stopped_here
-                    ),
-                ),
+                ("people", people_text),
+                ("transcript", transcript),
                 ("recalled", recalled),
                 ("brought_back", brought_back),
                 ("why", why),
                 ("addressed", addressed),
             ],
         );
+        // The rest of the prompt: its frame, and what is said in it of
+        // where she is and why she looks.
+        let inside: u64 = parts[1..].iter().map(|(_, n)| n).sum();
+        for (name, n) in parts {
+            job.context.insert(name.to_owned(), n);
+        }
+        job.context
+            .insert("frame".to_owned(), chars(&prompt).saturating_sub(inside));
         Ok((who, prompt))
     }
 

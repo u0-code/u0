@@ -450,6 +450,8 @@ fn a_look(n: u64, seq: Option<i64>, at: DateTime<Utc>) -> Look {
         rounds: vec![ghost_link::protocol::LookRound {
             at: at.to_rfc3339(),
             calls: vec![call],
+            usage: None,
+            context: None,
         }],
     }
 }

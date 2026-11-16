@@ -283,6 +283,8 @@ mod tests {
             rounds: vec![LookRound {
                 at: "2026-11-16T12:00:00Z".into(),
                 calls: Vec::new(),
+                usage: None,
+                context: None,
             }],
         }
     }
