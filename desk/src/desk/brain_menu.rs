@@ -597,11 +597,7 @@ impl Desk {
                 this.menu = Menu::Closed;
                 this.open_sheet(Some(edit.clone()), window, cx);
             }));
-        // In a column, a line that trails off fills the width, rather than
-        // growing down as `ui::one_line` would have it.
-        let about = ui::text(faces, p.about())
-            .w_full()
-            .truncate()
+        let about = ui::one_line(ui::text(faces, p.about()))
             .text_size(px(11.5))
             .line_height(px(15.))
             .text_color(if p.blocker.is_some() {

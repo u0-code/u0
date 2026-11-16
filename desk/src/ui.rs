@@ -204,9 +204,14 @@ pub fn dot(color: Hsla) -> Div {
     div().size(px(6.)).rounded_full().bg(color).flex_none()
 }
 
-/// A piece of text that stays on one line and trails off.
+/// A piece of text that stays on one line and trails off. It is as wide
+/// as it may be: in a row, what its siblings leave; in a column, the
+/// column. Hiding the overflow is what lets it shrink below its text; a
+/// minimum width of zero, or a flex basis of zero, would do that too, but
+/// in a column either has the text measured without a width and cut to a
+/// few characters.
 pub fn one_line(d: Div) -> Div {
-    d.flex_1().min_w(px(0.)).overflow_hidden().text_ellipsis()
+    d.w_full().overflow_hidden().text_ellipsis()
 }
 
 /// A path as a person writes it: your home as `~`, and when it is long,
