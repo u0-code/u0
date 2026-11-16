@@ -1,30 +1,81 @@
 //! What the solver says, drawn the way it was written: the small part of
-//! Markdown a model actually writes. Paragraphs, headings, lists, quotes,
-//! fenced code, and inside a line `code`, **bold** and *italic* (with
-//! asterisks only). Anything else is left as the text it is.
+//! Markdown a model actually writes. Paragraphs, headings, lists (nested
+//! by their indent), quotes, fenced code, and inside a line `code`,
+//! **bold** and *italic* (with asterisks only). Anything else is left as
+//! the text it is.
+//!
+//! It is set in the thread's type (`thread/style.rs`): body text with room
+//! between its lines, blocks a step apart and the items of a list closer,
+//! inline code in mono on a faint ground, and a code block in a well that
+//! scrolls sideways rather than wrapping a command.
 
 use std::ops::Range;
 
 use gpui::{
-    AnyElement, Div, FontStyle, FontWeight, HighlightStyle, SharedString, StyledText, div,
-    prelude::*, px,
+    Div, FontStyle, FontWeight, Hsla, SharedString, StyledText, TextRun, div, prelude::*, px,
 };
 
-use crate::{fonts::Faces, theme, ui};
+use crate::{
+    fonts::{self, Faces},
+    theme,
+    thread::style::{BODY_LINE, H1, H2, H3, MONO, MONO_LINE, S1, S2, S3, WELL_RADIUS},
+    ui,
+};
 
 /// One block of a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     Paragraph(String),
     Heading(u8, String),
-    /// A list item: its marker as written (`•` for an unordered one) and
-    /// its text.
-    Item(String, String),
+    /// A list item: its marker as written (`•` for an unordered one), its
+    /// text, and how deep it is nested, from 0.
+    Item {
+        marker: String,
+        text: String,
+        depth: u8,
+    },
     Quote(String),
     Code {
         lang: String,
         text: String,
     },
+}
+
+/// How deep a line is nested, by its indent: two spaces, or a tab, a level.
+fn depth(line: &str) -> u8 {
+    let spaces: usize = line
+        .chars()
+        .take_while(|c| c.is_whitespace())
+        .map(|c| if c == '\t' { 2 } else { 1 })
+        .sum();
+    u8::try_from((spaces / 2).min(3)).unwrap_or(3)
+}
+
+/// Whether a character belongs to a script written without spaces between
+/// words: lines of it are joined without one.
+fn unspaced(c: char) -> bool {
+    matches!(c,
+        '\u{3000}'..='\u{30FF}'   // CJK punctuation, kana
+        | '\u{3400}'..='\u{4DBF}' // CJK extension A
+        | '\u{4E00}'..='\u{9FFF}' // CJK unified ideographs
+        | '\u{F900}'..='\u{FAFF}' // compatibility ideographs
+        | '\u{FF00}'..='\u{FFEF}' // full-width forms
+    )
+}
+
+/// The lines of a paragraph as one: a space between lines, except where
+/// both sides are Chinese or Japanese, which a line break does not space.
+fn joined(lines: &[&str]) -> String {
+    let mut out = String::new();
+    for line in lines {
+        let starts_unspaced = line.chars().next().is_some_and(unspaced);
+        let ends_unspaced = out.chars().next_back().is_some_and(unspaced);
+        if !(out.is_empty() || starts_unspaced && ends_unspaced) {
+            out.push(' ');
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// Split a message into blocks.
@@ -34,7 +85,7 @@ pub fn parse(text: &str) -> Vec<Block> {
     let mut lines = text.lines();
     let flush = |paragraph: &mut Vec<&str>, blocks: &mut Vec<Block>| {
         if !paragraph.is_empty() {
-            blocks.push(Block::Paragraph(paragraph.join(" ")));
+            blocks.push(Block::Paragraph(joined(paragraph)));
             paragraph.clear();
         }
     };
@@ -64,10 +115,18 @@ pub fn parse(text: &str) -> Vec<Block> {
             .or_else(|| trimmed.strip_prefix("• "))
         {
             flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Item("•".to_owned(), rest.to_owned()));
+            blocks.push(Block::Item {
+                marker: "•".to_owned(),
+                text: rest.to_owned(),
+                depth: depth(line),
+            });
         } else if let Some((n, rest)) = numbered(trimmed) {
             flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Item(format!("{n}."), rest.to_owned()));
+            blocks.push(Block::Item {
+                marker: format!("{n}."),
+                text: rest.to_owned(),
+                depth: depth(line),
+            });
         } else if let Some(rest) = trimmed
             .strip_prefix("> ")
             .or_else(|| trimmed.strip_prefix('>'))
@@ -162,141 +221,252 @@ fn take<'a>(s: &'a str, mark: &str) -> Option<(&'a str, usize)> {
     Some((&after[..end], mark.len() + end + mark.len()))
 }
 
-/// A line of text with its marks drawn.
-fn styled(line: &str) -> StyledText {
-    let parsed = inline(line);
-    let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
-    for r in parsed.code {
-        highlights.push((
-            r,
-            HighlightStyle {
-                color: Some(theme::amber2()),
-                background_color: Some(theme::panel2()),
-                ..HighlightStyle::default()
-            },
-        ));
-    }
-    for r in parsed.bold {
-        highlights.push((
-            r,
-            HighlightStyle {
-                font_weight: Some(FontWeight::SEMIBOLD),
-                color: Some(theme::text()),
-                ..HighlightStyle::default()
-            },
-        ));
-    }
-    for r in parsed.italic {
-        highlights.push((
-            r,
-            HighlightStyle {
-                font_style: Some(FontStyle::Italic),
-                ..HighlightStyle::default()
-            },
-        ));
-    }
-    highlights.sort_by_key(|(r, _)| r.start);
-    StyledText::new(SharedString::from(parsed.text)).with_highlights(highlights)
+/// How a stretch of a line is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Plain,
+    Code,
+    Bold,
+    Italic,
 }
 
-/// A message, drawn.
-pub fn render(faces: &Faces, text: &str) -> Div {
-    let mut column = div().flex().flex_col().gap(px(10.)).min_w(px(0.));
-    for block in parse(text) {
-        column = column.child(block_element(faces, &block));
+/// The whole of a line's text in stretches, each with how it is set, in
+/// order and leaving nothing out: what a run of text is drawn from.
+pub fn spans(line: &Inline) -> Vec<(Range<usize>, Mark)> {
+    let mut marked: Vec<(Range<usize>, Mark)> = line
+        .code
+        .iter()
+        .map(|r| (r.clone(), Mark::Code))
+        .chain(line.bold.iter().map(|r| (r.clone(), Mark::Bold)))
+        .chain(line.italic.iter().map(|r| (r.clone(), Mark::Italic)))
+        .collect();
+    marked.sort_by_key(|(r, _)| r.start);
+    let mut out = Vec::new();
+    let mut at = 0;
+    for (r, mark) in marked {
+        if r.start > at {
+            out.push((at..r.start, Mark::Plain));
+        }
+        at = r.end;
+        out.push((r, mark));
+    }
+    if at < line.text.len() {
+        out.push((at..line.text.len(), Mark::Plain));
+    }
+    out
+}
+
+/// How a block's text is set before its marks: its weight and its colour.
+#[derive(Clone, Copy)]
+struct Base {
+    weight: FontWeight,
+    color: Hsla,
+}
+
+/// A line of text with its marks drawn: inline code in mono on a faint
+/// ground, bold and italic in the face of the line.
+fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
+    let parsed = inline(line);
+    let face = |family: &SharedString, weight, style| gpui::Font {
+        family: family.clone(),
+        features: gpui::FontFeatures::default(),
+        fallbacks: Some(fonts::fallbacks()),
+        weight,
+        style,
+    };
+    let runs = spans(&parsed)
+        .into_iter()
+        .map(|(r, mark)| {
+            let (font, color, background) = match mark {
+                Mark::Plain => (
+                    face(&faces.ui, base.weight, FontStyle::Normal),
+                    base.color,
+                    None,
+                ),
+                Mark::Code => (
+                    face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
+                    theme::amber2(),
+                    Some(theme::panel2()),
+                ),
+                Mark::Bold => (
+                    face(&faces.ui, FontWeight::SEMIBOLD, FontStyle::Normal),
+                    theme::text(),
+                    None,
+                ),
+                Mark::Italic => (
+                    face(&faces.ui, base.weight, FontStyle::Italic),
+                    base.color,
+                    None,
+                ),
+            };
+            TextRun {
+                len: r.len(),
+                font,
+                color,
+                background_color: background,
+                underline: None,
+                strikethrough: None,
+            }
+        })
+        .collect();
+    StyledText::new(SharedString::from(parsed.text)).with_runs(runs)
+}
+
+/// A message, drawn. `key` tells its code blocks apart from every other
+/// message's, for their scrolling.
+pub fn render(faces: &Faces, key: &str, text: &str) -> Div {
+    let mut column = div().flex().flex_col().min_w(px(0.));
+    let mut before: Option<&Block> = None;
+    let blocks = parse(text);
+    for (i, block) in blocks.iter().enumerate() {
+        let gap = match (before, block) {
+            (None, _) => 0.,
+            (Some(Block::Item { .. }), Block::Item { .. }) => S1 + 2.,
+            (Some(Block::Heading(..)), _) => S2,
+            (Some(_), Block::Heading(..)) => S3 + S2,
+            _ => S3,
+        };
+        column = column.child(block_element(faces, &format!("{key}-{i}"), block).mt(px(gap)));
+        before = Some(block);
     }
     column
 }
 
-fn block_element(faces: &Faces, block: &Block) -> AnyElement {
+/// Body text: what a paragraph or a list item is set in.
+fn body() -> Base {
+    Base {
+        weight: FontWeight::NORMAL,
+        color: theme::text(),
+    }
+}
+
+fn block_element(faces: &Faces, key: &str, block: &Block) -> Div {
     match block {
-        Block::Paragraph(text) => div()
-            .text_color(theme::text())
-            .line_height(px(23.))
-            .child(styled(text))
-            .into_any_element(),
-        Block::Heading(level, text) => div()
-            .pt(px(4.))
-            .text_size(px(if *level <= 2 { 16. } else { 14.5 }))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme::text())
-            .line_height(px(22.))
-            .child(styled(text))
-            .into_any_element(),
-        Block::Item(marker, text) => div()
+        Block::Paragraph(text) => {
+            div()
+                .line_height(px(BODY_LINE))
+                .child(styled(faces, text, body()))
+        }
+        Block::Heading(level, text) => {
+            let (size, line) = match level {
+                1 => H1,
+                2 => H2,
+                _ => H3,
+            };
+            let base = Base {
+                weight: FontWeight::SEMIBOLD,
+                color: theme::text(),
+            };
+            div()
+                .text_size(px(size))
+                .line_height(px(line))
+                .child(styled(faces, text, base))
+        }
+        Block::Item {
+            marker,
+            text,
+            depth,
+        } => div()
             .flex()
-            .gap(px(10.))
+            .gap(px(S2))
+            .pl(px(f32::from(*depth) * 20.))
             .child(
                 ui::mono(faces, marker.clone())
-                    .w(px(16.))
+                    .min_w(px(14.))
                     .flex_none()
                     .text_right()
+                    .text_size(px(MONO))
                     .text_color(theme::muted())
-                    .line_height(px(23.)),
+                    .line_height(px(BODY_LINE)),
             )
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_color(theme::text())
-                    .line_height(px(23.))
-                    .child(styled(text)),
-            )
-            .into_any_element(),
+                    .line_height(px(BODY_LINE))
+                    .child(styled(faces, text, body())),
+            ),
         Block::Quote(text) => div()
-            .pl(px(12.))
+            .pl(px(S3))
             .border_l_2()
             .border_color(theme::border2())
-            .text_color(theme::text2())
-            .line_height(px(22.))
-            .child(styled(text))
-            .into_any_element(),
-        Block::Code { lang, text } => div()
-            .flex()
-            .flex_col()
-            .rounded(px(8.))
-            .bg(theme::well())
-            .border_1()
-            .border_color(theme::border())
-            .overflow_hidden()
-            .when(!lang.is_empty(), |d| {
-                d.child(
-                    ui::mono(faces, lang.clone())
-                        .text_size(px(10.5))
-                        .text_color(theme::faint())
-                        .px(px(12.))
-                        .pt(px(8.)),
-                )
-            })
-            .child(
-                div()
-                    .px(px(12.))
-                    .py(px(10.))
-                    .font_family(faces.mono.clone())
-                    .text_size(px(12.))
-                    .line_height(px(18.))
-                    .text_color(theme::text2())
-                    .child(text.clone()),
-            )
-            .into_any_element(),
+            .line_height(px(BODY_LINE))
+            .child(styled(
+                faces,
+                text,
+                Base {
+                    weight: FontWeight::NORMAL,
+                    color: theme::text2(),
+                },
+            )),
+        Block::Code { lang, text } => code(faces, key, lang, text),
     }
+}
+
+/// A fenced block: its language, small, over its text in mono, in a well
+/// that scrolls sideways so that a long command keeps its lines.
+fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .rounded(px(WELL_RADIUS))
+        .bg(theme::well())
+        .border_1()
+        .border_color(theme::border())
+        .overflow_hidden()
+        .when(!lang.is_empty(), |d| {
+            d.child(
+                ui::mono(faces, lang.to_owned())
+                    .text_size(px(10.5))
+                    .text_color(theme::faint())
+                    .px(px(S3))
+                    .pt(px(S2)),
+            )
+        })
+        .child(
+            div()
+                .id(SharedString::from(format!("{key}-code")))
+                .flex()
+                .overflow_x_scroll()
+                .child(
+                    div()
+                        .flex_none()
+                        .px(px(S3))
+                        .py(px(10.))
+                        .font_family(faces.mono.clone())
+                        .text_size(px(MONO))
+                        .line_height(px(MONO_LINE))
+                        .text_color(theme::text2())
+                        .whitespace_nowrap()
+                        .child(text.to_owned()),
+                ),
+        )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn item(marker: &str, text: &str, depth: u8) -> Block {
+        Block::Item {
+            marker: marker.into(),
+            text: text.into(),
+            depth,
+        }
+    }
+
     #[test]
     fn a_message_splits_into_the_blocks_it_was_written_as() {
-        let text = "# Done\n\nCleared the cache\nfrom two places.\n\n- one\n- two\n1. first\n> quoted\n```sh\ndu -sh ~\n```";
+        let text = "# Done\n\nCleared the cache\nfrom two places.\n\n- one\n  - under one\n- two\n1. first\n> quoted\n```sh\ndu -sh ~\n```";
         assert_eq!(
             parse(text),
             vec![
                 Block::Heading(1, "Done".into()),
                 Block::Paragraph("Cleared the cache from two places.".into()),
-                Block::Item("•".into(), "one".into()),
-                Block::Item("•".into(), "two".into()),
-                Block::Item("1.".into(), "first".into()),
+                item("•", "one", 0),
+                item("•", "under one", 1),
+                item("•", "two", 0),
+                item("1.", "first", 0),
                 Block::Quote("quoted".into()),
                 Block::Code {
                     lang: "sh".into(),
@@ -307,12 +477,42 @@ mod tests {
     }
 
     #[test]
+    fn chinese_lines_of_a_paragraph_join_without_a_space_and_english_with_one() {
+        assert_eq!(
+            parse("我看了一下\n磁盘的情况\nthen ran\ndu"),
+            vec![Block::Paragraph("我看了一下磁盘的情况 then ran du".into())]
+        );
+    }
+
+    #[test]
     fn inline_marks_come_out_of_the_text_and_are_remembered() {
         let line = inline("run `ls` then **look**, *then* rest");
         assert_eq!(line.text, "run ls then look, then rest");
         assert_eq!(&line.text[line.code[0].clone()], "ls");
         assert_eq!(&line.text[line.bold[0].clone()], "look");
         assert_eq!(&line.text[line.italic[0].clone()], "then");
+    }
+
+    #[test]
+    fn a_line_is_set_in_stretches_that_cover_all_of_it_in_order() {
+        let line = inline("run `ls` then **看看**");
+        let spans = spans(&line);
+        let marks: Vec<(&str, Mark)> = spans
+            .iter()
+            .map(|(r, m)| (&line.text[r.clone()], *m))
+            .collect();
+        assert_eq!(
+            marks,
+            [
+                ("run ", Mark::Plain),
+                ("ls", Mark::Code),
+                (" then ", Mark::Plain),
+                ("看看", Mark::Bold)
+            ]
+        );
+        let total: usize = spans.iter().map(|(r, _)| r.len()).sum();
+        assert_eq!(total, line.text.len());
+        assert!(super::spans(&inline("")).is_empty());
     }
 
     #[test]

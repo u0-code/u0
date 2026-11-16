@@ -1,6 +1,9 @@
 use super::*;
 use serde_json::json;
 
+/// A ghost of whose steps nothing has been read.
+static NOTHING_READ: std::sync::LazyLock<Following> = std::sync::LazyLock::new(Following::default);
+
 fn entry(seq: i64, kind: &str, data: Value) -> Entry {
     Entry {
         seq,
@@ -274,6 +277,8 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         connected: true,
         abilities: None,
         expanded: &expanded,
+        following: &NOTHING_READ,
+        rendering: Rendering::Task,
     };
     let said: Vec<(String, bool)> = items(&view)
         .into_iter()
@@ -332,6 +337,8 @@ fn view<'a>(
         connected: true,
         abilities: None,
         expanded,
+        following: &NOTHING_READ,
+        rendering: Rendering::Task,
     }
 }
 
@@ -398,4 +405,192 @@ fn a_failure_to_think_says_how_to_sign_in_or_else_its_first_line() {
         could_not("request timed out\nafter 120s"),
         "Couldn't think: request timed out"
     );
+}
+
+/// A look, numbered `n`, with one round at `at`, ended with the journal
+/// entry `seq` or still going on.
+fn a_look(n: u64, seq: Option<i64>, at: DateTime<Utc>) -> Look {
+    let call = ghost_link::protocol::ToolCall {
+        name: "shell".into(),
+        args: json!({"command": "df -h"}),
+        out: "Filesystem  Size".into(),
+        cut: false,
+        chars: 16,
+        ms: 40,
+        failed: false,
+        pictures: 0,
+    };
+    Look {
+        look: n,
+        seq,
+        running: seq.is_none(),
+        rounds: vec![ghost_link::protocol::LookRound {
+            at: at.to_rfc3339(),
+            calls: vec![call],
+        }],
+    }
+}
+
+#[test]
+fn what_she_called_in_a_look_goes_above_the_answer_it_led_to() {
+    let at = |s: i64| Utc::now() - chrono::Duration::seconds(600 - s);
+    let heard = |seq, s, text: &str| Entry {
+        at: at(s),
+        ..entry(
+            seq,
+            "heard",
+            json!({"channel": "console", "place": {"id": "s1", "kind": "direct"},
+            "from": {"id": "fox", "name": "Fox"}, "text": text}),
+        )
+    };
+    let opened = |seq, s| Entry {
+        at: at(s),
+        ..entry(
+            seq,
+            "opened",
+            json!({"place": "console:s1", "url": "https://example.com"}),
+        )
+    };
+    let journal = vec![
+        heard(1, 0, "how full is the disk?"),
+        // Opened in the look, and so one of its rows already.
+        opened(10, 6),
+        Entry {
+            at: at(12),
+            ..entry(
+                2,
+                "decided",
+                json!({"about": "console:s1", "decision": "said something", "reason": ""}),
+            )
+        },
+        Entry {
+            at: at(14),
+            ..entry(
+                3,
+                "said",
+                json!({"channel": "console", "place": "s1", "text": "80% full"}),
+            )
+        },
+        heard(4, 20, "stop that"),
+        Entry {
+            at: at(25),
+            ..entry(
+                5,
+                "stopped",
+                json!({"place": "console:s1", "by": "console:fox"}),
+            )
+        },
+        // A look elsewhere, at the same moment, is not this thread's.
+        Entry {
+            at: at(25),
+            ..entry(
+                6,
+                "decided",
+                json!({"about": "qq:9", "decision": "nothing", "reason": ""}),
+            )
+        },
+        opened(11, 40),
+    ];
+    let mut following = Following::default();
+    following.looks(
+        "console:s1",
+        std::time::Instant::now(),
+        Ok(vec![
+            a_look(7, Some(2), at(5)),
+            a_look(8, Some(5), at(22)),
+            a_look(9, Some(6), at(22)),
+        ]),
+    );
+    let expanded = HashSet::new();
+    let place = place_key("s1");
+    let view = View {
+        following: &following,
+        ..view(&journal, &[], &place, &expanded)
+    };
+    let shown: Vec<String> = items(&view)
+        .into_iter()
+        .map(|(_, _, item)| match item {
+            Item::Said { m, .. } => m.text,
+            Item::Look { look, from, to } => {
+                format!("look {} for {}s", look.look, (to - from).num_seconds())
+            }
+            _ => "other".into(),
+        })
+        .collect();
+    // Timed from what she was answering to the entry it ended with.
+    assert_eq!(
+        shown,
+        [
+            "how full is the disk?",
+            "look 7 for 12s",
+            "80% full",
+            "stop that",
+            "look 8 for 5s",
+            "other"
+        ]
+    );
+    assert!(!busy(&view), "a look that ended is her done with your line");
+    assert_eq!(newest_look_end(&journal, &place), Some(5));
+}
+
+#[test]
+fn a_look_is_timed_from_its_first_call_when_nothing_said_comes_before_it() {
+    let first = Utc::now() - chrono::Duration::seconds(30);
+    let look = a_look(1, None, first);
+    let later = first + chrono::Duration::seconds(5);
+    assert_eq!(look_started(&look, Some(later)), Some(first));
+    let before = first - chrono::Duration::seconds(5);
+    assert_eq!(look_started(&look, Some(before)), Some(before));
+    assert_eq!(look_started(&look, None), Some(first));
+}
+
+#[test]
+fn the_thread_asks_for_the_steps_of_open_cards_and_their_open_parts_only() {
+    let journal = two_sessions();
+    let place = place_key("s1");
+    let mut expanded = HashSet::new();
+    let works = |expanded: &HashSet<String>| wanted(&view(&journal, &[], &place, expanded)).works;
+    assert!(works(&expanded).is_empty(), "no card is open");
+    expanded.insert("part:w1/2".to_owned());
+    assert!(
+        works(&expanded).is_empty(),
+        "a part shows only inside its open card"
+    );
+    expanded.insert("task:w1".to_owned());
+    expanded.insert("part:w1/1".to_owned());
+    assert_eq!(
+        works(&expanded),
+        [
+            ("w1".to_owned(), true),
+            ("w1/1".to_owned(), false),
+            ("w1/2".to_owned(), true)
+        ]
+    );
+    let w = wanted(&view(&journal, &[], &place, &expanded));
+    assert_eq!((w.place.as_str(), w.thinking), ("console:s1", false));
+}
+
+#[test]
+fn a_works_steps_and_what_its_journal_says_of_it_are_told_in_order() {
+    let t0 = Utc::now() - chrono::Duration::minutes(10);
+    let step = |n, secs: Option<i64>| ghost_link::protocol::LoggedStep {
+        n,
+        at: secs.map(|s| (t0 + chrono::Duration::seconds(s)).to_rfc3339()),
+        said: String::new(),
+        ms: None,
+        calls: Vec::new(),
+    };
+    let told = Entry {
+        at: t0 + chrono::Duration::seconds(15),
+        ..entry(9, "reported", json!({"id": "w1", "text": "half done"}))
+    };
+    let steps = [step(1, Some(5)), step(2, None), step(3, Some(20))];
+    let order: Vec<String> = cards::along(t0, &[&told], &steps)
+        .into_iter()
+        .map(|a| match a {
+            cards::Along::Step(s) => format!("step {}", s.n),
+            cards::Along::Event(e) => e.kind.clone(),
+        })
+        .collect();
+    assert_eq!(order, ["step 1", "step 2", "reported", "step 3"]);
 }

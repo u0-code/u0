@@ -1,6 +1,9 @@
 //! What the desk follows: each ghost it watches on a daemon, kept up to
-//! date from her link, and the character opened from the left, with the
+//! date from her link, with what has been read of her steps for the
+//! thread on screen; and the character opened from the left, with the
 //! place her thread shows.
+
+use std::time::Instant;
 
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -8,6 +11,7 @@ use ghost_link::protocol::{CONSOLE, SayMode, Work};
 
 use crate::{
     daemons::Host,
+    follow::Following,
     link::{self, Link, Order},
     model::{Entry, LinkState, Message, PersonView, Reach, Status, Stop, Update},
     thread,
@@ -36,6 +40,9 @@ pub struct Watched {
     pub refused: Option<String>,
     /// The stops asked for from the desk since it began following her.
     pub stops: Vec<Stop>,
+    /// What has been read of her steps: her looks at the places shown, and
+    /// the work whose cards were opened.
+    pub following: Following,
 }
 
 impl Watched {
@@ -53,6 +60,7 @@ impl Watched {
             work: Vec::new(),
             refused: None,
             stops: Vec::new(),
+            following: Following::default(),
         }
     }
 
@@ -91,6 +99,28 @@ impl Watched {
         self.conn.order(order);
     }
 
+    /// Ask her daemon for what the thread on screen would show of her
+    /// steps and does not have yet, as `follow.rs` decides; nothing while
+    /// her daemon cannot be reached.
+    pub(super) fn follow(&mut self, wanted: &thread::Wanted) {
+        if self.link != LinkState::Connected {
+            return;
+        }
+        let now = Instant::now();
+        let place = self
+            .following
+            .place(&wanted.place, now, wanted.thinking, wanted.newest_end);
+        for read in place.into_iter().chain(
+            wanted
+                .works
+                .iter()
+                .filter_map(|(work, open)| self.following.work(work, now, *open))
+                .collect::<Vec<_>>(),
+        ) {
+            self.conn.read(read);
+        }
+    }
+
     /// Try its daemon again now, instead of after the wait.
     pub fn retry(&self) {
         self.conn.retry();
@@ -120,9 +150,16 @@ impl Watched {
     fn take(&mut self, update: Update) {
         match update {
             Update::Link(state) => {
+                // Nothing asked on a connection that went away will be
+                // answered.
+                if state != LinkState::Connected {
+                    self.following.lost();
+                }
                 self.reach.note(&self.link, &state);
                 self.link = state;
             }
+            Update::Looks { place, looks } => self.following.looks(&place, Instant::now(), looks),
+            Update::Steps { work, log } => self.following.steps(&work, Instant::now(), log),
             Update::Welcome(card) => self.card = Some(card),
             Update::Status(status) => self.status = Some(*status),
             Update::People(people) => self.people = people,

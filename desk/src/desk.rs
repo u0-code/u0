@@ -51,6 +51,7 @@ use crate::{
     answer::Replies,
     attention,
     daemons::Daemon,
+    follow::PlaceLooks,
     fonts,
     input::{Cancelled, Changed, Submitted, TextInput},
     link,
@@ -112,6 +113,14 @@ pub(crate) enum Popup {
     Connection(String),
 }
 
+/// When the desk last asked itself what of her steps to read for the
+/// thread on screen, and whether that thread shows something going on,
+/// which breathes: the desk draws again a few times a second while it does.
+struct OnScreen {
+    asked: Instant,
+    live: bool,
+}
+
 /// The form for adding a connection: whether it shows, its fields (name,
 /// URL, token variable), and why the last try was refused.
 pub(crate) struct Form {
@@ -168,6 +177,8 @@ pub struct Desk {
     /// A line at the foot of the composer: what the desk just did or could not.
     notice: Option<String>,
     last_tick: Instant,
+    /// What the desk last made of her steps in the thread on screen.
+    steps: OnScreen,
     /// Whether the sidebar shows.
     sidebar: bool,
     /// Sessions visited before and after the one on screen, by id, for
@@ -316,6 +327,10 @@ impl Desk {
             page: Page::Thread,
             notice,
             last_tick: Instant::now(),
+            steps: OnScreen {
+                asked: Instant::now(),
+                live: false,
+            },
             sidebar: true,
             back: Vec::new(),
             forward: Vec::new(),
@@ -372,13 +387,45 @@ impl Desk {
         if changed {
             self.sync_replies(cx);
         }
-        if self.last_tick.elapsed() >= Duration::from_secs(1) {
+        if self.steps.asked.elapsed() >= FOLLOW {
+            self.steps.asked = Instant::now();
+            self.follow();
+        }
+        if self.steps.live || self.last_tick.elapsed() >= Duration::from_secs(1) {
             self.last_tick = Instant::now();
             changed = true;
         }
         if changed {
             cx.notify();
         }
+    }
+
+    /// Ask the daemon of the thread on screen for what it would show of
+    /// her steps and does not have: what she called in her looks there,
+    /// and what the work whose cards are open did.
+    fn follow(&mut self) {
+        self.steps.live = false;
+        if self.attending() {
+            return;
+        }
+        let session = thread::place_key(&self.session().id);
+        let who = self.settings.who.clone();
+        let (ghost, place) = match &mut self.open {
+            Some(open) => {
+                let place = open.place(&who);
+                (&mut open.her, place)
+            }
+            None => (&mut self.solver, session),
+        };
+        let wanted = thread::wanted(&thread_view(ghost, &place, &who, None, &self.expanded));
+        ghost.follow(&wanted);
+        let looking = ghost
+            .following
+            .places
+            .get(&wanted.place)
+            .and_then(PlaceLooks::running)
+            .is_some();
+        self.steps.live = wanted.thinking || looking || wanted.works.iter().any(|(_, open)| *open);
     }
 
     /// The session on screen. There is always one: the desk opens a new
@@ -434,6 +481,35 @@ impl Desk {
     }
 }
 
+/// How often, at most, the desk asks itself what of her steps to read:
+/// well under the second a look is followed at.
+const FOLLOW: Duration = Duration::from_millis(300);
+
+/// Everything the thread needs to draw the place `place` in `ghost`'s
+/// journal.
+fn thread_view<'a>(
+    ghost: &'a Watched,
+    place: &'a str,
+    who: &str,
+    abilities: Option<&'a Abilities>,
+    expanded: &'a HashSet<String>,
+) -> thread::View<'a> {
+    thread::View {
+        journal: &ghost.journal,
+        pending: &ghost.pending,
+        stops: &ghost.stops,
+        place,
+        name: ghost.name(),
+        who: who.to_owned(),
+        tz: ghost.tz(),
+        connected: ghost.link == LinkState::Connected,
+        abilities,
+        expanded,
+        following: &ghost.following,
+        rendering: thread::Rendering::Task,
+    }
+}
+
 impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = fonts::faces(cx).clone();
@@ -458,18 +534,7 @@ impl Render for Desk {
                     Some(&self.abilities),
                 ),
             };
-            let view = thread::View {
-                journal: &ghost.journal,
-                pending: &ghost.pending,
-                stops: &ghost.stops,
-                place: &place,
-                name: ghost.name(),
-                who: self.who().to_owned(),
-                tz: ghost.tz(),
-                connected: ghost.link == LinkState::Connected,
-                abilities,
-                expanded: &self.expanded,
-            };
+            let view = thread_view(ghost, &place, self.who(), abilities, &self.expanded);
             // Only a place on the console channel is yours to stop her in.
             let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
                 && thread::busy(&view);
@@ -478,7 +543,7 @@ impl Render for Desk {
                 .child(self.composer(&faces, busy, window, cx))
         };
 
-        div()
+        fonts::with_fallbacks(div())
             .relative()
             .flex()
             .size_full()

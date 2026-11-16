@@ -5,10 +5,17 @@
 //! Serif) are open fonts, loaded from `assets/fonts/` when they are there.
 //! Until they are, each falls back to a face macOS always has, so the desk
 //! still reads as three voices.
+//!
+//! None of them has Chinese, and what she says often is. Each falls back
+//! to `PingFang SC` for it, the face macOS sets Chinese in, rather than to
+//! whatever the system's cascade finds first for the language you set,
+//! which can be a Japanese face with other shapes for the same characters.
+//! The window's text carries the fallbacks, so every face under it has
+//! them; a run of text set with a font of its own is given them too.
 
 use std::{borrow::Cow, path::PathBuf};
 
-use gpui::{App, Global, SharedString};
+use gpui::{App, FontFallbacks, Global, SharedString, Styled};
 
 #[derive(Clone)]
 pub struct Faces {
@@ -50,6 +57,25 @@ pub fn load(cx: &mut App) {
         mono: pick(&["IBM Plex Mono", "SF Mono", "Menlo"]),
         serif: pick(&["Instrument Serif", "New York", "Georgia"]),
     });
+}
+
+/// The faces a character none of ours has is looked for in, in order:
+/// Chinese in `PingFang SC` (or, on a system without it, `Hiragino Sans GB`),
+/// and emoji in colour.
+pub fn fallbacks() -> FontFallbacks {
+    FontFallbacks::from_fonts(vec![
+        "PingFang SC".to_owned(),
+        "Hiragino Sans GB".to_owned(),
+        "Apple Color Emoji".to_owned(),
+    ])
+}
+
+/// `el`, with the fallbacks for everything set in it.
+pub fn with_fallbacks<E: Styled>(mut el: E) -> E {
+    el.text_style()
+        .get_or_insert_with(Default::default)
+        .font_fallbacks = Some(fallbacks());
+    el
 }
 
 pub fn faces(cx: &App) -> &Faces {
