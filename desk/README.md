@@ -110,9 +110,10 @@ When she looked and could not think (her brain refused, or is signed out),
 her journal says so, and the thread says it where her answer would be, in
 a quiet line, with Retry to say your last line again.
 
-Nothing on the desk is made up. Down the left, a session shows a dot only
-while its work runs (amber) or waits on you (purple), with the parts of
-open work under it. Down the right: Environment (the machine its work runs
+Nothing on the desk is made up. Down the left, sessions sit newest first
+under a head for each day in Ghost's clock (Today, Yesterday, then the
+date), and a session shows a dot only while its work runs (amber) or
+waits on you (purple), with the parts of open work under it. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
 Context (the journal, the tempo, your sessions, you as its operator), Work
 (this session's, newest first), and Outputs (the files its work reported
