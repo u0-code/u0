@@ -77,7 +77,7 @@ use ghost_work::{
 const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
-use super::{Mind, Outcome};
+use super::{Mind, Operator, Order, Outcome, Refused};
 use crate::{Result, Runs, actions::clip};
 
 /// A sitting in progress.
@@ -86,6 +86,9 @@ pub(super) struct Working {
     pub pause: Arc<AtomicBool>,
     /// Its record, which the sitting writes to as it goes.
     pub record: Arc<Undertaking>,
+    /// The name of an operator who stopped it from a console, if one did,
+    /// for when the sitting comes back stopped.
+    pub stopped_by: Option<String>,
 }
 
 /// What moves a sitting from one step to the next.
@@ -164,6 +167,7 @@ impl Mind {
                         self.record(Event::Added {
                             id: open.id,
                             text: added,
+                            by: None,
                         })?;
                         self.work_at(now);
                         None
@@ -295,6 +299,7 @@ impl Mind {
             self.record(Event::Added {
                 id: stale.id,
                 text: said,
+                by: None,
             })?;
             return Ok(true);
         }
@@ -446,6 +451,7 @@ impl Mind {
             Working {
                 pause: pause.clone(),
                 record: undertaking.clone(),
+                stopped_by: None,
             },
         );
         self.work_at(now + GLANCE);
@@ -666,6 +672,19 @@ impl Mind {
             Ok(u) => u,
             Err(why) => return Ok(Some(why)),
         };
+        self.pass_on(u, text, None, now)
+    }
+
+    /// Put `text` in the inbox of the open work `u`, from `by` if it was
+    /// not she who passed it on, and write it in her journal. Returns why
+    /// not, if its record cannot be written to.
+    fn pass_on(
+        &mut self,
+        u: ghost_core::memory::Undertaking,
+        text: &str,
+        by: Option<String>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<String>> {
         if let Err(e) = self
             .undertaking(&u.id, &u.brief)
             .and_then(|record| record.add(text))
@@ -677,9 +696,49 @@ impl Mind {
         self.record(Event::Added {
             id: u.id,
             text: text.to_owned(),
+            by,
         })?;
         self.work_at(now);
         Ok(None)
+    }
+
+    /// An operator does `order` to her work from a console, without her:
+    /// answers what it asked, or stops it, the way she would. It has to be
+    /// work she has open; a part answers to the work it is part of.
+    pub(super) fn on_order(
+        &mut self,
+        order: Order,
+        by: &Operator,
+        now: DateTime<Utc>,
+    ) -> Result<std::result::Result<(), Refused>> {
+        let (Order::Answer { work, .. } | Order::Stop { work }) = &order;
+        let u = match self.ghost.memory().undertaking(work)? {
+            Some(u) if u.outcome.is_none() => u,
+            Some(_) => {
+                return Ok(Err(Refused::NoSuchWork(format!(
+                    "{work} has already ended"
+                ))));
+            }
+            None => return Ok(Err(Refused::NoSuchWork(format!("she has no work {work}")))),
+        };
+        info!(
+            "{} {} from a console",
+            by.key,
+            match order {
+                Order::Answer { .. } => "answers",
+                Order::Stop { .. } => "stops",
+            }
+        );
+        let failed = match order {
+            Order::Answer { text, .. } => {
+                self.pass_on(u, text.trim(), Some(by.key.clone()), now)?
+            }
+            Order::Stop { .. } => {
+                self.stop_open(u, Some(by.name.clone()), now)?;
+                None
+            }
+        };
+        Ok(failed.map_or(Ok(()), |why| Err(Refused::Failed(why))))
     }
 
     /// She stops work she has under way. A sitting on it ends after the
@@ -691,11 +750,24 @@ impl Mind {
             Ok(u) => u,
             Err(why) => return Ok(Some(why)),
         };
-        if let Some(working) = self.working.get(&u.id) {
+        self.stop_open(u, None, now)?;
+        Ok(None)
+    }
+
+    /// Stop the open work `u`, as she does, or as the operator named `by`
+    /// does from a console.
+    fn stop_open(
+        &mut self,
+        u: ghost_core::memory::Undertaking,
+        by: Option<String>,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        if let Some(working) = self.working.get_mut(&u.id) {
             working.record.stop();
             working.pause.store(true, Ordering::Relaxed);
+            working.stopped_by = by;
             info!("stopping {}", u.id);
-            return Ok(None);
+            return Ok(());
         }
         let progress = match self.undertaking(&u.id, &u.brief) {
             Ok(record) => {
@@ -709,18 +781,23 @@ impl Mind {
             }
         };
         info!("stopped {}", u.id);
-        self.dropped(&u.id, &progress)?;
-        Ok(None)
+        self.dropped(&u.id, &progress, by.as_deref())
     }
 
-    /// The work `id` ends because she stopped it.
-    fn dropped(&mut self, id: &str, progress: &str) -> Result<()> {
+    /// The work `id` ends because she stopped it, or the operator named
+    /// `by` did.
+    fn dropped(&mut self, id: &str, progress: &str, by: Option<&str>) -> Result<()> {
+        let progress = ("progress", progress.to_owned());
+        let summary = match by {
+            Some(name) => self
+                .prompts
+                .fill("stopped_by", &[("name", name.to_owned()), progress]),
+            None => self.prompts.fill("stopped", &[progress]),
+        };
         self.record(Event::Concluded {
             id: id.to_owned(),
             outcome: "dropped".into(),
-            summary: self
-                .prompts
-                .fill("stopped", &[("progress", progress.to_owned())]),
+            summary,
         })?;
         Ok(())
     }
@@ -748,7 +825,7 @@ impl Mind {
         record: &Undertaking,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.working.remove(id);
+        let stopped_by = self.working.remove(id).and_then(|w| w.stopped_by);
         // Whatever it said and kept up to the end.
         self.hear_from_work(id, record, now)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
@@ -763,7 +840,7 @@ impl Mind {
             Ended::GaveUp => "gave_up",
             Ended::Dropped => {
                 info!("{id} stopped after {} steps", report.steps);
-                self.dropped(id, &progress)?;
+                self.dropped(id, &progress, stopped_by.as_deref())?;
                 return Ok(());
             }
             Ended::Failed(why) => {
@@ -789,11 +866,18 @@ impl Mind {
                     question: question.clone(),
                 })?;
                 if let Some(u) = self.ghost.memory().undertaking(id)? {
+                    let options = record.state().waiting_options;
+                    let choices = if options.is_empty() {
+                        String::new()
+                    } else {
+                        self.prompts
+                            .fill("ask_options", &[("options", options.join(" / "))])
+                    };
                     let ask = self.prompts.fill(
                         "ask_them",
                         &[
                             ("brief", clip(&u.brief, 160)),
-                            ("question", clip(&question, 600)),
+                            ("question", format!("{}{choices}", clip(&question, 600))),
                         ],
                     );
                     self.intend_as(

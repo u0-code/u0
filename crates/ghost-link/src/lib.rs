@@ -21,7 +21,7 @@ use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
     ConsoleSaid, ConsoleSay, Frame, Hello, JournalRead, ListGhosts, PROTOCOL, Role, Roster,
-    SayMode, Welcome, method,
+    SayMode, Welcome, WorkAnswer, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -213,6 +213,29 @@ impl Console {
             mode,
         };
         self.conn.call(method::SAY, &params).await
+    }
+
+    /// Answer what the work `work` asked, or add to what it was asked, as
+    /// an operator of hers. Say who is at the console first, with
+    /// [`Self::connect_as`].
+    pub async fn answer(&mut self, work: &str, text: &str) -> anyhow::Result<()> {
+        let params = WorkAnswer {
+            work: work.to_owned(),
+            text: text.to_owned(),
+        };
+        self.conn
+            .call::<Value>(method::WORK_ANSWER, &params)
+            .await?;
+        Ok(())
+    }
+
+    /// Stop the work `work`, as an operator of hers.
+    pub async fn stop(&mut self, work: &str) -> anyhow::Result<()> {
+        let params = WorkStop {
+            work: work.to_owned(),
+        };
+        self.conn.call::<Value>(method::WORK_STOP, &params).await?;
+        Ok(())
     }
 
     /// Ask for every journal entry from now on. Read them with [`Self::next_entry`].

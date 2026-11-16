@@ -104,6 +104,18 @@ pub mod method {
     /// written in her journal and nowhere else: a console reads it as a
     /// `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
     pub const SAY: &str = "console.say";
+    /// Console → daemon request. Params [`WorkAnswer`](super::WorkAnswer),
+    /// result `{}`. An operator at the console answers what a piece of work
+    /// of hers asked, or adds to what it was asked, as she would pass it
+    /// on: it reaches the work before its next step, and her journal says
+    /// it was theirs. Her open work only, by its id; anything else is
+    /// refused with [`NO_SUCH_WORK`](super::code::NO_SUCH_WORK).
+    pub const WORK_ANSWER: &str = "work.answer";
+    /// Console → daemon request. Params [`WorkStop`](super::WorkStop),
+    /// result `{}`. An operator at the console stops a piece of work of
+    /// hers, as she would: a sitting at it ends after the step it is on.
+    /// Refused as [`WORK_ANSWER`] is.
+    pub const WORK_STOP: &str = "work.stop";
 }
 
 /// The channel a console speaks to her on. It is the daemon's own: no
@@ -128,6 +140,9 @@ pub mod code {
     /// The hello named a character this daemon does not run, or named
     /// nobody when it runs several. Retrying cannot fix it.
     pub const NO_SUCH_GHOST: i64 = -32004;
+    /// The work named is not one she has open: there is none by that id,
+    /// it is a part, or it has ended.
+    pub const NO_SUCH_WORK: i64 = -32005;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
 }
@@ -642,6 +657,12 @@ pub struct Work {
     /// What it asked whoever it is for, while it waits to hear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
+    /// What answering the question takes, when the work said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AskKind>,
+    /// For a question of kind `choose`, what to choose from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
     /// How it ended, in its own words, once it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
@@ -651,6 +672,41 @@ pub struct Work {
     /// The parts it handed out, by number. A part hands out none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Work>,
+}
+
+/// What answering a piece of work's question takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AskKind {
+    /// Saying something: a fact, a preference, a yes or no.
+    Answer,
+    /// Giving it a file only they have.
+    File,
+    /// Doing something only they can, such as signing in, and saying when
+    /// it is done.
+    Act,
+    /// Picking one of [`Work::options`].
+    Choose,
+    /// A kind this client does not know, from a newer daemon.
+    #[serde(other)]
+    Other,
+}
+
+/// Params of [`method::WORK_ANSWER`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkAnswer {
+    /// The work's id, as [`Work::id`] has it. A part is answered by the
+    /// work it is part of, not from a console.
+    pub work: String,
+    /// The answer, or what is to be added to what it was asked.
+    pub text: String,
+}
+
+/// Params of [`method::WORK_STOP`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkStop {
+    /// The work's id, as [`Work::id`] has it.
+    pub work: String,
 }
 
 /// Where a piece of work stands.
@@ -830,6 +886,35 @@ mod tests {
         assert_eq!(work.state, WorkState::Other);
         assert_eq!(work.parts[0].state, WorkState::Running);
         assert!(!work.state.ended() && work.parts[0].steps == 0);
+    }
+
+    #[test]
+    fn what_a_question_asks_for_rides_along_only_when_the_work_said_and_a_newer_kind_still_reads() {
+        let plain: Work =
+            serde_json::from_str(r#"{"id":"u1","brief":"b","state":"waiting","question":"q?"}"#)
+                .unwrap();
+        assert_eq!((plain.kind, plain.options.len()), (None, 0));
+        let sent = serde_json::to_string(&plain).unwrap();
+        assert!(
+            !sent.contains("kind") && !sent.contains("options"),
+            "{sent}"
+        );
+        let choice: Work = serde_json::from_str(
+            r#"{"id":"u1","brief":"b","state":"waiting","question":"q?","kind":"choose","options":["a","b"]}"#,
+        )
+        .unwrap();
+        assert_eq!(choice.kind, Some(AskKind::Choose));
+        assert_eq!(choice.options, ["a", "b"]);
+        // As her mind answers it, with nothing said.
+        let nothing: Work = serde_json::from_str(
+            r#"{"id":"u1","brief":"b","state":"open","kind":null,"options":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(nothing.kind, None);
+        let newer: Work =
+            serde_json::from_str(r#"{"id":"u1","brief":"b","state":"waiting","kind":"sign"}"#)
+                .unwrap();
+        assert_eq!(newer.kind, Some(AskKind::Other));
     }
 
     #[test]

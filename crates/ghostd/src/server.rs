@@ -541,6 +541,13 @@ async fn watch<S>(
                 }
                 continue;
             }
+            Some(method::WORK_ANSWER | method::WORK_STOP) => {
+                let reply = operator::work(id, &frame, at.owner, at.who.as_deref(), who).await;
+                if out.send(reply).await.is_err() {
+                    break;
+                }
+                continue;
+            }
             Some(method::JOURNAL_PLACE) => match frame.params::<PlaceRead>() {
                 Ok(read) => Question::Thread {
                     place: read.place,

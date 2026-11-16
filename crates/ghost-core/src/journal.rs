@@ -225,6 +225,10 @@ pub enum Event {
     Added {
         id: String,
         text: String,
+        /// Who added it, when it was not passed on by her: the key of an
+        /// operator who answered the work, or added to it, from a console.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
     },
     /// An undertaking ended: `finished`, `blocked`, `gave_up` or `dropped`.
     Concluded {

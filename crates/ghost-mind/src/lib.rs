@@ -19,7 +19,7 @@ pub mod senses;
 
 pub use body::{Act, Acted, Body, Can, Feed, Incoming, Measure};
 pub use config::{CONSOLE, MindConfig, Operators, PlaceConfig, Runs, WorkConfig};
-pub use mind::{Mind, MindHandle, Parts, Question, Workshop};
+pub use mind::{Mind, MindHandle, Operator, Order, Parts, Question, Refused, Workshop};
 pub use prompts::Prompts;
 pub use senses::{Numb, OpenMeteo, Senses};
 

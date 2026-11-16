@@ -44,7 +44,10 @@ What makes it hold up over hours:
   parts of its own, and the work cannot be called `finished` while one is
   still going. Calls that only look run side by side.
 - Where there is someone to ask, the worker can stop and ask (`ask`), and
-  goes on when the answer is added to the task.
+  goes on when the answer is added to the task. It may say what answering
+  takes, `answer`, `file`, `act` or `choose` with `options`; the record
+  keeps it beside the question until the answer comes, for whoever shows
+  the question to them.
 - Talking without acting, repeating a call, and running low on steps are each
   said out loud to the model.
 

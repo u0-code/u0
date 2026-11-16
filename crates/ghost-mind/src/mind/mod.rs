@@ -131,6 +131,44 @@ pub enum Question {
     Journal { from: i64, limit: usize },
 }
 
+/// Someone who runs her body, acting on her from a console.
+#[derive(Debug, Clone)]
+pub struct Operator {
+    /// Who her memory knows them as, `channel:id`.
+    pub key: String,
+    /// Their name, as she is told it.
+    pub name: String,
+}
+
+/// What an operator does to her work from a console, without her. Each
+/// is done the way she does it herself, and written in her journal as
+/// theirs.
+#[derive(Debug, Clone)]
+pub enum Order {
+    /// Answer what the work `work` asked, or add to what it was asked:
+    /// `text` is put in its inbox, as what she passes on is.
+    Answer { work: String, text: String },
+    /// Stop the work `work`, as she stops work.
+    Stop { work: String },
+}
+
+/// Why an [`Order`] was not carried out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
+    /// She has no open work by that id: none, or it has ended.
+    NoSuchWork(String),
+    /// It is hers, and could not be done.
+    Failed(String),
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSuchWork(why) | Self::Failed(why) => f.write_str(why),
+        }
+    }
+}
+
 enum Signal {
     Heard {
         channel: String,
@@ -151,6 +189,11 @@ enum Signal {
     Ask {
         question: Question,
         answer: oneshot::Sender<Value>,
+    },
+    Order {
+        order: Order,
+        by: Operator,
+        answer: oneshot::Sender<std::result::Result<(), Refused>>,
     },
     Stop,
 }
@@ -201,6 +244,17 @@ impl MindHandle {
     pub async fn ask(&self, question: Question) -> Result<Value> {
         let (answer, rx) = oneshot::channel();
         self.send(Signal::Ask { question, answer }).await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// An operator, `by`, does `order` to her work from a console.
+    pub async fn order(
+        &self,
+        order: Order,
+        by: Operator,
+    ) -> Result<std::result::Result<(), Refused>> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Order { order, by, answer }).await?;
         rx.await.map_err(|_| Error::Stopped)
     }
 
@@ -593,6 +647,9 @@ impl Mind {
             }
             Signal::Ask { question, answer } => {
                 let _ = answer.send(self.answer(&question, now)?);
+            }
+            Signal::Order { order, by, answer } => {
+                let _ = answer.send(self.on_order(order, &by, now)?);
             }
             Signal::Stop => {}
         }
