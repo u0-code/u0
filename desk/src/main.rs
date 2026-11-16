@@ -19,6 +19,7 @@ mod attention;
 mod brains;
 mod daemons;
 mod desk;
+mod follow;
 mod fonts;
 mod icon;
 mod input;

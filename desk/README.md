@@ -81,15 +81,29 @@ ssh -N -L 7537:127.0.0.1:7437 you@server   # then add ws://127.0.0.1:7537
 
 ## The thread
 
-What the solver says is drawn as the Markdown it writes. What it looked up
-or opened while answering is a line that opens to what it found. A piece of
-work it took on is a card that says where it stands at a glance (running,
-waiting on you, finished, blocked) and opens to every sitting, report and
-question, with its parts, the workers it handed pieces to, underneath.
-Everything is read from the solver's journal. A part is drawn when its
-entries are there; today the daemon keeps parts in the work database and
-not in the journal, so most work shows none yet. A session with nothing in
-it says what the solver can do here, as its deployment's `[mind.work]`
+It is drawn task-first, the way a coding agent's app draws a session:
+what you say in a bubble on the right, what she says as the Markdown she
+writes, in a column about as wide as comfortable prose, and above each
+answer what she did to get to it. That is one line, "Worked for 12s · 3
+steps", folded once she has answered and open while she is still at it,
+with a row for each call: "Ran du -sh ~/Library", "Read src/main.rs",
+"Searched …", "Opened example.com", or "Used" and the name of a tool of a
+server she installed. Each row has how long the call took, and opens to
+the head of what came back, with how much more there was when it was cut.
+A call that failed is marked, calmly. The desk reads this with
+`look.steps`: once for the place on screen, again whenever a look there
+may have ended, and about once a second while she thinks there, so the
+rows come in as she calls. A daemon from before steps were kept shows
+what it looked up or opened as a line that opens to what it found.
+
+A piece of work she took on is a card that says where it stands at a
+glance (running, waiting on you, finished, blocked) and opens to what it
+did step by step, from `work.steps`, every two seconds while it runs:
+what the model said at a step, as a quiet line, and that step's calls as
+rows, between what its journal says it reported, asked and concluded. Its
+parts, the workers it handed pieces to, are cards inside it, each with
+its state, which open to their own steps. A session with nothing in it
+says what the solver can do here, as its deployment's `[mind.work]`
 allows, and offers a few things to ask for, which only fill in the line.
 
 When she looked and could not think (her brain refused, or is signed out),
@@ -173,7 +187,12 @@ Three faces: a sans for the interface, a mono for times and names, a serif
 for the one line on an empty page. The design is set in IBM Plex Sans, IBM
 Plex Mono and Instrument Serif; drop their `.ttf` or `.otf` files into
 `assets/fonts/` and they are used, otherwise the system's own faces stand
-in. The app's icon is the ghost of the repository's own mark, on the body
+in. None of them has Chinese, so each falls back to PingFang SC for it,
+rather than to whatever the system's cascade finds first. The thread is
+set from a few sizes kept in `src/thread/style.rs`: body text at 14 px on
+22.5 px lines, secondary text at 12.5, commands and output in mono at 12,
+small print at 11, and space in steps of four.
+The app's icon is the ghost of the repository's own mark, on the body
 macOS app icons sit on: `assets/app/icon.svg`, rendered to
 `assets/app/icon.png`. The brands' marks and where they came from are in
 `assets/icons/CREDITS.txt`.

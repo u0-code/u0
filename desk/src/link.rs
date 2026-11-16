@@ -3,7 +3,9 @@
 //! Two kinds. A [`Link`] follows one ghost on one daemon as a console: it
 //! asks about her, streams her journal, and carries what whoever sits at
 //! the desk says to her and does to her work, as an operator of hers, with
-//! `console.say`, `work.answer` and `work.stop`. Each session with the
+//! `console.say`, `work.answer` and `work.stop`; and it reads her steps,
+//! what she called while she looked and what her work did, when the thread
+//! asks (`look.steps`, `work.steps`). Each session with the
 //! solver is a place of its own on the console channel, so her journal
 //! keeps the threads apart. A [`Listing`] asks a daemon who it runs, now
 //! and then, and what each of them is waiting on you for, so that the desk
@@ -29,7 +31,10 @@ use serde_json::Value;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use tracing::{debug, info};
 
-use crate::model::{Entry, LinkState, PersonView, Status, Update};
+use crate::{
+    follow::Read,
+    model::{Entry, LinkState, PersonView, Status, Update},
+};
 
 /// How many journal entries the desk holds when it connects.
 pub const TAIL: u32 = 400;
@@ -124,6 +129,30 @@ async fn carry_out(console: &mut Console, order: &Order) -> anyhow::Result<bool>
 }
 
 type Orders = tokio::sync::mpsc::UnboundedReceiver<Order>;
+type Reads = tokio::sync::mpsc::UnboundedReceiver<Read>;
+
+/// Ask what `read` asks, and hand the answer, or why there is none, to the
+/// desk. A daemon from before steps were kept refuses it; that is said,
+/// and the connection goes on.
+async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>) {
+    let update = match read {
+        Read::Looks { place, after } => Update::Looks {
+            looks: console
+                .look_steps(&place, after)
+                .await
+                .map_err(|e| format!("{e:#}")),
+            place,
+        },
+        Read::Steps { work, after } => Update::Steps {
+            log: console
+                .work_steps(&work, after, None)
+                .await
+                .map_err(|e| format!("{e:#}")),
+            work,
+        },
+    };
+    let _ = up.send(update);
+}
 
 /// One ghost the desk follows.
 pub struct Link {
@@ -132,6 +161,8 @@ pub struct Link {
     /// Where what you do to her goes. It waits there while her daemon
     /// cannot be reached, and goes when it can.
     orders: tokio::sync::mpsc::UnboundedSender<Order>,
+    /// Where what the thread wants to read of her steps goes.
+    reads: tokio::sync::mpsc::UnboundedSender<Read>,
     task: JoinHandle<()>,
     /// Rung to try a lost daemon again at once.
     wake: Arc<tokio::sync::Notify>,
@@ -143,14 +174,22 @@ impl Link {
     pub fn watch(cfg: Config) -> Self {
         let (up, rx) = mpsc::channel();
         let (orders, taken) = tokio::sync::mpsc::unbounded_channel();
+        let (reads, to_read) = tokio::sync::mpsc::unbounded_channel();
         let wake = Arc::new(tokio::sync::Notify::new());
-        let task = runtime().spawn(console(cfg, up, wake.clone(), taken));
+        let task = runtime().spawn(console(cfg, up, wake.clone(), taken, to_read));
         Self {
             rx,
             orders,
+            reads,
             task,
             wake,
         }
+    }
+
+    /// Read some of her steps, once her daemon can be reached. The answer
+    /// comes back as [`Update::Looks`] or [`Update::Steps`].
+    pub fn read(&self, read: Read) {
+        let _ = self.reads.send(read);
     }
 
     /// Try the daemon again now, if it is lost, instead of after the wait.
@@ -318,11 +357,12 @@ async fn console(
     up: mpsc::Sender<Update>,
     wake: Arc<tokio::sync::Notify>,
     mut orders: Orders,
+    mut reads: Reads,
 ) {
     let mut wait = RETRY;
     loop {
         let _ = up.send(Update::Link(LinkState::Connecting));
-        match session(&cfg, &up, &mut orders).await {
+        match session(&cfg, &up, &mut orders, &mut reads).await {
             Ok(()) => {
                 let _ = up.send(Update::Link(LinkState::Lost(
                     "the daemon closed the connection".into(),
@@ -340,6 +380,7 @@ async fn session(
     cfg: &Config,
     up: &mpsc::Sender<Update>,
     orders: &mut Orders,
+    reads: &mut Reads,
 ) -> anyhow::Result<()> {
     // One connection streams her journal; a second asks questions and
     // carries what you do, since a call on a subscribed connection would
@@ -399,6 +440,7 @@ async fn session(
                     }
                 }
             }
+            Some(read) = reads.recv() => read_steps(&mut asker, read, up).await,
             _ = refresh.tick() => {
                 ask_all(&mut asker, up).await?;
             }

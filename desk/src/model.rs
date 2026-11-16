@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{Attention, GhostCard, Listed, Work};
+use ghost_link::protocol::{Attention, GhostCard, Listed, Look, Work, WorkLog};
 use serde_json::Value;
 
 /// One line of her journal.
@@ -240,6 +240,18 @@ pub enum Update {
     /// Something done to a character from Attention is done; or why not.
     Ordered {
         why: Option<String>,
+    },
+    /// What she called while she looked at a place, by key, as
+    /// `look.steps` says; or why it could not be read.
+    Looks {
+        place: String,
+        looks: Result<Vec<Look>, String>,
+    },
+    /// The steps of a work or a part, by id, as `work.steps` says; or why
+    /// they could not be read.
+    Steps {
+        work: String,
+        log: Result<WorkLog, String>,
     },
 }
 
