@@ -3228,8 +3228,9 @@ async fn a_tool_described_anew_in_the_deployments_prompts_reaches_the_brain_with
     assert_eq!(say(&rig, 0).description, shipped.tool("say"));
 
     // While she runs, someone describes `say` differently.
+    std::fs::create_dir_all(deployment.path().join("system")).unwrap();
     std::fs::write(
-        deployment.path().join("tools.toml"),
+        deployment.path().join("system/tools.toml"),
         "[say]\ndescription = \"Say one thing.\"\n\n[say.parameters]\ntext = \"What you say.\"\n",
     )
     .unwrap();
@@ -4112,11 +4113,11 @@ async fn a_page_she_opens_reaches_her_inside_the_outside_mark_with_its_address()
 
     let (output, failed) = last_result(&rig, "fetch");
     assert!(!failed);
-    let from =
-        rig.mind
-            .prompts
-            .store()
-            .fill("work_texts.toml", "outside_fetch", &[("url", url.clone())]);
+    let from = rig.mind.prompts.store().fill(
+        ghost_work::prompts::TEXTS,
+        "outside_fetch",
+        &[("url", url.clone())],
+    );
     assert!(
         output.starts_with(&format!("<outside from=\"{from}\">\nOpening hours")),
         "{output}"
@@ -5776,7 +5777,8 @@ fn the_system_prompt_is_her_persona_then_her_being_then_what_is_true_of_her_life
     // With the persona template emptied, nothing of his is left in it: his
     // fields reach his brain through that template and no other.
     let deployment = tempfile::tempdir().unwrap();
-    std::fs::write(deployment.path().join("persona.md"), "").unwrap();
+    std::fs::create_dir_all(deployment.path().join("character")).unwrap();
+    std::fs::write(deployment.path().join("character/persona.md"), "").unwrap();
     let mut rig = rig;
     rig.mind.prompts = Prompts::load(Some(deployment.path()));
     let system = rig.mind.who(t0).unwrap();

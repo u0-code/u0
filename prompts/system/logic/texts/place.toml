@@ -1,0 +1,9 @@
+# Where she is (attend.md, view.md, digest.md).
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+place_direct = "{{channel}}: a private conversation with {{who}}."
+place_group = "{{channel}}: the group chat {{name}}. Several people are here, and not everything said is meant for you."
+place_public = "{{channel}}: a public thread. Anyone can read what is written here."
+place_me = " You are {{me}} here."

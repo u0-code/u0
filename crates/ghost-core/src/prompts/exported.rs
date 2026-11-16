@@ -19,11 +19,18 @@
 //!
 //! In a file of texts or tools only entries count. One the copy leaves out
 //! is taken from the built-in already, so a copy is stale only in the
-//! entries it carries whose built-in text has changed.
+//! entries it carries whose built-in text has changed. A text is compared
+//! with its built-in in whichever file of its table that is.
 //!
 //! A copy made before there was a record cannot be dated. It is reported
 //! only for placeholders it lacks, and [`update`] records it once it is the
 //! same as the built-in.
+//!
+//! The record names each file by its path in the tree. A record written
+//! when the copies were flat names them by their old names, and is still
+//! read that way, so that copies moved into the tree keep their dates. Only
+//! copies at their place in the tree are looked at here: a flat directory
+//! is warned about where it is read, and is moved before it is kept up.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -52,6 +59,16 @@ struct Record {
     files: BTreeMap<String, Copied>,
 }
 
+impl Record {
+    /// What `file` was copied from: under its path, or, in a record made
+    /// before the tree, its flat name.
+    fn of(&self, file: &File) -> Option<&Copied> {
+        self.files
+            .get(file.path)
+            .or_else(|| self.files.get(file.flat))
+    }
+}
+
 /// What one file was copied from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Copied {
@@ -66,7 +83,7 @@ impl Copied {
             built_in: hash(file.built_in),
             entries: match file.kind {
                 Kind::Whole => BTreeMap::new(),
-                Kind::Texts | Kind::Tools => entries(file.built_in)
+                Kind::Texts(_) | Kind::Tools => entries(file.built_in)
                     .into_iter()
                     .map(|(key, text)| (key, hash(&text)))
                     .collect(),
@@ -96,14 +113,14 @@ pub fn stale(files: &[File], dir: &Path) -> Vec<Stale> {
     let record = read(dir);
     let mut found = Vec::new();
     for file in files {
-        let path = dir.join(file.name);
+        let path = dir.join(file.path);
         let Ok(copy) = fs::read_to_string(&path) else {
             continue;
         };
         if copy == file.built_in {
             continue;
         }
-        let then = record.files.get(file.name);
+        let then = record.of(file);
         // One piece: the whole file, or one entry of it. Reported if its
         // built-in moved on since it was copied, or, with nothing to date
         // it by, if it lacks a placeholder the built-in fills in.
@@ -116,7 +133,7 @@ pub fn stale(files: &[File], dir: &Path) -> Vec<Stale> {
             if changed || (was.is_none() && !missing.is_empty()) {
                 found.push(Stale {
                     path: path.clone(),
-                    file: file.name,
+                    file: file.path,
                     key: key.cloned(),
                     changed,
                     missing,
@@ -125,8 +142,8 @@ pub fn stale(files: &[File], dir: &Path) -> Vec<Stale> {
         };
         match file.kind {
             Kind::Whole => weigh(None, then.map(|c| &c.built_in), file.built_in, &copy),
-            Kind::Texts | Kind::Tools => {
-                let now = entries(file.built_in);
+            Kind::Texts(_) | Kind::Tools => {
+                let now = built_in_entries(files, file.kind);
                 for (key, mine) in entries(&copy) {
                     // A name the built-in does not have is warned about
                     // where the file is read.
@@ -164,9 +181,9 @@ pub enum Updated {
 
 /// Bring each copy in `dir` that nobody edited up to its current built-in,
 /// leave the rest alone, and record copies of the current built-ins as
-/// such. A file named in `looked_at` is one its owner has brought up to
-/// date by hand; it is recorded and left as it is. A file with no copy in
-/// `dir` is passed over.
+/// such. A file whose path is in `looked_at` is one its owner has brought
+/// up to date by hand; it is recorded and left as it is. A file with no
+/// copy in `dir` is passed over.
 pub fn update(
     files: &[File],
     dir: &Path,
@@ -175,19 +192,16 @@ pub fn update(
     let mut record = read(dir);
     let mut done = Vec::new();
     for file in files {
-        let path = dir.join(file.name);
+        let path = dir.join(file.path);
         let copy = match fs::read_to_string(&path) {
             Ok(copy) => copy,
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
         };
-        let unedited = record
-            .files
-            .get(file.name)
-            .is_some_and(|c| c.built_in == hash(&copy));
+        let unedited = record.of(file).is_some_and(|c| c.built_in == hash(&copy));
         let what = if copy == file.built_in {
             Updated::Current
-        } else if looked_at.contains(&file.name) {
+        } else if looked_at.contains(&file.path) {
             Updated::Marked
         } else if unedited {
             fs::write(&path, file.built_in)?;
@@ -196,7 +210,7 @@ pub fn update(
             Updated::LeftAlone
         };
         if what != Updated::LeftAlone {
-            record.files.insert(file.name.to_owned(), Copied::of(file));
+            record.files.insert(file.path.to_owned(), Copied::of(file));
         }
         done.push((path, what));
     }
@@ -213,7 +227,7 @@ pub(super) fn note(dir: &Path, files: &[File]) -> io::Result<()> {
     }
     let mut record = read(dir);
     for file in files {
-        record.files.insert(file.name.to_owned(), Copied::of(file));
+        record.files.insert(file.path.to_owned(), Copied::of(file));
     }
     write(dir, &record)
 }
@@ -248,6 +262,16 @@ fn entries(text: &str) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+/// Each entry built into the files of `kind`: a table of texts, which may
+/// be spread over several files, or the tools.
+fn built_in_entries(files: &[File], kind: Kind) -> BTreeMap<String, String> {
+    files
+        .iter()
+        .filter(|f| f.kind == kind)
+        .flat_map(|f| entries(f.built_in))
+        .collect()
+}
+
 /// The names in `{{name}}`, which is how a prompt is handed what it is
 /// about.
 fn placeholders(text: &str) -> BTreeSet<String> {
@@ -274,34 +298,41 @@ mod tests {
     use super::*;
     use crate::prompts::{Layer, Store};
 
+    const PLAN: &str = "system/logic/plan.md";
+    const TEXTS: &str = "system/logic/texts/look.toml";
+
     const THEN: &[File] = &[
         File {
-            name: "plan.md",
+            path: PLAN,
             built_in: "Plan {{day}}.",
             kind: Kind::Whole,
             layer: Layer::Logic,
+            flat: "plan.md",
         },
         File {
-            name: "texts.toml",
+            path: TEXTS,
             built_in: "look = \"Look at {{place}}.\"\nother = \"Other.\"\n",
-            kind: Kind::Texts,
+            kind: Kind::Texts("mind"),
             layer: Layer::Logic,
+            flat: "texts.toml",
         },
     ];
 
     /// The same files, as a later build has them.
     const NOW: &[File] = &[
         File {
-            name: "plan.md",
+            path: PLAN,
             built_in: "Plan {{day}} around {{weather}}.",
             kind: Kind::Whole,
             layer: Layer::Logic,
+            flat: "plan.md",
         },
         File {
-            name: "texts.toml",
+            path: TEXTS,
             built_in: "look = \"Look at {{place}} with {{who}}.\"\nother = \"Other.\"\nnew = \"New.\"\n",
-            kind: Kind::Texts,
+            kind: Kind::Texts("mind"),
             layer: Layer::Logic,
+            flat: "texts.toml",
         },
     ];
 
@@ -313,7 +344,7 @@ mod tests {
 
         let found = stale(NOW, dir.path());
         assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(found[0].file, "plan.md");
+        assert_eq!(found[0].file, PLAN);
         assert!(found[0].changed);
         assert_eq!(found[0].missing, ["weather"]);
         // Only the entry whose built-in changed: `other` did not, and
@@ -324,8 +355,8 @@ mod tests {
 
         // A copy cut down to the entries its owner changed is stale only in
         // those.
-        fs::write(dir.path().join("texts.toml"), "other = \"Mine.\"\n").unwrap();
-        assert!(stale(NOW, dir.path()).iter().all(|s| s.file == "plan.md"));
+        fs::write(dir.path().join(TEXTS), "other = \"Mine.\"\n").unwrap();
+        assert!(stale(NOW, dir.path()).iter().all(|s| s.file == PLAN));
     }
 
     #[test]
@@ -333,7 +364,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         Store::export(THEN, dir.path(), false).unwrap();
         let edited = "look = \"Look hard at {{place}}.\"\n";
-        fs::write(dir.path().join("texts.toml"), edited).unwrap();
+        fs::write(dir.path().join(TEXTS), edited).unwrap();
 
         let done = update(NOW, dir.path(), &[]).unwrap();
         assert_eq!(
@@ -341,34 +372,29 @@ mod tests {
             [Updated::Replaced, Updated::LeftAlone]
         );
         assert_eq!(
-            fs::read_to_string(dir.path().join("plan.md")).unwrap(),
+            fs::read_to_string(dir.path().join(PLAN)).unwrap(),
             NOW[0].built_in
         );
-        assert_eq!(
-            fs::read_to_string(dir.path().join("texts.toml")).unwrap(),
-            edited
-        );
+        assert_eq!(fs::read_to_string(dir.path().join(TEXTS)).unwrap(), edited);
         // The edited copy is still said to be behind, until its owner says
         // it has been looked at.
         let left = stale(NOW, dir.path());
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].key.as_deref(), Some("look"));
 
-        let done = update(NOW, dir.path(), &["texts.toml"]).unwrap();
+        let done = update(NOW, dir.path(), &[TEXTS]).unwrap();
         assert_eq!(done[1].1, Updated::Marked);
-        assert_eq!(
-            fs::read_to_string(dir.path().join("texts.toml")).unwrap(),
-            edited
-        );
+        assert_eq!(fs::read_to_string(dir.path().join(TEXTS)).unwrap(), edited);
         assert!(stale(NOW, dir.path()).is_empty());
     }
 
     #[test]
     fn a_copy_with_no_record_is_reported_only_for_what_it_lacks() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("plan.md"), "Plan the day.").unwrap();
+        fs::create_dir_all(dir.path().join("system/logic/texts")).unwrap();
+        fs::write(dir.path().join(PLAN), "Plan the day.").unwrap();
         fs::write(
-            dir.path().join("texts.toml"),
+            dir.path().join(TEXTS),
             "look = \"Look at {{place}}, {{who}}.\"\n",
         )
         .unwrap();
@@ -379,5 +405,39 @@ mod tests {
         // Nothing is replaced that cannot be dated.
         let done = update(NOW, dir.path(), &[]).unwrap();
         assert!(done.iter().all(|(_, what)| *what == Updated::LeftAlone));
+    }
+
+    #[test]
+    fn a_record_made_when_the_copies_were_flat_still_dates_them_once_moved_into_the_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        // As an export before the tree wrote it: the copies at the top, and
+        // the record under their flat names.
+        fs::write(dir.path().join("plan.md"), THEN[0].built_in).unwrap();
+        fs::write(
+            dir.path().join(RECORD),
+            format!(
+                "[files.\"plan.md\"]\nbuilt_in = \"{}\"\n\n[files.\"texts.toml\"]\nbuilt_in = \"0\"\n\n\
+                 [files.\"texts.toml\".entries]\nlook = \"{}\"\n",
+                hash(THEN[0].built_in),
+                hash("\"Look at {{place}}.\""),
+            ),
+        )
+        .unwrap();
+        // Moved into the tree by hand.
+        fs::create_dir_all(dir.path().join("system/logic/texts")).unwrap();
+        fs::rename(dir.path().join("plan.md"), dir.path().join(PLAN)).unwrap();
+        fs::write(dir.path().join(TEXTS), "look = \"Look at {{place}}.\"\n").unwrap();
+
+        let found = stale(NOW, dir.path());
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.iter().all(|s| s.changed), "{found:?}");
+        // The template nobody edited is brought up to date, as it would have
+        // been where it was.
+        let done = update(NOW, dir.path(), &[]).unwrap();
+        assert_eq!(done[0].1, Updated::Replaced);
+        assert_eq!(
+            fs::read_to_string(dir.path().join(PLAN)).unwrap(),
+            NOW[0].built_in
+        );
     }
 }

@@ -7,18 +7,19 @@ will look at each place with something unread, hands a look to a brain, turns
 the actions that come back into journal entries, delivers what she says at the
 pace a person types, plans and lives her day, pursues her own intentions,
 scrolls feeds, and works on what she has taken on, a sitting at a time. The
-prompts it uses are data, in [`prompts/`](prompts/), a directory per layer:
-`persona/persona.md` arranges her own fields from `ghost.toml` into prose;
-`being/being.md` is what she is and the ground rules; `logic/` is how a
-conversation and a day go, whole templates as Markdown and the short
-framings, nudges and refusals in `texts.toml`; `work/working.md` is what she
+prompts it uses are data, in the tree [`prompts/`](../../prompts/README.md)
+at the top of the repository: `character/persona.md` arranges her own
+fields from `ghost.toml` into prose; `system/being.md` is what she is and
+the ground rules; `system/logic/` is how a conversation and a day go, whole
+templates as Markdown, with the short framings, nudges and refusals a file
+per feature in `system/logic/texts/`; `system/work/working.md` is what she
 is told about a piece of work. Her system prompt is the persona, then her
-being, which ends with what is true of her life. What each tool is said to do
-is in `ghost-work`'s `tools.toml`, one file for every tool of both loops, read
-from the same directory. All of it is shared by every character: swapping
-one for another changes only her `ghost.toml`. The files are built in only
-as the last resort; a file of the same name in the deployment's directory
-(`[mind] prompts`) is used instead, and taken in again when it changes.
+being, which ends with what is true of her life. What each tool is said to
+do is in `system/tools.toml`, one file for every tool of both loops. All of
+it is shared by every character: swapping one for another changes only her
+`ghost.toml`. The files are built in only as the last resort; a file at the
+same path in the deployment's directory (`[mind] prompts`) is used instead,
+and taken in again when it changes.
 
 In a conversation she has the same abilities as at work, at a conversation's
 pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
@@ -28,7 +29,7 @@ to the side, each for at most `[mind] talk_tool_seconds`, within `talk_steps`
 turns. A page or picture she opens is in her journal as `Opened`, so that she
 can keep or send a picture by the name she was shown, in that conversation
 only. What she is offered here is listed in what she is told about herself, under "What you
-can do here", from each tool's `ability` in `tools.toml`.
+can do here", from each tool's `ability` in `system/tools.toml`.
 
 What it adds to a look at a conversation, so that she is one person and not
 one per platform: the rest of her day (what she has taken on, what has been
@@ -43,9 +44,10 @@ her journal and the date; no mood is stored.
 A message from an operator's account (`[operators]` in `ghostd.toml`) that
 begins with the configured prefix is a directive. It is recorded as
 `Directed`, looked at at once whatever her day is (the hourly budget still
-holds), shown to her as a directive with a section of `texts.toml` saying she
-carries it out, and work she takes on for it is not held to the floors her
-will keeps for everyone else. The prefix from anyone else is a message.
+holds), shown to her as a directive with the texts of
+`system/logic/texts/directive.toml` saying she carries it out, and work she
+takes on for it is not held to the floors her will keeps for everyone else.
+The prefix from anyone else is a message.
 
 In public she posts, is shown how her posts did, and writes down what that
 taught her. Every post is read over before it goes out. What a platform does

@@ -1,0 +1,17 @@
+# Who she is: the words the persona template, persona.md, puts around her own
+# fields from ghost.toml, and nothing else.
+
+# Read with the mind's other short texts, in system/logic/texts/, as one
+# table: see prompts/README.md.
+
+# Before the exchanges in her persona; only when there are some.
+examples = "This is how you sound. These are not lines to reuse; you say new things, in this voice:\n\n{{examples}}"
+# Her sides, from `[[facet]]` in her persona, under who she is; only when
+# she has some. {{facets}} is one `facet` for each, in the order written.
+# Which side shows is not said here: it is worked out each time she looks
+# at a place (`right_now`).
+facets = "\nThere is more than one side to you, and each of them is really you: none is put on, and none is the real one underneath the others.\n\n{{facets}}\n"
+# One side: her word for it, when it tends to come out, and how it sounds
+# (`facet_examples`, only when it has some).
+facet = "## {{name}}\n\nWhen it comes out: {{when}}{{examples}}"
+facet_examples = "\n\nHow it sounds. Again, not lines to reuse:\n\n{{examples}}"

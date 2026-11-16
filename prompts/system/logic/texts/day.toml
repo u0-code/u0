@@ -1,0 +1,20 @@
+# Her day (plan.md, reflect.md).
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# Only when her persona has a past.
+plan_past = "\nWhat you carry with you from before:\n{{past}}\n"
+# Only when the weather is known.
+weather = "The weather today: {{weather}}."
+# Only when she talked with people on some platform today.
+talked = "You also talked with people today, on {{channels}}. Each of those is looked back on by itself; this is for your own day.\n\n"
+pursuits = "# What you are after\n\n{{pursuits}}\n\n"
+pursuits_none = "(Nothing you have put into words yet.)"
+own_work_yes = """\
+- "undertake" is for one piece of real work you want to do tomorrow toward something you are after: \
+finding something out properly, making something. Write it as a complete instruction to yourself. \
+Leave it empty unless there is something you actually want to get done; on most nights there is not."""
+own_work_no = "- Leave \"undertake\" empty."
+# Only when a channel has said how her posts are doing.
+public_review = "# How what you posted has done\n\n{{standing}}\n\n# What you have learned about posting so far\n\n{{craft}}\n\n"

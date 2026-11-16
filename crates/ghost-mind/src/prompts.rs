@@ -3,19 +3,22 @@
 //! Every template, every short piece of framing and every tool description
 //! is looked for in two places, the first that has it winning: the
 //! deployment's directory (`[mind] prompts` in `ghostd.toml`), and what is
-//! built into this binary. The built-ins are only the last resort, so that
-//! a lone binary still runs; anything a person might want to change is a
-//! file. How that is done is [`ghost_core::prompts`]; the work loop reads
-//! the same directory the same way.
+//! built into this binary from the tree `prompts/` at the top of the
+//! repository. The built-ins are only the last resort, so that a lone
+//! binary still runs; anything a person might want to change is a file.
+//! How that is done is [`ghost_core::prompts`]; the work loop reads the
+//! same directory the same way.
 //!
-//! The built-ins sit in a directory per layer. `persona/persona.md`
-//! arranges her own fields from `ghost.toml` into prose, and holds nothing
-//! else. `being/being.md` is what she is and the ground rules, ending with
-//! what is true of her life. The system prompt is the two, one after the
-//! other, filled in. `logic/` is how a conversation and a day go, with its
-//! short framings in `texts.toml`, and `work/working.md` is what she is
-//! told about a piece of work, beside the work loop's own `work.md`,
-//! `work_texts.toml` and `tools.toml`.
+//! [`FILES`] is every file of the tree the mind reads. `character/` is how
+//! her own `ghost.toml` is turned into prose: `persona.md`, which arranges
+//! her fields and holds nothing else, and the texts it puts around them.
+//! `system/being.md` is what she is and the ground rules, ending with what
+//! is true of her life; the system prompt is the persona and her being, one
+//! after the other, filled in. `system/logic/` is how a conversation and a
+//! day go, with its short framings in `system/logic/texts/`, a file per
+//! feature, read with the persona's texts as one table. `system/work/working.md`
+//! is what she is told about a piece of work, beside the work loop's own
+//! files.
 //!
 //! None of these belong to her or to any one character: they are how a
 //! brain reads whoever's persona and journal it is given. Swapping one
@@ -30,72 +33,186 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use ghost_core::prompts::Store;
 pub use ghost_core::prompts::{DIR, File, Kind, Layer, Listed, Loop, Origin};
+use ghost_core::{prompt, prompts::Store};
 
-const TEXTS: &str = "texts.toml";
+/// The mind's table of texts: `system/logic/texts/` and
+/// `character/texts.toml`, read as one.
+pub const TEXTS: &str = "mind";
+/// Where each of the mind's texts was before there was a tree.
+const FLAT_TEXTS: &str = "texts.toml";
 
 /// The files the mind reads, with what is built in. The work loop's are in
 /// [`ghost_work::prompts::FILES`], and are read beside them.
 pub const FILES: &[File] = &[
-    whole(
-        "persona.md",
-        include_str!("../prompts/persona/persona.md"),
+    prompt!(
+        "character/persona.md",
+        Kind::Whole,
         Layer::Persona,
+        "persona.md"
     ),
-    whole(
-        "being.md",
-        include_str!("../prompts/being/being.md"),
-        Layer::Being,
+    prompt!(
+        "character/texts.toml",
+        Kind::Texts(TEXTS),
+        Layer::Persona,
+        FLAT_TEXTS
     ),
-    logic("now.md", include_str!("../prompts/logic/now.md")),
-    logic("digest.md", include_str!("../prompts/logic/digest.md")),
-    logic(
-        "reply_json.md",
-        include_str!("../prompts/logic/reply_json.md"),
+    prompt!("system/being.md", Kind::Whole, Layer::Being, "being.md"),
+    prompt!("system/logic/now.md", Kind::Whole, Layer::Logic, "now.md"),
+    prompt!(
+        "system/logic/digest.md",
+        Kind::Whole,
+        Layer::Logic,
+        "digest.md"
     ),
-    logic(
-        "reply_tools.md",
-        include_str!("../prompts/logic/reply_tools.md"),
+    prompt!(
+        "system/logic/reply_json.md",
+        Kind::Whole,
+        Layer::Logic,
+        "reply_json.md"
     ),
-    logic("attend.md", include_str!("../prompts/logic/attend.md")),
-    logic("plan.md", include_str!("../prompts/logic/plan.md")),
-    logic("lived.md", include_str!("../prompts/logic/lived.md")),
-    logic("reflect.md", include_str!("../prompts/logic/reflect.md")),
-    logic(
-        "reflect_on.md",
-        include_str!("../prompts/logic/reflect_on.md"),
+    prompt!(
+        "system/logic/reply_tools.md",
+        Kind::Whole,
+        Layer::Logic,
+        "reply_tools.md"
     ),
-    logic("browse.md", include_str!("../prompts/logic/browse.md")),
-    logic("gate.md", include_str!("../prompts/logic/gate.md")),
-    logic("view.md", include_str!("../prompts/logic/view.md")),
-    logic("report.md", include_str!("../prompts/logic/report.md")),
-    logic("review.md", include_str!("../prompts/logic/review.md")),
-    whole(
-        "working.md",
-        include_str!("../prompts/work/working.md"),
+    prompt!(
+        "system/logic/attend.md",
+        Kind::Whole,
+        Layer::Logic,
+        "attend.md"
+    ),
+    prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic, "plan.md"),
+    prompt!(
+        "system/logic/lived.md",
+        Kind::Whole,
+        Layer::Logic,
+        "lived.md"
+    ),
+    prompt!(
+        "system/logic/reflect.md",
+        Kind::Whole,
+        Layer::Logic,
+        "reflect.md"
+    ),
+    prompt!(
+        "system/logic/reflect_on.md",
+        Kind::Whole,
+        Layer::Logic,
+        "reflect_on.md"
+    ),
+    prompt!(
+        "system/logic/browse.md",
+        Kind::Whole,
+        Layer::Logic,
+        "browse.md"
+    ),
+    prompt!("system/logic/gate.md", Kind::Whole, Layer::Logic, "gate.md"),
+    prompt!("system/logic/view.md", Kind::Whole, Layer::Logic, "view.md"),
+    prompt!(
+        "system/logic/report.md",
+        Kind::Whole,
+        Layer::Logic,
+        "report.md"
+    ),
+    prompt!(
+        "system/logic/review.md",
+        Kind::Whole,
+        Layer::Logic,
+        "review.md"
+    ),
+    prompt!(
+        "system/logic/texts/look.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/moment.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/place.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/addressed.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/right_now.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/elsewhere.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/directive.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/abilities.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/keep.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/view.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/browse.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/day.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/report.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/logic/texts/working.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic,
+        FLAT_TEXTS
+    ),
+    prompt!(
+        "system/work/working.md",
+        Kind::Whole,
         Layer::Work,
+        "working.md"
     ),
-    File {
-        name: TEXTS,
-        built_in: include_str!("../prompts/logic/texts.toml"),
-        kind: Kind::Texts,
-        layer: Layer::Logic,
-    },
 ];
-
-const fn whole(name: &'static str, built_in: &'static str, layer: Layer) -> File {
-    File {
-        name,
-        built_in,
-        kind: Kind::Whole,
-        layer,
-    }
-}
-
-const fn logic(name: &'static str, built_in: &'static str) -> File {
-    whole(name, built_in, Layer::Logic)
-}
 
 /// Every file a prompts directory can hold: the mind's, then the work
 /// loop's.
@@ -107,14 +224,16 @@ pub fn all_files() -> Vec<File> {
         .collect()
 }
 
+/// The mind's templates as they are, each by its file (those named by
+/// their name alone are in `system/logic/`), and the rest of what it reads.
 #[derive(Debug, Clone)]
 pub struct Prompts {
-    /// `persona.md`: her own fields from `ghost.toml`, arranged as prose.
-    /// The first part of the system prompt, and the only part that differs
-    /// from one character to another.
+    /// `character/persona.md`: her own fields from `ghost.toml`, arranged
+    /// as prose. The first part of the system prompt, and the only part
+    /// that differs from one character to another.
     pub persona: String,
-    /// `being.md`: what she is and the ground rules, then what is true of
-    /// her life. The rest of the system prompt.
+    /// `system/being.md`: what she is and the ground rules, then what is
+    /// true of her life. The rest of the system prompt.
     pub being: String,
     /// `now.md`: what moment this is and what has been going on. It changes
     /// by the hour, so it goes late in a request, after what stays put.
@@ -145,7 +264,8 @@ pub struct Prompts {
     pub report: String,
     /// `review.md`: the brief for sitting down to look at her public writing.
     pub review: String,
-    /// `working.md`: what she is told about a piece of work she took on.
+    /// `system/work/working.md`: what she is told about a piece of work she
+    /// took on.
     pub working: String,
     store: Store,
 }
@@ -166,23 +286,23 @@ impl Prompts {
     fn from_store(store: Store) -> Self {
         let text = |name| store.whole(name).to_owned();
         Self {
-            persona: text("persona.md"),
-            being: text("being.md"),
-            now: text("now.md"),
-            digest: text("digest.md"),
-            reply_json: text("reply_json.md"),
-            reply_tools: text("reply_tools.md"),
-            attend: text("attend.md"),
-            plan: text("plan.md"),
-            lived: text("lived.md"),
-            reflect: text("reflect.md"),
-            reflect_on: text("reflect_on.md"),
-            browse: text("browse.md"),
-            gate: text("gate.md"),
-            view: text("view.md"),
-            report: text("report.md"),
-            review: text("review.md"),
-            working: text("working.md"),
+            persona: text("character/persona.md"),
+            being: text("system/being.md"),
+            now: text("system/logic/now.md"),
+            digest: text("system/logic/digest.md"),
+            reply_json: text("system/logic/reply_json.md"),
+            reply_tools: text("system/logic/reply_tools.md"),
+            attend: text("system/logic/attend.md"),
+            plan: text("system/logic/plan.md"),
+            lived: text("system/logic/lived.md"),
+            reflect: text("system/logic/reflect.md"),
+            reflect_on: text("system/logic/reflect_on.md"),
+            browse: text("system/logic/browse.md"),
+            gate: text("system/logic/gate.md"),
+            view: text("system/logic/view.md"),
+            report: text("system/logic/report.md"),
+            review: text("system/logic/review.md"),
+            working: text("system/work/working.md"),
             store,
         }
     }
@@ -195,17 +315,17 @@ impl Prompts {
         }
     }
 
-    /// A text from `texts.toml`, as it is.
+    /// A text of the mind's, as it is.
     pub fn text(&self, key: &str) -> &str {
         self.store.text(TEXTS, key)
     }
 
-    /// A text from `texts.toml`, with its placeholders filled.
+    /// A text of the mind's, with its placeholders filled.
     pub fn fill(&self, key: &str, pairs: &[(&str, String)]) -> String {
         self.store.fill(TEXTS, key, pairs)
     }
 
-    /// A text from `texts.toml` around `value`, put in as `{{name}}`; or
+    /// A text of the mind's around `value`, put in as `{{name}}`; or
     /// nothing at all when `value` is empty.
     pub fn section(&self, key: &str, name: &str, value: &str) -> String {
         if value.trim().is_empty() {
@@ -226,7 +346,7 @@ impl Prompts {
         self.store.parameter(name, parameter, Loop::Conversation)
     }
 
-    /// Everything read, for what reads tools.toml itself.
+    /// Everything read, for what reads `system/tools.toml` itself.
     pub fn store(&self) -> &Store {
         &self.store
     }
@@ -252,20 +372,20 @@ impl Prompts {
         )
     }
 
-    /// Write every built-in file into `dir`, for a person to change. A
-    /// file already there is left alone unless `force`. Returns each file
-    /// and whether it was written.
+    /// Write every built-in file into `dir`, each at its path in the tree,
+    /// for a person to change. A file already there is left alone unless
+    /// `force`. Returns each file and whether it was written.
     pub fn export(dir: &Path, force: bool) -> io::Result<Vec<(PathBuf, bool)>> {
         Store::export(&all_files(), dir, force)
     }
 }
 
-/// The built-in text of the file `name`.
+/// The built-in text of the file at `path`.
 #[cfg(test)]
-fn built_in(name: &str) -> &'static str {
+fn built_in(path: &str) -> &'static str {
     all_files()
         .iter()
-        .find(|f| f.name == name)
+        .find(|f| f.path == path)
         .map(|f| f.built_in)
         .unwrap_or_default()
 }
@@ -279,6 +399,10 @@ mod tests {
     use chrono::{Duration, TimeZone};
 
     use super::*;
+
+    const PLAN: &str = "system/logic/plan.md";
+    const LOOK: &str = "system/logic/texts/look.toml";
+    const TOOLS: &str = "system/tools.toml";
 
     fn t0() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 11, 14, 9, 0, 0).unwrap()
@@ -297,31 +421,91 @@ mod tests {
             .unwrap();
     }
 
+    /// The tree at the top of the repository.
+    fn tree() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../prompts")
+    }
+
     #[test]
     fn the_built_in_files_parse_and_describe_every_tool() {
         let shipped = Prompts::shipped();
         for listed in shipped.listing() {
-            if listed.file == "tools.toml" {
+            if listed.file == TOOLS {
                 let name = listed.key.unwrap();
                 assert!(!shipped.tool(&name).is_empty(), "{name} has no description");
             }
         }
-        assert_eq!(shipped.attend, include_str!("../prompts/logic/attend.md"));
+        assert_eq!(
+            shipped.attend,
+            include_str!("../../../prompts/system/logic/attend.md")
+        );
     }
 
     #[test]
-    fn every_file_names_its_layer_and_only_the_persona_template_holds_her_fields() {
-        let layer = |name: &str| all_files().iter().find(|f| f.name == name).unwrap().layer;
-        assert_eq!(layer("persona.md"), Layer::Persona);
-        assert_eq!(layer("being.md"), Layer::Being);
-        assert_eq!(layer("attend.md"), Layer::Logic);
-        assert_eq!(layer(TEXTS), Layer::Logic);
-        assert_eq!(layer("working.md"), Layer::Work);
-        assert_eq!(layer("tools.toml"), Layer::Work);
+    fn the_built_in_texts_have_each_key_in_one_file_of_its_table() {
+        assert_eq!(
+            ghost_core::prompts::duplicates(&all_files()),
+            [],
+            "a text is in two files"
+        );
+        let mut paths: Vec<&str> = all_files().iter().map(|f| f.path).collect();
+        paths.sort_unstable();
+        paths.dedup();
+        assert_eq!(paths.len(), all_files().len(), "a file is listed twice");
+    }
+
+    #[test]
+    fn every_file_in_the_tree_is_built_in_except_the_desks_and_the_readme() {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else {
+                    let rel = path.strip_prefix(root).unwrap();
+                    out.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        let root = tree();
+        let mut found = Vec::new();
+        walk(&root, &root, &mut found);
+        found.retain(|p| p != "README.md" && !p.starts_with("system/desk/"));
+        found.sort();
+        let mut built_in: Vec<String> = all_files().iter().map(|f| f.path.to_owned()).collect();
+        built_in.sort();
+        assert_eq!(found, built_in);
+    }
+
+    #[test]
+    fn character_holds_the_persona_layer_and_system_holds_the_rest() {
+        for file in all_files() {
+            assert_eq!(
+                file.path.starts_with("character/"),
+                file.layer == Layer::Persona,
+                "{}",
+                file.path
+            );
+            assert!(
+                file.path.starts_with("character/") || file.path.starts_with("system/"),
+                "{}",
+                file.path
+            );
+        }
+        let layer = |path: &str| all_files().iter().find(|f| f.path == path).unwrap().layer;
+        assert_eq!(layer("system/being.md"), Layer::Being);
+        assert_eq!(layer("system/logic/attend.md"), Layer::Logic);
+        assert_eq!(layer(LOOK), Layer::Logic);
+        assert_eq!(layer("system/work/working.md"), Layer::Work);
+        assert_eq!(layer(TOOLS), Layer::Work);
+    }
+
+    #[test]
+    fn only_the_persona_template_holds_her_fields() {
         // The fields that are hers alone are put in through the persona
-        // template and no other. (The words `texts.toml` introduces her
-        // examples with are said around them, in the place the persona
-        // template gives them.)
+        // template and no other. (The words `character/texts.toml`
+        // introduces her examples with are said around them, in the place
+        // the persona template gives them.)
         for field in [
             "pronouns",
             "temperament",
@@ -337,9 +521,9 @@ mod tests {
             for file in all_files().iter().filter(|f| f.kind == Kind::Whole) {
                 assert_eq!(
                     file.built_in.contains(&placeholder),
-                    file.name == "persona.md",
+                    file.path == "character/persona.md",
                     "{placeholder} in {}",
-                    file.name
+                    file.path
                 );
             }
         }
@@ -348,18 +532,26 @@ mod tests {
     #[test]
     fn the_deployments_prompts_win_over_the_built_in_file_by_file_and_entry_by_entry() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(&dir.path().join("gate.md"), "the deployment's gate", 1);
-        write_at(&dir.path().join("persona.md"), "Call me {{name}}.", 1);
         write_at(
-            &dir.path().join("texts.toml"),
-            "look = \"the deployment's\"\n",
+            &dir.path().join("system/logic/gate.md"),
+            "the deployment's gate",
+            1,
+        );
+        write_at(
+            &dir.path().join("character/persona.md"),
+            "Call me {{name}}.",
+            1,
+        );
+        write_at(
+            &dir.path().join(LOOK),
+            "last_turn = \"the deployment's\"\n",
             1,
         );
         let p = Prompts::load(Some(dir.path()));
         assert_eq!(p.gate, "the deployment's gate");
         assert_eq!(p.persona, "Call me {{name}}.");
         assert_eq!(p.attend, Prompts::shipped().attend);
-        assert_eq!(p.text("look"), "the deployment's");
+        assert_eq!(p.text("last_turn"), "the deployment's");
         assert_eq!(p.text("not_sent"), Prompts::shipped().text("not_sent"));
 
         let listed = p.listing();
@@ -370,18 +562,99 @@ mod tests {
                 .map(|l| (l.origin, l.differs))
                 .unwrap()
         };
-        assert_eq!(origin("gate.md", None), (Origin::Deployment, true));
-        assert_eq!(origin("persona.md", None), (Origin::Deployment, true));
-        assert_eq!(origin("attend.md", None), (Origin::BuiltIn, false));
-        assert_eq!(origin(TEXTS, Some("look")), (Origin::Deployment, true));
-        assert_eq!(origin(TEXTS, Some("not_sent")), (Origin::BuiltIn, false));
-        assert_eq!(origin("tools.toml", Some("say")), (Origin::BuiltIn, false));
+        assert_eq!(
+            origin("system/logic/gate.md", None),
+            (Origin::Deployment, true)
+        );
+        assert_eq!(
+            origin("character/persona.md", None),
+            (Origin::Deployment, true)
+        );
+        assert_eq!(
+            origin("system/logic/attend.md", None),
+            (Origin::BuiltIn, false)
+        );
+        assert_eq!(origin(LOOK, Some("last_turn")), (Origin::Deployment, true));
+        assert_eq!(origin(LOOK, Some("not_sent")), (Origin::BuiltIn, false));
+        assert_eq!(origin(TOOLS, Some("say")), (Origin::BuiltIn, false));
+    }
+
+    #[test]
+    fn the_persona_texts_are_read_with_the_logic_texts_as_one_table() {
+        let dir = tempfile::tempdir().unwrap();
+        write_at(
+            &dir.path().join("character/texts.toml"),
+            "examples = \"Like this:\\n\\n{{examples}}\"\n",
+            1,
+        );
+        let p = Prompts::load(Some(dir.path()));
+        assert_eq!(
+            p.section("examples", "examples", "them: hi"),
+            "Like this:\n\nthem: hi"
+        );
+        assert_eq!(p.text("weather"), Prompts::shipped().text("weather"));
+    }
+
+    #[test]
+    fn an_old_flat_directory_still_loads_and_is_told_where_each_file_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_at(&dir.path().join("plan.md"), "a flat plan", 1);
+        write_at(
+            &dir.path().join("texts.toml"),
+            "weather = \"Flat weather: {{weather}}.\"\nexamples = \"Flat.\\n\\n{{examples}}\"\n",
+            1,
+        );
+        write_at(
+            &dir.path().join("work_texts.toml"),
+            "no_call = \"Call one.\"\n",
+            1,
+        );
+        write_at(
+            &dir.path().join("tools.toml"),
+            "[say]\ndescription = \"Talk.\"\n",
+            1,
+        );
+        let p = Prompts::load(Some(dir.path()));
+        assert_eq!(p.plan, "a flat plan");
+        assert_eq!(p.text("weather"), "Flat weather: {{weather}}.");
+        assert_eq!(p.section("examples", "examples", "x"), "Flat.\n\nx");
+        assert_eq!(p.tool("say"), "Talk.");
+        assert_eq!(p.for_work().text("no_call"), "Call one.");
+
+        let said = ghost_core::prompts::flat(&all_files(), dir.path()).unwrap();
+        for moved in [
+            "plan.md goes to system/logic/plan.md",
+            "texts.toml goes to a file per feature: examples to character/texts.toml; \
+             weather to system/logic/texts/day.toml",
+            "work_texts.toml goes to system/work/texts.toml",
+            "tools.toml goes to system/tools.toml",
+        ] {
+            assert!(said.contains(moved), "{moved:?} is not in {said:?}");
+        }
+    }
+
+    #[test]
+    fn the_desks_directory_replaces_her_persona_and_being_and_nothing_else() {
+        let desk = tree().join("system/desk");
+        let p = Prompts::load(Some(&desk));
+        let replaced: Vec<&str> = p
+            .listing()
+            .into_iter()
+            .filter(|l| l.origin == Origin::Deployment)
+            .map(|l| l.file)
+            .collect();
+        assert_eq!(replaced, ["character/persona.md", "system/being.md"]);
+        assert_eq!(
+            p.persona,
+            fs::read_to_string(desk.join("character/persona.md")).unwrap()
+        );
+        assert!(ghost_core::prompts::flat(&all_files(), &desk).is_none());
     }
 
     #[test]
     fn an_edited_file_is_taken_in_at_the_next_use_without_a_restart() {
         let dir = tempfile::tempdir().unwrap();
-        let plan = dir.path().join("plan.md");
+        let plan = dir.path().join(PLAN);
         write_at(&plan, "first", 1);
         let mut p = Prompts::load(Some(dir.path()));
         assert_eq!(p.plan, "first");
@@ -396,7 +669,7 @@ mod tests {
 
         // A file that was not there before is found as well.
         write_at(
-            &dir.path().join("tools.toml"),
+            &dir.path().join(TOOLS),
             "[say]\ndescription = \"Talk.\"\n",
             3,
         );
@@ -411,7 +684,7 @@ mod tests {
     #[test]
     fn a_deleted_file_gives_way_to_the_built_in() {
         let dir = tempfile::tempdir().unwrap();
-        let plan = dir.path().join("plan.md");
+        let plan = dir.path().join(PLAN);
         write_at(&plan, "the deployment's", 1);
         let mut p = Prompts::load(Some(dir.path()));
         assert_eq!(p.plan, "the deployment's");
@@ -424,24 +697,24 @@ mod tests {
     #[test]
     fn a_file_that_cannot_be_used_leaves_the_text_in_use() {
         let dir = tempfile::tempdir().unwrap();
-        let plan = dir.path().join("plan.md");
-        let texts = dir.path().join("texts.toml");
+        let plan = dir.path().join(PLAN);
+        let texts = dir.path().join(LOOK);
         write_at(&plan, "good", 1);
-        write_at(&texts, "look = \"good\"\n", 1);
+        write_at(&texts, "last_turn = \"good\"\n", 1);
         let mut p = Prompts::load(Some(dir.path()));
 
         write_at(&plan, [0xff, 0xfe, 0x00], 2);
-        write_at(&texts, "look = \"half a string\n", 2);
+        write_at(&texts, "last_turn = \"half a string\n", 2);
         p.refresh(t0());
         assert_eq!(p.plan, "good");
-        assert_eq!(p.text("look"), "good");
+        assert_eq!(p.text("last_turn"), "good");
 
         // Put right, it is taken in.
         write_at(&plan, "better", 3);
-        write_at(&texts, "look = \"better\"\n", 3);
+        write_at(&texts, "last_turn = \"better\"\n", 3);
         p.refresh(t0() + Duration::seconds(5));
         assert_eq!(p.plan, "better");
-        assert_eq!(p.text("look"), "better");
+        assert_eq!(p.text("last_turn"), "better");
     }
 
     #[test]
@@ -458,31 +731,36 @@ mod tests {
     fn export_and_list_cover_the_work_loops_files_and_every_tool_of_both_loops() {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
-        let written: Vec<String> = Prompts::export(dir, false)
+        let written: Vec<PathBuf> = Prompts::export(dir, false)
             .unwrap()
             .into_iter()
-            .map(|(path, _)| path.file_name().unwrap().to_string_lossy().into_owned())
+            .map(|(path, _)| path)
             .collect();
-        for name in [
-            "persona.md",
-            "being.md",
-            "texts.toml",
-            "work.md",
-            "work_texts.toml",
-            "tools.toml",
+        for path in [
+            "character/persona.md",
+            "character/texts.toml",
+            "system/being.md",
+            LOOK,
+            "system/work/work.md",
+            "system/work/texts.toml",
+            TOOLS,
         ] {
-            assert!(written.iter().any(|w| w == name), "{name} was not exported");
-            assert!(dir.join(name).exists());
+            assert!(written.contains(&dir.join(path)), "{path} was not exported");
+            assert!(dir.join(path).is_file());
         }
         assert_eq!(
-            fs::read_to_string(dir.join("work.md")).unwrap(),
+            fs::read_to_string(dir.join("system/work/work.md")).unwrap(),
             ghost_work::prompts::FILES[0].built_in
         );
 
         // Changed where it was exported to, it is listed as the deployment's.
-        write_at(&dir.join("work_texts.toml"), "no_call = \"Call one.\"\n", 1);
         write_at(
-            &dir.join("tools.toml"),
+            &dir.join("system/work/texts.toml"),
+            "no_call = \"Call one.\"\n",
+            1,
+        );
+        write_at(
+            &dir.join(TOOLS),
             "[delegate]\ndescription = \"Hand it on.\"\n",
             1,
         );
@@ -493,48 +771,51 @@ mod tests {
                 .find(|l| l.file == file && l.key.as_deref() == key)
                 .map(|l| (l.origin, l.differs))
         };
-        assert_eq!(find("work.md", None), Some((Origin::Deployment, false)));
         assert_eq!(
-            find("work_texts.toml", Some("no_call")),
+            find("system/work/work.md", None),
+            Some((Origin::Deployment, false))
+        );
+        assert_eq!(
+            find("system/work/texts.toml", Some("no_call")),
             Some((Origin::Deployment, true))
         );
         assert_eq!(
-            find("work_texts.toml", Some("audit")),
+            find("system/work/texts.toml", Some("audit")),
             Some((Origin::BuiltIn, false))
         );
         assert_eq!(
-            find("tools.toml", Some("delegate")),
+            find(TOOLS, Some("delegate")),
             Some((Origin::Deployment, true))
         );
         // A tool of the conversation and one of work, in the one file.
-        assert!(find("tools.toml", Some("say")).is_some());
-        assert!(find("tools.toml", Some("shell")).is_some());
+        assert!(find(TOOLS, Some("say")).is_some());
+        assert!(find(TOOLS, Some("shell")).is_some());
     }
 
     #[test]
     fn export_writes_every_built_in_and_overwrites_only_when_forced() {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
-        write_at(&dir.join("plan.md"), "mine", 1);
+        write_at(&dir.join(PLAN), "mine", 1);
 
         let done = Prompts::export(dir, false).unwrap();
         assert_eq!(done.len(), all_files().len());
         for File {
-            name,
+            path,
             built_in: text,
             ..
         } in all_files()
         {
-            let written = done.iter().find(|(p, _)| p.ends_with(name)).unwrap().1;
-            assert_eq!(written, name != "plan.md", "{name}");
-            if name != "plan.md" {
-                assert_eq!(fs::read_to_string(dir.join(name)).unwrap(), text);
+            let written = done.iter().find(|(p, _)| *p == dir.join(path)).unwrap().1;
+            assert_eq!(written, path != PLAN, "{path}");
+            if path != PLAN {
+                assert_eq!(fs::read_to_string(dir.join(path)).unwrap(), text);
             }
         }
-        assert_eq!(fs::read_to_string(dir.join("plan.md")).unwrap(), "mine");
+        assert_eq!(fs::read_to_string(dir.join(PLAN)).unwrap(), "mine");
 
         // What was exported is what is built in, so nothing differs.
-        fs::remove_file(dir.join("plan.md")).unwrap();
+        fs::remove_file(dir.join(PLAN)).unwrap();
         Prompts::export(dir, false).unwrap();
         assert!(
             Prompts::load(Some(dir))
@@ -543,12 +824,9 @@ mod tests {
                 .all(|l| l.origin == Origin::Deployment && !l.differs)
         );
 
-        write_at(&dir.join("plan.md"), "mine", 1);
+        write_at(&dir.join(PLAN), "mine", 1);
         let done = Prompts::export(dir, true).unwrap();
         assert!(done.iter().all(|(_, written)| *written));
-        assert_eq!(
-            fs::read_to_string(dir.join("plan.md")).unwrap(),
-            built_in("plan.md")
-        );
+        assert_eq!(fs::read_to_string(dir.join(PLAN)).unwrap(), built_in(PLAN));
     }
 }

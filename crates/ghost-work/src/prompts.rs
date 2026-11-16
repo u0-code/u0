@@ -2,12 +2,13 @@
 //! code: see [`ghost_core::prompts`] for where it is looked for and how a
 //! change is taken in.
 //!
-//! `work.md` is the working instructions, `work_texts.toml` what is said
-//! along the way, and `tools.toml` what every tool is, in a conversation as
-//! at work. All three are the work layer, shared by every character, and
-//! are built in from `prompts/work/`. A worker looks at the files before
-//! each step, so an edit reaches work that is already running at its next
-//! step.
+//! `system/work/work.md` is the working instructions,
+//! `system/work/texts.toml` what is said along the way, and
+//! `system/tools.toml` what every tool is, in a conversation as at work.
+//! All three are the work layer of the system, shared by every character,
+//! and are built in from the tree `prompts/` at the top of the repository.
+//! A worker looks at the files before each step, so an edit reaches work
+//! that is already running at its next step.
 
 use std::{
     path::{Path, PathBuf},
@@ -16,32 +17,25 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use ghost_brain::ToolSpec;
+use ghost_core::prompt;
 pub use ghost_core::prompts::{DIR, File, Kind, Layer, Listed, Loop, Origin, Store};
 use serde_json::{Value, json};
 
-/// The file of what a worker is told along the way.
-pub const TEXTS: &str = "work_texts.toml";
+/// The work loop's table of texts: what a worker is told along the way.
+pub const TEXTS: &str = "work";
+/// The template a worker starts from.
+const WORK: &str = "system/work/work.md";
 
 /// Every file the work loop reads, with what is built in.
 pub const FILES: &[File] = &[
-    File {
-        name: "work.md",
-        built_in: include_str!("../prompts/work/work.md"),
-        kind: Kind::Whole,
-        layer: Layer::Work,
-    },
-    File {
-        name: TEXTS,
-        built_in: include_str!("../prompts/work/work_texts.toml"),
-        kind: Kind::Texts,
-        layer: Layer::Work,
-    },
-    File {
-        name: "tools.toml",
-        built_in: include_str!("../prompts/work/tools.toml"),
-        kind: Kind::Tools,
-        layer: Layer::Work,
-    },
+    prompt!("system/work/work.md", Kind::Whole, Layer::Work, "work.md"),
+    prompt!(
+        "system/work/texts.toml",
+        Kind::Texts(TEXTS),
+        Layer::Work,
+        "work_texts.toml"
+    ),
+    prompt!("system/tools.toml", Kind::Tools, Layer::Work, "tools.toml"),
 ];
 
 /// The words of the work loop, as they are now.
@@ -87,17 +81,17 @@ impl Prompts {
         self.store.refresh_now()
     }
 
-    /// `work.md`, as it is.
+    /// `system/work/work.md`, as it is.
     pub fn work(&self) -> &str {
-        self.store.whole("work.md")
+        self.store.whole(WORK)
     }
 
-    /// A text from `work_texts.toml`, as it is.
+    /// A text of the work loop's, as it is.
     pub fn text(&self, key: &str) -> &str {
         self.store.text(TEXTS, key)
     }
 
-    /// A text from `work_texts.toml`, with its placeholders filled.
+    /// A text of the work loop's, with its placeholders filled.
     pub fn fill(&self, key: &str, pairs: &[(&str, String)]) -> String {
         self.store.fill(TEXTS, key, pairs)
     }

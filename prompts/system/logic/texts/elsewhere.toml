@@ -1,0 +1,50 @@
+# The rest of her day, as she looks at a conversation (attend.md): the
+# other places, and her work under way.
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# What she has taken on and what is going on in other places; only when there is something.
+elsewhere = """
+# The rest of your day
+
+{{lines}}
+
+Those are other conversations and your own business. \
+What someone told you in private is not repeated here, and you do not let on that you know it.
+
+"""
+# One piece of work she has under way, in the rest of her day. The number
+# is how she names it to `steer` and `stop`; {{whom}} is " for <name>" or
+# nothing, and {{state}} where it stands.
+work_open = "- [work #{{work}}] You have taken something on{{whom}}: \"{{brief}}\". {{state}}"
+# Under it, when the work has a plan, how far it has got: {{done}} of
+# {{steps}}, the steps not dropped, and {{now}} the step it is on, if any.
+work_plan = "\n  Its plan: {{done}} of {{steps}} steps done{{now}}."
+work_plan_now = "; on now: \"{{step}}\""
+# Under it, the latest few things the work chose to tell her, newest last.
+# Only what it said: what it did to find it out stays with the work.
+work_told = "\n  It told you, {{when}}: {{text}}{{files}}"
+# Only when what it told her came with files.
+work_told_files = " (ready to hand over: {{files}})"
+# And what she kept from it so far, which `send_file` can hand over by its
+# number or file name.
+work_kept = "\n  You kept from it #{{thing}} ({{file}}): {{note}}"
+# And the newest few parts of it that it handed to other workers, one line
+# each: what each was given, where it stands and the latest it said. They
+# report to the work, not to her.
+work_part = "\n  Part {{part}} of it ({{status}}), given \"{{brief}}\": {{latest}}"
+# Where it stands while a sitting of it is running. With work that runs
+# apart from her day it goes on whatever she is doing, and she should know
+# that she need not stay with it; with work she sits down to, she has just
+# put it down.
+work_running = "Running now, on your machine. It goes on by itself while you sleep, talk or read, and tells you what it finds; you need not stay with it."
+work_running_awake = "You were in the middle of it just now."
+part_running = "running"
+part_paused = "paused until you sit down to the work again"
+part_asking = "waiting for the work to answer it"
+part_finished = "finished"
+part_blocked = "stuck"
+part_gave_up = "gave up"
+part_dropped = "stopped"
+waiting_answer = "You stopped to ask them: \"{{question}}\". It waits for their answer. When they give one, take it on again with just the answer, so that it reaches the work."

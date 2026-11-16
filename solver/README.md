@@ -5,11 +5,15 @@ on this machine, for whoever sits at the desk. `ghost-desk` opens on it.
 
 The runtime is the same one every character lives on. What makes this one
 a solver rather than a person is what every deployment can change and a
-character cannot: the prompts. `prompts/persona.md` and `prompts/being.md`
-replace her persona and her being with a hand's, and `ghostd.example.toml`
-turns off her day, her feeds and the weather, gives her this machine to
-work on, and listens on its own port, 7438, so that it never gets in the
-way of a daemon running real characters on 7437.
+character cannot: the prompts. The desk's own, in
+[`prompts/system/desk/`](../prompts/system/desk/), replace her persona
+(`character/persona.md`) and her being (`system/being.md`) with a hand's.
+They are part of the system, kept with every other prompt in
+[`prompts/`](../prompts/), and laid out the way any deployment's directory
+of prompts is. `ghostd.example.toml` points `[mind] prompts` at them, turns
+off her day, her feeds and the weather, gives her this machine to work on,
+and listens on its own port, 7438, so that it never gets in the way of a
+daemon running real characters on 7437.
 
 `ghost-desk` looks after all of it: the first time it runs it copies
 `ghostd.example.toml` to `ghostd.toml` (not published, since it names you),
