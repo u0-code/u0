@@ -42,6 +42,12 @@ trivially_copy_pass_by_ref = "allow"
 # Adapters mirror the field names of the platforms they talk to.
 struct_field_names = "allow"
 
+# One codegen unit makes the binaries about a sixth smaller (ghostd 21.3 to
+# 17.9 MB) for about forty seconds more on a rebuild of ghostd. Fat LTO
+# takes off another 5% and makes that rebuild three times as long. Panics
+# unwind: ghostd restarts a character's mind that panics, so `panic =
+# "abort"` is not an option.
 [profile.release]
 lto = "thin"
+codegen-units = 1
 strip = true
