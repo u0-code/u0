@@ -311,6 +311,29 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
 }
 
 #[test]
+fn a_transcript_names_who_said_what_and_when_and_counts_the_lines() {
+    let journal = before_and_after();
+    let expanded = HashSet::new();
+    let place = place_key("s1");
+    let (text, lines) = transcript(&view(&journal, &[], &place, &expanded));
+    assert_eq!(lines, 4);
+    let heads: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains(" · "))
+        .map(|l| l.split(" · ").next().unwrap())
+        .collect();
+    assert_eq!(heads, ["Fox", "Ghost", "Fox", "Ghost"]);
+    assert!(text.starts_with("Fox · "));
+    assert!(text.contains("\nfree some disk\n\nGhost · "));
+    assert!(text.ends_with("those too"), "no blank line at the end");
+    let other = place_key("s3");
+    assert_eq!(
+        transcript(&view(&journal, &[], &other, &expanded)),
+        (String::new(), 0)
+    );
+}
+
+#[test]
 fn a_place_said_in_on_both_channels_is_listed_once_on_the_console() {
     let spots = places(&before_and_after());
     let keys: Vec<&str> = spots.iter().map(|s| s.key.as_str()).collect();

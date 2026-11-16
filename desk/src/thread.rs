@@ -22,7 +22,10 @@ mod task_first;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write as _,
+};
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -466,6 +469,28 @@ enum Item<'a> {
     Failed(String),
     /// A stop was asked for from the desk; whether anything was stopped.
     Stopped(bool),
+}
+
+/// The thread of `view.place` as text: who said what, with the time,
+/// one blank line between turns; and how many lines of it there are.
+pub fn transcript(view: &View<'_>) -> (String, usize) {
+    let mut out = String::new();
+    let mut lines = 0;
+    for (at, _, item) in items(view) {
+        let Item::Said { m, from, mine, .. } = item else {
+            continue;
+        };
+        let who = if m.hers {
+            view.name.clone()
+        } else if mine {
+            view.who.clone()
+        } else {
+            from.unwrap_or_else(|| view.who.clone())
+        };
+        let _ = writeln!(out, "{who} · {}\n{}\n", clock(at, view.tz), m.text.trim());
+        lines += 1;
+    }
+    (out.trim_end().to_owned(), lines)
 }
 
 /// What the journal says around the conversation: which of your messages

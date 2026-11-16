@@ -77,6 +77,25 @@ fn menu_row(
         )
 }
 
+/// A row of a small menu: a word, in a pill on hover.
+fn menu_item(
+    faces: &Faces,
+    id: &'static str,
+    word: &'static str,
+    color: gpui::Hsla,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .h(px(30.))
+        .px(px(10.))
+        .rounded(px(7.))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(ui::text(faces, word).text_size(px(13.)).text_color(color))
+}
+
 /// The thin └ that ties a part to the session above it: a 1-pixel line
 /// down from the row's top and across at its middle. A part with another
 /// after it carries the line on down, so the parts read as one branch.
@@ -325,7 +344,10 @@ impl Desk {
     }
 
     /// One session: its name, and on the right a dot only when its work is
-    /// running (amber) or waiting on you (purple).
+    /// running (amber) or waiting on you (purple), and a `…` that shows on
+    /// hover and opens its menu, as a right click does: Rename, Copy,
+    /// Delete. While it is being renamed, the row is the field its name is
+    /// typed into.
     fn session_row(
         &self,
         faces: &Faces,
@@ -333,7 +355,7 @@ impl Desk {
         s: &Session,
         tasks: &[Task<'_>],
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Div {
         let on = index == self.current && self.open.is_none() && !self.attending();
         let label_color = if s.title.is_empty() {
             theme::muted()
@@ -342,29 +364,134 @@ impl Desk {
         } else {
             theme::text2()
         };
-        div()
-            .id(SharedString::from(format!("session-{}", s.id)))
+        let id = s.id.clone();
+        let group = SharedString::from(format!("session-{id}"));
+        let menu_open = self.popup == Popup::Session(id.clone());
+        let renaming = self.renaming.as_deref() == Some(id.as_str());
+        let name: AnyElement = if renaming {
+            // The field's text starts where the name did: the frame
+            // reaches back over the row's padding by its own.
+            div()
+                .flex()
+                .items_center()
+                .flex_1()
+                .min_w(px(0.))
+                .h(px(26.))
+                .ml(px(-6.))
+                .px(px(6.))
+                .rounded(px(6.))
+                .bg(theme::well())
+                .border_1()
+                .border_color(theme::ghost_line())
+                .child(div().flex_1().min_w(px(0.)).child(self.rename.clone()))
+                .into_any_element()
+        } else {
+            ui::one_line(
+                ui::text(faces, s.label())
+                    .text_size(px(14.))
+                    .text_color(label_color),
+            )
+            .into_any_element()
+        };
+        let (for_more, for_right, for_click) = (id.clone(), id.clone(), index);
+        let more = div()
+            .id(SharedString::from(format!("session-{id}:more")))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(20.))
+            .rounded(px(5.))
+            .hover(|s| s.bg(theme::border2()))
+            .child(
+                ui::mono(faces, "…")
+                    .text_color(if menu_open {
+                        theme::text2()
+                    } else {
+                        gpui::transparent_black()
+                    })
+                    .group_hover(group.clone(), |s| s.text_color(theme::text2())),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.toggle_session_menu(&for_more, cx);
+            }));
+        let row = div()
+            .id(group.clone())
+            .group(group)
             .flex()
             .items_center()
             .gap(px(8.))
             .h(px(ROW))
-            .px(px(10.))
+            .pl(px(10.))
+            .pr(px(6.))
             .rounded(px(8.))
             .cursor_pointer()
-            .when(on, |d| d.bg(theme::panel2()))
-            .when(!on, |d| d.hover(|x| x.bg(theme::hover())))
-            .child(ui::one_line(
-                ui::text(faces, s.label())
-                    .text_size(px(14.))
-                    .text_color(label_color),
-            ))
+            .when(on || menu_open, |d| d.bg(theme::panel2()))
+            .when(!on && !menu_open, |d| d.hover(|x| x.bg(theme::hover())))
+            .child(name)
             .children(thread::session_state(tasks).map(|st| {
                 ui::dot(match st {
                     State::Waiting => theme::purple(),
                     _ => theme::accent(),
                 })
             }))
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(index, cx)))
+            .when(!renaming, |d| d.child(more))
+            .on_click(cx.listener(move |this, _, _, cx| this.choose(for_click, cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, _, _, cx| {
+                    this.popup = Popup::Session(for_right.clone());
+                    cx.notify();
+                }),
+            );
+        let mut wrap = div().relative().child(row);
+        if menu_open {
+            wrap = wrap.child(
+                div().absolute().top(px(ROW + 2.)).right_0().child(deferred(
+                    anchored()
+                        .anchor(Corner::TopRight)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(Self::session_menu(faces, &id, cx)),
+                )),
+            );
+        }
+        wrap
+    }
+
+    /// A session's menu: Rename, Copy (the thread, as text), Delete.
+    fn session_menu(faces: &Faces, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (rename, copy, delete) = (id.to_owned(), id.to_owned(), id.to_owned());
+        div()
+            .id("session-menu")
+            .occlude()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .w(px(180.))
+            .p(px(6.))
+            .bg(theme::panel())
+            .border_1()
+            .border_color(theme::border2())
+            .rounded(px(10.))
+            .shadow_lg()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.popup = Popup::Closed;
+                cx.notify();
+            }))
+            .child(
+                menu_item(faces, "session-rename", "Rename", theme::text()).on_click(
+                    cx.listener(move |this, _, window, cx| this.start_rename(&rename, window, cx)),
+                ),
+            )
+            .child(
+                menu_item(faces, "session-copy", "Copy", theme::text())
+                    .on_click(cx.listener(move |this, _, _, cx| this.copy_session(&copy, cx))),
+            )
+            .child(
+                menu_item(faces, "session-delete", "Delete", theme::coral())
+                    .on_click(cx.listener(move |this, _, _, cx| this.delete_session(&delete, cx))),
+            )
     }
 
     /// Ghost at the foot of the column, the way a coding agent's
@@ -582,23 +709,13 @@ impl Desk {
                     cx.notify();
                 }))
                 .child(
-                    div()
-                        .id("remove-connection")
-                        .flex()
-                        .items_center()
-                        .h(px(30.))
-                        .px(px(10.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(
-                            ui::text(faces, "Remove connection")
-                                .text_size(px(13.))
-                                .text_color(theme::coral()),
-                        )
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.remove_connection(&gone, cx)),
-                        ),
+                    menu_item(
+                        faces,
+                        "remove-connection",
+                        "Remove connection",
+                        theme::coral(),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.remove_connection(&gone, cx))),
                 );
             // Under the head, its right edge on the head's.
             wrap = wrap.child(

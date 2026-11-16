@@ -114,6 +114,8 @@ pub(crate) enum Popup {
     Places,
     /// A connection's menu, by its name.
     Connection(String),
+    /// A session's menu, by its id.
+    Session(String),
 }
 
 /// When the desk last asked itself what of her steps to read for the
@@ -158,6 +160,9 @@ pub struct Desk {
     /// Whether anything has been typed into the search since it opened:
     /// emptying it again closes it, opening it does not.
     search_typed: bool,
+    /// The field a session is renamed in, and which session, while one is.
+    pub(crate) rename: Entity<TextInput>,
+    pub(crate) renaming: Option<String>,
     /// The sheet a brain is added or edited in.
     pub(crate) sheet: Sheet,
     pub(crate) menu: Menu,
@@ -250,6 +255,15 @@ impl Desk {
             this.open_first_match(query, window, cx);
         })
         .detach();
+        let rename = cx.new(|cx| TextInput::new(cx, "Name").dense());
+        cx.subscribe_in(&rename, window, |this, _, Submitted(name), window, cx| {
+            this.finish_rename(name, window, cx);
+        })
+        .detach();
+        cx.subscribe_in(&rename, window, |this, _, _: &Cancelled, window, cx| {
+            this.cancel_rename(window, cx);
+        })
+        .detach();
         let sheet = Sheet::new(window, cx);
         let task = task::Form::new(window, cx);
 
@@ -328,6 +342,8 @@ impl Desk {
             search,
             searching: false,
             search_typed: false,
+            rename,
+            renaming: None,
             sheet,
             menu: Menu::Closed,
             menu_at: At::Composer,
