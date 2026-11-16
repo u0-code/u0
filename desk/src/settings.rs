@@ -48,7 +48,7 @@ impl Session {
     /// What the list calls it: its first line, or nothing yet.
     pub fn label(&self) -> String {
         if self.title.is_empty() {
-            "New task".to_owned()
+            "Untitled".to_owned()
         } else {
             self.title.clone()
         }
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(matching(&sessions, "nothing like it"), Vec::<usize>::new());
         assert_eq!(matching(&sessions, "  "), [0, 1, 2, 3]);
         assert_eq!(
-            matching(&sessions, "new task"),
+            matching(&sessions, "untitled"),
             [2],
             "an untitled session goes by its label"
         );
