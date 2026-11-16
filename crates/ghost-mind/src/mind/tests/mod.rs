@@ -21,6 +21,7 @@ mod reaching;
 mod report;
 mod sittings;
 mod tools;
+mod waiting;
 mod work;
 mod work_in_hand;
 

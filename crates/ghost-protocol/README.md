@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
@@ -114,5 +114,36 @@ kind it is sent reads it as `other`.
 `work` is the id `work.list` gives. Only her open work can be named: an id
 she has none of, one that has ended, or a part's, is refused with
 `-32005`. Blank `text`, or no `who`, with `-32602`.
+
+## What is waiting on whoever runs her
+
+`attention.list`, with no params, lists what is waiting on her operators,
+newest first. Any console may ask; it changes nothing. It is made afresh
+from her journal, her memory and her work's records each time, and which
+items a person has already seen is the client's to keep, by `id`, which is
+the same each time an item is listed and never another item's.
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"attention.list"}
+
+{"jsonrpc":"2.0","id":5,"result":[
+  {"id":"report-905","kind":"report","at":"…","seq":905,"place":"qq:…","text":"…"},
+  {"id":"told-871","kind":"told","at":"…","seq":871,"work":"20261116-140000-1a2b",
+   "brief":"…","text":"halfway there","files":["/work/draft.md"]},
+  {"id":"ended-850","kind":"ended","at":"…","seq":850,"work":"…","brief":"…",
+   "text":"the site wants a login","outcome":"blocked"},
+  {"id":"asked-812","kind":"question","at":"…","seq":812,"work":"…","brief":"…",
+   "text":"Which week should the rota cover?","ask":"choose","options":["this week","next week"]}
+]}
+```
+
+| `kind` | what | `seq` is | for how long |
+|---|---|---|---|
+| `question` | open work waiting on an answer; `work.answer` gives it one. `ask` and `options` as `work.list` has `kind` and `options` | its `asked` entry | as long as it waits |
+| `ended` | work that ended `blocked` or `gave_up` (`outcome`), with why (`text`) | its `concluded` entry | three days |
+| `told` | what work an operator asked for or directed told her while it ran, with the files it made | its `reported` entry | three days |
+| `report` | what she said when she told an operator about her day, and where (`place`) | the `intended` entry that meant it | three days |
+
+A client reads a `kind` it does not know as `other`.
 
 The console payloads mirror the core's serialized types and are not frozen yet.

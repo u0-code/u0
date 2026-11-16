@@ -116,6 +116,11 @@ pub mod method {
     /// hers, as she would: a sitting at it ends after the step it is on.
     /// Refused as [`WORK_ANSWER`] is.
     pub const WORK_STOP: &str = "work.stop";
+    /// Console → daemon request. No params. Result: a list of
+    /// [`Attention`](super::Attention), newest first: what is waiting on
+    /// whoever runs her. Read-only; which of it a client has shown is the
+    /// client's to remember, by each item's id.
+    pub const ATTENTION: &str = "attention.list";
 }
 
 /// The channel a console speaks to her on. It is the daemon's own: no
@@ -709,6 +714,67 @@ pub struct WorkStop {
     pub work: String,
 }
 
+/// One thing waiting on whoever runs her, in the result of
+/// [`method::ATTENTION`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attention {
+    /// The same each time it is listed, and never another item's: its kind
+    /// and the seq of the journal entry it comes from, such as `asked-812`.
+    /// A client keeps what it has shown by this.
+    pub id: String,
+    pub kind: AttentionKind,
+    /// When it happened, RFC 3339.
+    pub at: String,
+    /// The journal entry it comes from: the `asked`, `concluded` or
+    /// `reported` entry, or, for a report, the `intended` entry that
+    /// meant it.
+    pub seq: i64,
+    /// The work it is about, by [`Work::id`], when it is about work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<String>,
+    /// That work's brief.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
+    /// The question; why the work ended; what the work told; or what she
+    /// said in her report.
+    pub text: String,
+    /// For a question: what answering it takes, when the work said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask: Option<AskKind>,
+    /// For a question of kind `choose`: what to choose from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    /// For work that ended: `blocked` or `gave_up`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// For what work told: the files it made, as her machine knows them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    /// For a report: where she said it, a place key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+}
+
+/// What kind of thing is waiting on whoever runs her.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttentionKind {
+    /// A piece of work is waiting on an answer: [`method::WORK_ANSWER`]
+    /// gives it one. Listed for as long as it waits.
+    Question,
+    /// A piece of work ended blocked or given up, in the last few days.
+    Ended,
+    /// A piece of work done for an operator, or directed by one, told her
+    /// something while it ran, in the last few days.
+    Told,
+    /// What she said when she told an operator about her day, in the last
+    /// few days.
+    Report,
+    /// A kind this client does not know, from a newer daemon.
+    #[serde(other)]
+    Other,
+}
+
 /// Where a piece of work stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -915,6 +981,28 @@ mod tests {
             serde_json::from_str(r#"{"id":"u1","brief":"b","state":"waiting","kind":"sign"}"#)
                 .unwrap();
         assert_eq!(newer.kind, Some(AskKind::Other));
+    }
+
+    #[test]
+    fn an_attention_item_reads_as_her_mind_answers_it_and_a_newer_kind_still_reads() {
+        let question: Attention = serde_json::from_str(
+            r#"{"id":"asked-9","kind":"question","at":"2026-11-16T06:00:00Z","seq":9,
+                "work":"w1","brief":"b","text":"which?","ask":"choose","options":["a","b"]}"#,
+        )
+        .unwrap();
+        assert_eq!(question.kind, AttentionKind::Question);
+        assert_eq!(question.ask, Some(AskKind::Choose));
+        let report: Attention = serde_json::from_str(
+            r#"{"id":"report-4","kind":"report","at":"2026-11-16T13:00:00Z","seq":4,
+                "place":"qq:boss","text":"a quiet day"}"#,
+        )
+        .unwrap();
+        assert_eq!((report.work, report.ask), (None, None));
+        let newer: Attention = serde_json::from_str(
+            r#"{"id":"x-1","kind":"invoice","at":"2026-11-16T13:00:00Z","seq":1,"text":"t"}"#,
+        )
+        .unwrap();
+        assert_eq!(newer.kind, AttentionKind::Other);
     }
 
     #[test]

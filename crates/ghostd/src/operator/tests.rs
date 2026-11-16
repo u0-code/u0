@@ -240,3 +240,28 @@ async fn only_an_operator_who_says_who_they_are_answers_her_work_and_only_work_s
         ghost_protocol::WorkState::Waiting
     );
 }
+
+#[tokio::test]
+async fn a_console_lists_what_waits_on_her_operators_and_answering_it_takes_it_off() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(waiting_on_an_answer);
+    let rig = Rig::run(vec![spec]).await;
+    // Any console may look; it needs to be no one in particular.
+    let (mut watcher, _) = Console::connect(&rig.url, None, None).await.unwrap();
+    let waiting = watcher.attention().await.unwrap();
+    assert_eq!(waiting.len(), 1);
+    let question = &waiting[0];
+    assert_eq!(question.kind, ghost_protocol::AttentionKind::Question);
+    assert_eq!(question.id, format!("asked-{}", question.seq));
+    assert_eq!(question.work.as_deref(), Some("w1"));
+    assert_eq!(question.brief.as_deref(), Some("Find the rota."));
+    assert_eq!(question.text, "which week?");
+    // Asked again, it is the same item.
+    assert_eq!(watcher.attention().await.unwrap(), waiting);
+
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("fox".into()))
+        .await
+        .unwrap();
+    fox.answer("w1", "next week").await.unwrap();
+    assert!(watcher.attention().await.unwrap().is_empty());
+}
