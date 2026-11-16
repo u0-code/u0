@@ -20,8 +20,9 @@ character/              how a character's own ghost.toml is turned into prose
 
 **System** is how Ghost works, and every character a deployment runs is
 told the same. The desk's solver is part of it: what the desktop app runs
-is a deployment like any other, and `system/desk/` holds the two files it
-replaces, laid out as any deployment's directory is.
+is a deployment like any other, kept with the desk in `desk/core/`, and
+`system/desk/` holds the two files it replaces, laid out as any
+deployment's directory is.
 
 **Character** is the arrangement and nothing else. Her name, temperament,
 voice, examples, story, values and past are in her `ghost.toml`, which is

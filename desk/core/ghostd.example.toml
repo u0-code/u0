@@ -1,13 +1,14 @@
-# The solver's deployment: one daemon on this machine that runs the ghost
-# born from ghosts/_solver and nothing else. Its prompts replace her persona
-# and her being with a hand's: see prompts/system/desk, which is laid out as
-# any deployment's directory of prompts is, mirroring prompts/. Keys come
-# from the environment or .env, as everywhere.
+# The desk's core: one daemon on this machine that runs the solver, born
+# from desk/core/ghosts/_solver, and nothing else. Its prompts replace her
+# persona and her being with a hand's: see prompts/system/desk, which is
+# laid out as any deployment's directory of prompts is, mirroring prompts/.
+# Paths are relative to the checkout, where the daemon runs. Keys come from
+# the environment or .env, as everywhere.
 #
-#   ghostd run ghosts/solver --config solver/ghostd.toml
+#   ghostd run desk/core/ghosts/solver --config desk/core/ghostd.toml
 #
-# This is the example. ghost-desk copies it to solver/ghostd.toml, which is
-# not published, the first time it runs; so does `cp` by hand.
+# This is the example. ghost-desk copies it to desk/core/ghostd.toml, which
+# is not published, the first time it runs; so does `cp` by hand.
 
 [brain]
 think = "main"
