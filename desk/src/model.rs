@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{GhostCard, Listed, Work};
+use ghost_link::protocol::{Attention, GhostCard, Listed, Work};
 use serde_json::Value;
 
 /// One line of her journal.
@@ -216,24 +216,35 @@ pub enum Update {
     Journal(Vec<Entry>),
     /// One new entry, as it is written.
     Entry(Entry),
-    /// She said something to you on the desk, in a session (a place).
-    HerSay {
-        place: String,
-        text: String,
+    /// Something you did to her could not be done, and why, in a line.
+    Refused {
+        order: crate::link::Order,
+        why: String,
     },
-    HerTyping {
-        place: String,
-    },
-    /// The desk's own channel is registered with the daemon.
-    DeskOnline(bool),
     /// Who the daemon runs, as `ghost.list` says.
     Roster(Vec<Listed>),
     /// The work she has in hand and what ended lately, as `work.list` says.
     Work(Vec<Work>),
+    /// What one of the daemon's characters, by her id, is waiting on you
+    /// for, as `attention.list` says.
+    Attention {
+        ghost: String,
+        items: Vec<Attention>,
+    },
+    /// What she was doing about a place, by its id on the console
+    /// channel, was asked to stop; and whether anything was.
+    Stopped {
+        place: String,
+        stopped: bool,
+    },
+    /// Something done to a character from Attention is done; or why not.
+    Ordered {
+        why: Option<String>,
+    },
 }
 
-/// A message in the conversation between you and her on the desk, in one
-/// session: each session is a place of its own on the `desk` channel.
+/// A message in the conversation between you and her from the desk, in
+/// one place: each session is a place of its own on the console channel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub place: String,
@@ -256,6 +267,16 @@ impl Message {
             && self.text == written.text
             && written.at + SKEW >= self.at
     }
+}
+
+/// A stop asked for from the desk in one place, by its id on the console
+/// channel: when the daemon answered, and whether anything was stopped.
+/// The journal has no entry for it, so the desk keeps it while it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stop {
+    pub place: String,
+    pub at: DateTime<Utc>,
+    pub stopped: bool,
 }
 
 #[cfg(test)]

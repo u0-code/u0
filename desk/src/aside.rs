@@ -1,7 +1,9 @@
-//! The column down the right: where the solver runs, the context it works
-//! in, the work taken on in this session, and the files that work handed
-//! over. With a character open, her daemon and its link, her clock and the
-//! brain she thinks with, and her work as her daemon keeps it. Sections
+//! The column down the right: where the little ghost runs, the context it
+//! works in, the work taken on in this session, and the files that work
+//! handed over. With a character open, her daemon and its link, her clock
+//! and the brain she thinks with, and her work as her daemon keeps it.
+//! Work that waits on you shows what it asks, to be answered here, and
+//! open work can be stopped (see `answer.rs`). Sections
 //! are told apart by full-width hairlines and rows keep one height, the
 //! way a coding agent's side panel reads. Nothing here is drawn without
 //! data behind it: a section with nothing to say says so, and Outputs is
@@ -9,13 +11,14 @@
 
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
-use ghost_link::protocol::{Work, WorkState};
+use chrono::Utc;
+use ghost_link::protocol::WorkState;
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
 };
 
 use crate::{
+    answer::{Ask, Whom},
     brains::Mark,
     desk::{At, Desk, Menu, Open, RIGHT, Watched},
     fonts::Faces,
@@ -115,7 +118,7 @@ fn row_icon(name: &str) -> AnyElement {
 
 /// Where a piece of work stands, as a glyph: a ring while it is open, a
 /// dot once it has ended, each in its state's colour.
-fn glyph(state: State) -> Div {
+pub(crate) fn glyph(state: State) -> Div {
     match state {
         State::Running | State::Waiting => div()
             .flex_none()
@@ -129,7 +132,7 @@ fn glyph(state: State) -> Div {
 
 /// Where a piece of work her daemon keeps stands, in the desk's colours: a
 /// piece resting between sittings is still under way.
-fn state_of(state: WorkState) -> State {
+pub(crate) fn state_of(state: WorkState) -> State {
     match state {
         WorkState::Open | WorkState::Running => State::Running,
         WorkState::Waiting => State::Waiting,
@@ -407,48 +410,6 @@ impl Desk {
             .into_any_element()
     }
 
-    /// Her work as her daemon keeps it, most recently active first: five,
-    /// then the rest when asked for.
-    fn her_work(&self, faces: &Faces, work: &[Work], cx: &mut Context<Self>) -> Div {
-        if work.is_empty() {
-            return div().child(
-                ui::text(faces, "Nothing in hand, and nothing ended lately.")
-                    .text_size(px(13.))
-                    .text_color(theme::muted())
-                    .py(px(4.)),
-            );
-        }
-        let key = "more:her".to_owned();
-        let all = self.expanded.contains(&key);
-        let (count, hidden) = thread::shown(work.len(), WORK_ROWS, all);
-        let mut list = div().flex().flex_col().gap(px(2.));
-        for w in work.iter().take(count) {
-            list = list.child(her_work_row(faces, w));
-        }
-        if hidden > 0 || (all && work.len() > WORK_ROWS) {
-            let more = if hidden > 0 {
-                format!("Show {hidden} more")
-            } else {
-                "Show fewer".to_owned()
-            };
-            list = list.child(
-                div()
-                    .id("her-work-more")
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .cursor_pointer()
-                    .child(
-                        ui::text(faces, more)
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx))),
-            );
-        }
-        list
-    }
-
     /// A section: its head (with a chevron if it folds, and an aside on
     /// the right), its body, and a hairline under it.
     fn section(
@@ -504,8 +465,8 @@ impl Desk {
             .when(open, |d| d.child(body.mt(px(6.))))
     }
 
-    /// Where the solver runs: the machine its work uses, the daemon, the
-    /// brain, and whether the desk's channel is registered.
+    /// Where the little ghost runs: the machine its work uses, the daemon,
+    /// and the brain.
     fn environment(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         div()
             .flex()
@@ -520,18 +481,9 @@ impl Desk {
                 cx,
             ))
             .child(self.brain_row(faces, cx))
-            .child(row(
-                Some(row_icon("plug")),
-                label(faces, "Desk"),
-                Some(if self.solver.desk_online {
-                    value(faces, "registered", theme::green())
-                } else {
-                    value(faces, "not yet", theme::muted())
-                }),
-            ))
     }
 
-    /// The machine the solver's work runs on. On this one, its home, which
+    /// The machine the little ghost's work runs on. On this one, its home, which
     /// Open shows in Finder; anywhere else, what the deployment names.
     fn machine_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         if !self.abilities.local() {
@@ -588,7 +540,7 @@ impl Desk {
         )
     }
 
-    /// What the solver knows of its own life and of you: the journal, its
+    /// What the little ghost knows of its own life and of you: the journal, its
     /// tempo, your sessions, and you as its operator.
     fn context(&self, faces: &Faces) -> Div {
         let status = self.solver.status.as_ref();
@@ -600,9 +552,9 @@ impl Desk {
             )
         };
         let dash = || "—".to_owned();
-        let operator = self.solver.you(self.who()).map_or_else(
+        let operator = self.solver.heard_from(self.who()).map_or_else(
             || "not yet known".to_owned(),
-            |p| format!("{} · {} lines", self.who(), p.heard),
+            |heard| format!("{} · {heard} lines", self.who()),
         );
         div()
             .flex()
@@ -642,6 +594,14 @@ impl Desk {
         let mut list = div().flex().flex_col().gap(px(2.));
         for t in tasks.iter().rev().take(count) {
             list = list.child(work_row(faces, t, cx));
+            // What its daemon says of it, when it says: what it asks, and
+            // a way to stop it while it is open.
+            if let Some(w) = self.solver.work.iter().find(|w| w.id == t.id) {
+                let ask = Ask::of(Whom::Solver, w);
+                if ask.open {
+                    list = list.child(self.ask_controls(faces, &ask, cx).pl(px(19.)).pb(px(6.)));
+                }
+            }
         }
         let more = if hidden > 0 {
             Some(format!("Show {hidden} more"))
@@ -746,53 +706,6 @@ impl Desk {
                 )
             })
     }
-}
-
-/// A piece of her work: where it stands, its brief, how far it has gone
-/// and when it last moved, and what it asked while it waits to hear.
-fn her_work_row(faces: &Faces, w: &Work) -> Div {
-    let mut figures = format!("{} steps", w.steps);
-    if !w.parts.is_empty() {
-        let open = w.parts.iter().filter(|p| !p.state.ended()).count();
-        figures = format!("{figures} · {} parts, {open} open", w.parts.len());
-    }
-    if let Some(last) = w
-        .last
-        .as_deref()
-        .and_then(|t| t.parse::<DateTime<Utc>>().ok())
-    {
-        let ago = thread::span((Utc::now() - last).num_seconds());
-        figures = format!("{figures} · {ago} ago");
-    }
-    div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .py(px(6.))
-        .child(div().pt(px(5.)).child(glyph(state_of(w.state))))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .flex_1()
-                .min_w(px(0.))
-                .child(ui::one_line(
-                    ui::text(faces, w.brief.clone()).text_size(px(13.5)),
-                ))
-                .child(ui::one_line(
-                    ui::mono(faces, figures)
-                        .text_size(px(11.5))
-                        .text_color(theme::muted()),
-                ))
-                .children(w.question.as_ref().map(|q| {
-                    ui::one_line(
-                        ui::text(faces, q.clone())
-                            .text_size(px(12.5))
-                            .text_color(theme::purple()),
-                    )
-                })),
-        )
 }
 
 /// A piece of work: where it stands, its brief, and in figures how far it

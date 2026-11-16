@@ -1,13 +1,18 @@
 //! What the desk remembers between runs: where the solver's daemon is, who
-//! you are to it, the sessions you have opened with it, and the other
-//! daemons you connect to. A small JSON file in your home directory.
+//! you are to it, the sessions you have opened with it, the other daemons
+//! you connect to, and which of what waits on you you have seen. A small
+//! JSON file in your home directory.
 //!
 //! No token is ever written here. The solver's comes from `GHOSTD_TOKEN`,
 //! and a connection names the variable its token is in, read when the desk
 //! connects, in the environment or the `.env` file, as everywhere in Ghost.
 //! A file written before there were connections reads as having none.
+//!
+//! What you have seen in Attention is kept here and not on any daemon:
+//! a daemon lists what waits on its operators, and which of it one person
+//! has looked at is theirs to remember.
 
-use std::{net::IpAddr, path::PathBuf};
+use std::{collections::BTreeSet, net::IpAddr, path::PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -19,8 +24,10 @@ pub const SOLVER_URL: &str = "ws://127.0.0.1:7438";
 /// left. No connection may take the name.
 pub const THIS_MACHINE: &str = "This machine";
 
-/// One conversation with the solver: a place of its own on the `desk`
-/// channel, so that its thread is its own in her journal.
+/// One conversation with the solver: a place of its own on the console
+/// channel, so that its thread is its own in her journal. Sessions from
+/// before the desk spoke through the console were places on the `desk`
+/// channel with the same id, and their threads go on where they were.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     pub id: String,
@@ -175,6 +182,8 @@ pub struct Settings {
     pub sessions: Vec<Session>,
     /// The daemons it connects to besides its own, in the order added.
     pub connections: Vec<Connection>,
+    /// What you have marked seen in Attention, by its key there.
+    pub seen: BTreeSet<String>,
 }
 
 impl Default for Settings {
@@ -187,6 +196,7 @@ impl Default for Settings {
                 .unwrap_or_else(|| SOLVER_URL.to_owned()),
             sessions: Vec::new(),
             connections: Vec::new(),
+            seen: BTreeSet::new(),
         }
     }
 }
@@ -257,11 +267,17 @@ impl Settings {
                 })
             })
             .collect();
+        let seen = list("seen")
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
         Self {
             who: s(v, "who").unwrap_or(default.who),
             solver_url: s(v, "solver_url").unwrap_or(default.solver_url),
             sessions,
             connections,
+            seen,
         }
     }
 
@@ -281,6 +297,7 @@ impl Settings {
                 }
                 v
             }).collect::<Vec<_>>(),
+            "seen": self.seen,
         })
     }
 }
@@ -327,6 +344,26 @@ mod tests {
         assert_eq!(read.sessions.len(), 1);
         assert_eq!(read.sessions[0].title, "Free some disk");
         assert!(read.connections.is_empty());
+        assert!(read.seen.is_empty(), "nothing was seen before Attention");
+    }
+
+    #[test]
+    fn what_was_seen_in_attention_survives_a_round_trip() {
+        let settings = Settings {
+            who: "fox".to_owned(),
+            solver_url: SOLVER_URL.to_owned(),
+            sessions: Vec::new(),
+            connections: Vec::new(),
+            seen: [
+                "group:machine/solver/asked-12",
+                "group:remote:hk/weiwei/report-9",
+            ]
+            .map(str::to_owned)
+            .into(),
+        };
+        let written = settings.written();
+        assert_eq!(Settings::read(&written), settings);
+        assert_eq!(written["seen"][0], "group:machine/solver/asked-12");
     }
 
     #[test]
@@ -347,7 +384,9 @@ mod tests {
                     token_env: None,
                 },
             ],
+            seen: BTreeSet::new(),
         };
+
         let written = settings.written();
         let back = Settings::read(&written);
         assert_eq!(back, settings);

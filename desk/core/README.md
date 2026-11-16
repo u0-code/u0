@@ -29,17 +29,19 @@ way of a daemon running real characters on 7437. Its paths are relative to
 the checkout, which is where the daemon runs.
 
 `ghost-desk` looks after all of it: the first time it runs it copies
-`ghostd.example.toml` to `ghostd.toml` (not published, since it names you),
-makes you the solver's operator on the `desk` channel so that it may use
-the machine while you talk, gives birth to the solver from
-`ghosts/_solver` if it has not been born, and starts its daemon. The brain
+`ghostd.example.toml` to `ghostd.toml` (not published: it is yours to
+change), gives birth to the solver from `ghosts/_solver` if it has not
+been born, and starts its daemon. You are its operator, and so it may use
+the machine while you talk, because the desk speaks to it through a
+console that holds its daemon's token, or from this machine when it has
+none: nobody is listed in `[operators]` for it. The brain
 it thinks with is picked, and new ones added, from the line you type into;
 a key is never written, only the name of the variable it is read from.
 
 By hand, from the checkout, the same is:
 
 ```bash
-cp desk/core/ghostd.example.toml desk/core/ghostd.toml   # add [operators] desk = ["<you>"]
+cp desk/core/ghostd.example.toml desk/core/ghostd.toml
 cp -r desk/core/ghosts/_solver desk/core/ghosts/solver
 ./target/release/ghostd birth desk/core/ghosts/solver
 ./target/release/ghostd run desk/core/ghosts/solver --config desk/core/ghostd.toml

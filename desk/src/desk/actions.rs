@@ -114,16 +114,16 @@ impl Desk {
     }
 
     pub(crate) fn restart(&mut self, cx: &mut Context<Self>) {
+        let name = self.solver.name();
         self.notice = if self.deployment.owns_running() {
             match self.deployment.restart() {
-                Ok(()) => Some("Restarting the solver with its new brain.".to_owned()),
-                Err(e) => Some(format!("Could not restart the solver: {e:#}")),
+                Ok(()) => Some(format!("Restarting {name} with the new brain.")),
+                Err(e) => Some(format!("Could not restart {name}: {e:#}")),
             }
         } else {
-            Some(
-                "Saved. The solver's daemon was started elsewhere: restart it to use this brain."
-                    .to_owned(),
-            )
+            Some(format!(
+                "Saved. {name}'s daemon was started elsewhere: restart it to use this brain."
+            ))
         };
         cx.notify();
     }

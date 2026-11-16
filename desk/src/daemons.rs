@@ -7,12 +7,16 @@
 //! runs it starts and stops it. Each is asked now and then who it runs,
 //! with `ghost.list`, and its group lists them. Opening one of them follows
 //! her alone, on a link of her own: a daemon's group costs one small
-//! question every little while, not a console for everyone it runs.
+//! question every little while, not a console for everyone it runs. Each
+//! of them is also asked, every minute, what is waiting on you, for
+//! Attention.
 
-use ghost_link::protocol::Listed;
+use std::collections::HashMap;
+
+use ghost_link::protocol::{Attention, Listed};
 
 use crate::{
-    link::Listing,
+    link::{Listing, Order},
     model::{LinkState, Update},
     settings::{Connection, THIS_MACHINE},
 };
@@ -65,6 +69,15 @@ pub struct Daemon {
     /// Its token, or why it has none though it needs one.
     pub token: Result<Option<String>, String>,
     pub cast: Cast,
+    /// What each of its characters, by her id, is waiting on you for, as
+    /// she last said.
+    pub attention: HashMap<String, Vec<Attention>>,
+    /// The characters whose answer to that came in since the desk last
+    /// looked, so that it can forget what was seen of theirs and is gone.
+    pub attended: Vec<String>,
+    /// Why the last thing done to one of its characters from Attention
+    /// could not be done, until the desk has said so.
+    pub refused: Option<String>,
     /// Asking who it runs. None when there is no asking it: its token's
     /// variable is not set.
     listing: Option<Listing>,
@@ -100,6 +113,9 @@ impl Daemon {
             url: url.to_owned(),
             token,
             cast,
+            attention: HashMap::new(),
+            attended: Vec::new(),
+            refused: None,
             listing,
         }
     }
@@ -108,6 +124,20 @@ impl Daemon {
     pub fn retry(&self) {
         if let Some(listing) = &self.listing {
             listing.retry();
+        }
+    }
+
+    /// Ask everyone it runs what is waiting on you, now.
+    pub fn attend(&self) {
+        if let Some(listing) = &self.listing {
+            listing.attend();
+        }
+    }
+
+    /// Do `order` to its character `ghost`, as `who`.
+    pub fn order(&self, ghost: &str, who: &str, order: Order) {
+        if let Some(listing) = &self.listing {
+            listing.order(ghost.to_owned(), who.to_owned(), order);
         }
     }
 
@@ -120,7 +150,21 @@ impl Daemon {
         while let Ok(update) = listing.rx.try_recv() {
             match update {
                 Update::Link(state) => self.cast.link = state,
-                Update::Roster(ghosts) => self.cast.ghosts = ghosts,
+                Update::Roster(ghosts) => {
+                    // Whoever it no longer runs waits on nobody.
+                    self.attention
+                        .retain(|id, _| ghosts.iter().any(|g| g.id == *id));
+                    self.cast.ghosts = ghosts;
+                }
+                Update::Attention { ghost, items } => {
+                    self.attention.insert(ghost.clone(), items);
+                    self.attended.push(ghost);
+                }
+                Update::Ordered { why } => {
+                    if why.is_some() {
+                        self.refused = why;
+                    }
+                }
                 _ => continue,
             }
             changed = true;
@@ -136,23 +180,27 @@ pub struct Group<'a> {
     pub ghosts: Vec<&'a Listed>,
 }
 
+/// Whether `g`, whom the daemon `d` runs, is the solver: a character of
+/// the core on this machine with the seal the solver welcomed the desk
+/// with, `solver`; until then, a core that runs one character runs only
+/// the solver.
+pub fn is_solver(d: &Daemon, g: &Listed, solver: Option<&str>) -> bool {
+    d.host == Host::Local
+        && (Some(g.card.seal.as_str()) == solver || (solver.is_none() && d.cast.ghosts.len() == 1))
+}
+
 /// The groups down the left, this machine's first. The solver is not
 /// listed among this machine's characters: your sessions with it stand for
-/// it. It is known by the seal it welcomed the desk with; until then, a
-/// core that runs one character runs only the solver.
+/// it.
 pub fn groups<'a>(daemons: &'a [Daemon], solver: Option<&str>) -> Vec<Group<'a>> {
     let mut groups: Vec<Group<'a>> = daemons
         .iter()
         .map(|d| {
-            let alone = d.cast.ghosts.len() == 1;
             let ghosts = d
                 .cast
                 .ghosts
                 .iter()
-                .filter(|g| {
-                    d.host != Host::Local
-                        || !(Some(g.card.seal.as_str()) == solver || (solver.is_none() && alone))
-                })
+                .filter(|g| !is_solver(d, g, solver))
                 .collect();
             Group {
                 host: &d.host,
@@ -197,6 +245,9 @@ mod tests {
                 link,
                 ghosts: ids.iter().map(|id| listed(id)).collect(),
             },
+            attention: HashMap::new(),
+            attended: Vec::new(),
+            refused: None,
             listing: None,
         }
     }

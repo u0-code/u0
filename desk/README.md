@@ -12,13 +12,18 @@ solver's environment, its context and its work.
 小幽灵 (the solver, in the code) is Ghost's own little ghost, run by its own daemon
 from the desk's core in `core/` (see [core/README.md](core/README.md)): the same
 runtime every character lives on, with prompts that replace a character's
-persona and being with its own. The desk looks after that deployment: it copies
-its configuration on first run, makes you its operator so that it may use
-the machine while you talk, gives birth to the solver if it has not been
-born, and starts and restarts its daemon. Otherwise the desk is a client
-like any presence: a console that asks and watches, and a presence named
-`desk` whose every session is a place of its own, so the journal keeps the
-threads apart. It holds no key.
+persona and being with its own. The desk looks after that deployment: it
+copies its configuration on first run, gives birth to the little ghost if
+it has not been born, and starts and restarts its daemon. Otherwise the desk is a
+client like any other: a console that asks and watches, and through which
+you speak to her, answer and stop her work, as one of the people who run
+her (`console.say`, `work.answer`, `work.stop`). Holding the daemon's
+token, or being on this machine when it has none, is what makes you her
+operator; nobody is listed in its configuration for it. Every session is
+a place of its own on the console channel, so the journal keeps the
+threads apart; what was said in a session before the desk spoke through
+the console, on the `desk` channel it used to register, is in the same
+thread. It holds no key.
 
 ## Running it
 
@@ -62,9 +67,9 @@ her day has her awake. The desk only connects to these; it never starts or
 stops them. Opening a character shows her thread in the middle, one of
 her places at a time (the top bar picks which, newest first), and her
 daemon, her clock, her brain and her work down the right. What you type
-goes to her on the desk channel, as you: her deployment treats you as an
-operator only if its `[operators]` lists you on `desk`. Hover a connection
-and use `…`, or right-click it, to remove it.
+goes to her through the console, as you, in your own place with her
+(`console:<you>`): a connection holding her daemon's token makes you her
+operator. Hover a connection and use `…`, or right-click it, to remove it.
 
 A `ws://` link to another machine carries everything in the clear, so the
 desk takes one only with a token named. Better is to reach the daemon over
@@ -87,24 +92,68 @@ not in the journal, so most work shows none yet. A session with nothing in
 it says what the solver can do here, as its deployment's `[mind.work]`
 allows, and offers a few things to ask for, which only fill in the line.
 
+When she looked and could not think (her brain refused, or is signed out),
+her journal says so, and the thread says it where her answer would be, in
+a quiet line, with Retry to say your last line again.
+
 Nothing on the desk is made up. Down the left, a session shows a dot only
 while its work runs (amber) or waits on you (purple), with the parts of
 open work under it. Down the right: Environment (the machine its work runs
-on, which Open shows in Finder; the daemon and its link; the brain; whether
-the desk's channel is registered), Context (the journal, the tempo, your
-sessions, you as its operator), Work (this session's, newest first), and
-Outputs (the files its work reported or kept), which is left out until
-there is one.
+on, which Open shows in Finder; the daemon and its link; the brain),
+Context (the journal, the tempo, your sessions, you as its operator), Work
+(this session's, newest first), and Outputs (the files its work reported
+or kept), which is left out until there is one. A piece of work that waits
+on you shows its question there: its options as buttons when it gave
+some, otherwise a box to answer in (and Done, for something only you can
+do). Every open piece has Stop, which asks once more.
+
+## Speaking to her
+
+The line you type into is one row the width of the thread, which wraps
+and grows to six lines. Beside it, how what you type reaches her:
+
+- **Say**: as anything you say to her.
+- **Directive**: as an operator's directive, which she looks at at once
+  and carries out rather than weighs. The line takes the operator's
+  colour while it is chosen.
+- **Task**: opens a form in place of the line: what, when it is done (one
+  check a line; Return adds the next), and the time allowed. It is said to
+  her as a directive whose words say this is a piece of work to take on,
+  what it is done by, and in what time. Nobody signs it off: she ends it
+  herself when every check holds, and says how each came out.
+
+With the solver, the brain and model it thinks with sit beside them. While
+she is thinking about what you said in this place, or at work taken on
+here, and nothing new is typed, send becomes Stop, which stops her look
+there and the work directed from there (`console.stop`), and the thread
+says Stopped.
+
+## Attention
+
+Attention, under Search, lists what every ghost the desk follows is
+waiting on you for, on every connection, newest first: work waiting on an
+answer, work that ended blocked or given up, what work done for you told
+her, and her reports to you. Each daemon is asked for it (`attention.list`,
+one short connection per character) every minute, and whenever the list is
+opened. An item says who, on which daemon, and what she needs; a question
+is answered in place, as in the right column; Open goes to her page, or to
+the session the work belongs to; Seen marks it. What you have seen is kept
+in `desk.json` by the item's key, and forgotten once its ghost no longer
+lists it; the count beside Attention is what you have not seen.
 
 ## Brains
 
-The brain chip under the line, and the solver's row at the foot of the
+The brain chip beside the line, and the solver's row at the foot of the
 sidebar, open a small picker: every `[providers]` table of the deployment,
-with its mark, its name and model, and a check on the one in use. An amber
-dot means this machine cannot run it, and hovering the dot says why: its
-key's variable is set neither in the environment nor in the checkout's
-`.env`, its CLI is not installed, or nothing answers at a local API's
-address. Picking one writes `[brain]` and restarts the daemon the desk runs.
+with its mark and its name, and the models of the one looked at, with a
+check on the one in use. Picking a model first asks the brain to think
+once, as little as there is, the way the daemon would: Claude Code with
+`claude -p` and one turn, Codex with `codex exec`, an API with its model
+list or a one-token answer, each within a minute. If it cannot (a CLI
+signed out answers for its version but not for this), the desk says why
+in plain words and keeps the brain it had; otherwise it writes `[brain]`
+and restarts the daemon the desk runs.
+
 
 **Add brain…** opens a sheet with a tile for each provider the desk knows:
 DeepSeek, OpenAI, Anthropic, Gemini, OpenRouter, Kimi, Qwen, GLM, Grok,
