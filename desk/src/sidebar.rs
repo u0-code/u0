@@ -33,8 +33,14 @@ use crate::{
     ui,
 };
 
-/// A row's height in the sidebar.
+/// A row's height in the sidebar, menu and sessions alike, and its text:
+/// the measure a coding agent's app lists sessions at, with room in each.
 const ROW: f32 = 34.;
+const SESSION_ROW: f32 = 34.;
+const TEXT: f32 = 14.;
+/// A group's head: its text, and the room above it that sets groups apart.
+const HEAD_TEXT: f32 = 13.;
+const HEAD_ABOVE: f32 = 20.;
 /// A part's row under its session: a little shorter, so that it reads as
 /// belonging to the row above.
 const PART_ROW: f32 = 28.;
@@ -63,17 +69,17 @@ fn menu_row(
         .id(id)
         .flex()
         .items_center()
-        .gap(px(12.))
+        .gap(px(10.))
         .h(px(ROW))
         .px(px(10.))
         .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
-        .child(ui::icon(icon, 17.).text_color(theme::muted()))
+        .child(ui::icon(icon, 16.).text_color(theme::text2()))
         .child(
             ui::text(faces, label)
-                .text_size(px(14.))
-                .text_color(theme::text2()),
+                .text_size(px(TEXT))
+                .text_color(theme::text()),
         )
 }
 
@@ -190,12 +196,12 @@ impl Desk {
             div()
                 .flex()
                 .items_center()
-                .gap(px(12.))
+                .gap(px(10.))
                 .h(px(ROW))
                 .px(px(10.))
                 .rounded(px(8.))
                 .bg(theme::panel2())
-                .child(ui::icon("search", 17.).text_color(theme::text2()))
+                .child(ui::icon("search", 16.).text_color(theme::text2()))
                 .child(div().flex_1().min_w(px(0.)).child(self.search.clone()))
                 .into_any_element()
         } else {
@@ -208,7 +214,7 @@ impl Desk {
             .flex_col()
             .flex_none()
             .px(px(8.))
-            .pb(px(6.))
+            .pt(px(12.))
             .child(
                 menu_row("new", faces, "plus", "New task")
                     .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
@@ -359,10 +365,8 @@ impl Desk {
         let on = index == self.current && self.open.is_none() && !self.attending();
         let label_color = if s.title.is_empty() {
             theme::muted()
-        } else if on {
-            theme::text()
         } else {
-            theme::text2()
+            theme::text()
         };
         let id = s.id.clone();
         let group = SharedString::from(format!("session-{id}"));
@@ -376,7 +380,7 @@ impl Desk {
                 .items_center()
                 .flex_1()
                 .min_w(px(0.))
-                .h(px(26.))
+                .h(px(24.))
                 .ml(px(-6.))
                 .px(px(6.))
                 .rounded(px(6.))
@@ -388,11 +392,14 @@ impl Desk {
         } else {
             ui::one_line(
                 ui::text(faces, s.label())
-                    .text_size(px(14.))
+                    .text_size(px(TEXT))
                     .text_color(label_color),
             )
             .into_any_element()
         };
+        // The `…` is there on the row that is open or has the menu, and
+        // comes up on any other as the pointer reaches it.
+        let shown = on || menu_open;
         let (for_more, for_right, for_click) = (id.clone(), id.clone(), index);
         let more = div()
             .id(SharedString::from(format!("session-{id}:more")))
@@ -402,10 +409,12 @@ impl Desk {
             .justify_center()
             .size(px(20.))
             .rounded(px(5.))
+            .when(menu_open, |d| d.bg(theme::border2()))
             .hover(|s| s.bg(theme::border2()))
             .child(
                 ui::mono(faces, "…")
-                    .text_color(if menu_open {
+                    .text_size(px(13.))
+                    .text_color(if shown {
                         theme::text2()
                     } else {
                         gpui::transparent_black()
@@ -422,9 +431,9 @@ impl Desk {
             .flex()
             .items_center()
             .gap(px(8.))
-            .h(px(ROW))
+            .h(px(SESSION_ROW))
             .pl(px(10.))
-            .pr(px(6.))
+            .pr(px(5.))
             .rounded(px(8.))
             .cursor_pointer()
             .when(on || menu_open, |d| d.bg(theme::panel2()))
@@ -448,12 +457,16 @@ impl Desk {
         let mut wrap = div().relative().child(row);
         if menu_open {
             wrap = wrap.child(
-                div().absolute().top(px(ROW + 2.)).right_0().child(deferred(
-                    anchored()
-                        .anchor(Corner::TopRight)
-                        .snap_to_window_with_margin(px(8.))
-                        .child(Self::session_menu(faces, &id, cx)),
-                )),
+                div()
+                    .absolute()
+                    .top(px(SESSION_ROW + 2.))
+                    .right_0()
+                    .child(deferred(
+                        anchored()
+                            .anchor(Corner::TopRight)
+                            .snap_to_window_with_margin(px(8.))
+                            .child(Self::session_menu(faces, &id, cx)),
+                    )),
             );
         }
         wrap
@@ -634,13 +647,13 @@ impl Desk {
             .items_center()
             .gap(px(6.))
             .h(px(28.))
-            .mt(px(10.))
+            .mt(px(HEAD_ABOVE))
             .px(px(10.))
             .rounded(px(6.))
             .cursor_pointer()
             .child(
                 ui::text(faces, group.host.label().to_owned())
-                    .text_size(px(12.5))
+                    .text_size(px(HEAD_TEXT))
                     .text_color(theme::muted()),
             )
             .child(
@@ -756,7 +769,7 @@ impl Desk {
             .flex()
             .items_center()
             .gap(px(10.))
-            .h(px(ROW))
+            .h(px(SESSION_ROW))
             .px(px(10.))
             .rounded(px(8.))
             .cursor_pointer()
@@ -765,8 +778,8 @@ impl Desk {
             .child(ui::dot(dot))
             .child(ui::one_line(
                 ui::text(faces, her.card.name.clone())
-                    .text_size(px(14.))
-                    .text_color(if on { theme::text() } else { theme::text2() }),
+                    .text_size(px(TEXT))
+                    .text_color(theme::text()),
             ))
             .on_click(cx.listener(move |this, _, _, cx| this.open_character(&host, &id, cx)))
     }
@@ -856,17 +869,17 @@ fn add_connection_row(faces: &Faces, cx: &mut Context<Desk>) -> Stateful<Div> {
         .id("add-connection")
         .flex()
         .items_center()
-        .gap(px(8.))
-        .h(px(30.))
-        .mt(px(12.))
+        .gap(px(10.))
+        .h(px(ROW))
+        .mt(px(HEAD_ABOVE))
         .px(px(10.))
         .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
-        .child(ui::icon("plus", 14.).text_color(theme::muted()))
+        .child(ui::icon("plus", 15.).text_color(theme::muted()))
         .child(
             ui::text(faces, "Add connection")
-                .text_size(px(13.))
+                .text_size(px(TEXT))
                 .text_color(theme::muted()),
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)))
