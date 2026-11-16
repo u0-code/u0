@@ -2,13 +2,14 @@
 //! back and forward through them, showing or hiding the sidebar, and
 //! opening a character from the left and closing her again.
 
-use gpui::{Context, Focusable as _, Window};
+use gpui::{ClipboardItem, Context, Focusable as _, Window};
 
-use super::{Desk, Open, Page, Popup, Watched};
+use super::{Desk, Notice, Open, Page, Popup, Watched};
 use crate::{
     daemons::Host,
     link,
     settings::{self, Session},
+    thread,
 };
 
 impl Desk {
@@ -80,6 +81,104 @@ impl Desk {
         let was = self.session().id;
         self.current = index.min(self.settings.sessions.len().saturating_sub(1));
         self.visited(was);
+        cx.notify();
+    }
+
+    /// Open a session's menu, or close it when it is the one open.
+    pub(crate) fn toggle_session_menu(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.popup = if self.popup == Popup::Session(id.to_owned()) {
+            Popup::Closed
+        } else {
+            Popup::Session(id.to_owned())
+        };
+        cx.notify();
+    }
+
+    /// Turn a session's row into a field with its name in it, selected.
+    pub(crate) fn start_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(session) = self.settings.sessions.iter().find(|s| s.id == id) else {
+            return;
+        };
+        let title = session.title.clone();
+        self.popup = Popup::Closed;
+        self.renaming = Some(id.to_owned());
+        self.rename.update(cx, |field, cx| {
+            field.set_text(&title, cx);
+            field.select_everything(cx);
+        });
+        self.rename.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Give the session being renamed the name typed, unless it is blank,
+    /// and put the row back.
+    pub(crate) fn finish_rename(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = name.trim();
+        if let Some(id) = self.renaming.take()
+            && !name.is_empty()
+            && let Some(session) = self.settings.sessions.iter_mut().find(|s| s.id == id)
+        {
+            session.title = name.chars().take(80).collect();
+            self.settings.save();
+        }
+        self.input.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.renaming = None;
+        self.input.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Put a session's thread on the clipboard as text: who said what, and
+    /// when, from Ghost's journal.
+    pub(crate) fn copy_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.popup = Popup::Closed;
+        let place = thread::place_key(id);
+        let view = thread::View {
+            journal: &self.solver.journal,
+            pending: &self.solver.pending,
+            stops: &self.solver.stops,
+            place: &place,
+            name: self.solver.name(),
+            who: self.settings.who.clone(),
+            tz: self.solver.tz(),
+            connected: true,
+            abilities: None,
+            expanded: &self.expanded,
+            following: &self.solver.following,
+            rendering: thread::Rendering::Task,
+        };
+        let (text, lines) = thread::transcript(&view);
+        self.notice = Some(if lines == 0 {
+            Notice::said("Nothing has been said in that session yet.")
+        } else {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            Notice::said(format!("Copied {lines} lines."))
+        });
+        cx.notify();
+    }
+
+    /// Take a session off the desk's list. What was said in it stays in
+    /// Ghost's journal, which keeps everything; only the desk's way to it
+    /// goes.
+    pub(crate) fn delete_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.popup = Popup::Closed;
+        let Some(i) = self.index_of(id) else { return };
+        self.settings.sessions.remove(i);
+        if self.settings.sessions.is_empty() {
+            self.settings.sessions.push(Session::new());
+        }
+        if i < self.current || self.current >= self.settings.sessions.len() {
+            self.current = self.current.saturating_sub(1);
+        }
+        self.settings.save();
         cx.notify();
     }
 

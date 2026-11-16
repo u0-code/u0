@@ -113,7 +113,12 @@ a quiet line, with Retry to say your last line again.
 Nothing on the desk is made up. Down the left, sessions sit newest first
 under a head for each day in Ghost's clock (Today, Yesterday, then the
 date), and a session shows a dot only while its work runs (amber) or
-waits on you (purple), with the parts of open work under it. Down the right: Environment (the machine its work runs
+waits on you (purple), with the parts of open work under it. Hover a
+session for its `…`, or right-click it: Rename turns the row into a
+field (Return keeps the name, Escape leaves it); Copy puts the thread on
+the clipboard as text, who said what and when; Delete takes the session
+off the desk's list, and no more: what was said in it stays in Ghost's
+journal, which keeps everything. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
 Context (what it brings to a session, each row with a line on what it
 means: its journal, you as its operator, its shell, the web), Work
