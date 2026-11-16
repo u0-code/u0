@@ -342,6 +342,7 @@ fn dm(from: &str, id: &str, text: &str) -> Incoming {
         reply_to: None,
         addressed: true,
         images: Vec::new(),
+        directive: false,
     }
 }
 
@@ -620,6 +621,7 @@ fn group(place: &str, from: &str, id: &str, text: &str, addressed: bool) -> Inco
         reply_to: None,
         addressed,
         images: Vec::new(),
+        directive: false,
     }
 }
 

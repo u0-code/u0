@@ -26,5 +26,7 @@ json_mode = true
 
 # The accounts that run her, per channel, as its presence reports them. A
 # message from one that begins with "fox:" is a directive she carries out.
+# Whoever is at a console with this daemon's token is one without being
+# listed: see "Who runs her from a console" in ghostd's README.
 # [operators]
 # qq = ["0123456789ABCDEF0123456789ABCDEF"]

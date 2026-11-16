@@ -82,6 +82,24 @@ out while her mind is being started again. `avatar` says whether
 `ghost.avatar` has a picture to give. Leave out `params` when the daemon
 requires no token.
 
+## Who runs her from a console
+
+**A console the daemon admits is its owner's, and whoever is at it is an
+operator of every character the daemon runs.** It is admitted because it
+holds the daemon's token (`GHOSTD_TOKEN`, or the variable `[listen]
+token_env` names), or because the daemon has none, which it allows only
+while it listens on loopback; without a token, a console is taken as the
+owner's only from this machine. Nobody is listed in `[operators]` for it:
+holding the token is the listing.
+
+Such a console can speak to her with `console.say`, as an operator, or give
+her a directive without the prefix; the protocol's README has the wire. It
+speaks on the channel `console`, which the daemon carries itself: no
+presence may register it. What she says there is written in her journal and
+not sent anywhere, and a console reads it there, from the journal it
+streams. A console asking `ghost.status` sees the channel among those she
+can reach.
+
 ## Prompts
 
 Everything her brain reads that is not her persona or her journal is a file
@@ -362,7 +380,9 @@ The people who run her. A message from one of these accounts that begins
 with the prefix is a directive: she carries it out at once, whatever her
 day is, without deciding whether to, in her own voice, and it is written
 into her journal as `directed`. Everyone else, and these accounts without
-the prefix, she answers as herself.
+the prefix, she answers as herself. Whoever is at a console with this
+daemon's token is an operator without being listed here (see [Who runs her
+from a console](#who-runs-her-from-a-console)).
 
 | key | default | |
 |-----|---------|---|

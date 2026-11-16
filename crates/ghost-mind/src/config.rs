@@ -89,6 +89,12 @@ pub struct PlaceConfig {
     pub note: Option<String>,
 }
 
+/// The channel the people who run her body speak to her on from a console.
+/// Nothing but the daemon can put a message on it, and only from a console
+/// it admitted as its owner's, so everyone on it is an operator of hers,
+/// whatever `[operators]` lists.
+pub const CONSOLE: &str = "console";
+
 /// The accounts that run her body, and the prefix that turns a message from
 /// one of them into a directive. A directive is carried out, not weighed,
 /// so what makes one is the account it came from: the prefix alone, from
@@ -132,11 +138,14 @@ fn time_of_day<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveTime>, D::
 }
 
 impl Operators {
-    /// Whether account `id` on `channel` is an operator's.
+    /// Whether account `id` on `channel` is an operator's: anyone on the
+    /// [`CONSOLE`] channel, or an account listed for the channel.
     pub fn includes(&self, channel: &str, id: &str) -> bool {
-        self.accounts
-            .get(channel)
-            .is_some_and(|ids| ids.iter().any(|i| i == id))
+        channel == CONSOLE
+            || self
+                .accounts
+                .get(channel)
+                .is_some_and(|ids| ids.iter().any(|i| i == id))
     }
 
     /// The directive in `text`, without its prefix, if `text` is one: from

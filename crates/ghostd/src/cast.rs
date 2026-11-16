@@ -31,7 +31,7 @@ use tracing::{Instrument as _, Span, error, warn};
 use crate::server::Presences;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// What makes a directory a ghost's.
 const PERSONA: &str = "ghost.toml";

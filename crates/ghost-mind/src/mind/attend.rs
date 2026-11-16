@@ -122,13 +122,16 @@ impl Mind {
             debug!("{place_key}: {} delivered twice", m.id);
             return Ok(());
         }
-        // Whose account it came from is what makes a directive; the prefix
-        // only says that one is meant.
-        let directive = self
-            .cfg
-            .operators
-            .directive(channel, &m.from.id, &m.text)
-            .map(str::to_owned);
+        // Whose account it came from is what makes a directive; the prefix,
+        // or a console saying so, only says that one is meant.
+        let operators = &self.cfg.operators;
+        let directive = if m.directive && operators.includes(channel, &m.from.id) {
+            Some(m.text.trim().to_owned())
+        } else {
+            operators
+                .directive(channel, &m.from.id, &m.text)
+                .map(str::to_owned)
+        };
         let from = social::key(channel, &m.from.id);
         if directive.is_none()
             && m.place.kind == PlaceKind::Direct

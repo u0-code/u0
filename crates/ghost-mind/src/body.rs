@@ -22,6 +22,9 @@ pub struct Incoming {
     /// Links to the images in it, in the order of their `[image]`
     /// placeholders in `text`.
     pub images: Vec<String>,
+    /// The body says it is a directive as it stands, with no prefix: how a
+    /// console gives one. Only an operator's message is taken as one.
+    pub directive: bool,
 }
 
 /// What a channel is able to do.
