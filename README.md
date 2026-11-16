@@ -120,7 +120,7 @@ people talk to on a personal subscription.
 | [`ghost-protocol`](crates/ghost-protocol) · [`ghost-link`](crates/ghost-link) | The wire types, and a client for them. |
 | [`ghostd`](crates/ghostd) | The daemon: runs her, or several characters, and serves the protocol. [deploy/](deploy) runs it on a server. |
 | [`presence/*`](crates/presence) | Platform adapters. The daemon does not know what Telegram is. |
-| [`ghost-desk`](crates/ghost-desk) · [`solver/`](solver) | A desktop app for tasks on this machine: a solver who is nobody in particular, run on the same runtime with a hand's prompts. macOS, its own workspace. |
+| [`desk/`](desk) · [`solver/`](solver) | A desktop app for tasks on this machine: a solver who is nobody in particular, run on the same runtime with a hand's prompts. macOS, its own workspace. |
 
 ## Security
 
