@@ -22,6 +22,8 @@ mod input;
 mod link;
 mod markdown;
 mod model;
+mod models;
+mod path;
 mod settings;
 mod sheet;
 mod sidebar;
@@ -40,6 +42,8 @@ actions!(desk, [Quit, NewTask, ToggleSidebar, Back, Forward]);
 fn main() {
     // Keys come from the environment, or the ignored .env every binary loads.
     let _ = dotenvy::dotenv();
+    // Before any thread starts, since it changes the environment.
+    path::widen();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

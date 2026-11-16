@@ -64,10 +64,6 @@ pub(crate) struct Sheet {
     pub name: Entity<TextInput>,
     pub advanced: bool,
     pub key_status: KeyStatus,
-    /// The CLI is installed, or the local server answers.
-    pub present: bool,
-    /// Which CLI presets are installed, for the grid.
-    pub clis: Vec<(&'static str, bool)>,
     pub models: Models,
     /// Whether the model list is unfolded under its field.
     pub listing: bool,
@@ -114,8 +110,6 @@ impl Sheet {
             name,
             advanced: false,
             key_status: KeyStatus::NotSet,
-            present: false,
-            clis: Vec::new(),
             models: Models::Unasked,
             listing: false,
             probe: Probe::Idle,
@@ -148,10 +142,6 @@ impl Desk {
         self.sheet.open = true;
         self.sheet.preset = None;
         self.sheet.editing = None;
-        self.sheet.clis = PRESETS
-            .iter()
-            .filter_map(|p| Some((p.id, solver::on_path(p.program?))))
-            .collect();
         self.sheet.focus.focus(window);
         if let Some(p) = editing.and_then(|name| self.providers.iter().find(|p| p.name == name)) {
             let p = p.clone();
@@ -260,12 +250,6 @@ impl Desk {
                 cx,
             );
         });
-        self.sheet.present = if let Some(program) = preset.program {
-            solver::on_path(program)
-        } else {
-            let (authority, _) = brains::authority(&self.sheet.base.read(cx).text());
-            !preset.keyless() || solver::answers(&authority)
-        };
         self.refresh_key(cx);
         self.sheet.model.focus_handle(cx).focus(window);
         // The list is asked for at once where it can be had.
@@ -562,7 +546,7 @@ impl Desk {
             return None;
         }
         let body = match self.sheet.preset {
-            None => self.presets_grid(faces, cx),
+            None => Self::presets_grid(faces, cx),
             Some(preset) => self.brain_fields(preset, faces, cx),
         };
         let sheet = div()
@@ -617,19 +601,6 @@ impl Desk {
                     .editing
                     .clone()
                     .unwrap_or_else(|| preset.name.to_owned());
-                let note = match (preset.program, preset.keyless()) {
-                    (Some(_), _) => Some(if self.sheet.present {
-                        "installed"
-                    } else {
-                        "not installed"
-                    }),
-                    (None, true) => Some(if self.sheet.present {
-                        "running"
-                    } else {
-                        "not running"
-                    }),
-                    _ => None,
-                };
                 div()
                     .flex()
                     .items_center()
@@ -641,17 +612,6 @@ impl Desk {
                             .text_size(px(13.5))
                             .font_weight(FontWeight::MEDIUM),
                     )
-                    .children(note.map(|note| {
-                        status(
-                            faces,
-                            note,
-                            if self.sheet.present {
-                                theme::green()
-                            } else {
-                                theme::accent()
-                            },
-                        )
-                    }))
                     .into_any_element()
             }
         };
@@ -672,15 +632,9 @@ impl Desk {
     }
 
     /// The first step: a tile for each preset.
-    fn presets_grid(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn presets_grid(faces: &Faces, cx: &mut Context<Self>) -> Div {
         let mut grid = div().flex().flex_wrap().gap(px(8.)).px(px(16.)).pb(px(16.));
         for preset in PRESETS {
-            let installed = self
-                .sheet
-                .clis
-                .iter()
-                .find(|(id, _)| *id == preset.id)
-                .map(|(_, on)| *on);
             grid = grid.child(
                 div()
                     .id(SharedString::from(format!("preset-{}", preset.id)))
@@ -696,19 +650,12 @@ impl Desk {
                     .border_color(theme::border())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()).border_color(theme::border2()))
-                    .when(installed == Some(false), |d| d.opacity(0.55))
                     .child(ui::mark(faces, Mark::Icon(preset.icon), 20.))
                     .child(
                         ui::text(faces, preset.name)
                             .text_size(px(12.))
                             .text_color(theme::text2()),
                     )
-                    .children(installed.map(|on| {
-                        ui::mono(faces, if on { "installed" } else { "not installed" })
-                            .text_size(px(10.))
-                            .text_color(theme::faint())
-                            .mt(px(-4.))
-                    }))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.pick_preset(preset, window, cx);
                     })),
