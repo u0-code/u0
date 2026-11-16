@@ -1,33 +1,29 @@
 //! The line you type into, and saying what is typed in it: to the little
 //! ghost in the session on screen, or to the character open in your place
 //! with her. Everything goes as `console.say`, as you, an operator of hers.
+//! A line is a line: nobody picks what kind it is. She tells a question
+//! from a thing to do from something to take on as work, the way a coding
+//! agent does.
 //!
 //! It is one rounded box, the width of the thread, the way a coding
 //! agent's app has it: what you type on top, which wraps and grows to six
-//! lines before it scrolls; under it a quiet row with how it is said (the
-//! Mode menu: Say, Directive, Task; Shift-Tab goes round them), with Ghost
-//! the brain and model it thinks with, and at the right send, which
-//! becomes Stop while she is busy with what you said there and nothing new
-//! is typed. A directive takes the operator's colour on the border. Task
-//! puts the form in `task.rs` where the line was, and its buttons where
-//! send was.
+//! lines before it scrolls; under it a quiet row with, for Ghost, the
+//! brain and model it thinks with, and at the right send, which becomes
+//! Stop while she is busy with what you said there and nothing new is
+//! typed. Stop ends her look there; work she took on runs on, and is
+//! stopped from its own card.
 //!
 //! Under the box, a line says what the desk just did or could not: short,
 //! with the whole of a long error under Details.
 
 use ghost_link::protocol::SayMode;
 use gpui::{
-    AnyElement, ClipboardItem, Context, Corner, Div, Focusable as _, Hsla, SharedString, Window,
-    actions, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Corner, Div, Focusable as _, SharedString, Window, div,
+    prelude::*, px,
 };
 
-use super::{At, Desk, MODES, Menu, Mode};
+use super::{At, Desk, Menu};
 use crate::{brains, fonts::Faces, input::TextInput, link::Order, theme, thread, ui};
-
-actions!(composer, [CycleMode]);
-
-/// The key context the composer's own keys apply under.
-pub const CONTEXT: &str = "Composer";
 
 /// A line at the foot of the composer: what the desk just did, or why it
 /// could not. It is short enough to read at a glance; a long message keeps
@@ -85,26 +81,11 @@ impl Notice {
     }
 }
 
-/// The colour a mode is named in: a directive in the operator's colour,
-/// a task in the colour of work, as the thread shows them.
-pub(crate) fn mode_color(mode: Mode, on: bool) -> Hsla {
-    match (mode, on) {
-        (Mode::Directive, _) => theme::purple(),
-        (Mode::Task, _) => theme::blue(),
-        (Mode::Say, true) => theme::text(),
-        (Mode::Say, false) => theme::text2(),
-    }
-}
-
 impl Desk {
-    /// Say what was typed, as the mode has it.
+    /// Say what was typed. At a console every line of yours is an
+    /// operator's: her daemon treats it so without being told.
     pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
-        let mode = if self.mode == Mode::Directive {
-            SayMode::Directive
-        } else {
-            SayMode::Say
-        };
-        self.speak(text, mode, cx);
+        self.speak(text, SayMode::Say, cx);
     }
 
     /// Say your last line again, after she could not think about it.
@@ -165,99 +146,24 @@ impl Desk {
             .map_or_else(|| self.solver.name(), |o| o.her.name())
     }
 
-    /// What the line says while it is empty: whom it speaks to, and how.
+    /// What the line says while it is empty: whom it speaks to.
     pub(super) fn placeholder(&self) -> String {
         let name = self.speaking_to();
-        match (self.mode, &self.open) {
-            (Mode::Directive, _) => format!("Tell {name} what to do"),
-            (_, Some(_)) => format!("Say something to {name}"),
-            (_, None) => format!("Ask {name} for anything on this machine"),
+        if self.open.is_some() {
+            format!("Say something to {name}")
+        } else {
+            format!("Ask {name} for anything on this machine")
         }
     }
 
-    /// Give the keyboard to where you type: the line, or the task's first
-    /// field.
+    /// Give the keyboard to the line.
     pub(crate) fn focus_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.mode == Mode::Task {
-            self.task.what.focus_handle(cx).focus(window);
-        } else {
-            self.input.focus_handle(cx).focus(window);
-        }
+        self.input.focus_handle(cx).focus(window);
     }
 
-    /// Say, Directive or Task. Task opens the form; the others go back to
-    /// the line.
-    pub(crate) fn set_mode(&mut self, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
-        let speaks = self.mode == Mode::Directive || mode == Mode::Directive;
-        self.mode = mode;
-        // Only the directive changes what the line says while empty.
-        if speaks {
-            let placeholder = self.placeholder();
-            self.input
-                .update(cx, |input, cx| input.set_placeholder(placeholder, cx));
-        }
-        self.focus_composer(window, cx);
-        cx.notify();
-    }
-
-    /// Shift-Tab: the next mode, round again after Task.
-    fn cycle_mode(&mut self, _: &CycleMode, window: &mut Window, cx: &mut Context<Self>) {
-        let at = MODES
-            .iter()
-            .position(|(m, ..)| *m == self.mode)
-            .unwrap_or(0);
-        let (next, ..) = MODES[(at + 1) % MODES.len()];
-        self.set_mode(next, window, cx);
-    }
-
-    /// Whether the keyboard is anywhere in the composer.
+    /// Whether the keyboard is in the line.
     fn composer_focused(&self, window: &Window, cx: &gpui::App) -> bool {
-        let focused = |input: &gpui::Entity<TextInput>| input.focus_handle(cx).is_focused(window);
-        if self.mode == Mode::Task {
-            focused(&self.task.what)
-                || focused(&self.task.within)
-                || self.task.checks.iter().any(focused)
-        } else {
-            focused(&self.input)
-        }
-    }
-
-    /// How it is said, as a quiet button that opens the Mode menu.
-    fn mode_button(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let open = self.menu == Menu::Modes && self.menu_at == At::Composer;
-        let word = MODES
-            .iter()
-            .find(|(m, ..)| *m == self.mode)
-            .map_or("Say", |(_, word)| *word);
-        let mut button = div().relative().flex_none().child(
-            div()
-                .id("mode")
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(26.))
-                .px(px(8.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(open, |d| d.bg(theme::panel2()))
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    ui::text(faces, word)
-                        .text_size(px(12.5))
-                        .text_color(mode_color(self.mode, false)),
-                )
-                .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
-                .tooltip(ui::tip("How it is said · ⇧Tab to switch"))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_menu(Menu::Modes, At::Composer, window, cx);
-                })),
-        );
-        if self.menu == Menu::Modes
-            && let Some(menu) = self.menu_over(At::Composer, Corner::BottomLeft, faces, cx)
-        {
-            button = button.child(div().absolute().top(px(-6.)).left(px(0.)).child(menu));
-        }
-        button
+        self.input.focus_handle(cx).is_focused(window)
     }
 
     /// The brain and model Ghost thinks with, by its mark, as quiet text
@@ -345,7 +251,7 @@ impl Desk {
             .into_any_element()
     }
 
-    /// The composer: what you type, or the task form, over one quiet row.
+    /// The composer: what you type, over one quiet row.
     pub(super) fn composer(
         &self,
         faces: &Faces,
@@ -353,15 +259,14 @@ impl Desk {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let task = self.mode == Mode::Task;
         let focused = self.composer_focused(window, cx);
-        let border = match self.mode {
-            Mode::Directive => theme::purple().opacity(if focused { 0.7 } else { 0.4 }),
-            _ if focused => theme::ghost_line(),
-            _ => theme::border2(),
+        let border = if focused {
+            theme::ghost_line()
+        } else {
+            theme::border2()
         };
-        // Pulled left by the buttons' own padding, so that their words
-        // stand in line with what is typed above them.
+        // Pulled left by the chip's own padding, so that its words stand
+        // in line with what is typed above them.
         let left = div()
             .flex()
             .flex_1()
@@ -369,22 +274,11 @@ impl Desk {
             .items_center()
             .gap(px(2.))
             .ml(px(-4.))
-            .child(self.mode_button(faces, cx))
             .when(self.open.is_none(), |d| d.child(self.brain_chip(faces, cx)));
-        let right = if task {
-            self.task_buttons(faces, cx).into_any_element()
-        } else {
-            let empty = self.input.read(cx).is_empty();
-            Self::send_button(faces, empty, busy, cx)
-        };
-        let top = if task {
-            self.task_form(faces, cx)
-        } else {
-            div().px(px(4.)).child(self.input.clone())
-        };
+        let empty = self.input.read(cx).is_empty();
+        let right = Self::send_button(faces, empty, busy, cx);
+        let top = div().px(px(4.)).child(self.input.clone());
         let field = div()
-            .key_context(CONTEXT)
-            .on_action(cx.listener(Self::cycle_mode))
             .flex()
             .flex_col()
             .gap(px(2.))

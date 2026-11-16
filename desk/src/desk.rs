@@ -46,8 +46,8 @@ use gpui::{
 use tracing::warn;
 
 pub(crate) use self::{
-    brain_menu::{At, MODES, Menu, Picker},
-    composer::{CONTEXT as COMPOSER, CycleMode, Notice},
+    brain_menu::{At, Menu, Picker},
+    composer::Notice,
     watched::{Open, Watched},
 };
 use crate::{
@@ -62,7 +62,7 @@ use crate::{
     settings::{SOLVER_URL, Session, Settings},
     sheet::Sheet,
     solver::{Abilities, Deployment, Provider},
-    task, theme, thread,
+    theme, thread,
 };
 
 /// What the desk calls its own ghost until her daemon says her name.
@@ -74,15 +74,6 @@ pub const MASCOT: &str = "Ghost";
 pub(crate) enum Page {
     Thread,
     Attention,
-}
-
-/// How what you type reaches her: said, as a directive she carries out,
-/// or as a task, which opens a form in place of the line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mode {
-    Say,
-    Directive,
-    Task,
 }
 
 /// The side columns' widths, the top bar's height.
@@ -186,10 +177,6 @@ pub struct Desk {
     pub expanded: HashSet<String>,
     /// Groups and sections folded away, by key, for as long as the desk runs.
     pub(crate) collapsed: HashSet<String>,
-    /// How what you type reaches her.
-    pub(crate) mode: Mode,
-    /// The form a task is given in.
-    pub(crate) task: task::Form,
     /// A box to answer in for each piece of work waiting on an answer.
     pub(crate) replies: Replies,
     /// What is in the middle.
@@ -274,7 +261,6 @@ impl Desk {
         })
         .detach();
         let sheet = Sheet::new(window, cx);
-        let task = task::Form::new(window, cx);
 
         // Ghost on this machine is the desk's to look after: if
         // nothing runs it, the desk starts it. Whoever sits here is its
@@ -360,8 +346,6 @@ impl Desk {
             picker: Picker::default(),
             expanded: HashSet::new(),
             collapsed: HashSet::new(),
-            mode: Mode::Say,
-            task,
             replies: Replies::new(),
             page: Page::Thread,
             notice,

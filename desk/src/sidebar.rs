@@ -215,7 +215,7 @@ impl Desk {
             .px(px(8.))
             .pt(px(12.))
             .child(
-                menu_row("new", faces, "plus", "New task")
+                menu_row("new", faces, "plus", "New")
                     .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
             )
             .child(search)

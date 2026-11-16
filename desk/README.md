@@ -149,30 +149,24 @@ Stop, which asks once more.
 
 The line you type into is a rounded box the width of the thread: what you
 type on top, which wraps and grows to six lines, and a quiet row under it.
-At the left of that row is how what you type reaches her, a button that
-opens the Mode menu (a number picks a mode there; Shift-Tab goes round
-them without it):
+A line is a line: nobody picks what kind it is. At a console every line of
+yours is an operator's, and her daemon treats it so without being told:
+looked at at once, not held to her day or her limits on taking work on.
+She tells a question from a thing to do from something to take on as
+work, the way a coding agent does: asked the time, she runs `date`;
+asked for a thing, she does it; given something bigger than a glance,
+she takes it on as work and says so, and it shows in the thread as a
+card and down the right under Background tasks, where it can be stopped.
 
-- **Say**: as anything you say to her.
-- **Directive**: as an operator's directive, which she looks at at once
-  and carries out rather than weighs. The line takes the operator's
-  colour while it is chosen.
-- **Task**: opens a form in place of the line: what, when it is done (one
-  check a line; Return or Add a check adds the next), and the time
-  allowed, with Cancel and Give task where send was. It is said to
-  her as a directive whose words say this is a piece of work to take on,
-  what it is done by, and in what time. Nobody signs it off: she ends it
-  herself when every check holds, and says how each came out.
-
-With the solver, the brain and model it thinks with sit beside it; its
+With Ghost, the brain and model it thinks with sit under the line; its
 menu names each brain with where it runs, numbers the models of the one
 looked at, and takes the arrow keys, a number, Return and Esc. A brain
 that cannot think here is said in one short line under the box, with the
-whole of what it answered under Details. While
-she is thinking about what you said in this place, or at work taken on
-here, and nothing new is typed, send becomes Stop, which stops her look
-there and the work directed from there (`console.stop`), and the thread
-says Stopped.
+whole of what it answered under Details. While she is thinking about
+what you said in this place and nothing new is typed, send becomes Stop,
+which ends her look there and what it was about to say (`console.stop`),
+and the thread says Stopped. Work she took on runs on; every task has
+its own Stop.
 
 ## Attention
 
