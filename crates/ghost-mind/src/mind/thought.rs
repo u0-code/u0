@@ -241,8 +241,10 @@ impl Mind {
 
     /// Keep one round of the look `job`, called `at`, where looks keep
     /// their rounds, numbering the look if this is its first. A call still
-    /// out, `None`, is left out. The look goes on whether or not it could
-    /// be kept: it is a record of her thinking, not a part of it.
+    /// out, `None`, is left out. A round of no calls is kept only for what
+    /// the brain's turn cost, so that a look that only answered still says
+    /// what it read. The look goes on whether or not it could be kept: it
+    /// is a record of her thinking, not a part of it.
     fn keep_round(
         &mut self,
         job: &mut Thinking,
@@ -250,7 +252,7 @@ impl Mind {
         calls: impl IntoIterator<Item = Option<Value>>,
     ) {
         let calls: Vec<Value> = calls.into_iter().flatten().collect();
-        if calls.is_empty() {
+        if calls.is_empty() && job.usage.is_none() {
             return;
         }
         let mut round = json!({"at": at.to_rfc3339(), "calls": calls});
@@ -331,6 +333,8 @@ impl Mind {
                 job.items.push(Item::user(self.prompts.text("not_sent")));
                 return self.ponder(job, place, now);
             }
+            // What this last turn cost is kept, with nothing called in it.
+            self.keep_round(&mut job, now, []);
             return self.conclude(job, place, now);
         }
         let mut again = false;
@@ -445,11 +449,14 @@ impl Mind {
         }
         if again {
             // Something came back, or she was told what she got wrong:
-            // that is a round worth seeing. A round of nothing but what
-            // she decided to do ends the look, and her journal has it.
+            // that is a round worth seeing.
             self.keep_round(&mut job, now, kept);
             return self.go_on(job, place, now);
         }
+        // A round of nothing but what she decided to do ends the look,
+        // and her journal has what she decided; what the turn cost is
+        // kept here.
+        self.keep_round(&mut job, now, []);
         self.conclude(job, place, now)
     }
 

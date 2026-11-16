@@ -7,8 +7,9 @@
 //! part of her life worth keeping forever, and are kept here instead, in the
 //! work database, for whoever is watching her think. Each look is numbered
 //! when it keeps its first round, and given the seq of the journal entry it
-//! ends with once it does: what she `decided`, or that she was `stopped`. A
-//! look that keeps no round leaves nothing here.
+//! ends with once it does: what she `decided`, or that she was `stopped`.
+//! A turn that called nothing keeps a round of no calls, for what it cost;
+//! a look that never reached a brain leaves nothing here.
 //!
 //! This is working state: neither forever, like the journal, nor rebuilt
 //! from it, like her memory. A look is kept for [`KEPT_DAYS`] days, and
