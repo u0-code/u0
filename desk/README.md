@@ -121,12 +121,15 @@ off the desk's list, and no more: what was said in it stays in Ghost's
 journal, which keeps everything. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
 Context (what it brings to a session, each row with a line on what it
-means: its journal, you as its operator, its shell, the web), Work
-(this session's, newest first), and Outputs (the files its work reported
-or kept), which is left out until there is one. A piece of work that waits
-on you shows its question there: its options as buttons when it gave
-some, otherwise a box to answer in (and Done, for something only you can
-do). Every open piece has Stop, which asks once more.
+means: its journal, you as its operator, its shell, the web), Background
+tasks (the work taken on in this session: what is still going, newest
+first, each with how long it has run or that it waits on you; then what
+has ended, folded into one line, `3 finished · 1 blocked`, that opens),
+and Outputs (the files its work reported or kept), which is left out
+until there is one. A task that waits on you shows its question there:
+its options as buttons when it gave some, otherwise a box to answer in
+(and Done, for something only you can do). Every task still going has
+Stop, which asks once more.
 
 ## Speaking to her
 

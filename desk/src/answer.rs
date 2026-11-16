@@ -24,9 +24,6 @@ use crate::{
     theme, thread, ui,
 };
 
-/// How many pieces of her work show before "Show more".
-const WORK_ROWS: usize = 5;
-
 /// Whose work: which link an answer or a stop goes by.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Whom {
@@ -281,90 +278,66 @@ impl Desk {
     /// Her work as her daemon keeps it, most recently active first: five,
     /// then the rest when asked for; each with what it asks and Stop.
     pub(crate) fn her_work(&self, faces: &Faces, work: &[Work], cx: &mut Context<Self>) -> Div {
+        use crate::aside::{
+            ended_row, ended_summary, glyph, open_standing, running_lead, state_of, task_row,
+        };
         if work.is_empty() {
             return div().child(
-                ui::text(faces, "Nothing in hand, and nothing ended lately.")
+                ui::text(faces, "Nothing running in the background.")
                     .text_size(px(13.))
                     .text_color(theme::muted())
                     .py(px(4.)),
             );
         }
-        let key = "more:her".to_owned();
-        let all = self.expanded.contains(&key);
-        let (count, hidden) = thread::shown(work.len(), WORK_ROWS, all);
-        let mut list = div().flex().flex_col().gap(px(2.));
-        for w in work.iter().take(count) {
+        let when = |t: &Option<String>| t.as_deref().and_then(|t| t.parse::<DateTime<Utc>>().ok());
+        let mut list = div().flex().flex_col();
+        for w in work.iter().filter(|w| state_of(w.state).open()) {
+            let (right, color) = open_standing(state_of(w.state), when(&w.started));
+            list = list.child(task_row(
+                faces,
+                SharedString::from(format!("her-work-{}", w.id)),
+                running_lead(),
+                w.brief.clone(),
+                right,
+                color,
+            ));
             let controls = self.ask_controls(faces, &Ask::of(Whom::Her, w), cx);
-            list = list.child(her_work_row(faces, w).child(controls.pl(px(19.)).pb(px(4.))));
+            list = list.child(controls.pl(px(26.)).pb(px(4.)));
         }
-        if hidden > 0 || (all && work.len() > WORK_ROWS) {
-            let more = if hidden > 0 {
-                format!("Show {hidden} more")
-            } else {
-                "Show fewer".to_owned()
-            };
-            list = list.child(
-                div()
-                    .id("her-work-more")
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .cursor_pointer()
-                    .child(
-                        ui::text(faces, more)
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
+        let ended: Vec<&Work> = work.iter().filter(|w| !state_of(w.state).open()).collect();
+        if ended.is_empty() {
+            return list;
+        }
+        let count =
+            |state: thread::State| ended.iter().filter(|w| state_of(w.state) == state).count();
+        let summary = ended_summary(
+            count(thread::State::Finished),
+            count(thread::State::Blocked),
+            count(thread::State::Dropped),
+        );
+        let key = "more:her".to_owned();
+        let open = self.expanded.contains(&key);
+        list = list.child(ended_row(faces, "her-work-ended", summary, open, cx, key));
+        if open {
+            for w in ended {
+                let ago = when(&w.last).map_or_else(String::new, |t| {
+                    format!("{} ago", thread::span((Utc::now() - t).num_seconds()))
+                });
+                list = list.child(
+                    task_row(
+                        faces,
+                        SharedString::from(format!("her-work-{}", w.id)),
+                        glyph(state_of(w.state)).into_any_element(),
+                        w.brief.clone(),
+                        ago,
+                        theme::faint(),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx))),
-            );
+                    .pl(px(4.)),
+                );
+            }
         }
         list
     }
-}
-
-/// A piece of her work: where it stands, its brief, how far it has gone
-/// and when it last moved. What it asks is under it, with its controls.
-fn her_work_row(faces: &Faces, w: &Work) -> Div {
-    let mut figures = format!("{} steps", w.steps);
-    if !w.parts.is_empty() {
-        let open = w.parts.iter().filter(|p| !p.state.ended()).count();
-        figures = format!("{figures} · {} parts, {open} open", w.parts.len());
-    }
-    if let Some(last) = w
-        .last
-        .as_deref()
-        .and_then(|t| t.parse::<DateTime<Utc>>().ok())
-    {
-        let ago = thread::span((Utc::now() - last).num_seconds());
-        figures = format!("{figures} · {ago} ago");
-    }
-    div().flex().flex_col().gap(px(6.)).py(px(6.)).child(
-        div()
-            .flex()
-            .items_start()
-            .gap(px(10.))
-            .child(
-                div()
-                    .pt(px(5.))
-                    .child(crate::aside::glyph(crate::aside::state_of(w.state))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(ui::one_line(
-                        ui::text(faces, w.brief.clone()).text_size(px(13.5)),
-                    ))
-                    .child(ui::one_line(
-                        ui::mono(faces, figures)
-                            .text_size(px(11.5))
-                            .text_color(theme::muted()),
-                    )),
-            ),
-    )
 }
 
 /// The reply boxes the desk holds, by the key of the work they answer.

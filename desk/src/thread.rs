@@ -237,6 +237,11 @@ pub enum State {
 }
 
 impl State {
+    /// Still going: running, or waiting on an answer.
+    pub fn open(self) -> bool {
+        matches!(self, State::Running | State::Waiting)
+    }
+
     pub fn color(self) -> Hsla {
         match self {
             State::Running => theme::accent(),

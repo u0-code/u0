@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use ghost_link::protocol::WorkState;
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
@@ -33,8 +33,6 @@ use crate::{
 const ROW: f32 = 31.;
 /// Room an icon and its gap take, for a second line to start under the label.
 const ICON_ROOM: f32 = 26.;
-/// How many pieces of work show before "Show more".
-const WORK_ROWS: usize = 5;
 
 /// A label in a row.
 fn label(faces: &Faces, text: impl Into<SharedString>) -> Div {
@@ -114,6 +112,104 @@ fn row_icon(name: &str) -> AnyElement {
         .text_color(theme::muted())
         .flex_none()
         .into_any_element()
+}
+
+/// One background task, on one line: what leads it (an icon, or its
+/// state's glyph), its brief, and at the right how it stands in a word or
+/// a time. Clicking it opens its card in the thread, where it has one.
+pub(crate) fn task_row(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    lead: AnyElement,
+    brief: String,
+    right: String,
+    right_color: gpui::Hsla,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .h(px(28.))
+        .child(lead)
+        .child(ui::one_line(ui::text(faces, brief).text_size(px(13.5))))
+        .child(
+            ui::mono(faces, right)
+                .text_size(px(11.5))
+                .text_color(right_color)
+                .flex_none(),
+        )
+}
+
+/// What leads a task still going: the terminal, as it runs on a machine.
+pub(crate) fn running_lead() -> AnyElement {
+    row_icon("terminal")
+}
+
+/// How a task still going stands, at the right of its row: how long it
+/// has run, or that it waits on you.
+pub(crate) fn open_standing(state: State, started: Option<DateTime<Utc>>) -> (String, gpui::Hsla) {
+    match state {
+        State::Waiting => ("waiting".to_owned(), theme::purple()),
+        _ => (
+            started.map_or_else(String::new, |t| {
+                thread::span((Utc::now() - t).num_seconds())
+            }),
+            theme::muted(),
+        ),
+    }
+}
+
+/// The ended tasks in one line: `3 finished · 1 blocked`.
+pub(crate) fn ended_summary(finished: usize, blocked: usize, dropped: usize) -> String {
+    let mut parts = Vec::new();
+    if finished > 0 {
+        parts.push(format!("{finished} finished"));
+    }
+    if blocked > 0 {
+        parts.push(format!("{blocked} blocked"));
+    }
+    if dropped > 0 {
+        parts.push(format!("{dropped} dropped"));
+    }
+    parts.join(" · ")
+}
+
+/// The row that folds the ended tasks away, and opens them.
+pub(crate) fn ended_row(
+    faces: &Faces,
+    id: &'static str,
+    summary: String,
+    open: bool,
+    cx: &mut Context<Desk>,
+    key: String,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .h(px(28.))
+        .cursor_pointer()
+        .child(row_icon("check"))
+        .child(ui::one_line(
+            ui::text(faces, summary)
+                .text_size(px(13.5))
+                .text_color(theme::text2()),
+        ))
+        .child(
+            ui::icon(
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                11.,
+            )
+            .text_color(theme::faint())
+            .flex_none(),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
 }
 
 /// Where a piece of work stands, as a glyph: a ring while it is open, a
@@ -348,9 +444,9 @@ impl Desk {
                 .child(self.section(faces, "Environment", None, None, environment, cx))
                 .child(self.section(
                     faces,
-                    "Work",
+                    "Background tasks",
                     None,
-                    (!work.is_empty()).then(|| work.len().to_string()),
+                    Self::open_count(work.iter().filter(|w| state_of(w.state).open()).count()),
                     body,
                     cx,
                 ))
@@ -367,9 +463,9 @@ impl Desk {
             .child(self.section(faces, "Context", Some("section:context"), None, context, cx))
             .child(self.section(
                 faces,
-                "Work",
+                "Background tasks",
                 None,
-                (!tasks.is_empty()).then(|| tasks.len().to_string()),
+                Self::open_count(tasks.iter().filter(|t| t.open()).count()),
                 work,
                 cx,
             ))
@@ -570,8 +666,15 @@ impl Desk {
             ))
     }
 
-    /// The work taken on in this session, newest first: five, then the
-    /// rest when asked for.
+    /// How many tasks are still going, beside the section's name; none
+    /// when none is.
+    fn open_count(open: usize) -> Option<String> {
+        (open > 0).then(|| open.to_string())
+    }
+
+    /// The background tasks of this session: those still going, newest
+    /// first, each with what it asks and a way to stop it; then those that
+    /// have ended, folded into one line that opens.
     fn work(
         &self,
         faces: &Faces,
@@ -581,49 +684,75 @@ impl Desk {
     ) -> Div {
         if tasks.is_empty() {
             return div().child(
-                ui::text(faces, "Nothing taken on in this session.")
+                ui::text(faces, "Nothing running in the background.")
                     .text_size(px(13.))
                     .text_color(theme::muted())
                     .py(px(4.)),
             );
         }
-        let key = format!("more:{}", session.id);
-        let all = self.expanded.contains(&key);
-        let (count, hidden) = thread::shown(tasks.len(), WORK_ROWS, all);
-        let mut list = div().flex().flex_col().gap(px(2.));
-        for t in tasks.iter().rev().take(count) {
-            list = list.child(work_row(faces, t, cx));
+        let mut list = div().flex().flex_col();
+        for t in tasks.iter().rev().filter(|t| t.open()) {
+            let (right, color) = open_standing(t.state(), Some(t.started));
+            let key = format!("task:{}", t.id);
+            list = list.child(
+                task_row(
+                    faces,
+                    SharedString::from(format!("work-{}", t.id)),
+                    running_lead(),
+                    t.brief.clone(),
+                    right,
+                    color,
+                )
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx))),
+            );
             // What its daemon says of it, when it says: what it asks, and
             // a way to stop it while it is open.
             if let Some(w) = self.solver.work.iter().find(|w| w.id == t.id) {
                 let ask = Ask::of(Whom::Solver, w);
                 if ask.open {
-                    list = list.child(self.ask_controls(faces, &ask, cx).pl(px(19.)).pb(px(6.)));
+                    list = list.child(
+                        self.ask_controls(faces, &ask, cx)
+                            .pl(px(ICON_ROOM))
+                            .pb(px(6.)),
+                    );
                 }
             }
         }
-        let more = if hidden > 0 {
-            Some(format!("Show {hidden} more"))
-        } else if all && tasks.len() > WORK_ROWS {
-            Some("Show fewer".to_owned())
-        } else {
-            None
-        };
-        if let Some(more) = more {
-            list = list.child(
-                div()
-                    .id("work-more")
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .cursor_pointer()
-                    .child(
-                        ui::text(faces, more)
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
+        let ended: Vec<&Task<'_>> = tasks.iter().rev().filter(|t| !t.open()).collect();
+        if ended.is_empty() {
+            return list;
+        }
+        let count = |state: State| ended.iter().filter(|t| t.state() == state).count();
+        let summary = ended_summary(
+            count(State::Finished),
+            count(State::Blocked),
+            count(State::Dropped),
+        );
+        let key = format!("more:{}", session.id);
+        let open = self.expanded.contains(&key);
+        list = list.child(ended_row(faces, "work-ended", summary, open, cx, key));
+        if open {
+            for t in ended {
+                let ago = format!(
+                    "{} ago",
+                    thread::span((Utc::now() - t.changed()).num_seconds())
+                );
+                let key = format!("task:{}", t.id);
+                list = list.child(
+                    task_row(
+                        faces,
+                        SharedString::from(format!("work-{}", t.id)),
+                        glyph(t.state()).into_any_element(),
+                        t.brief.clone(),
+                        ago,
+                        theme::faint(),
                     )
+                    .pl(px(4.))
+                    .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx))),
-            );
+                );
+            }
         }
         list
     }
@@ -705,38 +834,4 @@ impl Desk {
                 )
             })
     }
-}
-
-/// A piece of work: where it stands, its brief, and in figures how far it
-/// has gone and when it last moved. Clicking it opens its card in the
-/// thread.
-fn work_row(faces: &Faces, t: &Task<'_>, cx: &mut Context<Desk>) -> Stateful<Div> {
-    let ago = thread::span((Utc::now() - t.changed()).num_seconds());
-    let figures = format!("{} · {ago} ago", t.figures());
-    let key = format!("task:{}", t.id);
-    div()
-        .id(SharedString::from(format!("work-{}", t.id)))
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .py(px(6.))
-        .cursor_pointer()
-        .child(div().pt(px(5.)).child(glyph(t.state())))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .flex_1()
-                .min_w(px(0.))
-                .child(ui::one_line(
-                    ui::text(faces, t.brief.clone()).text_size(px(13.5)),
-                ))
-                .child(ui::one_line(
-                    ui::mono(faces, figures)
-                        .text_size(px(11.5))
-                        .text_color(theme::muted()),
-                )),
-        )
-        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
 }
