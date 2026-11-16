@@ -117,6 +117,10 @@ pub enum Question {
     Canon,
     /// Every place she is in, most recently active first.
     Places,
+    /// What she has in hand and what ended lately, most recently active
+    /// first, each with the parts it handed out: read from her work's own
+    /// record, which has what her journal does not.
+    Work,
     /// The journal entries that belong to one place, oldest first.
     Thread { place: String, limit: usize },
     /// Journal entries from seq `from` on. Zero or less counts back from the

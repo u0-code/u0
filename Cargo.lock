@@ -765,6 +765,7 @@ dependencies = [
  "ghost-brain",
  "ghost-core",
  "ghost-net",
+ "ghost-protocol",
  "ghost-work",
  "reqwest",
  "serde",

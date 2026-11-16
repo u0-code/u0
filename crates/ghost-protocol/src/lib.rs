@@ -6,8 +6,8 @@
 //! - a **presence** carries her onto one channel (Telegram, Discord, a
 //!   terminal). It reports what arrives with [`method::INBOUND`] and carries
 //!   out what she does when the daemon sends it [`method::ACT`].
-//! - a **console** watches. It can read her status, her journal and her
-//!   agenda. The protocol has no method that edits her identity or removes a
+//! - a **console** watches. It can read her status, her journal, her
+//!   agenda and the work she has in hand. The protocol has no method that edits her identity or removes a
 //!   journal entry; that is not a permission a console lacks, it is a method
 //!   that does not exist.
 //!
@@ -70,6 +70,10 @@ pub mod method {
     /// journal entries that belong to one place: what was said there and
     /// what she made of it.
     pub const JOURNAL_PLACE: &str = "journal.place";
+    /// Console → daemon request. No params. Result: a list of
+    /// [`Work`](super::Work), what she has in hand and what ended lately,
+    /// most recently active first, each with its parts.
+    pub const WORK: &str = "work.list";
     /// Console → daemon request. Params [`JournalRead`](super::JournalRead).
     pub const JOURNAL_READ: &str = "journal.read";
     /// Console → daemon request. No params. Afterwards the daemon sends a
@@ -498,6 +502,92 @@ pub struct PlaceRead {
     pub limit: u32,
 }
 
+/// A piece of work she took on, or a part of one, as it stands: the result
+/// of [`method::WORK`].
+///
+/// Her journal says she took it on, what it told her and how it ended. Its
+/// steps, its plan and its parts are kept only where the work keeps its
+/// own record, and are read from there for whoever asks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Work {
+    /// Its id. A part's is its parent's, a slash, and its number.
+    pub id: String,
+    /// The number she knows it by: the seq of the journal entry that began
+    /// it. A part has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    /// What was asked, as it was asked.
+    pub brief: String,
+    pub state: WorkState,
+    /// Steps taken so far, over all its sittings.
+    #[serde(default)]
+    pub steps: u64,
+    /// When it began, RFC 3339. A part waiting its turn has not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<String>,
+    /// When anything last happened in it, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<String>,
+    /// What it asked whoever it is for, while it waits to hear.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+    /// How it ended, in its own words, once it has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Its plan, if it made one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan: Vec<WorkStep>,
+    /// The parts it handed out, by number. A part hands out none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<Work>,
+}
+
+/// Where a piece of work stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkState {
+    /// Taken on and not over, with no sitting at it this moment: it waits
+    /// its turn, or rests between sittings.
+    Open,
+    /// A sitting is at it now. For a part: the sitting it belongs to is
+    /// running, so it is running or about to.
+    Running,
+    /// It asked something, and waits to hear.
+    Waiting,
+    /// Done, and checked.
+    Finished,
+    /// Something outside its control is in the way.
+    Blocked,
+    /// It ran out of ideas.
+    GaveUp,
+    /// Ended from outside before it was done.
+    Dropped,
+    /// A state this client does not know, from a newer daemon.
+    #[serde(other)]
+    Other,
+}
+
+impl WorkState {
+    /// Whether the work is over.
+    pub fn ended(self) -> bool {
+        matches!(
+            self,
+            Self::Finished | Self::Blocked | Self::GaveUp | Self::Dropped
+        )
+    }
+}
+
+/// One step of a piece of work's plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkStep {
+    pub text: String,
+    /// `todo`, `doing`, `done`, `dropped` or `failed`.
+    pub status: String,
+    /// The number of the part handed this step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +681,16 @@ mod tests {
         });
         let back: Inbound = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(back, m);
+    }
+
+    #[test]
+    fn a_work_state_from_a_newer_daemon_still_reads() {
+        let work: Work = serde_json::from_str(
+            r#"{"id":"u1","brief":"b","state":"pondering","parts":[{"id":"u1/1","brief":"p","state":"running"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(work.state, WorkState::Other);
+        assert_eq!(work.parts[0].state, WorkState::Running);
+        assert!(!work.state.ended() && work.parts[0].steps == 0);
     }
 }

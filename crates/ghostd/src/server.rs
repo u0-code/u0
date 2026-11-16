@@ -445,6 +445,7 @@ where
             Some(method::IDENTITY) => Question::Identity,
             Some(method::CANON) => Question::Canon,
             Some(method::PLACES) => Question::Places,
+            Some(method::WORK) => Question::Work,
             // Read from her directory, not asked of her mind: her picture
             // is not something she lived.
             Some(method::AVATAR) => {
