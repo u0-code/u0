@@ -14,7 +14,10 @@ use std::{
 use async_trait::async_trait;
 use base64::Engine as _;
 use ghost_brain::{Brain, Completion, Reply};
-use ghost_core::Ghost;
+use ghost_core::{
+    Ghost,
+    journal::{Entry, Event},
+};
 use ghost_link::Conn;
 use ghost_mind::{Mind, MindConfig, Numb, Parts, Prompts, Question, WorkConfig, Workshop};
 use ghost_protocol::{
@@ -185,8 +188,12 @@ impl Rig {
         }
     }
 
-    /// Everything in the journal of the character at `n`, as text.
-    pub(crate) async fn journal(&self, n: usize) -> String {
+    /// Every event in the journal of the character at `n`, oldest first.
+    ///
+    /// Tests ask what is in these, never what the journal reads like as
+    /// text: every entry carries two hashes, and in a few dozen of them
+    /// any short marker turns up sooner or later.
+    pub(crate) async fn events(&self, n: usize) -> Vec<Event> {
         let entries = self.cast[n]
             .mind()
             .ask(Question::Journal {
@@ -195,18 +202,57 @@ impl Rig {
             })
             .await
             .unwrap();
-        entries.to_string()
+        serde_json::from_value::<Vec<Entry>>(entries)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.event)
+            .collect()
     }
 
-    /// Wait until the journal of the character at `n` has `text` in it.
-    pub(crate) async fn until_written(&self, n: usize, text: &str) {
+    /// Every message the character at `n` has heard, oldest first.
+    pub(crate) async fn heard(&self, n: usize) -> Vec<String> {
+        let events = self.events(n).await;
+        events
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Heard { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Everything the character at `n` has said, oldest first.
+    pub(crate) async fn said(&self, n: usize) -> Vec<String> {
+        let events = self.events(n).await;
+        events
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Said { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Wait until the journal of the character at `n` has an event that
+    /// `wanted` takes: `what` names it, if it never comes.
+    pub(crate) async fn until(&self, n: usize, what: &str, wanted: impl Fn(&Event) -> bool) {
         for _ in 0..200 {
-            if self.journal(n).await.contains(text) {
+            if self.events(n).await.iter().any(&wanted) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        panic!("{text:?} never reached {}'s journal", self.cast[n].id);
+        panic!("{what} never reached {}'s journal", self.cast[n].id);
+    }
+
+    /// Wait until the character at `n` has heard `text`.
+    pub(crate) async fn until_heard(&self, n: usize, text: &str) {
+        self.until(
+            n,
+            text,
+            |event| matches!(event, Event::Heard { text: heard, .. } if heard == text),
+        )
+        .await;
     }
 }
 
@@ -372,11 +418,19 @@ async fn a_message_to_one_character_reaches_her_alone() {
     assert_eq!(lin.hears().await.as_deref(), Some("lin here"));
     assert_eq!(mei.hears().await.as_deref(), Some("mei here"));
 
-    let (theirs, hers) = (rig.journal(0).await, rig.journal(1).await);
-    assert!(theirs.contains("7f3a") && !theirs.contains("9c1b"));
-    assert!(hers.contains("9c1b") && !hers.contains("7f3a"));
-    // Neither said anything of the other's.
-    assert!(!theirs.contains("mei here") && !hers.contains("lin here"));
+    // Each heard what was written to her, and nothing written to the
+    // other: she heard it before she answered.
+    assert_eq!(rig.heard(0).await, ["only for lin, 7f3a"]);
+    assert_eq!(rig.heard(1).await, ["only for mei, 9c1b"]);
+    // Each kept her own line, and nothing of the other's. Her presence has
+    // it before her journal does, so it is waited for.
+    for (n, line) in [(0, "lin here"), (1, "mei here")] {
+        rig.until(n, "what she said", |event| {
+            matches!(event, Event::Said { .. })
+        })
+        .await;
+        assert_eq!(rig.said(n).await, [line]);
+    }
 }
 
 #[tokio::test]
@@ -394,7 +448,7 @@ async fn one_character_spending_her_budget_leaves_the_other_answering() {
     // Her one call this hour is gone. What comes now she hears, and does
     // not think about.
     lin.write("second, 4d2e").await;
-    rig.until_written(0, "4d2e").await;
+    rig.until_heard(0, "second, 4d2e").await;
 
     for n in 0..3 {
         mei.write(&format!("mei, {n}")).await;
@@ -448,7 +502,7 @@ async fn a_mind_that_falls_over_is_started_again_while_the_other_keeps_answering
     lin.write("after the fall, 2b7c").await;
     assert_eq!(lin.hears().await.as_deref(), Some("lin here"));
     assert!(rig.made[0].load(Ordering::SeqCst) >= 2);
-    assert!(rig.journal(0).await.contains("2b7c"));
+    assert_eq!(rig.heard(0).await, ["after the fall, 2b7c"]);
     // The other was made once, and is still answering.
     assert_eq!(rig.made[1].load(Ordering::SeqCst), 1);
     mei.write("still there?").await;
