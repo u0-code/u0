@@ -44,7 +44,6 @@ pub struct Status {
     pub city: String,
     pub tz: Tz,
     pub local_time: String,
-    pub journal: i64,
     pub think: String,
 }
 
@@ -56,7 +55,6 @@ impl Status {
             city: s(v, "city"),
             tz,
             local_time: s(v, "local_time"),
-            journal: v.get("journal").and_then(Value::as_i64).unwrap_or_default(),
             think: v.get("brains").map(|b| s(b, "think")).unwrap_or_default(),
         }
     }
@@ -68,26 +66,6 @@ impl Status {
             .nth(1)
             .unwrap_or(&self.local_time)
             .to_owned()
-    }
-}
-
-/// Someone she knows, from `memory.people`: what the desk shows of you.
-#[derive(Debug, Clone)]
-pub struct PersonView {
-    pub key: String,
-    pub heard: i64,
-}
-
-impl PersonView {
-    pub fn from_value(v: &Value) -> Option<Self> {
-        let person = v.get("person")?;
-        Some(Self {
-            key: s(person, "key"),
-            heard: person
-                .get("heard")
-                .and_then(Value::as_i64)
-                .unwrap_or_default(),
-        })
     }
 }
 
@@ -210,7 +188,6 @@ pub enum Update {
     Link(LinkState),
     Welcome(GhostCard),
     Status(Box<Status>),
-    People(Vec<PersonView>),
     /// The journal's recent tail, oldest first. Replaces what was held.
     Journal(Vec<Entry>),
     /// One new entry, as it is written.

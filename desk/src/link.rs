@@ -27,13 +27,12 @@ use std::{
 };
 
 use ghost_link::{Console, protocol::SayMode};
-use serde_json::Value;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use tracing::{debug, info};
 
 use crate::{
     follow::Read,
-    model::{Entry, LinkState, PersonView, Status, Update},
+    model::{Entry, LinkState, Status, Update},
 };
 
 /// How many journal entries the desk holds when it connects.
@@ -451,11 +450,6 @@ async fn session(
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let status = asker.status().await?;
     let _ = up.send(Update::Status(Box::new(Status::from_value(&status))));
-    if let Ok(Value::Array(people)) = asker.people().await {
-        let _ = up.send(Update::People(
-            people.iter().filter_map(PersonView::from_value).collect(),
-        ));
-    }
     // A daemon from before work could be listed has no answer; the desk
     // then shows none.
     if let Ok(work) = asker.work().await {

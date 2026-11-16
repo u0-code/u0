@@ -15,12 +15,14 @@ use chrono::{DateTime, Utc};
 use ghost_link::protocol::WorkState;
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
+    relative,
 };
 
 use crate::{
     answer::{Ask, Whom},
     brains::Mark,
     desk::{At, Desk, Menu, Open, RIGHT, Watched},
+    follow::Following,
     fonts::Faces,
     model::{LinkState, Reach, reason},
     settings::Session,
@@ -439,9 +441,12 @@ impl Desk {
         if let Some(open) = &self.open {
             let work = &open.her.work;
             let environment = self.her_environment(faces, open, cx);
+            let place = open.place(self.who());
+            let context = Self::context(faces, &open.her.following, &place);
             let body = self.her_work(faces, work, cx);
             return column
                 .child(self.section(faces, "Environment", None, None, environment, cx))
+                .child(self.section(faces, "Context", Some("section:context"), None, context, cx))
                 .child(self.section(
                     faces,
                     "Background tasks",
@@ -456,7 +461,8 @@ impl Desk {
         let tasks = thread::session_tasks(&self.solver.journal, &session.id);
         let outputs = thread::outputs(&self.solver.journal, &session.id);
         let environment = self.environment(faces, cx);
-        let context = self.context(faces);
+        let place = thread::place_key(&session.id);
+        let context = Self::context(faces, &self.solver.following, &place);
         let work = self.work(faces, &session, &tasks, cx);
         column
             .child(self.section(faces, "Environment", None, None, environment, cx))
@@ -609,61 +615,111 @@ impl Desk {
         )
     }
 
-    /// What Ghost brings to a session, each with a line on what it means:
-    /// its journal, you, and the hands the deployment gives it.
-    fn context(&self, faces: &Faces) -> Div {
-        let status = self.solver.status.as_ref();
-        let journal = status.map_or_else(|| "—".to_owned(), |s| format!("{} events", s.journal));
-        let (you_value, you_under) = match self.solver.heard_from(self.who()) {
-            Some(n) => (
-                "operator".to_owned(),
-                format!("{} · {n} lines heard", self.who()),
-            ),
-            None => (
-                "operator".to_owned(),
-                format!("{} · nothing heard yet", self.who()),
-            ),
+    /// What filled Ghost's context the last time it looked here, the way a
+    /// coding agent's app shows its context window: the tokens the brain
+    /// read, how many of them came from the provider's cache, and a bar
+    /// and a row for each part of what it was given, by its share.
+    fn context(faces: &Faces, following: &Following, place: &str) -> Div {
+        let Some(seen) = context_of(following, place) else {
+            return div().child(
+                ui::text(faces, "Nothing read here yet.")
+                    .text_size(px(13.))
+                    .text_color(theme::muted())
+                    .py(px(4.)),
+            );
         };
-        let (shell_value, shell_under) = match (&self.abilities.machine, self.abilities.work) {
-            _ if self.abilities.local() => {
-                ("this machine".to_owned(), "runs commands as you".to_owned())
-            }
-            (Some(m), true) => (m.clone(), "runs commands there".to_owned()),
-            _ => (
-                "off".to_owned(),
-                "the deployment gives it no shell".to_owned(),
-            ),
+        let Some(usage) = seen.usage else {
+            return div().child(
+                ui::text(faces, "Its daemon does not say what its looks read.")
+                    .text_size(px(13.))
+                    .text_color(theme::muted())
+                    .py(px(4.)),
+            );
         };
-        let (web_value, web_under) = if self.abilities.work && self.abilities.web {
-            ("on", "searches, and reads pages")
-        } else {
-            ("off", "the deployment keeps it off the web")
-        };
-        let item = |icon: &str, name: &'static str, value: String, under_text: String| {
-            row_with(
-                Some(row_icon(icon)),
-                label(faces, name),
-                Some(self::value(faces, value, theme::text())),
-                under(faces, under_text),
+        let head = div()
+            .flex()
+            .items_baseline()
+            .justify_between()
+            .pt(px(2.))
+            .child(
+                ui::text(faces, format!("{} tokens", kilo(usage.input)))
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::MEDIUM),
             )
-        };
+            .child(
+                ui::mono(faces, format!("{} from cache", kilo(usage.cached)))
+                    .text_size(px(11.5))
+                    .text_color(theme::muted()),
+            );
+        let total: u64 = seen.parts.iter().map(|(_, n)| n).sum::<u64>().max(1);
+        let mut bar = div()
+            .flex()
+            .h(px(6.))
+            .mt(px(8.))
+            .mb(px(6.))
+            .rounded(px(3.))
+            .overflow_hidden()
+            .bg(theme::border());
+        let mut rows = div().flex().flex_col();
+        for (part, chars) in &seen.parts {
+            if *chars == 0 {
+                continue;
+            }
+            let share = *chars as f32 / total as f32;
+            let color = part_color(part);
+            bar = bar.child(div().h_full().w(relative(share)).bg(color));
+            // The tokens of a part are its share of what the brain read:
+            // the provider counts the whole, not the parts.
+            let tokens = (f64::from(usage.input as u32) * f64::from(share)).round() as u64;
+            rows = rows.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .h(px(26.))
+                    .child(div().size(px(8.)).rounded(px(2.)).bg(color).flex_none())
+                    .child(ui::one_line(
+                        ui::text(faces, part_name(part))
+                            .text_size(px(13.))
+                            .text_color(theme::text2()),
+                    ))
+                    .child(
+                        ui::mono(faces, kilo(tokens))
+                            .text_size(px(11.5))
+                            .text_color(theme::muted())
+                            .flex_none(),
+                    )
+                    .child(
+                        ui::mono(faces, format!("{:.0}%", share * 100.))
+                            .text_size(px(11.5))
+                            .text_color(theme::text2())
+                            .flex_none()
+                            .w(px(34.))
+                            .text_right(),
+                    ),
+            );
+        }
+        let when = seen.at.map_or_else(String::new, |t| {
+            format!(" · {} ago", thread::span((Utc::now() - t).num_seconds()))
+        });
+        let foot = ui::mono(
+            faces,
+            format!(
+                "last look · {} round{}{when}",
+                seen.rounds,
+                if seen.rounds == 1 { "" } else { "s" }
+            ),
+        )
+        .text_size(px(11.))
+        .text_color(theme::faint())
+        .mt(px(6.));
         div()
             .flex()
             .flex_col()
-            .child(item(
-                "book",
-                "Journal",
-                journal,
-                "all it has done, kept for good".to_owned(),
-            ))
-            .child(item("user", "You", you_value, you_under))
-            .child(item("terminal", "Shell", shell_value, shell_under))
-            .child(item(
-                "search",
-                "Web",
-                web_value.to_owned(),
-                web_under.to_owned(),
-            ))
+            .child(head)
+            .child(bar)
+            .child(rows)
+            .child(foot)
     }
 
     /// How many tasks are still going, beside the section's name; none
@@ -833,5 +889,103 @@ impl Desk {
                     Some(value(faces, think.unwrap_or_else(dash), theme::muted())),
                 )
             })
+    }
+}
+
+/// What the last look at `place` read, as its kept rounds say: the newest
+/// round's usage, the parts of its context, how many rounds, and when.
+struct Seen {
+    usage: Option<ghost_link::protocol::LookUsage>,
+    parts: Vec<(String, u64)>,
+    rounds: usize,
+    at: Option<DateTime<Utc>>,
+}
+
+fn context_of(following: &Following, place: &str) -> Option<Seen> {
+    let looks = following.places.get(&thread::thread_key(place))?;
+    let look = looks.looks.values().next_back()?;
+    let usage = look.rounds.iter().rev().find_map(|r| r.usage);
+    let context = look.rounds.iter().rev().find_map(|r| r.context.as_ref());
+    let order = [
+        "transcript",
+        "system",
+        "people",
+        "tools",
+        "recalled",
+        "past",
+        "frame",
+    ];
+    let mut parts: Vec<(String, u64)> = Vec::new();
+    if let Some(context) = context {
+        for name in order {
+            if let Some(n) = context.get(name) {
+                parts.push((name.to_owned(), *n));
+            }
+        }
+        for (name, n) in context {
+            if !order.contains(&name.as_str()) {
+                parts.push((name.clone(), *n));
+            }
+        }
+    }
+    let at = look
+        .rounds
+        .last()
+        .and_then(|r| r.at.parse::<DateTime<Utc>>().ok());
+    Some(Seen {
+        usage,
+        parts,
+        rounds: look.rounds.len(),
+        at,
+    })
+}
+
+/// A part of her context, as a person reads it.
+fn part_name(part: &str) -> String {
+    match part {
+        "transcript" => "Conversation".to_owned(),
+        "system" => "Who she is".to_owned(),
+        "people" => "People here".to_owned(),
+        "tools" => "Tools".to_owned(),
+        "recalled" => "Recalled".to_owned(),
+        "past" => "Her past".to_owned(),
+        "frame" => "The rest".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// Each part's colour, the same in the bar and its row.
+fn part_color(part: &str) -> gpui::Hsla {
+    match part {
+        "transcript" => theme::blue(),
+        "system" => theme::accent(),
+        "people" => theme::green(),
+        "tools" => theme::coral(),
+        "recalled" => theme::purple(),
+        "past" => theme::amber2(),
+        _ => theme::ghost_line(),
+    }
+}
+
+/// A count of tokens as a person writes it: `820`, `12.3k`, `1.2M`.
+fn kilo(n: u64) -> String {
+    if n < 1000 {
+        n.to_string()
+    } else if n < 1_000_000 {
+        format!("{:.1}k", n as f64 / 1000.)
+    } else {
+        format!("{:.1}M", n as f64 / 1_000_000.)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tokens_read_as_a_person_writes_them() {
+        assert_eq!(kilo(820), "820");
+        assert_eq!(kilo(12_340), "12.3k");
+        assert_eq!(kilo(1_250_000), "1.2M");
     }
 }
