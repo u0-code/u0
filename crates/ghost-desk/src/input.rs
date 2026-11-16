@@ -69,10 +69,6 @@ impl TextInput {
         }
     }
 
-    pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>) {
-        self.placeholder = placeholder.into();
-    }
-
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
         self.send(cx);
     }
@@ -90,6 +86,19 @@ impl TextInput {
 
     pub fn is_empty(&self) -> bool {
         self.content.trim().is_empty()
+    }
+
+    /// What is typed, as it is.
+    pub fn text(&self) -> String {
+        self.content.trim().to_owned()
+    }
+
+    /// Put text in the line, replacing what was there.
+    pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.reset();
+        self.content = text.to_owned().into();
+        self.selected_range = self.content.len()..self.content.len();
+        cx.notify();
     }
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {

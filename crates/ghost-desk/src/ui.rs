@@ -1,7 +1,7 @@
 //! The small pieces every page is built from: mono labels, dots, panels,
 //! buttons, section heads. None of them knows about her.
 
-use gpui::{Div, Hsla, SharedString, Stateful, Svg, div, prelude::*, px, svg};
+use gpui::{Div, Hsla, SharedString, Svg, div, prelude::*, px, svg};
 
 use crate::{fonts::Faces, theme};
 
@@ -52,64 +52,6 @@ pub fn serif(faces: &Faces, text: impl Into<SharedString>) -> Div {
 /// A six-pixel dot: a state.
 pub fn dot(color: Hsla) -> Div {
     div().size(px(6.)).rounded_full().bg(color).flex_none()
-}
-
-/// A hollow dot: a state that is off.
-pub fn hollow() -> Div {
-    div()
-        .size(px(6.))
-        .rounded_full()
-        .border_1()
-        .border_color(theme::ghost_line())
-        .flex_none()
-}
-
-/// A quiet button: a border, no fill.
-pub fn button(
-    id: impl Into<gpui::ElementId>,
-    faces: &Faces,
-    label: impl Into<SharedString>,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .min_h(px(32.))
-        .px(px(12.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(theme::border2())
-        .font_family(faces.ui.clone())
-        .text_size(px(12.5))
-        .text_color(theme::text2())
-        .cursor_pointer()
-        .hover(|s| {
-            s.border_color(theme::ghost_line())
-                .text_color(theme::text())
-        })
-        .child(label.into())
-}
-
-/// Her initial in a circle: the avatar until she has a picture.
-pub fn initial(faces: &Faces, name: &str, size: f32) -> Div {
-    let letter: String = name
-        .chars()
-        .next()
-        .map(|c| c.to_string())
-        .unwrap_or_default();
-    div()
-        .size(px(size))
-        .rounded_full()
-        .bg(theme::border2())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .font_family(faces.serif.clone())
-        .text_size(px(size * 0.62))
-        .text_color(theme::text())
-        .child(letter)
 }
 
 /// A piece of text that stays on one line and trails off.

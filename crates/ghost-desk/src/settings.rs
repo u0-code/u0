@@ -1,52 +1,63 @@
-//! What the desk remembers between runs: which daemons to reach, which of
-//! their characters to follow, and who you are to them. A small JSON file
-//! in your home directory. No token is ever written here: it comes from
-//! `GHOSTD_TOKEN` in the environment or the `.env` file, as everywhere in
-//! Ghost.
+//! What the desk remembers between runs: where the solver's daemon is, who
+//! you are to it, and the sessions you have opened with it. A small JSON
+//! file in your home directory. No token is ever written here: it comes
+//! from `GHOSTD_TOKEN` in the environment or the `.env` file, as everywhere
+//! in Ghost.
 
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-/// A daemon the desk reaches.
+/// The port the solver's deployment listens on, apart from characters'.
+pub const SOLVER_URL: &str = "ws://127.0.0.1:7438";
+
+/// One conversation with the solver: a place of its own on the `desk`
+/// channel, so that its thread is its own in her journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonSeed {
-    pub url: String,
+pub struct Session {
+    pub id: String,
+    pub title: String,
+    pub at: DateTime<Utc>,
 }
 
-/// A character to follow on a daemon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CharacterSeed {
-    pub url: String,
-    /// Her directory's name on the daemon; `None` when it runs only one.
-    pub ghost: Option<String>,
-    /// The one that solves things on this machine rather than living online.
-    pub local: bool,
+impl Session {
+    pub fn new() -> Self {
+        let now = Utc::now();
+        Self {
+            id: format!("s{}", now.timestamp_millis()),
+            title: String::new(),
+            at: now,
+        }
+    }
+
+    /// What the list calls it: its first line, or nothing yet.
+    pub fn label(&self) -> String {
+        if self.title.is_empty() {
+            "New task".to_owned()
+        } else {
+            self.title.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub who: String,
-    pub daemons: Vec<DaemonSeed>,
-    pub characters: Vec<CharacterSeed>,
+    pub solver_url: String,
+    /// Newest first.
+    pub sessions: Vec<Session>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        // A first run follows the daemon GHOSTD_URL names, else the one on
-        // this machine at the usual port.
-        let url = std::env::var("GHOSTD_URL")
-            .ok()
-            .filter(|u| !u.is_empty())
-            .unwrap_or_else(ghost_link::default_url);
         Self {
             who: whoami(),
-            daemons: vec![DaemonSeed { url: url.clone() }],
-            characters: vec![CharacterSeed {
-                url,
-                ghost: None,
-                local: false,
-            }],
+            solver_url: std::env::var("GHOSTD_URL")
+                .ok()
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| SOLVER_URL.to_owned()),
+            sessions: Vec::new(),
         }
     }
 }
@@ -80,34 +91,26 @@ impl Settings {
             return Self::default();
         };
         let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
-        let daemons = v
-            .get("daemons")
+        let default = Self::default();
+        let sessions = v
+            .get("sessions")
             .and_then(Value::as_array)
-            .map(|ds| {
-                ds.iter()
-                    .filter_map(|d| s(d, "url").map(|url| DaemonSeed { url }))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let characters = v
-            .get("characters")
-            .and_then(Value::as_array)
-            .map(|cs| {
-                cs.iter()
-                    .filter_map(|c| {
-                        Some(CharacterSeed {
-                            url: s(c, "url")?,
-                            ghost: s(c, "ghost"),
-                            local: c.get("local").and_then(Value::as_bool).unwrap_or(false),
+            .map(|ss| {
+                ss.iter()
+                    .filter_map(|x| {
+                        Some(Session {
+                            id: s(x, "id")?,
+                            title: s(x, "title").unwrap_or_default(),
+                            at: s(x, "at")?.parse().ok()?,
                         })
                     })
                     .collect()
             })
             .unwrap_or_default();
         Self {
-            who: s(&v, "who").unwrap_or_else(whoami),
-            daemons,
-            characters,
+            who: s(&v, "who").unwrap_or(default.who),
+            solver_url: s(&v, "solver_url").unwrap_or(default.solver_url),
+            sessions,
         }
     }
 
@@ -115,9 +118,9 @@ impl Settings {
         let Some(path) = path() else { return };
         let v = json!({
             "who": self.who,
-            "daemons": self.daemons.iter().map(|d| json!({"url": d.url})).collect::<Vec<_>>(),
-            "characters": self.characters.iter().map(|c| json!({
-                "url": c.url, "ghost": c.ghost, "local": c.local,
+            "solver_url": self.solver_url,
+            "sessions": self.sessions.iter().map(|x| json!({
+                "id": x.id, "title": x.title, "at": x.at.to_rfc3339(),
             })).collect::<Vec<_>>(),
         });
         if let Some(dir) = path.parent() {

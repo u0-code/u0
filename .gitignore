@@ -4,6 +4,10 @@
 *.db-shm
 /ghosts/*
 !/ghosts/_template
+!/ghosts/_solver
+# The solver deployment as you run it: the desk adds you as its operator and
+# records the brain you pick. The example beside it is what is published.
+/solver/ghostd.toml
 /derived
 .env
 .DS_Store

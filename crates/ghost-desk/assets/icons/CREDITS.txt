@@ -1,0 +1,7 @@
+ghost.svg      Ghost's own mark.
+openai.svg     OpenAI's mark, from lobehub/lobe-icons (MIT), for the Codex CLI
+               and OpenAI-compatible providers. The mark belongs to OpenAI.
+claude.svg     Claude's mark, from lobehub/lobe-icons (MIT), for the Claude
+               Code CLI and the Anthropic API. The mark belongs to Anthropic.
+deepseek.svg   DeepSeek's mark, from simple-icons (CC0). The mark belongs to
+               DeepSeek.
