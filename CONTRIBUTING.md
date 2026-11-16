@@ -18,6 +18,17 @@ just hooks     # optional: have git check your commit subjects
 No test needs a network, an API key or a container. If yours does, it is not
 a test: see below.
 
+A change that could make her heavier is measured with `just overhead`. It
+builds the release binaries, runs two characters in one ghostd against a
+fake model on loopback, sends them 500 messages through the Ghost Protocol,
+and prints binary sizes, the time `ghostd status` takes, ghostd's memory at
+rest, at its peak and a minute after, CPU seconds per 100 messages, and how
+much journal and derived memory each message leaves. It needs Python 3 and
+nothing else: no network, no key, no container. `--desk` measures the
+desktop app at rest as well. Each run is added to `bench/overhead.tsv`,
+which stays on your machine; give the numbers before and after in the pull
+request.
+
 ## How a change gets in
 
 1. Branch from `main`: `feat/…`, `fix/…`, `docs/…`, `chore/…`.
