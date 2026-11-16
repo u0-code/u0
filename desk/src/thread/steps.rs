@@ -20,7 +20,7 @@ use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, pr
 
 use super::{
     State, calls,
-    style::{MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
+    style::{BODY, MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
     task_first::{breathing, secondary},
 };
 use crate::{desk::Desk, follow, fonts::Faces, theme, ui};
@@ -65,7 +65,13 @@ pub(super) fn look(
 ) -> AnyElement {
     let rows: Vec<&ToolCall> = look_calls(look).collect();
     let (key, open) = look_open(look, expanded);
-    let head = calls::worked((to - from).num_seconds(), rows.len(), look.running);
+    let secs = (to - from).num_seconds();
+    let head = if look.running {
+        calls::worked(secs, rows.len(), true)
+    } else {
+        let said: Vec<calls::Said> = rows.iter().map(|c| calls::say(&c.name, &c.args)).collect();
+        calls::summary(&said, secs)
+    };
     let toggle = key.clone();
     let header = div()
         .id(SharedString::from(format!("{key}-head")))
@@ -74,6 +80,12 @@ pub(super) fn look(
         .gap(px(6.))
         .h(px(24.))
         .cursor_pointer()
+        .child(
+            ui::text(faces, head)
+                .text_size(px(BODY))
+                .text_color(theme::muted())
+                .hover(|s| s.text_color(theme::text2())),
+        )
         .child(
             ui::icon(
                 if open {
@@ -84,12 +96,6 @@ pub(super) fn look(
                 12.,
             )
             .text_color(theme::faint()),
-        )
-        .child(
-            ui::text(faces, head)
-                .text_size(px(SMALL))
-                .text_color(theme::muted())
-                .hover(|s| s.text_color(theme::text2())),
         )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
     let mut group = div().flex().flex_col().child(header);
@@ -112,9 +118,9 @@ pub(super) fn rail() -> Div {
         .flex()
         .flex_col()
         .gap(px(1.))
-        .ml(px(5.5))
-        .pl(px(S3 - 2.))
-        .mt(px(2.))
+        .ml(px(2.))
+        .pl(px(S3))
+        .mt(px(4.))
         .border_l_1()
         .border_color(theme::border())
 }
