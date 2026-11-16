@@ -22,8 +22,9 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use ghost_mind::{Incoming, MindHandle};
-use ghost_protocol::GhostCard;
+use ghost_mind::{Incoming, MindHandle, Question};
+use ghost_protocol::{GhostCard, Listed, PROTOCOL, Roster};
+use serde_json::Value;
 use tokio::sync::watch;
 use tracing::{Instrument as _, Span, error, warn};
 
@@ -38,6 +39,8 @@ const PERSONA: &str = "ghost.toml";
 const TEMPLATE: &str = "_template";
 /// How long a message for her is held while her mind is being started again.
 const HOLD: Duration = Duration::from_secs(300);
+/// How long her mind has to say where her day has her, for the roster.
+const ASK_WITHIN: Duration = Duration::from_secs(2);
 
 /// One character, as the server and her keeper see her.
 pub struct Character {
@@ -131,6 +134,40 @@ impl Cast {
                 .ok_or_else(|| format!("this daemon does not run {name:?}; it runs {}", ids())),
         }
     }
+
+    /// Everyone the daemon runs, each as a hello naming her is told, with
+    /// where her day has her now. Her mind is asked that, all of them at
+    /// once; one that does not answer in time is listed without it, so a
+    /// mind being started again cannot hold up the list.
+    pub async fn roster(&self) -> Roster {
+        let each = self.0.iter().map(|who| async move {
+            let asked = tokio::time::timeout(ASK_WITHIN, who.mind().ask(Question::Status)).await;
+            let (awake, doing) = match asked {
+                Ok(Ok(status)) => phase(&status),
+                _ => (None, None),
+            };
+            Listed {
+                id: who.id.clone(),
+                card: who.card.clone(),
+                awake,
+                doing,
+                avatar: ghost_core::ghost::avatar(&who.dir).is_some(),
+            }
+        });
+        Roster {
+            protocol: PROTOCOL,
+            ghosts: futures_util::future::join_all(each).await,
+        }
+    }
+}
+
+/// Whether her day has her awake, and what it has her doing, as her status
+/// says.
+fn phase(status: &Value) -> (Option<bool>, Option<String>) {
+    let moment = &status["moment"];
+    let awake = moment["phase"].as_str().map(|phase| phase == "awake");
+    let doing = moment["doing"]["what"].as_str().map(str::to_owned);
+    (awake, doing)
 }
 
 /// The ghost directories `paths` names, each with her id. A path is either

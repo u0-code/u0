@@ -12,7 +12,9 @@
 //!   that does not exist.
 //!
 //! A connection begins with one [`method::HELLO`] request. Everything after
-//! depends on the role declared in it.
+//! depends on the role declared in it. The one thing that may come before
+//! it is [`method::LIST`], which asks who the daemon runs: a client has to
+//! know that to say which of them its hello is for.
 //!
 //! One daemon can run several characters. A client is for one of them: its
 //! hello names her in [`Hello::ghost`], and everything on that connection
@@ -34,8 +36,14 @@ pub const DEFAULT_ADDR: &str = "127.0.0.1:7437";
 /// Method names.
 pub mod method {
     /// Client → daemon request. Params [`Hello`](super::Hello), result
-    /// [`Welcome`](super::Welcome). Must be the first frame.
+    /// [`Welcome`](super::Welcome). Must be the first frame, but for any
+    /// [`LIST`] before it.
     pub const HELLO: &str = "hello";
+    /// Client → daemon request. Params [`ListGhosts`](super::ListGhosts),
+    /// result [`Roster`](super::Roster): every character the daemon runs.
+    /// It may be sent before the hello, as often as a client likes, and on
+    /// a console after it. Before the hello it carries the token itself.
+    pub const LIST: &str = "ghost.list";
 
     /// Presence → daemon notification. Params [`Inbound`](super::Inbound).
     pub const INBOUND: &str = "presence.inbound";
@@ -277,6 +285,45 @@ pub struct GhostCard {
     /// her own words, if her persona has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bio: Option<String>,
+}
+
+/// Params of [`method::LIST`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListGhosts {
+    /// The daemon's token, when it requires one. Asked before a hello, the
+    /// question has no hello to carry it; after one, it is not looked at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// The result of [`method::LIST`]: who a daemon runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Roster {
+    /// The protocol the daemon speaks, so that a client knows before its
+    /// hello whether the two of them can talk.
+    pub protocol: u32,
+    /// In the order the daemon runs them.
+    pub ghosts: Vec<Listed>,
+}
+
+/// One character in a [`Roster`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Listed {
+    /// The name of her directory: what a hello names her by.
+    pub id: String,
+    /// Who she is, as a hello naming her is told.
+    #[serde(flatten)]
+    pub card: GhostCard,
+    /// Whether her day has her awake now. `None` when her mind did not
+    /// answer, as while it is being started again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub awake: Option<bool>,
+    /// What her day has her doing now, in her plan's words, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
+    /// Whether she has a picture to ask for with [`method::AVATAR`].
+    #[serde(default)]
+    pub avatar: bool,
 }
 
 /// Her picture, the result of [`method::AVATAR`].
@@ -656,6 +703,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(card.bio, None);
+    }
+
+    #[test]
+    fn a_listed_character_reads_as_her_card_with_her_id_beside_it() {
+        let listed = Listed {
+            id: "weiwei".into(),
+            card: GhostCard {
+                name: "W".into(),
+                pronouns: "she/her".into(),
+                city: "C".into(),
+                country: "CN".into(),
+                seal: "s".into(),
+                bio: None,
+            },
+            awake: None,
+            doing: None,
+            avatar: true,
+        };
+        let sent = serde_json::to_string(&listed).unwrap();
+        assert_eq!(
+            sent,
+            r#"{"id":"weiwei","name":"W","pronouns":"she/her","city":"C","country":"CN","seal":"s","avatar":true}"#
+        );
+        assert_eq!(serde_json::from_str::<Listed>(&sent).unwrap(), listed);
+        // Asked with no token, the question says nothing of one.
+        let ask = Frame::request(1, method::LIST, &ListGhosts::default());
+        assert_eq!(ask.params, Some(serde_json::json!({})));
     }
 
     #[test]

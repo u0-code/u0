@@ -3,7 +3,8 @@
 //! Each connection says hello and is then either a presence or a console,
 //! for one character: the one its hello names, or the only one there is.
 //! Everything that arrives on it goes to her mind and no other, and a
-//! console sees her alone.
+//! console sees her alone. Before the hello, the one question a client may
+//! ask is who the daemon runs, so that it can name one of them.
 //!
 //! Each character's presences are her [`Body`]: when her mind acts on a
 //! channel, the request goes to whichever of her presences registered that
@@ -27,8 +28,8 @@ use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, MindHandle, Question};
 use ghost_protocol::{
-    Action, Actor, Avatar, Capability, Frame, Hello, Inbound, JournalRead, PROTOCOL, PlaceRead,
-    PresenceHello, Role, Typing, Welcome, code, method,
+    Action, Actor, Avatar, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts, PROTOCOL,
+    PlaceRead, PresenceHello, Role, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -153,6 +154,14 @@ pub struct Shared {
     pub origins: Vec<String>,
 }
 
+impl Shared {
+    /// Whether a client that gave `token` may go on: it is the daemon's, or
+    /// the daemon requires none.
+    fn admits(&self, token: Option<&str>) -> bool {
+        self.token.is_none() || token == self.token.as_deref()
+    }
+}
+
 /// Accept connections until the task is dropped.
 pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
     loop {
@@ -206,8 +215,35 @@ async fn connection(
     .await?;
     let (mut sink, mut stream) = ws.split();
 
-    let Some(first) = tokio::time::timeout(HELLO_WITHIN, recv(&mut stream)).await?? else {
-        return Ok(());
+    // Before its hello a client may ask who the daemon runs, since it has
+    // to know that to say which of them it is for. It still has to say
+    // hello in time, or go.
+    let deadline = tokio::time::Instant::now() + HELLO_WITHIN;
+    let first = loop {
+        let Some(frame) = tokio::time::timeout_at(deadline, recv(&mut stream)).await?? else {
+            return Ok(());
+        };
+        if frame.method.as_deref() != Some(method::LIST) {
+            break frame;
+        }
+        let id = frame.id.unwrap_or(0);
+        // Asked with no params at all, it is asked with no token.
+        let asked = match frame.params {
+            None => Ok(ListGhosts::default()),
+            Some(_) => frame.params::<ListGhosts>(),
+        };
+        let answer = match asked {
+            Ok(asked) if shared.admits(asked.token.as_deref()) => {
+                Frame::ok(id, &shared.cast.roster().await)
+            }
+            Ok(_) => Frame::err(id, code::UNAUTHORIZED, "wrong or missing token"),
+            Err(e) => Frame::err(id, e.code, e.message),
+        };
+        let refused = answer.error.is_some();
+        send(&mut sink, &answer).await?;
+        if refused {
+            return Ok(());
+        }
     };
     let id = first.id.unwrap_or(0);
     let refuse = |code: i64, message: &str| Frame::err(id, code, message);
@@ -221,7 +257,7 @@ async fn connection(
         send(&mut sink, &refuse(code::VERSION, &message)).await?;
         return Ok(());
     }
-    if shared.token.is_some() && hello.token != shared.token {
+    if !shared.admits(hello.token.as_deref()) {
         send(
             &mut sink,
             &refuse(code::UNAUTHORIZED, "wrong or missing token"),
@@ -270,7 +306,9 @@ async fn connection(
         }
         (Role::Console, _) => {
             let _ = out.send(welcome).await;
-            watch(out, &mut stream, &who).instrument(span).await;
+            watch(out, &mut stream, &who, &shared.cast)
+                .instrument(span)
+                .await;
         }
     }
     // Let the writer flush whatever is queued, then end with the connection.
@@ -425,8 +463,9 @@ async fn carry<S>(
     }
 }
 
-/// A console: answer its questions and, if asked, stream her journal.
-async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, who: &Character)
+/// A console: answer its questions and, if asked, stream her journal. It
+/// is for her, but may still ask who else the daemon runs.
+async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, who: &Character, cast: &Cast)
 where
     S: StreamExt<
             Item = Result<
@@ -446,6 +485,12 @@ where
             Some(method::CANON) => Question::Canon,
             Some(method::PLACES) => Question::Places,
             Some(method::WORK) => Question::Work,
+            Some(method::LIST) => {
+                if out.send(Frame::ok(id, &cast.roster().await)).await.is_err() {
+                    break;
+                }
+                continue;
+            }
             // Read from her directory, not asked of her mind: her picture
             // is not something she lived.
             Some(method::AVATAR) => {

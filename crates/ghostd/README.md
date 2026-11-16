@@ -56,6 +56,32 @@ one Docker machine need different `workdir`s; the daemon refuses to start
 otherwise. Tokens of their own per character are not offered: the one token
 admits a client to every character.
 
+### Asking who it runs
+
+A client that does not know which characters a daemon runs asks it with
+`ghost.list`, the one request the daemon answers before a hello. It may ask
+as often as it likes and then say hello on the same connection, or close it;
+the hello still has ten seconds from the connection's start, and is held to
+the rules above. A console may also ask after its hello. Before a hello there
+is no hello to carry the token, so the request carries it, and a daemon that
+requires one refuses the request and closes the connection without it.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"ghost.list","params":{"token":"…"}}
+
+{"jsonrpc":"2.0","id":1,"result":{"protocol":1,"ghosts":[
+  {"id":"weiwei","name":"薇薇","pronouns":"she/her","city":"…","country":"CN",
+   "seal":"…","awake":true,"doing":"morning rounds","avatar":true}
+]}}
+```
+
+`id` is the name of her directory, what a hello names her by; `name` to
+`bio` are what a hello naming her is told. `awake` is whether her day has her
+awake now and `doing` what her plan has her doing, if it says; both are left
+out while her mind is being started again. `avatar` says whether
+`ghost.avatar` has a picture to give. Leave out `params` when the daemon
+requires no token.
+
 ## Prompts
 
 Everything her brain reads that is not her persona or her journal is a file,
