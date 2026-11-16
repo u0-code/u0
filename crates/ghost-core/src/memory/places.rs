@@ -9,8 +9,11 @@
 //! in a row she has looked and said nothing can be counted from what
 //! happened rather than kept as a number something has to remember to
 //! reset. And a group that asked her to be quiet keeps until when.
+//!
+//! How much was said each way in a place is kept by the hour, so that what
+//! went on lately can be counted without reading back through all of it.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::Serialize;
 
@@ -83,7 +86,21 @@ CREATE TABLE IF NOT EXISTS places (
 CREATE INDEX IF NOT EXISTS places_channel ON places (channel);
 CREATE TABLE IF NOT EXISTS looks (seq INTEGER PRIMARY KEY, place TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS looks_place ON looks (place, seq);
+CREATE TABLE IF NOT EXISTS traffic (
+    channel TEXT NOT NULL, hour TEXT NOT NULL, place TEXT NOT NULL,
+    heard INTEGER NOT NULL DEFAULT 0, said INTEGER NOT NULL DEFAULT 0,
+    last_seq INTEGER NOT NULL,
+    PRIMARY KEY (channel, hour, place)
+) WITHOUT ROWID;
 ";
+
+/// One more message in a place, in the hour it was written: `at` up to the
+/// hour is `YYYY-MM-DDTHH`.
+const TRAFFIC: &str = "
+INSERT INTO traffic (channel, hour, place, heard, said, last_seq)
+VALUES (?1, substr(?2, 1, 13), ?3, ?4, 1 - ?4, ?5)
+ON CONFLICT(channel, hour, place) DO UPDATE SET
+    heard = heard + ?4, said = said + 1 - ?4, last_seq = MAX(last_seq, ?5)";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     let seq = entry.seq;
@@ -104,14 +121,20 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                     at
                 ],
             )?;
+            tx.execute(
+                TRAFFIC,
+                params![channel, at, social::key(channel, &place.id), true, seq],
+            )?;
         }
         Event::Said { channel, place, .. } => {
+            let key = social::key(channel, place);
             tx.execute(
                 "INSERT INTO places (key, channel, id, kind, last_out_seq, last_out_at)
                  VALUES (?1, ?2, ?3, 'public', ?4, ?5)
                  ON CONFLICT(key) DO UPDATE SET last_out_seq = ?4, last_out_at = ?5",
-                params![social::key(channel, place), channel, place, seq, at],
+                params![key, channel, place, seq, at],
             )?;
+            tx.execute(TRAFFIC, params![channel, at, key, false, seq])?;
         }
         Event::Read {
             channel,
@@ -197,14 +220,31 @@ impl Memory {
         let Some(channel) = channel_of(except) else {
             return Ok(Vec::new());
         };
+        // Whole hours after the one `since` falls in are counted as they
+        // were kept, an hour to a row; only that first hour is counted a
+        // message at a time. Either way, what is read is the window and
+        // not everything ever said on the platform.
+        let first_hour = since.duration_trunc(Duration::hours(1)).unwrap_or(since);
+        let since_at = stamp(&since);
         let mut stmt = self.conn.prepare(
-            "SELECT place, SUM(dir = 'in'), SUM(dir = 'out'), MAX(seq) FROM messages
-             WHERE channel = ?1 AND at >= ?2 AND place != ?3
-             GROUP BY place ORDER BY MAX(seq) DESC LIMIT ?4",
+            "SELECT place, SUM(heard), SUM(said), MAX(last_seq) FROM (
+                 SELECT place, heard, said, last_seq FROM traffic
+                  WHERE channel = ?1 AND hour > substr(?2, 1, 13) AND place != ?4
+                 UNION ALL
+                 SELECT place, dir = 'in', dir = 'out', seq FROM messages
+                  WHERE channel = ?1 AND at >= ?2 AND at < ?3 AND place != ?4
+             )
+             GROUP BY place ORDER BY MAX(last_seq) DESC LIMIT ?5",
         )?;
         let rows = stmt
             .query_map(
-                params![channel, stamp(&since), except, as_i64(limit)],
+                params![
+                    channel,
+                    since_at,
+                    stamp(&(first_hour + Duration::hours(1))),
+                    except,
+                    as_i64(limit)
+                ],
                 |r| {
                     Ok((
                         r.get::<_, String>(0)?,
@@ -292,10 +332,16 @@ fn row_to_place(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaceState> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
-    use super::super::testing::{fold, heard, on, said};
-    use crate::{journal::Event, social::PlaceKind};
+    use super::super::{
+        Memory, as_i64,
+        testing::{fold, heard, on, said, steps},
+    };
+    use crate::{
+        journal::{Event, Journal},
+        social::PlaceKind,
+    };
 
     fn read(place: &str, upto: i64) -> Event {
         Event::Read {
@@ -443,6 +489,88 @@ mod tests {
         // Every place is still listed together.
         assert_eq!(m.places().unwrap().len(), 2);
         assert_eq!(m.places_unread().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn elsewhere_counts_exactly_what_was_said_since_whatever_the_minute() {
+        // Every twenty minutes for a day, in two places, someone writes and
+        // she answers every third time.
+        let start = Utc::now() - Duration::hours(24);
+        let mut j = Journal::in_memory();
+        let mut m = Memory::in_memory().unwrap();
+        let mut sent = Vec::new();
+        for i in 0..72 {
+            let at = start + Duration::minutes(20 * i) + Duration::seconds(7);
+            let place = if i % 2 == 0 { "a" } else { "b" };
+            let mut events = vec![heard(
+                place,
+                PlaceKind::Group,
+                "x",
+                &i.to_string(),
+                "hi",
+                false,
+            )];
+            if i % 3 == 0 {
+                events.push(said(place, "hello"));
+            }
+            for event in events {
+                let entry = j.append_at(at, event).unwrap();
+                sent.push((
+                    entry.seq,
+                    at,
+                    place,
+                    matches!(entry.event, Event::Heard { .. }),
+                ));
+                m.apply(&entry).unwrap();
+            }
+        }
+        for back in [0, 13, 59, 60, 61, 125, 360, 1500] {
+            let since = Utc::now() - Duration::minutes(back);
+            let found = m.elsewhere(since, "t:elsewhere", 5).unwrap();
+            for place in ["a", "b"] {
+                let window: Vec<_> = sent
+                    .iter()
+                    .filter(|(_, at, p, _)| *p == place && *at >= since)
+                    .collect();
+                let shown = found.iter().find(|e| e.place.key == format!("t:{place}"));
+                let Some(shown) = shown else {
+                    assert!(window.is_empty(), "{place} missing {back} minutes back");
+                    continue;
+                };
+                let heard = window.iter().filter(|w| w.3).count();
+                assert_eq!(
+                    (shown.heard, shown.said),
+                    (as_i64(heard), as_i64(window.len() - heard)),
+                    "{place}, {back} minutes back"
+                );
+                assert_eq!(shown.last.seq, window.last().unwrap().0);
+            }
+        }
+    }
+
+    #[test]
+    fn what_is_said_elsewhere_costs_the_same_however_long_they_have_talked() {
+        let cost = |n: usize| {
+            let mut events = Vec::new();
+            for i in 0..n {
+                let id = i.to_string();
+                events.push(heard("g", PlaceKind::Group, "a", &id, "hello", false));
+                events.push(heard("h", PlaceKind::Group, "b", &id, "hey", false));
+                events.push(said("g", "hi"));
+            }
+            // She has read it all: what is unread is counted one by one.
+            events.extend([read("g", 1_000_000), read("h", 1_000_000)]);
+            let (_, mut m) = fold(events);
+            let since = Utc::now() - Duration::hours(6);
+            let (found, steps) = steps(&mut m, |m| m.elsewhere(since, "t:x", 5).unwrap());
+            assert_eq!((found[0].heard, found[0].said), (as_i64(n), as_i64(n)));
+            steps
+        };
+        let (short, long) = (cost(20), cost(400));
+        assert!(
+            long < short * 2,
+            "{short} steps after 20 messages each, {long} after 400"
+        );
     }
 
     #[test]

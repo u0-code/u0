@@ -67,7 +67,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -342,6 +342,30 @@ mod testing {
             },
             other => other,
         }
+    }
+
+    /// How many instructions SQLite runs for `read`: what a read costs,
+    /// counted rather than timed, so that it does not depend on how busy
+    /// the machine is.
+    pub fn steps<T>(m: &mut Memory, read: impl FnOnce(&Memory) -> T) -> (T, u64) {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        let count = Arc::new(AtomicU64::new(0));
+        let counter = count.clone();
+        m.conn
+            .progress_handler(
+                1,
+                Some(move || {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    false
+                }),
+            )
+            .unwrap();
+        let out = read(m);
+        m.conn.progress_handler(0, None::<fn() -> bool>).unwrap();
+        (out, count.load(Ordering::Relaxed))
     }
 
     pub fn fold(events: Vec<Event>) -> (Journal, Memory) {

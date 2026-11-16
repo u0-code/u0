@@ -24,4 +24,6 @@ tracing = "0.1.44"
 workspace = true
 
 [dev-dependencies]
+# Hooks let a test count what a read costs SQLite, however loaded the machine.
+rusqlite = { version = "0.42.0", features = ["bundled", "hooks"] }
 tempfile = "3.27.0"
