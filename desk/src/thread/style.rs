@@ -14,9 +14,14 @@ use crate::{fonts::Faces, theme, ui};
 /// The reading column, and the composer under it.
 pub const COLUMN: f32 = 720.;
 
-/// Body text: what was said.
-pub const BODY: f32 = 14.;
-pub const BODY_LINE: f32 = 22.5;
+/// Body text: what you said, and what is said about things.
+pub const BODY: f32 = 15.;
+pub const BODY_LINE: f32 = 24.;
+/// Her words, set in the serif: a little larger, with more lead.
+pub const PROSE: f32 = 16.;
+pub const PROSE_LINE: f32 = 26.;
+/// The gutter her avatar sits in, which everything of hers starts after.
+pub const GUTTER: f32 = 34.;
 /// Secondary text: steps, summaries, notes.
 pub const SMALL: f32 = 12.5;
 pub const SMALL_LINE: f32 = 19.;
@@ -37,6 +42,8 @@ pub const S2: f32 = 8.;
 pub const S3: f32 = 12.;
 pub const S4: f32 = 16.;
 pub const S6: f32 = 24.;
+/// Between turns.
+pub const TURN: f32 = 32.;
 
 /// How round a card, a bubble, a well is.
 pub const CARD_RADIUS: f32 = 10.;

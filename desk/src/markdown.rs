@@ -18,7 +18,7 @@ use gpui::{
 use crate::{
     fonts::{self, Faces},
     theme,
-    thread::style::{BODY_LINE, H1, H2, H3, MONO, MONO_LINE, S1, S2, S3, WELL_RADIUS},
+    thread::style::{H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, WELL_RADIUS},
     ui,
 };
 
@@ -279,7 +279,7 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
         .map(|(r, mark)| {
             let (font, color, background) = match mark {
                 Mark::Plain => (
-                    face(&faces.ui, base.weight, FontStyle::Normal),
+                    face(&faces.serif, base.weight, FontStyle::Normal),
                     base.color,
                     None,
                 ),
@@ -289,12 +289,12 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
                     Some(theme::panel2()),
                 ),
                 Mark::Bold => (
-                    face(&faces.ui, FontWeight::SEMIBOLD, FontStyle::Normal),
+                    face(&faces.serif, FontWeight::SEMIBOLD, FontStyle::Normal),
                     theme::text(),
                     None,
                 ),
                 Mark::Italic => (
-                    face(&faces.ui, base.weight, FontStyle::Italic),
+                    face(&faces.serif, base.weight, FontStyle::Italic),
                     base.color,
                     None,
                 ),
@@ -342,11 +342,10 @@ fn body() -> Base {
 
 fn block_element(faces: &Faces, key: &str, block: &Block) -> Div {
     match block {
-        Block::Paragraph(text) => {
-            div()
-                .line_height(px(BODY_LINE))
-                .child(styled(faces, text, body()))
-        }
+        Block::Paragraph(text) => div()
+            .text_size(px(PROSE))
+            .line_height(px(PROSE_LINE))
+            .child(styled(faces, text, body())),
         Block::Heading(level, text) => {
             let (size, line) = match level {
                 1 => H1,
@@ -377,20 +376,22 @@ fn block_element(faces: &Faces, key: &str, block: &Block) -> Div {
                     .text_right()
                     .text_size(px(MONO))
                     .text_color(theme::muted())
-                    .line_height(px(BODY_LINE)),
+                    .line_height(px(PROSE_LINE)),
             )
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .line_height(px(BODY_LINE))
+                    .text_size(px(PROSE))
+                    .line_height(px(PROSE_LINE))
                     .child(styled(faces, text, body())),
             ),
         Block::Quote(text) => div()
             .pl(px(S3))
             .border_l_2()
             .border_color(theme::border2())
-            .line_height(px(BODY_LINE))
+            .text_size(px(PROSE))
+            .line_height(px(PROSE_LINE))
             .child(styled(
                 faces,
                 text,

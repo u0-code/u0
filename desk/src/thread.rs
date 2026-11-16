@@ -61,6 +61,24 @@ pub fn clock(at: DateTime<Utc>, tz: Tz) -> String {
     at.with_timezone(&tz).format("%H:%M").to_string()
 }
 
+/// When something was, as a person says it under a message: just now, so
+/// many minutes or hours ago, or the day and time in her clock.
+pub fn ago(at: DateTime<Utc>, tz: Tz) -> String {
+    let secs = (Utc::now() - at).num_seconds();
+    match secs {
+        s if s < 45 => "just now".to_owned(),
+        s if s < 3600 => {
+            let m = (s / 60).max(1);
+            format!("{m} minute{} ago", if m == 1 { "" } else { "s" })
+        }
+        s if s < 86_400 => {
+            let h = s / 3600;
+            format!("{h} hour{} ago", if h == 1 { "" } else { "s" })
+        }
+        _ => at.with_timezone(&tz).format("%-d %b · %H:%M").to_string(),
+    }
+}
+
 /// A span of time in a word or two.
 pub fn span(secs: i64) -> String {
     let secs = secs.max(0);

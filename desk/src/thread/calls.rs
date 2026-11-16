@@ -255,6 +255,47 @@ pub fn took(ms: u64) -> String {
 
 /// The head of a group of steps: "Worked for 12s · 3 steps", or while it
 /// goes on, "Working for 12s · 3 steps".
+/// What a look's calls came to, in a line: `Ran 4 commands, read 2 files,
+/// searched twice`, by the verbs the rows say, in the order they first
+/// came, with how long it all took after.
+pub fn summary(said: &[Said], secs: i64) -> String {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for s in said {
+        match counts.iter_mut().find(|(v, _)| *v == s.verb) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((s.verb.clone(), 1)),
+        }
+    }
+    let part = |verb: &str, n: usize| -> String {
+        let noun = match verb {
+            "Ran" | "Started" => Some("command"),
+            "Read" | "Wrote" | "Edited" => Some("file"),
+            "Opened" => Some("page"),
+            "Searched" => Some("search"),
+            _ => None,
+        };
+        match noun {
+            Some("search") => match n {
+                1 => "searched once".to_owned(),
+                2 => "searched twice".to_owned(),
+                n => format!("searched {n} times"),
+            },
+            Some(noun) => format!("{} {}", verb.to_lowercase(), plural(n, noun)),
+            None => match n {
+                1 => verb.to_lowercase(),
+                n => format!("{} {n} times", verb.to_lowercase()),
+            },
+        }
+    };
+    let mut parts: Vec<String> = counts.iter().map(|(v, n)| part(v, *n)).collect();
+    if let Some(first) = parts.first_mut()
+        && let Some(c) = first.get_mut(0..1)
+    {
+        c.make_ascii_uppercase();
+    }
+    format!("{} · {}", parts.join(", "), super::span(secs))
+}
+
 pub fn worked(secs: i64, steps: usize, running: bool) -> String {
     let verb = if running { "Working" } else { "Worked" };
     format!(
@@ -382,6 +423,27 @@ mod tests {
         assert_eq!(took(1240), "1.2s");
         assert_eq!(took(125_000), "2m 5s");
         assert_eq!(worked(12, 3, false), "Worked for 12s · 3 steps");
+        let said = |v: &str| Said {
+            verb: v.into(),
+            what: String::new(),
+        };
+        assert_eq!(
+            summary(
+                &[
+                    said("Ran"),
+                    said("Read"),
+                    said("Ran"),
+                    said("Searched"),
+                    said("Opened")
+                ],
+                12
+            ),
+            "Ran 2 commands, read 1 file, searched once, opened 1 page · 12s"
+        );
+        assert_eq!(
+            summary(&[said("Used playwright · navigate")], 3),
+            "Used playwright · navigate · 3s"
+        );
         assert_eq!(worked(75, 1, true), "Working for 1m 15s · 1 step");
     }
 }

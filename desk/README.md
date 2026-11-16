@@ -89,11 +89,14 @@ Across the top of it, the session's name, which opens the session's menu
 column; with a character open, her name and the place her thread shows.
 
 It is drawn task-first, the way a coding agent's app draws a session:
-what you say in a bubble on the right, what she says as the Markdown she
-writes, in a column about as wide as comfortable prose, and above each
-answer what she did to get to it. That is one line, "Worked for 12s · 3
-steps", folded once she has answered and open while she is still at it,
-with a row for each call: "Ran du -sh ~/Library", "Read src/main.rs",
+what you say in a bubble on the right, with when it was under it and a
+way to say it again or copy it; what she says as the Markdown she
+writes, set in the serif, in a column about as wide as comfortable
+prose, her mark in the gutter beside it, and under it when it was, how
+long it took and a way to copy it; and above each answer what she did
+to get to it. That is one line, "Ran 4 commands, read 2 files · 12s",
+folded once she has answered and open while she is still at it, with a
+row for each call: "Ran du -sh ~/Library", "Read src/main.rs",
 "Searched …", "Opened example.com", or "Used" and the name of a tool of a
 server she installed. Each row has how long the call took, and opens to
 the head of what came back, with how much more there was when it was cut.

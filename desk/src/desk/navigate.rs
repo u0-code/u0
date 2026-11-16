@@ -146,6 +146,13 @@ impl Desk {
         cx.notify();
     }
 
+    /// Put one message on the clipboard.
+    pub(crate) fn copy_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+        self.notice = Some(Notice::said("Copied."));
+        cx.notify();
+    }
+
     /// Put a session's thread on the clipboard as text: who said what, and
     /// when, from Ghost's journal.
     pub(crate) fn copy_session(&mut self, id: &str, cx: &mut Context<Self>) {
