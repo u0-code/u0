@@ -23,7 +23,7 @@ threads apart. It holds no key.
 It is its own workspace, so GPUI's tree stays out of `just check`:
 
 ```bash
-cd crates/ghost-desk
+cd desk
 cargo run --release                     # or: cargo run --release -- "free some disk space"
 ```
 

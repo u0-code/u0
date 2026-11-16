@@ -2,8 +2,8 @@
 # Build Ghost.app: the release binary in a macOS bundle with the ghost as its
 # icon, so that Finder, Launchpad and the Dock show it like any other app.
 #
-#   crates/ghost-desk/bundle.sh            # -> crates/ghost-desk/target/release/Ghost.app
-#   open crates/ghost-desk/target/release/Ghost.app
+#   desk/bundle.sh            # -> desk/target/release/Ghost.app
+#   open desk/target/release/Ghost.app
 #
 # Needs rsvg-convert (brew install librsvg) to draw the icon, and iconutil,
 # which macOS has.

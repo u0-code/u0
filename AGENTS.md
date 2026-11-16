@@ -25,6 +25,7 @@ crates/ghost-protocol  wire types of the Ghost Protocol.
 crates/ghost-link      protocol client.
 crates/ghostd          the daemon: runs one or many characters, serves the protocol.
 crates/presence/*      channel adapters, each its own binary.
+desk/                  the desktop app (GPUI, its own workspace); runs a ghost core of its own.
 bench/                 how the work loop is measured against other agents.
 deploy/                systemd units, a backup script, running on a server.
 ```
