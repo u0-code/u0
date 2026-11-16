@@ -586,8 +586,11 @@ async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_wher
     assert_eq!(ended[0]["running"], false);
     assert_eq!(ended[0]["look"], going[0]["look"]);
     // The round in which she only said something ended the look, and her
-    // journal has what she said: it is not kept here.
-    assert_eq!(ended[0]["rounds"].as_array().unwrap().len(), 1);
+    // journal has what she said: here it is only what that turn cost.
+    let rounds = ended[0]["rounds"].as_array().unwrap();
+    assert_eq!(rounds.len(), 2);
+    assert!(rounds[1]["calls"].as_array().unwrap().is_empty());
+    assert_eq!(rounds[1]["usage"]["input"], 1200);
     assert!(ask(&rig, decided).as_array().unwrap().is_empty());
 }
 
