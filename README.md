@@ -56,7 +56,8 @@ cp .env.example .env                   # put DEEPSEEK_API_KEY (or another provid
 
 With no `ghostd.toml` she starts on the first brain the machine has: a key in
 the environment, then an installed `claude` or `codex`. Copy
-`ghostd.example.toml` to `ghostd.toml` to choose.
+`ghostd.example.toml` to `ghostd.toml` to choose; every setting it can hold
+is in [ghostd's Configuration](crates/ghostd/README.md#configuration).
 
 In another terminal, talk to her, or watch her life as it is written:
 
