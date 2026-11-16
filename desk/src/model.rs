@@ -152,16 +152,17 @@ impl Reach {
     }
 }
 
-/// Why a daemon at `host` cannot be reached, in a sentence a person reads,
-/// from the error the link gave. The error itself stays a click away; this
-/// is what most people need to know first.
-pub fn reason(why: &str, host: &str) -> String {
+/// Why a daemon cannot be reached, in a sentence a person reads, from the
+/// error the link gave. It does not name the daemon: it is read under its
+/// name and address. The error itself stays a click away; this is what
+/// most people need to know first.
+pub fn reason(why: &str) -> String {
     let w = why.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|x| w.contains(x));
     if has(&["connection refused", "os error 61", "os error 111"]) {
-        format!("Nothing is listening at {host}.")
+        "Nothing is listening there.".to_owned()
     } else if has(&["unauthorized", "wrong or missing token", "401", "403"]) {
-        format!("{host} did not accept the token.")
+        "It did not accept the token.".to_owned()
     } else if has(&["is not set in the environment"]) {
         // The settings' own sentence names the variable, and says it well.
         sentence(why)
@@ -171,13 +172,13 @@ pub fn reason(why: &str, host: &str) -> String {
         "name or service not known",
         "no such host",
     ]) {
-        format!("No address could be found for {host}.")
+        "Its address could not be found.".to_owned()
     } else if has(&["timed out", "timeout", "deadline"]) {
-        format!("{host} did not answer in time.")
+        "It did not answer in time.".to_owned()
     } else if has(&["network is unreachable", "no route to host", "host is down"]) {
-        format!("There is no way to {host} from this network.")
+        "It cannot be reached from this network.".to_owned()
     } else if has(&["certificate", "tls", "handshake"]) {
-        format!("A secure connection to {host} could not be set up.")
+        "A secure connection to it could not be set up.".to_owned()
     } else if has(&["closed the connection", "connection reset", "broken pipe"]) {
         "The daemon closed the connection.".to_owned()
     } else {
@@ -295,35 +296,30 @@ pub struct Stop {
 mod tests {
     use super::*;
 
-    const HOST: &str = "srv-hk:7438";
-
     #[test]
     fn a_refused_connection_says_nothing_is_listening() {
         let why = "connect to ws://srv-hk:7438: IO error: Connection refused (os error 61)";
-        assert_eq!(reason(why, HOST), "Nothing is listening at srv-hk:7438.");
+        assert_eq!(reason(why), "Nothing is listening there.");
     }
 
     #[test]
     fn a_refused_token_names_the_token() {
         assert_eq!(
-            reason("wrong or missing token", HOST),
-            "srv-hk:7438 did not accept the token."
+            reason("wrong or missing token"),
+            "It did not accept the token."
         );
     }
 
     #[test]
     fn an_unknown_name_says_no_address() {
         let why = "connect to ws://srv-hk:7438: IO error: failed to lookup address information: nodename nor servname provided, or not known";
-        assert_eq!(
-            reason(why, HOST),
-            "No address could be found for srv-hk:7438."
-        );
+        assert_eq!(reason(why), "Its address could not be found.");
     }
 
     #[test]
     fn a_missing_variable_keeps_its_own_words() {
         assert_eq!(
-            reason("HK_TOKEN is not set in the environment or .env", HOST),
+            reason("HK_TOKEN is not set in the environment or .env"),
             "HK_TOKEN is not set in the environment or .env."
         );
     }
@@ -331,7 +327,7 @@ mod tests {
     #[test]
     fn anything_else_is_its_last_cause_as_a_sentence() {
         assert_eq!(
-            reason("connect to ws://x: protocol error: bad frame", HOST),
+            reason("connect to ws://x: protocol error: bad frame"),
             "Bad frame."
         );
     }

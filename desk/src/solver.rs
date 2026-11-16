@@ -188,7 +188,14 @@ pub struct Deployment {
     /// The checkout: `desk/core/`, `prompts/` and `target/` are under it.
     pub root: PathBuf,
     child: Option<Child>,
+    /// When the desk last started it, for saying "starting" rather than
+    /// "down" while it comes up.
+    started_at: Option<std::time::Instant>,
 }
+
+/// How long the desk gives the core it started to come up before the
+/// right column calls it down.
+const STARTUP: u64 = 20;
 
 impl Deployment {
     /// Find the checkout: `GHOST_ROOT`, else the first directory upward
@@ -215,7 +222,11 @@ impl Deployment {
                     .canonicalize()
                     .unwrap_or_else(|_| PathBuf::from("."))
             });
-        Self { root, child: None }
+        Self {
+            root,
+            child: None,
+            started_at: None,
+        }
     }
 
     /// The configuration the daemon runs with: `desk/core/ghostd.toml`,
@@ -502,6 +513,15 @@ impl Deployment {
         self.child.is_some()
     }
 
+    /// Whether the core the desk started is still coming up: a daemon
+    /// takes a few seconds to listen, and that is not a failure.
+    pub fn starting(&self) -> bool {
+        self.child.is_some()
+            && self
+                .started_at
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(STARTUP))
+    }
+
     /// Whether the daemon the desk started is still running.
     pub fn owns_running(&mut self) -> bool {
         match self.child.as_mut() {
@@ -572,6 +592,7 @@ impl Deployment {
             .with_context(|| format!("start {}", self.ghostd().display()))?;
         info!("started the solver's daemon, pid {}", child.id());
         self.child = Some(child);
+        self.started_at = Some(std::time::Instant::now());
         Ok(())
     }
 
@@ -744,7 +765,11 @@ mod tests {
             "# how it thinks\n[brain]\nthink = \"main\"\ntick = \"main\"\n\n[mind.work]\nenabled = true\nmachine = \"local:\"\nweb = true\n\n[operators]\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"m\"\napi_key_env = \"NO_SUCH_KEY_FOR_A_TEST\"\n",
         )
         .unwrap();
-        Deployment { root, child: None }
+        Deployment {
+            root,
+            child: None,
+            started_at: None,
+        }
     }
 
     #[test]
