@@ -773,7 +773,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "toml",
  "tracing",
 ]
 
@@ -862,7 +861,6 @@ dependencies = [
  "dotenvy",
  "ghost-link",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -887,7 +885,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",
