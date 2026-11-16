@@ -28,15 +28,31 @@ impl Choice {
     }
 }
 
+/// Claude Code's model families, by the name it takes and the name shown,
+/// its own default first.
+const CLAUDE: [(&str, &str); 4] = [
+    ("", "Default"),
+    ("opus", "Opus"),
+    ("sonnet", "Sonnet"),
+    ("haiku", "Haiku"),
+];
+
+/// The name a CLI's model `id` is shown by, where it is known without
+/// reading anything: Claude Code's families.
+pub fn cli_label(kind: &str, id: &str) -> Option<&'static str> {
+    if kind != "claude-code" {
+        return None;
+    }
+    CLAUDE
+        .iter()
+        .find(|(i, _)| *i == id)
+        .map(|(_, label)| *label)
+}
+
 /// The models a CLI of `kind` offers, its default first; `None` for an API.
 pub fn of_cli(kind: &str, home: Option<&Path>) -> Option<Vec<Choice>> {
     match kind {
-        "claude-code" => Some(vec![
-            Choice::new("", "Default"),
-            Choice::new("opus", "Opus"),
-            Choice::new("sonnet", "Sonnet"),
-            Choice::new("haiku", "Haiku"),
-        ]),
+        "claude-code" => Some(CLAUDE.iter().map(|(id, l)| Choice::new(id, l)).collect()),
         "codex" => {
             let dir = home.map(|h| h.join(".codex"));
             let read = |name: &str| {
@@ -135,6 +151,9 @@ mod tests {
         assert_eq!(all[0].id, "");
         assert!(all.iter().any(|c| c.id == "opus"));
         assert!(of_cli("openai", None).is_none());
+        assert_eq!(cli_label("claude-code", "opus"), Some("Opus"));
+        assert_eq!(cli_label("claude-code", ""), Some("Default"));
+        assert_eq!(cli_label("codex", "opus"), None);
     }
 
     #[test]

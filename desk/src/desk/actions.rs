@@ -4,7 +4,7 @@
 
 use gpui::{Context, Focusable as _, Window};
 
-use super::{Desk, Popup, listening};
+use super::{Desk, Notice, Popup, listening};
 use crate::{
     daemons::{Daemon, Host},
     settings::{Connection, SOLVER_URL},
@@ -109,7 +109,7 @@ impl Desk {
         };
         self.notice = started
             .err()
-            .map(|e| format!("Could not start the core: {e:#}"));
+            .map(|e| Notice::trouble(format!("Could not start the core: {e:#}")));
         self.retry_solver(cx);
     }
 
@@ -117,13 +117,15 @@ impl Desk {
         let name = self.solver.name();
         self.notice = if self.deployment.owns_running() {
             match self.deployment.restart() {
-                Ok(()) => Some(format!("Restarting {name} with the new brain.")),
-                Err(e) => Some(format!("Could not restart {name}: {e:#}")),
+                Ok(()) => Some(Notice::said(format!(
+                    "Restarting {name} with the new brain."
+                ))),
+                Err(e) => Some(Notice::trouble(format!("Could not restart {name}: {e:#}"))),
             }
         } else {
-            Some(format!(
+            Some(Notice::said(format!(
                 "Saved. {name}'s daemon was started elsewhere: restart it to use this brain."
-            ))
+            )))
         };
         cx.notify();
     }

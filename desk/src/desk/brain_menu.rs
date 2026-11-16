@@ -4,17 +4,27 @@
 //! the one looked at on the right; a model is chosen in one click, brain
 //! and all.
 //!
+//! The composer's Mode menu is drawn here too, on the same panel: a
+//! menu is one thing to open, close and steer from the keyboard, whatever
+//! it offers.
+//!
 //! Whether a brain can run here is asked when it is chosen, not shown in
 //! advance: it is asked to think once, as little as there is, the way the
 //! daemon would ask it (a CLI that answers for its version may still be
 //! signed out). If it cannot, the desk says why and goes on with the brain
 //! it had.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Instant};
 
-use gpui::{AnyElement, Context, Corner, SharedString, anchored, deferred, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, Corner, KeyDownEvent, SharedString, Window, anchored, deferred, div,
+    prelude::*, px,
+};
 
-use super::Desk;
+use super::{
+    Desk, Mode,
+    composer::{Notice, mode_color},
+};
 use crate::{
     brains::{self, Endpoint, Wire},
     fonts::Faces,
@@ -24,12 +34,33 @@ use crate::{
     theme, ui,
 };
 
-/// Whether the brain picker is open. Adding and editing a brain is done in
-/// the sheet (`sheet.rs`), never inside the picker.
+/// Which menu is open, if one is: the brain picker, or the composer's
+/// modes. Adding and editing a brain is done in the sheet (`sheet.rs`),
+/// never inside the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Menu {
     Closed,
     Brains,
+    Modes,
+}
+
+/// The ways of saying something, in the order the Mode menu offers them
+/// and Shift-Tab goes round them, with their names.
+pub(crate) const MODES: [(Mode, &str); 3] = [
+    (Mode::Say, "Say"),
+    (Mode::Directive, "Directive"),
+    (Mode::Task, "Task"),
+];
+
+/// What a mode does, in a line, to `name`.
+fn mode_about(mode: Mode, name: &str) -> String {
+    match mode {
+        Mode::Say => format!("Talk. {name} answers, and decides what to do."),
+        Mode::Directive => format!("An order from you as operator. {name} carries it out."),
+        Mode::Task => {
+            format!("A piece of work with its checks. {name} ends it when every one holds.")
+        }
+    }
 }
 
 /// The control the brain menu opened from. It is one menu, anchored to
@@ -53,6 +84,9 @@ pub(crate) struct Picker {
     models: HashMap<String, Models>,
     /// The brain a switch to is being checked.
     checking: Option<String>,
+    /// The menu a press outside it just closed, and when: the press that
+    /// closes a menu from its own button must not open it again.
+    dismissed: Option<(Menu, At, Instant)>,
 }
 
 /// A brain's models, as far as they are known.
@@ -64,13 +98,28 @@ enum Models {
 }
 
 impl Desk {
-    /// Open the brain menu from one of the places it opens from, or close
-    /// it if it is open there already.
-    pub(crate) fn open_menu(&mut self, menu: Menu, at: At, cx: &mut Context<Self>) {
+    /// Open a menu from one of the places it opens from, or close it if
+    /// it is open there already. An open menu has the keyboard.
+    pub(crate) fn open_menu(
+        &mut self,
+        menu: Menu,
+        at: At,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let just_closed =
+            self.picker.dismissed.take().is_some_and(|(m, a, when)| {
+                m == menu && a == at && when.elapsed().as_millis() < 400
+            });
         let same = self.menu == menu && self.menu_at == at;
-        self.menu = if same { Menu::Closed } else { menu };
+        if same || just_closed {
+            self.close_menu(window, cx);
+            return;
+        }
+        self.menu = menu;
         self.menu_at = at;
-        if self.menu != Menu::Closed {
+        self.menu_focus.focus(window);
+        if self.menu == Menu::Brains {
             self.providers = self.deployment.providers();
             self.brain = self.deployment.brain();
             let look = self
@@ -82,6 +131,83 @@ impl Desk {
             }
         }
         cx.notify();
+    }
+
+    /// Close the open menu, and give the keyboard back to where you type.
+    pub(crate) fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.menu == Menu::Closed {
+            return;
+        }
+        self.menu = Menu::Closed;
+        if self.menu_focus.is_focused(window) {
+            self.focus_composer(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// A key pressed while a menu is open: Esc closes it; in the Mode
+    /// menu a number picks a mode; in the brain menu up and down go
+    /// between brains, a number picks a model, Return the brain looked at.
+    fn menu_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let keys = &event.keystroke;
+        if keys.modifiers.platform || keys.modifiers.control || keys.modifiers.alt {
+            return;
+        }
+        let digit = keys
+            .key
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=9).contains(n));
+        match (self.menu, keys.key.as_str(), digit) {
+            (_, "escape", _) => self.close_menu(window, cx),
+            (Menu::Modes, _, Some(n)) => {
+                if let Some((mode, ..)) = MODES.get(n - 1) {
+                    self.menu = Menu::Closed;
+                    self.set_mode(*mode, window, cx);
+                }
+            }
+            (Menu::Brains, "up" | "down", _) => {
+                let at = self
+                    .picker
+                    .looking
+                    .as_deref()
+                    .and_then(|n| self.providers.iter().position(|p| p.name == n))
+                    .unwrap_or(0);
+                let next = if keys.key == "up" {
+                    at.checked_sub(1)
+                } else {
+                    Some(at + 1).filter(|i| *i < self.providers.len())
+                };
+                if let Some(name) = next
+                    .and_then(|i| self.providers.get(i))
+                    .map(|p| p.name.clone())
+                {
+                    self.look_at(&name, cx);
+                }
+            }
+            (Menu::Brains, "enter", _) => {
+                if let Some(name) = self.picker.looking.clone() {
+                    self.focus_composer(window, cx);
+                    self.use_brain(&name, cx);
+                }
+            }
+            (Menu::Brains, _, Some(n)) => {
+                let Some(p) = self
+                    .picker
+                    .looking
+                    .as_deref()
+                    .and_then(|name| self.providers.iter().find(|p| p.name == name))
+                else {
+                    return;
+                };
+                if let Some(c) = self.choices(p).0.get(n - 1) {
+                    let (name, model) = (p.name.clone(), c.id.clone());
+                    self.focus_composer(window, cx);
+                    self.use_model(&name, &model, cx);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Show the models of the brain `name` on the right.
@@ -180,7 +306,7 @@ impl Desk {
             return;
         }
         self.picker.checking = Some(name.to_owned());
-        self.notice = Some(format!("Checking {}…", p.title()));
+        self.notice = Some(Notice::said(format!("Checking {}…", p.title())));
         // One real, small request, as the daemon would make it: a CLI that
         // answers for its version may still be signed out.
         let blocker = p.blocker.clone();
@@ -194,9 +320,7 @@ impl Desk {
                 return Err(why);
             }
             match (program, api) {
-                (Some(program), _) => brains::cli_probe(&kind, &program, &asked)
-                    .await
-                    .map_err(|why| brains::cli_failure(&kind, &why)),
+                (Some(program), _) => brains::cli_probe(&kind, &program, &asked).await,
                 (None, Some(Ok((network, end)))) => {
                     let deadline = std::time::Duration::from_secs(60);
                     match tokio::time::timeout(deadline, brains::probe(&network, &end)).await {
@@ -218,15 +342,25 @@ impl Desk {
                     Err(why) => {
                         let still = this
                             .current_provider()
-                            .map_or_else(|| "no brain".to_owned(), |c| c.label());
-                        // A reason that already names the brain stands on
-                        // its own.
-                        let why = if why.starts_with(&p.title()) {
-                            why
-                        } else {
-                            format!("{} can't think here: {why}", p.title())
+                            .map_or_else(|| "no brain".to_owned(), Provider::label);
+                        // A CLI that is signed out says how to sign it in,
+                        // which stands on its own; any other reason is cut
+                        // to its gist. Either way the whole of what was
+                        // said is kept under Details.
+                        let title = p.title();
+                        let told = match &p.program {
+                            Some(_) => brains::cli_failure(&p.kind, &why),
+                            None => why.clone(),
                         };
-                        this.notice = Some(format!("{why}. Still thinking with {still}."));
+                        let line = if told.starts_with(&title) {
+                            told
+                        } else {
+                            format!("{title} can't think here: {}", brains::gist(&told))
+                        };
+                        this.notice = Some(
+                            Notice::trouble(format!("{line}. Still thinking with {still}."))
+                                .with_detail(why),
+                        );
                         cx.notify();
                     }
                 }
@@ -244,7 +378,7 @@ impl Desk {
         }
         .and_then(|()| self.deployment.choose(name));
         if let Err(e) = written {
-            self.notice = Some(format!("{e:#}"));
+            self.notice = Some(Notice::trouble(format!("{e:#}")));
             cx.notify();
             return;
         }
@@ -261,20 +395,14 @@ impl Desk {
             return "Checking…".to_owned();
         }
         let listed = match self.picker.models.get(&p.name) {
-            Some(Models::Listed(c)) => c.iter().find(|c| c.id == p.model).map(|c| c.label.clone()),
+            Some(Models::Listed(c)) => c.iter().find(|c| c.id == p.model).map(|c| c.label.as_str()),
             _ => None,
         };
-        // Drawn every frame, so no file is read for it: Claude Code's names
-        // are known, Codex's once the menu has listed them.
+        // Drawn every frame, so nothing is read or listed for it: Claude
+        // Code's names are known, Codex's once the menu has listed them.
         let model = listed
-            .or_else(|| {
-                (p.kind == "claude-code").then_some(())?;
-                models::of_cli(&p.kind, None)?
-                    .into_iter()
-                    .find(|c| c.id == p.model)
-                    .map(|c| c.label)
-            })
-            .unwrap_or_else(|| p.model.clone());
+            .or_else(|| models::cli_label(&p.kind, &p.model))
+            .unwrap_or(&p.model);
         if model.is_empty() {
             p.title()
         } else {
@@ -293,17 +421,18 @@ impl Desk {
         self.use_model(name, &model, cx);
     }
 
-    pub(crate) fn current_provider(&self) -> Option<Provider> {
+    pub(crate) fn current_provider(&self) -> Option<&Provider> {
         let brain = self.brain.as_deref()?;
-        self.providers.iter().find(|p| p.name == brain).cloned()
+        self.providers.iter().find(|p| p.name == brain)
     }
 
     pub(crate) fn menu_open_at(&self, at: At) -> bool {
         self.menu != Menu::Closed && self.menu_at == at
     }
 
-    /// The brain menu, if it is open from `at`, anchored by `corner` to
-    /// where the caller puts it.
+    /// The menu open from `at`, if one is, anchored by `corner` to where
+    /// the caller puts it. It holds the keyboard while it is open, and a
+    /// press anywhere else closes it.
     pub(crate) fn menu_over(
         &self,
         at: At,
@@ -311,15 +440,85 @@ impl Desk {
         faces: &Faces,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        self.menu_open_at(at).then(|| {
+        if !self.menu_open_at(at) {
+            return None;
+        }
+        let panel = match self.menu {
+            Menu::Modes => self.mode_menu(faces, cx),
+            _ => self.brain_menu(faces, cx),
+        }
+        .track_focus(&self.menu_focus)
+        .on_key_down(cx.listener(Self::menu_key))
+        .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+            this.picker.dismissed = Some((this.menu, this.menu_at, Instant::now()));
+            this.close_menu(window, cx);
+        }));
+        Some(
             deferred(
                 anchored()
                     .anchor(corner)
                     .snap_to_window_with_margin(px(8.))
-                    .child(self.brain_menu(faces, cx)),
+                    .child(panel),
             )
-            .into_any_element()
-        })
+            .with_priority(1)
+            .into_any_element(),
+        )
+    }
+
+    /// The Mode menu: each way of saying something, what it does, the key
+    /// that picks it, and a check on the one in use.
+    fn mode_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let name = self.speaking_to();
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .w(px(360.))
+            .p(px(4.))
+            .child(ui::menu_head(faces, "Mode"));
+        for (i, (mode, word)) in MODES.into_iter().enumerate() {
+            let on = self.mode == mode;
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("mode-{word}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(10.))
+                    .py(px(7.))
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(theme::panel2()))
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .gap(px(1.))
+                            .child(
+                                ui::text(faces, word)
+                                    .text_size(px(13.5))
+                                    .text_color(mode_color(mode, true)),
+                            )
+                            .child(
+                                ui::text(faces, mode_about(mode, &name))
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(theme::muted()),
+                            ),
+                    )
+                    .child(div().flex_none().w(px(14.)).when(on, |d| {
+                        d.child(ui::icon("check", 13.).text_color(theme::accent()))
+                    }))
+                    .child(ui::key(faces, (i + 1).to_string()).w(px(10.)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.menu = Menu::Closed;
+                        this.set_mode(mode, window, cx);
+                    })),
+            );
+        }
+        ui::menu("mode-menu").child(list)
     }
 
     /// The brain picker: the brains down the left, with a check on the one
@@ -331,10 +530,11 @@ impl Desk {
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(220.))
+            .w(px(250.))
             .p(px(4.))
             .border_r_1()
-            .border_color(theme::border());
+            .border_color(theme::border())
+            .child(ui::menu_head(faces, "Brain"));
         for p in &self.providers {
             left = left.child(self.brain_choice(p, faces, cx));
         }
@@ -346,13 +546,13 @@ impl Desk {
                 .id("add-brain")
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .h(px(30.))
-                .px(px(8.))
-                .rounded(px(6.))
+                .gap(px(10.))
+                .h(px(32.))
+                .px(px(10.))
+                .rounded(px(8.))
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon("plus", 16.).text_color(theme::muted()))
+                .child(ui::icon("plus", 15.).text_color(theme::muted()))
                 .child(
                     ui::text(faces, "Add brain…")
                         .text_size(px(13.))
@@ -363,22 +563,9 @@ impl Desk {
                     this.open_sheet(None, window, cx);
                 })),
         );
-        div()
-            .id("brain-menu")
-            .occlude()
-            .flex()
-            .w(px(500.))
-            .max_h(px(400.))
-            .bg(theme::panel())
-            .border_1()
-            .border_color(theme::border2())
-            .rounded(px(10.))
-            .shadow_lg()
-            .overflow_hidden()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.menu = Menu::Closed;
-                cx.notify();
-            }))
+        ui::menu("brain-menu")
+            .w(px(540.))
+            .max_h(px(420.))
             .child(left)
             .child(self.model_column(faces, cx))
     }
@@ -410,21 +597,47 @@ impl Desk {
                 this.menu = Menu::Closed;
                 this.open_sheet(Some(edit.clone()), window, cx);
             }));
+        // In a column, a line that trails off fills the width, rather than
+        // growing down as `ui::one_line` would have it.
+        let about = ui::text(faces, p.about())
+            .w_full()
+            .truncate()
+            .text_size(px(11.5))
+            .line_height(px(15.))
+            .text_color(if p.blocker.is_some() {
+                theme::coral()
+            } else {
+                theme::faint()
+            });
         div()
             .id(group.clone())
             .group(group)
             .flex()
             .items_center()
-            .gap(px(8.))
-            .h(px(30.))
-            .pl(px(8.))
+            .gap(px(10.))
+            .py(px(6.))
+            .pl(px(10.))
             .pr(px(4.))
-            .rounded(px(6.))
+            .rounded(px(8.))
             .cursor_pointer()
             .when(looking, |d| d.bg(theme::panel2()))
             .hover(|s| s.bg(theme::hover()))
             .child(ui::mark(faces, p.mark(), 16.))
-            .child(ui::one_line(ui::text(faces, p.title()).text_size(px(13.))))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(
+                        ui::text(faces, p.title())
+                            .w_full()
+                            .truncate()
+                            .text_size(px(13.))
+                            .line_height(px(18.)),
+                    )
+                    .child(about),
+            )
             .child(pencil)
             .child(div().flex_none().w(px(14.)).when(on, |d| {
                 d.child(ui::icon("check", 13.).text_color(theme::accent()))
@@ -465,35 +678,19 @@ impl Desk {
                     .p(px(8.)),
             );
         };
-        let head = ui::mono(faces, format!("MODELS · {}", p.title().to_uppercase()))
-            .text_size(px(10.5))
-            .text_color(theme::faint())
-            .px(px(8.))
-            .pt(px(6.))
-            .pb(px(4.));
+        let head = ui::menu_head(faces, format!("Model · {}", p.title()));
         let note = |text: String| {
             ui::text(faces, text)
                 .text_size(px(12.))
                 .line_height(px(16.))
                 .text_color(theme::muted())
-                .px(px(8.))
+                .px(px(10.))
                 .py(px(6.))
         };
-        let (choices, why) = match self.picker.models.get(&p.name) {
-            Some(Models::Listed(c)) => (c.clone(), None),
-            Some(Models::Asking) => (
-                models::of_api(&p.model, Vec::new()),
-                Some("Asking for its models…".to_owned()),
-            ),
-            Some(Models::Unlisted(why)) => (
-                models::of_api(&p.model, Vec::new()),
-                Some(format!("Its models could not be listed: {why}.")),
-            ),
-            None => (models::of_api(&p.model, Vec::new()), None),
-        };
+        let (choices, why) = self.choices(p);
         let in_use = self.brain.as_deref() == Some(p.name.as_str());
         let mut column = column.child(head);
-        for (i, c) in choices.into_iter().enumerate() {
+        for (i, c) in choices.iter().enumerate() {
             let on = in_use && c.id == p.model;
             let (name, model) = (p.name.clone(), c.id.clone());
             column = column.child(
@@ -501,23 +698,46 @@ impl Desk {
                     .id(SharedString::from(format!("model-{}-{i}", p.name)))
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .h(px(30.))
-                    .px(px(8.))
-                    .rounded(px(6.))
+                    .gap(px(10.))
+                    .h(px(32.))
+                    .px(px(10.))
+                    .rounded(px(8.))
                     .cursor_pointer()
+                    .when(on, |d| d.bg(theme::panel2()))
                     .hover(|s| s.bg(theme::hover()))
                     .child(ui::one_line(
-                        ui::text(faces, c.label)
+                        ui::text(faces, c.label.clone())
                             .text_size(px(13.))
                             .text_color(if on { theme::text() } else { theme::text2() }),
                     ))
                     .child(div().flex_none().w(px(14.)).when(on, |d| {
                         d.child(ui::icon("check", 13.).text_color(theme::accent()))
                     }))
-                    .on_click(cx.listener(move |this, _, _, cx| this.use_model(&name, &model, cx))),
+                    .when(i < 9, |d| {
+                        d.child(ui::key(faces, (i + 1).to_string()).w(px(10.)))
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.focus_composer(window, cx);
+                        this.use_model(&name, &model, cx);
+                    })),
             );
         }
         column.children(why.map(note))
+    }
+
+    /// The models the brain `p` offers as far as they are known, and a
+    /// note when they are still being asked for or could not be listed.
+    fn choices(&self, p: &Provider) -> (std::borrow::Cow<'_, [Choice]>, Option<String>) {
+        use std::borrow::Cow;
+        let only = || Cow::Owned(models::of_api(&p.model, Vec::new()));
+        match self.picker.models.get(&p.name) {
+            Some(Models::Listed(c)) => (Cow::Borrowed(c.as_slice()), None),
+            Some(Models::Asking) => (only(), Some("Asking for its models…".to_owned())),
+            Some(Models::Unlisted(why)) => (
+                only(),
+                Some(format!("Its models could not be listed: {why}.")),
+            ),
+            None => (only(), None),
+        }
     }
 }

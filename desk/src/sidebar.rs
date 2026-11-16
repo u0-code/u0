@@ -363,7 +363,6 @@ impl Desk {
     fn account(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let brain = self
             .current_provider()
-            .as_ref()
             .map_or_else(|| "no brain".to_owned(), Provider::label);
         let avatar = div()
             .flex()
@@ -401,7 +400,9 @@ impl Desk {
                     .text_color(theme::muted()),
             ))
             .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
-            .on_click(cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, At::Account, cx)));
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.open_menu(Menu::Brains, At::Account, window, cx);
+            }));
         div()
             .relative()
             .flex()

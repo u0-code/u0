@@ -79,6 +79,39 @@ pub fn mark(faces: &Faces, mark: Mark, size: f32) -> AnyElement {
     }
 }
 
+/// A menu that opens over the page: a raised panel with a soft edge.
+/// Every menu of the desk is drawn on it, so that they all look alike.
+pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .occlude()
+        .flex()
+        .bg(theme::panel())
+        .border_1()
+        .border_color(theme::border2())
+        .rounded(px(12.))
+        .shadow_lg()
+        .overflow_hidden()
+}
+
+/// The quiet title over a menu's choices: "Mode", "Brain".
+pub fn menu_head(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    self::text(faces, text)
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .px(px(10.))
+        .pt(px(8.))
+        .pb(px(4.))
+}
+
+/// The key that picks a choice in a menu, at its right: "1", "Esc".
+pub fn key(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    mono(faces, text)
+        .flex_none()
+        .text_size(px(11.))
+        .text_color(theme::faint())
+}
+
 /// A short note shown on hover, for `.tooltip`.
 pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();

@@ -123,20 +123,28 @@ do). Every open piece has Stop, which asks once more.
 
 ## Speaking to her
 
-The line you type into is one row the width of the thread, which wraps
-and grows to six lines. Beside it, how what you type reaches her:
+The line you type into is a rounded box the width of the thread: what you
+type on top, which wraps and grows to six lines, and a quiet row under it.
+At the left of that row is how what you type reaches her, a button that
+opens the Mode menu (a number picks a mode there; Shift-Tab goes round
+them without it):
 
 - **Say**: as anything you say to her.
 - **Directive**: as an operator's directive, which she looks at at once
   and carries out rather than weighs. The line takes the operator's
   colour while it is chosen.
 - **Task**: opens a form in place of the line: what, when it is done (one
-  check a line; Return adds the next), and the time allowed. It is said to
+  check a line; Return or Add a check adds the next), and the time
+  allowed, with Cancel and Give task where send was. It is said to
   her as a directive whose words say this is a piece of work to take on,
   what it is done by, and in what time. Nobody signs it off: she ends it
   herself when every check holds, and says how each came out.
 
-With the solver, the brain and model it thinks with sit beside them. While
+With the solver, the brain and model it thinks with sit beside it; its
+menu names each brain with where it runs, numbers the models of the one
+looked at, and takes the arrow keys, a number, Return and Esc. A brain
+that cannot think here is said in one short line under the box, with the
+whole of what it answered under Details. While
 she is thinking about what you said in this place, or at work taken on
 here, and nothing new is typed, send becomes Stop, which stops her look
 there and the work directed from there (`console.stop`), and the thread
