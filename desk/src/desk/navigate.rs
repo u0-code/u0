@@ -94,6 +94,16 @@ impl Desk {
         cx.notify();
     }
 
+    /// Open the menu under the session's name in the top bar, or close it.
+    pub(crate) fn toggle_title_menu(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.popup = if self.popup == Popup::Title(id.to_owned()) {
+            Popup::Closed
+        } else {
+            Popup::Title(id.to_owned())
+        };
+        cx.notify();
+    }
+
     /// Turn a session's row into a field with its name in it, selected.
     pub(crate) fn start_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(session) = self.settings.sessions.iter().find(|s| s.id == id) else {
@@ -231,7 +241,12 @@ impl Desk {
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.sidebar = !self.sidebar;
+        self.panes.left = !self.panes.left;
+        cx.notify();
+    }
+
+    pub fn toggle_aside(&mut self, cx: &mut Context<Self>) {
+        self.panes.right = !self.panes.right;
         cx.notify();
     }
 

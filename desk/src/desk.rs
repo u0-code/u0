@@ -105,6 +105,13 @@ pub(crate) fn lights_room(window: &Window) -> f32 {
     if window.is_fullscreen() { EDGE } else { LIGHTS }
 }
 
+/// Which of the side columns show: the sidebar, and the right column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Panes {
+    pub left: bool,
+    pub right: bool,
+}
+
 /// A small menu of the desk's own, at most one open at a time. The brain
 /// menu is apart: it opens from three places.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,8 +121,10 @@ pub(crate) enum Popup {
     Places,
     /// A connection's menu, by its name.
     Connection(String),
-    /// A session's menu, by its id.
+    /// A session's menu, by its id, under its row in the sidebar.
     Session(String),
+    /// The same menu under the session's name in the top bar.
+    Title(String),
 }
 
 /// When the desk last asked itself what of her steps to read for the
@@ -190,8 +199,8 @@ pub struct Desk {
     last_tick: Instant,
     /// What the desk last made of her steps in the thread on screen.
     steps: OnScreen,
-    /// Whether the sidebar shows.
-    sidebar: bool,
+    /// Which of the side columns show.
+    pub(crate) panes: Panes,
     /// Sessions visited before and after the one on screen, by id, for
     /// back and forward.
     back: Vec<String>,
@@ -361,7 +370,10 @@ impl Desk {
                 asked: Instant::now(),
                 live: false,
             },
-            sidebar: true,
+            panes: Panes {
+                left: true,
+                right: true,
+            },
             back: Vec::new(),
             forward: Vec::new(),
         };
@@ -583,9 +595,9 @@ impl Render for Desk {
             .font_family(faces.ui.clone())
             .text_size(px(14.))
             .text_color(theme::text())
-            .when(self.sidebar, |d| d.child(self.left(&faces, lights, cx)))
+            .when(self.panes.left, |d| d.child(self.left(&faces, lights, cx)))
             .child(middle)
-            .child(self.right(&faces, cx))
+            .when(self.panes.right, |d| d.child(self.right(&faces, cx)))
             .children(self.sheet_overlay(&faces, cx))
     }
 }

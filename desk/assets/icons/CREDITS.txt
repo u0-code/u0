@@ -1,7 +1,8 @@
 ghost.svg      Ghost's own mark.
 sidebar.svg, chevron-*.svg, plus.svg, search.svg, laptop.svg,
 server.svg, plug.svg, file.svg, check.svg, pencil.svg, x.svg,
-retry.svg, power.svg, bell.svg, terminal.svg, book.svg, user.svg
+retry.svg, power.svg, bell.svg, terminal.svg, book.svg, user.svg,
+panel-right.svg
                Line icons drawn for the desk.
 
 The brains' marks. Each mark belongs to its company; the files are from

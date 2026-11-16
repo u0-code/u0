@@ -2,10 +2,10 @@
 //! window's lights: what is on screen, its clock, and with a character
 //! the place her thread shows.
 
-use gpui::{Context, Corner, Div, FontWeight, anchored, deferred, div, prelude::*, px};
+use gpui::{AnyElement, Context, Corner, Div, FontWeight, anchored, deferred, div, prelude::*, px};
 
 use super::{Desk, Open, Popup, TOPBAR, draggable};
-use crate::{fonts::Faces, model::Status, theme, ui};
+use crate::{fonts::Faces, theme, ui};
 
 impl Desk {
     /// A small square control in the row beside the window's lights.
@@ -52,33 +52,37 @@ impl Desk {
             )
     }
 
-    /// The bar across the top of the thread: the session's name, the clock,
-    /// and, when the sidebar is hidden, the controls beside the lights.
+    /// The bar across the top of the thread: with Ghost, the session's name,
+    /// which opens its menu (Rename, Copy, Delete); with a character, her
+    /// name and the place her thread shows; at the right, the switch for
+    /// the right column; and, when the sidebar is hidden, the controls
+    /// beside the lights.
     pub(super) fn topbar(
         &self,
         faces: &Faces,
         lights: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        // With a character open: her name, the place her thread shows, and
-        // her clock; with the solver, the session's name and its clock.
-        let (title, status, picker): (String, Option<&Status>, Option<Div>) = match &self.open {
-            _ if self.attending() => ("Attention".to_owned(), None, None),
-            Some(open) => (
-                open.her.name(),
-                open.her.status.as_ref(),
-                Some(self.place_picker(open, faces, cx)),
-            ),
-            None => (self.session().label(), self.solver.status.as_ref(), None),
+        let (title, picker): (String, Option<Div>) = match &self.open {
+            _ if self.attending() => ("Attention".to_owned(), None),
+            Some(open) => (open.her.name(), Some(self.place_picker(open, faces, cx))),
+            None => (self.session().label(), None),
         };
-        let right = status.map(|s| {
-            div()
-                .flex()
-                .items_baseline()
-                .gap(px(6.))
-                .child(ui::mono(faces, s.hhmm()).text_color(theme::text()))
-                .child(ui::mono(faces, s.city.clone()))
-        });
+        let session = (self.open.is_none() && !self.attending()).then(|| self.session().id);
+        let title: AnyElement = if let Some(id) = session {
+            self.session_title(faces, title, &id, cx).into_any_element()
+        } else {
+            let t = ui::text(faces, title)
+                .font_weight(FontWeight::MEDIUM)
+                .text_size(px(13.5));
+            // Beside a picker her name keeps its width; alone, a name
+            // trails off.
+            if picker.is_some() {
+                t.flex_none().into_any_element()
+            } else {
+                ui::one_line(t).into_any_element()
+            }
+        };
         draggable()
             .flex()
             .flex_none()
@@ -86,8 +90,8 @@ impl Desk {
             .justify_between()
             .gap(px(16.))
             .h(px(TOPBAR))
-            .pl(px(if self.sidebar { 24. } else { lights }))
-            .pr(px(24.))
+            .pl(px(if self.panes.left { 20. } else { lights }))
+            .pr(px(12.))
             .border_b_1()
             .border_color(theme::border())
             .child(
@@ -97,22 +101,59 @@ impl Desk {
                     .gap(px(12.))
                     .flex_1()
                     .min_w(px(0.))
-                    .when(!self.sidebar, |d| d.child(self.controls(cx)))
-                    .child({
-                        let title = ui::text(faces, title)
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_size(px(13.5));
-                        // Beside a picker her name keeps its width; alone,
-                        // a session's name trails off.
-                        if picker.is_some() {
-                            title.flex_none()
-                        } else {
-                            ui::one_line(title)
-                        }
-                    })
+                    .when(!self.panes.left, |d| d.child(self.controls(cx)))
+                    .child(title)
                     .children(picker),
             )
-            .children(right)
+            .child(
+                Self::control("aside", "panel-right", true)
+                    .when(!self.panes.right, |d| d.bg(theme::panel()))
+                    .tooltip(ui::tip("Show or hide the right column"))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
+            )
+    }
+
+    /// The session's name with a chevron, which opens the session's menu
+    /// under it: the same one as in the sidebar.
+    fn session_title(&self, faces: &Faces, title: String, id: &str, cx: &mut Context<Self>) -> Div {
+        let open = self.popup == Popup::Title(id.to_owned());
+        let for_click = id.to_owned();
+        let chip = div()
+            .id("session-title")
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .h(px(28.))
+            .px(px(8.))
+            .ml(px(-8.))
+            .min_w(px(0.))
+            .rounded(px(7.))
+            .cursor_pointer()
+            .when(open, |d| d.bg(theme::panel2()))
+            .hover(|s| s.bg(theme::hover()))
+            .child(ui::one_line(
+                ui::text(faces, title)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_size(px(13.5)),
+            ))
+            .child(
+                ui::icon("chevron-down", 12.)
+                    .flex_none()
+                    .text_color(theme::muted()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_title_menu(&for_click, cx)));
+        let mut wrap = div().relative().min_w(px(0.)).max_w(px(420.)).child(chip);
+        if open {
+            wrap = wrap.child(
+                div().absolute().top(px(32.)).left_0().child(deferred(
+                    anchored()
+                        .anchor(Corner::TopLeft)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(Self::session_menu(faces, id, cx)),
+                )),
+            );
+        }
+        wrap
     }
 
     /// The place her thread shows, which opens a menu of every place in
