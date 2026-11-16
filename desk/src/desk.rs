@@ -43,7 +43,20 @@ pub const LEFT: f32 = 272.;
 pub const RIGHT: f32 = 304.;
 pub const TOPBAR: f32 = 52.;
 /// Room the window's lights take at the left of the top row.
-pub const LIGHTS: f32 = 76.;
+const LIGHTS: f32 = 76.;
+/// What is left at the left of the top row in full screen, where there are
+/// no lights to make room for.
+const EDGE: f32 = 12.;
+
+/// The room to leave for the window's lights. In full screen the system
+/// hides them, and brings them back only with the title bar it slides down
+/// over the window when the pointer reaches the top of the screen, so room
+/// kept for them would be an empty hole. Going into or out of full screen
+/// resizes the window, and a resize draws it again, so asking while drawing
+/// is enough to follow it.
+pub(crate) fn lights_room(window: &Window) -> f32 {
+    if window.is_fullscreen() { EDGE } else { LIGHTS }
+}
 
 /// The solver, as the desk follows it: one ghost on one daemon.
 pub struct Solver {
@@ -690,7 +703,7 @@ impl Desk {
 
     /// The bar across the top of the thread: the session's name, the clock,
     /// and, when the sidebar is hidden, the controls beside the lights.
-    fn topbar(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+    fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let title = self.session().label();
         let right = self.solver.status.as_ref().map(|s| {
             div()
@@ -707,7 +720,7 @@ impl Desk {
             .justify_between()
             .gap(px(16.))
             .h(px(TOPBAR))
-            .pl(px(if self.sidebar { 24. } else { LIGHTS }))
+            .pl(px(if self.sidebar { 24. } else { lights }))
             .pr(px(24.))
             .border_b_1()
             .border_color(theme::border())
@@ -1095,8 +1108,9 @@ impl Desk {
 }
 
 impl Render for Desk {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = fonts::faces(cx).clone();
+        let lights = lights_room(window);
         let session = self.session();
         let typing = self.solver.typing.as_deref() == Some(session.id.as_str());
         let view = thread::View {
@@ -1118,7 +1132,7 @@ impl Render for Desk {
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .child(self.topbar(&faces, cx))
+            .child(self.topbar(&faces, lights, cx))
             .child(thread)
             .child(self.composer(&faces, cx));
         div()
@@ -1128,7 +1142,7 @@ impl Render for Desk {
             .font_family(faces.ui.clone())
             .text_size(px(14.))
             .text_color(theme::text())
-            .when(self.sidebar, |d| d.child(self.left(&faces, cx)))
+            .when(self.sidebar, |d| d.child(self.left(&faces, lights, cx)))
             .child(middle)
             .child(self.right(&faces, cx))
     }

@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::{
-    desk::{At, Desk, LEFT, LIGHTS, Menu, TOPBAR, draggable},
+    desk::{At, Desk, LEFT, Menu, TOPBAR, draggable},
     fonts::Faces,
     model::LinkState,
     settings::{self, Session},
@@ -97,14 +97,20 @@ fn connector(last: bool) -> Div {
 }
 
 impl Desk {
-    pub(crate) fn left(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The column, with `lights` of room at the left of its top row.
+    pub(crate) fn left(
+        &self,
+        faces: &Faces,
+        lights: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         // The window's lights sit in this row; the controls follow them.
         let top = draggable()
             .flex()
             .flex_none()
             .items_center()
             .h(px(TOPBAR))
-            .pl(px(LIGHTS))
+            .pl(px(lights))
             .pr(px(10.))
             .child(self.controls(cx));
 
