@@ -271,7 +271,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         stops: &[],
         place: &place,
 
-        name: "小幽灵".into(),
+        name: "Ghost".into(),
         who: "Fox".into(),
         tz: chrono_tz::UTC,
         connected: true,
@@ -331,7 +331,7 @@ fn view<'a>(
         pending: &[],
         stops,
         place,
-        name: "小幽灵".into(),
+        name: "Ghost".into(),
         who: "Fox".into(),
         tz: chrono_tz::UTC,
         connected: true,

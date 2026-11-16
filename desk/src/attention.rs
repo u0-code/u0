@@ -439,7 +439,7 @@ mod tests {
             Source {
                 host: &here,
                 ghost: "solver",
-                name: "小幽灵".into(),
+                name: "Ghost".into(),
                 solver: true,
                 items: &solver,
             },

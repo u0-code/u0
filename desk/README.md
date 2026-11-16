@@ -2,18 +2,18 @@
 
 A desktop app for getting things done on this machine, and for following
 the characters other daemons run (see [Other daemons](#other-daemons)).
-The first page is about getting things done with 小幽灵 (Little Ghost),
-Ghost's own little ghost on this machine: down the left, your sessions
+The first page is about getting things done with Ghost, the project's
+mascot, on this machine: down the left, your sessions
 with it, laid out the way a coding
 agent's app is; in the middle, the session's thread and the line you type
 into, with the brain it thinks with under your hand; down the right, the
 solver's environment, its context and its work.
 
-小幽灵 (the solver, in the code) is Ghost's own little ghost, run by its own daemon
+Ghost the mascot (the solver, in the code) is run by its own daemon
 from the desk's core in `core/` (see [core/README.md](core/README.md)): the same
 runtime every character lives on, with prompts that replace a character's
 persona and being with its own. The desk looks after that deployment: it
-copies its configuration on first run, gives birth to the little ghost if
+copies its configuration on first run, gives birth to Ghost if
 it has not been born, and starts and restarts its daemon. Otherwise the desk is a
 client like any other: a console that asks and watches, and through which
 you speak to her, answer and stop her work, as one of the people who run

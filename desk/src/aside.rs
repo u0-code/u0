@@ -1,4 +1,4 @@
-//! The column down the right: where the little ghost runs, the context it
+//! The column down the right: where Ghost runs, the context it
 //! works in, the work taken on in this session, and the files that work
 //! handed over. With a character open, her daemon and its link, her clock
 //! and the brain she thinks with, and her work as her daemon keeps it.
@@ -465,7 +465,7 @@ impl Desk {
             .when(open, |d| d.child(body.mt(px(6.))))
     }
 
-    /// Where the little ghost runs: the machine its work uses, the daemon,
+    /// Where Ghost runs: the machine its work uses, the daemon,
     /// and the brain.
     fn environment(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         div()
@@ -483,7 +483,7 @@ impl Desk {
             .child(self.brain_row(faces, cx))
     }
 
-    /// The machine the little ghost's work runs on. On this one, its home, which
+    /// The machine Ghost's work runs on. On this one, its home, which
     /// Open shows in Finder; anywhere else, what the deployment names.
     fn machine_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         if !self.abilities.local() {
@@ -540,7 +540,7 @@ impl Desk {
         )
     }
 
-    /// What the little ghost knows of its own life and of you: the journal, its
+    /// What Ghost knows of its own life and of you: the journal, its
     /// tempo, your sessions, and you as its operator.
     fn context(&self, faces: &Faces) -> Div {
         let status = self.solver.status.as_ref();

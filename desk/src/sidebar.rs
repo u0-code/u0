@@ -1,10 +1,10 @@
 //! The column down the left, laid out the way a coding agent's app has it:
 //! the controls beside the window's lights, New task, Search and Attention
 //! with how many things wait on you that you have not seen, then a group
-//! for each daemon the desk follows, and at the foot the little ghost and
+//! for each daemon the desk follows, and at the foot Ghost and
 //! the brain it thinks with.
 //!
-//! The first group is this machine: your sessions with the little ghost, with
+//! The first group is this machine: your sessions with Ghost, with
 //! the parts of their open work under them, and any other character its
 //! core runs. Then one group for each connection, its name and how the
 //! link to it stands, with the characters it runs, each with a dot for
@@ -357,7 +357,7 @@ impl Desk {
             .on_click(cx.listener(move |this, _, _, cx| this.choose(index, cx)))
     }
 
-    /// The little ghost at the foot of the column, the way a coding agent's
+    /// Ghost at the foot of the column, the way a coding agent's
     /// app shows the account: who, the brain it thinks with (which opens the
     /// brain menu), and whether the daemon is there.
     fn account(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {

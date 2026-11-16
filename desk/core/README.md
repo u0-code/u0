@@ -1,7 +1,7 @@
 # The desk's core
 
-A deployment of `ghostd` for Ghost's own little ghost, 小幽灵 (Little
-Ghost): it lives on this machine and helps whoever sits at the desk with
+A deployment of `ghostd` for Ghost, the project's
+mascot: it lives on this machine and helps whoever sits at the desk with
 whatever they bring. `ghost-desk` opens on it, and it belongs to the desk,
 so it is kept here rather than beside the characters Ghost runs. In the
 code and on disk it is still called the solver.
@@ -16,7 +16,7 @@ desk/core/
 ```
 
 The runtime is the same one every character lives on. What makes this one
-Ghost's own little ghost rather than a character is what every deployment can change and a
+Ghost the mascot rather than a character is what every deployment can change and a
 character cannot: the prompts. The desk's own, in
 [`prompts/system/desk/`](../../prompts/system/desk/), replace her persona
 (`character/persona.md`) and her being (`system/being.md`) with a hand's.

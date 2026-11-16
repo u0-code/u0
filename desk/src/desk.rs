@@ -3,11 +3,11 @@
 //! The first page is about tasks, not about anyone. Down the left, the way
 //! a coding agent's app has it: controls under the window's lights, New,
 //! Search and Attention, then the daemons the desk follows: this
-//! machine's, with your sessions with the little ghost, then each
+//! machine's, with your sessions with Ghost, then each
 //! connection with the characters it runs; and at the bottom what the
-//! little ghost is running on. In the middle, the session's thread and the
+//! Ghost is running on. In the middle, the session's thread and the
 //! line you type into, with how it is said and the brain it thinks with
-//! under your hand. Down the right, the little ghost's environment, its
+//! under your hand. Down the right, Ghost's environment, its
 //! context and its work. Opening a character puts her thread in the
 //! middle, one place at a time, and her daemon and her work down the
 //! right. Attention puts in the middle what every ghost is waiting on you
@@ -63,7 +63,7 @@ use crate::{
 };
 
 /// What the desk calls its own ghost until her daemon says her name.
-pub const LITTLE_GHOST: &str = "小幽灵";
+pub const MASCOT: &str = "Ghost";
 
 /// What the middle shows: the thread on screen, with the line you type
 /// into, or Attention.
@@ -189,7 +189,7 @@ pub struct Desk {
 
 /// What the line you type into says while it is empty, with the little
 /// ghost, before its daemon has said its name.
-const ASK: &str = "Ask 小幽灵 for anything on this machine";
+const ASK: &str = "Ask Ghost for anything on this machine";
 
 /// The daemon's token, from the environment or `.env`: never from a file
 /// of the desk's own.
@@ -247,7 +247,7 @@ impl Desk {
         let sheet = Sheet::new(window, cx);
         let task = task::Form::new(window, cx);
 
-        // The little ghost on this machine is the desk's to look after: if
+        // Ghost on this machine is the desk's to look after: if
         // nothing runs it, the desk starts it. Whoever sits here is its
         // operator by holding its daemon's token, or by being on this
         // machine when it has none, so nobody is listed for it.
@@ -257,8 +257,8 @@ impl Desk {
             && !listening(&settings.solver_url)
             && let Err(e) = deployment.start()
         {
-            warn!("could not start the little ghost: {e:#}");
-            notice = Some(format!("Could not start the little ghost: {e:#}"));
+            warn!("could not start Ghost: {e:#}");
+            notice = Some(format!("Could not start Ghost: {e:#}"));
         }
         let providers = deployment.providers();
         let brain = deployment.brain();
@@ -271,7 +271,7 @@ impl Desk {
                 ghost: None,
                 who: settings.who.clone(),
             },
-            LITTLE_GHOST,
+            MASCOT,
         );
         let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
@@ -524,7 +524,7 @@ impl Render for Desk {
         let middle = if self.attending() {
             middle.child(self.attention_view(&faces, cx))
         } else {
-            // The little ghost's session, or the place her thread shows;
+            // Ghost's session, or the place her thread shows;
             // either way a place, by its key, in one ghost's journal.
             let (ghost, place, abilities) = match &self.open {
                 Some(open) => (&open.her, open.place(self.who()), None),
