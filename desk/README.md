@@ -119,8 +119,13 @@ the clipboard as text, who said what and when; Delete takes the session
 off the desk's list, and no more: what was said in it stays in Ghost's
 journal, which keeps everything. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
-Context (what it brings to a session, each row with a line on what it
-means: its journal, you as its operator, its shell, the web), Background
+Context (what filled its context the last time it looked here, as its
+daemon's record of the look says: the tokens the brain read and how many
+came from the provider's cache, then a bar and a row for each part of
+what it was given, by its share of the characters: the conversation,
+who it is, the people here, its tools, what it recalled, its past, and
+the rest; the tokens on each row are that share of what was read, as
+the provider counts the whole, not the parts), Background
 tasks (the work taken on in this session: what is still going, newest
 first, each with how long it has run or that it waits on you; then what
 has ended, folded into one line, `3 finished · 1 blocked`, that opens),

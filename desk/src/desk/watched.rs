@@ -13,7 +13,7 @@ use crate::{
     daemons::Host,
     follow::Following,
     link::{self, Link, Order},
-    model::{Entry, LinkState, Message, PersonView, Reach, Status, Stop, Update},
+    model::{Entry, LinkState, Message, Reach, Status, Stop, Update},
     thread,
 };
 
@@ -28,7 +28,7 @@ pub struct Watched {
     pub reach: Reach,
     pub card: Option<ghost_link::protocol::GhostCard>,
     pub status: Option<Status>,
-    pub people: Vec<PersonView>,
+
     /// Its journal's tail, oldest first. Every thread is read from it.
     pub journal: Vec<Entry>,
     /// What you said that the journal has not shown yet.
@@ -54,7 +54,6 @@ impl Watched {
             reach: Reach::default(),
             card: None,
             status: None,
-            people: Vec::new(),
             journal: Vec::new(),
             pending: Vec::new(),
             work: Vec::new(),
@@ -130,23 +129,6 @@ impl Watched {
         self.status.as_ref().map_or(chrono_tz::UTC, |s| s.tz)
     }
 
-    /// How many of your lines it has heard from the desk, through the
-    /// console and, before, on the desk's own channel; `None` while it
-    /// knows you from neither.
-    pub fn heard_from(&self, who: &str) -> Option<i64> {
-        let id = who.to_lowercase();
-        let keys = [
-            format!("{CONSOLE}:{id}"),
-            format!("{}:{id}", thread::OLD_CHANNEL),
-        ];
-        let known: Vec<&PersonView> = self
-            .people
-            .iter()
-            .filter(|p| keys.contains(&p.key))
-            .collect();
-        (!known.is_empty()).then(|| known.iter().map(|p| p.heard).sum())
-    }
-
     fn take(&mut self, update: Update) {
         match update {
             Update::Link(state) => {
@@ -162,7 +144,6 @@ impl Watched {
             Update::Steps { work, log } => self.following.steps(&work, Instant::now(), log),
             Update::Welcome(card) => self.card = Some(card),
             Update::Status(status) => self.status = Some(*status),
-            Update::People(people) => self.people = people,
             Update::Journal(entries) => {
                 self.journal = entries;
                 // Each line the journal holds settles one shown before it,
