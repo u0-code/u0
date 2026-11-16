@@ -9,7 +9,7 @@ into, with the brain it thinks with under your hand; down the right, the
 solver's environment, its context and its work.
 
 The solver is a ghost who is nobody in particular, run by its own daemon
-from `solver/` (see [solver/README.md](../../solver/README.md)): the same
+from the desk's core in `core/` (see [core/README.md](core/README.md)): the same
 runtime every character lives on, with prompts that replace her persona and
 her being with a hand's. The desk looks after that deployment: it copies
 its configuration on first run, makes you its operator so that it may use
@@ -36,7 +36,7 @@ sessions are kept in `~/.config/ghost-desk/desk.json`.
 To have it as an app, with the ghost in Finder, Launchpad and the Dock:
 
 ```bash
-crates/ghost-desk/bundle.sh             # -> crates/ghost-desk/target/release/Ghost.app
+desk/bundle.sh                          # -> desk/target/release/Ghost.app
 ```
 
 ## Other daemons
@@ -115,7 +115,7 @@ is there. Test makes one real request (the model list, or a one-token
 answer; a CLI's version), through the same proxy setting as the daemon.
 The pencil on a row of the picker opens that brain in the sheet, where it
 can also be removed. Only the name of the variable is written to
-`solver/ghostd.toml`, never the key.
+`core/ghostd.toml`, never the key.
 
 ## The look
 

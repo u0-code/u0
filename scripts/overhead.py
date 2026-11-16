@@ -440,10 +440,11 @@ def desk(tmp, env, ghostd, brain):
     # A checkout of its own, so that it starts its solver here on the fake
     # brain and never touches the real one.
     root = tmp / "desk"
-    (root / "solver").mkdir(parents=True)
-    shutil.copy(ROOT / "solver/ghostd.example.toml", root / "solver")
-    shutil.copytree(ROOT / "ghosts/_solver", root / "ghosts/_solver")
-    (root / "solver/ghostd.toml").write_text(config(7438, brain))
+    core = root / "desk/core"
+    core.mkdir(parents=True)
+    shutil.copy(ROOT / "desk/core/ghostd.example.toml", core)
+    shutil.copytree(ROOT / "desk/core/ghosts/_solver", core / "ghosts/_solver")
+    (core / "ghostd.toml").write_text(config(7438, brain))
     proc = spawn([str(DESK)], tmp / "desk.log", env=env | {"GHOST_ROOT": str(root), "GHOSTD_BIN": ghostd}, cwd=root)
     time.sleep(10)
     children = subprocess.run(["pgrep", "-P", str(proc.pid)], capture_output=True, text=True).stdout.split()

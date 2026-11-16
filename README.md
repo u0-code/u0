@@ -121,7 +121,7 @@ people talk to on a personal subscription.
 | [`ghostd`](crates/ghostd) | The daemon: runs her, or several characters, and serves the protocol. [deploy/](deploy) runs it on a server. |
 | [`presence/*`](crates/presence) | Platform adapters. The daemon does not know what Telegram is. |
 | [`prompts/`](prompts) | Every word a brain is given: `system/`, the same for every character, and `character/`, how her own `ghost.toml` is put into prose. Built in; a deployment overrides any file. |
-| [`desk/`](desk) · [`solver/`](solver) | A desktop app for tasks on this machine: a solver who is nobody in particular, run on the same runtime with a hand's prompts. macOS, its own workspace. |
+| [`desk/`](desk) | A desktop app for tasks on this machine: a solver who is nobody in particular, run by the desk's own core ([`desk/core/`](desk/core)) on the same runtime with a hand's prompts. macOS, its own workspace. |
 
 ## Security
 
