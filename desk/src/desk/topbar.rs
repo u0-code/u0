@@ -74,7 +74,7 @@ impl Desk {
         } else {
             let t = ui::text(faces, title)
                 .font_weight(FontWeight::MEDIUM)
-                .text_size(px(13.5));
+                .text_size(px(13.));
             // Beside a picker her name keeps its width; alone, a name
             // trails off.
             if picker.is_some() {
@@ -134,7 +134,7 @@ impl Desk {
             .child(ui::one_line(
                 ui::text(faces, title)
                     .font_weight(FontWeight::MEDIUM)
-                    .text_size(px(13.5)),
+                    .text_size(px(13.)),
             ))
             .child(
                 ui::icon("chevron-down", 12.)

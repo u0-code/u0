@@ -8,7 +8,11 @@ use gpui::{
     prelude::*, px, svg,
 };
 
-use crate::{brains::Mark, fonts::Faces, theme};
+use crate::{
+    brains::Mark,
+    fonts::{self, Faces},
+    theme,
+};
 
 /// A line icon by name, in the current text colour.
 pub fn icon(name: &str, size: f32) -> Svg {
@@ -48,7 +52,7 @@ pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
 
 /// Her words, and the one headline on a page.
 pub fn serif(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    div()
+    fonts::with_serif_fallbacks(div())
         .font_family(faces.serif.clone())
         .text_color(theme::text())
         .child(text.into())

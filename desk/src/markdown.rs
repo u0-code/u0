@@ -270,7 +270,11 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
     let face = |family: &SharedString, weight, style| gpui::Font {
         family: family.clone(),
         features: gpui::FontFeatures::default(),
-        fallbacks: Some(fonts::fallbacks()),
+        fallbacks: Some(if family == &faces.serif {
+            fonts::serif_fallbacks()
+        } else {
+            fonts::fallbacks()
+        }),
         weight,
         style,
     };
