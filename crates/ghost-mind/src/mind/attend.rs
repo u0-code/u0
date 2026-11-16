@@ -60,6 +60,13 @@ pub(super) struct Thinking {
     pub loaded: ghost_work::tools::Loaded,
     /// Which look this is, once it has been sent off: none is 0.
     pub look: u64,
+    /// Its number in the record of her looks, once it has kept a round
+    /// there: what a console knows it by.
+    pub kept: Option<i64>,
+    /// The round waiting on what reaches beyond the conversation: when it
+    /// was called, and its calls in order as the record keeps them, with
+    /// those still out left `None`.
+    pub out: Option<(DateTime<Utc>, Vec<Option<serde_json::Value>>)>,
 }
 
 impl Thinking {
@@ -81,6 +88,9 @@ pub(super) struct Looking {
     pub abort: tokio::task::AbortHandle,
     /// The intention it pursues, if that is why she looked.
     pub intention: Option<i64>,
+    /// Its number in the record of her looks, if it has kept a round:
+    /// the same look, as a console knows it.
+    pub kept: Option<i64>,
 }
 
 impl Thinking {
@@ -99,6 +109,8 @@ impl Thinking {
             nudged: false,
             loaded: ghost_work::tools::Loaded::default(),
             look: 0,
+            kept: None,
+            out: None,
         }
     }
 }
@@ -118,6 +130,8 @@ pub(super) enum Thought {
 pub(super) struct Found {
     pub call: Call,
     pub outcome: Option<ghost_work::Outcome>,
+    /// How long it took, in milliseconds, or was waited for.
+    pub ms: u128,
 }
 
 /// What made her look.

@@ -1,9 +1,9 @@
 //! The database underneath: its schema, and the few reads and writes
 //! everything else is built on.
 
-use std::io;
+use std::{fs, io, path::Path, time::Duration};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::State;
 
@@ -12,12 +12,18 @@ pub const WORK_DB: &str = "work.db";
 
 /// The version of the schema below. Raised, with a way forward from the
 /// last one, when a table changes: this is state nothing else can rebuild.
-pub(super) const SCHEMA_VERSION: i64 = 2;
+/// Schema 3 added `looks` and `look_rounds`, which are made where missing.
+pub(super) const SCHEMA_VERSION: i64 = 3;
 
 /// Every undertaking in one database, keyed by id. `history` is append-only
 /// the way the journal is: triggers abort any change to what is written.
 /// The others are bookkeeping and may be replaced; `inbox` keeps what
 /// reached the work, and marks it once it has been taken.
+///
+/// `looks` and `look_rounds` are not work: they are what she called while
+/// she looked at a conversation, kept for a fortnight (see
+/// [`crate::looks`]). They are here because this is the database whose
+/// state is working state, neither forever nor rebuilt.
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS undertakings (
     id    TEXT PRIMARY KEY,
@@ -51,14 +57,76 @@ CREATE TABLE IF NOT EXISTS inbox (
     kind  TEXT    NOT NULL DEFAULT 'added',
     PRIMARY KEY (id, n)
 );
+CREATE TABLE IF NOT EXISTS looks (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    place TEXT    NOT NULL,
+    at    INTEGER NOT NULL,
+    seq   INTEGER
+);
+CREATE INDEX IF NOT EXISTS looks_by_place ON looks (place, id);
+CREATE TABLE IF NOT EXISTS look_rounds (
+    look  INTEGER NOT NULL,
+    n     INTEGER NOT NULL,
+    round TEXT    NOT NULL,
+    PRIMARY KEY (look, n)
+);
 ";
 
 /// What schema 1 lacked: the kind of what is in the inbox. Everything
 /// written before it was added to the task.
-pub(super) const KIND_COLUMN: &str =
-    "ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'added'";
+const KIND_COLUMN: &str = "ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'added'";
 
-pub(super) fn other(e: impl std::error::Error + Send + Sync + 'static) -> io::Error {
+/// Open the work database at `db` for writing, making it, or bringing an
+/// older one up to this schema, first. Several handles write here at once,
+/// from more than one process, so a writer waits its turn rather than
+/// failing.
+pub(crate) fn open(db: &Path) -> io::Result<Connection> {
+    if let Some(parent) = db.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    let mut conn = Connection::open(db).map_err(other)?;
+    conn.busy_timeout(Duration::from_secs(10)).map_err(other)?;
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .map_err(other)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(other)?;
+    let version: i64 = tx
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(other)?;
+    if version > SCHEMA_VERSION {
+        return Err(io::Error::other(format!(
+            "{} was written by a newer ghost-work (schema {version})",
+            db.display()
+        )));
+    }
+    tx.execute_batch(SCHEMA).map_err(other)?;
+    let has_kind: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('inbox') WHERE name = 'kind'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(other)?;
+    if has_kind == 0 {
+        tx.execute_batch(KIND_COLUMN).map_err(other)?;
+    }
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .map_err(other)?;
+    tx.commit().map_err(other)?;
+    Ok(conn)
+}
+
+/// Open the work database at `db` to look, never to write, so that
+/// looking can never get in the way of the work.
+pub(crate) fn read_only(db: &Path) -> io::Result<Connection> {
+    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(other)?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(other)?;
+    Ok(conn)
+}
+
+pub(crate) fn other(e: impl std::error::Error + Send + Sync + 'static) -> io::Error {
     io::Error::other(e)
 }
 

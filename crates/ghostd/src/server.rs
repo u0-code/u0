@@ -31,7 +31,7 @@ use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, MindHandle, Question};
 use ghost_protocol::{
     Action, Actor, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts,
-    PROTOCOL, PlaceRead, PresenceHello, Role, Typing, Welcome, code, method,
+    LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -52,6 +52,9 @@ use crate::{
 const HELLO_WITHIN: Duration = Duration::from_secs(10);
 /// How long a presence has to carry out an action.
 const ACT_WITHIN: Duration = Duration::from_secs(45);
+/// How many steps of a piece of work a console is sent when it does not
+/// say.
+const STEPS_ASKED: usize = 100;
 /// The largest picture handed out as her avatar. Platforms take far
 /// smaller ones; anything this big is a mistake in her directory.
 const AVATAR_MOST: u64 = 8 << 20;
@@ -556,6 +559,29 @@ async fn watch<S>(
                 }
                 continue;
             }
+            Some(method::WORK_STEPS) => match frame.params::<StepsRead>() {
+                Ok(read) => Question::WorkSteps {
+                    work: read.work,
+                    after: read.after.unwrap_or(0),
+                    limit: read.limit.map_or(STEPS_ASKED, |l| l as usize),
+                },
+                Err(e) => {
+                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
+                    continue;
+                }
+            },
+            Some(method::LOOK_STEPS) => match frame.params::<LookRead>() {
+                Ok(read) => Question::LookSteps {
+                    place: read.place,
+                    after: read
+                        .after
+                        .map_or(0, |seq| i64::try_from(seq).unwrap_or(i64::MAX)),
+                },
+                Err(e) => {
+                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
+                    continue;
+                }
+            },
             Some(method::JOURNAL_PLACE) => match frame.params::<PlaceRead>() {
                 Ok(read) => Question::Thread {
                     place: read.place,
@@ -619,7 +645,12 @@ async fn watch<S>(
                 continue;
             }
         };
+        let steps = matches!(question, Question::WorkSteps { .. });
         let reply = match who.mind().ask(question).await {
+            // Her mind has no work by that id.
+            Ok(serde_json::Value::Null) if steps => {
+                Frame::err(id, code::NO_SUCH_WORK, "she has no work by that id")
+            }
             Ok(value) => Frame::ok(id, &value),
             Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
         };

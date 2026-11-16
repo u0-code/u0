@@ -35,6 +35,55 @@ async fn work_ends_when_it_says_it_is_finished() {
 }
 
 #[tokio::test]
+async fn each_step_is_logged_with_what_was_said_called_and_returned_and_reads_back_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = calls("write", json!({"path": "hi.txt", "content": "hi\n"}));
+    first.text = "writing it first".into();
+    let script = vec![
+        first,
+        calls(
+            "shell",
+            json!({"command": "printf 'line %s\\n' $(seq 1 400)"}),
+        ),
+        calls("done", json!({"outcome": "finished", "summary": "there"})),
+    ];
+    let (worker, _) = worker(dir.path(), script, Limits::default());
+    worker.run().await;
+
+    let db = state_db(dir.path());
+    let read = crate::undertaking::steps(&db, "main", 0, 10)
+        .unwrap()
+        .unwrap();
+    assert!(!read.more);
+    let steps = read.steps;
+    assert_eq!(steps.iter().map(|s| s.n).collect::<Vec<_>>(), [1, 2, 3]);
+    assert_eq!(steps[0].said, "writing it first");
+    assert!(steps[0].ms.is_some() && steps[0].at.is_some());
+    let write = &steps[0].calls[0];
+    assert_eq!(write["name"], "write");
+    assert_eq!(write["args"]["path"], "hi.txt");
+    assert_eq!(write["failed"], false);
+    // A long output keeps its head, and says how long it was.
+    let shell = &steps[1].calls[0];
+    let out = shell["out"].as_str().unwrap();
+    assert!(out.starts_with("line 1\n"), "{out}");
+    assert_eq!(shell["cut"], true);
+    assert!(shell["chars"].as_u64().unwrap() > out.chars().count() as u64);
+
+    // After a step, and a step at a time.
+    let rest = crate::undertaking::steps(&db, "main", 1, 1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rest.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [2]);
+    assert!(rest.more);
+    assert!(
+        crate::undertaking::steps(&db, "nothing", 0, 10)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn something_added_mid_work_reaches_the_worker_before_its_next_step() {
     let dir = tempfile::tempdir().unwrap();
     let script = vec![

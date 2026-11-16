@@ -7,7 +7,7 @@ use ghost_core::{
     social, will,
 };
 use ghost_work::{
-    WORK_DB,
+    WORK_DB, looks,
     undertaking::{self, Look, Outcome},
 };
 use serde_json::{Value, json};
@@ -21,6 +21,8 @@ const SCAN: usize = 5000;
 /// How many pieces of work that have ended are shown beside those still
 /// open.
 const ENDED: usize = 20;
+/// The most steps of a piece of work one question is answered with.
+const STEPS_MOST: usize = 500;
 
 impl Mind {
     pub(super) fn answer(&self, question: &Question, now: DateTime<Utc>) -> Result<Value> {
@@ -35,6 +37,8 @@ impl Mind {
             Question::Canon => json!(self.ghost.memory().canon(500)?),
             Question::Places => self.places_view()?,
             Question::Work => self.work_view()?,
+            Question::WorkSteps { work, after, limit } => self.steps_view(work, *after, *limit),
+            Question::LookSteps { place, after } => self.looks_view(place, *after),
             Question::Waiting => self.waiting_view(now)?,
             Question::Thread { place, limit } => self.thread_view(place, *limit)?,
             Question::Journal { from, limit } => {
@@ -206,6 +210,72 @@ impl Mind {
             .collect();
         works.sort_by_key(|(last, _)| std::cmp::Reverse(*last));
         Ok(json!(works.into_iter().map(|(_, w)| w).collect::<Vec<_>>()))
+    }
+
+    /// The steps of the work `id`, or of a part of it, after the `after`th,
+    /// at most `limit` of them, with the parts it handed out: all from the
+    /// work's own record, read without writing. `null` if there is no work
+    /// by that id.
+    fn steps_view(&self, id: &str, after: u64, limit: usize) -> Value {
+        let db = self.ghost.dir().join(WORK_DB);
+        if !db.exists() {
+            return Value::Null;
+        }
+        let cannot = |e: std::io::Error| warn!("could not read {id} in {}: {e}", db.display());
+        let logged = match undertaking::steps(&db, id, after, limit.clamp(1, STEPS_MOST)) {
+            Ok(Some(logged)) => logged,
+            Ok(None) => return Value::Null,
+            Err(e) => {
+                cannot(e);
+                return Value::Null;
+            }
+        };
+        let looked = undertaking::look(&db, &[id.to_owned()]).unwrap_or_else(|e| {
+            cannot(e);
+            Vec::new()
+        });
+        // A part is at it while the sitting of the work it belongs to is.
+        let top = id.split('/').next().unwrap_or(id);
+        let running = self.working.contains_key(top);
+        let parts: Vec<Value> = looked
+            .first()
+            .map(|look| {
+                look.parts
+                    .iter()
+                    .map(|(_, part)| {
+                        json!({
+                            "id": part.id,
+                            "brief": part.state.brief,
+                            "state": state_of(part, running),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({"steps": logged.steps, "parts": parts, "more": logged.more})
+    }
+
+    /// The looks at `place` that ended after the journal entry `after`,
+    /// and the one going on there, each with its rounds.
+    fn looks_view(&self, place: &str, after: i64) -> Value {
+        let db = self.ghost.dir().join(WORK_DB);
+        // The look in flight there, as the record knows it: the same look
+        // her mind is waiting on, numbered where its rounds are kept.
+        let open = self.thinking.get(place).and_then(|looking| looking.kept);
+        let kept = looks::read(&db, place, after, open).unwrap_or_else(|e| {
+            warn!("could not read her looks at {place}: {e}");
+            Vec::new()
+        });
+        json!(
+            kept.into_iter()
+                .map(|look| json!({
+                    "look": look.id,
+                    "seq": look.seq,
+                    "running": look.seq.is_none() && Some(look.id) == open,
+                    "rounds": look.rounds,
+                }))
+                .collect::<Vec<_>>()
+        )
     }
 
     /// One piece of work as she knows it, with what its record adds, and

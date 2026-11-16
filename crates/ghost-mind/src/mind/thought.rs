@@ -7,9 +7,13 @@ use ghost_core::{
     journal::Event, media, memory::PlaceState, narrate, social::PlaceKind, when::when,
 };
 use ghost_work::{
+    WORK_DB,
     catalog::{self, Need},
+    looks::Looks,
+    steps,
     undertaking::placeholder,
 };
+use serde_json::{Value, json};
 use tracing::{debug, warn};
 
 use super::{
@@ -68,10 +72,22 @@ impl Mind {
                 } else {
                     self.think.sees()
                 };
-                for Found { call, outcome } in found {
-                    let item = self.took_in(&place, call, outcome, sees)?;
+                let (at, mut calls) = job.out.take().unwrap_or((now, Vec::new()));
+                let mut came = Vec::with_capacity(found.len());
+                for Found { call, outcome, ms } in found {
+                    let (item, kept) = self.took_in(&place, call, outcome, sees, ms)?;
                     job.items.push(item);
+                    came.push(kept);
                 }
+                // What came back takes the places of the calls that were
+                // out, in the order they were called.
+                let mut came = came.into_iter();
+                for call in &mut calls {
+                    if call.is_none() {
+                        *call = came.next();
+                    }
+                }
+                self.keep_round(&mut job, at, calls);
                 return self.go_on(job, &place, now);
             }
         };
@@ -138,14 +154,16 @@ impl Mind {
     /// [`ghost_work::outside`]); her journal keeps it as it was. An image
     /// is kept under `media/` and named in the result, after the mark, so
     /// that she can keep it or send it by that name; a brain that sees is
-    /// shown it.
+    /// shown it. Beside it, the call as the record of her looks keeps it,
+    /// with what came back as it came, unmarked.
     fn took_in(
         &mut self,
         place: &PlaceState,
         call: Call,
         outcome: Option<ghost_work::Outcome>,
         sees: bool,
-    ) -> Result<Item> {
+        ms: u128,
+    ) -> Result<(Item, Value)> {
         let Some(ghost_work::Outcome {
             output,
             failed,
@@ -157,8 +175,10 @@ impl Mind {
                 "too_slow",
                 &[("seconds", self.cfg.talk_tool_seconds.to_string())],
             );
-            return Ok(Item::result(call.id, call.name, too_slow, true));
+            let kept = steps::call(&call.name, &call.args, &too_slow, true, 0, ms);
+            return Ok((Item::result(call.id, call.name, too_slow, true), kept));
         };
+        let kept = steps::call(&call.name, &call.args, &output, failed, pictures.len(), ms);
         let output = clip(&output, TALK_RESULT);
         let opened = call.args["url"]
             .as_str()
@@ -207,13 +227,69 @@ impl Mind {
             shown.push_str(&ghost_brain::not_shown(pictures.len()));
             pictures.clear();
         }
-        Ok(Item::Result {
-            id: call.id,
-            name: call.name,
-            output: shown,
-            failed,
-            pictures,
-        })
+        Ok((
+            Item::Result {
+                id: call.id,
+                name: call.name,
+                output: shown,
+                failed,
+                pictures,
+            },
+            kept,
+        ))
+    }
+
+    /// Keep one round of the look `job`, called `at`, where looks keep
+    /// their rounds, numbering the look if this is its first. A call still
+    /// out, `None`, is left out. The look goes on whether or not it could
+    /// be kept: it is a record of her thinking, not a part of it.
+    fn keep_round(
+        &mut self,
+        job: &mut Thinking,
+        at: DateTime<Utc>,
+        calls: impl IntoIterator<Item = Option<Value>>,
+    ) {
+        let calls: Vec<Value> = calls.into_iter().flatten().collect();
+        if calls.is_empty() {
+            return;
+        }
+        let round = json!({"at": at.to_rfc3339(), "calls": calls});
+        if let Err(e) = self.kept_round(job, at, &round) {
+            warn!("{}: could not keep a round of the look: {e}", job.place);
+        }
+    }
+
+    fn kept_round(
+        &mut self,
+        job: &mut Thinking,
+        at: DateTime<Utc>,
+        round: &Value,
+    ) -> std::io::Result<()> {
+        let looks = match &mut self.kept_looks {
+            Some(looks) => looks,
+            none => none.insert(Looks::open(&self.ghost.dir().join(WORK_DB))?),
+        };
+        let kept = match job.kept {
+            Some(kept) => kept,
+            None => *job.kept.insert(looks.begin(&job.place, at)?),
+        };
+        looks.round(kept, round)
+    }
+
+    /// The look `job` ended with the journal entry `seq`: the record of
+    /// her looks says where, if it kept the look.
+    pub(super) fn end_look(&self, job: &Thinking, seq: i64) {
+        self.end_kept(&job.place, job.kept, seq);
+    }
+
+    /// The look kept as `kept` in `place`, if one was, ended with the
+    /// journal entry `seq`.
+    pub(super) fn end_kept(&self, place: &str, kept: Option<i64>, seq: i64) {
+        if let (Some(looks), Some(kept)) = (&self.kept_looks, kept)
+            && let Err(e) = looks.end(kept, seq)
+        {
+            warn!("{place}: could not say where a look ended: {e}");
+        }
     }
 
     /// One turn of a look made of tool calls came back. What she asked to
@@ -254,11 +330,16 @@ impl Mind {
         let reaching = self.reaching(place, &job.loaded, now)?;
         let reachable = reaching.names();
         let mut outside = Vec::new();
+        // The round as the record of her looks keeps it, call by call;
+        // what reaches beyond the conversation fills its place later.
+        let mut kept = Vec::with_capacity(calls.len());
         for call in calls {
             if reachable.contains(&call.name) {
                 outside.push(call);
+                kept.push(None);
                 continue;
             }
+            let started = std::time::Instant::now();
             // Something that reaches beyond the conversation, which she
             // does not have here.
             let beyond = catalog::find(&call.name).is_some_and(|e| {
@@ -305,10 +386,19 @@ impl Mind {
                     ("ok".to_owned(), false)
                 }
             };
+            kept.push(Some(steps::call(
+                &call.name,
+                &call.args,
+                &output,
+                failed,
+                0,
+                started.elapsed().as_millis(),
+            )));
             job.items
                 .push(Item::result(call.id, call.name, output, failed));
         }
         if !outside.is_empty() {
+            job.out = Some((now, kept));
             // The web and her machine are slow: they are reached off to
             // the side, each for a few seconds at most, and the look goes
             // on when what they return is in.
@@ -321,12 +411,14 @@ impl Mind {
                     clip(&call.args.to_string(), 80)
                 );
             }
-            let (look, intention) = (job.look, job.intention());
+            let (look, intention, kept) = (job.look, job.intention(), job.kept);
             let abort = self.jobs.spawn(async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
+                    let started = std::time::Instant::now();
                     let outcome = tokio::time::timeout(budget, reaching.run(&call)).await.ok();
-                    found.push(Found { call, outcome });
+                    let ms = started.elapsed().as_millis();
+                    found.push(Found { call, outcome, ms });
                 }
                 Outcome::Thought {
                     job: Box::new(job),
@@ -339,11 +431,16 @@ impl Mind {
                     look,
                     abort,
                     intention,
+                    kept,
                 },
             );
             return Ok(());
         }
         if again {
+            // Something came back, or she was told what she got wrong:
+            // that is a round worth seeing. A round of nothing but what
+            // she decided to do ends the look, and her journal has it.
+            self.keep_round(&mut job, now, kept);
             return self.go_on(job, place, now);
         }
         self.conclude(job, place, now)
@@ -381,6 +478,8 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<()> {
         warn!("{}: {error}", place.key);
+        // A look tried again is a new look, and this one is left without
+        // an end; one given up ends with the entry that says so, below.
         if let Why::Intention(intention) = &job.why {
             // Try the intention again later rather than losing it.
             self.pursuing.remove(&intention.seq);
@@ -409,11 +508,12 @@ impl Mind {
             place: place.id.clone(),
             upto: job.upto,
         })?;
-        self.record(Event::Decided {
+        let decided = self.record(Event::Decided {
             about: place.key.clone(),
             decision: "nothing".into(),
             reason: format!("could not think: {error}"),
         })?;
+        self.end_look(job, decided.seq);
         Ok(())
     }
 }

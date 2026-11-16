@@ -126,6 +126,18 @@ pub enum Question {
     /// first, each with the parts it handed out: read from her work's own
     /// record, which has what her journal does not.
     Work,
+    /// The steps the work `work`, or a part of it, has taken after the
+    /// `after`th, at most `limit` of them, with the parts it handed out;
+    /// `null` if she has no work by that id.
+    WorkSteps {
+        work: String,
+        after: u64,
+        limit: usize,
+    },
+    /// What she called while she looked at `place`, round by round: in the
+    /// looks that ended after the journal entry `after`, and in the one
+    /// she is in the middle of there.
+    LookSteps { place: String, after: i64 },
     /// The journal entries that belong to one place, oldest first.
     Thread { place: String, limit: usize },
     /// Journal entries from seq `from` on. Zero or less counts back from the
@@ -500,6 +512,9 @@ pub struct Mind {
     thinking: HashMap<String, Looking>,
     /// Looks sent off so far: the last one's number.
     looks: u64,
+    /// Where her looks keep their rounds for a console to read: the work
+    /// database, opened the first time a look keeps one.
+    kept_looks: Option<ghost_work::looks::Looks>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
     /// Intentions with a deliberation in flight.
@@ -552,6 +567,7 @@ impl Mind {
             started: Utc::now(),
             thinking: HashMap::new(),
             looks: 0,
+            kept_looks: None,
             retries: HashMap::new(),
             pursuing: HashSet::new(),
             held: HashMap::new(),

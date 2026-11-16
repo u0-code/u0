@@ -75,13 +75,18 @@ impl Mind {
                 upto: place.last_in_seq,
             })?;
         }
-        self.record(Event::Stopped {
+        let stopped = self.record(Event::Stopped {
             place: key.to_owned(),
             by: by.key.clone(),
             looking,
             unsaid,
             works: works.iter().map(|u| u.id.clone()).collect(),
         })?;
+        // A look whose rounds a console can read ends with this entry, as
+        // one she finished ends with what she decided.
+        if let Some(looking) = &under_way {
+            self.end_kept(key, looking.kept, stopped.seq);
+        }
         // Something she meant to do there, and was doing when she was
         // stopped, is not taken up again unasked.
         if let Some(intention) = under_way.and_then(|l| l.intention) {

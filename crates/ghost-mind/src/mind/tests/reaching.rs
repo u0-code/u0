@@ -466,3 +466,151 @@ async fn her_machine_is_hers_to_use_in_private_with_a_friend_and_not_with_a_stra
     assert!(!failed && output.contains("hello"), "{output}");
     assert!(desk.path().join("note.txt").exists());
 }
+
+/// Wen, a friend, asks her what her computer says; she runs a command on
+/// it, and is held in the middle of the look, before her second turn
+/// comes back. Returns the rig, the gate that lets that turn come back,
+/// the moment she is at, and her machine's directory.
+async fn in_the_middle_of_a_look() -> (
+    Rig,
+    Arc<tokio::sync::Notify>,
+    DateTime<Utc>,
+    tempfile::TempDir,
+) {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    let desk = tempfile::tempdir().unwrap();
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
+    befriend(&mut rig, "wen", t0);
+    rig.think.then_turn(
+        "let me look",
+        &[(
+            "shell",
+            serde_json::json!({"command": "echo hello from her desk"}),
+        )],
+    );
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "it says hello"}))]);
+    let gate = rig.think.hold(1);
+    rig.hear(dm("wen", "1", "what does your computer say?"), t0);
+    let mut now = t0;
+    while !rig.mind.thinking.contains_key("t:wen") {
+        now = rig.mind.agenda.next_due().expect("she looks").max(now);
+        rig.mind.on_time(now).unwrap();
+    }
+    for _ in 0..400 {
+        if rig.think.turns.lock().unwrap().len() == 2 {
+            break;
+        }
+        if let Ok(Some(done)) = tokio::time::timeout(
+            std::time::Duration::from_millis(20),
+            rig.mind.jobs.join_next(),
+        )
+        .await
+        {
+            rig.mind.on_outcome(done.unwrap(), now).unwrap();
+        }
+    }
+    (rig, gate, now, desk)
+}
+
+/// Her looks at Wen's that ended after the journal entry `after`, and the
+/// one going on, as a console reads them.
+fn looks_at_wen(rig: &Rig, after: i64, now: DateTime<Utc>) -> serde_json::Value {
+    rig.mind
+        .answer(
+            &Question::LookSteps {
+                place: "t:wen".into(),
+                after,
+            },
+            now,
+        )
+        .unwrap()
+}
+
+#[tokio::test]
+async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_where_the_look_ended() {
+    let (mut rig, gate, now, _desk) = in_the_middle_of_a_look().await;
+    let ask = |rig: &Rig, after: i64| looks_at_wen(rig, after, now);
+
+    let going = ask(&rig, 0);
+    assert_eq!(going.as_array().unwrap().len(), 1, "{going}");
+    assert_eq!(going[0]["running"], true);
+    assert!(going[0]["seq"].is_null());
+    let shell = &going[0]["rounds"][0]["calls"][0];
+    assert_eq!(shell["name"], "shell");
+    assert_eq!(shell["args"]["command"], "echo hello from her desk");
+    assert!(
+        shell["out"]
+            .as_str()
+            .unwrap()
+            .contains("hello from her desk"),
+        "{shell}"
+    );
+    assert_eq!(shell["failed"], false);
+    assert_eq!(shell["cut"], false);
+
+    gate.notify_one();
+    rig.pump(now).await;
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let decided = rig
+        .mind
+        .ghost
+        .journal()
+        .read(1, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| matches!(&e.event, Event::Decided { about, .. } if about == "t:wen"))
+        .map(|e| e.seq)
+        .next_back()
+        .expect("she decided");
+    let ended = ask(&rig, 0);
+    assert_eq!(ended[0]["seq"], decided);
+    assert_eq!(ended[0]["running"], false);
+    assert_eq!(ended[0]["look"], going[0]["look"]);
+    // The round in which she only said something ended the look, and her
+    // journal has what she said: it is not kept here.
+    assert_eq!(ended[0]["rounds"].as_array().unwrap().len(), 1);
+    assert!(ask(&rig, decided).as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
+    let (mut rig, gate, now, _desk) = in_the_middle_of_a_look().await;
+    let going = looks_at_wen(&rig, 0, now);
+    assert_eq!(going[0]["running"], true);
+    // The look her mind is waiting on is the one a console reads.
+    assert_eq!(rig.mind.thinking["t:wen"].kept, going[0]["look"].as_i64());
+
+    let fox = crate::Operator {
+        key: "console:fox".into(),
+        name: "Fox".into(),
+    };
+    assert!(rig.mind.interrupt("t:wen", &fox, now).unwrap());
+    let stopped = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["stopped"], 0)
+        .unwrap()
+        .last()
+        .expect("she was stopped")
+        .seq;
+    let ended = looks_at_wen(&rig, 0, now);
+    assert_eq!(ended[0]["look"], going[0]["look"]);
+    assert_eq!(ended[0]["running"], false);
+    assert_eq!(ended[0]["seq"], stopped);
+    assert_eq!(ended[0]["rounds"].as_array().unwrap().len(), 1);
+
+    // The turn that comes back after is let go, and changes nothing here.
+    gate.notify_one();
+    rig.pump(now).await;
+    assert!(rig.body.sent().is_empty());
+    assert_eq!(looks_at_wen(&rig, 0, now), ended);
+    assert!(
+        looks_at_wen(&rig, stopped, now)
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

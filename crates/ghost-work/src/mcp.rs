@@ -18,6 +18,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use crate::{
     outside,
     prompts::{self, Loop, Shared},
+    steps,
     tool::Toolbox,
     undertaking::Undertaking,
 };
@@ -94,33 +95,40 @@ pub async fn serve(
                         .cloned()
                         .unwrap_or_else(|| json!({})),
                 };
-                let outcome = if undertaking.state().finish.is_some() {
+                let ended = undertaking.state().finish.is_some();
+                let started = std::time::Instant::now();
+                let mut outcome = if ended {
                     crate::tool::Outcome::fail(
                         "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here.",
                     )
-                } else if tools.has(name) {
-                    // What came from outside is marked here as it is in
-                    // the worker's own loop: an agent that steps the work
-                    // reads the same transcript.
-                    let outcome = tools.run(&call).await;
-                    let output = outside::mark(
-                        &prompts::hold(&words),
-                        &call,
-                        outcome.origin.as_deref(),
-                        outcome.output,
-                    );
-                    crate::tool::Outcome { output, ..outcome }
                 } else {
                     tools.run(&call).await
                 };
-                undertaking.log(&json!({
-                    "at": chrono::Utc::now().to_rfc3339(),
-                    "via": "mcp",
-                    "name": name,
-                    "failed": outcome.failed,
-                    "chars": outcome.output.len(),
-                    "pictures": outcome.pictures.len(),
-                }));
+                // One line per call, with what it was asked and what came
+                // back as it came back. The agent's own words between
+                // calls are in its transcript, which is not ours to read.
+                let mut line = steps::call(
+                    name,
+                    &call.args,
+                    &outcome.output,
+                    outcome.failed,
+                    outcome.pictures.len(),
+                    started.elapsed().as_millis(),
+                );
+                line["at"] = json!(chrono::Utc::now().to_rfc3339());
+                line["via"] = json!("mcp");
+                undertaking.log(&line);
+                if !ended && tools.has(name) {
+                    // What came from outside is marked here as it is in
+                    // the worker's own loop: an agent that steps the work
+                    // reads the same transcript.
+                    outcome.output = outside::mark(
+                        &prompts::hold(&words),
+                        &call,
+                        outcome.origin.as_deref(),
+                        std::mem::take(&mut outcome.output),
+                    );
+                }
                 // Pictures are kept and named, and go no further: no agent
                 // that serves these tools has yet been tried with images.
                 let mut said = outcome.output;
@@ -217,6 +225,35 @@ mod tests {
             "hi\n"
         );
         assert_eq!(replies[4]["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn each_call_an_agent_makes_is_logged_with_what_it_asked_and_what_came_back() {
+        let dir = tempfile::tempdir().unwrap();
+        talk(
+            dir.path(),
+            &[
+                json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "write", "arguments": {"path": "hi.txt", "content": "hi\n"}}}),
+                json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read", "arguments": {"path": "hi.txt"}}}),
+            ],
+        )
+        .await;
+        let record =
+            Undertaking::open(&dir.path().join("state").join(crate::WORK_DB), "main", None)
+                .unwrap();
+        let logged = record.logged();
+        assert_eq!(logged.len(), 2);
+        assert_eq!(logged[0]["via"], "mcp");
+        assert_eq!(logged[0]["args"]["path"], "hi.txt");
+        assert_eq!(logged[1]["name"], "read");
+        assert!(
+            logged[1]["out"].as_str().unwrap().contains("hi"),
+            "{}",
+            logged[1]
+        );
+        assert_eq!(logged[1]["cut"], false);
+        // As it came back, without the mark the agent is shown.
+        assert!(!logged[1]["out"].as_str().unwrap().contains("<outside"));
     }
 
     #[tokio::test]

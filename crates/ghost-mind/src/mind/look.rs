@@ -112,7 +112,7 @@ impl Mind {
                 },
             );
         }
-        let (look, intention) = (job.look, job.intention());
+        let (look, intention, kept) = (job.look, job.intention(), job.kept);
         let abort = if with_tools {
             let system = match request {
                 Some((system, prompt)) => {
@@ -176,6 +176,7 @@ impl Mind {
                 look,
                 abort,
                 intention,
+                kept,
             },
         );
         Ok(())
