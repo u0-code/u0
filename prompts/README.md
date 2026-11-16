@@ -12,14 +12,14 @@ system/                 Ghost's own: the same for every character
   work/                 how a piece of work goes: working.md (her side),
                         work.md and texts.toml (the work loop's)
   tools.toml            what every tool is, in a conversation and at work
-  desk/                 小幽灵, the desktop app's own little ghost
+  desk/                 Ghost, the mascot the desktop app runs
 character/              how a character's own ghost.toml is turned into prose
   persona.md            the persona template
   texts.toml            the texts only it puts around her fields
 ```
 
 **System** is how Ghost works, and every character a deployment runs is
-told the same. The desk's little ghost, 小幽灵, is part of it: what the desktop app runs
+told the same. The desk's Ghost, the mascot, is part of it: what the desktop app runs
 is a deployment like any other, kept with the desk in `desk/core/`, and
 `system/desk/` holds the two files it replaces, laid out as any
 deployment's directory is.

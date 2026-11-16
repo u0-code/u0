@@ -4,7 +4,7 @@
 //!
 //! It is one slim row, the width of the thread: the line, which wraps and
 //! grows to six lines before it scrolls; how it is said (Say, Directive,
-//! Task); with the little ghost, the brain and model it thinks with; and
+//! Task); with Ghost, the brain and model it thinks with; and
 //! send, which becomes Stop while she is busy with what you said there and
 //! nothing new is typed. A directive takes the operator's colour on the
 //! border. Task opens the form in `task.rs` in place of the line.
@@ -137,7 +137,7 @@ impl Desk {
         row
     }
 
-    /// The brain and model the little ghost thinks with, as small muted
+    /// The brain and model Ghost thinks with, as small muted
     /// text that opens the brain menu.
     fn brain_chip(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let label = self

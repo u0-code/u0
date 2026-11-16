@@ -1,5 +1,5 @@
 //! The thread of one place, in one stream by time: what passed between
-//! you and the little ghost in a session, or between a character and
+//! you and Ghost in a session, or between a character and
 //! whoever she was with; what was opened or looked up while answering;
 //! what she ran, read and searched before she answered, as `look.steps`
 //! gives it; a card for each piece of work taken on there, with its steps

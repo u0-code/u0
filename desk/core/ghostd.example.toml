@@ -1,5 +1,5 @@
-# The desk's core: one daemon on this machine that runs 小幽灵, Ghost's own
-# little ghost (the solver, in the code), born from desk/core/ghosts/_solver,
+# The desk's core: one daemon on this machine that runs Ghost, the
+# project's mascot (the solver, in the code), born from desk/core/ghosts/_solver,
 # and nothing else. Its prompts replace a character's persona and being
 # with its own: see prompts/system/desk, which is
 # laid out as any deployment's directory of prompts is, mirroring prompts/.
