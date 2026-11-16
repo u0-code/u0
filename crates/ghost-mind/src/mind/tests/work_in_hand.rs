@@ -558,3 +558,116 @@ async fn nothing_kept_is_recorded_twice_when_the_sitting_ends() {
     // The sitting's record still lists it at the end; it is hers once.
     assert_eq!(count(&rig, "kept"), 1);
 }
+
+/// Fox, who runs her body, at a console.
+fn fox() -> crate::Operator {
+    crate::Operator {
+        key: "console:fox".into(),
+        name: "Fox".into(),
+    }
+}
+
+#[tokio::test]
+async fn an_operator_answers_what_her_work_asked_and_her_journal_says_it_was_theirs() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let work = at_work_for_wen(&mut rig, "Write up when the tea house is open.", t0);
+    rig.think.then_call(
+        "ask",
+        serde_json::json!({"question": "weekdays or weekends?", "options": ["weekdays", "weekends"]}),
+    );
+    rig.mind.on_time(t0).unwrap();
+    let asked = rig.until(|r| r.kinds().contains(&"asked")).await;
+    let u = rig
+        .mind
+        .ghost
+        .memory()
+        .undertaking_numbered(work)
+        .unwrap()
+        .unwrap();
+
+    // A console is shown what answering takes, and she means to give Wen
+    // the choices along with the question.
+    let shown = rig.mind.answer(&Question::Work, asked).unwrap();
+    assert_eq!(shown[0]["question"], "weekdays or weekends?");
+    assert_eq!(shown[0]["kind"], "choose");
+    assert_eq!(
+        shown[0]["options"],
+        serde_json::json!(["weekdays", "weekends"])
+    );
+    let meant = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["intended"], 0)
+        .unwrap();
+    assert!(matches!(&meant.last().unwrap().event,
+        Event::Intended { what, .. } if what.contains("weekdays / weekends")));
+
+    // Fox answers before Wen does.
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "weekdays, nine to five"}),
+    );
+    let order = crate::Order::Answer {
+        work: u.id.clone(),
+        text: "Weekdays.".into(),
+    };
+    assert_eq!(rig.mind.on_order(order, &fox(), asked).unwrap(), Ok(()));
+    let added = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["added"], 0)
+        .unwrap();
+    assert!(matches!(&added[0].event,
+        Event::Added { id, text, by } if *id == u.id && text == "Weekdays."
+            && by.as_deref() == Some("console:fox")));
+    let waiting = rig.mind.ghost.memory().undertaking(&u.id).unwrap().unwrap();
+    assert_eq!(waiting.waiting, None);
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    let turns = rig.think.turns.lock().unwrap();
+    assert!(turns.last().unwrap().items.iter().any(|item| matches!(item,
+        ghost_brain::Item::User { text } if text.contains("added to the task") && text.contains("Weekdays."))));
+}
+
+#[tokio::test]
+async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    let work = at_work_for_wen(&mut rig, "Draw the east gate.", t0);
+    let id = rig
+        .mind
+        .ghost
+        .memory()
+        .undertaking_numbered(work)
+        .unwrap()
+        .unwrap()
+        .id;
+    let stop = || crate::Order::Stop { work: id.clone() };
+    assert_eq!(rig.mind.on_order(stop(), &fox(), t0).unwrap(), Ok(()));
+    let ended = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["concluded"], 0)
+        .unwrap();
+    assert!(matches!(&ended[0].event,
+        Event::Concluded { outcome, summary, .. }
+            if outcome == "dropped" && summary.starts_with("Fox, who runs you, stopped it")));
+
+    // What is over, and what was never hers, cannot be answered or stopped.
+    assert!(matches!(
+        rig.mind.on_order(stop(), &fox(), t0).unwrap(),
+        Err(crate::Refused::NoSuchWork(_))
+    ));
+    let part = crate::Order::Answer {
+        work: format!("{id}/1"),
+        text: "yes".into(),
+    };
+    assert!(matches!(
+        rig.mind.on_order(part, &fox(), t0).unwrap(),
+        Err(crate::Refused::NoSuchWork(_))
+    ));
+    assert_eq!(count(&rig, "added"), 0);
+}

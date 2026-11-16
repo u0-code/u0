@@ -93,7 +93,9 @@ owner's only from this machine. Nobody is listed in `[operators]` for it:
 holding the token is the listing.
 
 Such a console can speak to her with `console.say`, as an operator, or give
-her a directive without the prefix; the protocol's README has the wire. It
+her a directive without the prefix, and can answer or stop her work with
+`work.answer` and `work.stop`; the protocol's README has the wire. Each of
+these goes to her mind, which writes it in her journal as the operator's. It
 speaks on the channel `console`, which the daemon carries itself: no
 presence may register it. What she says there is written in her journal and
 not sent anywhere, and a console reads it there, from the journal it

@@ -143,6 +143,71 @@ async fn a_question_stops_the_work_until_it_is_answered() {
 }
 
 #[tokio::test]
+async fn a_question_keeps_what_answering_it_takes_until_it_is_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![
+        // A choice with nothing to choose from is sent back.
+        calls(
+            "ask",
+            json!({"question": "which colour?", "kind": "choose"}),
+        ),
+        // Options alone are a choice.
+        calls(
+            "ask",
+            json!({"question": "which colour?", "options": ["red", " blue ", ""]}),
+        ),
+        calls("done", json!({"outcome": "finished", "summary": "blue"})),
+    ];
+    let (mut first, brain) = worker(dir.path(), script, Limits::default());
+    first.tools = first.tools.with(tools::Ask::new(first.undertaking.clone()));
+    let report = first.run().await;
+    assert_eq!(report.ended, Ended::Waiting);
+    assert_eq!(report.steps, 2);
+    let state = first.undertaking.state();
+    assert_eq!(state.waiting.as_deref(), Some("which colour?"));
+    assert_eq!(
+        state.waiting_kind,
+        Some(crate::undertaking::AskKind::Choose)
+    );
+    assert_eq!(state.waiting_options, ["red", "blue"]);
+    assert!(
+        brain.seen.lock().unwrap()[1]
+            .items
+            .iter()
+            .any(|item| matches!(item,
+        Item::Result { output, failed: true, .. } if output.contains("at least two")))
+    );
+
+    first.undertaking.add("blue").unwrap();
+    assert_eq!(first.run().await.ended, Ended::Finished);
+    let state = first.undertaking.state();
+    assert_eq!((state.waiting, state.waiting_kind), (None, None));
+    assert!(state.waiting_options.is_empty());
+}
+
+#[tokio::test]
+async fn a_question_says_only_a_kind_there_is_and_options_only_for_a_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let (worker, _) = worker(dir.path(), Vec::new(), Limits::default());
+    let ask = tools::Ask::new(worker.undertaking.clone());
+    let unknown = ask.call(&json!({"question": "q", "kind": "guess"})).await;
+    assert!(unknown.failed);
+    let stray = ask
+        .call(&json!({"question": "q", "kind": "file", "options": ["a", "b"]}))
+        .await;
+    assert!(stray.failed);
+    assert_eq!(worker.undertaking.state().waiting, None);
+    let file = ask
+        .call(&json!({"question": "send me the contract", "kind": "file"}))
+        .await;
+    assert!(!file.failed);
+    assert_eq!(
+        worker.undertaking.state().waiting_kind,
+        Some(crate::undertaking::AskKind::File)
+    );
+}
+
+#[tokio::test]
 async fn a_paused_run_picks_up_where_it_stopped() {
     let dir = tempfile::tempdir().unwrap();
     let script = vec![calls("shell", json!({"command": "echo one"}))];

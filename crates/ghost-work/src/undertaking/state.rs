@@ -11,6 +11,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::prompts::Prompts;
 
+/// What a question put to whoever the work is for asks of them, so that
+/// whoever shows it to them can show it as what it is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AskKind {
+    /// Something to say: a fact, a preference, a yes or no.
+    #[default]
+    Answer,
+    /// A file only they have.
+    File,
+    /// Something only they can do, such as signing in or approving a
+    /// payment, after which they say it is done.
+    Act,
+    /// One of the options it gives.
+    Choose,
+}
+
+impl AskKind {
+    /// The kind a worker names, by its word.
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word.trim() {
+            "answer" => Some(Self::Answer),
+            "file" => Some(Self::File),
+            "act" => Some(Self::Act),
+            "choose" => Some(Self::Choose),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Progress {
@@ -142,6 +172,13 @@ pub struct State {
     /// waits here until something is added to the task from outside.
     #[serde(default)]
     pub waiting: Option<String>,
+    /// What kind of answer the question in `waiting` asks for, when the
+    /// worker said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_kind: Option<AskKind>,
+    /// For a question that asks them to choose, what to choose from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waiting_options: Vec<String>,
     /// The model once refused a context of about this many tokens. The
     /// transcript is kept well under it from then on.
     #[serde(default)]
@@ -168,6 +205,20 @@ pub struct State {
 }
 
 impl State {
+    /// Put `question` to whoever the work is for, and wait.
+    pub fn ask(&mut self, question: &str, kind: Option<AskKind>, options: Vec<String>) {
+        self.waiting = Some(question.to_owned());
+        self.waiting_kind = kind;
+        self.waiting_options = options;
+    }
+
+    /// Whatever it was waiting to hear, it has heard.
+    pub fn answered(&mut self) {
+        self.waiting = None;
+        self.waiting_kind = None;
+        self.waiting_options.clear();
+    }
+
     /// What was asked, with whatever was added to it since.
     pub fn task_text(&self) -> String {
         let mut text = self.brief.trim().to_owned();

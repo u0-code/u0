@@ -59,7 +59,7 @@ use crate::{
     prompts::{Prompts, Shared},
     tool::Toolbox,
     tools::Handoff,
-    undertaking::{MailKind, Outcome, Undertaking},
+    undertaking::{MailKind, Outcome, State, Undertaking},
 };
 
 #[derive(Debug, Clone)]
@@ -343,7 +343,7 @@ impl Worker {
             let answered = mail.iter().any(|m| m.kind == MailKind::Added);
             if answered {
                 // Whatever it was waiting to hear, this is the answer.
-                self.undertaking.update(|state| state.waiting = None);
+                self.undertaking.update(State::answered);
             }
             // What it is told, as the files say it now.
             if let (words, true) = self.words() {

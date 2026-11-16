@@ -265,6 +265,23 @@ tools: [
         description: "Put a question to whoever this work is for, and stop until they answer. Only for what you cannot find out and should not decide alone: a preference, a fact only they have, a choice between ways that would give them a different result. Never for what you could look up or try. The answer may take hours, so do everything that does not depend on it first, and ask once, with everything you need in the one question.",
         parameters: Object {
             "properties": Object {
+                "kind": Object {
+                    "description": String("What answering takes, so that they are shown it as what it is: `answer` when they only have to say something (the default), `file` when they have to give you a file only they have, `act` when they have to do something only they can, such as signing in or approving a payment, and tell you when it is done, `choose` when they are to pick one of `options`."),
+                    "enum": Array [
+                        String("answer"),
+                        String("file"),
+                        String("act"),
+                        String("choose"),
+                    ],
+                    "type": String("string"),
+                },
+                "options": Object {
+                    "description": String("Only with `choose`: the options, each short and complete in itself, so that picking one is the whole answer."),
+                    "items": Object {
+                        "type": String("string"),
+                    },
+                    "type": String("array"),
+                },
                 "question": Object {
                     "description": String("The question, as you would put it to them: short, and answerable without having seen your work."),
                     "type": String("string"),

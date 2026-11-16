@@ -10,12 +10,18 @@ no_machine = "You have no computer to run things on for this: only what you can 
 no_answer = "No answer came to your question. Go on with your best judgement, and say in your summary what you assumed."
 # What she resolves to do when work stops on a question, or ends.
 ask_them = "ask them what you need to know to go on with what you took on (\"{{brief}}\"). Your question, to put in your own words: {{question}}"
+# Added to the question when it asks them to choose: they can only choose
+# if they are told what from.
+ask_options = " The choices to give them: {{options}}."
 tell_them = "tell them what came of what you took on (\"{{brief}}\"). {{how}}. What you found: {{summary}}{{made}}"
 how_finished = "It is done"
 how_blocked = "You could not finish it"
 how_gave_up = "You gave up on it"
 # The summary of work she stopped herself.
 stopped = "You stopped it before it was done. Where it had got to: {{progress}}"
+# The summary of work someone who runs her stopped from a console, without
+# her: it was not her doing, and she should know whose it was.
+stopped_by = "{{name}}, who runs you, stopped it from a console before it was done. Where it had got to: {{progress}}"
 # What she resolves to do when work under way has something she could hand
 # over before it is done: something it kept, or a file it made.
 share_found = "show them what has come so far of what you took on (\"{{brief}}\"), if it is worth showing now: {{found}}. {{send}}"

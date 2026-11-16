@@ -270,6 +270,8 @@ description = """\
 
 [ask.parameters]
 question = "The question, as you would put it to them: short, and answerable without having seen your work."
+kind = "What answering takes, so that they are shown it as what it is: `answer` when they only have to say something (the default), `file` when they have to give you a file only they have, `act` when they have to do something only they can, such as signing in or approving a payment, and tell you when it is done, `choose` when they are to pick one of `options`."
+options = "Only with `choose`: the options, each short and complete in itself, so that picking one is the whole answer."
 
 # Offered only where someone follows the work as it runs.
 [tell]

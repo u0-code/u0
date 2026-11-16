@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
@@ -72,5 +72,47 @@ including one that connects later. No presence can register the channel
 A console with no `who` is refused with `-32602`, and so is blank `text`;
 one that is not the owner's, which can only be one without a token from
 another machine, with `-32001`.
+
+## Answering and stopping her work
+
+An operator at a console, as above, with `who` in its hello, can answer
+what a piece of her work asked, and stop a piece of her work, without her.
+Each is done the way she does it, and her journal says it was theirs.
+
+`work.list` says what a piece of work waits on: `state` is `waiting`,
+`question` what it asked, and, when the work said, `kind` what answering
+takes and `options` what to choose from.
+
+```json
+{"id":"20261116-140000-1a2b","seq":812,"brief":"…","state":"waiting","steps":14,
+ "question":"Which week should the rota cover?","kind":"choose",
+ "options":["this week","next week"],"started":"…","last":"…"}
+```
+
+`kind` is `answer` (say something), `file` (give it a file only they have),
+`act` (do something only they can, such as signing in, and say when it is
+done) or `choose` (pick one of `options`). A client that does not know a
+kind it is sent reads it as `other`.
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"work.answer","params":{"work":"20261116-140000-1a2b","text":"next week"}}
+{"jsonrpc":"2.0","id":3,"result":{}}
+
+{"jsonrpc":"2.0","id":4,"method":"work.stop","params":{"work":"20261116-140000-1a2b"}}
+{"jsonrpc":"2.0","id":4,"result":{}}
+```
+
+- `work.answer` puts `text` in the work's inbox, as what she passes on to
+  her work is: it is in front of the work before its next step, and a work
+  waiting on an answer goes on. Sent to work that is not waiting, it is
+  added to what it was asked. Her journal has it as an `added` entry with
+  `"by":"console:<who>"`.
+- `work.stop` stops it as she stops work: a sitting at it ends after the
+  step it is on, and with none it ends at once. It is `dropped`, and its
+  summary says who stopped it.
+
+`work` is the id `work.list` gives. Only her open work can be named: an id
+she has none of, one that has ended, or a part's, is refused with
+`-32005`. Blank `text`, or no `who`, with `-32602`.
 
 The console payloads mirror the core's serialized types and are not frozen yet.

@@ -247,6 +247,9 @@ impl Mind {
             if u.waiting.is_none() {
                 work["question"] = seen["question"].clone();
             }
+            // What answering takes is only in the work's own record.
+            work["kind"] = seen["kind"].clone();
+            work["options"] = seen["options"].clone();
             if u.summary.is_none() {
                 work["summary"] = seen["summary"].clone();
             }
@@ -302,6 +305,8 @@ fn seen(look: &Look) -> Value {
         "started": look.first_step,
         "last": last_of(look),
         "question": state.waiting,
+        "kind": state.waiting_kind,
+        "options": state.waiting_options,
         "summary": state.finish.as_ref().map(|f| &f.summary),
         "plan": plan,
     })

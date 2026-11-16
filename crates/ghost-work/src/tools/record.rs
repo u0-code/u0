@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::{
     prompts::{self, Loop, Shared, Store},
     tool::{Outcome, Tool, text},
-    undertaking::{self, Finish, PlanStep, Progress, State, Undertaking},
+    undertaking::{self, AskKind, Finish, PlanStep, Progress, State, Undertaking},
 };
 
 /// The plan: what is left to do, how each step will be known to be done,
@@ -351,7 +351,11 @@ impl Tool for Ask {
             words,
             lp,
             "ask",
-            json!({"question": {"type": "string"}}),
+            json!({
+                "question": {"type": "string"},
+                "kind": {"type": "string", "enum": ["answer", "file", "act", "choose"]},
+                "options": {"type": "array", "items": {"type": "string"}},
+            }),
             &["question"],
         )
     }
@@ -364,8 +368,38 @@ impl Tool for Ask {
         if question.is_empty() {
             return Outcome::fail("the question is empty");
         }
+        let options: Vec<String> = args["options"]
+            .as_array()
+            .map(|options| {
+                options
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|o| !o.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        // Options given without a kind can only be a choice.
+        let kind = match args["kind"].as_str().filter(|k| !k.trim().is_empty()) {
+            Some(word) => match AskKind::from_word(word) {
+                Some(kind) => Some(kind),
+                None => {
+                    return Outcome::fail(format!(
+                        "there is no kind {word:?}: it is answer, file, act or choose"
+                    ));
+                }
+            },
+            None => (!options.is_empty()).then_some(AskKind::Choose),
+        };
+        if kind == Some(AskKind::Choose) && options.len() < 2 {
+            return Outcome::fail("a choice needs at least two `options` to choose from");
+        }
+        if kind != Some(AskKind::Choose) && !options.is_empty() {
+            return Outcome::fail("`options` are only for a question of kind choose");
+        }
         self.undertaking
-            .update(|state| state.waiting = Some(question.to_owned()));
+            .update(|state| state.ask(question, kind, options));
         Outcome::ok(
             "Asked. The work stops here until they answer; their answer will be added to the task.",
         )

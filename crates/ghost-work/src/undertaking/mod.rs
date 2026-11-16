@@ -62,7 +62,7 @@ pub use self::{
     db::WORK_DB,
     inbox::{Mail, MailKind},
     look::{Glance, Look, glance, look},
-    state::{Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
+    state::{AskKind, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
     transcript::placeholder,
 };
 

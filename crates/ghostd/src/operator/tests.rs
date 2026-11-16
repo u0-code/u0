@@ -157,3 +157,86 @@ async fn no_presence_can_take_the_console_s_channel() {
     let e = Conn::open(&rig.url, &hello).await.err().unwrap();
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
 }
+
+/// Before her mind starts: she took something on, and it stopped to ask.
+fn waiting_on_an_answer(dir: &std::path::Path) {
+    let mut ghost = ghost_core::Ghost::open(dir).unwrap();
+    ghost
+        .record(Event::Undertook {
+            id: "w1".into(),
+            brief: "Find the rota.".into(),
+            asked_by: None,
+            place: None,
+            directed: false,
+        })
+        .unwrap();
+    ghost
+        .record(Event::Asked {
+            id: "w1".into(),
+            question: "which week?".into(),
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_operator_at_a_console_answers_what_her_work_asked_and_stops_it() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(waiting_on_an_answer);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
+        .await
+        .unwrap();
+    let work = fox.work().await.unwrap();
+    assert_eq!(work[0].id, "w1");
+    assert_eq!(work[0].state, ghost_protocol::WorkState::Waiting);
+    assert_eq!(work[0].question.as_deref(), Some("which week?"));
+
+    fox.answer("w1", "next week, 7d4f").await.unwrap();
+    let (id, text, by) = {
+        let journal = rig.journal(0).await;
+        let entries: Vec<Entry> = serde_json::from_str(&journal).unwrap();
+        entries
+            .into_iter()
+            .find_map(|e| match e.event {
+                Event::Added { id, text, by } => Some((id, text, by)),
+                _ => None,
+            })
+            .expect("the answer is in her journal")
+    };
+    assert_eq!((id.as_str(), text.as_str()), ("w1", "next week, 7d4f"));
+    assert_eq!(by.as_deref(), Some("console:fox"));
+    assert_eq!(fox.work().await.unwrap()[0].question, None);
+
+    fox.stop("w1").await.unwrap();
+    rig.until_written(0, "Fox, who runs you, stopped it").await;
+    // It is over: neither can be done to it again.
+    let e = fox.stop("w1").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
+    let e = fox.answer("w1", "too late").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
+}
+
+#[tokio::test]
+async fn only_an_operator_who_says_who_they_are_answers_her_work_and_only_work_she_has() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(waiting_on_an_answer);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut nobody, _) = Console::connect(&rig.url, None, None).await.unwrap();
+    let e = nobody.answer("w1", "next week").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
+    let e = nobody.stop("w1").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
+
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("fox".into()))
+        .await
+        .unwrap();
+    let e = fox.answer("w9", "next week").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
+    let e = fox.answer("w1", "  ").await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
+    assert!(!rig.journal(0).await.contains("\"added\""));
+    assert_eq!(
+        fox.work().await.unwrap()[0].state,
+        ghost_protocol::WorkState::Waiting
+    );
+}
