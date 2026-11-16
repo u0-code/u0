@@ -206,7 +206,7 @@ async fn an_operators_directive_to_take_something_on_is_not_held_to_the_relation
 }
 
 #[tokio::test]
-async fn whoever_speaks_from_a_console_is_an_operator_and_a_directive_needs_no_prefix_there() {
+async fn whoever_speaks_from_a_console_is_an_operator_and_every_line_there_is_a_directive() {
     let t0 = at(3, 0);
     // Nobody is listed as an operator anywhere.
     let mut rig = Rig::quiet(t0);
@@ -230,9 +230,12 @@ async fn whoever_speaks_from_a_console_is_an_operator_and_a_directive_needs_no_p
     );
     // Looked at now, though it is three in the morning.
     assert_eq!(rig.mind.agenda.attend["console:fox"].due, t0);
-    // Said without asking for a directive, it is what an operator says.
+    // A plain line there is a directive too: whoever sits at the console
+    // runs her, and what they write is for her to do.
     rig.hear_on(crate::CONSOLE, dm("fox", "2", "and how was your day"), t0);
-    assert_eq!(directed(&rig).len(), 1);
+    let all = directed(&rig);
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[1].2, "and how was your day");
     assert!(rig.mind.cfg.operators.includes(crate::CONSOLE, "fox"));
 }
 

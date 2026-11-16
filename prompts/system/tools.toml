@@ -128,9 +128,12 @@ ability = "take on something bigger as a piece of work, done in your own time, a
 description = """\
     Take on something that needs real work {{means}}: finding something out properly, making something, \
     checking something. It is not done in this reply. You will work on it in your own time and come back \
-    with what you found. If you have already taken something on for them and they add to it or change it, \
-    call this again with just what is new: it is added to what you are doing. Only for things you want to \
-    do or have agreed to do: nobody is owed your afternoon. Say something as well, the way you would."""
+    with what you found. What counts: several places to look or things to try, something to make or \
+    write, something to wait on, anything more than this look's few turns can finish. A quick look-up or \
+    a command whose answer is wanted now is not it: do that here. If you have already taken something on \
+    for them and they add to it or change it, call this again with just what is new: it is added to what \
+    you are doing. Only for things you want to do or have agreed to do: nobody is owed your afternoon. Say \
+    something as well, the way you would."""
 
 [undertake.parameters]
 brief = "A complete instruction to yourself, with everything needed to do it without this conversation in front of you."

@@ -2,15 +2,18 @@
 //! she is in the middle of in a place, as one stops a coding agent after
 //! sending it something.
 //!
-//! Everything she does in a place is one of three things, and each is
-//! called off where it stands. A look whose brain call is out is aborted,
-//! and if its answer was already back and not yet heard, it is let go
-//! when it comes in: each look has a number, and only the place's current
-//! look is acted on. What she had decided to say and not yet handed to the
-//! body is dropped. Work she took on there is stopped as `work.stop` stops
-//! it. What was unread there is left read, so that she does not look again
-//! at the same line, and her journal says who stopped her and in the middle
-//! of what, so that the next look knows it was interrupted on purpose.
+//! A stop ends the look and what it was about to say, not her work. A look
+//! whose brain call is out is aborted, and if its answer was already back
+//! and not yet heard, it is let go when it comes in: each look has a
+//! number, and only the place's current look is acted on. What she had
+//! decided to say and not yet handed to the body is dropped. Work she took
+//! on there goes on: it is stopped from its own card, with `work.stop`, as
+//! a coding agent's background tasks outlive a stopped turn, since whoever
+//! stops her usually means to put it another way, not to throw away an
+//! hour of hers. What was unread there is left read, so that she does not
+//! look again at the same line, and her journal says who stopped her and
+//! in the middle of what, so that the next look knows it was interrupted
+//! on purpose.
 
 use chrono::{DateTime, Utc};
 use ghost_core::{
@@ -31,7 +34,7 @@ const BRIEF: usize = 120;
 impl Mind {
     /// The operator `by` stops her in the place `key`. Returns whether
     /// anything was stopped: a look she was in the middle of or about to
-    /// take, something she had not yet said, or work.
+    /// take, or something she had not yet said.
     pub(super) fn interrupt(
         &mut self,
         key: &str,
@@ -56,15 +59,8 @@ impl Mind {
         };
         let place = self.ghost.memory().place(key)?;
         let unread = place.as_ref().filter(|p| p.unread > 0);
-        let works: Vec<_> = self
-            .ghost
-            .memory()
-            .undertakings(true, 1000)?
-            .into_iter()
-            .filter(|u| u.place.as_deref() == Some(key))
-            .collect();
         let looking = under_way.is_some() || unread.is_some();
-        if !looking && unsaid.is_empty() && works.is_empty() {
+        if !looking && unsaid.is_empty() {
             return Ok(false);
         }
         info!("{key}: {} stops her", by.key);
@@ -80,7 +76,9 @@ impl Mind {
             by: by.key.clone(),
             looking,
             unsaid,
-            works: works.iter().map(|u| u.id.clone()).collect(),
+            // Her work there goes on; the journal keeps the field for the
+            // days it did not.
+            works: Vec::new(),
         })?;
         // A look whose rounds a console can read ends with this entry, as
         // one she finished ends with what she decided.
@@ -97,9 +95,7 @@ impl Mind {
             })?;
             self.refresh_intentions()?;
         }
-        for u in works {
-            self.stop_open(u, Some(by.name.clone()), now)?;
-        }
+        let _ = now;
         Ok(true)
     }
 

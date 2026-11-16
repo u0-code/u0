@@ -479,10 +479,11 @@ pub enum Event {
     },
     /// Someone who runs her body stopped her in a place, from a console,
     /// as one stops a person mid-sentence: what she was thinking there was
-    /// abandoned, what she had not yet said there was not said, what was
-    /// unread there was left read, and the work she had taken on there was
-    /// stopped. It is what she remembers of being interrupted, so that she
-    /// does not take up again unasked what was called off.
+    /// abandoned, what she had not yet said there was not said, and what
+    /// was unread there was left read. It is what she remembers of being
+    /// interrupted, so that she does not take up again unasked what was
+    /// called off. The work she had taken on there goes on, stopped only
+    /// from its own card; journals from before that have it in `works`.
     Stopped {
         /// The place, as a place key (`console:fox`).
         place: String,

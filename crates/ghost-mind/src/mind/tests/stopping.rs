@@ -186,7 +186,7 @@ async fn stopped_while_she_is_typing_nothing_she_meant_to_say_is_sent() {
 }
 
 #[tokio::test]
-async fn work_directed_where_she_was_stopped_is_stopped_with_her_and_work_from_elsewhere_goes_on() {
+async fn work_directed_where_she_was_stopped_goes_on_and_is_stopped_only_from_its_own_card() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);
     rig.online(CONSOLE, t0);
@@ -225,17 +225,18 @@ async fn work_directed_where_she_was_stopped_is_stopped_with_her_and_work_from_e
     assert!(rig.mind.interrupt("console:fox", &fox(), t0).unwrap());
     assert_eq!(
         stops(&rig),
-        [("console:fox".to_owned(), true, vec![], vec![gate.clone()])]
+        [("console:fox".to_owned(), true, vec![], vec![])]
     );
+    // The work she took on there is untouched: a stop is of the look, as
+    // a coding agent's stop leaves its background tasks running.
+    let going = rig.mind.ghost.memory().undertaking(&gate).unwrap().unwrap();
+    assert!(going.outcome.is_none(), "{going:?}");
+    let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();
+    assert_eq!(still.len(), 2);
+    // Stopped from its own card, it ends.
+    rig.mind.stop_open(going, Some("Fox".into()), t0).unwrap();
     let ended = rig.mind.ghost.memory().undertaking(&gate).unwrap().unwrap();
     assert_eq!(ended.outcome.as_deref(), Some("dropped"));
-    assert!(
-        ended
-            .summary
-            .unwrap()
-            .starts_with("Fox, who runs you, stopped it")
-    );
-    // Wen's is none of it.
     let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();
     assert_eq!(still.len(), 1);
     assert_eq!(still[0].place.as_deref(), Some("t:wen"));
@@ -253,7 +254,14 @@ async fn work_directed_where_she_was_stopped_is_stopped_with_her_and_work_from_e
     assert!(
         remembered[0]
             .text
-            .starts_with("Fox stopped you in the middle of answering and the work you had taken on there (Draw the east gate.)"),
+            .starts_with("Fox stopped you in the middle of answering"),
+        "{}",
+        remembered[0].text
+    );
+    assert!(
+        !remembered[0]
+            .text
+            .contains("the work you had taken on there"),
         "{}",
         remembered[0].text
     );
