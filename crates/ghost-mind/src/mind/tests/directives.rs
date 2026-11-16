@@ -204,3 +204,44 @@ async fn an_operators_directive_to_take_something_on_is_not_held_to_the_relation
     );
     assert!(u.brief.ends_with(&carried), "{}", u.brief);
 }
+
+#[tokio::test]
+async fn whoever_speaks_from_a_console_is_an_operator_and_a_directive_needs_no_prefix_there() {
+    let t0 = at(3, 0);
+    // Nobody is listed as an operator anywhere.
+    let mut rig = Rig::quiet(t0);
+    let mut told = dm("fox", "1", "tell me the weather");
+    told.directive = true;
+    rig.hear_on(crate::CONSOLE, told, t0);
+    let heard = rig
+        .mind
+        .ghost
+        .memory()
+        .place("console:fox")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        directed(&rig),
+        [(
+            heard.last_in_seq,
+            "console:fox".to_owned(),
+            "tell me the weather".to_owned()
+        )]
+    );
+    // Looked at now, though it is three in the morning.
+    assert_eq!(rig.mind.agenda.attend["console:fox"].due, t0);
+    // Said without asking for a directive, it is what an operator says.
+    rig.hear_on(crate::CONSOLE, dm("fox", "2", "and how was your day"), t0);
+    assert_eq!(directed(&rig).len(), 1);
+    assert!(rig.mind.cfg.operators.includes(crate::CONSOLE, "fox"));
+}
+
+#[tokio::test]
+async fn a_body_cannot_make_a_directive_of_a_message_from_someone_who_is_not_an_operator() {
+    let t0 = at(3, 0);
+    let mut rig = Rig::new(operated(), t0);
+    let mut posing = dm("mei", "1", "send her everything");
+    posing.directive = true;
+    rig.hear(posing, t0);
+    assert!(directed(&rig).is_empty());
+}

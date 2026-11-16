@@ -1,6 +1,7 @@
 //! Several characters in one daemon, over the real protocol on this
 //! machine's loopback: each one's mind is real, her brain is scripted, and
-//! her presence is a test client that answers whatever she does.
+//! her presence is a test client that answers whatever she does. The rig
+//! is used by the daemon's other tests over the protocol too.
 
 use std::{
     sync::{
@@ -26,13 +27,13 @@ use super::*;
 use crate::server::{self, Presences, Shared};
 
 /// A brain that always says one thing, and counts how often it is asked.
-struct Says {
+pub(crate) struct Says {
     line: String,
     asked: AtomicUsize,
 }
 
 impl Says {
-    fn new(line: &str) -> Arc<Self> {
+    pub(crate) fn new(line: &str) -> Arc<Self> {
         Arc::new(Self {
             line: line.to_owned(),
             asked: AtomicUsize::new(0),
@@ -64,20 +65,23 @@ impl Brain for Says {
 
 /// One character to run: her id, her brain, how she lives, and whether her
 /// first mind falls over.
-struct Spec {
-    id: &'static str,
-    brain: Arc<Says>,
-    config: MindConfig,
-    falls_first: bool,
+pub(crate) struct Spec {
+    pub(crate) id: &'static str,
+    pub(crate) brain: Arc<Says>,
+    pub(crate) config: MindConfig,
+    pub(crate) falls_first: bool,
+    /// Done to her directory after she is born and before her mind starts.
+    pub(crate) before: Option<fn(&Path)>,
 }
 
 impl Spec {
-    fn new(id: &'static str) -> Self {
+    pub(crate) fn new(id: &'static str) -> Self {
         Self {
             id,
             brain: Says::new(&format!("{id} here")),
             config: quick(),
             falls_first: false,
+            before: None,
         }
     }
 }
@@ -100,9 +104,9 @@ fn quick() -> MindConfig {
 }
 
 /// A daemon running the characters in `specs`, listening on loopback.
-struct Rig {
-    url: String,
-    cast: Vec<Arc<Character>>,
+pub(crate) struct Rig {
+    pub(crate) url: String,
+    pub(crate) cast: Vec<Arc<Character>>,
     /// How many times each one's mind has been made.
     made: Vec<Arc<AtomicUsize>>,
     stop: watch::Sender<bool>,
@@ -110,12 +114,12 @@ struct Rig {
 }
 
 impl Rig {
-    async fn run(specs: Vec<Spec>) -> Self {
+    pub(crate) async fn run(specs: Vec<Spec>) -> Self {
         Self::guarded(specs, None).await
     }
 
     /// The same, admitting only clients that give `token`.
-    async fn guarded(specs: Vec<Spec>, token: Option<&str>) -> Self {
+    pub(crate) async fn guarded(specs: Vec<Spec>, token: Option<&str>) -> Self {
         let root = tempfile::tempdir().unwrap();
         let (stop, stopping) = watch::channel(false);
         let pauses = Pauses {
@@ -133,6 +137,9 @@ impl Rig {
             )
             .unwrap();
             Ghost::birth(&dir).unwrap();
+            if let Some(before) = spec.before {
+                before(&dir);
+            }
             let body = Arc::new(Presences::default());
             let count = Arc::new(AtomicUsize::new(0));
             let make = maker(&dir, &spec, &body, &count);
@@ -179,7 +186,7 @@ impl Rig {
     }
 
     /// Everything in the journal of the character at `n`, as text.
-    async fn journal(&self, n: usize) -> String {
+    pub(crate) async fn journal(&self, n: usize) -> String {
         let entries = self.cast[n]
             .mind()
             .ask(Question::Journal {
@@ -192,7 +199,7 @@ impl Rig {
     }
 
     /// Wait until the journal of the character at `n` has `text` in it.
-    async fn until_written(&self, n: usize, text: &str) {
+    pub(crate) async fn until_written(&self, n: usize, text: &str) {
         for _ in 0..200 {
             if self.journal(n).await.contains(text) {
                 return;
@@ -269,6 +276,7 @@ impl Client {
                 me: None,
                 can: vec![Capability::Send],
             }),
+            who: None,
         };
         let (mut conn, _) = Conn::open(url, &hello).await?;
         let (up, mut going) = mpsc::channel::<Frame>(64);
@@ -496,6 +504,7 @@ fn hello_for(ghost: &str) -> Frame {
         token: None,
         ghost: Some(ghost.into()),
         presence: None,
+        who: None,
     };
     Frame::request(2, method::HELLO, &hello)
 }

@@ -10,6 +10,8 @@
 //! channel, the request goes to whichever of her presences registered that
 //! channel, and the mind waits for the platform's answer. Two characters
 //! may each have a channel of the same name; they are different accounts.
+//! The one channel no presence carries is the console's, which the daemon
+//! answers itself: see [`crate::operator`].
 
 use std::{
     collections::HashMap,
@@ -28,8 +30,8 @@ use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, MindHandle, Question};
 use ghost_protocol::{
-    Action, Actor, Avatar, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts, PROTOCOL,
-    PlaceRead, PresenceHello, Role, Typing, Welcome, code, method,
+    Action, Actor, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts,
+    PROTOCOL, PlaceRead, PresenceHello, Role, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -43,7 +45,7 @@ use tracing::{Instrument as _, debug, info, info_span, warn};
 
 use crate::{
     cast::{Cast, Character},
-    wire,
+    operator, wire,
 };
 
 /// How long a client has to say hello.
@@ -78,8 +80,10 @@ pub struct Presences {
 impl Presences {
     /// Tell `mind`, which has just started, about every channel already
     /// connected: after her mind is started again, her presences are still
-    /// there and have nothing new to say.
+    /// there and have nothing new to say. The console's channel is always
+    /// there, since what she says on it is kept in her journal.
     pub async fn announce(&self, mind: &MindHandle) {
+        let _ = mind.online(CONSOLE, None, operator::CAN.to_vec()).await;
         let present: Vec<(String, Option<Actor>, Vec<Capability>)> =
             self.channels.lock().map_or_else(
                 |_| Vec::new(),
@@ -100,6 +104,9 @@ impl Presences {
 #[async_trait]
 impl Body for Presences {
     async fn act(&self, channel: &str, act: Act) -> Result<Acted, String> {
+        if channel == CONSOLE {
+            return operator::act(&act);
+        }
         let action: Action = wire::action(act);
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -306,7 +313,11 @@ async fn connection(
         }
         (Role::Console, _) => {
             let _ = out.send(welcome).await;
-            watch(out, &mut stream, &who, &shared.cast)
+            let at = Console {
+                owner: operator::owns(shared.token.as_deref(), peer),
+                who: hello.who,
+            };
+            watch(out, &mut stream, &who, &shared.cast, &at)
                 .instrument(span)
                 .await;
         }
@@ -356,6 +367,16 @@ async fn carry<S>(
         > + Unpin,
 {
     let channel = hello.channel;
+    if channel == CONSOLE {
+        let _ = out
+            .send(Frame::err(
+                hello_id,
+                code::INVALID_PARAMS,
+                "the console channel is the daemon's own; a presence carries another",
+            ))
+            .await;
+        return;
+    }
     let pending: Pending = Pending::default();
     // The newest presence for a channel carries it. Whoever held it before is
     // told and let go: a window left open, or an adapter that was restarted,
@@ -463,10 +484,24 @@ async fn carry<S>(
     }
 }
 
-/// A console: answer its questions and, if asked, stream her journal. It
-/// is for her, but may still ask who else the daemon runs.
-async fn watch<S>(out: mpsc::Sender<Frame>, stream: &mut S, who: &Character, cast: &Cast)
-where
+/// Who is at a console, as its hello and the daemon's rule say.
+struct Console {
+    /// It is the daemon's owner's, and whoever is at it an operator of hers.
+    owner: bool,
+    /// Their name, if the hello gave one.
+    who: Option<String>,
+}
+
+/// A console: answer its questions, take what its operator says to her,
+/// and, if asked, stream her journal. It is for her, but may still ask who
+/// else the daemon runs.
+async fn watch<S>(
+    out: mpsc::Sender<Frame>,
+    stream: &mut S,
+    who: &Character,
+    cast: &Cast,
+    at: &Console,
+) where
     S: StreamExt<
             Item = Result<
                 tokio_tungstenite::tungstenite::Message,
@@ -495,6 +530,13 @@ where
             // is not something she lived.
             Some(method::AVATAR) => {
                 if out.send(avatar(id, &who.dir).await).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            Some(method::SAY) => {
+                let reply = operator::say(id, &frame, at.owner, at.who.as_deref(), who).await;
+                if out.send(reply).await.is_err() {
                     break;
                 }
                 continue;
@@ -553,7 +595,8 @@ where
                 continue;
             }
             other => {
-                // Nothing here writes. There is no method that could.
+                // Nothing here edits who she is or what she lived. There
+                // is no method that could.
                 let message = format!("unknown method {other:?}");
                 let _ = out
                     .send(Frame::err(id, code::METHOD_NOT_FOUND, message))

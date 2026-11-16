@@ -6,7 +6,8 @@
 //!   [`presence::Platform`] for your platform, describe yourself in a
 //!   [`presence::Link`], and it keeps a connection to the daemon alive,
 //!   forwards what arrives, and routes her actions to you.
-//! - [`Console`] is a small client for tools that only watch.
+//! - [`Console`] is a small client for tools that watch her, and for whoever
+//!   runs her to speak to her from.
 //! - [`list`] asks a daemon who it runs, before saying hello to any of them.
 //!
 //! Adapters depend on this crate and nothing else from Ghost. They never see
@@ -19,7 +20,8 @@ pub mod text;
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
-    Frame, Hello, JournalRead, ListGhosts, PROTOCOL, Role, Roster, Welcome, method,
+    ConsoleSaid, ConsoleSay, Frame, Hello, JournalRead, ListGhosts, PROTOCOL, Role, Roster,
+    SayMode, Welcome, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -96,7 +98,8 @@ impl Conn {
     }
 }
 
-/// A client that watches a ghost. It can ask; it cannot change anything.
+/// A client that watches a ghost, and through which whoever runs her can
+/// speak to her. It cannot change who she is or what she has lived.
 pub struct Console {
     conn: Conn,
 }
@@ -109,12 +112,24 @@ impl Console {
         token: Option<String>,
         ghost: Option<String>,
     ) -> anyhow::Result<(Self, Welcome)> {
+        Self::connect_as(url, token, ghost, None).await
+    }
+
+    /// The same, saying who is at the console, which it has to before it
+    /// can [`say`](Self::say) anything to her.
+    pub async fn connect_as(
+        url: &str,
+        token: Option<String>,
+        ghost: Option<String>,
+        who: Option<String>,
+    ) -> anyhow::Result<(Self, Welcome)> {
         let hello = Hello {
             protocol: PROTOCOL,
             role: Role::Console,
             token,
             ghost,
             presence: None,
+            who,
         };
         let (conn, welcome) = Conn::open(url, &hello).await?;
         Ok((Self { conn }, welcome))
@@ -180,6 +195,24 @@ impl Console {
         self.conn
             .call(method::JOURNAL_READ, &JournalRead { from, limit })
             .await
+    }
+
+    /// Say `text` to her, as an operator of hers, in the place `place` on
+    /// the console channel, or in the one named after whoever is at the
+    /// console. What she says back is in her journal: read it from
+    /// [`Self::next_entry`] on another connection, or with [`Self::thread`].
+    pub async fn say(
+        &mut self,
+        place: Option<String>,
+        text: &str,
+        mode: SayMode,
+    ) -> anyhow::Result<ConsoleSaid> {
+        let params = ConsoleSay {
+            place,
+            text: text.to_owned(),
+            mode,
+        };
+        self.conn.call(method::SAY, &params).await
     }
 
     /// Ask for every journal entry from now on. Read them with [`Self::next_entry`].

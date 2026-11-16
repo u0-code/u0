@@ -6,10 +6,17 @@
 //! - a **presence** carries her onto one channel (Telegram, Discord, a
 //!   terminal). It reports what arrives with [`method::INBOUND`] and carries
 //!   out what she does when the daemon sends it [`method::ACT`].
-//! - a **console** watches. It can read her status, her journal, her
-//!   agenda and the work she has in hand. The protocol has no method that edits her identity or removes a
-//!   journal entry; that is not a permission a console lacks, it is a method
-//!   that does not exist.
+//! - a **console** watches, and is how whoever runs her speaks to her. It
+//!   can read her status, her journal, her agenda and the work she has in
+//!   hand, and say something to her with [`method::SAY`]. The protocol has
+//!   no method that edits her identity or removes a journal entry; that is
+//!   not a permission a console lacks, it is a method that does not exist.
+//!
+//! A console the daemon admits is its owner's: it holds the daemon's token,
+//! or the daemon has none, which it allows only while it listens on this
+//! machine alone. So whoever is at a console is an operator of every
+//! character the daemon runs, and what they say with [`method::SAY`] is
+//! said by one of the people who run her.
 //!
 //! A connection begins with one [`method::HELLO`] request. Everything after
 //! depends on the role declared in it. The one thing that may come before
@@ -89,7 +96,21 @@ pub mod method {
     pub const JOURNAL_SUBSCRIBE: &str = "journal.subscribe";
     /// Daemon → console notification. Params: one journal entry.
     pub const JOURNAL_ENTRY: &str = "journal.entry";
+    /// Console → daemon request. Params [`ConsoleSay`](super::ConsoleSay),
+    /// result [`ConsoleSaid`](super::ConsoleSaid). Whoever is at the
+    /// console, as its hello names them in [`Hello::who`](super::Hello::who),
+    /// says something to her, as an operator of hers, in a place on the
+    /// channel [`CONSOLE`](super::CONSOLE). What she says back there is
+    /// written in her journal and nowhere else: a console reads it as a
+    /// `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
+    pub const SAY: &str = "console.say";
 }
+
+/// The channel a console speaks to her on. It is the daemon's own: no
+/// presence can register it, so everything said on it came from a console
+/// the daemon admitted, and what she says on it goes into her journal for
+/// any console to read.
+pub const CONSOLE: &str = "console";
 
 /// JSON-RPC error codes used by the daemon.
 pub mod code {
@@ -250,6 +271,11 @@ pub struct Hello {
     /// Required when `role` is `presence`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presence: Option<PresenceHello>,
+    /// For a console that speaks to her: who is at it, by name, as she is
+    /// to know them. She knows them as `console:` and the name in lower
+    /// case. A console that only watches, and a presence, leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub who: Option<String>,
 }
 
 /// What a presence declares about itself.
@@ -549,6 +575,44 @@ pub struct PlaceRead {
     pub limit: u32,
 }
 
+/// Params of [`method::SAY`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleSay {
+    /// The place on the [`CONSOLE`] channel to say it in: its id, without
+    /// the channel. Each place is a conversation of its own, private to
+    /// whoever is at the console. Left out, it is the one named after them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    pub text: String,
+    #[serde(default)]
+    pub mode: SayMode,
+}
+
+/// How something said from a console reaches her.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SayMode {
+    /// As anything an operator of hers says: she takes it in when her day
+    /// lets her, and answers as she would.
+    #[default]
+    Say,
+    /// As an operator's directive: looked at at once, whatever her day,
+    /// and carried out rather than weighed, as one sent from a platform
+    /// with the operators' prefix is.
+    Directive,
+}
+
+/// The result of [`method::SAY`]: where it was said, and the id it was
+/// given, as her journal's `heard` entry has them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleSaid {
+    /// The place key, `console:<id>`, to read the conversation with
+    /// [`method::JOURNAL_PLACE`].
+    pub place: String,
+    /// The message's id.
+    pub id: String,
+}
+
 /// A piece of work she took on, or a part of one, as it stands: the result
 /// of [`method::WORK`].
 ///
@@ -766,5 +830,24 @@ mod tests {
         assert_eq!(work.state, WorkState::Other);
         assert_eq!(work.parts[0].state, WorkState::Running);
         assert!(!work.state.ended() && work.parts[0].steps == 0);
+    }
+
+    #[test]
+    fn something_said_from_a_console_is_ordinary_speech_unless_it_says_it_is_a_directive() {
+        let said: ConsoleSay = serde_json::from_str(r#"{"text":"hi"}"#).unwrap();
+        assert_eq!((said.place, said.mode), (None, SayMode::Say));
+        let directed = ConsoleSay {
+            place: Some("desk-1".into()),
+            text: "send the rota".into(),
+            mode: SayMode::Directive,
+        };
+        assert_eq!(
+            serde_json::to_string(&Frame::request(4, method::SAY, &directed)).unwrap(),
+            r#"{"jsonrpc":"2.0","id":4,"method":"console.say","params":{"mode":"directive","place":"desk-1","text":"send the rota"}}"#
+        );
+        // A hello from a console that only watches says nothing of who is at it.
+        let hello: Hello = serde_json::from_str(r#"{"protocol":1,"role":"console"}"#).unwrap();
+        assert_eq!(hello.who, None);
+        assert!(!serde_json::to_string(&hello).unwrap().contains("who"));
     }
 }

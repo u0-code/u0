@@ -11,6 +11,7 @@ mod cast;
 mod config;
 mod console;
 mod directory;
+mod operator;
 mod prompts;
 mod run;
 mod server;

@@ -163,6 +163,7 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
             me: link.me.clone(),
             can: link.can.clone(),
         }),
+        who: None,
     };
     // A frame taken off the queue that the daemon never received.
     let mut undelivered: Option<Frame> = None;
