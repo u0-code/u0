@@ -738,7 +738,9 @@ fn claude_said(stdout: &str) -> Option<Result<(), String>> {
             .get("result")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("it answered with an error");
-        Some(Err(first_line(result)))
+        // All of it: the hint that says what to do ("Please run /login")
+        // comes last, and a line cut short for the eye would lose it.
+        Some(Err(result.trim().to_owned()))
     } else {
         Some(Ok(()))
     }
@@ -768,6 +770,70 @@ pub fn cli_failure(kind: &str, why: &str) -> String {
     }
 }
 
+/// The gist of an error, short enough to read at a glance: what an HTTP
+/// status it names means, or else its first sentence. The whole of it is
+/// kept elsewhere for whoever wants it; this is the part read first.
+pub fn gist(text: &str) -> String {
+    if let Some(code) = http_status(text) {
+        let what = match code {
+            400 => "the request was refused as malformed",
+            401 => "its key or sign-in was refused",
+            402 => "the account has no credit",
+            403 => "the request was refused",
+            404 => "there is no such model or address",
+            408 | 504 => "it took too long to answer",
+            429 => "it is rate-limited or out of quota",
+            500..=599 => "the service failed",
+            _ => "the request failed",
+        };
+        return format!("{what} ({code})");
+    }
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty());
+    let line = line.unwrap_or_default();
+    // A sentence ends at a full stop followed by a space; a version number
+    // or a file name does not end one.
+    let sentence = line.find(". ").map_or(line, |end| &line[..end]);
+    let sentence = sentence.trim_end_matches('.');
+    if sentence.chars().count() <= GIST {
+        return sentence.to_owned();
+    }
+    // Cut at a word, so that what is shown reads as words.
+    let cut: String = sentence.chars().take(GIST).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end_matches([',', ';', ':', ' ']))
+}
+
+/// How long the gist of an error may be, in characters.
+const GIST: usize = 72;
+
+/// The HTTP status an error names, where one is named as such: after
+/// "Error", "status", "HTTP" or "code", or at the very start, the way
+/// [`error_line`] puts it. A number that only happens to be three digits
+/// is not one.
+fn http_status(text: &str) -> Option<u16> {
+    let code = |word: &str| {
+        let word = word.trim_matches(|c: char| !c.is_ascii_digit());
+        (word.len() == 3)
+            .then(|| word.parse::<u16>().ok())
+            .flatten()
+            .filter(|c| (400..600).contains(c))
+    };
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if let Some(first) = words.first().filter(|w| w.len() == 3)
+        && let Some(c) = code(first)
+    {
+        return Some(c);
+    }
+    words.windows(2).find_map(|pair| {
+        let before = pair[0].trim_end_matches(':').to_lowercase();
+        let named = ["error", "status", "http", "code"]
+            .iter()
+            .any(|w| before.ends_with(w))
+            || before.starts_with("http/");
+        named.then(|| code(pair[1])).flatten()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -790,6 +856,45 @@ mod tests {
             "Codex is not logged in — run `codex login` in a terminal"
         );
         assert_eq!(cli_failure("codex", "model not found"), "model not found");
+    }
+
+    #[test]
+    fn the_gist_of_an_error_is_what_its_status_means_or_its_first_sentence() {
+        let refused = r#"API Error: 403 {"error":{"type":"forbidden","message":"Request not allowed"}} · Please run /login"#;
+        assert_eq!(gist(refused), "the request was refused (403)");
+        assert_eq!(
+            gist("429 · Too many requests"),
+            "it is rate-limited or out of quota (429)"
+        );
+        assert_eq!(
+            gist("stream error: 401"),
+            "its key or sign-in was refused (401)"
+        );
+        // Three digits that are not a status say nothing of one.
+        assert_eq!(
+            gist("model gpt-4o-404 not found. Try another."),
+            "model gpt-4o-404 not found"
+        );
+        let long = "the configuration names a model this account cannot use, \
+                    and it says so at some length on one line";
+        let short = gist(long);
+        assert!(
+            short.ends_with('…') && short.chars().count() <= GIST + 1,
+            "{short}"
+        );
+        assert!(!short.contains("  "), "{short}");
+        assert_eq!(
+            gist("\n  it did not answer in 60s\n"),
+            "it did not answer in 60s"
+        );
+    }
+
+    #[test]
+    fn a_signed_out_claude_is_known_by_the_hint_at_the_end_of_a_long_error() {
+        let out = r#"{"type":"result","is_error":true,"result":"API Error: 403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}} · Please run /login"}"#;
+        let why = claude_said(out).unwrap().unwrap_err();
+        assert!(why.ends_with("Please run /login"), "{why}");
+        assert!(cli_failure("claude-code", &why).contains("not logged in"));
     }
 
     fn no_env(_: &str) -> Option<String> {

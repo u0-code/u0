@@ -83,6 +83,7 @@ fn main() {
                 KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
                 KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
                 KeyBinding::new("escape", sheet::Close, Some(sheet::CONTEXT)),
+                KeyBinding::new("shift-tab", desk::CycleMode, Some(desk::COMPOSER)),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 

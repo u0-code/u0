@@ -526,8 +526,10 @@ impl Desk {
             (None, Some(told)) => (ui::mark(faces, Mark::from_words(&told), 16.), told),
             (None, None) => (row_icon("plug"), "No brain chosen".to_owned()),
         };
-        let change = action(faces, "change-brain", "Change")
-            .on_click(cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, At::Aside, cx)));
+        let change =
+            action(faces, "change-brain", "Change").on_click(cx.listener(|this, _, window, cx| {
+                this.open_menu(Menu::Brains, At::Aside, window, cx);
+            }));
         row(
             Some(mark),
             label(faces, name),

@@ -40,11 +40,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, Entity, Focusable as _, MouseButton, Window, div, prelude::*, px};
+use gpui::{
+    Context, Entity, FocusHandle, Focusable as _, MouseButton, Window, div, prelude::*, px,
+};
 use tracing::warn;
 
 pub(crate) use self::{
-    brain_menu::{At, Menu, Picker},
+    brain_menu::{At, MODES, Menu, Picker},
+    composer::{CONTEXT as COMPOSER, CycleMode, Notice},
     watched::{Open, Watched},
 };
 use crate::{
@@ -159,6 +162,9 @@ pub struct Desk {
     pub(crate) sheet: Sheet,
     pub(crate) menu: Menu,
     pub(crate) menu_at: At,
+    /// Where the keyboard goes while a menu is open, so that its keys
+    /// steer the menu and not the line under it.
+    menu_focus: FocusHandle,
     /// What the brain menu is showing: the brain looked at, the models
     /// each offers, and a switch being checked.
     pub(crate) picker: Picker,
@@ -175,7 +181,7 @@ pub struct Desk {
     /// What is in the middle.
     pub(crate) page: Page,
     /// A line at the foot of the composer: what the desk just did or could not.
-    notice: Option<String>,
+    notice: Option<Notice>,
     last_tick: Instant,
     /// What the desk last made of her steps in the thread on screen.
     steps: OnScreen,
@@ -258,7 +264,7 @@ impl Desk {
             && let Err(e) = deployment.start()
         {
             warn!("could not start Ghost: {e:#}");
-            notice = Some(format!("Could not start Ghost: {e:#}"));
+            notice = Some(Notice::trouble(format!("Could not start Ghost: {e:#}")));
         }
         let providers = deployment.providers();
         let brain = deployment.brain();
@@ -325,6 +331,7 @@ impl Desk {
             sheet,
             menu: Menu::Closed,
             menu_at: At::Composer,
+            menu_focus: cx.focus_handle(),
             picker: Picker::default(),
             expanded: HashSet::new(),
             collapsed: HashSet::new(),
@@ -376,7 +383,7 @@ impl Desk {
                 }
             }
             if let Some(why) = daemon.refused.take() {
-                self.notice = Some(why);
+                self.notice = Some(Notice::trouble(why));
             }
         }
         if forgot {
@@ -385,11 +392,11 @@ impl Desk {
         if let Some(open) = &mut self.open {
             changed |= open.her.pump();
             if let Some(why) = open.her.refused.take() {
-                self.notice = Some(why);
+                self.notice = Some(Notice::trouble(why));
             }
         }
         if let Some(why) = self.solver.refused.take() {
-            self.notice = Some(why);
+            self.notice = Some(Notice::trouble(why));
         }
         if changed {
             self.sync_replies(cx);
@@ -482,7 +489,7 @@ impl Desk {
         if path.exists() {
             cx.reveal_path(path);
         } else {
-            self.notice = Some(format!("{} is not there.", path.display()));
+            self.notice = Some(Notice::trouble(format!("{} is not there.", path.display())));
             cx.notify();
         }
     }

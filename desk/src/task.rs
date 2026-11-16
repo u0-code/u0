@@ -8,7 +8,8 @@
 //! when every check holds, and says so.
 //!
 //! The form opens from the composer's Task mode, in place of the line you
-//! type into: what, one check per line, and how long it may take.
+//! type into: what, one check per line, and how long it may take; its
+//! buttons stand where send does.
 
 use std::fmt::Write as _;
 
@@ -197,97 +198,147 @@ impl Desk {
         cx.notify();
     }
 
-    /// The form, where the line you type into is while the mode is Task.
+    /// Add a check after the last, and type into it.
+    fn add_check(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let check = Form::check(window, cx);
+        check.focus_handle(cx).focus(window);
+        self.task.checks.push(check);
+        cx.notify();
+    }
+
+    /// The form, where the line you type into is while the mode is Task:
+    /// a line saying what a task is, then what, the checks and the time,
+    /// each under a label in one column, so that the fields line up.
     pub(crate) fn task_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let label = |text: &'static str| {
             ui::mono(faces, text)
+                .flex()
+                .flex_none()
+                .items_center()
+                .w(px(LABEL))
+                .h(px(FIELD))
                 .text_size(px(10.5))
                 .text_color(theme::faint())
-                .w(px(76.))
-                .flex_none()
-                .pt(px(6.))
         };
         let row = |name: &'static str, field: Div| {
             div()
                 .flex()
                 .items_start()
                 .gap(px(8.))
+                .py(px(2.))
                 .child(label(name))
                 .child(field.flex_1().min_w(px(0.)))
         };
         let mut checks = div().flex().flex_col();
-        for check in &self.task.checks {
-            checks = checks.child(check.clone());
+        for (i, check) in self.task.checks.iter().enumerate() {
+            checks = checks.child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(6.))
+                    .child(
+                        ui::mono(faces, (i + 1).to_string())
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .w(px(12.))
+                            .h(px(FIELD))
+                            .text_size(px(11.))
+                            .text_color(theme::faint()),
+                    )
+                    .child(div().flex_1().min_w(px(0.)).child(check.clone())),
+            );
         }
-        let name = self
-            .open
-            .as_ref()
-            .map_or_else(|| self.solver.name(), |o| o.her.name());
+        let add = div()
+            .id("task-add-check")
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .h(px(24.))
+            .ml(px(-4.))
+            .px(px(4.))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::hover()))
+            .child(ui::icon("plus", 11.).text_color(theme::faint()))
+            .child(
+                ui::text(faces, "Add a check")
+                    .text_size(px(12.))
+                    .text_color(theme::faint()),
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.add_check(window, cx)));
+        let name = self.speaking_to();
+        let rule = || div().h(px(1.)).bg(theme::border());
         div()
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .px(px(6.))
+            .px(px(4.))
             .pt(px(4.))
-            .child(
-                ui::text(
-                    faces,
-                    format!(
-                        "A task for {name}: taken on as work, and ended by {name} when every check holds."
-                    ),
-                )
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .pb(px(4.)),
-            )
-            .child(row("WHAT", div().child(self.task.what.clone())))
-            .child(row("DONE WHEN", checks))
-            .child(row("WITHIN", div().child(self.task.within.clone())))
+            .pb(px(6.))
             .child(
                 div()
                     .flex()
-                    .justify_end()
-                    .gap(px(6.))
-                    .pt(px(4.))
+                    .items_center()
+                    .gap(px(8.))
+                    .pb(px(6.))
                     .child(
-                        div()
-                            .id("task-cancel")
-                            .flex()
-                            .items_center()
-                            .h(px(26.))
-                            .px(px(10.))
-                            .rounded(px(7.))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(
-                                ui::text(faces, "Cancel")
-                                    .text_size(px(12.5))
-                                    .text_color(theme::muted()),
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.set_mode(Mode::Say, window, cx);
-                            })),
+                        ui::text(faces, "New task")
+                            .flex_none()
+                            .text_size(px(13.))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(theme::text()),
                     )
-                    .child(
-                        div()
-                            .id("task-give")
-                            .flex()
-                            .items_center()
-                            .h(px(26.))
-                            .px(px(12.))
-                            .rounded(px(7.))
-                            .cursor_pointer()
-                            .bg(theme::accent())
-                            .child(
-                                ui::text(faces, "Give task")
-                                    .text_size(px(12.5))
-                                    .text_color(theme::bg()),
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.give_task(cx))),
-                    ),
+                    .child(ui::one_line(
+                        ui::text(
+                            faces,
+                            format!(
+                                "{name} takes it on as work, and ends it when every check holds."
+                            ),
+                        )
+                        .text_size(px(12.))
+                        .text_color(theme::muted()),
+                    )),
+            )
+            .child(rule())
+            .child(row("WHAT", div().child(self.task.what.clone())))
+            .child(rule())
+            .child(row("DONE WHEN", checks.child(div().pl(px(18.)).child(add))))
+            .child(rule())
+            .child(row("WITHIN", div().child(self.task.within.clone())))
+            .child(rule())
+    }
+
+    /// Cancel, and Give task, where send is for the line: Give task can
+    /// be pressed once the task says what is to be done.
+    pub(crate) fn task_buttons(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let ready = !self.task.what.read(cx).is_empty();
+        let give = if ready {
+            ui::Weight::Primary
+        } else {
+            ui::Weight::Off
+        };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(4.))
+            .child(
+                ui::button(faces, "task-cancel", "Cancel", ui::Weight::Quiet)
+                    .tooltip(ui::tip("Back to the line · Esc"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.set_mode(Mode::Say, window, cx);
+                    })),
+            )
+            .child(
+                ui::button(faces, "task-give", "Give task", give)
+                    .on_click(cx.listener(|this, _, _, cx| this.give_task(cx))),
             )
     }
 }
+
+/// The width of the form's labels, and the height of one of its fields.
+const LABEL: f32 = 76.;
+const FIELD: f32 = 28.;
 
 #[cfg(test)]
 mod tests {

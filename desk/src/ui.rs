@@ -79,6 +79,99 @@ pub fn mark(faces: &Faces, mark: Mark, size: f32) -> AnyElement {
     }
 }
 
+/// A menu that opens over the page: a raised panel with a soft edge.
+/// Every menu of the desk is drawn on it, so that they all look alike.
+pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .occlude()
+        .flex()
+        .bg(theme::panel())
+        .border_1()
+        .border_color(theme::border2())
+        .rounded(px(12.))
+        .shadow_lg()
+        .overflow_hidden()
+}
+
+/// The quiet title over a menu's choices: "Mode", "Brain".
+pub fn menu_head(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    self::text(faces, text)
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .px(px(10.))
+        .pt(px(8.))
+        .pb(px(4.))
+}
+
+/// The key that picks a choice in a menu, at its right: "1", "Esc".
+pub fn key(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    mono(faces, text)
+        .flex_none()
+        .text_size(px(11.))
+        .text_color(theme::faint())
+}
+
+/// How much a button asks to be pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Weight {
+    /// The one that finishes what is on screen: a raised grey, its word
+    /// in full text and medium weight. The accent is kept for small
+    /// things (focus, the choice in use), never for a block of colour.
+    Primary,
+    /// Beside it: an outline.
+    Secondary,
+    /// A way out, such as Cancel: only its word.
+    Quiet,
+    /// A primary that cannot be pressed yet.
+    Off,
+}
+
+/// A button, the same everywhere in the desk: small corners, one height,
+/// and its weight said by its edge and its type rather than a fill.
+pub fn button(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    weight: Weight,
+) -> gpui::Stateful<Div> {
+    let word = text(faces, label).text_size(px(12.5));
+    let base = div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(28.))
+        .px(px(12.))
+        .rounded(px(6.));
+    match weight {
+        Weight::Primary => base
+            .cursor_pointer()
+            .bg(theme::border2())
+            .border_1()
+            .border_color(theme::ghost_line())
+            .hover(|s| s.bg(theme::ghost_line()))
+            .child(
+                word.font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(theme::text()),
+            ),
+        Weight::Secondary => base
+            .cursor_pointer()
+            .border_1()
+            .border_color(theme::border2())
+            .hover(|s| s.bg(theme::hover()))
+            .child(word.text_color(theme::text2())),
+        Weight::Quiet => base
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::hover()))
+            .child(word.text_color(theme::muted())),
+        Weight::Off => base.border_1().border_color(theme::border()).child(
+            word.font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(theme::faint()),
+        ),
+    }
+}
+
 /// A short note shown on hover, for `.tooltip`.
 pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();

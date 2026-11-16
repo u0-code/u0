@@ -100,6 +100,28 @@ impl Provider {
         }
     }
 
+    /// What it is, in a few words, for a menu: the program it runs here,
+    /// or the host its API is on; or why this machine cannot run it.
+    pub fn about(&self) -> String {
+        if let Some(why) = &self.blocker {
+            return why.clone();
+        }
+        if let Some(program) = &self.program {
+            return format!("runs {program} here");
+        }
+        let base = self
+            .base_url
+            .as_deref()
+            .or_else(|| self.preset().map(|p| p.base_url))
+            .unwrap_or_default();
+        let (_, host) = brains::authority(base);
+        if host.is_empty() {
+            self.kind.clone()
+        } else {
+            host
+        }
+    }
+
     /// How it is spoken of: the CLI, or the model.
     pub fn label(&self) -> String {
         match self.kind.as_str() {
