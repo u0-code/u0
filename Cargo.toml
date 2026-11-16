@@ -1,5 +1,7 @@
 [workspace]
 resolver = "3"
+# The desktop app is its own workspace: GPUI is a large, macOS-first tree.
+exclude = ["crates/ghost-desk"]
 members = [
     "crates/ghost-core",
     "crates/ghost-net",
