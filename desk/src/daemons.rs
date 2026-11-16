@@ -104,6 +104,13 @@ impl Daemon {
         }
     }
 
+    /// Ask it again now who it runs, if it is being asked at all.
+    pub fn retry(&self) {
+        if let Some(listing) = &self.listing {
+            listing.retry();
+        }
+    }
+
     /// Take in what its listing has learned. Says whether anything did.
     pub fn pump(&mut self) -> bool {
         let Some(listing) = &self.listing else {

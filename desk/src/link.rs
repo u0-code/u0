@@ -34,7 +34,20 @@ use crate::model::{Entry, LinkState, PersonView, Status, Update};
 pub const TAIL: u32 = 400;
 /// How often it asks after her, and after who a daemon runs, again.
 const REFRESH: Duration = Duration::from_secs(20);
+/// The first wait before trying a lost daemon again; it doubles on each
+/// failure up to `RETRY_MOST`, so a daemon that is down for the night is
+/// not knocked on every three seconds. Asking to retry now skips the wait.
 const RETRY: Duration = Duration::from_secs(3);
+const RETRY_MOST: Duration = Duration::from_secs(30);
+
+/// Wait out `wait`, or less if someone asks to try again now; then the next
+/// wait, doubled up to the most. Asked to try now, the wait starts over.
+async fn back_off(wait: &mut Duration, wake: &tokio::sync::Notify) {
+    tokio::select! {
+        () = tokio::time::sleep(*wait) => *wait = (*wait * 2).min(RETRY_MOST),
+        () = wake.notified() => *wait = RETRY,
+    }
+}
 
 /// The channel name the desk registers as.
 pub const CHANNEL: &str = "desk";
@@ -78,20 +91,29 @@ pub struct Link {
     /// Where what you say goes, once the desk speaks to her.
     lines: Option<tokio::sync::mpsc::UnboundedSender<Outgoing>>,
     tasks: Vec<JoinHandle<()>>,
+    /// Rung to try a lost daemon again at once.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 impl Link {
     /// Watch the ghost `cfg` names: ask about her, and follow her journal.
     pub fn watch(cfg: Config) -> Self {
         let (up, rx) = mpsc::channel();
-        let console = runtime().spawn(console(cfg.clone(), up.clone()));
+        let wake = Arc::new(tokio::sync::Notify::new());
+        let console = runtime().spawn(console(cfg.clone(), up.clone(), wake.clone()));
         Self {
             rx,
             up,
             cfg,
             lines: None,
             tasks: vec![console],
+            wake,
         }
+    }
+
+    /// Try the daemon again now, if it is lost, instead of after the wait.
+    pub fn retry(&self) {
+        self.wake.notify_one();
     }
 
     /// Carry what you say to her from now on, by registering the desk's
@@ -144,6 +166,7 @@ impl Drop for Link {
 pub struct Listing {
     pub rx: mpsc::Receiver<Update>,
     task: JoinHandle<()>,
+    wake: Arc<tokio::sync::Notify>,
 }
 
 impl Listing {
@@ -151,22 +174,34 @@ impl Listing {
     /// connecting again when it goes away.
     pub fn follow(url: String, token: Option<String>) -> Self {
         let (up, rx) = mpsc::channel();
+        let wake = Arc::new(tokio::sync::Notify::new());
+        let woken = wake.clone();
         let task = runtime().spawn(async move {
+            let mut wait = RETRY;
             loop {
                 match ghost_link::list(&url, token.clone()).await {
                     Ok(roster) => {
+                        wait = RETRY;
                         let _ = up.send(Update::Link(LinkState::Connected));
                         let _ = up.send(Update::Roster(roster.ghosts));
-                        tokio::time::sleep(REFRESH).await;
+                        tokio::select! {
+                            () = tokio::time::sleep(REFRESH) => {}
+                            () = woken.notified() => {}
+                        }
                     }
                     Err(e) => {
                         let _ = up.send(Update::Link(LinkState::Lost(format!("{e:#}"))));
-                        tokio::time::sleep(RETRY).await;
+                        back_off(&mut wait, &woken).await;
                     }
                 }
             }
         });
-        Self { rx, task }
+        Self { rx, task, wake }
+    }
+
+    /// Ask the daemon again now, instead of after the wait.
+    pub fn retry(&self) {
+        self.wake.notify_one();
     }
 }
 
@@ -179,7 +214,8 @@ impl Drop for Listing {
 /// The console role: connect, ask everything once, then follow her journal
 /// as it is written and ask again now and then. Reconnects when the daemon
 /// goes away.
-async fn console(cfg: Config, up: mpsc::Sender<Update>) {
+async fn console(cfg: Config, up: mpsc::Sender<Update>, wake: Arc<tokio::sync::Notify>) {
+    let mut wait = RETRY;
     loop {
         let _ = up.send(Update::Link(LinkState::Connecting));
         match session(&cfg, &up).await {
@@ -192,7 +228,7 @@ async fn console(cfg: Config, up: mpsc::Sender<Update>) {
                 let _ = up.send(Update::Link(LinkState::Lost(format!("{e:#}"))));
             }
         }
-        tokio::time::sleep(RETRY).await;
+        back_off(&mut wait, &wake).await;
     }
 }
 

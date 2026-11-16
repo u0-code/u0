@@ -17,11 +17,10 @@ use gpui::{
 
 use crate::{
     brains::Mark,
-    desk::{At, Desk, Menu, Open, RIGHT},
+    desk::{At, Desk, Menu, Open, RIGHT, Watched},
     fonts::Faces,
-    model::LinkState,
+    model::{LinkState, Reach, reason},
     settings::Session,
-    sidebar::link_color,
     theme,
     thread::{self, Output, Source, State, Task},
     ui,
@@ -140,38 +139,222 @@ fn state_of(state: WorkState) -> State {
     }
 }
 
-/// The daemon: what the desk calls it, how the link to it stands, where it
-/// is, and why it cannot be reached when it cannot.
-fn daemon_row(faces: &Faces, name: &str, url: &str, link: &LinkState) -> Div {
-    let host = url
-        .trim_start_matches("ws://")
-        .trim_start_matches("wss://")
-        .to_owned();
-    let word = match link {
-        LinkState::Connected => "connected",
-        LinkState::Connecting => "connecting",
-        LinkState::Lost(_) => "unreachable",
+/// Whose daemon a connection card is for, so its buttons know what to do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Whose {
+    /// The solver's: on this machine, the core the desk looks after.
+    Solver,
+    /// The open character's.
+    Hers,
+}
+
+/// How a link stands, in a small pill: a dot when it is up, a ring while
+/// it is not. Down is grey, not red: it is a state to act on, and the card
+/// says why and what to do.
+fn pill(faces: &Faces, link: &LinkState, reach: &Reach) -> AnyElement {
+    let (word, color, up) = match (link, &reach.why) {
+        (LinkState::Connected, _) => ("online", theme::green(), true),
+        (LinkState::Connecting, None) => ("connecting", theme::muted(), false),
+        (LinkState::Connecting, Some(_)) => ("retrying", theme::muted(), false),
+        (LinkState::Lost(_), _) => ("offline", theme::faint(), false),
     };
-    let mut r = row_with(
-        Some(row_icon("server")),
-        label(faces, name.to_owned()),
-        Some(value(faces, word, link_color(link))),
-        under(faces, host),
-    );
-    if let LinkState::Lost(why) = link {
-        r = r.child(
-            ui::text(faces, why.clone())
-                .text_size(px(12.))
-                .line_height(px(17.))
-                .text_color(theme::coral())
-                .pl(px(ICON_ROOM))
-                .pt(px(2.)),
-        );
+    let mark = if up {
+        ui::dot(color).size(px(7.))
+    } else {
+        div()
+            .flex_none()
+            .size(px(7.))
+            .rounded_full()
+            .border_1()
+            .border_color(color)
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .h(px(20.))
+        .px(px(8.))
+        .rounded_full()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::well())
+        .child(mark)
+        .child(ui::mono(faces, word).text_size(px(11.)).text_color(if up {
+            theme::text2()
+        } else {
+            theme::muted()
+        }))
+        .into_any_element()
+}
+
+/// A button in a card: an outline, an icon and what it does.
+fn button(faces: &Faces, id: String, icon: &str, text: &'static str) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(id))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .h(px(24.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::border2())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(ui::icon(icon, 13.).text_color(theme::muted()))
+        .child(
+            ui::text(faces, text)
+                .text_size(px(12.5))
+                .text_color(theme::text2()),
+        )
+}
+
+/// The small print under a daemon's name: where it is, and for how long
+/// it has been up or down.
+fn reach_line(host: &str, link: &LinkState, reach: &Reach) -> String {
+    let span = thread::span(i64::try_from(reach.since.elapsed().as_secs()).unwrap_or(i64::MAX));
+    match link {
+        LinkState::Connected => format!("{host} · up {span}"),
+        _ if reach.why.is_none() => host.to_owned(),
+        _ if reach.ever => format!("{host} · down {span}"),
+        _ => format!("{host} · never reached"),
     }
-    r
 }
 
 impl Desk {
+    /// A daemon's connection, as a card: what the desk calls it, a pill
+    /// for how it stands, where it is and for how long. While it cannot be
+    /// reached, why, in words, and what can be done: try again now, start
+    /// the core when it is the one on this machine, and the error itself
+    /// under Details.
+    fn daemon_card(
+        &self,
+        faces: &Faces,
+        whose: Whose,
+        name: &str,
+        url: &str,
+        watched: &Watched,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let host = url
+            .trim_start_matches("ws://")
+            .trim_start_matches("wss://")
+            .trim_end_matches('/')
+            .to_owned();
+        let (link, reach) = (&watched.link, &watched.reach);
+        let card = row_with(
+            Some(row_icon("server")),
+            label(faces, name.to_owned()),
+            Some(pill(faces, link, reach)),
+            under(faces, reach_line(&host, link, reach)),
+        );
+        let Some(why) = reach.why.as_ref().filter(|_| *link != LinkState::Connected) else {
+            return card;
+        };
+        let tag = match whose {
+            Whose::Solver => "solver",
+            Whose::Hers => "hers",
+        };
+        let key = format!("link:{url}");
+        let open = self.expanded.contains(&key);
+        let retrying = *link == LinkState::Connecting;
+        let tries = match reach.tries {
+            1 => "Tried once".to_owned(),
+            n => format!("Tried {n} times"),
+        };
+        let next = if retrying {
+            "trying again now"
+        } else {
+            "trying again on its own"
+        };
+        let retry = button(faces, format!("{tag}-retry"), "retry", "Retry now").on_click(
+            cx.listener(move |this, _, _, cx| match whose {
+                Whose::Solver => this.retry_solver(cx),
+                Whose::Hers => this.retry_her(cx),
+            }),
+        );
+        let start = (whose == Whose::Solver && self.core_is_local()).then(|| {
+            let word = if self.deployment.started() {
+                "Restart core"
+            } else {
+                "Start core"
+            };
+            button(faces, format!("{tag}-start"), "power", word)
+                .on_click(cx.listener(|this, _, _, cx| this.start_core(cx)))
+        });
+        let details = div()
+            .id(SharedString::from(format!("{tag}-details")))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(3.))
+            .h(px(24.))
+            .px(px(4.))
+            .cursor_pointer()
+            .child(
+                ui::text(faces, "Details")
+                    .text_size(px(12.5))
+                    .text_color(theme::muted()),
+            )
+            .child(
+                ui::icon(
+                    if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    },
+                    11.,
+                )
+                .text_color(theme::faint()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)));
+        card.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .pl(px(ICON_ROOM))
+                .pt(px(6.))
+                .pb(px(2.))
+                .child(
+                    ui::text(faces, reason(why, &host))
+                        .text_size(px(13.))
+                        .line_height(px(18.))
+                        .text_color(theme::text2()),
+                )
+                .child(
+                    ui::mono(faces, format!("{tries} · {next}"))
+                        .text_size(px(11.5))
+                        .text_color(theme::faint()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(retry)
+                        .children(start)
+                        .child(details),
+                )
+                .when(open, |d| {
+                    d.child(
+                        ui::mono(faces, why.clone())
+                            .text_size(px(11.))
+                            .line_height(px(16.))
+                            .text_color(theme::muted())
+                            .p(px(8.))
+                            .rounded(px(6.))
+                            .bg(theme::well())
+                            .border_1()
+                            .border_color(theme::border()),
+                    )
+                }),
+        )
+    }
+
     pub(crate) fn right(&self, faces: &Faces, cx: &mut Context<Self>) -> AnyElement {
         let column = div()
             .id("aside")
@@ -185,7 +368,7 @@ impl Desk {
             .border_color(theme::border());
         if let Some(open) = &self.open {
             let work = &open.her.work;
-            let environment = her_environment(faces, open);
+            let environment = self.her_environment(faces, open, cx);
             let body = self.her_work(faces, work, cx);
             return column
                 .child(self.section(faces, "Environment", None, None, environment, cx))
@@ -328,11 +511,13 @@ impl Desk {
             .flex()
             .flex_col()
             .child(self.machine_row(faces, cx))
-            .child(daemon_row(
+            .child(self.daemon_card(
                 faces,
+                Whose::Solver,
                 "Daemon",
                 &self.settings.solver_url,
-                &self.solver.link,
+                &self.solver,
+                cx,
             ))
             .child(self.brain_row(faces, cx))
             .child(row(
@@ -521,42 +706,46 @@ impl Desk {
     }
 }
 
-/// Where she is: her daemon and its link, her clock and her city, and the
-/// brain she thinks with, as her daemon says.
-fn her_environment(faces: &Faces, open: &Open) -> Div {
-    let status = open.her.status.as_ref();
-    let dash = || "—".to_owned();
-    div()
-        .flex()
-        .flex_col()
-        .child(daemon_row(
-            faces,
-            open.host.label(),
-            &open.url,
-            &open.her.link,
-        ))
-        .child(row_with(
-            Some(row_icon("ghost")),
-            label(faces, "Her clock"),
-            Some(value(
+impl Desk {
+    /// Where she is: her daemon and its link, her clock and her city, and
+    /// the brain she thinks with, as her daemon says.
+    fn her_environment(&self, faces: &Faces, open: &Open, cx: &mut Context<Self>) -> Div {
+        let status = open.her.status.as_ref();
+        let dash = || "—".to_owned();
+        div()
+            .flex()
+            .flex_col()
+            .child(self.daemon_card(
                 faces,
-                status.map_or_else(dash, crate::model::Status::hhmm),
-                theme::text(),
-            )),
-            under(faces, status.map_or_else(dash, |s| s.city.clone())),
-        ))
-        .child({
-            let think = status.map(|s| s.think.clone()).filter(|t| !t.is_empty());
-            let mark = think.as_deref().map_or_else(
-                || row_icon("plug"),
-                |t| ui::mark(faces, Mark::from_words(t), 16.),
-            );
-            row(
-                Some(mark),
-                label(faces, "Brain"),
-                Some(value(faces, think.unwrap_or_else(dash), theme::muted())),
-            )
-        })
+                Whose::Hers,
+                open.host.label(),
+                &open.url,
+                &open.her,
+                cx,
+            ))
+            .child(row_with(
+                Some(row_icon("ghost")),
+                label(faces, "Her clock"),
+                Some(value(
+                    faces,
+                    status.map_or_else(dash, crate::model::Status::hhmm),
+                    theme::text(),
+                )),
+                under(faces, status.map_or_else(dash, |s| s.city.clone())),
+            ))
+            .child({
+                let think = status.map(|s| s.think.clone()).filter(|t| !t.is_empty());
+                let mark = think.as_deref().map_or_else(
+                    || row_icon("plug"),
+                    |t| ui::mark(faces, Mark::from_words(t), 16.),
+                );
+                row(
+                    Some(mark),
+                    label(faces, "Brain"),
+                    Some(value(faces, think.unwrap_or_else(dash), theme::muted())),
+                )
+            })
+    }
 }
 
 /// A piece of her work: where it stands, its brief, how far it has gone
