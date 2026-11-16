@@ -123,8 +123,6 @@ pub enum Weight {
     Secondary,
     /// A way out, such as Cancel: only its word.
     Quiet,
-    /// A primary that cannot be pressed yet.
-    Off,
 }
 
 /// A button, the same everywhere in the desk: small corners, one height,
@@ -165,10 +163,6 @@ pub fn button(
             .cursor_pointer()
             .hover(|s| s.bg(theme::hover()))
             .child(word.text_color(theme::muted())),
-        Weight::Off => base.border_1().border_color(theme::border()).child(
-            word.font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(theme::faint()),
-        ),
     }
 }
 

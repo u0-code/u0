@@ -7,7 +7,7 @@
 //! own (`cards.rs`). While she thinks, what she does shows as she does it.
 //! Everything of hers starts after the gutter her mark sits in.
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px, relative};
@@ -39,7 +39,13 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         return empty(view, faces, cx);
     }
     let waiting = waiting_since(&items);
-    let marks = directed(view.journal);
+    // At a console every line of yours is an operator's, so none is marked
+    // as one; on a platform the marked lines are worth telling apart.
+    let marks = if thread_key(view.place).starts_with("console:") {
+        HashMap::new()
+    } else {
+        directed(view.journal)
+    };
     let mut column = div().flex().flex_col().w_full().max_w(px(COLUMN)).mx_auto();
 
     // What you said last, and when: a failure offers to say it again.

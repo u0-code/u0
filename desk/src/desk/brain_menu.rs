@@ -4,10 +4,6 @@
 //! the one looked at on the right; a model is chosen in one click, brain
 //! and all.
 //!
-//! The composer's Mode menu is drawn here too, on the same panel: a
-//! menu is one thing to open, close and steer from the keyboard, whatever
-//! it offers.
-//!
 //! Whether a brain can run here is asked when it is chosen, not shown in
 //! advance: it is asked to think once, as little as there is, the way the
 //! daemon would ask it (a CLI that answers for its version may still be
@@ -24,10 +20,7 @@ use gpui::{
     prelude::*, px,
 };
 
-use super::{
-    Desk, Mode,
-    composer::{Notice, mode_color},
-};
+use super::{Desk, composer::Notice};
 use crate::{
     brains::{self, Endpoint, Wire},
     fonts::Faces,
@@ -37,33 +30,12 @@ use crate::{
     theme, ui,
 };
 
-/// Which menu is open, if one is: the brain picker, or the composer's
-/// modes. Adding and editing a brain is done in the sheet (`sheet.rs`),
-/// never inside the picker.
+/// Which menu is open, if one is: the brain picker. Adding and editing a
+/// brain is done in the sheet (`sheet.rs`), never inside the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Menu {
     Closed,
     Brains,
-    Modes,
-}
-
-/// The ways of saying something, in the order the Mode menu offers them
-/// and Shift-Tab goes round them, with their names.
-pub(crate) const MODES: [(Mode, &str); 3] = [
-    (Mode::Say, "Say"),
-    (Mode::Directive, "Directive"),
-    (Mode::Task, "Task"),
-];
-
-/// What a mode does, in a line, to `name`.
-fn mode_about(mode: Mode, name: &str) -> String {
-    match mode {
-        Mode::Say => format!("Talk. {name} answers, and decides what to do."),
-        Mode::Directive => format!("An order from you as operator. {name} carries it out."),
-        Mode::Task => {
-            format!("A piece of work with its checks. {name} ends it when every one holds.")
-        }
-    }
 }
 
 /// The control the brain menu opened from. It is one menu, anchored to
@@ -151,8 +123,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// A key pressed while a menu is open: Esc closes it; in the Mode
-    /// menu a number picks a mode; in the brain menu up and down go
+    /// A key pressed while the menu is open: Esc closes it; up and down go
     /// between brains, a number picks a model, Return the brain looked at.
     fn menu_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keys = &event.keystroke;
@@ -166,12 +137,6 @@ impl Desk {
             .filter(|n| (1..=9).contains(n));
         match (self.menu, keys.key.as_str(), digit) {
             (_, "escape", _) => self.close_menu(window, cx),
-            (Menu::Modes, _, Some(n)) => {
-                if let Some((mode, ..)) = MODES.get(n - 1) {
-                    self.menu = Menu::Closed;
-                    self.set_mode(*mode, window, cx);
-                }
-            }
             (Menu::Brains, "up" | "down", _) => {
                 let at = self
                     .picker
@@ -523,16 +488,14 @@ impl Desk {
         if !self.menu_open_at(at) {
             return None;
         }
-        let panel = match self.menu {
-            Menu::Modes => self.mode_menu(faces, cx),
-            _ => self.brain_menu(faces, cx),
-        }
-        .track_focus(&self.menu_focus)
-        .on_key_down(cx.listener(Self::menu_key))
-        .on_mouse_down_out(cx.listener(|this, _, window, cx| {
-            this.picker.dismissed = Some((this.menu, this.menu_at, Instant::now()));
-            this.close_menu(window, cx);
-        }));
+        let panel = self
+            .brain_menu(faces, cx)
+            .track_focus(&self.menu_focus)
+            .on_key_down(cx.listener(Self::menu_key))
+            .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                this.picker.dismissed = Some((this.menu, this.menu_at, Instant::now()));
+                this.close_menu(window, cx);
+            }));
         Some(
             deferred(
                 anchored()
@@ -543,62 +506,6 @@ impl Desk {
             .with_priority(1)
             .into_any_element(),
         )
-    }
-
-    /// The Mode menu: each way of saying something, what it does, the key
-    /// that picks it, and a check on the one in use.
-    fn mode_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let name = self.speaking_to();
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .w(px(360.))
-            .p(px(4.))
-            .child(ui::menu_head(faces, "Mode"));
-        for (i, (mode, word)) in MODES.into_iter().enumerate() {
-            let on = self.mode == mode;
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("mode-{word}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(10.))
-                    .py(px(7.))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(theme::panel2()))
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .gap(px(1.))
-                            .child(
-                                ui::text(faces, word)
-                                    .text_size(px(13.5))
-                                    .text_color(mode_color(mode, true)),
-                            )
-                            .child(
-                                ui::text(faces, mode_about(mode, &name))
-                                    .text_size(px(12.))
-                                    .line_height(px(16.))
-                                    .text_color(theme::muted()),
-                            ),
-                    )
-                    .child(div().flex_none().w(px(14.)).when(on, |d| {
-                        d.child(ui::icon("check", 13.).text_color(theme::accent()))
-                    }))
-                    .child(ui::key(faces, (i + 1).to_string()).w(px(10.)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.menu = Menu::Closed;
-                        this.set_mode(mode, window, cx);
-                    })),
-            );
-        }
-        ui::menu("mode-menu").child(list)
     }
 
     /// The brain picker: the brains down the left, with a check on the one
