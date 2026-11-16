@@ -2931,7 +2931,7 @@ mod tests {
             calls(
                 "write",
                 json!({
-                    "path": "prompts/tools.toml",
+                    "path": "prompts/system/tools.toml",
                     "content": "[shell]\ndescription = \"Run it.\"\n\n[shell.parameters]\ncommand = \"What to run.\"\n",
                 }),
             ),
@@ -2973,14 +2973,14 @@ mod tests {
     async fn what_a_worker_is_told_comes_from_the_files_beside_it() {
         let dir = tempfile::tempdir().unwrap();
         let prompts = dir.path().join("elsewhere");
-        std::fs::create_dir_all(&prompts).unwrap();
+        std::fs::create_dir_all(prompts.join("system/work")).unwrap();
         std::fs::write(
-            prompts.join("work.md"),
+            prompts.join("system/work/work.md"),
             "{{who}}Work here: {{machine}}. {{budget}}",
         )
         .unwrap();
         std::fs::write(
-            prompts.join("work_texts.toml"),
+            prompts.join("system/work/texts.toml"),
             "no_call = \"Call a tool.\"\nbudget = \"{{steps}} steps.\"\n",
         )
         .unwrap();

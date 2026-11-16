@@ -83,13 +83,16 @@ gate = true
 # Hours between asking a channel how her posts are doing. 0 is never.
 measure_hours = 12
 # The deployment's directory of prompts, overriding the built-in ones for
-# every character this daemon runs: any of the files `ghostd prompts export`
-# writes. Everything in it is shared: the persona template, her being, the
-# logic of her day and her work. What makes a character herself is her
-# ghost.toml, and a ghost's own directory holds no prompts (ghostd warns
-# about any it finds there and does not use them). A changed file is taken
-# in without a restart; `ghostd prompts list` says where each prompt in use
-# comes from.
+# every character this daemon runs. It is laid out as prompts/ in the
+# repository is, system/ and character/, and holds any of the files
+# `ghostd prompts export` writes there: system/logic/attend.md overrides
+# system/logic/attend.md. A directory laid out flat, as before, is still
+# read, with a warning that says where each file now goes. Everything in it
+# is shared: the persona template, her being, the logic of her day and her
+# work. What makes a character herself is her ghost.toml, and a ghost's own
+# directory holds no prompts (ghostd warns about any it finds there and does
+# not use them). A changed file is taken in without a restart; `ghostd
+# prompts list` says where each prompt in use comes from.
 # prompts = "prompts"
 
 # Taking things on: work that needs more than one thought, done in sittings

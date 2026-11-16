@@ -1,0 +1,14 @@
+# Her moment (now.md): what she is doing as she reads.
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# What she is doing as she reads this. The words say how far her phone is
+# from her hand, which is what her day decides; never how willing she is.
+state_asleep = "You are asleep. It is the middle of your night; if you are reading this, something woke you."
+state_doing = "You are in the middle of: {{what}} (until {{until}}). {{reach}}"
+state_idle = "You are awake and nothing in particular is going on."
+reach_free = "Your phone is in your hand."
+reach_glance = "You pick your phone up between things."
+reach_busy = "You have stopped for a moment to look at your phone."
+reach_away = "You were away from your phone until just now."

@@ -136,6 +136,37 @@ impl Deployment {
         self.root.join("ghosts/solver")
     }
 
+    /// The solver's prompts, wherever `[mind] prompts` in its configuration
+    /// says, relative to the checkout as the daemon runs there. They belong
+    /// to the checkout, not to the copy the desk made of its configuration,
+    /// so when the directory that copy names has gone (they were in
+    /// `solver/prompts` before every prompt moved to `prompts/`), the
+    /// example's is written in its place.
+    pub fn prompts(&self) -> Option<PathBuf> {
+        let named = |path: &Path| -> Option<String> {
+            let text = std::fs::read_to_string(path).ok()?;
+            let doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+            doc.get("mind")?.get("prompts")?.as_str().map(str::to_owned)
+        };
+        let path = self.config();
+        let mine = named(&path)?;
+        if self.root.join(&mine).is_dir() {
+            return Some(self.root.join(mine));
+        }
+        let example = named(&self.root.join("solver/ghostd.example.toml"))?;
+        if example == mine || !self.root.join(&example).is_dir() {
+            return None;
+        }
+        let text = std::fs::read_to_string(&path).ok()?;
+        let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+        doc["mind"]["prompts"] = toml_edit::value(example.as_str());
+        match std::fs::write(&path, doc.to_string()) {
+            Ok(()) => info!("the solver's prompts are now read from {example}, not {mine}"),
+            Err(e) => warn!("could not write {}: {e}", path.display()),
+        }
+        Some(self.root.join(example))
+    }
+
     /// The daemon binary: `GHOSTD_BIN`, else the newer of the checkout's
     /// release and debug builds, else `ghostd` on PATH.
     pub fn ghostd(&self) -> PathBuf {
@@ -373,6 +404,11 @@ impl Deployment {
             return Ok(());
         }
         self.ensure_born()?;
+        if self.prompts().is_none() {
+            warn!(
+                "the solver's configuration names no prompts that are there: it runs on the built-in ones, as a character would"
+            );
+        }
         let child = Command::new(self.ghostd())
             .arg("run")
             .arg(self.ghost_dir())
@@ -481,6 +517,32 @@ mod tests {
         assert!(config.is_file());
         assert!(d.root.join("solver/ghostd.example.toml").is_file());
         assert_eq!(d.brain().as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn the_solvers_prompts_follow_the_example_when_the_directory_its_copy_names_has_gone() {
+        let d = checkout("prompts");
+        std::fs::create_dir_all(d.root.join("prompts/system/desk")).unwrap();
+        std::fs::write(
+            d.root.join("solver/ghostd.example.toml"),
+            "[mind]\nprompts = \"prompts/system/desk\"\n",
+        )
+        .unwrap();
+        // A copy made when the prompts were in solver/prompts.
+        std::fs::write(
+            d.root.join("solver/ghostd.toml"),
+            "# mine\n[mind]\nprompts = \"solver/prompts\"\ntempo = 0.05\n",
+        )
+        .unwrap();
+        assert_eq!(d.prompts(), Some(d.root.join("prompts/system/desk")));
+        let text = std::fs::read_to_string(d.config()).unwrap();
+        assert!(text.contains("prompts = \"prompts/system/desk\""), "{text}");
+        assert!(
+            text.contains("# mine") && text.contains("tempo = 0.05"),
+            "{text}"
+        );
+        // Where it is, it is left as it is.
+        assert_eq!(d.prompts(), Some(d.root.join("prompts/system/desk")));
     }
 
     #[test]

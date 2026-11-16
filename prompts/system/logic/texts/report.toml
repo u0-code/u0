@@ -1,0 +1,39 @@
+# Her daily report to an operator (report.md).
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# What she comes to mean to do at `[operators] report` each day, for each
+# operator she has a private conversation with: the intention's own words,
+# kept in her journal. {{name}} is the operator's.
+report_what = "tell {{name}} what you have been up to since you last did"
+# Where what she reports on starts: her last report to them, or, before
+# the first, when she woke. {{when}} is as she remembers it.
+report_since_last = "Since you last told them, {{when}}:"
+report_since_first = "Since {{when}} (you have not told them before):"
+# Each kind of thing she did since, under a heading of its own; only when
+# there is some. {{lines}} are the lines below, the newest few, oldest first.
+report_searched = "\nWhat you looked up and opened:\n{{lines}}\n"
+report_kept = "\nWhat you kept, with your note on it. The number is how `send_file` hands it over:\n{{lines}}\n"
+report_work = "\nWork that ended, or that told you something on the way:\n{{lines}}\n"
+report_feeds = "\nWhat you took away from scrolling, and what you posted:\n{{lines}}\n"
+report_people = "\nPeople you heard from for the first time:\n{{lines}}\n"
+report_talked = "\nWhere you talked, and how much. Only that: what was said is not here.\n{{lines}}\n"
+# One line of each kind.
+report_looked_up = "- searched for \"{{query}}\""
+report_opened = "- opened {{url}}"
+report_kept_line = "- #{{thing}}: {{note}}"
+# {{how}} is `how_finished`, `how_blocked` or `how_gave_up`.
+report_concluded = "- \"{{brief}}\": {{how}}. {{summary}}"
+report_told = "- \"{{brief}}\" told you: {{text}}"
+report_saw = "- scrolling {{channel}}: {{text}}"
+report_posted = "- you posted on {{channel}}: {{text}}"
+report_met = "- {{name}}, on {{channel}}"
+report_talked_line = "- {{place}}: {{heard}} from them, {{said}} from you"
+# Under a kind, when there were more of it than are shown.
+report_more = "- and {{count}} more before these"
+# Under a kind, for what came of someone else's private conversation: it is
+# counted and never shown, because it is theirs.
+report_private = "- and {{count}} for someone in a private conversation, which is theirs and not listed"
+# When nothing at all is on record since.
+report_nothing = "Nothing is on record since then.\n"

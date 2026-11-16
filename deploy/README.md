@@ -38,8 +38,10 @@ Her directory holds what is hers alone: her persona in `ghost.toml`, her
 avatar in `assets/`, and what she has lived. How she works is the same for
 every character and is not kept there. If you change any of the words her
 brain is given, export them with `ghostd prompts export /etc/ghost/prompts
---only <file>`, edit them there, and set `prompts = "/etc/ghost/prompts"`
-under `[mind]` in `ghostd.toml`. `ghostd` warns about prompts it finds in her
+--only <file>`, where the file is its path in the tree, such as
+`system/logic/attend.md`; edit them there, and set
+`prompts = "/etc/ghost/prompts"` under `[mind]` in `ghostd.toml`. The
+directory is laid out as [`prompts/`](../prompts/README.md) is. `ghostd` warns about prompts it finds in her
 directory, and does not use them.
 
 ```bash

@@ -48,8 +48,9 @@ struct Args {
     /// command-line agent serve her tools.
     #[arg(long, default_value = "main")]
     id: String,
-    /// A directory of prompts: `work.md`, `work_texts.toml` and
-    /// `tools.toml`, or any of them. What is built in is used for anything
+    /// A directory of prompts laid out as `prompts/` is:
+    /// `system/work/work.md`, `system/work/texts.toml` and
+    /// `system/tools.toml`, or any of them. What is built in is used for anything
     /// it does not have. A file changed while the work runs is taken in at
     /// the next step. Nothing in `--state` is read as a prompt: when a ghost
     /// has her tools served, that is her own directory, and how she works

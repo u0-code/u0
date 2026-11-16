@@ -18,7 +18,7 @@ ghostd status <dir>    who she is, what she is doing, what is     (reads the dir
 ghostd journal <dir>   tail of her journal                        (reads the directory)
 ghostd verify <dir>    chain check                                (reads the directory)
 ghostd brains --probe  ask each configured brain for one word
-ghostd prompts list         each prompt's layer and where it comes from
+ghostd prompts list         each prompt's file, layer and where it comes from
 ghostd prompts export       copy the built-in prompts to change
 ghostd prompts update       bring unedited copies up to this build
 
@@ -84,21 +84,24 @@ requires no token.
 
 ## Prompts
 
-Everything her brain reads that is not her persona or her journal is a file,
-in one of four layers, and every layer is shared by every character:
+Everything her brain reads that is not her persona or her journal is a file
+in [`prompts/`](../../prompts/README.md), one tree split in two:
+`character/` is how her own `ghost.toml` is turned into prose, and
+`system/` is how Ghost works. Every file is shared by every character, and
+belongs to one of four layers:
 
 | layer   | files | what it is |
 |---------|-------|------------|
-| persona | `persona.md` | the template that arranges her own fields from `ghost.toml` into prose, and nothing else |
-| being   | `being.md` | what she is, a person made of language; whose word counts; the ground rules |
-| logic   | `attend.md`, `now.md`, `plan.md`, … and `texts.toml` | how a conversation and her day go |
-| work    | `working.md`, `work.md`, `work_texts.toml`, `tools.toml` | how a piece of work goes, and what every tool is |
+| persona | `character/persona.md`, `character/texts.toml` | the template that arranges her own fields from `ghost.toml` into prose, and nothing else |
+| being   | `system/being.md` | what she is, a person made of language; whose word counts; the ground rules |
+| logic   | `system/logic/attend.md`, `now.md`, `plan.md`, … and `system/logic/texts/*.toml` | how a conversation and her day go |
+| work    | `system/work/working.md`, `work.md`, `texts.toml`, and `system/tools.toml` | how a piece of work goes, and what every tool is |
 
-Her system prompt is `persona.md` then `being.md`, filled in; `being.md` ends
-with what is true of her life, from her journal. What makes one character
-herself, her name, temperament, voice, examples, story, values and past, is
-her `ghost.toml` alone, so swapping her for another character changes that
-file and nothing here.
+Her system prompt is `character/persona.md` then `system/being.md`, filled
+in; `being.md` ends with what is true of her life, from her journal. What
+makes one character herself, her name, temperament, voice, examples, story,
+values and past, is her `ghost.toml` alone, so swapping her for another
+character changes that file and nothing here.
 
 Each file is looked for in two places, and the first that has it wins:
 
@@ -106,18 +109,28 @@ Each file is looked for in two places, and the first that has it wins:
    set;
 2. what is built into the binary.
 
-The directory is flat: a file is found by its name, whatever its layer.
+The directory is laid out as `prompts/` is: `system/logic/attend.md`
+there stands for `system/logic/attend.md` in the tree, and it holds only
+the files you change. A directory laid out the old way, flat, with every
+file at its top under its own name (`attend.md`, `texts.toml`,
+`work_texts.toml`, …), is still read, file by file, and the tree wins over
+it; `ghostd` warns about it once, and says where each of its files belongs
+now. `texts.toml` is now a file per feature, so for it the warning names
+the file each of its texts goes to.
 
 A ghost's own directory holds no prompts. If `<dir>/prompts/` has any of
-these files, `ghostd run` says so once at start, names them, and does not use
-them: move them to the deployment's directory to use them for every
-character. A copy of `self.md`, which earlier builds read, is named the same
-way: it is now `persona.md` and `being.md`.
+these files, laid out either way, `ghostd run` says so once at start, names
+them, and does not use them: move them to the deployment's directory to use
+them for every character. A copy of `self.md`, which earlier builds read, is
+named the same way: it is now `character/persona.md` and `system/being.md`.
 
-`texts.toml`, `work_texts.toml` and `tools.toml` are merged one entry at a
-time, so an override need only carry the texts or tools it changes. A tool
-said differently in one loop has a table for it, `[keep.conversation]` or
-`[keep.work]`. A running daemon looks at the files every couple of seconds at
+Files of texts and `system/tools.toml` are merged one entry at a time, so
+an override need only carry the texts or tools it changes. The mind's texts
+are one table, kept in `system/logic/texts/` and `character/texts.toml` a
+file per feature: a text may be overridden in any file of its table, and one
+that two files of the directory both have is warned about, the first of them
+winning. A tool said differently in one loop has a table for it,
+`[keep.conversation]` or `[keep.work]`. A running daemon looks at the files every couple of seconds at
 most, as she wakes, and work looks before each step, taking in any that
 changed: no restart. A file that is removed gives way to the next place; one
 that cannot be read or does not parse is warned about, and what was in use
@@ -127,18 +140,34 @@ Each command works on the deployment's directory: the one it is given, or
 else `[mind] prompts` in `ghostd.toml` (`--config` names that file).
 
 ```
-ghostd prompts export                         write the built-ins into the directory
-ghostd prompts export --only attend.md        only the files you mean to change
-ghostd prompts export --force                 and overwrite what is already there
-ghostd prompts export /etc/ghost/prompts      into a directory named here instead
-ghostd prompts list                           each prompt, text and tool: its layer,
-                                              where it comes from; "changed" if it is
-                                              not the built-in, "behind" if the
-                                              built-in moved on since
-ghostd prompts update                         replace copies nobody edited with this
-                                              build's built-ins; leave edited ones be
-ghostd prompts update --looked-at attend.md   say an edited copy has been brought up
-                                              to date by hand
+ghostd prompts export                            write the built-ins into the directory
+ghostd prompts export --only system/logic/attend.md
+                                                 only the files you mean to change
+ghostd prompts export --only character           or a directory of the tree
+ghostd prompts export --force                    and overwrite what is already there
+ghostd prompts export /etc/ghost/prompts         into a directory named here instead
+ghostd prompts list                              each prompt, text and tool: its layer,
+                                                 its file in the tree, where it comes
+                                                 from; "changed" if it is not the
+                                                 built-in, "behind" if the built-in
+                                                 moved on since
+ghostd prompts update                            replace copies nobody edited with this
+                                                 build's built-ins; leave edited ones be
+ghostd prompts update --looked-at system/logic/attend.md
+                                                 say an edited copy has been brought up
+                                                 to date by hand
+```
+
+`list` prints a line for each template, and for each text and tool under
+the file the built-in keeps it in:
+
+```
+persona  character/persona.md                                              built-in
+persona  character/texts.toml examples                                     built-in
+being    system/being.md                                          changed  deployment /etc/ghost/prompts/system/being.md
+logic    system/logic/attend.md                                            built-in
+logic    system/logic/texts/addressed.toml fact_note                       built-in
+work     system/tools.toml say                                             built-in
 ```
 
 `export` never overwrites a file unless told to, and says what it wrote and
@@ -146,7 +175,9 @@ what it left. Export only what you mean to change: a copy keeps its text when
 the built-in improves.
 
 Beside the copies, `export` writes `.exported.toml`, a note of the built-in
-each was copied from. At startup `ghostd run` warns about every copy, or
+each was copied from, by its path in the tree; a note written when the
+copies were flat is still read under their old names, so copies moved into
+the tree keep it. At startup `ghostd run` warns about every copy, or
 every entry of a `.toml` copy, whose built-in has changed since, and names
 the placeholders the built-in fills in that the copy lacks. `update` then
 follows the upgrade for copies nobody edited, and leaves edited ones, and

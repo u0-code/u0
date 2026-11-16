@@ -12,7 +12,7 @@
 # A tool worth telling her she has carries an `ability`: what having it lets
 # her do, in a few words. Those of the tools she is offered in a
 # conversation are listed in what she is told about herself, under the
-# framing `abilities` in texts.toml.
+# framing `abilities` in system/logic/texts/abilities.toml.
 #
 # An override need only carry what it changes. A tool or an argument left
 # out keeps its words from the next source.
@@ -121,7 +121,8 @@ description = "Let go of something you kept and no longer want, so that it stops
 thing = "Its number, as recall showed it."
 
 # Offered only when she can take things on. {{means}} is how she would do
-# it: the text `means_machine` or `means_desk` in texts.toml.
+# it: the text `means_machine` or `means_desk` in
+# system/logic/texts/abilities.toml.
 [undertake]
 ability = "take on something bigger as a piece of work, done in your own time, and come back with what came of it"
 description = """\
@@ -380,8 +381,8 @@ all = "Replace every occurrence instead of requiring exactly one."
 # calls for one. Finding and installing are things she sets out to do, so
 # they belong to work; loading what she has belongs to both loops.
 #
-# `{{servers}}` in `load_tools` is one `server_line` (work_texts.toml) for
-# each server she has.
+# `{{servers}}` in `load_tools` is one `server_line`, in
+# system/work/texts.toml, for each server she has.
 
 [find_tools]
 ability = "add new tools to yourself, made by others: a real browser, the tools of a site, makers of pictures or video. You do it by taking it on with `undertake`; the work searches a registry of tools and installs what fits, and from then on you have it. So when something calls for what you cannot do yet, the answer is to take that on, not that you cannot"
@@ -434,8 +435,8 @@ server = "The server, by the name before the colon in the list."
 # reads the rest only when it fits, because the rest costs thousands of
 # tokens and most moments need none of it.
 #
-# `{{skills}}` in `use_skill` is one `skill_line` (work_texts.toml) for
-# each skill she has.
+# `{{skills}}` in `use_skill` is one `skill_line`, in
+# system/work/texts.toml, for each skill she has.
 
 [find_skills]
 ability = "add skills to yourself: procedures others have written down for a kind of job, such as filling a PDF form, building a slide deck or a spreadsheet, testing a web app. You do it by taking it on with `undertake`; the work searches an index of skills and installs what fits. So when a job would go better done the way someone careful does it, you can go and get that"

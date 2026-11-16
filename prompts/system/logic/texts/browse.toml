@@ -1,0 +1,13 @@
+# Scrolling (browse.md).
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+posted_enough = "That is enough for one day; do not post again today."
+# Only when her posts there have been measured.
+browse_standing = "\nHow what you posted here has done:\n{{standing}}\n"
+# Only when she has learned something about posting.
+browse_craft = "\nWhat you have learned about posting:\n{{craft}}\n"
+# Offered only when public likes and replies are turned on.
+scroll_like = "- {\"do\":\"react\",\"to\":<i number>,\"emoji\":\"❤\"}\n  Like a post.\n"
+scroll_reply = "- {\"do\":\"say\",\"reply_to\":<i number>,\"text\":\"...\"}\n  Reply publicly to a post. Rare.\n"

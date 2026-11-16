@@ -81,10 +81,12 @@ request title.
 - A crate knows as little as it can: `ghost-brain` does not know what a ghost
   is, `ghostd` does not know what Telegram is. If a change needs one to learn
   about another, say so in the pull request.
-- Prompts are code. They live in `prompts/` beside the crate that uses them,
-  a directory per layer (`persona/`, `being/`, `logic/`, `work/`), and a
-  change to one is tested like any other. None of them is about a
-  particular character: that is her `ghost.toml`.
+- Prompts are code. They all live in [`prompts/`](prompts/README.md):
+  `system/` for how Ghost works, `character/` for how a character's own
+  `ghost.toml` is turned into prose. A change to one is tested like any
+  other, and a request recorded in a test's fixtures must not change unless
+  the wording was meant to. None of them is about a particular character:
+  that is her `ghost.toml`.
 
 ## Written by a model
 

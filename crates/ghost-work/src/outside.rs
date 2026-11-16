@@ -9,8 +9,9 @@
 //!
 //! Nothing inside can end the tag early or open one of its own: wherever
 //! the text has something that would read as the tag, its `<` is swapped
-//! for a `‹`. What she is told the tag means is in `being.md` and
-//! `work.md`; what each `from` says is in `work_texts.toml`. The tag
+//! for a `‹`. What she is told the tag means is in `system/being.md` and
+//! `system/work/work.md`; what each `from` says is in
+//! `system/work/texts.toml`. The tag
 //! itself is structure, like `[image: …]`, and is here.
 //!
 //! What is outside is decided by the tool, not by what came back: the
