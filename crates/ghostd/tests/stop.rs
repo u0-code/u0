@@ -77,6 +77,7 @@ impl Running {
     fn start(root: &Path, args: &[&str]) -> Self {
         let mut daemon = ghostd(root)
             .args(args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -148,6 +149,52 @@ fn sigterm_stops_her_in_order() {
     assert!(log.contains("terminated: stopping"), "{log}");
     // Stopped, not killed: a process killed by the signal has no code.
     assert_eq!(code, Some(0), "{log}");
+}
+
+#[test]
+fn with_parent_she_stops_in_order_when_whoever_started_her_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    born(dir.path(), "her");
+    std::fs::write(dir.path().join("ghostd.toml"), CONFIG).unwrap();
+
+    let mut running = Running::start(
+        dir.path(),
+        &["run", "her", "--config", "ghostd.toml", "--with-parent"],
+    );
+    running.wait_for(&["listening on"]);
+    // What a parent's death does to the pipe: it closes.
+    drop(running.daemon.stdin.take());
+    let until = Instant::now() + Duration::from_secs(20);
+    let code = loop {
+        if let Some(status) = running.daemon.try_wait().unwrap() {
+            break status.code();
+        }
+        assert!(Instant::now() < until, "still running with its parent gone");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let log = running.wait_for(&["is left be"]).join("\n");
+    assert!(
+        log.contains("the program that started her is gone: stopping"),
+        "{log}"
+    );
+    assert_eq!(code, Some(0), "{log}");
+}
+
+#[test]
+fn without_with_parent_a_closed_stdin_does_not_stop_her() {
+    let dir = tempfile::tempdir().unwrap();
+    born(dir.path(), "her");
+    std::fs::write(dir.path().join("ghostd.toml"), CONFIG).unwrap();
+
+    let mut running = Running::start(dir.path(), &["run", "her", "--config", "ghostd.toml"]);
+    running.wait_for(&["listening on"]);
+    drop(running.daemon.stdin.take());
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(
+        running.daemon.try_wait().unwrap().is_none(),
+        "a daemon under systemd has no stdin to keep open"
+    );
+    assert_eq!(running.terminate(), Some(0));
 }
 
 #[test]

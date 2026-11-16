@@ -67,6 +67,12 @@ enum Cmd {
         /// Path to ghostd.toml.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Live only as long as whoever started this: read standard input,
+        /// and stop in order when it closes. The desktop app starts its own
+        /// ghost this way, so she never outlives it, not even when the app
+        /// is killed rather than quit: the system closes the pipe for it.
+        #[arg(long)]
+        with_parent: bool,
     },
     /// Who she is and where her clock is. Reads the directory.
     Status { dir: PathBuf },
@@ -222,7 +228,11 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().cmd {
         Cmd::Birth { dir } => birth(&dir),
-        Cmd::Run { dirs, config } => run(&dirs, config.as_deref()).await,
+        Cmd::Run {
+            dirs,
+            config,
+            with_parent,
+        } => run(&dirs, config.as_deref(), with_parent).await,
         Cmd::Status { dir } => status(&dir),
         Cmd::Journal { dir, last } => journal(&dir, last),
         Cmd::Verify { dir } => verify(&dir),
@@ -266,7 +276,7 @@ fn birth(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run(paths: &[PathBuf], config: Option<&Path>) -> anyhow::Result<()> {
+async fn run(paths: &[PathBuf], config: Option<&Path>, with_parent: bool) -> anyhow::Result<()> {
     let loaded = if Config::exists(config) {
         Some(Config::load(config)?)
     } else {
@@ -338,7 +348,7 @@ async fn run(paths: &[PathBuf], config: Option<&Path>) -> anyhow::Result<()> {
 
     // Listened for before anything is said about listening, so that a
     // SIGTERM sent the moment she is up still stops her in order.
-    let told_to_stop = told_to_stop();
+    let told_to_stop = told_to_stop(with_parent);
     let listener = TcpListener::bind(&cfg.listen.addr)
         .await
         .with_context(|| format!("listen on {}", cfg.listen.addr))?;
@@ -505,10 +515,12 @@ fn network(setting: &ghost_net::Setting) -> anyhow::Result<()> {
 }
 
 /// Resolves when she should stop: Ctrl-C at a terminal, or SIGTERM, which
-/// is how systemd, docker and a shutting-down machine ask. Either way she
-/// is stopped in order, so that nothing is cut off halfway through being
-/// written. Says which it was.
-fn told_to_stop() -> impl std::future::Future<Output = &'static str> {
+/// is how systemd, docker and a shutting-down machine ask, or, `with_parent`,
+/// standard input closing because whoever started her is gone. Every way
+/// she is stopped in order, so that nothing is cut off halfway through
+/// being written. Says which it was.
+fn told_to_stop(with_parent: bool) -> impl std::future::Future<Output = &'static str> {
+    let orphaned = with_parent.then(parent_gone);
     // The handlers are set up here, when this is called, not when the
     // future is first polled: a signal that comes in between is kept.
     #[cfg(unix)]
@@ -522,16 +534,41 @@ fn told_to_stop() -> impl std::future::Future<Output = &'static str> {
     };
     let ctrl_c = tokio::signal::ctrl_c();
     async move {
+        let orphaned = async {
+            match orphaned {
+                Some(gone) => {
+                    let _ = gone.await;
+                }
+                None => std::future::pending().await,
+            }
+        };
         #[cfg(unix)]
         if let Some(mut term) = term {
             return tokio::select! {
                 _ = ctrl_c => "interrupted",
                 _ = term.recv() => "terminated",
+                () = orphaned => "the program that started her is gone",
             };
         }
-        let _ = ctrl_c.await;
-        "interrupted"
+        tokio::select! {
+            _ = ctrl_c => "interrupted",
+            () = orphaned => "the program that started her is gone",
+        }
     }
+}
+
+/// Resolves once standard input has closed: read on a thread of its own,
+/// since a read that waits for ever must not hold up anything else.
+fn parent_gone() -> tokio::sync::oneshot::Receiver<()> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        use std::io::Read as _;
+        let mut stdin = std::io::stdin();
+        let mut buf = [0u8; 256];
+        while matches!(stdin.read(&mut buf), Ok(n) if n > 0) {}
+        let _ = tx.send(());
+    });
+    rx
 }
 
 fn status(dir: &Path) -> anyhow::Result<()> {
