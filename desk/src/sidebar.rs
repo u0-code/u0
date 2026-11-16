@@ -620,26 +620,30 @@ impl Desk {
     }
 
     /// The form for a connection: its name, its URL, and the name of the
-    /// variable its token is in, never the token. Under it, why the last
-    /// try was refused.
+    /// variable its token is in, never the token. One small grouped box,
+    /// a row per field with its label on the left, the way the column's
+    /// own rows read; under it, why the last try was refused, and two
+    /// quiet buttons. Return in any field connects; Escape puts it away.
     fn connection_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let field = |label: &'static str, n: usize| {
+        let row = |label: &'static str, n: usize, last: bool| {
             div()
                 .flex()
-                .flex_col()
-                .gap(px(2.))
+                .items_center()
+                .gap(px(8.))
+                .pl(px(10.))
+                .pr(px(8.))
+                .when(!last, |d| d.border_b_1().border_color(theme::border()))
                 .child(
-                    ui::mono(faces, label)
-                        .text_size(px(10.5))
+                    ui::text(faces, label)
+                        .flex_none()
+                        .w(px(40.))
+                        .text_size(px(11.5))
                         .text_color(theme::faint()),
                 )
                 .child(
                     div()
-                        .px(px(8.))
-                        .rounded(px(7.))
-                        .bg(theme::bg())
-                        .border_1()
-                        .border_color(theme::border2())
+                        .flex_1()
+                        .min_w(px(0.))
                         .child(self.form.fields[n].clone()),
                 )
         };
@@ -648,43 +652,59 @@ impl Desk {
                 .id(id)
                 .flex()
                 .items_center()
-                .h(px(26.))
-                .px(px(10.))
-                .rounded(px(7.))
+                .h(px(24.))
+                .px(px(9.))
+                .rounded(px(6.))
                 .cursor_pointer()
-                .when(strong, |d| d.bg(theme::accent()))
+                .when(strong, |d| {
+                    d.bg(theme::panel2())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .hover(|s| s.bg(theme::hover()).border_color(theme::ghost_line()))
+                })
                 .when(!strong, |d| d.hover(|s| s.bg(theme::hover())))
                 .child(
                     ui::text(faces, label)
-                        .text_size(px(12.5))
-                        .text_color(if strong { theme::bg() } else { theme::muted() }),
+                        .text_size(px(12.))
+                        .text_color(if strong {
+                            theme::text()
+                        } else {
+                            theme::muted()
+                        }),
                 )
         };
         div()
             .flex()
             .flex_col()
-            .gap(px(8.))
-            .mx(px(4.))
-            .mt(px(4.))
-            .p(px(10.))
-            .rounded(px(10.))
-            .bg(theme::panel())
-            .border_1()
-            .border_color(theme::border())
-            .child(field("NAME", 0))
-            .child(field("URL", 1))
-            .child(field("TOKEN VARIABLE", 2))
+            .gap(px(6.))
+            .mx(px(2.))
+            .mt(px(2.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .border_1()
+                    .border_color(theme::border2())
+                    .overflow_hidden()
+                    .child(row("Name", 0, false))
+                    .child(row("URL", 1, false))
+                    .child(row("Token", 2, true)),
+            )
             .children(self.form.refused.as_ref().map(|why| {
                 ui::text(faces, why.clone())
-                    .text_size(px(12.))
+                    .px(px(4.))
+                    .text_size(px(11.5))
                     .line_height(px(16.))
-                    .text_color(theme::coral())
+                    .text_color(theme::muted())
             }))
             .child(
                 div()
                     .flex()
+                    .items_center()
+                    .gap(px(4.))
                     .justify_end()
-                    .gap(px(6.))
                     .child(button("connection-cancel", "Cancel", false).on_click(
                         cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)),
                     ))
