@@ -756,7 +756,7 @@ impl Mind {
 
     /// Stop the open work `u`, as she does, or as the operator named `by`
     /// does from a console.
-    fn stop_open(
+    pub(super) fn stop_open(
         &mut self,
         u: ghost_core::memory::Undertaking,
         by: Option<String>,

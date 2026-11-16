@@ -68,7 +68,7 @@ async fn a_directive_is_looked_at_at_once_while_she_is_at_work() {
     rig.hear(dm("boss", "1", "fox: put that down and say hi"), t0);
     rig.mind.on_time(t0).unwrap();
     assert!(
-        rig.mind.thinking.contains("t:boss"),
+        rig.mind.thinking.contains_key("t:boss"),
         "she is looking at it while the sitting stops"
     );
 }

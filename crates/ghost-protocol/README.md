@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
@@ -72,6 +72,37 @@ including one that connects later. No presence can register the channel
 A console with no `who` is refused with `-32602`, and so is blank `text`;
 one that is not the owner's, which can only be one without a token from
 another machine, with `-32001`.
+
+### Stopping her
+
+Having said something, an operator can stop her in that place, as one
+stops a coding agent after sending it something:
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"console.stop","params":{"place":"desk-1"}}
+
+{"jsonrpc":"2.0","id":3,"result":{"stopped":true}}
+```
+
+`place` is as for `console.say`, with the same default; `params` may be
+left out altogether. Whatever she is in the middle of there is called off:
+
+- the look she is taking, or about to take: a brain call that is out is
+  called off, and an answer that comes back anyway is not acted on;
+- what she had decided to say there and not yet sent. A message already
+  handed over to be sent is out of her hands, and is written as `said`;
+- what was unread there is left read, so she does not look at it again;
+- the work she took on there, directed or asked, as `work.stop` stops it.
+
+`stopped` is `true` when anything was. Her journal then has a `stopped`
+entry: the place, `by` (`console:<who>` in lower case), and, as each
+applies, `"looking":true`, `unsaid` (what she did not say) and `works`
+(the ids of the work stopped, each of which also ends `dropped`). She
+remembers it, and the next look there is told she was stopped and why it
+was meant, so she does not take up again unasked what was called off.
+
+With nothing under way there, the result is `{"stopped":false}` and
+nothing is written. Refused as `console.say` is.
 
 ## Answering and stopping her work
 

@@ -14,6 +14,7 @@ mod decided;
 mod digest;
 mod give;
 mod group;
+mod interrupt;
 mod keep;
 mod living;
 mod look;
@@ -51,12 +52,12 @@ use ghost_core::{
 use serde_json::Value;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
-    task::JoinSet,
+    task::{AbortHandle, JoinSet},
 };
 use tracing::{Instrument as _, info, warn};
 
 use self::{
-    attend::{Thinking, Thought},
+    attend::{Looking, Thinking, Thought},
     living::{LivedDraft, PlanDraft, ReflectDraft},
     speak::{Bubble, Speaking},
 };
@@ -200,6 +201,11 @@ enum Signal {
         by: Operator,
         answer: oneshot::Sender<std::result::Result<(), Refused>>,
     },
+    Interrupt {
+        place: String,
+        by: Operator,
+        answer: oneshot::Sender<bool>,
+    },
     Stop,
 }
 
@@ -260,6 +266,21 @@ impl MindHandle {
     ) -> Result<std::result::Result<(), Refused>> {
         let (answer, rx) = oneshot::channel();
         self.send(Signal::Order { order, by, answer }).await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// An operator, `by`, stops her in `place`, a place key, from a
+    /// console: what she is thinking and about to say there is called off,
+    /// and the work she took on there is stopped. Answers whether anything
+    /// was.
+    pub async fn interrupt(&self, place: &str, by: Operator) -> Result<bool> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Interrupt {
+            place: place.to_owned(),
+            by,
+            answer,
+        })
+        .await?;
         rx.await.map_err(|_| Error::Stopped)
     }
 
@@ -409,8 +430,10 @@ impl Agenda {
 struct Jobs(JoinSet<Outcome>);
 
 impl Jobs {
-    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) {
-        self.0.spawn(job.in_current_span());
+    /// Send `job` off. What is returned calls it off, if it is still
+    /// running.
+    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) -> AbortHandle {
+        self.0.spawn(job.in_current_span())
     }
 
     async fn join_next(&mut self) -> Option<std::result::Result<Outcome, tokio::task::JoinError>> {
@@ -473,8 +496,10 @@ pub struct Mind {
     measuring: HashSet<String>,
     /// When this body started running.
     started: DateTime<Utc>,
-    /// Places with a deliberation in flight.
-    thinking: HashSet<String>,
+    /// Places with a deliberation in flight, and which look it is.
+    thinking: HashMap<String, Looking>,
+    /// Looks sent off so far: the last one's number.
+    looks: u64,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
     /// Intentions with a deliberation in flight.
@@ -525,7 +550,8 @@ impl Mind {
             measuring: HashSet::new(),
             rng: Rng::new(),
             started: Utc::now(),
-            thinking: HashSet::new(),
+            thinking: HashMap::new(),
+            looks: 0,
             retries: HashMap::new(),
             pursuing: HashSet::new(),
             held: HashMap::new(),
@@ -554,6 +580,8 @@ impl Mind {
                 },
                 Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => match done {
                     Ok(outcome) => self.on_outcome(outcome, Utc::now())?,
+                    // Called off: she was stopped in the middle of it.
+                    Err(e) if e.is_cancelled() => {}
                     Err(e) => warn!("a job fell over: {e}"),
                 },
                 () = tokio::time::sleep(wait) => self.on_time(Utc::now())?,
@@ -655,6 +683,9 @@ impl Mind {
             }
             Signal::Order { order, by, answer } => {
                 let _ = answer.send(self.on_order(order, &by, now)?);
+            }
+            Signal::Interrupt { place, by, answer } => {
+                let _ = answer.send(self.interrupt(&place, &by, now)?);
             }
             Signal::Stop => {}
         }

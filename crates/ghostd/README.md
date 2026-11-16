@@ -93,7 +93,8 @@ owner's only from this machine. Nobody is listed in `[operators]` for it:
 holding the token is the listing.
 
 Such a console can speak to her with `console.say`, as an operator, or give
-her a directive without the prefix, and can answer or stop her work with
+her a directive without the prefix, stop her mid-thought there with
+`console.stop`, and can answer or stop her work with
 `work.answer` and `work.stop`; the protocol's README has the wire. Each of
 these goes to her mind, which writes it in her journal as the operator's.
 Any console can ask `attention.list` what is waiting on her operators: work

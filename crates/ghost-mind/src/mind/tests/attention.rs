@@ -239,7 +239,7 @@ async fn with_her_phone_in_her_hand_she_gets_to_everyone_who_wrote() {
     // She looks at the first when its time comes. The other one is now due
     // within the same sitting, whatever its own clock said.
     let looked = rig.until(|r| r.think.calls() == 1).await;
-    assert!(rig.mind.thinking.contains(first) || rig.kinds().contains(&"read"));
+    assert!(rig.mind.thinking.contains_key(first) || rig.kinds().contains(&"read"));
     let pulled = rig.mind.agenda.attend[second].due;
     assert!(pulled <= later, "never later than it would have been");
     assert!(

@@ -178,7 +178,7 @@ impl Mind {
         if !self.channels.contains_key(&place.channel) {
             return Ok(Err(Wait::Until(now + Duration::minutes(15))));
         }
-        if self.thinking.contains(&place.key) || self.agenda.speaking.contains_key(&place.key) {
+        if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
         // What comes of a directive does not wait on her day either.
