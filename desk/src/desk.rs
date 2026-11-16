@@ -2,11 +2,14 @@
 //!
 //! The first page is about tasks, not about anyone. Down the left, the way
 //! a coding agent's app has it: controls under the window's lights, New
-//! and Search, then your sessions with the solver on this machine, and at
-//! the bottom what the solver is running on. In the middle, the session's
-//! thread and the line you type into, with the brain it thinks with under
-//! your hand. Down the right, the solver's environment, its context and
-//! its work. Characters, who live online and are somebody, come later.
+//! and Search, then the daemons the desk follows: this machine's, with
+//! your sessions with the solver, then each connection with the characters
+//! it runs; and at the bottom what the solver is running on. In the
+//! middle, the session's thread and the line you type into, with the brain
+//! it thinks with under your hand. Down the right, the solver's
+//! environment, its context and its work. Opening a character puts her
+//! thread in the middle, one place at a time, and her daemon and her work
+//! down the right.
 //!
 //! Nothing on screen is made up: every line is the daemon's, the
 //! journal's or the deployment's, or a control that does what it says.
@@ -16,24 +19,25 @@
 use std::{
     collections::HashSet,
     path::Path,
-    sync::mpsc,
     time::{Duration, Instant},
 };
 
 use chrono::Utc;
 use chrono_tz::Tz;
+use ghost_link::protocol::Work;
 use gpui::{
-    AnyElement, Context, Corner, Entity, Focusable as _, FontWeight, MouseButton, SharedString,
-    Window, anchored, deferred, div, prelude::*, px,
+    AnyElement, Context, Corner, Div, Entity, Focusable as _, FontWeight, MouseButton,
+    SharedString, Window, anchored, deferred, div, prelude::*, px,
 };
 use tracing::warn;
 
 use crate::{
+    daemons::{Daemon, Host},
     fonts::{self, Faces},
     input::{Cancelled, Changed, Submitted, TextInput},
-    link::{self, Outgoing},
+    link::{self, Link},
     model::{Entry, LinkState, Message, PersonView, Status, Update},
-    settings::{self, SOLVER_URL, Session, Settings},
+    settings::{self, Connection, SOLVER_URL, Session, Settings},
     solver::{Abilities, Deployment, Provider},
     theme, thread, ui,
 };
@@ -58,10 +62,12 @@ pub(crate) fn lights_room(window: &Window) -> f32 {
     if window.is_fullscreen() { EDGE } else { LIGHTS }
 }
 
-/// The solver, as the desk follows it: one ghost on one daemon.
-pub struct Solver {
-    rx: mpsc::Receiver<Update>,
-    tx: tokio::sync::mpsc::UnboundedSender<Outgoing>,
+/// One ghost the desk follows on one daemon: the solver, or a character
+/// opened from the left.
+pub struct Watched {
+    conn: Link,
+    /// What to call her until the daemon says.
+    fallback: String,
     pub link: LinkState,
     pub card: Option<ghost_link::protocol::GhostCard>,
     pub status: Option<Status>,
@@ -74,19 +80,15 @@ pub struct Solver {
     /// The session it is typing in, if any.
     pub typing: Option<String>,
     pub desk_online: bool,
+    /// Her work and what ended lately, as the daemon keeps it.
+    pub work: Vec<Work>,
 }
 
-impl Solver {
-    fn start(url: &str, who: &str, token: Option<String>) -> Self {
-        let (rx, tx) = link::start(link::Config {
-            url: url.to_owned(),
-            token,
-            ghost: None,
-            who: who.to_owned(),
-        });
+impl Watched {
+    fn start(cfg: link::Config, fallback: &str) -> Self {
         Self {
-            rx,
-            tx,
+            conn: Link::watch(cfg),
+            fallback: fallback.to_owned(),
             link: LinkState::Connecting,
             card: None,
             status: None,
@@ -95,6 +97,7 @@ impl Solver {
             pending: Vec::new(),
             typing: None,
             desk_online: false,
+            work: Vec::new(),
         }
     }
 
@@ -103,7 +106,29 @@ impl Solver {
             .as_ref()
             .map(|s| s.name.clone())
             .or_else(|| self.card.as_ref().map(|c| c.name.clone()))
-            .unwrap_or_else(|| "Solver".to_owned())
+            .unwrap_or_else(|| self.fallback.clone())
+    }
+
+    /// Take in everything its link has learned. Says whether anything did.
+    fn pump(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(update) = self.conn.rx.try_recv() {
+            self.take(update);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Say `text` to her in the place `place` on the desk channel, and
+    /// show it until her journal does.
+    fn say(&mut self, place: String, text: String) {
+        self.pending.push(Message {
+            place: place.clone(),
+            hers: false,
+            text: text.clone(),
+            at: Utc::now(),
+        });
+        self.conn.say(place, text);
     }
 
     pub fn tz(&self) -> Tz {
@@ -160,6 +185,8 @@ impl Solver {
             }
             Update::HerTyping { place } => self.typing = Some(place),
             Update::DeskOnline(on) => self.desk_online = on,
+            Update::Work(work) => self.work = work,
+            Update::Roster(_) => {}
         }
     }
 }
@@ -191,9 +218,77 @@ pub(crate) enum At {
     Aside,
 }
 
+/// A character opened from the left: who, on which daemon, the link that
+/// follows her, and the place her thread shows.
+pub struct Open {
+    pub host: Host,
+    pub id: String,
+    pub url: String,
+    pub her: Watched,
+    /// The place on screen, by key, once one is chosen.
+    pub place: Option<String>,
+}
+
+impl Open {
+    /// The place her thread shows: the one chosen, or else the one
+    /// something was last said in, or else yours with her on the desk.
+    pub fn place(&self, who: &str) -> String {
+        self.place
+            .clone()
+            .or_else(|| {
+                thread::places(&self.her.journal)
+                    .first()
+                    .map(|s| s.key.clone())
+            })
+            .unwrap_or_else(|| link::person_key(who))
+    }
+
+    /// The places to pick from, the most recent first, with yours with her
+    /// on the desk among them even before you have said anything.
+    pub fn places(&self, who: &str) -> Vec<thread::Spot> {
+        let mut places = thread::places(&self.her.journal);
+        let yours = link::person_key(who);
+        if !places.iter().any(|p| p.key == yours) {
+            places.push(thread::Spot {
+                key: yours,
+                label: format!("{who} · {}", link::CHANNEL),
+                at: chrono::DateTime::<Utc>::MIN_UTC,
+            });
+        }
+        places
+    }
+}
+
+/// A small menu of the desk's own, at most one open at a time. The brain
+/// menu is apart: it opens from three places.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Popup {
+    Closed,
+    /// The places of the character on screen, in the top bar.
+    Places,
+    /// A connection's menu, by its name.
+    Connection(String),
+}
+
+/// The form for adding a connection: whether it shows, its fields (name,
+/// URL, token variable), and why the last try was refused.
+pub(crate) struct Form {
+    pub open: bool,
+    pub fields: [Entity<TextInput>; 3],
+    pub refused: Option<String>,
+}
+
 pub struct Desk {
     pub settings: Settings,
-    pub solver: Solver,
+    pub solver: Watched,
+    /// Every daemon the desk follows, this machine's first.
+    pub(crate) daemons: Vec<Daemon>,
+    /// The character on screen, if one is.
+    pub(crate) open: Option<Open>,
+    /// The small menu open over the desk, if one is.
+    pub(crate) popup: Popup,
+    /// The form for adding a connection.
+    pub(crate) form: Form,
     pub(crate) deployment: Deployment,
     /// The brains the deployment names, and which one it thinks with.
     providers: Vec<Provider>,
@@ -227,6 +322,9 @@ pub struct Desk {
     back: Vec<String>,
     forward: Vec<String>,
 }
+
+/// What the line you type into says while it is empty, with the solver.
+const ASK: &str = "Ask for anything on this machine";
 
 /// The daemon's token, from the environment or `.env`: never from a file
 /// of the desk's own.
@@ -263,7 +361,7 @@ impl Desk {
         if settings.sessions.is_empty() {
             settings.sessions.push(Session::new());
         }
-        let input = cx.new(|cx| TextInput::new(cx, "Ask for anything on this machine"));
+        let input = cx.new(|cx| TextInput::new(cx, ASK));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
             this.say(text.clone(), cx);
         })
@@ -320,7 +418,29 @@ impl Desk {
         let brain = deployment.brain();
         let abilities = deployment.abilities();
 
-        let solver = Solver::start(&settings.solver_url, &settings.who, token());
+        let mut solver = Watched::start(
+            link::Config {
+                url: settings.solver_url.clone(),
+                token: token(),
+                ghost: None,
+                who: settings.who.clone(),
+            },
+            "Solver",
+        );
+        // The desk's channel is registered at once, so that the solver's
+        // environment can say it is.
+        solver.conn.speak();
+        let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
+        daemons.extend(settings.connections.iter().map(Daemon::remote));
+        let connection_fields = [
+            cx.new(|cx| TextInput::new(cx, "name, e.g. studio")),
+            cx.new(|cx| TextInput::new(cx, "wss://… or ws://127.0.0.1:…")),
+            cx.new(|cx| TextInput::new(cx, "token variable, e.g. STUDIO_TOKEN")),
+        ];
+        for field in &connection_fields {
+            cx.subscribe(field, |this, _, Submitted(_), cx| this.add_connection(cx))
+                .detach();
+        }
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -335,6 +455,14 @@ impl Desk {
         let mut desk = Self {
             settings,
             solver,
+            daemons,
+            open: None,
+            popup: Popup::Closed,
+            form: Form {
+                open: false,
+                fields: connection_fields,
+                refused: None,
+            },
             deployment,
             providers,
             brain,
@@ -374,10 +502,12 @@ impl Desk {
     /// Take in everything the link has learned since last time, and tick
     /// once a second so that what is running shows its time.
     fn pump(&mut self, cx: &mut Context<Self>) {
-        let mut changed = false;
-        while let Ok(update) = self.solver.rx.try_recv() {
-            self.solver.take(update);
-            changed = true;
+        let mut changed = self.solver.pump();
+        for daemon in &mut self.daemons {
+            changed |= daemon.pump();
+        }
+        if let Some(open) = &mut self.open {
+            changed |= open.her.pump();
         }
         if self.last_tick.elapsed() >= Duration::from_secs(1) {
             self.last_tick = Instant::now();
@@ -472,6 +602,7 @@ impl Desk {
     }
 
     pub fn new_session(&mut self, cx: &mut Context<Self>) {
+        self.close_character(cx);
         let was = self.session().id;
         // An untouched new session is reused rather than stacked.
         if let Some(i) = self
@@ -491,6 +622,7 @@ impl Desk {
     }
 
     pub fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.close_character(cx);
         let was = self.session().id;
         self.current = index.min(self.settings.sessions.len().saturating_sub(1));
         self.visited(was);
@@ -510,8 +642,13 @@ impl Desk {
         self.settings.sessions.iter().position(|s| s.id == id)
     }
 
-    /// Back to the session before, skipping any that are gone.
+    /// Back to the session before, skipping any that are gone. From a
+    /// character, back is the session behind her.
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
+        if self.open.is_some() {
+            self.close_character(cx);
+            return;
+        }
         while let Some(id) = self.back.pop() {
             if let Some(i) = self.index_of(&id) {
                 self.forward.push(self.session().id);
@@ -524,6 +661,7 @@ impl Desk {
 
     /// Forward again, after going back.
     pub fn go_forward(&mut self, cx: &mut Context<Self>) {
+        self.close_character(cx);
         while let Some(id) = self.forward.pop() {
             if let Some(i) = self.index_of(&id) {
                 self.back.push(self.session().id);
@@ -540,6 +678,15 @@ impl Desk {
     }
 
     pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
+        // To a character you speak in your own place with her on the desk
+        // channel, and her thread turns to it.
+        if let Some(open) = &mut self.open {
+            let place = self.settings.who.to_lowercase();
+            open.place = Some(thread::place_key(&place));
+            open.her.say(place, text);
+            cx.notify();
+            return;
+        }
         let Some(session) = self.settings.sessions.get_mut(self.current) else {
             return;
         };
@@ -548,13 +695,115 @@ impl Desk {
             session.title = text.chars().take(48).collect();
             self.settings.save();
         }
-        self.solver.pending.push(Message {
-            place: place.clone(),
-            hers: false,
-            text: text.clone(),
-            at: Utc::now(),
+        self.solver.say(place, text);
+        cx.notify();
+    }
+
+    /// Open the character `id` of the daemon `host`: follow her on a link
+    /// of her own, and show her.
+    pub(crate) fn open_character(&mut self, host: &Host, id: &str, cx: &mut Context<Self>) {
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|o| o.host == *host && o.id == id)
+        {
+            return;
+        }
+        let Some(daemon) = self.daemons.iter().find(|d| d.host == *host) else {
+            return;
+        };
+        let Ok(token) = daemon.token.clone() else {
+            return;
+        };
+        let name = daemon
+            .cast
+            .ghosts
+            .iter()
+            .find(|g| g.id == id)
+            .map_or_else(|| id.to_owned(), |g| g.card.name.clone());
+        let her = Watched::start(
+            link::Config {
+                url: daemon.url.clone(),
+                token,
+                ghost: Some(id.to_owned()),
+                who: self.settings.who.clone(),
+            },
+            &name,
+        );
+        self.open = Some(Open {
+            host: host.clone(),
+            id: id.to_owned(),
+            url: daemon.url.clone(),
+            her,
+            place: None,
         });
-        let _ = self.solver.tx.send(Outgoing { place, text });
+        self.popup = Popup::Closed;
+        self.input.update(cx, |input, cx| {
+            input.set_placeholder(format!("Say something to {name}"), cx);
+        });
+        cx.notify();
+    }
+
+    /// Back to the solver: stop following the character on screen.
+    fn close_character(&mut self, cx: &mut Context<Self>) {
+        if self.open.take().is_some() {
+            self.popup = Popup::Closed;
+            self.input
+                .update(cx, |input, cx| input.set_placeholder(ASK, cx));
+            cx.notify();
+        }
+    }
+
+    /// Show the place `key` in her thread.
+    pub(crate) fn choose_place(&mut self, key: String, cx: &mut Context<Self>) {
+        if let Some(open) = &mut self.open {
+            open.place = Some(key);
+        }
+        self.popup = Popup::Closed;
+        cx.notify();
+    }
+
+    /// Add the connection the form describes, if it is a good one, and
+    /// connect to it; or say in the form why not.
+    pub(crate) fn add_connection(&mut self, cx: &mut Context<Self>) {
+        let [name, url, var] = self.form.fields.clone().map(|f| f.read(cx).text());
+        match Connection::check(&name, &url, &var, &self.settings.connections) {
+            Ok(connection) => {
+                self.daemons.push(Daemon::remote(&connection));
+                self.settings.connections.push(connection);
+                self.settings.save();
+                for f in &self.form.fields {
+                    f.update(cx, |f, cx| f.set_text("", cx));
+                }
+                self.form.open = false;
+                self.form.refused = None;
+            }
+            Err(why) => self.form.refused = Some(why),
+        }
+        cx.notify();
+    }
+
+    /// Open the form for a connection, or close it.
+    pub(crate) fn toggle_adding(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.form.open = !self.form.open;
+        self.form.refused = None;
+        if self.form.open {
+            self.form.fields[0].focus_handle(cx).focus(window);
+        }
+        cx.notify();
+    }
+
+    /// Forget the connection `name`: the desk stops following it, and her
+    /// thread closes if she was on it. Its daemon is not touched.
+    pub(crate) fn remove_connection(&mut self, name: &str, cx: &mut Context<Self>) {
+        let host = Host::Remote(name.to_owned());
+        self.settings.connections.retain(|c| c.name != name);
+        self.settings.save();
+        self.daemons.retain(|d| d.host != host);
+        if self.open.as_ref().is_some_and(|o| o.host == host) {
+            self.close_character(cx);
+        }
+        self.popup = Popup::Closed;
         cx.notify();
     }
 
@@ -692,8 +941,12 @@ impl Desk {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
             )
             .child(
-                Self::control("back", "chevron-left", !self.back.is_empty())
-                    .on_click(cx.listener(|this, _, _, cx| this.go_back(cx))),
+                Self::control(
+                    "back",
+                    "chevron-left",
+                    self.open.is_some() || !self.back.is_empty(),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.go_back(cx))),
             )
             .child(
                 Self::control("forward", "chevron-right", !self.forward.is_empty())
@@ -704,8 +957,17 @@ impl Desk {
     /// The bar across the top of the thread: the session's name, the clock,
     /// and, when the sidebar is hidden, the controls beside the lights.
     fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = self.session().label();
-        let right = self.solver.status.as_ref().map(|s| {
+        // With a character open: her name, the place her thread shows, and
+        // her clock; with the solver, the session's name and its clock.
+        let (title, status, picker): (String, Option<&Status>, Option<Div>) = match &self.open {
+            Some(open) => (
+                open.her.name(),
+                open.her.status.as_ref(),
+                Some(self.place_picker(open, faces, cx)),
+            ),
+            None => (self.session().label(), self.solver.status.as_ref(), None),
+        };
+        let right = status.map(|s| {
             div()
                 .flex()
                 .items_baseline()
@@ -732,13 +994,113 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .when(!self.sidebar, |d| d.child(self.controls(cx)))
-                    .child(ui::one_line(
-                        ui::text(faces, title)
+                    .child({
+                        let title = ui::text(faces, title)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_size(px(13.5)),
-                    )),
+                            .text_size(px(13.5));
+                        // Beside a picker her name keeps its width; alone,
+                        // a session's name trails off.
+                        if picker.is_some() {
+                            title.flex_none()
+                        } else {
+                            ui::one_line(title)
+                        }
+                    })
+                    .children(picker),
             )
             .children(right)
+    }
+
+    /// The place her thread shows, which opens a menu of every place in
+    /// her journal's tail, the most recent first.
+    fn place_picker(&self, open: &Open, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let who = self.who();
+        let places = open.places(who);
+        let on = open.place(who);
+        let label = places
+            .iter()
+            .find(|p| p.key == on)
+            .map_or_else(|| on.clone(), |p| p.label.clone());
+        let chip = div()
+            .id("place")
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .h(px(26.))
+            .px(px(10.))
+            .min_w(px(0.))
+            .rounded_full()
+            .cursor_pointer()
+            .when(self.popup == Popup::Places, |d| d.bg(theme::panel2()))
+            .hover(|s| s.bg(theme::hover()))
+            .child(ui::one_line(
+                ui::mono(faces, label)
+                    .text_size(px(12.))
+                    .text_color(theme::text2()),
+            ))
+            .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.popup = if this.popup == Popup::Places {
+                    Popup::Closed
+                } else {
+                    Popup::Places
+                };
+                cx.notify();
+            }));
+        let mut picker = div().relative().flex_1().min_w(px(0.)).child(chip);
+        if self.popup == Popup::Places {
+            let mut menu = div()
+                .id("place-menu")
+                .occlude()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .w(px(300.))
+                .max_h(px(420.))
+                .overflow_y_scroll()
+                .p(px(6.))
+                .bg(theme::panel())
+                .border_1()
+                .border_color(theme::border2())
+                .rounded(px(12.))
+                .shadow_lg()
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.popup = Popup::Closed;
+                    cx.notify();
+                }));
+            for (i, place) in places.into_iter().enumerate() {
+                let here = place.key == on;
+                let key = place.key.clone();
+                menu = menu.child(
+                    div()
+                        .id(("place-item", i))
+                        .flex()
+                        .items_center()
+                        .h(px(30.))
+                        .px(px(10.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .when(here, |d| d.bg(theme::panel2()))
+                        .hover(|s| s.bg(theme::hover()))
+                        .child(ui::one_line(
+                            ui::text(faces, place.label).text_size(px(13.)),
+                        ))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.choose_place(key.clone(), cx)),
+                        ),
+                );
+            }
+            // Under the chip, its left edge on the chip's.
+            picker = picker.child(
+                div().absolute().top(px(30.)).left_0().child(deferred(
+                    anchored()
+                        .anchor(Corner::TopLeft)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(menu),
+                )),
+            );
+        }
+        picker
     }
 
     pub(crate) fn current_provider(&self) -> Option<Provider> {
@@ -1006,6 +1368,17 @@ impl Desk {
     fn composer(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
         let provider = self.current_provider();
         let empty = self.input.read(cx).is_empty();
+        // To a character the brain is hers, on her daemon; what the desk
+        // can say under the line is who it speaks as.
+        if self.open.is_some() {
+            let note = format!("as {} · {} channel", self.who(), link::CHANNEL);
+            return self.composer_with(
+                ui::mono(faces, note).text_size(px(11.5)).px(px(6.)),
+                empty,
+                faces,
+                cx,
+            );
+        }
         let (icon, label) = provider
             .as_ref()
             .map_or(("openai", "no brain".to_owned()), |p| (p.icon(), p.label()));
@@ -1035,6 +1408,12 @@ impl Desk {
         if let Some(menu) = self.menu_over(At::Composer, Corner::BottomLeft, faces, cx) {
             chip = chip.child(div().absolute().top(px(-8.)).left(px(0.)).child(menu));
         }
+        self.composer_with(chip, empty, faces, cx)
+    }
+
+    /// The composer's box, with `under` at the left of the row under the
+    /// line and send at its right.
+    fn composer_with(&self, under: Div, empty: bool, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let send = div()
             .id("send")
             .size(px(30.))
@@ -1083,7 +1462,7 @@ impl Desk {
                             .items_center()
                             .justify_between()
                             .gap(px(8.))
-                            .child(chip)
+                            .child(under)
                             .child(send),
                     ),
             )
@@ -1111,18 +1490,30 @@ impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
-        let session = self.session();
-        let typing = self.solver.typing.as_deref() == Some(session.id.as_str());
+        // The solver's session, or the place her thread shows; either way
+        // a place, by its key, in one ghost's journal.
+        let (ghost, place, abilities) = match &self.open {
+            Some(open) => (&open.her, open.place(self.who()), None),
+            None => (
+                &self.solver,
+                thread::place_key(&self.session().id),
+                Some(&self.abilities),
+            ),
+        };
+        let typing = ghost
+            .typing
+            .as_deref()
+            .is_some_and(|p| thread::place_key(p) == place);
         let view = thread::View {
-            journal: &self.solver.journal,
-            pending: &self.solver.pending,
-            session: &session.id,
-            name: self.solver.name(),
+            journal: &ghost.journal,
+            pending: &ghost.pending,
+            place: &place,
+            name: ghost.name(),
             who: self.who().to_owned(),
-            tz: self.solver.tz(),
+            tz: ghost.tz(),
             typing,
-            connected: self.solver.link == LinkState::Connected,
-            abilities: &self.abilities,
+            connected: ghost.link == LinkState::Connected,
+            abilities,
             expanded: &self.expanded,
         };
         let thread = thread::render(&view, &faces, cx);

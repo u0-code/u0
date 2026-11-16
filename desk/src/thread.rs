@@ -1,9 +1,10 @@
-//! The thread of one session, in one stream by time: what passed between
-//! you and the solver there, what it opened or looked up while answering,
-//! and a card for each piece of work it took on, with its parts under it.
-//! All of it is read from the solver's journal, so what shows here is what
-//! is on record; what was said a moment ago and not yet written follows at
-//! the end.
+//! The thread of one place, in one stream by time: what passed between
+//! you and the solver in a session, or between a character and whoever
+//! she was with; what was opened or looked up while answering; and a card
+//! for each piece of work taken on there, with its parts under it. All of
+//! it is read from the ghost's journal, so what shows here is what is on
+//! record; what was said a moment ago and not yet written follows at the
+//! end.
 
 use std::collections::{HashMap, HashSet};
 
@@ -48,23 +49,112 @@ pub fn place_key(session: &str) -> String {
     format!("{}:{session}", link::CHANNEL)
 }
 
-/// The message a journal entry is, if it is one said on the desk.
-pub fn desk_message(e: &Entry) -> Option<Message> {
-    let d = &e.data;
-    if d.get("channel").and_then(Value::as_str) != Some(link::CHANNEL) {
-        return None;
+/// Something said, as a journal entry tells it, on any channel.
+pub struct Said {
+    pub channel: String,
+    /// Who said it, by their id and name on the channel, when it was not her.
+    pub from: Option<(String, String)>,
+    /// What the channel calls the place, when it names it.
+    pub place_name: Option<String>,
+    /// The place is a private one, with one person.
+    pub direct: bool,
+    /// The message, with the place's id on its channel.
+    pub message: Message,
+}
+
+impl Said {
+    /// The key of the place it was said in, as her memory knows it.
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.channel, self.message.place)
     }
-    let (hers, place) = match e.kind.as_str() {
-        "heard" => (false, d.get("place")?.get("id")?.as_str()?),
-        "said" => (true, d.get("place")?.as_str()?),
+}
+
+/// What a journal entry said, if it is something said: heard by her, or
+/// said by her.
+pub fn said(e: &Entry) -> Option<Said> {
+    let d = &e.data;
+    let (from, place_name, direct, place) = match e.kind.as_str() {
+        "heard" => {
+            let from = d.get("from")?;
+            let place = d.get("place")?;
+            (
+                Some((s(from, "id").to_owned(), s(from, "name").to_owned())),
+                place.get("name").and_then(Value::as_str).map(str::to_owned),
+                s(place, "kind") == "direct",
+                place.get("id")?.as_str()?,
+            )
+        }
+        "said" => (None, None, false, d.get("place")?.as_str()?),
         _ => return None,
     };
-    Some(Message {
-        place: place.to_owned(),
-        hers,
-        text: d.get("text")?.as_str()?.to_owned(),
-        at: e.at,
+    Some(Said {
+        channel: d.get("channel")?.as_str()?.to_owned(),
+        message: Message {
+            place: place.to_owned(),
+            hers: from.is_none(),
+            text: d.get("text")?.as_str()?.to_owned(),
+            at: e.at,
+        },
+        from,
+        place_name,
+        direct,
     })
+}
+
+/// The message a journal entry is, if it is one said on the desk.
+pub fn desk_message(e: &Entry) -> Option<Message> {
+    said(e)
+        .filter(|s| s.channel == link::CHANNEL)
+        .map(|s| s.message)
+}
+
+/// A place in her journal where something was said, as the place picker
+/// shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Spot {
+    /// `channel:id`.
+    pub key: String,
+    /// Its name, or for a private place who is on the other side; and its
+    /// channel.
+    pub label: String,
+    /// When something was last said there.
+    pub at: DateTime<Utc>,
+}
+
+/// Every place something was said in `journal`, the most recent first.
+pub fn places(journal: &[Entry]) -> Vec<Spot> {
+    let mut spots: Vec<Spot> = Vec::new();
+    for said in journal.iter().filter_map(said) {
+        let key = said.key();
+        // A place is called by its own name, or a private one by who it is
+        // with.
+        let name = said.place_name.clone().or_else(|| {
+            said.from
+                .as_ref()
+                .filter(|_| said.direct)
+                .map(|(_, name)| name.clone())
+        });
+        let at = said.message.at;
+        match spots.iter_mut().find(|s| s.key == key) {
+            Some(spot) => {
+                spot.at = spot.at.max(at);
+                if let Some(name) = name {
+                    spot.label = format!("{name} · {}", said.channel);
+                }
+            }
+            None => spots.push(Spot {
+                label: format!(
+                    "{} · {}",
+                    name.unwrap_or_else(|| said.message.place.clone()),
+                    said.channel
+                ),
+                key,
+                at,
+            }),
+        }
+    }
+    spots.sort_by(|a, b| b.at.cmp(&a.at));
+    spots
 }
 
 /// Where a piece of work stands.
@@ -237,7 +327,12 @@ pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
 /// work whose `undertook` names the session's place. One pass over the
 /// journal, since the sidebar asks this of every session on every tick.
 pub fn session_tasks<'a>(journal: &'a [Entry], session: &str) -> Vec<Task<'a>> {
-    let place = place_key(session);
+    place_tasks(journal, &place_key(session))
+}
+
+/// The work taken on in the place `place`, a place key, oldest first,
+/// parts under each.
+pub fn place_tasks<'a>(journal: &'a [Entry], place: &str) -> Vec<Task<'a>> {
     let ours: HashSet<&str> = journal
         .iter()
         .filter(|e| e.kind == "undertook" && s(&e.data, "place") == place)
@@ -368,7 +463,13 @@ pub fn outputs(journal: &[Entry], session: &str) -> Vec<Output> {
 
 /// One thing in the stream.
 enum Item<'a> {
-    Said { m: Message, seq: Option<i64> },
+    /// Something said: by her, or by `from`, which is you when `mine`.
+    Said {
+        m: Message,
+        seq: Option<i64>,
+        from: Option<String>,
+        mine: bool,
+    },
     Tool(&'a Entry),
     Task(Task<'a>),
 }
@@ -394,46 +495,66 @@ pub const STARTERS: [&str; 3] = [
 /// The space between one turn and the next.
 const TURN: f32 = 22.;
 
-/// Everything the thread needs to draw one session.
+/// Everything the thread needs to draw one place: a session with the
+/// solver, or any place a character is in.
 pub struct View<'a> {
     pub journal: &'a [Entry],
+    /// What was said on the desk that the journal has not shown yet.
     pub pending: &'a [Message],
-    pub session: &'a str,
+    /// The place, by its key: `desk:<session>` for a session.
+    pub place: &'a str,
     pub name: String,
     pub who: String,
     pub tz: Tz,
     pub typing: bool,
     /// Whether the daemon is there to hear what you send.
     pub connected: bool,
-    pub abilities: &'a Abilities,
+    /// What the solver can do, for its empty page. A character's empty
+    /// place has none to offer.
+    pub abilities: Option<&'a Abilities>,
     pub expanded: &'a HashSet<String>,
 }
 
-/// Everything in one session, in order of time: what was said, what was
+/// Everything in one place, in order of time: what was said, what was
 /// opened or looked up there, the work taken on there, and what you sent
 /// that the journal has not shown yet.
 fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
-    let place = place_key(view.session);
+    let you = view.who.to_lowercase();
     let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
     for e in view.journal {
-        if let Some(m) = desk_message(e) {
-            if m.place == view.session {
-                let seq = Some(e.seq);
-                items.push((e.at, e.seq, Item::Said { m, seq }));
+        if let Some(said) = said(e) {
+            if said.key() == view.place {
+                // Yours if it came from you on the desk: anyone else's
+                // words are drawn the same way, under their own name.
+                let mine = said.channel == link::CHANNEL
+                    && said.from.as_ref().is_some_and(|(id, _)| *id == you);
+                let item = Item::Said {
+                    m: said.message,
+                    seq: Some(e.seq),
+                    from: said.from.map(|(_, name)| name),
+                    mine,
+                };
+                items.push((e.at, e.seq, item));
             }
         } else if matches!(e.kind.as_str(), "opened" | "looked_up")
-            && e.data.get("place").and_then(Value::as_str) == Some(place.as_str())
+            && e.data.get("place").and_then(Value::as_str) == Some(view.place)
         {
             items.push((e.at, e.seq, Item::Tool(e)));
         }
     }
-    for t in session_tasks(view.journal, view.session) {
+    for t in place_tasks(view.journal, view.place) {
         items.push((t.started, 0, Item::Task(t)));
     }
-    for m in view.pending.iter().filter(|m| m.place == view.session) {
+    for m in view
+        .pending
+        .iter()
+        .filter(|m| place_key(&m.place) == view.place)
+    {
         let said = Item::Said {
             m: m.clone(),
             seq: None,
+            from: None,
+            mine: true,
         };
         items.push((m.at, i64::MAX, said));
     }
@@ -475,11 +596,16 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 waiting_since = None;
                 hers(faces, &m, &view.name, view.tz, &took).into_any_element()
             }
-            Item::Said { m, seq } => {
-                last_yours = Some(m.at);
-                waiting_since = Some(m.at);
+            Item::Said { m, seq, from, mine } => {
+                // Only what you said waits on her: in a character's places
+                // others speak, and she need not answer them.
+                if mine {
+                    last_yours = Some(m.at);
+                    waiting_since = Some(m.at);
+                }
                 let directed = seq.and_then(|x| marks.get(&x).copied());
-                yours(faces, &m, &view.who, view.tz, directed).into_any_element()
+                let who = from.as_deref().unwrap_or(&view.who);
+                yours(faces, &m, who, view.tz, directed).into_any_element()
             }
             Item::Tool(e) => tool(faces, e, view.tz, view.expanded, cx).into_any_element(),
             Item::Task(t) => {
@@ -536,6 +662,23 @@ fn working(faces: &Faces, view: &View<'_>, since: Option<DateTime<Utc>>) -> Div 
 /// A session with nothing in it yet: what the solver is, what it can do on
 /// this machine as its deployment says, and a few things to ask for.
 fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
+    let Some(abilities) = view.abilities else {
+        return div()
+            .id("thread")
+            .flex()
+            .flex_1()
+            .items_center()
+            .justify_center()
+            .child(
+                ui::text(
+                    faces,
+                    format!("Nothing is said here in {}'s journal yet.", view.name),
+                )
+                .text_size(px(14.))
+                .text_color(theme::muted()),
+            )
+            .into_any_element();
+    };
     let mut column = div()
         .flex()
         .flex_col()
@@ -550,7 +693,7 @@ fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
                 .mt(px(18.)),
         )
         .child(
-            ui::text(faces, view.abilities.sentence())
+            ui::text(faces, abilities.sentence())
                 .text_size(px(14.))
                 .line_height(px(22.))
                 .text_color(theme::muted())
@@ -559,7 +702,7 @@ fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
         );
     // The starters all need the machine; without it they would only be
     // promises.
-    if view.abilities.local() {
+    if abilities.local() {
         let mut starters = div().flex().flex_col().gap(px(8.)).w_full().mt(px(28.));
         for (i, text) in STARTERS.iter().enumerate() {
             starters = starters.child(starter(faces, i, text, cx));
@@ -1056,5 +1199,51 @@ mod tests {
         assert_eq!(shown(5, 5, false), (5, 0));
         assert_eq!(shown(8, 5, false), (5, 3));
         assert_eq!(shown(8, 5, true), (8, 0));
+    }
+
+    #[test]
+    fn her_places_are_listed_newest_first_each_once_and_called_by_name() {
+        let at = |m: i64| Utc::now() - chrono::Duration::minutes(60 - m);
+        let said = |seq, m, kind: &str, data| Entry {
+            at: at(m),
+            ..entry(seq, kind, data)
+        };
+        let journal = vec![
+            said(
+                1,
+                1,
+                "heard",
+                json!({"channel": "qq", "place": {"id": "g7", "kind": "group", "name": "the clinic"},
+                "from": {"id": "u1", "name": "Wen"}, "text": "anyone?"}),
+            ),
+            said(
+                2,
+                2,
+                "heard",
+                json!({"channel": "qq", "place": {"id": "u2", "kind": "direct"},
+                "from": {"id": "u2", "name": "Lin"}, "text": "hi"}),
+            ),
+            said(
+                3,
+                3,
+                "said",
+                json!({"channel": "qq", "place": "g7", "text": "here"}),
+            ),
+            said(
+                4,
+                4,
+                "said",
+                json!({"channel": "x", "place": "home", "text": "a post"}),
+            ),
+        ];
+        let spots = places(&journal);
+        let keys: Vec<&str> = spots.iter().map(|s| s.key.as_str()).collect();
+        assert_eq!(keys, ["x:home", "qq:g7", "qq:u2"]);
+        let labels: Vec<&str> = spots.iter().map(|s| s.label.as_str()).collect();
+        // A group by its name, not by whoever spoke last; a private place
+        // by who it is with; a place nobody named by its id.
+        assert_eq!(labels, ["home · x", "the clinic · qq", "Lin · qq"]);
+        // Only what came to her on the desk from the desk is the desk's.
+        assert!(journal.iter().all(|e| desk_message(e).is_none()));
     }
 }

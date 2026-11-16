@@ -1,17 +1,27 @@
 //! The column down the left, laid out the way a coding agent's app has it:
-//! the controls beside the window's lights, New task and Search, your
-//! sessions with the solver on this machine with the parts of their open
-//! work under them, and at the foot the solver and the brain it thinks
-//! with. Every row is a session you opened, the solver's own state read
-//! from its journal, or a control that does what it says; there are no
-//! entries for things that do not work yet.
+//! the controls beside the window's lights, New task and Search, then a
+//! group for each daemon the desk follows, and at the foot the solver and
+//! the brain it thinks with.
+//!
+//! The first group is this machine: your sessions with the solver, with
+//! the parts of their open work under them, and any other character its
+//! core runs. Then one group for each connection, its name and how the
+//! link to it stands, with the characters it runs, each with a dot for
+//! whether her day has her awake. Every group folds. At the end, a small
+//! form adds a connection; a connection's `…`, or a right click on it,
+//! removes it. Every row is a session you opened, a character a daemon
+//! says it runs, or a control that does what it says; there are no entries
+//! for things that do not work yet.
 
+use ghost_link::protocol::Listed;
 use gpui::{
-    AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
+    AnyElement, Context, Corner, Div, FontWeight, MouseButton, SharedString, Stateful, anchored,
+    deferred, div, prelude::*, px,
 };
 
 use crate::{
-    desk::{At, Desk, LEFT, Menu, TOPBAR, draggable},
+    daemons::{self, Group, Host},
+    desk::{At, Desk, LEFT, Menu, Popup, TOPBAR, draggable},
     fonts::Faces,
     model::LinkState,
     settings::{self, Session},
@@ -28,8 +38,6 @@ const ROW: f32 = 34.;
 const PART_ROW: f32 = 28.;
 /// How far a part's row is indented from its session's.
 const INDENT: f32 = 18.;
-/// The key the "This machine" group is folded under.
-const MACHINE: &str = "group:machine";
 
 /// The colour of the daemon link's dot: green when connected, grey while
 /// connecting, coral when lost.
@@ -125,7 +133,7 @@ impl Desk {
             .border_color(theme::border())
             .child(top)
             .child(self.menu_rows(faces, cx))
-            .child(self.session_list(faces, cx))
+            .child(self.group_list(faces, cx))
             .child(self.account(faces, cx))
     }
 
@@ -161,23 +169,69 @@ impl Desk {
             .child(search)
     }
 
-    /// The sessions on this machine, under a head that folds them away;
-    /// while searching, only those the search finds, folded or not.
-    fn session_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Stateful<Div> {
-        let open = self.searching || !self.collapsed.contains(MACHINE);
+    /// A group for each daemon, each under a head that folds it away, and
+    /// the way to add another. While searching, only this machine's
+    /// sessions the search finds, folded or not.
+    fn group_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Stateful<Div> {
         let mut list = div()
-            .id("sessions")
+            .id("groups")
             .flex()
             .flex_col()
             .flex_1()
             .min_h(px(0.))
             .overflow_y_scroll()
             .px(px(8.))
-            .pb(px(8.))
-            .child(group_head(faces, open, cx));
-        if !open {
+            .pb(px(8.));
+        let solver = self.solver.card.as_ref().map(|c| c.seal.as_str());
+        for group in daemons::groups(&self.daemons, solver) {
+            let local = *group.host == Host::Local;
+            if self.searching && !local {
+                continue;
+            }
+            let open = (self.searching && local) || !self.collapsed.contains(&group.host.key());
+            list = list.child(self.group_head(faces, &group, open, cx));
+            if !open {
+                continue;
+            }
+            if local {
+                list = self.sessions(list, faces, cx);
+                if self.searching {
+                    continue;
+                }
+            } else if group.ghosts.is_empty() {
+                let why = match group.link {
+                    LinkState::Connecting => "Connecting…".to_owned(),
+                    LinkState::Connected => "It runs nobody.".to_owned(),
+                    LinkState::Lost(why) => why.clone(),
+                };
+                list = list.child(
+                    ui::text(faces, why)
+                        .text_size(px(12.5))
+                        .line_height(px(17.))
+                        .text_color(theme::muted())
+                        .px(px(10.))
+                        .py(px(6.)),
+                );
+            }
+            for her in &group.ghosts {
+                list = list.child(self.character_row(faces, group.host, her, cx));
+            }
+        }
+        if self.searching {
             return list;
         }
+        list.child(add_connection_row(faces, cx))
+            .children(self.form.open.then(|| self.connection_form(faces, cx)))
+    }
+
+    /// This machine's sessions, or those the search finds, each with the
+    /// parts of its open work under it.
+    fn sessions(
+        &self,
+        mut list: Stateful<Div>,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let found = if self.searching {
             settings::matching(&self.settings.sessions, &self.search.read(cx).text())
         } else {
@@ -215,7 +269,7 @@ impl Desk {
         tasks: &[Task<'_>],
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let on = index == self.current;
+        let on = index == self.current && self.open.is_none();
         let label_color = if s.title.is_empty() {
             theme::muted()
         } else if on {
@@ -343,33 +397,267 @@ fn part_row(
         .on_click(cx.listener(move |this, _, _, cx| this.choose(session, cx)))
 }
 
-/// "This machine", with a chevron that says whether it is folded.
-fn group_head(faces: &Faces, open: bool, cx: &mut Context<Desk>) -> Stateful<Div> {
+impl Desk {
+    /// A group's head: its name, a chevron that says whether it is folded,
+    /// and for a connection the link's dot and a `…` that shows on hover
+    /// and opens its menu, as a right click does.
+    fn group_head(
+        &self,
+        faces: &Faces,
+        group: &Group<'_>,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let key = group.host.key();
+        let fold = key.clone();
+        let head = div()
+            .id(SharedString::from(key.clone()))
+            .group(SharedString::from(key.clone()))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .h(px(28.))
+            .mt(px(10.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .child(
+                ui::text(faces, group.host.label().to_owned())
+                    .text_size(px(12.5))
+                    .text_color(theme::muted()),
+            )
+            .child(
+                ui::icon(
+                    if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    },
+                    12.,
+                )
+                .text_color(theme::faint()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_collapsed(&fold, cx)));
+        let Host::Remote(name) = group.host else {
+            return div().child(head);
+        };
+        let (menu_for, right_for) = (name.clone(), name.clone());
+        let head = head
+            .child(div().flex_1())
+            .child(ui::dot(link_color(group.link)))
+            .child(
+                div()
+                    .id(SharedString::from(format!("{key}:more")))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(px(20.))
+                    .rounded(px(5.))
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        ui::mono(faces, "…")
+                            .text_color(gpui::transparent_black())
+                            .group_hover(SharedString::from(key.clone()), |s| {
+                                s.text_color(theme::muted())
+                            }),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.popup = Popup::Connection(menu_for.clone());
+                        cx.notify();
+                    })),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, _, _, cx| {
+                    this.popup = Popup::Connection(right_for.clone());
+                    cx.notify();
+                }),
+            );
+        let mut wrap = div().relative().child(head);
+        if self.popup == Popup::Connection(name.clone()) {
+            let gone = name.clone();
+            let menu = div()
+                .id("connection-menu")
+                .occlude()
+                .w(px(200.))
+                .p(px(6.))
+                .bg(theme::panel())
+                .border_1()
+                .border_color(theme::border2())
+                .rounded(px(10.))
+                .shadow_lg()
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.popup = Popup::Closed;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .id("remove-connection")
+                        .flex()
+                        .items_center()
+                        .h(px(30.))
+                        .px(px(10.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme::hover()))
+                        .child(
+                            ui::text(faces, "Remove connection")
+                                .text_size(px(13.))
+                                .text_color(theme::coral()),
+                        )
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.remove_connection(&gone, cx)),
+                        ),
+                );
+            // Under the head, its right edge on the head's.
+            wrap = wrap.child(
+                div().absolute().top(px(40.)).right_0().child(deferred(
+                    anchored()
+                        .anchor(Corner::TopRight)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(menu),
+                )),
+            );
+        }
+        wrap
+    }
+
+    /// A character a daemon runs: a dot for whether her day has her awake
+    /// (green) or asleep (faint), none while her mind does not say; and her
+    /// name. Clicking it opens her.
+    fn character_row(
+        &self,
+        faces: &Faces,
+        host: &Host,
+        her: &Listed,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let on = self
+            .open
+            .as_ref()
+            .is_some_and(|o| o.host == *host && o.id == her.id);
+        let dot = match her.awake {
+            Some(true) => theme::green(),
+            Some(false) => theme::faint(),
+            None => gpui::transparent_black(),
+        };
+        let (host, id) = (host.clone(), her.id.clone());
+        div()
+            .id(SharedString::from(format!("{}:{}", host.key(), her.id)))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .h(px(ROW))
+            .px(px(10.))
+            .rounded(px(8.))
+            .cursor_pointer()
+            .when(on, |d| d.bg(theme::panel2()))
+            .when(!on, |d| d.hover(|x| x.bg(theme::hover())))
+            .child(ui::dot(dot))
+            .child(ui::one_line(
+                ui::text(faces, her.card.name.clone())
+                    .text_size(px(14.))
+                    .text_color(if on { theme::text() } else { theme::text2() }),
+            ))
+            .on_click(cx.listener(move |this, _, _, cx| this.open_character(&host, &id, cx)))
+    }
+
+    /// The form for a connection: its name, its URL, and the name of the
+    /// variable its token is in, never the token. Under it, why the last
+    /// try was refused.
+    fn connection_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let field = |label: &'static str, n: usize| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    ui::mono(faces, label)
+                        .text_size(px(10.5))
+                        .text_color(theme::faint()),
+                )
+                .child(
+                    div()
+                        .px(px(8.))
+                        .rounded(px(7.))
+                        .bg(theme::bg())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .child(self.form.fields[n].clone()),
+                )
+        };
+        let button = |id: &'static str, label: &'static str, strong: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .h(px(26.))
+                .px(px(10.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .when(strong, |d| d.bg(theme::accent()))
+                .when(!strong, |d| d.hover(|s| s.bg(theme::hover())))
+                .child(
+                    ui::text(faces, label)
+                        .text_size(px(12.5))
+                        .text_color(if strong { theme::bg() } else { theme::muted() }),
+                )
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .mx(px(4.))
+            .mt(px(4.))
+            .p(px(10.))
+            .rounded(px(10.))
+            .bg(theme::panel())
+            .border_1()
+            .border_color(theme::border())
+            .child(field("NAME", 0))
+            .child(field("URL", 1))
+            .child(field("TOKEN VARIABLE", 2))
+            .children(self.form.refused.as_ref().map(|why| {
+                ui::text(faces, why.clone())
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(theme::coral())
+            }))
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(6.))
+                    .child(button("connection-cancel", "Cancel", false).on_click(
+                        cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)),
+                    ))
+                    .child(
+                        button("connection-add", "Connect", true)
+                            .on_click(cx.listener(|this, _, _, cx| this.add_connection(cx))),
+                    ),
+            )
+    }
+}
+
+/// The row that opens the form for a connection, or closes it.
+fn add_connection_row(faces: &Faces, cx: &mut Context<Desk>) -> Stateful<Div> {
     div()
-        .id("group-machine")
+        .id("add-connection")
         .flex()
         .items_center()
-        .gap(px(6.))
-        .h(px(28.))
-        .mt(px(10.))
+        .gap(px(8.))
+        .h(px(30.))
+        .mt(px(12.))
         .px(px(10.))
-        .rounded(px(6.))
+        .rounded(px(8.))
         .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(ui::icon("plus", 14.).text_color(theme::muted()))
         .child(
-            ui::text(faces, "This machine")
-                .text_size(px(12.5))
+            ui::text(faces, "Add connection")
+                .text_size(px(13.))
                 .text_color(theme::muted()),
         )
-        .child(
-            ui::icon(
-                if open {
-                    "chevron-down"
-                } else {
-                    "chevron-right"
-                },
-                12.,
-            )
-            .text_color(theme::faint()),
-        )
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_collapsed(MACHINE, cx)))
+        .on_click(cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)))
 }

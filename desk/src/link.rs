@@ -1,95 +1,179 @@
-//! The desk's connection to `ghostd`, on its own thread.
+//! The desk's connections to daemons, on a runtime of their own.
 //!
-//! Two roles at once, as the protocol has them: a console that asks about
-//! her and streams her journal, and a presence named `desk` that carries
-//! the conversation between you and her. Each session on the desk is a
-//! place of its own on that channel, so her journal keeps the threads
-//! apart. Both roles run on a tokio runtime on a thread of their own and
-//! hand what they learn to the UI as [`Update`]s over a plain channel; the
-//! UI drains it on its own clock. Nothing here touches a ghost's files.
+//! Two kinds. A [`Link`] follows one ghost on one daemon, in the two roles
+//! the protocol has: a console that asks about her and streams her
+//! journal, and, once there is something to say, a presence named `desk`
+//! that carries the conversation between you and her. Each session with
+//! the solver is a place of its own on that channel, so her journal keeps
+//! the threads apart. A [`Listing`] only asks a daemon who it runs, now and
+//! then, so that the desk can show a daemon's cast without opening any of
+//! them.
+//!
+//! All of it runs on one small tokio runtime and hands what it learns to
+//! the UI as [`Update`]s over a plain channel; the UI drains it on its own
+//! clock. Dropping either stops it. Nothing here touches a ghost's files.
 
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
     time::Duration,
 };
 
 use async_trait::async_trait;
 use ghost_link::{
     Console,
-    presence::{self, Link, Platform, Uplink},
+    presence::{self, Platform, Uplink},
     protocol::{Acted, Action, Actor, Capability, Inbound, Place, PlaceKind},
 };
 use serde_json::Value;
+use tokio::{runtime::Runtime, task::JoinHandle};
 use tracing::{info, warn};
 
 use crate::model::{Entry, LinkState, PersonView, Status, Update};
 
 /// How many journal entries the desk holds when it connects.
 pub const TAIL: u32 = 400;
-/// How often it asks after her again.
+/// How often it asks after her, and after who a daemon runs, again.
 const REFRESH: Duration = Duration::from_secs(20);
 const RETRY: Duration = Duration::from_secs(3);
 
 /// The channel name the desk registers as.
 pub const CHANNEL: &str = "desk";
 
+/// Where every link runs: two threads are plenty for a handful of sockets.
+fn runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("ghost-link")
+            .enable_all()
+            .build()
+            .expect("a tokio runtime")
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
     pub token: Option<String>,
+    /// Which of the daemon's characters, by her id: `None` when it runs
+    /// only one.
     pub ghost: Option<String>,
     /// Who you are to her.
     pub who: String,
 }
 
-/// A line you typed, on its way to her, in one session.
+/// A line you typed, on its way to her, in one place on the desk channel.
 pub struct Outgoing {
     pub place: String,
     pub text: String,
 }
 
-/// Start the link. Returns where updates arrive and where to put what you say.
-pub fn start(
+/// One ghost the desk follows.
+pub struct Link {
+    /// Where what the link learns arrives.
+    pub rx: mpsc::Receiver<Update>,
+    up: mpsc::Sender<Update>,
     cfg: Config,
-) -> (
-    mpsc::Receiver<Update>,
-    tokio::sync::mpsc::UnboundedSender<Outgoing>,
-) {
-    let (up_tx, up_rx) = mpsc::channel();
-    let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
-    std::thread::Builder::new()
-        .name("ghost-link".into())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .expect("a tokio runtime");
-            rt.block_on(async move {
-                let console = tokio::spawn(console(cfg.clone(), up_tx.clone()));
-                let desk = Arc::new(Desk {
-                    who: cfg.who.clone(),
-                    lines: Mutex::new(Some(out_rx)),
-                    up: up_tx.clone(),
-                });
-                let link = Link {
-                    url: cfg.url.clone(),
-                    token: cfg.token.clone(),
-                    ghost: cfg.ghost.clone(),
-                    channel: CHANNEL.to_owned(),
-                    me: None,
-                    can: vec![Capability::Send, Capability::Typing, Capability::Read],
-                };
-                let presence = tokio::spawn(async move {
-                    if let Err(e) = presence::run(desk, link).await {
-                        warn!("the desk's presence stopped: {e:#}");
+    /// Where what you say goes, once the desk speaks to her.
+    lines: Option<tokio::sync::mpsc::UnboundedSender<Outgoing>>,
+    tasks: Vec<JoinHandle<()>>,
+}
+
+impl Link {
+    /// Watch the ghost `cfg` names: ask about her, and follow her journal.
+    pub fn watch(cfg: Config) -> Self {
+        let (up, rx) = mpsc::channel();
+        let console = runtime().spawn(console(cfg.clone(), up.clone()));
+        Self {
+            rx,
+            up,
+            cfg,
+            lines: None,
+            tasks: vec![console],
+        }
+    }
+
+    /// Carry what you say to her from now on, by registering the desk's
+    /// channel for her. Until then the desk only watches, and takes no
+    /// channel of hers.
+    pub fn speak(&mut self) {
+        if self.lines.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let desk = Arc::new(Desk {
+            who: self.cfg.who.clone(),
+            lines: Mutex::new(Some(rx)),
+            up: self.up.clone(),
+        });
+        let link = presence::Link {
+            url: self.cfg.url.clone(),
+            token: self.cfg.token.clone(),
+            ghost: self.cfg.ghost.clone(),
+            channel: CHANNEL.to_owned(),
+            me: None,
+            can: vec![Capability::Send, Capability::Typing, Capability::Read],
+        };
+        self.tasks.push(runtime().spawn(async move {
+            if let Err(e) = presence::run(desk, link).await {
+                warn!("the desk's presence stopped: {e:#}");
+            }
+        }));
+        self.lines = Some(tx);
+    }
+
+    /// Say `text` to her in the place `place` on the desk channel.
+    pub fn say(&mut self, place: String, text: String) {
+        self.speak();
+        if let Some(lines) = &self.lines {
+            let _ = lines.send(Outgoing { place, text });
+        }
+    }
+}
+
+impl Drop for Link {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
+/// Who one daemon runs, asked now and then.
+pub struct Listing {
+    pub rx: mpsc::Receiver<Update>,
+    task: JoinHandle<()>,
+}
+
+impl Listing {
+    /// Ask the daemon at `url` who it runs, and again every little while,
+    /// connecting again when it goes away.
+    pub fn follow(url: String, token: Option<String>) -> Self {
+        let (up, rx) = mpsc::channel();
+        let task = runtime().spawn(async move {
+            loop {
+                match ghost_link::list(&url, token.clone()).await {
+                    Ok(roster) => {
+                        let _ = up.send(Update::Link(LinkState::Connected));
+                        let _ = up.send(Update::Roster(roster.ghosts));
+                        tokio::time::sleep(REFRESH).await;
                     }
-                });
-                let _ = tokio::join!(console, presence);
-            });
-        })
-        .expect("spawn the link thread");
-    (up_rx, out_tx)
+                    Err(e) => {
+                        let _ = up.send(Update::Link(LinkState::Lost(format!("{e:#}"))));
+                        tokio::time::sleep(RETRY).await;
+                    }
+                }
+            }
+        });
+        Self { rx, task }
+    }
+}
+
+impl Drop for Listing {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 /// The console role: connect, ask everything once, then follow her journal
@@ -161,6 +245,11 @@ async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Resu
         let _ = up.send(Update::People(
             people.iter().filter_map(PersonView::from_value).collect(),
         ));
+    }
+    // A daemon from before work could be listed has no answer; the desk
+    // then shows none.
+    if let Ok(work) = asker.work().await {
+        let _ = up.send(Update::Work(work));
     }
     Ok(())
 }
