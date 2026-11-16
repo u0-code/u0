@@ -45,7 +45,6 @@ pub struct Status {
     pub tz: Tz,
     pub local_time: String,
     pub journal: i64,
-    pub tempo: f64,
     pub think: String,
 }
 
@@ -58,7 +57,6 @@ impl Status {
             tz,
             local_time: s(v, "local_time"),
             journal: v.get("journal").and_then(Value::as_i64).unwrap_or_default(),
-            tempo: v.get("tempo").and_then(Value::as_f64).unwrap_or(1.),
             think: v.get("brains").map(|b| s(b, "think")).unwrap_or_default(),
         }
     }
