@@ -89,6 +89,18 @@ pub mod method {
     /// [`Work`](super::Work), what she has in hand and what ended lately,
     /// most recently active first, each with its parts.
     pub const WORK: &str = "work.list";
+    /// Console → daemon request. Params [`StepsRead`](super::StepsRead),
+    /// result [`WorkLog`](super::WorkLog): the steps one piece of work, or
+    /// one part of it, has taken, each with what it called and the head of
+    /// what came back, and the parts it handed out. An id she has no work
+    /// by is refused with [`NO_SUCH_WORK`](super::code::NO_SUCH_WORK).
+    pub const WORK_STEPS: &str = "work.steps";
+    /// Console → daemon request. Params [`LookRead`](super::LookRead),
+    /// result: a list of [`Look`](super::Look), oldest first. What she
+    /// called while she looked at a place, and what came back, round by
+    /// round: the looks that ended after a journal entry, and the one she
+    /// is in the middle of. Kept for a fortnight.
+    pub const LOOK_STEPS: &str = "look.steps";
     /// Console → daemon request. Params [`JournalRead`](super::JournalRead).
     pub const JOURNAL_READ: &str = "journal.read";
     /// Console → daemon request. No params. Afterwards the daemon sends a
@@ -155,7 +167,8 @@ pub mod code {
     /// nobody when it runs several. Retrying cannot fix it.
     pub const NO_SUCH_GHOST: i64 = -32004;
     /// The work named is not one she has open: there is none by that id,
-    /// it is a part, or it has ended.
+    /// it is a part, or it has ended. Asked for the steps of work, there
+    /// is none by that id.
     pub const NO_SUCH_WORK: i64 = -32005;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
@@ -742,6 +755,142 @@ pub struct WorkStop {
     pub work: String,
 }
 
+/// Params of [`method::WORK_STEPS`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepsRead {
+    /// The work's id, as [`Work::id`] has it. A part's steps are asked for
+    /// by the part's own id.
+    pub work: String,
+    /// Only the steps after this one, by [`LoggedStep::n`]. Left out, from
+    /// the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
+    /// At most this many steps. Left out, 100; never more than 500.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// The result of [`method::WORK_STEPS`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkLog {
+    /// Oldest first.
+    pub steps: Vec<LoggedStep>,
+    /// Every part the work handed out, by number, whatever steps were
+    /// asked for: each one's steps are read by its own id.
+    #[serde(default)]
+    pub parts: Vec<WorkPart>,
+    /// There are steps after the last of these: ask again after it.
+    #[serde(default)]
+    pub more: bool,
+}
+
+/// One step of a piece of work: what the model said, and what it called.
+///
+/// Where the work is stepped by a command-line agent, each call it makes
+/// is a step of its own, and the agent's words are not known.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoggedStep {
+    /// Its place in the work's log, from 1, over every sitting.
+    pub n: u64,
+    /// When it was taken, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// What the model said at that step, cut to a few hundred characters;
+    /// empty if it said nothing.
+    #[serde(default)]
+    pub said: String,
+    /// How long the model took to answer, in milliseconds, where that is
+    /// known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+    /// What it called, in order.
+    #[serde(default)]
+    pub calls: Vec<ToolCall>,
+}
+
+/// One call a step or a look made, and what came of it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// The tool, as the model named it: `shell`, `read`, `search`, or a
+    /// tool of a server she has.
+    pub name: String,
+    /// What it was called with, as JSON, with any string in it longer than
+    /// a few hundred characters cut to its head. A step logged before
+    /// calls kept their output has a string here.
+    #[serde(default)]
+    pub args: Value,
+    /// The head of what came back, as it came back: at most 1,500
+    /// characters.
+    #[serde(default)]
+    pub out: String,
+    /// What came back was longer than `out`.
+    #[serde(default)]
+    pub cut: bool,
+    /// How many characters came back in all.
+    #[serde(default)]
+    pub chars: u64,
+    /// How long it took, in milliseconds.
+    #[serde(default)]
+    pub ms: u64,
+    #[serde(default)]
+    pub failed: bool,
+    /// How many images came back with it.
+    #[serde(default)]
+    pub pictures: u32,
+}
+
+/// A part a piece of work handed out, in [`WorkLog::parts`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkPart {
+    /// Its id: its parent's, a slash, and its number.
+    pub id: String,
+    pub brief: String,
+    pub state: WorkState,
+}
+
+/// Params of [`method::LOOK_STEPS`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LookRead {
+    /// A place key, `channel:id`.
+    pub place: String,
+    /// Only the looks that ended after the journal entry with this seq,
+    /// and the one going on. Left out, every look kept, up to the newest
+    /// fifty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
+}
+
+/// One look she took at a place, in the result of [`method::LOOK_STEPS`]:
+/// the rounds in which she called something before she answered. A look
+/// that called nothing that brought something back is not kept.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Look {
+    /// Its number, never another look's.
+    pub look: u64,
+    /// The seq of the `decided` entry it ended with in her journal, or of
+    /// the `stopped` entry if an operator stopped her in the middle of it;
+    /// none while it goes on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    /// She is in the middle of it: more rounds may come.
+    #[serde(default)]
+    pub running: bool,
+    /// Oldest first.
+    #[serde(default)]
+    pub rounds: Vec<LookRound>,
+}
+
+/// One round of a look: what she called at once, and what came back.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LookRound {
+    /// When she called it, RFC 3339.
+    pub at: String,
+    /// In the order she called them, what she decided to do among them
+    /// (`say`, `react`) as well, which comes back as `ok`.
+    #[serde(default)]
+    pub calls: Vec<ToolCall>,
+}
+
 /// One thing waiting on whoever runs her, in the result of
 /// [`method::ATTENTION`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -969,6 +1118,28 @@ mod tests {
         });
         let back: Inbound = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(back, m);
+    }
+
+    #[test]
+    fn a_step_and_a_look_read_with_only_what_they_carry() {
+        let log: WorkLog = serde_json::from_str(
+            r#"{"steps":[{"n":3,"calls":[{"name":"shell","args":"{\"command\":\"ls\"}"}]}]}"#,
+        )
+        .unwrap();
+        let step = &log.steps[0];
+        assert_eq!((step.n, step.said.as_str(), step.ms), (3, "", None));
+        assert_eq!(step.calls[0].args, "{\"command\":\"ls\"}");
+        assert!(!step.calls[0].cut && step.calls[0].out.is_empty());
+        assert!(log.parts.is_empty() && !log.more);
+
+        let look: Look = serde_json::from_str(r#"{"look":4,"running":true,"rounds":[]}"#).unwrap();
+        assert_eq!((look.seq, look.running), (None, true));
+        let asked = serde_json::to_value(LookRead {
+            place: "t:wen".into(),
+            after: None,
+        })
+        .unwrap();
+        assert_eq!(asked, serde_json::json!({"place": "t:wen"}));
     }
 
     #[test]

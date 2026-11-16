@@ -21,7 +21,8 @@ use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
     ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello, JournalRead, ListGhosts,
-    PROTOCOL, Role, Roster, SayMode, Welcome, WorkAnswer, WorkStop, method,
+    Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead, Welcome, WorkAnswer, WorkLog,
+    WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -179,6 +180,41 @@ impl Console {
     /// first, each with the parts it handed out.
     pub async fn work(&mut self) -> anyhow::Result<Vec<ghost_protocol::Work>> {
         self.conn.call(method::WORK, &()).await
+    }
+
+    /// The steps the work `work`, or a part of it by its own id, has
+    /// taken after the `after`th, at most `limit` of them, each with what
+    /// it called and the head of what came back, and the parts it handed
+    /// out. Ask again after the last step while
+    /// [`more`](ghost_protocol::WorkLog::more) says there are more.
+    pub async fn work_steps(
+        &mut self,
+        work: &str,
+        after: Option<u64>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<WorkLog> {
+        let params = StepsRead {
+            work: work.to_owned(),
+            after,
+            limit,
+        };
+        self.conn.call(method::WORK_STEPS, &params).await
+    }
+
+    /// What she called while she looked at `place`, round by round: in the
+    /// looks that ended after the journal entry `after`, and in the one she
+    /// is in the middle of there. Polled about once a second while she is
+    /// thinking in a place, it follows her as she goes.
+    pub async fn look_steps(
+        &mut self,
+        place: &str,
+        after: Option<u64>,
+    ) -> anyhow::Result<Vec<Look>> {
+        let params = LookRead {
+            place: place.to_owned(),
+            after,
+        };
+        self.conn.call(method::LOOK_STEPS, &params).await
     }
 
     /// What is waiting on whoever runs her, newest first: work waiting on

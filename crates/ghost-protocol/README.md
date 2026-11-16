@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
@@ -145,6 +145,98 @@ kind it is sent reads it as `other`.
 `work` is the id `work.list` gives. Only her open work can be named: an id
 she has none of, one that has ended, or a part's, is refused with
 `-32005`. Blank `text`, or no `who`, with `-32602`.
+
+## Following her work and her looks, step by step
+
+Her journal says that she took something on, what it told her and how it
+ended, and what she said and decided in a conversation. What happened in
+between, each command run and what it printed, each file read, each search,
+is kept where her working state is kept, and two methods read it. Any
+console may ask; neither changes anything.
+
+Both give each call in one shape:
+
+```json
+{"name":"shell","args":{"command":"ls -la"},"out":"total 8\n…","cut":true,
+ "chars":5120,"ms":41,"failed":false,"pictures":0}
+```
+
+- `args` is what it was called with, as JSON, with any string in it longer
+  than 400 characters cut to its head and ending in `…`. A step logged
+  before this was kept has a string here.
+- `out` is the head of what came back, as it came back: at most 1,500
+  characters. `cut` says there was more, and `chars` how much in all.
+- `ms` is how long the call took; `pictures` how many images came back.
+
+### `work.steps`
+
+```json
+{"jsonrpc":"2.0","id":6,"method":"work.steps","params":{"work":"20261116-140000-1a2b","after":12,"limit":50}}
+
+{"jsonrpc":"2.0","id":6,"result":{
+  "steps":[
+    {"n":13,"at":"…","said":"The rota is in the shared drive; reading it.","ms":2300,
+     "calls":[{"name":"read","args":{"path":"rota.md"},"out":"…","cut":false,"chars":812,"ms":3,"failed":false,"pictures":0}]}
+  ],
+  "parts":[{"id":"20261116-140000-1a2b/1","brief":"Check the weekend shifts.","state":"running"}],
+  "more":false}}
+```
+
+- `work` is an id `work.list` gives, of open work or work that ended. A
+  part's steps are asked for by the part's own id, as `parts` and
+  `work.list` give it.
+- `after` is a step's `n`: only the steps after it come back. Left out, from
+  the first. `limit` is at most how many, 100 when left out and never more
+  than 500. `more` says there are more after the last one sent.
+- A step is one turn of the model: `said` is what it said then, cut to a
+  few hundred characters, and `ms` how long it took to answer; `calls` is
+  what it called, in order. Where a command-line agent (Claude Code, Codex)
+  steps the work, each call it makes is a step of its own, with no `said`
+  and no `ms`: its own words are in its own transcript, which is not ours.
+- `parts` lists every part the work handed out, whatever steps were asked
+  for, with `state` as `work.list` has it.
+
+An id she has no work by is refused with `-32005`.
+
+### `look.steps`
+
+When she looks at a conversation she may take several rounds before she
+answers: run something on her machine, read a file, search, use a tool of a
+server she has. Each round is kept, with every call in it, for a fortnight.
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"look.steps","params":{"place":"qq:9921","after":1490}}
+
+{"jsonrpc":"2.0","id":7,"result":[
+  {"look":311,"seq":1502,"running":false,"rounds":[
+    {"at":"…","calls":[{"name":"search","args":{"query":"heming tea house hours"},"out":"…","cut":false,"chars":640,"ms":1200,"failed":false,"pictures":0}]}]},
+  {"look":312,"running":true,"rounds":[
+    {"at":"…","calls":[{"name":"shell","args":{"command":"cal"},"out":"…","cut":false,"chars":160,"ms":30,"failed":false,"pictures":0}]}]}
+]}
+```
+
+- `place` is a place key, `channel:id`, as `memory.places` and
+  `journal.place` have it.
+- What comes back is the looks there that ended after the journal entry
+  `after`, oldest first, and the one she is in the middle of, if any. Left
+  out, `after` is 0: every look kept there, up to the newest fifty.
+- `seq` is the `decided` entry the look ended with, in the same place's
+  thread in `journal.place`: that is how a look is put beside what she said.
+  A look an operator stopped with `console.stop` ends with the `stopped`
+  entry instead, and is not running. A look still going on has no `seq`,
+  and `running` is true; its `look` number stays the same when it ends, and
+  is never another look's.
+- A round is what she called at once, in order, including what she decided
+  to do among it (`say`, `react`), which comes back as `ok`. Only rounds
+  that brought something back, or in which a call was refused, are kept: a
+  look in which she only answered keeps nothing, and is not listed. A look
+  she gave up on and tried again is two looks; the first is not listed.
+
+To follow her while she thinks in a place (`mind.agenda` lists the places
+in `thinking`), poll `look.steps` about once a second with `after` the
+newest `seq` already seen. Each poll is a small read of her working state,
+answered between the things she does; stop when she is no longer thinking
+there.
 
 ## What is waiting on whoever runs her
 

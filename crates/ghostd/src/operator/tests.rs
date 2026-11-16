@@ -1,5 +1,6 @@
-//! A console's operator speaking to her, over the real protocol on this
-//! machine's loopback, with her mind real and her brain scripted.
+//! A console's operator speaking to her, and a console following her work
+//! and her looks step by step, over the real protocol on this machine's
+//! loopback, with her mind real and her brain scripted.
 
 use std::time::Duration;
 
@@ -239,6 +240,108 @@ async fn only_an_operator_who_says_who_they_are_answers_her_work_and_only_work_s
         fox.work().await.unwrap()[0].state,
         ghost_protocol::WorkState::Waiting
     );
+}
+
+/// Before her mind starts: a piece of work with steps logged by its own
+/// loop and by a command-line agent's server of tools, a part with a step
+/// of its own, and a look at a conversation that kept a round.
+fn worked_and_looked(dir: &std::path::Path) {
+    use ghost_work::steps::call;
+    use serde_json::json;
+    let db = dir.join(ghost_work::WORK_DB);
+    let work = ghost_work::Undertaking::open(&db, "w1", Some("Find the rota.")).unwrap();
+    for n in 1..=3 {
+        work.log(&json!({
+            "at": format!("2026-11-16T08:00:0{n}+00:00"),
+            "said": format!("step {n}"),
+            "model_ms": 40,
+            "calls": [call("shell", &json!({"command": format!("echo {n}")}), &format!("{n}\n"), false, 0, 5)],
+        }));
+    }
+    let mut line = call("read", &json!({"path": "rota.md"}), "mon: wen", false, 0, 2);
+    line["via"] = json!("mcp");
+    work.log(&line);
+    let part = work.open_part("Check the weekend.").unwrap();
+    part.log(&json!({"said": "looking at the weekend", "calls": []}));
+
+    let looks = ghost_work::looks::Looks::open(&db).unwrap();
+    let look = looks.begin("t:wen", chrono::Utc::now()).unwrap();
+    looks
+        .round(
+            look,
+            &json!({
+                "at": "2026-11-16T08:10:00+00:00",
+                "calls": [call("search", &json!({"query": "tea house hours"}), "closes at ten", false, 0, 300)],
+            }),
+        )
+        .unwrap();
+    looks.end(look, 7).unwrap();
+}
+
+#[tokio::test]
+async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(worked_and_looked);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut watcher, _) = Console::connect(&rig.url, None, None).await.unwrap();
+
+    let all = watcher.work_steps("w1", None, None).await.unwrap();
+    assert_eq!(
+        all.steps.iter().map(|s| s.n).collect::<Vec<_>>(),
+        [1, 2, 3, 4]
+    );
+    assert!(!all.more);
+    let first = &all.steps[0];
+    assert_eq!((first.said.as_str(), first.ms), ("step 1", Some(40)));
+    assert_eq!(first.calls[0].name, "shell");
+    assert_eq!(first.calls[0].args["command"], "echo 1");
+    assert_eq!(first.calls[0].out, "1\n");
+    // A call a command-line agent made is a step of its own.
+    let agent = &all.steps[3];
+    assert_eq!(agent.said, "");
+    assert_eq!(agent.calls[0].args["path"], "rota.md");
+    assert_eq!(agent.calls[0].out, "mon: wen");
+    assert_eq!(all.parts.len(), 1);
+    assert_eq!(all.parts[0].id, "w1/1");
+    assert_eq!(all.parts[0].brief, "Check the weekend.");
+    assert_eq!(all.parts[0].state, ghost_protocol::WorkState::Open);
+
+    let next = watcher.work_steps("w1", Some(1), Some(2)).await.unwrap();
+    assert_eq!(next.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [2, 3]);
+    assert!(next.more);
+    let part = watcher.work_steps("w1/1", None, None).await.unwrap();
+    assert_eq!(part.steps[0].said, "looking at the weekend");
+    assert!(part.parts.is_empty());
+
+    let e = watcher.work_steps("w9", None, None).await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
+}
+
+#[tokio::test]
+async fn a_console_reads_what_she_called_while_she_looked_at_a_place() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(worked_and_looked);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut watcher, _) = Console::connect(&rig.url, None, None).await.unwrap();
+
+    let looks = watcher.look_steps("t:wen", None).await.unwrap();
+    assert_eq!(looks.len(), 1);
+    let look = &looks[0];
+    assert_eq!((look.seq, look.running), (Some(7), false));
+    let search = &look.rounds[0].calls[0];
+    assert_eq!(search.name, "search");
+    assert_eq!(search.args["query"], "tea house hours");
+    assert_eq!((search.out.as_str(), search.ms), ("closes at ten", 300));
+    // Nothing ended after the entry it ended with, and nothing is going
+    // on, there or anywhere else.
+    assert!(
+        watcher
+            .look_steps("t:wen", Some(7))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(watcher.look_steps("t:mei", None).await.unwrap().is_empty());
 }
 
 #[tokio::test]
