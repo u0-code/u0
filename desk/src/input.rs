@@ -119,6 +119,16 @@ impl TextInput {
         self.content.trim().to_owned()
     }
 
+    /// Say something else in the line while it is empty.
+    pub fn set_placeholder(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        self.placeholder = placeholder.into();
+        cx.notify();
+    }
+
     /// Put text in the line, replacing what was there.
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         self.reset();

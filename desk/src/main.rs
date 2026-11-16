@@ -13,6 +13,7 @@
 
 mod aside;
 mod assets;
+mod daemons;
 mod desk;
 mod fonts;
 mod icon;

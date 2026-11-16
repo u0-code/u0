@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::GhostCard;
+use ghost_link::protocol::{GhostCard, Listed, Work};
 use serde_json::Value;
 
 /// One line of her journal.
@@ -122,6 +122,10 @@ pub enum Update {
     },
     /// The desk's own channel is registered with the daemon.
     DeskOnline(bool),
+    /// Who the daemon runs, as `ghost.list` says.
+    Roster(Vec<Listed>),
+    /// The work she has in hand and what ended lately, as `work.list` says.
+    Work(Vec<Work>),
 }
 
 /// A message in the conversation between you and her on the desk, in one

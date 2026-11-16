@@ -1,7 +1,8 @@
 # ghost-desk
 
-A desktop app for getting things done on this machine, and, later, for the
-characters a daemon runs. The first page is about tasks and about nobody:
+A desktop app for getting things done on this machine, and for following
+the characters other daemons run (see [Other daemons](#other-daemons)).
+The first page is about tasks and about nobody:
 down the left, your sessions with the solver, laid out the way a coding
 agent's app is; in the middle, the session's thread and the line you type
 into, with the brain it thinks with under your hand; down the right, the
@@ -36,6 +37,40 @@ To have it as an app, with the ghost in Finder, Launchpad and the Dock:
 
 ```bash
 crates/ghost-desk/bundle.sh             # -> crates/ghost-desk/target/release/Ghost.app
+```
+
+## Other daemons
+
+The desk runs one ghost core of its own, the first group down the left,
+"This machine". It can also follow daemons it does not run: another
+server, or a character's own `ghostd` somewhere else. **Add connection**,
+under the groups, takes a name, a URL and the name of the environment
+variable that holds that daemon's token, if it asks for one. The token is
+read from the environment or `.env` when the desk connects, and never
+written to `desk.json`, which keeps only:
+
+```json
+"connections": [
+  {"name": "studio", "url": "wss://studio.example/ghost", "token_env": "STUDIO_GHOSTD_TOKEN"}
+]
+```
+
+Each connection is its own group: its name, a dot for its link, and the
+characters it runs as `ghost.list` tells them, each with a dot for whether
+her day has her awake. The desk only connects to these; it never starts or
+stops them. Opening a character shows her thread in the middle, one of
+her places at a time (the top bar picks which, newest first), and her
+daemon, her clock, her brain and her work down the right. What you type
+goes to her on the desk channel, as you: her deployment treats you as an
+operator only if its `[operators]` lists you on `desk`. Hover a connection
+and use `…`, or right-click it, to remove it.
+
+A `ws://` link to another machine carries everything in the clear, so the
+desk takes one only with a token named. Better is to reach the daemon over
+an ssh tunnel and connect to the tunnel's end on this machine:
+
+```bash
+ssh -N -L 7537:127.0.0.1:7437 you@server   # then add ws://127.0.0.1:7537
 ```
 
 ## The thread
