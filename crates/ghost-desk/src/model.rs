@@ -2,8 +2,7 @@
 //!
 //! Everything here is shaped from the protocol's JSON. The desk does not
 //! depend on `ghost-core`: it is a client like any presence, and knows her
-//! journal only as the daemon serves it. Where it describes an event in a
-//! line it does so the way `ghostd watch` does, so the two agree.
+//! journal only as the daemon serves it.
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -26,10 +25,6 @@ fn s(v: &Value, key: &str) -> String {
         .to_owned()
 }
 
-fn flat(text: &str) -> String {
-    text.replace('\n', " ⏎ ")
-}
-
 impl Entry {
     pub fn from_value(v: &Value) -> Option<Self> {
         let event = v.get("event")?;
@@ -40,242 +35,6 @@ impl Entry {
             data: event.get("data").cloned().unwrap_or(Value::Null),
         })
     }
-
-    /// The event in one line, in the words `ghostd watch` uses.
-    pub fn describe(&self, tz: Tz) -> String {
-        let d = &self.data;
-        let when = |key: &str| {
-            d.get(key)
-                .and_then(Value::as_str)
-                .and_then(|t| t.parse::<DateTime<Utc>>().ok())
-                .map(|t| t.with_timezone(&tz).format("%m-%d %H:%M").to_string())
-                .unwrap_or_default()
-        };
-        match self.kind.as_str() {
-            "born" => format!("{} was born (seal {})", s(d, "name"), short(&s(d, "seal"))),
-            "described" => format!(
-                "her persona as it stands now (seal {})",
-                short(&s(d, "seal"))
-            ),
-            "dormant" => format!("nothing since {}", when("since")),
-            "woke" => "woke up".into(),
-            "slept" => "went to sleep".into(),
-            "planned" => {
-                let plan = d
-                    .get("blocks")
-                    .and_then(Value::as_array)
-                    .map(|blocks| {
-                        blocks
-                            .iter()
-                            .map(|b| {
-                                format!(
-                                    "{}–{} {} [{}]",
-                                    s(b, "from"),
-                                    s(b, "to"),
-                                    s(b, "what"),
-                                    s(b, "reach")
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" · ")
-                    })
-                    .unwrap_or_default();
-                match d.get("weather").and_then(Value::as_str) {
-                    Some(w) => format!("{} ({w}): {plan}", s(d, "day")),
-                    None => format!("{}: {plan}", s(d, "day")),
-                }
-            }
-            "lived" | "learned" | "practised" => flat(&s(d, "text").max_len(&s(d, "lesson"))),
-            "reflected" => match d.get("channel").and_then(Value::as_str) {
-                Some(c) => format!("[{c}] {}", flat(&s(d, "text"))),
-                None => flat(&s(d, "text")),
-            },
-            "heard" => {
-                let place = d.get("place").cloned().unwrap_or(Value::Null);
-                let name = place
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| s(&place, "id"), str::to_owned);
-                let from = d.get("from").cloned().unwrap_or(Value::Null);
-                let addressed = d.get("addressed").and_then(Value::as_bool).unwrap_or(false);
-                let images = d
-                    .get("images")
-                    .and_then(Value::as_array)
-                    .map_or(0, Vec::len);
-                format!(
-                    "[{}:{name}] {}{}: {}{}",
-                    s(d, "channel"),
-                    s(&from, "name"),
-                    if addressed { "" } else { " (not to her)" },
-                    flat(&s(d, "text")),
-                    match images {
-                        0 => String::new(),
-                        1 => " (1 image)".to_owned(),
-                        n => format!(" ({n} images)"),
-                    }
-                )
-            }
-            "read" => format!(
-                "[{}:{}] up to #{}",
-                s(d, "channel"),
-                s(d, "place"),
-                d.get("upto").and_then(Value::as_i64).unwrap_or_default()
-            ),
-            "said" => format!(
-                "[{}:{}] {}",
-                s(d, "channel"),
-                s(d, "place"),
-                flat(&s(d, "text"))
-            ),
-            "reacted" => format!("[{}:{}] {}", s(d, "channel"), s(d, "place"), s(d, "emoji")),
-            "posted" | "saw" => format!("[{}] {}", s(d, "channel"), flat(&s(d, "text"))),
-            "decided" => {
-                let reason = s(d, "reason");
-                if reason.is_empty() {
-                    format!("[{}] {}", s(d, "about"), s(d, "decision"))
-                } else {
-                    format!(
-                        "[{}] {} — {}",
-                        s(d, "about"),
-                        s(d, "decision"),
-                        flat(&reason)
-                    )
-                }
-            }
-            "felt" => format!(
-                "{:+} toward {}: {}",
-                d.get("delta").and_then(Value::as_i64).unwrap_or_default(),
-                s(d, "toward"),
-                flat(&s(d, "why"))
-            ),
-            "noted" | "profiled" => format!(
-                "{}: {}",
-                s(d, "about").max_len(&s(d, "person")),
-                flat(&s(d, "text").max_len(&s(d, "shared")))
-            ),
-            "intended" => format!(
-                "by {}{}: {}",
-                when("due"),
-                if d.get("report").and_then(Value::as_bool).unwrap_or(false) {
-                    " (report)"
-                } else {
-                    ""
-                },
-                flat(&s(d, "what"))
-            ),
-            "settled" => format!(
-                "#{}: {}",
-                d.get("intention")
-                    .and_then(Value::as_i64)
-                    .unwrap_or_default(),
-                flat(&s(d, "outcome"))
-            ),
-            "left" => format!("{}: {}", s(d, "person"), flat(&s(d, "why"))),
-            "canon" => format!("{} [{}]", flat(&s(d, "fact")), s(d, "source")),
-            "undertook" => format!("[{}] {}", s(d, "id"), flat(&s(d, "brief"))),
-            "asked" => format!("[{}] {}", s(d, "id"), flat(&s(d, "question"))),
-            "added" => format!("[{}] {}", s(d, "id"), flat(&s(d, "text"))),
-            "worked" => format!(
-                "[{}] {} steps: {}",
-                s(d, "id"),
-                d.get("steps").and_then(Value::as_i64).unwrap_or_default(),
-                flat(&s(d, "summary"))
-            ),
-            "concluded" => format!(
-                "[{}] {}: {}",
-                s(d, "id"),
-                s(d, "outcome"),
-                flat(&s(d, "summary"))
-            ),
-            "reported" => format!("[{}] {}", s(d, "id"), flat(&s(d, "text"))),
-            "kept" => format!(
-                "media/{}{}: {}",
-                s(d, "file"),
-                d.get("from")
-                    .and_then(Value::as_str)
-                    .map_or_else(String::new, |f| format!(" (from {f})")),
-                flat(&s(d, "note"))
-            ),
-            "let_go" => format!(
-                "let #{} go",
-                d.get("kept").and_then(Value::as_i64).unwrap_or_default()
-            ),
-            "viewed" => format!(
-                "#{} image {}: {}",
-                d.get("message").and_then(Value::as_i64).unwrap_or_default(),
-                d.get("image").and_then(Value::as_i64).unwrap_or_default(),
-                flat(&s(d, "what"))
-            ),
-            "opened" => format!(
-                "{}: {}",
-                s(d, "url"),
-                flat(&s(d, "text").chars().take(200).collect::<String>())
-            ),
-            "looked_up" => format!(
-                "\"{}\": {}",
-                s(d, "query"),
-                flat(&s(d, "found").chars().take(200).collect::<String>())
-            ),
-            "directed" => format!(
-                "#{} from {}: {}",
-                d.get("message").and_then(Value::as_i64).unwrap_or_default(),
-                s(d, "from"),
-                flat(&s(d, "text"))
-            ),
-            "quieted" => format!("quiet in {} until {}", s(d, "place"), when("until")),
-            "installed" | "uninstalled" | "skill_installed" | "skill_uninstalled" => s(d, "name"),
-            "measured" => format!(
-                "[{}] {} posts measured",
-                s(d, "channel"),
-                d.get("posts").and_then(Value::as_array).map_or(0, Vec::len)
-            ),
-            "pursued" => {
-                let what = s(d, "what");
-                if what.trim().is_empty() {
-                    "let it go".to_owned()
-                } else {
-                    flat(&what)
-                }
-            }
-            _ => match d {
-                Value::Null => String::new(),
-                other => flat(&other.to_string()),
-            },
-        }
-    }
-}
-
-/// The longer of two strings: for events whose text sits under one of two
-/// keys depending on the variant.
-trait MaxLen {
-    fn max_len(&self, other: &str) -> String;
-}
-
-impl MaxLen for String {
-    fn max_len(&self, other: &str) -> String {
-        if self.is_empty() {
-            other.to_owned()
-        } else {
-            self.clone()
-        }
-    }
-}
-
-/// A hash as the journal shows it: four characters, an ellipsis, two.
-pub fn short(hash: &str) -> String {
-    if hash.chars().count() <= 8 {
-        return hash.to_owned();
-    }
-    let head: String = hash.chars().take(4).collect();
-    let tail: String = hash
-        .chars()
-        .rev()
-        .take(2)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("{head}…{tail}")
 }
 
 /// One block of her day's plan.
@@ -387,11 +146,7 @@ impl PlaceView {
 #[derive(Debug, Clone)]
 pub struct PersonView {
     pub key: String,
-    pub name: String,
     pub heard: i64,
-    pub first_at: Option<DateTime<Utc>>,
-    pub standing: String,
-    pub notes: Vec<String>,
 }
 
 impl PersonView {
@@ -399,32 +154,9 @@ impl PersonView {
         let person = v.get("person")?;
         Some(Self {
             key: s(person, "key"),
-            name: s(person, "name"),
             heard: person
                 .get("heard")
                 .and_then(Value::as_i64)
-                .unwrap_or_default(),
-            first_at: person
-                .get("first_at")
-                .and_then(Value::as_str)
-                .and_then(|t| t.parse().ok()),
-            standing: match v.get("standing") {
-                Some(Value::String(st)) => st.to_lowercase(),
-                Some(other) if !other.is_null() => other.to_string(),
-                _ => String::new(),
-            },
-            notes: v
-                .get("notes")
-                .and_then(Value::as_array)
-                .map(|ns| {
-                    ns.iter()
-                        .map(|n| match n {
-                            Value::String(t) => t.clone(),
-                            other => s(other, "text"),
-                        })
-                        .filter(|t| !t.is_empty())
-                        .collect()
-                })
                 .unwrap_or_default(),
         })
     }

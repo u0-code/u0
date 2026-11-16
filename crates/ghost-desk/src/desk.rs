@@ -1,12 +1,10 @@
 //! The desk: the whole window, and everything it knows.
 //!
-//! A narrow rail with the ghost on it; a bar across the top saying which
-//! daemon and which character this is and how she is; then three columns:
-//! the characters down the left, the one on this machine first; the thread
-//! with whoever is chosen in the middle, with the line you speak into; and
-//! what she knows of you down the right. Choosing a character changes the
-//! whole environment to hers: her daemon, her clock, her places, her
-//! journal.
+//! A narrow rail with the ghost on it; a thin bar with her name and her
+//! clock; then three columns: the characters down the left, the one on
+//! this machine first; the thread with whoever is chosen in the middle,
+//! with the line you speak into; and, down the right, her environment and
+//! her work. Choosing a character changes the whole environment to hers.
 
 use std::{sync::mpsc, time::Duration};
 
@@ -26,15 +24,18 @@ use crate::{
 
 /// The rail's width, the side columns' widths, the top bar's height.
 pub const RAIL: f32 = 56.;
-pub const LEFT: f32 = 272.;
-pub const RIGHT: f32 = 300.;
-pub const TOPBAR: f32 = 48.;
+pub const LEFT: f32 = 248.;
+pub const RIGHT: f32 = 288.;
+pub const TOPBAR: f32 = 44.;
 
 /// One character the desk follows.
 pub struct Character {
     pub seed: CharacterSeed,
     rx: mpsc::Receiver<Update>,
     tx: tokio::sync::mpsc::UnboundedSender<Outgoing>,
+    /// Not a character on a daemon: a stand-in to show the desk with, and
+    /// to switch to, until real ones are followed.
+    pub mock: bool,
     pub link: LinkState,
     pub card: Option<ghost_link::protocol::GhostCard>,
     pub status: Option<Status>,
@@ -60,11 +61,50 @@ impl Character {
             ghost: seed.ghost.clone(),
             who: who.to_owned(),
         });
+        Self::blank(seed, rx, tx, false)
+    }
+
+    /// A stand-in with a few lines already said, so the desk has someone
+    /// to switch to while the look is being settled.
+    fn mock(name: &str, host: &str, lines: &[(bool, &str)]) -> Self {
+        let (_, rx) = mpsc::channel();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let seed = CharacterSeed {
+            url: format!("ws://{host}"),
+            ghost: Some(name.to_owned()),
+            local: false,
+        };
+        let mut c = Self::blank(seed, rx, tx, true);
+        let now = Utc::now();
+        c.pending = lines
+            .iter()
+            .enumerate()
+            .map(|(i, (hers, text))| Message {
+                hers: *hers,
+                text: (*text).to_owned(),
+                at: now
+                    - chrono::Duration::minutes(i64::try_from(lines.len() - i).unwrap_or(0) * 7),
+            })
+            .collect();
+        c
+    }
+
+    fn blank(
+        seed: CharacterSeed,
+        rx: mpsc::Receiver<Update>,
+        tx: tokio::sync::mpsc::UnboundedSender<Outgoing>,
+        mock: bool,
+    ) -> Self {
         Self {
             seed,
             rx,
             tx,
-            link: LinkState::Connecting,
+            mock,
+            link: if mock {
+                LinkState::Lost("mock".into())
+            } else {
+                LinkState::Connecting
+            },
             card: None,
             status: None,
             agenda: Value::Null,
@@ -129,35 +169,66 @@ impl Character {
         self.seen = self.journal.last().map_or(self.seen, |e| e.seq);
     }
 
-    /// The last thing between you, or failing that the last thing she
-    /// lived, as a line for her row: (time, text).
+    /// The last thing between you, as a line for her row: (time, text).
     pub fn preview(&self) -> Option<(String, String)> {
         let tz = self.tz();
         if let Some(m) = self.pending.last() {
-            return Some((thread::clock(m.at, tz), self.preview_line(m)));
+            return Some((thread::clock(m.at, tz), m.text.clone()));
         }
-        if let Some((e, m)) = self
-            .journal
+        self.journal
             .iter()
             .rev()
-            .find_map(|e| thread::desk_message(e).map(|m| (e, m)))
-        {
-            return Some((thread::clock(e.at, tz), self.preview_line(&m)));
-        }
-        self.journal.last().map(|e| {
-            (
-                thread::clock(e.at, tz),
-                format!("{} · {}", e.kind.replace('_', " "), e.describe(tz)),
-            )
-        })
+            .find_map(|e| thread::desk_message(e).map(|m| (thread::clock(e.at, tz), m.text)))
     }
 
-    fn preview_line(&self, m: &Message) -> String {
-        if m.hers {
-            format!("{}: {}", self.name(), m.text)
-        } else {
-            m.text.clone()
+    /// The pieces of work she took on, newest first, each with how far it got.
+    pub fn work(&self) -> Vec<WorkRow> {
+        let mut rows: Vec<WorkRow> = Vec::new();
+        for e in &self.journal {
+            let id = e.data.get("id").and_then(Value::as_str).unwrap_or_default();
+            match e.kind.as_str() {
+                "undertook" => rows.push(WorkRow {
+                    id: id.to_owned(),
+                    brief: e
+                        .data
+                        .get("brief")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    steps: 0,
+                    reports: 0,
+                    outcome: None,
+                }),
+                "worked" => {
+                    if let Some(r) = rows.iter_mut().rev().find(|r| r.id == id) {
+                        r.steps += e
+                            .data
+                            .get("steps")
+                            .and_then(Value::as_i64)
+                            .unwrap_or_default();
+                    }
+                }
+                "reported" => {
+                    if let Some(r) = rows.iter_mut().rev().find(|r| r.id == id) {
+                        r.reports += 1;
+                    }
+                }
+                "concluded" => {
+                    if let Some(r) = rows.iter_mut().rev().find(|r| r.id == id) {
+                        r.outcome = Some(
+                            e.data
+                                .get("outcome")
+                                .and_then(Value::as_str)
+                                .unwrap_or("concluded")
+                                .to_owned(),
+                        );
+                    }
+                }
+                _ => {}
+            }
         }
+        rows.reverse();
+        rows
     }
 
     /// How she stands with you: the person record for you on the desk.
@@ -219,6 +290,15 @@ impl Character {
     }
 }
 
+/// One piece of work, as the right column lists it.
+pub struct WorkRow {
+    pub id: String,
+    pub brief: String,
+    pub steps: i64,
+    pub reports: usize,
+    pub outcome: Option<String>,
+}
+
 pub struct Desk {
     pub settings: Settings,
     pub characters: Vec<Character>,
@@ -237,8 +317,7 @@ fn token() -> Option<String> {
     std::env::var("GHOSTD_TOKEN").ok().filter(|t| !t.is_empty())
 }
 
-/// The strip at the top of a column: dragging it moves the window, and a
-/// double click zooms it, as a title bar does.
+/// A strip dragging which moves the window; a double click zooms it.
 fn draggable() -> gpui::Div {
     div().on_mouse_down(MouseButton::Left, |event, window, _| {
         if event.click_count == 2 {
@@ -252,8 +331,8 @@ fn draggable() -> gpui::Div {
 impl Desk {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let settings = Settings::load();
-        let input = cx.new(|cx| TextInput::new(cx, "Say something"));
-        let url_input = cx.new(|cx| TextInput::new(cx, "another daemon: host:7437"));
+        let input = cx.new(|cx| TextInput::new(cx, "Work with her"));
+        let url_input = cx.new(|cx| TextInput::new(cx, "host:7437"));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
             this.say(text.clone(), cx);
         })
@@ -262,12 +341,32 @@ impl Desk {
             this.add_daemon(text, cx);
         })
         .detach();
-        let characters: Vec<Character> = settings
+        let mut characters: Vec<Character> = settings
             .characters
             .iter()
             .cloned()
             .map(|seed| Character::start(seed, &settings.who, token()))
             .collect();
+        // Stand-ins to switch to while the look is settled. They are not
+        // saved and never reach a daemon.
+        characters.push(Character::mock(
+            "Weiwei",
+            "192.168.1.20:7437",
+            &[
+                (false, "How is the thread coming?"),
+                (true, "Slowly, the way notes should. The second section wants the Yunnan thread I kept yesterday."),
+                (false, "Keep it under eight posts."),
+                (true, "Eight is right. The thread was getting fond of itself."),
+            ],
+        ));
+        characters.push(Character::mock(
+            "大肥鱼",
+            "192.168.1.20:7437",
+            &[
+                (false, "今天群里怎么样？"),
+                (true, "吵了一下午猫粮，我没插嘴。"),
+            ],
+        ));
         // The desk opens on the one that works on this machine.
         let current = characters.iter().position(|c| c.seed.local).unwrap_or(0);
         let (discover_tx, discoveries) = mpsc::channel();
@@ -326,8 +425,9 @@ impl Desk {
                 };
                 if !self.settings.characters.contains(&seed) {
                     self.settings.characters.push(seed.clone());
+                    let real = self.characters.iter().filter(|c| !c.mock).count();
                     self.characters
-                        .push(Character::start(seed, &self.settings.who, token()));
+                        .insert(real, Character::start(seed, &self.settings.who, token()));
                 }
             }
             self.settings.save();
@@ -345,12 +445,28 @@ impl Desk {
         &self.settings.who
     }
 
+    fn save(&mut self) {
+        self.settings.characters = self
+            .characters
+            .iter()
+            .filter(|c| !c.mock)
+            .map(|c| c.seed.clone())
+            .collect();
+        let urls: Vec<String> = self
+            .settings
+            .characters
+            .iter()
+            .map(|c| c.url.clone())
+            .collect();
+        self.settings.daemons.retain(|d| urls.contains(&d.url));
+        self.settings.save();
+    }
+
     fn set_placeholder(&mut self, cx: &mut Context<Self>) {
-        let placeholder = match self.current() {
-            Some(c) if c.seed.local => "What needs doing on this machine?",
-            Some(_) => "Say something, or begin with the directive prefix to direct her",
-            None => "Add a daemon on the left first",
-        };
+        let placeholder = self.current().map_or_else(
+            || "Add a daemon first".to_owned(),
+            |c| format!("Work with {}", c.name()),
+        );
         self.input
             .update(cx, |input, _| input.set_placeholder(placeholder));
     }
@@ -374,6 +490,10 @@ impl Desk {
             let _ = c.tx.send(Outgoing(text));
             cx.notify();
         }
+    }
+
+    fn send(&mut self, cx: &mut Context<Self>) {
+        self.input.update(cx, TextInput::send);
     }
 
     pub fn add_daemon(&mut self, url: &str, cx: &mut Context<Self>) {
@@ -409,8 +529,7 @@ impl Desk {
         for (i, other) in self.characters.iter_mut().enumerate() {
             other.seed.local = local && i == index;
         }
-        self.settings.characters = self.characters.iter().map(|c| c.seed.clone()).collect();
-        self.settings.save();
+        self.save();
         self.set_placeholder(cx);
         cx.notify();
     }
@@ -420,10 +539,7 @@ impl Desk {
             return;
         }
         self.characters.remove(index);
-        self.settings.characters = self.characters.iter().map(|c| c.seed.clone()).collect();
-        let urls: Vec<String> = self.characters.iter().map(|c| c.seed.url.clone()).collect();
-        self.settings.daemons.retain(|d| urls.contains(&d.url));
-        self.settings.save();
+        self.save();
         if self.current >= self.characters.len() {
             self.current = self.characters.len().saturating_sub(1);
         }
@@ -453,108 +569,47 @@ impl Desk {
             )
     }
 
-    /// The bar across the top: which daemon, which character, how she is.
+    /// The bar across the top: her name, and her clock.
     fn topbar(&self, faces: &Faces) -> impl IntoElement {
         let c = self.current();
-        let (link_color, host) = match c {
-            Some(c) => (
-                match &c.link {
-                    LinkState::Connected => theme::green(),
-                    LinkState::Connecting => theme::muted(),
-                    LinkState::Lost(_) => theme::coral(),
-                },
-                c.host(),
-            ),
-            None => (theme::ghost_line(), "no daemon".to_owned()),
+        let link_color = match c.map(|c| &c.link) {
+            Some(LinkState::Connected) => theme::green(),
+            Some(LinkState::Connecting) => theme::muted(),
+            Some(LinkState::Lost(_)) => theme::coral(),
+            None => theme::ghost_line(),
         };
-        let slash = || ui::mono(faces, "/").text_color(theme::ghost_line());
-        let mut left = div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .min_w(px(0.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(ui::dot(link_color))
-                    .child(ui::mono(faces, format!("ghostd · {host}"))),
-            );
+        let mut left = div().flex().items_center().gap(px(10.)).min_w(px(0.));
         if let Some(c) = c {
             left = left
-                .child(slash())
+                .child(ui::dot(link_color))
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(ui::initial(faces, &c.name(), 20.))
-                        .child(
-                            ui::mono(faces, c.name())
-                                .text_color(theme::text())
-                                .font_weight(FontWeight::MEDIUM),
-                        )
-                        .when(c.seed.local, |d| {
-                            d.child(
-                                ui::mono(faces, "this machine")
-                                    .text_size(px(11.))
-                                    .text_color(theme::accent()),
-                            )
-                        }),
+                    ui::text(faces, c.name())
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_size(px(13.5)),
                 )
-                .child(slash())
-                .child(ui::mono(faces, format!("desk · {}", self.who())));
-            if let LinkState::Lost(why) = &c.link {
-                left = left
-                    .child(slash())
-                    .child(ui::mono(faces, why.clone()).text_color(theme::coral()));
-            }
+                .when(c.seed.local, |d| {
+                    d.child(
+                        ui::mono(faces, "this machine")
+                            .text_size(px(11.))
+                            .text_color(theme::accent()),
+                    )
+                })
+                .when(c.mock, |d| {
+                    d.child(
+                        ui::mono(faces, "mock")
+                            .text_size(px(11.))
+                            .text_color(theme::faint()),
+                    )
+                });
         }
-
-        let mut right = div().flex().items_center().gap(px(18.)).flex_none();
-        if let Some(s) = c.and_then(|c| c.status.as_ref()) {
-            let state = if s.awake() {
-                match &s.doing {
-                    Some(d) => format!(
-                        "awake · {} · reach {} · tempo {:.1}",
-                        d.what, s.reach, s.tempo
-                    ),
-                    None => format!("awake · reach {} · tempo {:.1}", s.reach, s.tempo),
-                }
-            } else {
-                format!(
-                    "asleep until {}",
-                    s.until.map(|u| thread::clock(u, s.tz)).unwrap_or_default()
-                )
-            };
-            right = right
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(ui::dot(if s.awake() {
-                            theme::accent()
-                        } else {
-                            theme::ghost_line()
-                        }))
-                        .child(ui::mono(faces, state)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_baseline()
-                        .gap(px(6.))
-                        .child(
-                            ui::mono(faces, s.hhmm())
-                                .text_color(theme::text())
-                                .font_weight(FontWeight::MEDIUM),
-                        )
-                        .child(ui::mono(faces, s.city.clone())),
-                );
-        }
-
+        let right = c.and_then(|c| c.status.as_ref()).map(|s| {
+            div()
+                .flex()
+                .items_baseline()
+                .gap(px(6.))
+                .child(ui::mono(faces, s.hhmm()).text_color(theme::text()))
+                .child(ui::mono(faces, s.city.clone()))
+        });
         draggable()
             .flex()
             .flex_none()
@@ -566,7 +621,7 @@ impl Desk {
             .border_b_1()
             .border_color(theme::border())
             .child(left)
-            .child(right)
+            .children(right)
     }
 
     fn character_row(
@@ -579,19 +634,10 @@ impl Desk {
         let on = index == self.current;
         let unseen = c.unseen();
         let for_you = c.unseen_for_you();
-        let (when, line) = c.preview().unwrap_or_else(|| {
-            (
-                String::new(),
-                match &c.link {
-                    LinkState::Connected => "nothing said yet".to_owned(),
-                    LinkState::Connecting => "connecting".to_owned(),
-                    LinkState::Lost(_) => "her daemon is away".to_owned(),
-                },
-            )
-        });
+        let (when, line) = c.preview().unwrap_or_default();
         let state = if c.awake() {
             ui::dot(theme::accent()).size(px(5.))
-        } else if c.connected() {
+        } else if c.connected() || c.mock {
             ui::dot(theme::ghost_line()).size(px(5.))
         } else if c.link == LinkState::Connecting {
             ui::hollow().size(px(5.))
@@ -604,7 +650,7 @@ impl Desk {
             .flex_col()
             .gap(px(2.))
             .px(px(12.))
-            .py(px(10.))
+            .py(px(8.))
             .rounded(px(8.))
             .cursor_pointer()
             .when(on, |d| d.bg(theme::panel2()))
@@ -612,21 +658,16 @@ impl Desk {
             .child(
                 div()
                     .flex()
-                    .items_baseline()
+                    .items_center()
                     .justify_between()
                     .gap(px(8.))
                     .child(
                         div()
                             .flex()
-                            .items_baseline()
-                            .gap(px(6.))
+                            .items_center()
+                            .gap(px(8.))
                             .min_w(px(0.))
-                            .child(
-                                ui::mono(faces, c.host())
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .flex_none(),
-                            )
+                            .child(state)
                             .child(ui::one_line(
                                 ui::text(faces, c.name())
                                     .text_size(px(13.5))
@@ -654,13 +695,12 @@ impl Desk {
                                     .size(px(5.)),
                                 )
                             })
-                            .child(state)
                             .child(ui::mono(faces, when).text_size(px(11.))),
                     ),
             )
             .child(ui::one_line(
                 ui::text(faces, line)
-                    .text_size(px(12.5))
+                    .text_size(px(12.))
                     .text_color(theme::muted()),
             ))
             .on_click(cx.listener(move |this, _, _, cx| this.choose(index, cx)))
@@ -675,43 +715,20 @@ impl Desk {
             .flex_1()
             .min_h(px(0.))
             .overflow_y_scroll()
-            .px(px(12.))
-            .py(px(16.))
-            .gap(px(4.));
-        list = list.child(ui::eyebrow(faces, "this machine").px(px(12.)).pb(px(6.)));
-        match local {
-            Some(i) => list = list.child(self.character_row(faces, i, &self.characters[i], cx)),
-            None => {
-                list = list.child(
-                    ui::text(faces, "No one yet. Choose a character and mark her local at the top right: she then works for you here, on this machine.")
-                        .text_size(px(12.))
-                        .text_color(theme::faint())
-                        .line_height(px(17.))
-                        .px(px(12.))
-                        .py(px(4.)),
-                );
-            }
+            .px(px(8.))
+            .py(px(12.))
+            .gap(px(2.));
+        list = list.child(ui::eyebrow(faces, "this machine").px(px(12.)).py(px(6.)));
+        if let Some(i) = local {
+            list = list.child(self.character_row(faces, i, &self.characters[i], cx));
         }
-        let others: Vec<usize> = (0..self.characters.len())
-            .filter(|i| Some(*i) != local)
-            .collect();
         list = list.child(
-            ui::eyebrow(faces, "characters · everywhere else")
+            ui::eyebrow(faces, "characters")
                 .px(px(12.))
-                .pt(px(18.))
+                .pt(px(16.))
                 .pb(px(6.)),
         );
-        if others.is_empty() {
-            list = list.child(
-                ui::text(faces, "Nobody followed yet. A daemon's address below is enough; the desk asks what it runs.")
-                    .text_size(px(12.))
-                    .text_color(theme::faint())
-                    .line_height(px(17.))
-                    .px(px(12.))
-                    .py(px(4.)),
-            );
-        }
-        for i in others {
+        for i in (0..self.characters.len()).filter(|i| Some(*i) != local) {
             list = list.child(self.character_row(faces, i, &self.characters[i], cx));
         }
 
@@ -719,16 +736,16 @@ impl Desk {
             .flex()
             .flex_none()
             .flex_col()
-            .gap(px(8.))
-            .px(px(16.))
-            .py(px(14.))
+            .gap(px(6.))
+            .px(px(12.))
+            .py(px(12.))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .px(px(10.))
-                    .min_h(px(34.))
+                    .min_h(px(32.))
                     .rounded(px(7.))
                     .border_1()
                     .border_color(theme::border2())
@@ -745,16 +762,7 @@ impl Desk {
                     .text_size(px(11.5))
                     .text_color(theme::coral())
                     .line_height(px(16.))
-            }))
-            .child(
-                ui::text(
-                    faces,
-                    "You read along in her other places from here. You never speak for her there.",
-                )
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .line_height(px(17.)),
-            );
+            }));
 
         div()
             .flex()
@@ -768,154 +776,188 @@ impl Desk {
             .child(footer)
     }
 
-    /// What she knows of you, and this place.
+    /// Her environment and her work, down the right.
     fn right(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
-        let who = self.who().to_owned();
         let index = self.current;
         let c = self.current();
-        let you = c.and_then(|c| c.you(&who));
-        let tz = c.map_or(chrono_tz::UTC, Character::tz);
+        let s = c.and_then(|c| c.status.as_ref());
+        let row = |label: &str, value: String, color| {
+            div()
+                .flex()
+                .items_baseline()
+                .justify_between()
+                .gap(px(12.))
+                .py(px(4.))
+                .child(
+                    ui::text(faces, label.to_owned())
+                        .text_size(px(13.))
+                        .text_color(theme::text2()),
+                )
+                .child(ui::one_line(
+                    ui::mono(faces, value).text_color(color).text_right(),
+                ))
+        };
+        let head = |title: &str, aside: Option<String>| {
+            div()
+                .flex()
+                .items_baseline()
+                .justify_between()
+                .pb(px(6.))
+                .child(
+                    ui::text(faces, title.to_owned())
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM),
+                )
+                .children(aside.map(|a| ui::mono(faces, a).text_size(px(11.5))))
+        };
+        let dash = || "—".to_owned();
+
+        let mut environment = div().flex().flex_col().child(head("Environment", None));
+        if let Some(c) = c {
+            let link = match &c.link {
+                LinkState::Connected => ("connected".to_owned(), theme::green()),
+                LinkState::Connecting => ("connecting".to_owned(), theme::muted()),
+                LinkState::Lost(why) => (why.clone(), theme::coral()),
+            };
+            environment = environment
+                .child(row("Daemon", c.host(), theme::text()))
+                .child(row("Link", link.0, link.1))
+                .child(row(
+                    "Character",
+                    c.seed.ghost.clone().unwrap_or_else(|| c.name()),
+                    theme::text(),
+                ))
+                .child(row(
+                    "Brain",
+                    s.map_or_else(dash, |s| s.think.clone()),
+                    theme::text(),
+                ))
+                .child(row(
+                    "Now",
+                    s.map_or_else(dash, |s| {
+                        if s.awake() {
+                            s.doing
+                                .as_ref()
+                                .map_or_else(|| format!("awake · {}", s.reach), |d| d.what.clone())
+                        } else {
+                            s.until.map_or_else(
+                                || "asleep".to_owned(),
+                                |u| format!("asleep until {}", thread::clock(u, s.tz)),
+                            )
+                        }
+                    }),
+                    if c.awake() {
+                        theme::accent()
+                    } else {
+                        theme::muted()
+                    },
+                ))
+                .child(row(
+                    "Places",
+                    s.map_or_else(dash, |s| {
+                        let names: Vec<&str> =
+                            s.channels.iter().map(|ch| ch.name.as_str()).collect();
+                        if names.is_empty() {
+                            dash()
+                        } else {
+                            names.join(" · ")
+                        }
+                    }),
+                    theme::text(),
+                ));
+        }
+
+        let unread: i64 = c.map_or(0, |c| c.places.iter().map(|p| p.unread).sum());
+        let context = div()
+            .flex()
+            .flex_col()
+            .child(head("Context", s.map(|s| format!("tempo {:.1}", s.tempo))))
+            .child(row(
+                "Journal",
+                s.map_or_else(dash, |s| format!("{} events", s.journal)),
+                theme::text(),
+            ))
+            .child(row("Unread elsewhere", unread.to_string(), theme::text()))
+            .child(row(
+                "You",
+                c.and_then(|c| c.you(self.who())).map_or_else(
+                    || "not yet known".to_owned(),
+                    |p| format!("{} exchanges", p.heard),
+                ),
+                theme::text(),
+            ));
+
+        let work = c.map(Character::work).unwrap_or_default();
+        let mut changes = div()
+            .flex()
+            .flex_col()
+            .child(head("Work", Some(work.len().to_string())));
+        if work.is_empty() {
+            changes = changes.child(
+                ui::text(faces, "Nothing taken on.")
+                    .text_size(px(13.))
+                    .text_color(theme::muted())
+                    .py(px(4.)),
+            );
+        }
+        for w in work.iter().take(6) {
+            let (color, state) = match &w.outcome {
+                Some(o) => (theme::green(), o.clone()),
+                None => (theme::accent(), "at it".to_owned()),
+            };
+            changes = changes.child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .py(px(5.))
+                    .child(ui::dot(color).size(px(6.)).mt(px(7.)))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(ui::one_line(
+                                ui::text(faces, w.brief.clone()).text_size(px(13.)),
+                            ))
+                            .child(
+                                ui::mono(
+                                    faces,
+                                    format!(
+                                        "[{}] · {} steps · {} reports · {state}",
+                                        w.id, w.steps, w.reports
+                                    ),
+                                )
+                                .text_size(px(11.))
+                                .text_color(theme::faint()),
+                            ),
+                    ),
+            );
+        }
+
         let mut aside = div()
-            .id("about-you")
+            .id("environment")
             .flex()
             .flex_col()
             .flex_none()
             .w(px(RIGHT))
             .h_full()
             .overflow_y_scroll()
-            .gap(px(18.))
+            .gap(px(20.))
             .px(px(20.))
-            .py(px(20.))
+            .py(px(18.))
             .border_l_1()
             .border_color(theme::border())
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(ui::eyebrow(faces, "what she knows of you"))
-                    .child(
-                        ui::serif(
-                            faces,
-                            format!(
-                                "{}, on the desk",
-                                you.map_or(who.as_str(), |p| p.name.as_str())
-                            ),
-                        )
-                        .text_size(px(22.))
-                        .line_height(px(28.)),
-                    )
-                    .child(
-                        ui::mono(
-                            faces,
-                            match you {
-                                Some(p) => format!(
-                                    "{}known since {} · {} exchanges",
-                                    if p.standing.is_empty() {
-                                        String::new()
-                                    } else {
-                                        format!("{} · ", p.standing)
-                                    },
-                                    p.first_at
-                                        .map(|t| t.with_timezone(&tz).format("%-d %B").to_string())
-                                        .unwrap_or_default(),
-                                    p.heard
-                                ),
-                                None => "not yet someone she has heard from".to_owned(),
-                            },
-                        )
-                        .text_size(px(11.5)),
-                    ),
-            );
-        if let Some(p) = you {
-            let mut notes = div().flex().flex_col().gap(px(8.));
-            if p.notes.is_empty() {
-                notes = notes.child(
-                    ui::text(faces, "No notes about you yet.")
-                        .text_size(px(13.))
-                        .text_color(theme::muted()),
-                );
-            }
-            for n in p.notes.iter().take(8) {
-                notes = notes.child(
-                    ui::text(faces, n.clone())
-                        .text_size(px(13.))
-                        .text_color(theme::text2())
-                        .line_height(px(19.)),
-                );
-            }
-            aside = aside.child(notes);
-        }
-        aside = aside.child(
-            ui::text(faces, "Derived from her journal, so it can be rebuilt and never quietly edited. One memory across every platform, with a separate record for each.")
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .line_height(px(18.)),
-        );
-
-        let kv = |k: &str, v: String| {
-            div()
-                .flex()
-                .gap(px(12.))
-                .child(
-                    ui::mono(faces, k.to_owned())
-                        .w(px(64.))
-                        .flex_none()
-                        .text_color(theme::faint()),
-                )
-                .child(ui::one_line(ui::mono(faces, v).text_color(theme::text2())))
-        };
-        let mut place = div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .mt(px(8.))
-            .child(ui::eyebrow(faces, "this place"))
-            .child(kv("channel", link::CHANNEL.to_owned()))
-            .child(kv("can", "send · typing · read".to_owned()));
-        if let Some(c) = c {
-            let unread: i64 = c.places.iter().map(|p| p.unread).sum();
-            place = place
-                .child(kv(
-                    "tempo",
-                    c.status.as_ref().map_or_else(
-                        || "—".to_owned(),
-                        |s| format!("{:.1} · as a friend would", s.tempo),
-                    ),
-                ))
-                .child(kv("elsewhere", format!("{unread} unread")))
-                .child(kv(
-                    "places",
-                    c.status.as_ref().map_or_else(
-                        || "—".to_owned(),
-                        |s| {
-                            let names: Vec<&str> =
-                                s.channels.iter().map(|ch| ch.name.as_str()).collect();
-                            if names.is_empty() {
-                                "none on".to_owned()
-                            } else {
-                                names.join(" · ")
-                            }
-                        },
-                    ),
-                ))
-                .child(kv(
-                    "journal",
-                    c.status
-                        .as_ref()
-                        .map_or_else(|| "—".to_owned(), |s| format!("{} events", s.journal)),
-                ))
-                .child(kv(
-                    "brain",
-                    c.status
-                        .as_ref()
-                        .map_or_else(|| "—".to_owned(), |s| s.think.clone()),
-                ));
-            place = place.child(
+            .child(environment)
+            .child(context)
+            .child(changes)
+            .child(div().flex_1());
+        if let Some(c) = c.filter(|c| !c.mock) {
+            aside = aside.child(
                 div()
                     .flex()
                     .gap(px(6.))
-                    .pt(px(8.))
                     .child(
                         ui::button(
                             "local",
@@ -940,61 +982,134 @@ impl Desk {
                     ),
             );
         }
-        aside.child(div().flex_1()).child(place)
+        aside
     }
 
-    /// The line you speak into, with what it means underneath.
-    fn composer(&self, faces: &Faces) -> impl IntoElement {
-        let c = self.current();
-        let note = match c {
-            Some(c) if c.seed.local => {
-                "She takes it on, works in the background, and reports here as she goes. Every step is in her journal."
-            }
-            Some(_) => {
-                "A directive is carried out, in her voice, and written down as Directed. Everything else is a message she may answer, or not."
-            }
-            None => "",
-        };
-        let hint = format!("as {} · ↵", self.who());
+    /// The line you speak into, the way a coding agent's is: a box with
+    /// the text, and a row of small controls under it.
+    fn composer(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = self.current().and_then(|c| c.status.as_ref());
+        let brain = s.map_or_else(|| "no brain".to_owned(), |s| s.think.clone());
+        let empty = self.input.read(cx).is_empty();
         div()
             .flex()
-            .flex_col()
             .flex_none()
-            .gap(px(8.))
+            .justify_center()
             .px(px(32.))
-            .pb(px(16.))
+            .pb(px(20.))
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .px(px(16.))
-                    .min_h(px(50.))
+                    .flex_col()
+                    .w_full()
+                    .max_w(px(thread::COLUMN))
+                    .px(px(14.))
+                    .pt(px(4.))
+                    .pb(px(10.))
                     .bg(theme::panel())
                     .border_1()
                     .border_color(theme::border2())
-                    .rounded(px(theme::RADIUS))
+                    .rounded(px(14.))
+                    .child(div().px(px(4.)).child(self.input.clone()))
                     .child(
                         div()
-                            .font_family(faces.mono.clone())
-                            .text_size(px(16.))
-                            .text_color(theme::accent())
-                            .child("›"),
-                    )
-                    .child(self.input.clone())
-                    .child(
-                        ui::mono(faces, hint)
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .flex_none(),
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(
+                                        div()
+                                            .id("attach")
+                                            .size(px(28.))
+                                            .rounded_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(theme::hover()))
+                                            .child(
+                                                ui::mono(faces, "+")
+                                                    .text_size(px(16.))
+                                                    .text_color(theme::muted()),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("direct")
+                                            .flex()
+                                            .items_center()
+                                            .h(px(26.))
+                                            .px(px(10.))
+                                            .rounded_full()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(theme::hover()))
+                                            .child(
+                                                ui::text(faces, "Direct her")
+                                                    .text_size(px(12.5))
+                                                    .text_color(theme::muted()),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        div()
+                                            .id("brain")
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(6.))
+                                            .h(px(26.))
+                                            .px(px(10.))
+                                            .rounded_full()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(theme::hover()))
+                                            .child(ui::dot(theme::accent()).size(px(5.)))
+                                            .child(
+                                                ui::text(faces, brain)
+                                                    .text_size(px(12.5))
+                                                    .text_color(theme::text2()),
+                                            )
+                                            .child(
+                                                ui::mono(faces, "⌄")
+                                                    .text_size(px(12.))
+                                                    .text_color(theme::muted()),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("send")
+                                            .size(px(30.))
+                                            .rounded_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .cursor_pointer()
+                                            .bg(if empty {
+                                                theme::border2()
+                                            } else {
+                                                theme::accent()
+                                            })
+                                            .child(
+                                                ui::mono(faces, "↑").text_size(px(15.)).text_color(
+                                                    if empty {
+                                                        theme::muted()
+                                                    } else {
+                                                        theme::bg()
+                                                    },
+                                                ),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| this.send(cx))),
+                                    ),
+                            ),
                     ),
-            )
-            .child(
-                ui::mono(faces, note.to_owned())
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .line_height(px(16.))
-                    .px(px(4.)),
             )
     }
 }
@@ -1002,17 +1117,14 @@ impl Desk {
 impl Render for Desk {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = fonts::faces(cx).clone();
-        let mut middle = div()
+        let middle = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .child(thread::render(self, &faces));
-        if let Some(standing) = thread::standing(self, &faces) {
-            middle = middle.child(standing);
-        }
-        middle = middle.child(self.composer(&faces));
+            .child(thread::render(self, &faces))
+            .child(self.composer(&faces, cx));
         div()
             .flex()
             .size_full()

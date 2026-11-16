@@ -74,6 +74,11 @@ impl TextInput {
     }
 
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
+        self.send(cx);
+    }
+
+    /// Hand over what is typed, if anything, and clear the line.
+    pub fn send(&mut self, cx: &mut Context<Self>) {
         let text = self.content.trim().to_owned();
         if text.is_empty() {
             return;
@@ -81,6 +86,10 @@ impl TextInput {
         self.reset();
         cx.emit(Submitted(text));
         cx.notify();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.content.trim().is_empty()
     }
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {

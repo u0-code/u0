@@ -95,6 +95,3 @@ pub fn kind_color(kind: &str) -> Hsla {
         _ => muted(),
     }
 }
-
-/// The usual corner radius.
-pub const RADIUS: f32 = 10.;

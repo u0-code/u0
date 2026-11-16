@@ -14,9 +14,12 @@ use crate::{
     desk::{Character, Desk},
     fonts::Faces,
     link,
-    model::{Entry, LinkState, Message},
+    model::{Entry, Message},
     theme, ui,
 };
+
+/// How wide the thread and the composer may grow.
+pub const COLUMN: f32 = 760.;
 
 /// A time of day in her clock.
 pub fn clock(at: DateTime<Utc>, tz: Tz) -> String {
@@ -91,7 +94,7 @@ impl Marks {
 }
 
 pub fn render(desk: &Desk, faces: &Faces) -> AnyElement {
-    let mut thread = div()
+    let thread = div()
         .id("thread")
         .flex()
         .flex_col()
@@ -99,16 +102,10 @@ pub fn render(desk: &Desk, faces: &Faces) -> AnyElement {
         .min_h(px(0.))
         .overflow_y_scroll()
         .px(px(32.))
-        .py(px(20.))
+        .py(px(24.))
         .gap(px(18.));
     let Some(c) = desk.current() else {
-        return thread
-            .child(empty(
-                faces,
-                "Nobody here yet.",
-                "Give the desk a daemon's address, bottom left. It asks what the daemon runs and follows every character.",
-            ))
-            .into_any_element();
+        return thread.into_any_element();
     };
     let tz = c.tz();
     let name = c.name();
@@ -145,23 +142,28 @@ pub fn render(desk: &Desk, faces: &Faces) -> AnyElement {
     }
     items.sort_by_key(|(at, seq, _)| (*at, *seq));
 
+    let mut column = div()
+        .flex()
+        .flex_col()
+        .gap(px(18.))
+        .w_full()
+        .max_w(px(COLUMN))
+        .mx_auto();
+
     if items.is_empty() {
-        let (title, line) = match &c.link {
-            LinkState::Connected if c.seed.local => (
-                "What needs doing?",
-                "Say it in one line. She takes it on, works in the background and reports here as she goes.",
-            ),
-            LinkState::Connected => (
-                "Nothing said yet.",
-                "Say something. She reads it when she gets to it, and answers if she has something to say.",
-            ),
-            LinkState::Connecting => ("Reaching her daemon.", "One moment."),
-            LinkState::Lost(_) => (
-                "Her daemon is away.",
-                "Start one with `ghostd run <her directory>`; the desk keeps trying.",
-            ),
-        };
-        thread = thread.child(empty(faces, title, line));
+        column = column.child(
+            ui::serif(
+                faces,
+                if c.seed.local {
+                    "What needs doing?"
+                } else {
+                    "Say something."
+                },
+            )
+            .text_size(px(34.))
+            .line_height(px(40.))
+            .pt(px(48.)),
+        );
     }
 
     let mut day: Option<String> = None;
@@ -170,16 +172,16 @@ pub fn render(desk: &Desk, faces: &Faces) -> AnyElement {
         let d = at.with_timezone(&tz).format("%A %-d %B").to_string();
         if day.as_ref() != Some(&d) {
             day = Some(d.clone());
-            thread = thread.child(ui::eyebrow(faces, d).text_center().py(px(6.)));
+            column = column.child(ui::eyebrow(faces, d).text_center().py(px(6.)));
         }
-        thread = thread.child(match item {
+        column = column.child(match item {
             Item::Said { m, seq } => {
                 let el = if m.hers {
                     let took = last_yours
                         .filter(|y| *y <= m.at)
                         .map(|y| (m.at - y).num_minutes())
                         .filter(|mins| *mins > 0)
-                        .map(|mins| format!(" · {mins} min, in her own time"))
+                        .map(|mins| format!(" · {mins} min"))
                         .unwrap_or_default();
                     hers(faces, &m, &name, tz, &took)
                 } else {
@@ -190,77 +192,26 @@ pub fn render(desk: &Desk, faces: &Faces) -> AnyElement {
                 };
                 el.into_any_element()
             }
-            Item::Did(e) => did(faces, e, &name, tz).into_any_element(),
+            Item::Did(e) => did(faces, e, tz).into_any_element(),
         });
     }
-    thread.into_any_element()
-}
-
-/// Where things stand right now: the line above the composer.
-pub fn standing(desk: &Desk, faces: &Faces) -> Option<Div> {
-    let c = desk.current()?;
-    let name = c.name();
-    let (color, text) = if c.typing {
-        (theme::accent(), format!("{name} is typing"))
-    } else if !c.desk_online && c.connected() {
-        (
-            theme::ghost_line(),
-            "the desk is not yet a place she can be reached; what you say is held".to_owned(),
-        )
-    } else {
-        let s = c.status.as_ref()?;
-        if s.awake() {
-            let doing = s.doing.as_ref().map_or_else(
-                || "she is awake".to_owned(),
-                |d| format!("she is {}", d.what),
-            );
-            (
-                theme::accent(),
-                format!("{doing} · a message lands as unread, and she gets to it"),
-            )
-        } else {
-            (
-                theme::ghost_line(),
-                "she is asleep · what you say waits for morning".to_owned(),
-            )
-        }
-    };
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .px(px(32.))
-            .pb(px(10.))
-            .child(
-                div()
-                    .w(px(20.))
-                    .flex()
-                    .justify_center()
-                    .child(ui::dot(color).size(px(7.))),
-            )
-            .child(ui::mono(faces, text).text_size(px(12.))),
-    )
-}
-
-fn empty(faces: &Faces, title: &str, line: &str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .max_w(px(620.))
-        .pt(px(40.))
-        .child(
-            ui::serif(faces, title.to_owned())
-                .text_size(px(34.))
-                .line_height(px(40.)),
-        )
-        .child(
-            ui::text(faces, line.to_owned())
-                .text_size(px(14.))
-                .text_color(theme::text2())
-                .line_height(px(21.)),
-        )
+    if c.typing {
+        column = column.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .w(px(20.))
+                        .flex()
+                        .justify_center()
+                        .child(ui::dot(theme::accent()).size(px(6.))),
+                )
+                .child(ui::mono(faces, format!("{name} is typing")).text_size(px(11.5))),
+        );
+    }
+    thread.child(column).into_any_element()
 }
 
 fn yours(
@@ -272,29 +223,11 @@ fn yours(
     read: Option<DateTime<Utc>>,
 ) -> Div {
     let when = clock(m.at, tz);
-    let mut meta = div().flex().items_baseline().gap(px(6.)).ml(px(34.)).child(
-        ui::mono(faces, format!("{who} · {when}"))
-            .text_size(px(11.))
-            .text_color(theme::faint()),
-    );
+    let mut meta = format!("{who} · {when}");
     if let Some(seq) = directed {
-        meta = meta
-            .child(
-                ui::mono(faces, "· directed")
-                    .text_size(px(11.))
-                    .text_color(theme::purple()),
-            )
-            .child(
-                ui::mono(faces, format!("· on record as event {seq}"))
-                    .text_size(px(11.))
-                    .text_color(theme::faint()),
-            );
+        meta = format!("{meta} · directed · #{seq}");
     } else if let Some(at) = read {
-        meta = meta.child(
-            ui::mono(faces, format!("· she read it at {}", clock(at, tz)))
-                .text_size(px(11.))
-                .text_color(theme::faint()),
-        );
+        meta = format!("{meta} · read {}", clock(at, tz));
     }
     div()
         .flex()
@@ -322,11 +255,15 @@ fn yours(
                 .child(
                     ui::text(faces, m.text.clone())
                         .text_color(theme::text2())
-                        .line_height(px(23.))
-                        .max_w(px(680.)),
+                        .line_height(px(23.)),
                 ),
         )
-        .child(meta)
+        .child(
+            ui::mono(faces, meta)
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .ml(px(34.)),
+        )
 }
 
 fn hers(faces: &Faces, m: &Message, name: &str, tz: Tz, took: &str) -> Div {
@@ -341,11 +278,7 @@ fn hers(faces: &Faces, m: &Message, name: &str, tz: Tz, took: &str) -> Div {
                 .gap(px(14.))
                 .items_start()
                 .child(ui::initial(faces, name, 20.))
-                .child(
-                    ui::text(faces, m.text.clone())
-                        .line_height(px(23.))
-                        .max_w(px(680.)),
-                ),
+                .child(ui::text(faces, m.text.clone()).line_height(px(23.))),
         )
         .child(
             ui::mono(faces, format!("{name} · {when}{took}"))
@@ -356,7 +289,7 @@ fn hers(faces: &Faces, m: &Message, name: &str, tz: Tz, took: &str) -> Div {
 }
 
 /// A step of her work: taken on, worked, reported, asked, concluded.
-fn did(faces: &Faces, e: &Entry, name: &str, tz: Tz) -> Div {
+fn did(faces: &Faces, e: &Entry, tz: Tz) -> Div {
     let when = clock(e.at, tz);
     let d = &e.data;
     let text = d
@@ -367,11 +300,10 @@ fn did(faces: &Faces, e: &Entry, name: &str, tz: Tz) -> Div {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let id = d.get("id").and_then(Value::as_str).unwrap_or_default();
     let tag = match e.kind.as_str() {
         "undertook" => "took on".to_owned(),
         "worked" => format!(
-            "worked · {} steps",
+            "{} steps",
             d.get("steps").and_then(Value::as_i64).unwrap_or_default()
         ),
         "concluded" => d
@@ -385,37 +317,32 @@ fn did(faces: &Faces, e: &Entry, name: &str, tz: Tz) -> Div {
         .ml(px(34.))
         .flex()
         .gap(px(12.))
-        .items_start()
+        .items_baseline()
         .px(px(12.))
         .py(px(8.))
         .rounded(px(8.))
         .bg(theme::panel())
         .border_1()
         .border_color(theme::border())
-        .max_w(px(680.))
         .child(
             ui::mono(faces, tag)
                 .text_size(px(11.))
                 .text_color(theme::kind_color(&e.kind))
-                .w(px(110.))
+                .w(px(72.))
                 .flex_none(),
         )
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
+            ui::text(faces, text)
+                .flex_1()
                 .min_w(px(0.))
-                .child(
-                    ui::text(faces, text)
-                        .text_size(px(13.5))
-                        .text_color(theme::text2())
-                        .line_height(px(20.)),
-                )
-                .child(
-                    ui::mono(faces, format!("{name} · {when} · [{id}]"))
-                        .text_size(px(10.5))
-                        .text_color(theme::faint()),
-                ),
+                .text_size(px(13.5))
+                .text_color(theme::text2())
+                .line_height(px(20.)),
+        )
+        .child(
+            ui::mono(faces, when)
+                .text_size(px(10.5))
+                .text_color(theme::faint())
+                .flex_none(),
         )
 }
