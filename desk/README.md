@@ -212,8 +212,11 @@ can also be removed. Only the name of the variable is written to
 
 ## The look
 
-Three faces: a sans for the interface, a mono for times and names, a serif
-for the one line on an empty page. The design is set in IBM Plex Sans, IBM
+None of the grounds is black: the sidebar sits a shade lighter than the
+thread and the right column, the way a coding agent's app sets its panes
+apart, and all three are easy on the eyes for a day's use. Three faces: a
+sans for the interface, a mono for times and names, a serif for the one
+line on an empty page. The design is set in IBM Plex Sans, IBM
 Plex Mono and Instrument Serif; drop their `.ttf` or `.otf` files into
 `assets/fonts/` and they are used, otherwise the system's own faces stand
 in. None of them has Chinese, so each falls back to PingFang SC for it,
