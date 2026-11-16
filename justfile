@@ -50,6 +50,12 @@ hooks:
     ln -sf ../../scripts/commit-msg .git/hooks/commit-msg
     @echo "commit subjects are now checked by scripts/check-subject.sh"
 
+# What running costs: memory, CPU, disk and start-up, against a fake brain on
+# this machine. Takes `-n 2000`, `--settle 120`, `--desk`; see the script.
+overhead *args:
+    cargo build --release -p ghostd -p ghost-qqbot -p ghost-term
+    python3 scripts/overhead.py {{args}}
+
 # Run her from a directory, with the example configuration unless you have your own.
 run dir config="ghostd.toml":
     cargo run --release -p ghostd -- run {{dir}} --config {{config}}
