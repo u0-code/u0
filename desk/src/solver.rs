@@ -427,6 +427,13 @@ impl Deployment {
         Ok(())
     }
 
+    /// Whether the desk started a daemon it has not yet seen stop. Unlike
+    /// [`Self::owns_running`] it does not ask the system, so it can be
+    /// asked while drawing.
+    pub fn started(&self) -> bool {
+        self.child.is_some()
+    }
+
     /// Whether the daemon the desk started is still running.
     pub fn owns_running(&mut self) -> bool {
         match self.child.as_mut() {

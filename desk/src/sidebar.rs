@@ -45,7 +45,8 @@ pub fn link_color(link: &LinkState) -> gpui::Hsla {
     match link {
         LinkState::Connected => theme::green(),
         LinkState::Connecting => theme::muted(),
-        LinkState::Lost(_) => theme::coral(),
+        // Down is a state, not an alarm: the right column says why.
+        LinkState::Lost(_) => theme::faint(),
     }
 }
 
@@ -202,15 +203,42 @@ impl Desk {
                 let why = match group.link {
                     LinkState::Connecting => "Connecting…".to_owned(),
                     LinkState::Connected => "It runs nobody.".to_owned(),
-                    LinkState::Lost(why) => why.clone(),
+                    LinkState::Lost(why) => crate::model::reason(why, group.host.label()),
                 };
+                let down = matches!(group.link, LinkState::Lost(_));
+                let host = group.host.clone();
                 list = list.child(
-                    ui::text(faces, why)
-                        .text_size(px(12.5))
-                        .line_height(px(17.))
-                        .text_color(theme::muted())
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(px(8.))
                         .px(px(10.))
-                        .py(px(6.)),
+                        .py(px(6.))
+                        .child(
+                            ui::text(faces, why)
+                                .text_size(px(12.5))
+                                .line_height(px(17.))
+                                .text_color(theme::muted())
+                                .flex_1()
+                                .min_w(px(0.)),
+                        )
+                        .when(down, |d| {
+                            d.child(
+                                div()
+                                    .id(SharedString::from(format!("{}:retry", host.key())))
+                                    .flex_none()
+                                    .cursor_pointer()
+                                    .child(
+                                        ui::text(faces, "Retry")
+                                            .text_size(px(12.5))
+                                            .line_height(px(17.))
+                                            .text_color(theme::text2()),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.retry_host(&host, cx);
+                                    })),
+                            )
+                        }),
                 );
             }
             for her in &group.ghosts {

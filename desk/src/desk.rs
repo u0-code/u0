@@ -36,7 +36,7 @@ use crate::{
     fonts::{self, Faces},
     input::{Cancelled, Changed, Submitted, TextInput},
     link::{self, Link},
-    model::{Entry, LinkState, Message, PersonView, Status, Update},
+    model::{Entry, LinkState, Message, PersonView, Reach, Status, Update},
     settings::{self, Connection, SOLVER_URL, Session, Settings},
     sheet::Sheet,
     solver::{Abilities, Deployment, Provider},
@@ -70,6 +70,8 @@ pub struct Watched {
     /// What to call her until the daemon says.
     fallback: String,
     pub link: LinkState,
+    /// How the link has gone: since when, and why it is down.
+    pub reach: Reach,
     pub card: Option<ghost_link::protocol::GhostCard>,
     pub status: Option<Status>,
     pub people: Vec<PersonView>,
@@ -91,6 +93,7 @@ impl Watched {
             conn: Link::watch(cfg),
             fallback: fallback.to_owned(),
             link: LinkState::Connecting,
+            reach: Reach::default(),
             card: None,
             status: None,
             people: Vec::new(),
@@ -132,6 +135,11 @@ impl Watched {
         self.conn.say(place, text);
     }
 
+    /// Try its daemon again now, instead of after the wait.
+    pub fn retry(&self) {
+        self.conn.retry();
+    }
+
     pub fn tz(&self) -> Tz {
         self.status.as_ref().map_or(chrono_tz::UTC, |s| s.tz)
     }
@@ -148,6 +156,7 @@ impl Watched {
                 if state != LinkState::Connected {
                     self.desk_online = false;
                 }
+                self.reach.note(&self.link, &state);
                 self.link = state;
             }
             Update::Welcome(card) => self.card = Some(card),
@@ -820,6 +829,64 @@ impl Desk {
         }
         self.brain = Some(name.to_owned());
         self.restart(cx);
+    }
+
+    /// Whether the solver's daemon is the core on this machine, which the
+    /// desk looks after and can start.
+    pub(crate) fn core_is_local(&self) -> bool {
+        self.settings.solver_url == SOLVER_URL
+    }
+
+    /// Try the solver's daemon again now, and ask the core who it runs.
+    pub(crate) fn retry_solver(&mut self, cx: &mut Context<Self>) {
+        self.solver.retry();
+        self.retry_daemon(&self.settings.solver_url.clone());
+        cx.notify();
+    }
+
+    /// Try her daemon again now, and ask it who it runs.
+    pub(crate) fn retry_her(&mut self, cx: &mut Context<Self>) {
+        if let Some(open) = &self.open {
+            open.her.retry();
+            let url = open.url.clone();
+            self.retry_daemon(&url);
+        }
+        cx.notify();
+    }
+
+    /// Ask the daemon `host` names who it runs, now.
+    pub(crate) fn retry_host(&mut self, host: &crate::daemons::Host, cx: &mut Context<Self>) {
+        for d in self.daemons.iter().filter(|d| d.host == *host) {
+            d.retry();
+        }
+        cx.notify();
+    }
+
+    fn retry_daemon(&self, url: &str) {
+        for d in self.daemons.iter().filter(|d| d.url == url) {
+            d.retry();
+        }
+    }
+
+    /// Start the core on this machine, or start it again when the desk
+    /// runs it and it cannot be reached; then try it at once. Something
+    /// else listening where it would is said, not fought.
+    pub(crate) fn start_core(&mut self, cx: &mut Context<Self>) {
+        let url = self.settings.solver_url.clone();
+        let started = if self.deployment.owns_running() {
+            self.deployment.restart()
+        } else if listening(&url) {
+            Err(anyhow::anyhow!(
+                "something the desk did not start is already listening at {}",
+                url.trim_start_matches("ws://")
+            ))
+        } else {
+            self.deployment.start()
+        };
+        self.notice = started
+            .err()
+            .map(|e| format!("Could not start the core: {e:#}"));
+        self.retry_solver(cx);
     }
 
     pub(crate) fn restart(&mut self, cx: &mut Context<Self>) {
