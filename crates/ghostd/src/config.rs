@@ -545,3 +545,61 @@ mod operator_tests {
         assert!(wrong.is_err());
     }
 }
+
+#[cfg(test)]
+mod example_tests {
+    use super::*;
+
+    const EXAMPLE: &str = include_str!("../../../ghostd.example.toml");
+    const README: &str = include_str!("../README.md");
+
+    /// The example with its commented-out settings put back: a line of
+    /// comment that is a table's header or a key's assignment.
+    fn uncommented(text: &str) -> String {
+        text.lines()
+            .map(|line| match line.strip_prefix("# ") {
+                Some(rest)
+                    if rest.starts_with('[')
+                        || rest.split_once(" = ").is_some_and(|(key, _)| {
+                            key.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                        }) =>
+                {
+                    rest
+                }
+                _ => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn the_published_example_runs_as_it_is_and_with_every_commented_line_put_back() {
+        for text in [EXAMPLE.to_owned(), uncommented(EXAMPLE)] {
+            let cfg = Config::parse(&text).unwrap_or_else(|e| panic!("{e:#}\n{text}"));
+            for tier in [&cfg.brain.think, &cfg.brain.tick] {
+                assert!(cfg.providers.contains_key(tier), "{tier}");
+            }
+        }
+        let all = Config::parse(&uncommented(EXAMPLE)).unwrap();
+        assert!(all.network.proxy.is_some(), "the commented lines were read");
+        assert!(!all.hers("her").unwrap().operators.accounts.is_empty());
+    }
+
+    #[test]
+    fn every_example_in_the_configuration_reference_is_read_by_ghostd() {
+        let reference = README
+            .split_once("\n## Configuration\n")
+            .expect("crates/ghostd/README.md has a Configuration section")
+            .1;
+        let blocks: Vec<&str> = reference
+            .split("```toml\n")
+            .skip(1)
+            .map(|b| b.split_once("```").unwrap().0)
+            .collect();
+        assert!(blocks.len() >= 5, "{}", blocks.len());
+        for block in blocks {
+            let text = format!("[brain]\nthink = \"a\"\ntick = \"a\"\n\n{block}");
+            Config::parse(&text).unwrap_or_else(|e| panic!("{e:#}\n{block}"));
+        }
+    }
+}
