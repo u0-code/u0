@@ -58,4 +58,5 @@ trait and perceives weather through `Senses`; the daemon supplies both. It can
 be embedded in anything that can supply them.
 
 Its behaviour is pinned by tests that run under a simulated clock, in
-`src/mind/tests.rs`. Read those to see what she does and when.
+`src/mind/tests/`, a file to each area of what she does. Read those to see
+what she does and when.

@@ -59,9 +59,9 @@ deploy/                systemd units, a backup script, running on a server.
 ## Tests
 
 They run with no network. Brains are scripted, bodies are recorders, and time
-is passed in: look at `crates/ghost-mind/src/mind/tests.rs` for how a mind is
-driven, and `crates/ghost-work/src/worker/tests/` for a worker. Name a test for
-what it shows to be true.
+is passed in: look at `crates/ghost-mind/src/mind/tests/mod.rs` for how a
+mind is driven, and `crates/ghost-work/src/worker/tests/` for a worker. Name a
+test for what it shows to be true.
 
 ## Commits and pull requests
 
