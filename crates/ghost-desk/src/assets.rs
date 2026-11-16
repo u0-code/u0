@@ -14,7 +14,18 @@ macro_rules! icons {
     };
 }
 
-const FILES: &[(&str, &[u8])] = icons!["ghost", "openai", "claude", "deepseek"];
+const FILES: &[(&str, &[u8])] = icons![
+    "ghost",
+    "openai",
+    "claude",
+    "deepseek",
+    "sidebar",
+    "chevron-left",
+    "chevron-right",
+    "chevron-down",
+    "plus",
+    "search",
+];
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {

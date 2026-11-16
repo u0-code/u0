@@ -38,7 +38,9 @@ use crate::{
 /// The side columns' widths, the top bar's height.
 pub const LEFT: f32 = 256.;
 pub const RIGHT: f32 = 288.;
-pub const TOPBAR: f32 = 44.;
+pub const TOPBAR: f32 = 52.;
+/// Room the window's lights take at the left of the top row.
+pub const LIGHTS: f32 = 76.;
 /// The session that shows how the thread draws things, with nothing sent.
 pub const DEMO: &str = "demo";
 
@@ -182,6 +184,12 @@ pub struct Desk {
     notice: Option<String>,
     demo: Vec<Entry>,
     last_tick: Instant,
+    /// Whether the sidebar shows.
+    sidebar: bool,
+    /// Sessions visited before and after the one on screen, by id, for
+    /// back and forward.
+    back: Vec<String>,
+    forward: Vec<String>,
 }
 
 /// The daemon's token, from the environment or `.env`: never from a file
@@ -288,6 +296,9 @@ impl Desk {
             notice,
             demo: demo_journal(),
             last_tick: Instant::now(),
+            sidebar: true,
+            back: Vec::new(),
+            forward: Vec::new(),
         };
         // The daemon the desk started goes when the desk does.
         cx.on_app_quit(|this, _| {
@@ -351,6 +362,7 @@ impl Desk {
     }
 
     pub fn new_session(&mut self, cx: &mut Context<Self>) {
+        let was = self.session().id;
         // An untouched new session is reused rather than stacked.
         if let Some(i) = self
             .settings
@@ -364,11 +376,59 @@ impl Desk {
             self.current = 0;
             self.settings.save();
         }
+        self.visited(was);
         cx.notify();
     }
 
     pub fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
+        let was = self.session().id;
         self.current = index.min(self.settings.sessions.len());
+        self.visited(was);
+        cx.notify();
+    }
+
+    /// Remember the session just left, if it was left, for back.
+    fn visited(&mut self, was: String) {
+        if was != self.session().id {
+            self.back.push(was);
+            self.forward.clear();
+        }
+    }
+
+    /// Where a session id is now, the demo after yours.
+    fn index_of(&self, id: &str) -> Option<usize> {
+        if id == DEMO {
+            return Some(self.settings.sessions.len());
+        }
+        self.settings.sessions.iter().position(|s| s.id == id)
+    }
+
+    /// Back to the session before, skipping any that are gone.
+    pub fn go_back(&mut self, cx: &mut Context<Self>) {
+        while let Some(id) = self.back.pop() {
+            if let Some(i) = self.index_of(&id) {
+                self.forward.push(self.session().id);
+                self.current = i;
+                cx.notify();
+                return;
+            }
+        }
+    }
+
+    /// Forward again, after going back.
+    pub fn go_forward(&mut self, cx: &mut Context<Self>) {
+        while let Some(id) = self.forward.pop() {
+            if let Some(i) = self.index_of(&id) {
+                self.back.push(self.session().id);
+                self.current = i;
+                cx.notify();
+                return;
+            }
+        }
+    }
+
+    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar = !self.sidebar;
         cx.notify();
     }
 
@@ -500,13 +560,8 @@ impl Desk {
         self.use_brain(&name, cx);
     }
 
-    /// A small square control in the sidebar's top row.
-    fn control(
-        id: &'static str,
-        faces: &Faces,
-        glyph: &'static str,
-        on: bool,
-    ) -> gpui::Stateful<gpui::Div> {
+    /// A small square control in the row beside the window's lights.
+    fn control(id: &'static str, icon: &'static str, enabled: bool) -> gpui::Stateful<gpui::Div> {
         div()
             .id(id)
             .size(px(28.))
@@ -514,20 +569,42 @@ impl Desk {
             .flex()
             .items_center()
             .justify_center()
-            .cursor_pointer()
-            .hover(|s| s.bg(theme::hover()))
-            .child(ui::mono(faces, glyph).text_size(px(14.)).text_color(if on {
-                theme::text2()
+            .when(enabled, |d| {
+                d.cursor_pointer().hover(|s| s.bg(theme::hover()))
+            })
+            .child(ui::icon(icon, 16.).text_color(if enabled {
+                theme::muted()
             } else {
                 theme::ghost_line()
             }))
     }
 
-    /// A row of the sidebar's menu: a glyph and a word.
+    /// The controls beside the window's lights: the sidebar, back, forward.
+    /// They sit at the top of the sidebar, or of the thread when it is hidden.
+    fn controls(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .child(
+                Self::control("sidebar", "sidebar", true)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+            )
+            .child(
+                Self::control("back", "chevron-left", !self.back.is_empty())
+                    .on_click(cx.listener(|this, _, _, cx| this.go_back(cx))),
+            )
+            .child(
+                Self::control("forward", "chevron-right", !self.forward.is_empty())
+                    .on_click(cx.listener(|this, _, _, cx| this.go_forward(cx))),
+            )
+    }
+
+    /// A row of the sidebar's menu: an icon and a word.
     fn menu_row(
         id: &'static str,
         faces: &Faces,
-        glyph: &'static str,
+        icon: &'static str,
         label: &'static str,
     ) -> gpui::Stateful<gpui::Div> {
         div()
@@ -540,13 +617,7 @@ impl Desk {
             .rounded(px(8.))
             .cursor_pointer()
             .hover(|s| s.bg(theme::hover()))
-            .child(
-                ui::mono(faces, glyph)
-                    .w(px(16.))
-                    .text_center()
-                    .text_size(px(15.))
-                    .text_color(theme::muted()),
-            )
+            .child(ui::icon(icon, 16.).text_color(theme::muted()))
             .child(
                 ui::text(faces, label)
                     .text_size(px(13.5))
@@ -627,12 +698,10 @@ impl Desk {
             .flex_none()
             .items_center()
             .gap(px(2.))
-            .h(px(52.))
-            .pl(px(76.))
+            .h(px(TOPBAR))
+            .pl(px(LIGHTS))
             .pr(px(10.))
-            .child(Self::control("sidebar", faces, "▯", true))
-            .child(Self::control("back", faces, "‹", true))
-            .child(Self::control("forward", faces, "›", false));
+            .child(self.controls(cx));
 
         let menu = div()
             .flex()
@@ -641,10 +710,10 @@ impl Desk {
             .px(px(8.))
             .pb(px(8.))
             .child(
-                Self::menu_row("new", faces, "+", "New task")
+                Self::menu_row("new", faces, "plus", "New task")
                     .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
             )
-            .child(Self::menu_row("search", faces, "⌕", "Search"));
+            .child(Self::menu_row("search", faces, "search", "Search"));
 
         let mut list = div()
             .id("sessions")
@@ -668,11 +737,7 @@ impl Desk {
                             .text_size(px(12.5))
                             .text_color(theme::muted()),
                     )
-                    .child(
-                        ui::mono(faces, "⌄")
-                            .text_size(px(11.))
-                            .text_color(theme::faint()),
-                    ),
+                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint())),
             );
         for (i, s) in self.settings.sessions.iter().enumerate() {
             list = list.child(self.session_row(faces, i, s, cx));
@@ -697,11 +762,7 @@ impl Desk {
                             .text_size(px(12.5))
                             .text_color(theme::muted()),
                     )
-                    .child(
-                        ui::mono(faces, "›")
-                            .text_size(px(11.))
-                            .text_color(theme::faint()),
-                    ),
+                    .child(ui::icon("chevron-right", 12.).text_color(theme::faint())),
             );
 
         let provider = self.current_provider();
@@ -763,8 +824,9 @@ impl Desk {
             .child(bottom)
     }
 
-    /// The bar across the top of the thread: the session's name, the clock.
-    fn topbar(&self, faces: &Faces) -> impl IntoElement {
+    /// The bar across the top of the thread: the session's name, the clock,
+    /// and, when the sidebar is hidden, the controls beside the lights.
+    fn topbar(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
         let title = self.session().label();
         let right = self.solver.status.as_ref().map(|s| {
             div()
@@ -781,14 +843,24 @@ impl Desk {
             .justify_between()
             .gap(px(16.))
             .h(px(TOPBAR))
-            .px(px(24.))
+            .pl(px(if self.sidebar { 24. } else { LIGHTS }))
+            .pr(px(24.))
             .border_b_1()
             .border_color(theme::border())
-            .child(ui::one_line(
-                ui::text(faces, title)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_size(px(13.5)),
-            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .flex_1()
+                    .min_w(px(0.))
+                    .when(!self.sidebar, |d| d.child(self.controls(cx)))
+                    .child(ui::one_line(
+                        ui::text(faces, title)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_size(px(13.5)),
+                    )),
+            )
             .children(right)
     }
 
@@ -1240,11 +1312,7 @@ impl Desk {
                         .text_size(px(12.5))
                         .text_color(theme::text2()),
                 )
-                .child(
-                    ui::mono(faces, "⌄")
-                        .text_size(px(11.))
-                        .text_color(theme::muted()),
-                )
+                .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
                 .on_click(cx.listener(|this, _, _, cx| this.open_menu(Menu::Brains, cx))),
         );
         if self.menu != Menu::Closed {
@@ -1360,7 +1428,7 @@ impl Render for Desk {
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .child(self.topbar(&faces))
+            .child(self.topbar(&faces, cx))
             .child(thread)
             .child(self.composer(&faces, cx));
         div()
@@ -1370,7 +1438,7 @@ impl Render for Desk {
             .font_family(faces.ui.clone())
             .text_size(px(14.))
             .text_color(theme::text())
-            .child(self.left(&faces, cx))
+            .when(self.sidebar, |d| d.child(self.left(&faces, cx)))
             .child(middle)
             .child(self.right(&faces))
     }

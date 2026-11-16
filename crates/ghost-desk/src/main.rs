@@ -30,7 +30,7 @@ use gpui::{
     WindowBounds, WindowOptions, actions, point, px, size,
 };
 
-actions!(desk, [Quit]);
+actions!(desk, [Quit, NewTask, ToggleSidebar, Back, Forward]);
 
 fn main() {
     // Keys come from the environment, or the ignored .env every binary loads.
@@ -50,6 +50,10 @@ fn main() {
             icon::set();
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("cmd-n", NewTask, None),
+                KeyBinding::new("cmd-b", ToggleSidebar, None),
+                KeyBinding::new("cmd-[", Back, None),
+                KeyBinding::new("cmd-]", Forward, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
                 KeyBinding::new("delete", input::Delete, Some(input::CONTEXT)),
                 KeyBinding::new("left", input::Left, Some(input::CONTEXT)),
@@ -72,7 +76,9 @@ fn main() {
                 titlebar: Some(TitlebarOptions {
                     title: Some("Ghost".into()),
                     appears_transparent: true,
-                    traffic_light_position: Some(point(px(16.), px(18.))),
+                    // The lights share a line with the controls beside them, the
+                    // middle of the 52-pixel top row.
+                    traffic_light_position: Some(point(px(16.), px(20.))),
                 }),
                 window_min_size: Some(size(px(800.), px(520.))),
                 ..Default::default()
@@ -80,11 +86,19 @@ fn main() {
             let window = cx
                 .open_window(options, |_, cx| cx.new(desk::Desk::new))
                 .expect("open the window");
-            window
+            let desk = window
                 .update(cx, |desk, window, cx| {
                     window.focus(&desk.input.focus_handle(cx));
+                    cx.entity()
                 })
                 .expect("the desk");
+            let d = desk.clone();
+            cx.on_action(move |_: &NewTask, cx| d.update(cx, desk::Desk::new_session));
+            let d = desk.clone();
+            cx.on_action(move |_: &ToggleSidebar, cx| d.update(cx, desk::Desk::toggle_sidebar));
+            let d = desk.clone();
+            cx.on_action(move |_: &Back, cx| d.update(cx, desk::Desk::go_back));
+            cx.on_action(move |_: &Forward, cx| desk.update(cx, desk::Desk::go_forward));
             cx.activate(true);
         });
 }
