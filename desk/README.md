@@ -84,6 +84,10 @@ ssh -N -L 7537:127.0.0.1:7437 you@server   # then add ws://127.0.0.1:7537
 
 ## The thread
 
+Across the top of it, the session's name, which opens the session's menu
+(Rename, Copy, Delete), and at the right one switch, for the right
+column; with a character open, her name and the place her thread shows.
+
 It is drawn task-first, the way a coding agent's app draws a session:
 what you say in a bubble on the right, what she says as the Markdown she
 writes, in a column about as wide as comfortable prose, and above each

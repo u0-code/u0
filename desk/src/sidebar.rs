@@ -463,7 +463,7 @@ impl Desk {
     }
 
     /// A session's menu: Rename, Copy (the thread, as text), Delete.
-    fn session_menu(faces: &Faces, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn session_menu(faces: &Faces, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let (rename, copy, delete) = (id.to_owned(), id.to_owned(), id.to_owned());
         div()
             .id("session-menu")
