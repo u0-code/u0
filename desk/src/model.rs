@@ -10,7 +10,7 @@ use ghost_link::protocol::{Attention, GhostCard, Listed, Look, Work, WorkLog};
 use serde_json::Value;
 
 /// One line of her journal.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub seq: i64,
     pub at: DateTime<Utc>,

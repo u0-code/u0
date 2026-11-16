@@ -34,8 +34,11 @@ cd desk
 cargo run --release                     # or: cargo run --release -- "free some disk space"
 ```
 
-A task given on the command line opens a new session with it. The desk
-reaches the solver at `ws://127.0.0.1:7438`, or at `GHOSTD_URL` on a first
+The window opens on what it showed last time: a copy of each daemon's
+journal tail and work is kept under `~/.config/ghost-desk/cache/`, drawn
+at once, and replaced by the daemon's own answer within a few seconds
+of connecting. A task given on the command line opens a new session
+with it. The desk reaches the solver at `ws://127.0.0.1:7438`, or at `GHOSTD_URL` on a first
 run; a token comes from `GHOSTD_TOKEN` in the environment or `.env`. Your
 sessions are kept in `~/.config/ghost-desk/desk.json`.
 

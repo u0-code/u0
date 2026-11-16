@@ -17,6 +17,7 @@ mod aside;
 mod assets;
 mod attention;
 mod brains;
+mod cache;
 mod daemons;
 mod desk;
 mod follow;
