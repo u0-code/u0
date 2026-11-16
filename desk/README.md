@@ -115,7 +115,8 @@ under a head for each day in Ghost's clock (Today, Yesterday, then the
 date), and a session shows a dot only while its work runs (amber) or
 waits on you (purple), with the parts of open work under it. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
-Context (the journal, the tempo, your sessions, you as its operator), Work
+Context (what it brings to a session, each row with a line on what it
+means: its journal, you as its operator, its shell, the web), Work
 (this session's, newest first), and Outputs (the files its work reported
 or kept), which is left out until there is one. A piece of work that waits
 on you shows its question there: its options as buttons when it gave

@@ -44,6 +44,9 @@ const FILES: &[(&str, &[u8])] = icons![
     "retry",
     "power",
     "bell",
+    "terminal",
+    "book",
+    "user",
 ];
 
 impl AssetSource for Assets {

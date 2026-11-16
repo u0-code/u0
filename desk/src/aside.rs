@@ -513,35 +513,61 @@ impl Desk {
         )
     }
 
-    /// What Ghost knows of its own life and of you: the journal, its
-    /// tempo, your sessions, and you as its operator.
+    /// What Ghost brings to a session, each with a line on what it means:
+    /// its journal, you, and the hands the deployment gives it.
     fn context(&self, faces: &Faces) -> Div {
         let status = self.solver.status.as_ref();
-        let pair = |name: &'static str, v: String| {
-            row(
-                None,
+        let journal = status.map_or_else(|| "—".to_owned(), |s| format!("{} events", s.journal));
+        let (you_value, you_under) = match self.solver.heard_from(self.who()) {
+            Some(n) => (
+                "operator".to_owned(),
+                format!("{} · {n} lines heard", self.who()),
+            ),
+            None => (
+                "operator".to_owned(),
+                format!("{} · nothing heard yet", self.who()),
+            ),
+        };
+        let (shell_value, shell_under) = match (&self.abilities.machine, self.abilities.work) {
+            _ if self.abilities.local() => {
+                ("this machine".to_owned(), "runs commands as you".to_owned())
+            }
+            (Some(m), true) => (m.clone(), "runs commands there".to_owned()),
+            _ => (
+                "off".to_owned(),
+                "the deployment gives it no shell".to_owned(),
+            ),
+        };
+        let (web_value, web_under) = if self.abilities.work && self.abilities.web {
+            ("on", "searches, and reads pages")
+        } else {
+            ("off", "the deployment keeps it off the web")
+        };
+        let item = |icon: &str, name: &'static str, value: String, under_text: String| {
+            row_with(
+                Some(row_icon(icon)),
                 label(faces, name),
-                Some(value(faces, v, theme::text())),
+                Some(self::value(faces, value, theme::text())),
+                under(faces, under_text),
             )
         };
-        let dash = || "—".to_owned();
-        let operator = self.solver.heard_from(self.who()).map_or_else(
-            || "not yet known".to_owned(),
-            |heard| format!("{} · {heard} lines", self.who()),
-        );
         div()
             .flex()
             .flex_col()
-            .child(pair(
+            .child(item(
+                "book",
                 "Journal",
-                status.map_or_else(dash, |s| format!("{} events", s.journal)),
+                journal,
+                "all it has done, kept for good".to_owned(),
             ))
-            .child(pair(
-                "Tempo",
-                status.map_or_else(dash, |s| format!("{:.2}", s.tempo)),
+            .child(item("user", "You", you_value, you_under))
+            .child(item("terminal", "Shell", shell_value, shell_under))
+            .child(item(
+                "search",
+                "Web",
+                web_value.to_owned(),
+                web_under.to_owned(),
             ))
-            .child(pair("Sessions", self.settings.sessions.len().to_string()))
-            .child(pair("Operator", operator))
     }
 
     /// The work taken on in this session, newest first: five, then the
