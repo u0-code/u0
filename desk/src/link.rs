@@ -99,6 +99,10 @@ pub enum Order {
     /// Stop what she is doing about the place `place` on the console
     /// channel: her look there, and the work directed from there.
     StopPlace { place: String },
+    /// Take back your line `to` (the seq of its `heard` entry) in the
+    /// place `place` on the console channel, and everything said there
+    /// after it, to put it another way.
+    Rewind { place: String, to: i64 },
 }
 
 impl Order {
@@ -109,6 +113,7 @@ impl Order {
             Self::Answer { .. } => "answer that",
             Self::Stop { .. } => "stop that work",
             Self::StopPlace { .. } => "stop her",
+            Self::Rewind { .. } => "take that back",
         }
     }
 }
@@ -123,6 +128,9 @@ async fn carry_out(console: &mut Console, order: &Order) -> anyhow::Result<bool>
         Order::Answer { work, text } => console.answer(work, text).await?,
         Order::Stop { work } => console.stop(work).await?,
         Order::StopPlace { place } => return console.stop_place(Some(place.clone())).await,
+        Order::Rewind { place, to } => {
+            console.rewind_place(Some(place.clone()), *to).await?;
+        }
     }
     Ok(true)
 }

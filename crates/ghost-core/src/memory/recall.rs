@@ -156,6 +156,8 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         Event::Viewed { .. }
         // Kept with who stopped her, and the work, by name; see `fold`.
         | Event::Stopped { .. }
+        // Takes what was said out; see `fold`.
+        | Event::Rewound { .. }
         // The message it came in is already kept, word for word.
         | Event::Directed { .. }
         // Being asked to be quiet is in what was said; agreeing to it is
@@ -240,6 +242,15 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
         tx.execute(
             "INSERT INTO recall (rowid, text, kind, seq, at, place, channel) VALUES (?2, ?1, 'stopped', ?2, ?3, ?4, ?5)",
             params![text, entry.seq, at, place, channel],
+        )?;
+        return Ok(());
+    }
+    // What was taken back is no longer there to be found, in the
+    // conversation or in anything she made of it there.
+    if let Event::Rewound { place, to, .. } = &entry.event {
+        tx.execute(
+            "DELETE FROM recall WHERE place = ?1 AND seq >= ?2 AND seq < ?3",
+            params![place, to, entry.seq],
         )?;
         return Ok(());
     }

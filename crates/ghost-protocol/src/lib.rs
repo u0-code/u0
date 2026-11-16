@@ -125,6 +125,17 @@ pub mod method {
     /// she took on there is stopped as [`WORK_STOP`] stops it. Allowed as
     /// [`SAY`] is.
     pub const STOP: &str = "console.stop";
+    /// Console → daemon request. Params [`ConsoleRewind`](super::ConsoleRewind),
+    /// result [`ConsoleRewound`](super::ConsoleRewound). An operator at the
+    /// console takes back a line of theirs in a place on the channel
+    /// [`CONSOLE`](super::CONSOLE), to put it another way: as one rewinds
+    /// a coding agent to before a turn. She is stopped there as [`STOP`]
+    /// stops her, and from that line on, what was said there is out of
+    /// the conversation in front of her; her journal keeps every word,
+    /// and says so in a `rewound` entry. The line must be one of theirs
+    /// in that place, or the request is refused with
+    /// [`NO_SUCH_LINE`](super::code::NO_SUCH_LINE). Allowed as [`SAY`] is.
+    pub const REWIND: &str = "console.rewind";
     /// Console → daemon request. Params [`WorkAnswer`](super::WorkAnswer),
     /// result `{}`. An operator at the console answers what a piece of work
     /// of hers asked, or adds to what it was asked, as she would pass it
@@ -170,6 +181,9 @@ pub mod code {
     /// it is a part, or it has ended. Asked for the steps of work, there
     /// is none by that id.
     pub const NO_SUCH_WORK: i64 = -32005;
+    /// The line named is not one the operator said in that place: there
+    /// is no such entry, it is hers, or it was said elsewhere.
+    pub const NO_SUCH_LINE: i64 = -32006;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
 }
@@ -663,6 +677,26 @@ pub struct ConsoleStop {
     /// is at the console.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
+}
+
+/// Params of [`method::REWIND`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleRewind {
+    /// The place on the [`CONSOLE`] channel the line was said in, as for
+    /// [`ConsoleSay::place`]. Left out, it is the one named after whoever
+    /// is at the console.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    /// The seq of the journal's `heard` entry for the line taken back.
+    pub to: i64,
+}
+
+/// The result of [`method::REWIND`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleRewound {
+    /// How many lines left the conversation: the one taken back and all
+    /// said there after it, hers among them.
+    pub lines: i64,
 }
 
 /// The result of [`method::STOP`].

@@ -619,3 +619,60 @@ fn a_works_steps_and_what_its_journal_says_of_it_are_told_in_order() {
         .collect();
     assert_eq!(order, ["step 1", "step 2", "reported", "step 3"]);
 }
+
+#[test]
+fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
+    let heard = |seq, text: &str| {
+        entry(
+            seq,
+            "heard",
+            json!({
+                "channel": "console", "place": {"id": "s1", "kind": "direct"},
+                "from": {"id": "fox", "name": "Fox"}, "id": format!("m{seq}"), "text": text,
+            }),
+        )
+    };
+    let said = |seq, text: &str| {
+        entry(
+            seq,
+            "said",
+            json!({"channel": "console", "place": "s1", "text": text}),
+        )
+    };
+    let journal = vec![
+        heard(1, "one"),
+        said(2, "two"),
+        heard(3, "three"),
+        said(4, "four"),
+        entry(
+            5,
+            "rewound",
+            json!({"place": "console:s1", "by": "console:fox", "to": 3}),
+        ),
+        heard(6, "five"),
+    ];
+    let place = place_key("s1");
+    let view = View {
+        journal: &journal,
+        pending: &[],
+        stops: &[],
+        place: &place,
+        name: "Ghost".into(),
+        who: "Fox".into(),
+        tz: chrono_tz::UTC,
+        connected: true,
+        abilities: None,
+        expanded: &std::collections::HashSet::default(),
+        following: &NOTHING_READ,
+        rendering: Rendering::Task,
+    };
+    let texts: Vec<String> = items(&view)
+        .into_iter()
+        .filter_map(|(_, _, item)| match item {
+            Item::Said { m, .. } => Some(m.text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, ["one", "two", "five"]);
+    assert_eq!(taken_back(&journal, &place), [(3, 5)]);
+}

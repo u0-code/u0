@@ -118,6 +118,62 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
 }
 
 #[tokio::test]
+async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_before_it() {
+    let rig = Rig::run(vec![Spec::new("lin")]).await;
+    let (mut stream, _) = Console::connect(&rig.url, None, None).await.unwrap();
+    stream.subscribe().await.unwrap();
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
+        .await
+        .unwrap();
+    let said = fox
+        .say(None, "how are the patients, 7a2e", SayMode::Say)
+        .await
+        .unwrap();
+    assert_eq!(
+        next_where(&mut stream, said_on_console).await,
+        ("fox".to_owned(), "lin here".to_owned())
+    );
+    let kinds = |thread: &[serde_json::Value]| -> Vec<String> {
+        thread
+            .iter()
+            .map(|e| e["event"]["kind"].as_str().unwrap_or("?").to_owned())
+            .collect()
+    };
+    let thread = fox.thread(&said.place, 20).await.unwrap();
+    let line = thread
+        .iter()
+        .find(|e| e["event"]["kind"] == "heard")
+        .and_then(|e| e["seq"].as_i64())
+        .unwrap();
+    assert!(kinds(&thread).contains(&"said".to_owned()));
+
+    // Only a line of theirs there can be taken back.
+    let e = fox.rewind_place(None, line + 1).await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_LINE));
+    let e = fox
+        .rewind_place(Some("desk-1".into()), line)
+        .await
+        .unwrap_err();
+    assert_eq!(code_of(&e), Some(code::NO_SUCH_LINE));
+    let (mut nobody, _) = Console::connect(&rig.url, None, None).await.unwrap();
+    let e = nobody.rewind_place(None, line).await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
+
+    assert_eq!(fox.rewind_place(None, line).await.unwrap(), 2);
+    let (place, to) = next_where(&mut stream, |event| match event {
+        Event::Rewound { place, to, .. } => Some((place, to)),
+        _ => None,
+    })
+    .await;
+    assert_eq!((place.as_str(), to), ("console:fox", line));
+    // The journal keeps every word, and says the line was taken back.
+    let thread = fox.thread(&said.place, 20).await.unwrap();
+    assert!(kinds(&thread).ends_with(&["rewound".to_owned()]), "{thread:?}");
+    let rewound = thread.last().unwrap();
+    assert_eq!(rewound["event"]["data"]["to"].as_i64(), Some(line));
+}
+
+#[tokio::test]
 async fn a_console_says_who_is_at_it_before_it_speaks_and_has_something_to_say() {
     let rig = Rig::run(vec![Spec::new("lin")]).await;
     let (mut nobody, _) = Console::connect(&rig.url, None, None).await.unwrap();

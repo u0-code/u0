@@ -130,6 +130,15 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                 ],
             )?;
         }
+        // A line taken back, and everything said in its place after it,
+        // is out of the conversation: the journal keeps the words, this
+        // record of what is in front of her does not.
+        Event::Rewound { place, to, .. } => {
+            tx.execute(
+                "DELETE FROM messages WHERE place = ?1 AND seq >= ?2 AND seq < ?3",
+                params![place, to, seq],
+            )?;
+        }
         // What she made of an image goes where the image was, so that the
         // line reads as she saw it from then on.
         Event::Viewed {
@@ -723,5 +732,36 @@ mod tests {
             .map(|l| l.text)
             .collect();
         assert_eq!(near, ["one", "three"]);
+    }
+
+    #[test]
+    fn a_line_taken_back_leaves_with_everything_said_there_after_it() {
+        let (_, m) = fold(vec![
+            heard("a", PlaceKind::Direct, "a", "1", "one", true),
+            said("a", "two"),
+            heard("a", PlaceKind::Direct, "a", "2", "three", true),
+            said("a", "four"),
+            heard("g", PlaceKind::Group, "b", "3", "five", false),
+            Event::Rewound {
+                place: "t:a".into(),
+                by: "t:a".into(),
+                to: 3,
+                looking: false,
+                unsaid: Vec::new(),
+            },
+        ]);
+        let texts = |place: &str| -> Vec<String> {
+            m.thread(place, 10)
+                .unwrap()
+                .into_iter()
+                .map(|l| l.text)
+                .collect()
+        };
+        assert_eq!(texts("t:a"), ["one", "two"]);
+        assert_eq!(texts("t:g"), ["five"]);
+        assert!(m.line(3).unwrap().is_none());
+        // Nor is it there to be found.
+        assert!(m.search("t", "three", 5).unwrap().is_empty());
+        assert_eq!(m.search("t", "one", 5).unwrap().len(), 1);
     }
 }

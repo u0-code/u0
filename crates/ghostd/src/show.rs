@@ -236,6 +236,24 @@ fn describe(event: &Event, tz: Tz) -> String {
             }
             format!("[{place}] by {by}: {}", what.join("; "))
         }
+        Event::Rewound {
+            place,
+            by,
+            to,
+            looking,
+            unsaid,
+        } => {
+            let mut what = vec![format!("to before m{to}")];
+            if *looking {
+                what.push("her look".to_owned());
+            }
+            if !unsaid.is_empty() {
+                let quoted: Vec<String> =
+                    unsaid.iter().map(|u| format!("\"{}\"", flat(u))).collect();
+                what.push(format!("unsaid {}", quoted.join(" ")));
+            }
+            format!("[{place}] by {by}: {}", what.join("; "))
+        }
     }
 }
 

@@ -569,7 +569,13 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     // What was last said to her here: a look is timed from it.
     let mut heard: Option<DateTime<Utc>> = None;
     let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
+    let gone = taken_back(view.journal, &thread);
     for e in view.journal {
+        // What was taken back is out of the thread, as it is out of the
+        // conversation in front of her.
+        if gone.iter().any(|(from, to)| (*from..*to).contains(&e.seq)) {
+            continue;
+        }
         if let Some(said) = said(e) {
             if thread_key(&said.key()) == thread {
                 if !said.message.hers {
@@ -658,13 +664,24 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
 }
 
 /// The place a journal entry ends a look in, if it can end one: what she
-/// decided there, or her being stopped there.
+/// decided there, or her being stopped there, or a line taken back there.
 fn look_end(e: &Entry) -> Option<&str> {
     match e.kind.as_str() {
         "decided" => Some(s(&e.data, "about")),
-        "stopped" => Some(s(&e.data, "place")),
+        "stopped" | "rewound" => Some(s(&e.data, "place")),
         _ => None,
     }
+}
+
+/// The stretches of the journal taken back in the thread `thread`, each
+/// as `from..to`: from the line taken back up to, not including, the entry
+/// that took it back.
+fn taken_back(journal: &[Entry], thread: &str) -> Vec<(i64, i64)> {
+    journal
+        .iter()
+        .filter(|e| e.kind == "rewound" && thread_key(s(&e.data, "place")) == thread)
+        .filter_map(|e| Some((e.data.get("to")?.as_i64()?, e.seq)))
+        .collect()
 }
 
 /// The newest entry in the thread of `place` a look can end with.

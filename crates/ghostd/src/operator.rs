@@ -33,7 +33,8 @@ use std::{
 use ghost_core::social::{self, Actor, Place, PlaceKind};
 use ghost_mind::{Act, Acted, Can, Incoming, Operator, Order, Refused};
 use ghost_protocol::{
-    CONSOLE, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, SayMode, WorkAnswer,
+    CONSOLE, ConsoleRewind, ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped,
+    Frame, SayMode, WorkAnswer,
     WorkStop, code, method,
 };
 
@@ -169,6 +170,50 @@ pub(crate) async fn stop(
     };
     match her.mind().interrupt(&social::key(CONSOLE, place), by).await {
         Ok(stopped) => Frame::ok(id, &ConsoleStopped { stopped }),
+        Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
+    }
+}
+
+/// `console.rewind`, request `id`, from a console as for [`say`]: have
+/// `her` mind take back the operator's line in the place named, and
+/// everything said there after it, and answer how many lines left.
+pub(crate) async fn rewind(
+    id: u64,
+    frame: &Frame,
+    owner: bool,
+    at_console: Option<&str>,
+    her: &Character,
+) -> Frame {
+    let name = match operator(owner, at_console) {
+        Ok(name) => name,
+        Err((code, why)) => return Frame::err(id, code, why),
+    };
+    let asked = match frame.params::<ConsoleRewind>() {
+        Ok(asked) => asked,
+        Err(e) => return Frame::err(id, e.code, e.message),
+    };
+    let person = name.to_lowercase();
+    let place = asked
+        .place
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(&person);
+    let by = Operator {
+        key: social::key(CONSOLE, &person),
+        name: name.to_owned(),
+    };
+    match her
+        .mind()
+        .rewind(&social::key(CONSOLE, place), asked.to, by)
+        .await
+    {
+        Ok(Some(lines)) => Frame::ok(id, &ConsoleRewound { lines }),
+        Ok(None) => Frame::err(
+            id,
+            code::NO_SUCH_LINE,
+            format!("m{} is not a line of yours in that place", asked.to),
+        ),
         Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
     }
 }

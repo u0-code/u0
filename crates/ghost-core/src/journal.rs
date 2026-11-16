@@ -501,6 +501,29 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         works: Vec<String>,
     },
+    /// Someone who runs her body took back a line of theirs in a place,
+    /// from a console, to put it another way: as one rewinds a coding
+    /// agent to before a turn. From the line on, what was said there,
+    /// by them and by her, is out of the conversation in front of her,
+    /// as if it had not been said; the journal keeps every word. What
+    /// she was in the middle of there is called off as a stop calls it
+    /// off, and her work there goes on.
+    Rewound {
+        /// The place, as a place key (`console:fox`).
+        place: String,
+        /// Who took the line back, as a person key.
+        by: String,
+        /// The seq of the `Heard` entry the line came in. The conversation
+        /// stands as it did before it.
+        to: i64,
+        /// She was looking at what was said there, or about to, and was
+        /// stopped in it.
+        #[serde(default, skip_serializing_if = "is_false")]
+        looking: bool,
+        /// What she was about to say there and did not, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unsaid: Vec<String>,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -624,6 +647,7 @@ kinds! {
     SkillInstalled => "skill_installed",
     SkillUninstalled => "skill_uninstalled",
     Stopped => "stopped",
+    Rewound => "rewound",
 }
 
 /// One line of her journal.
