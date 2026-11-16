@@ -14,7 +14,10 @@
 //! signed out). If it cannot, the desk says why and goes on with the brain
 //! it had.
 
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 use gpui::{
     AnyElement, Context, Corner, KeyDownEvent, SharedString, Window, anchored, deferred, div,
@@ -82,6 +85,9 @@ pub(crate) struct Picker {
     looking: Option<String>,
     /// The models each brain offers, by its name, once asked.
     models: HashMap<String, Models>,
+    /// The brains whose listing has been asked for afresh this run, so
+    /// that a kept one is not asked for again every time it is looked at.
+    refreshed: HashSet<String>,
     /// The brain a switch to is being checked.
     checking: Option<String>,
     /// The menu a press outside it just closed, and when: the press that
@@ -217,13 +223,28 @@ impl Desk {
         cx.notify();
     }
 
-    /// Learn which models the brain `name` offers, once: a CLI's from what
-    /// it keeps on this machine, an API's from its model list.
+    /// Ask every brain this machine can run for its models, in the
+    /// background, so that the picker has them before it is opened: a
+    /// kept listing shows at once and is asked for again only once it is
+    /// a day old.
+    pub(crate) fn warm_models(&mut self, cx: &mut Context<Self>) {
+        let names: Vec<String> = self
+            .providers
+            .iter()
+            .filter(|p| p.blocker.is_none())
+            .map(|p| p.name.clone())
+            .collect();
+        for name in names {
+            self.list_models(&name, cx);
+        }
+    }
+
+    /// Learn which models the brain `name` offers: Codex's from what it
+    /// keeps on this machine, Claude Code's from its installed build, an
+    /// API's from its model list. What was listed before shows at once,
+    /// and is asked for again once a day, at most once a run.
     fn list_models(&mut self, name: &str, cx: &mut Context<Self>) {
-        if matches!(
-            self.picker.models.get(name),
-            Some(Models::Asking | Models::Listed(_))
-        ) {
+        if self.picker.refreshed.contains(name) {
             return;
         }
         let Some(p) = self.providers.iter().find(|p| p.name == name).cloned() else {
@@ -234,34 +255,94 @@ impl Desk {
             self.picker
                 .models
                 .insert(name.to_owned(), Models::Listed(choices));
+            self.picker.refreshed.insert(name.to_owned());
+            return;
+        }
+        if p.kind == "claude-code" {
+            let program = p.program.clone().unwrap_or_else(|| "claude".to_owned());
+            self.picker.refreshed.insert(name.to_owned());
+            if !self.has_listed(name) {
+                self.picker.models.insert(name.to_owned(), Models::Asking);
+            }
+            let task = link::runtime().spawn_blocking(move || models::claude_code(&program));
+            let name = name.to_owned();
+            cx.spawn(async move |this, cx| {
+                let answer = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    this.picker.models.insert(
+                        name,
+                        match answer {
+                            Ok(Ok(choices)) => Models::Listed(choices),
+                            Ok(Err(why)) => Models::Unlisted(why),
+                            Err(e) => Models::Unlisted(e.to_string()),
+                        },
+                    );
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
+        // An API: what was kept shows now, and is asked for again when
+        // it is old enough.
+        let key = models::api_key(&p.name, p.base_url.as_deref());
+        let kept = models::cached(&key);
+        if let Some((ids, _)) = &kept
+            && !self.has_listed(name)
+        {
+            self.picker.models.insert(
+                name.to_owned(),
+                Models::Listed(models::of_api(&p.model, ids.clone())),
+            );
+        }
+        if kept.as_ref().is_some_and(|(_, at)| models::fresh(*at)) {
+            self.picker.refreshed.insert(name.to_owned());
             return;
         }
         let (network, end) = match self.endpoint(&p, &p.model) {
             Ok(found) => found,
             Err(why) => {
-                self.picker
-                    .models
-                    .insert(name.to_owned(), Models::Unlisted(why));
+                if !self.has_listed(name) {
+                    self.picker
+                        .models
+                        .insert(name.to_owned(), Models::Unlisted(why));
+                }
                 return;
             }
         };
-        self.picker.models.insert(name.to_owned(), Models::Asking);
+        self.picker.refreshed.insert(name.to_owned());
+        if !self.has_listed(name) {
+            self.picker.models.insert(name.to_owned(), Models::Asking);
+        }
         let task = link::runtime().spawn(async move { brains::models(&network, &end).await });
         let name = name.to_owned();
         cx.spawn(async move |this, cx| {
             let answer = task.await;
             let _ = this.update(cx, |this, cx| {
                 let models = match answer {
-                    Ok(Ok(ids)) if !ids.is_empty() => Models::Listed(models::of_api(&p.model, ids)),
-                    Ok(Ok(_)) => Models::Unlisted("it lists no models".to_owned()),
-                    Ok(Err(why)) => Models::Unlisted(why.line()),
-                    Err(e) => Models::Unlisted(e.to_string()),
+                    Ok(Ok(ids)) if !ids.is_empty() => {
+                        models::remember(&key, &ids);
+                        Some(Models::Listed(models::of_api(&p.model, ids)))
+                    }
+                    Ok(Ok(_)) => Some(Models::Unlisted("it lists no models".to_owned())),
+                    Ok(Err(why)) => Some(Models::Unlisted(why.line())),
+                    Err(e) => Some(Models::Unlisted(e.to_string())),
                 };
-                this.picker.models.insert(name, models);
+                // A listing that failed does not take a kept one's place.
+                if let Some(models) = models
+                    && (matches!(models, Models::Listed(_)) || !this.has_listed(&name))
+                {
+                    this.picker.models.insert(name, models);
+                }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Whether the picker already has a listing for the brain `name`.
+    fn has_listed(&self, name: &str) -> bool {
+        matches!(self.picker.models.get(name), Some(Models::Listed(_)))
     }
 
     /// How to reach the API `p` with `model`: the network the daemon would
@@ -400,9 +481,8 @@ impl Desk {
         };
         // Drawn every frame, so nothing is read or listed for it: Claude
         // Code's names are known, Codex's once the menu has listed them.
-        let model = listed
-            .or_else(|| models::cli_label(&p.kind, &p.model))
-            .unwrap_or(&p.model);
+        let named = models::cli_label(&p.kind, &p.model);
+        let model = listed.or(named.as_deref()).unwrap_or(&p.model);
         if model.is_empty() {
             p.title()
         } else {
