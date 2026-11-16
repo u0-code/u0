@@ -17,8 +17,8 @@ use ghost_core::Ghost;
 use ghost_link::Conn;
 use ghost_mind::{Mind, MindConfig, Numb, Parts, Prompts, Question, WorkConfig, Workshop};
 use ghost_protocol::{
-    Acted, Action, Actor, Capability, Frame, GhostCard, Hello, Inbound, PROTOCOL, Place, PlaceKind,
-    PresenceHello, Role, RpcError, code, method,
+    Acted, Action, Actor, Capability, Frame, GhostCard, Hello, Inbound, ListGhosts, PROTOCOL,
+    Place, PlaceKind, PresenceHello, Role, Roster, RpcError, Welcome, code, method,
 };
 use tokio::{net::TcpListener, sync::mpsc};
 
@@ -111,6 +111,11 @@ struct Rig {
 
 impl Rig {
     async fn run(specs: Vec<Spec>) -> Self {
+        Self::guarded(specs, None).await
+    }
+
+    /// The same, admitting only clients that give `token`.
+    async fn guarded(specs: Vec<Spec>, token: Option<&str>) -> Self {
         let root = tempfile::tempdir().unwrap();
         let (stop, stopping) = watch::channel(false);
         let pauses = Pauses {
@@ -157,7 +162,7 @@ impl Rig {
             listener,
             Arc::new(Shared {
                 cast: Cast(cast.clone()),
-                token: None,
+                token: token.map(str::to_owned),
                 origins: Vec::new(),
             }),
         ));
@@ -467,6 +472,148 @@ async fn each_character_hands_out_her_own_avatar_and_one_without_hands_out_none(
         b"lin's face"
     );
     assert_eq!(avatar("mei").await, None);
+}
+
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// A connection to the daemon that has said nothing yet.
+async fn bare(url: &str) -> Socket {
+    tokio_tungstenite::connect_async(url).await.unwrap().0
+}
+
+/// Send `frame`, and read what the daemon says back: `None` once it has
+/// closed the connection.
+async fn exchange(ws: &mut Socket, frame: &Frame) -> Option<Frame> {
+    let _ = ghost_link::socket::send(ws, frame).await;
+    ghost_link::socket::recv(ws).await.ok().flatten()
+}
+
+fn hello_for(ghost: &str) -> Frame {
+    let hello = Hello {
+        protocol: PROTOCOL,
+        role: Role::Console,
+        token: None,
+        ghost: Some(ghost.into()),
+        presence: None,
+    };
+    Frame::request(2, method::HELLO, &hello)
+}
+
+fn list_asking(token: Option<&str>) -> Frame {
+    let asked = ListGhosts {
+        token: token.map(Into::into),
+    };
+    Frame::request(1, method::LIST, &asked)
+}
+
+/// The ids in a roster, in its order.
+fn ids(roster: &Roster) -> Vec<&str> {
+    roster.ghosts.iter().map(|g| g.id.as_str()).collect()
+}
+
+/// The code a refused answer carries.
+fn refused_with(e: &anyhow::Error) -> Option<i64> {
+    e.downcast_ref::<RpcError>().map(|e| e.code)
+}
+
+#[tokio::test]
+async fn a_daemon_running_one_character_names_her_before_any_hello_and_hello_keeps_its_rules() {
+    let rig = Rig::run(vec![Spec::new("lin")]).await;
+    let roster = ghost_link::list(&rig.url, None).await.unwrap();
+    assert_eq!(roster.protocol, PROTOCOL);
+    assert_eq!(ids(&roster), ["lin"]);
+    let lin = &roster.ghosts[0];
+    assert_eq!(
+        (lin.card.name.as_str(), lin.card.seal.as_str()),
+        ("lin", "seal")
+    );
+    assert!(
+        lin.awake.is_some(),
+        "her mind is running, so her day is known"
+    );
+    assert!(!lin.avatar);
+
+    // Listed first, asked with no params at all, then a hello on the same
+    // connection, which is taken...
+    let mut ws = bare(&rig.url).await;
+    let bare_ask = Frame::request(1, method::LIST, &());
+    assert_eq!(bare_ask.params, None);
+    let listed = exchange(&mut ws, &bare_ask).await.unwrap();
+    assert_eq!(ids(&listed.into_result::<Roster>().unwrap()), ["lin"]);
+    let welcome = exchange(&mut ws, &hello_for("lin")).await.unwrap();
+    assert_eq!(welcome.into_result::<Welcome>().unwrap().ghost.name, "lin");
+    // ...or refused, by the rules a hello always had.
+    let mut ws = bare(&rig.url).await;
+    exchange(&mut ws, &list_asking(None)).await.unwrap();
+    let refused = exchange(&mut ws, &hello_for("mei")).await.unwrap();
+    assert_eq!(refused.error.map(|e| e.code), Some(code::NO_SUCH_GHOST));
+    // Anything else before a hello is refused as it was.
+    let mut ws = bare(&rig.url).await;
+    let status = exchange(&mut ws, &Frame::request(1, method::STATUS, &())).await;
+    assert_eq!(
+        status.and_then(|f| f.error).map(|e| e.code),
+        Some(code::INVALID_REQUEST)
+    );
+}
+
+#[tokio::test]
+async fn a_daemon_running_several_lists_each_in_order_with_her_own_card_and_picture() {
+    let rig = Rig::run(vec![Spec::new("lin"), Spec::new("mei")]).await;
+    let assets = rig.cast[1].dir.join(ghost_core::ghost::ASSETS_DIR);
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("avatar.png"), b"mei's face").unwrap();
+
+    let roster = ghost_link::list(&rig.url, None).await.unwrap();
+    assert_eq!(ids(&roster), ["lin", "mei"]);
+    let names: Vec<&str> = roster.ghosts.iter().map(|g| g.card.name.as_str()).collect();
+    assert_eq!(names, ["lin", "mei"]);
+    let pictures: Vec<bool> = roster.ghosts.iter().map(|g| g.avatar).collect();
+    assert_eq!(pictures, [false, true]);
+    assert!(roster.ghosts.iter().all(|g| g.awake.is_some()));
+
+    // A console for one of them may still ask who else there is.
+    let (mut console, _) = ghost_link::Console::connect(&rig.url, None, Some("lin".into()))
+        .await
+        .unwrap();
+    assert_eq!(ids(&console.list().await.unwrap()), ["lin", "mei"]);
+}
+
+#[tokio::test]
+async fn a_daemon_with_a_token_names_nobody_to_a_client_without_it() {
+    let token = "made-up-for-this-test";
+    let rig = Rig::guarded(vec![Spec::new("lin"), Spec::new("mei")], Some(token)).await;
+    for wrong in [None, Some("a guess")] {
+        let e = ghost_link::list(&rig.url, wrong.map(Into::into))
+            .await
+            .unwrap_err();
+        assert_eq!(refused_with(&e), Some(code::UNAUTHORIZED), "{wrong:?}");
+    }
+    let roster = ghost_link::list(&rig.url, Some(token.into()))
+        .await
+        .unwrap();
+    assert_eq!(ids(&roster), ["lin", "mei"]);
+
+    // A refused question ends the connection: no hello can follow it.
+    let mut ws = bare(&rig.url).await;
+    let refused = exchange(&mut ws, &list_asking(None)).await.unwrap();
+    assert_eq!(refused.error.map(|e| e.code), Some(code::UNAUTHORIZED));
+    assert_eq!(exchange(&mut ws, &hello_for("lin")).await, None);
+    // And a hello without the token is refused as it always was.
+    let e = ghost_link::Console::connect(&rig.url, None, Some("lin".into()))
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(refused_with(&e), Some(code::UNAUTHORIZED));
+}
+
+#[test]
+fn her_status_says_whether_she_is_awake_and_what_her_day_has_her_doing() {
+    let busy = serde_json::json!({"moment": {"phase": "awake", "doing": {"what": "rounds"}}});
+    assert_eq!(phase(&busy), (Some(true), Some("rounds".to_owned())));
+    let asleep = serde_json::json!({"moment": {"phase": "asleep", "doing": null}});
+    assert_eq!(phase(&asleep), (Some(false), None));
+    assert_eq!(phase(&serde_json::json!({})), (None, None));
 }
 
 #[test]

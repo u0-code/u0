@@ -7,6 +7,7 @@
 //!   [`presence::Link`], and it keeps a connection to the daemon alive,
 //!   forwards what arrives, and routes her actions to you.
 //! - [`Console`] is a small client for tools that only watch.
+//! - [`list`] asks a daemon who it runs, before saying hello to any of them.
 //!
 //! Adapters depend on this crate and nothing else from Ghost. They never see
 //! her journal, her memory, or a brain.
@@ -17,7 +18,9 @@ pub mod text;
 
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
-use ghost_protocol::{Frame, Hello, JournalRead, PROTOCOL, Role, Welcome, method};
+use ghost_protocol::{
+    Frame, Hello, JournalRead, ListGhosts, PROTOCOL, Role, Roster, Welcome, method,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::net::TcpStream;
@@ -30,6 +33,16 @@ pub fn default_url() -> String {
     format!("ws://{}", ghost_protocol::DEFAULT_ADDR)
 }
 
+/// Who the daemon at `url` runs, asked on a connection of its own before
+/// any hello: the way to learn which character a hello can name. `token` is
+/// the daemon's, when it requires one.
+pub async fn list(url: &str, token: Option<String>) -> anyhow::Result<Roster> {
+    let mut conn = Conn::dial(url).await?;
+    let roster = conn.call(method::LIST, &ListGhosts { token }).await;
+    let _ = conn.ws.close(None).await;
+    roster
+}
+
 /// One connection to a daemon, after a successful hello.
 pub struct Conn {
     ws: Socket,
@@ -39,12 +52,17 @@ pub struct Conn {
 impl Conn {
     /// Connect and introduce ourselves.
     pub async fn open(url: &str, hello: &Hello) -> anyhow::Result<(Self, Welcome)> {
+        let mut conn = Self::dial(url).await?;
+        let welcome: Welcome = conn.call(method::HELLO, hello).await?;
+        Ok((conn, welcome))
+    }
+
+    /// Connect, and say nothing yet.
+    async fn dial(url: &str) -> anyhow::Result<Self> {
         let (ws, _) = tokio_tungstenite::connect_async(url)
             .await
             .with_context(|| format!("connect to {url}"))?;
-        let mut conn = Self { ws, next_id: 1 };
-        let welcome: Welcome = conn.call(method::HELLO, hello).await?;
-        Ok((conn, welcome))
+        Ok(Self { ws, next_id: 1 })
     }
 
     pub async fn send(&mut self, frame: &Frame) -> anyhow::Result<()> {
@@ -120,6 +138,11 @@ impl Console {
     /// Her persona as it stands.
     pub async fn identity(&mut self) -> anyhow::Result<Value> {
         self.conn.call(method::IDENTITY, &()).await
+    }
+
+    /// Everyone the daemon runs, her among them.
+    pub async fn list(&mut self) -> anyhow::Result<Roster> {
+        self.conn.call(method::LIST, &ListGhosts::default()).await
     }
 
     /// Her picture, if she has one.
