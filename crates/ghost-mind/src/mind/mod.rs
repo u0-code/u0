@@ -10,11 +10,13 @@ mod ask;
 mod attend;
 mod browse;
 mod context;
+mod decided;
 mod digest;
 mod give;
 mod group;
 mod keep;
 mod living;
+mod look;
 mod public;
 mod pursuit;
 mod reach;
@@ -24,6 +26,7 @@ mod sides;
 mod speak;
 #[cfg(test)]
 mod tests;
+mod thought;
 mod view;
 mod work;
 

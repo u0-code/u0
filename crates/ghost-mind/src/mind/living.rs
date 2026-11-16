@@ -18,7 +18,7 @@ use ghost_core::{
 use serde_json::Value;
 use tracing::{info, warn};
 
-use super::{Mind, Outcome, attend::minutes_from};
+use super::{Mind, Outcome, decided::minutes_from};
 use crate::{Error, Result, actions};
 
 /// The longest the life engine goes without checking on her day.

@@ -34,7 +34,7 @@ use ghost_core::{
     will::{self, Stage},
 };
 
-use super::{Mind, attend::minutes_from};
+use super::{Mind, decided::minutes_from};
 use crate::{Result, actions::clip};
 
 /// How many times in a row she can look and say nothing before her wait
