@@ -20,5 +20,6 @@
 # Design documents and write-ups stay on the machine they were written on.
 # Only READMEs are published.
 /docs/
-/bench/RESULTS.md
-/bench/samples/
+# How the work loop compares with other agents is measured locally, not
+# published.
+/bench/
