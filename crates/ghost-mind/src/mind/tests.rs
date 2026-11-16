@@ -5421,6 +5421,32 @@ async fn each_silent_look_at_a_group_stretches_the_next_up_to_eight_times_and_sh
 }
 
 #[tokio::test]
+async fn a_group_that_never_pauses_still_gets_her_look() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    // Someone speaks every two seconds, for an hour: never long enough for
+    // a burst to settle.
+    let mut now = t0;
+    let mut looked = None;
+    for n in 0..1800 {
+        rig.hear(
+            group("room", "mei", &format!("c{n}"), "chatter", false),
+            now,
+        );
+        rig.pump(now).await;
+        if rig.tick.calls() > 0 {
+            looked = Some(now);
+            break;
+        }
+        now += Duration::seconds(2);
+    }
+    let looked = looked.expect("she looked while they were still talking");
+    // Free, she looks at a group after two to fifteen minutes; the chatter
+    // does not hold her off past that.
+    assert!(looked - t0 <= Duration::minutes(16), "{}", looked - t0);
+}
+
+#[tokio::test]
 async fn a_burst_or_her_name_brings_her_back_at_the_usual_pace() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);

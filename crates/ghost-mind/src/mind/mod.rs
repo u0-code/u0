@@ -296,6 +296,9 @@ struct Channel {
 
 struct Attend {
     due: DateTime<Utc>,
+    /// When what she has not yet looked at first brought this on. A burst
+    /// pushes the look out only so far from it.
+    since: DateTime<Utc>,
     /// Scheduled because something was meant for her.
     addressed: bool,
     /// How much her wait was stretched by her silence there when this was

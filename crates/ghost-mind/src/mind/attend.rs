@@ -31,6 +31,9 @@ use crate::{
 
 /// How long after she speaks somewhere she is still "in" that conversation.
 const ENGAGED_FOR: Duration = Duration::minutes(3);
+/// How many settles a burst may push her look out by, from the first line
+/// she had not seen: about fourteen seconds at her usual pace.
+const BURST_SETTLES: u32 = 4;
 /// How many other conversations she gets to once her phone is in her hand.
 const PHONE_SITTING: usize = 4;
 /// Most she will say per hour in a place where only automated accounts talk.
@@ -214,6 +217,7 @@ impl Mind {
                 place_key.to_owned(),
                 Attend {
                     due: now,
+                    since: now,
                     addressed: true,
                     backoff: 1.0,
                 },
@@ -233,6 +237,7 @@ impl Mind {
                 place_key.to_owned(),
                 Attend {
                     due: until,
+                    since: now,
                     addressed: false,
                     backoff: 1.0,
                 },
@@ -244,8 +249,12 @@ impl Mind {
         } else {
             self.backoff(&place, now)?
         };
-        // Let a burst settle before looking.
-        let floor = after(now, self.tempo.settle());
+        // Let a burst settle before looking, but not forever: where someone
+        // always speaks before the last line has settled, she still looks
+        // within a few settles of the first thing she had not seen.
+        let since = self.agenda.attend.get(place_key).map_or(now, |a| a.since);
+        let settle = self.tempo.settle();
+        let floor = after(now, settle).min(after(since, settle * BURST_SETTLES));
         if let Some(existing) = self.agenda.attend.get_mut(place_key)
             && (existing.addressed || !addressed)
             && backoff >= existing.backoff
@@ -281,6 +290,7 @@ impl Mind {
             place_key.to_owned(),
             Attend {
                 due,
+                since,
                 addressed,
                 backoff,
             },
@@ -340,6 +350,7 @@ impl Mind {
                 place_key.to_owned(),
                 Attend {
                     due: now + Duration::seconds(5),
+                    since: now,
                     addressed,
                     backoff: 1.0,
                 },
@@ -379,6 +390,7 @@ impl Mind {
                 place_key.to_owned(),
                 Attend {
                     due: now + wait,
+                    since: now,
                     addressed: true,
                     backoff: 1.0,
                 },
@@ -1321,6 +1333,7 @@ impl Mind {
                 place.key.clone(),
                 Attend {
                     due,
+                    since: now,
                     addressed: true,
                     backoff: 1.0,
                 },
