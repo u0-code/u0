@@ -643,7 +643,9 @@ impl Desk {
                     .items_center()
                     .justify_center()
                     .gap(px(6.))
-                    .w(px(96.))
+                    // Four to a row across the sheet, with nothing left
+                    // over at the right.
+                    .w(px(94.))
                     .h(px(68.))
                     .rounded(px(9.))
                     .border_1()
