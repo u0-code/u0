@@ -125,4 +125,4 @@ read as a prompt. The files are looked at before each step, so an edit
 reaches work that is already running.
 
 
-[`Worker`]: src/worker.rs
+[`Worker`]: src/worker/mod.rs
