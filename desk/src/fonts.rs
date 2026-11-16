@@ -70,11 +70,30 @@ pub fn fallbacks() -> FontFallbacks {
     ])
 }
 
+/// The faces her prose falls back to: Chinese in a serif (`Songti SC`), so
+/// her words read in one voice whatever the script, then the usual.
+pub fn serif_fallbacks() -> FontFallbacks {
+    FontFallbacks::from_fonts(vec![
+        "Songti SC".to_owned(),
+        "PingFang SC".to_owned(),
+        "Hiragino Sans GB".to_owned(),
+        "Apple Color Emoji".to_owned(),
+    ])
+}
+
 /// `el`, with the fallbacks for everything set in it.
 pub fn with_fallbacks<E: Styled>(mut el: E) -> E {
     el.text_style()
         .get_or_insert_with(Default::default)
         .font_fallbacks = Some(fallbacks());
+    el
+}
+
+/// `el`, set in serif, with her prose's fallbacks.
+pub fn with_serif_fallbacks<E: Styled>(mut el: E) -> E {
+    el.text_style()
+        .get_or_insert_with(Default::default)
+        .font_fallbacks = Some(serif_fallbacks());
     el
 }
 

@@ -34,15 +34,15 @@ use crate::{
 
 /// A row's height in the sidebar, menu and sessions alike, and its text:
 /// the measure a coding agent's app lists sessions at, with room in each.
-const ROW: f32 = 34.;
-const SESSION_ROW: f32 = 34.;
-const TEXT: f32 = 14.;
+const ROW: f32 = 32.;
+const SESSION_ROW: f32 = 32.;
+const TEXT: f32 = 13.5;
 /// A group's head: its text, and the room above it that sets groups apart.
-const HEAD_TEXT: f32 = 13.;
-const HEAD_ABOVE: f32 = 20.;
+const HEAD_TEXT: f32 = 12.;
+const HEAD_ABOVE: f32 = 22.;
 /// A part's row under its session: a little shorter, so that it reads as
 /// belonging to the row above.
-const PART_ROW: f32 = 28.;
+const PART_ROW: f32 = 26.;
 /// How far a part's row is indented from its session's.
 const INDENT: f32 = 18.;
 

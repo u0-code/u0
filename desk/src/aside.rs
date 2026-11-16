@@ -32,21 +32,21 @@ use crate::{
 };
 
 /// A row's height in a section.
-const ROW: f32 = 31.;
+const ROW: f32 = 22.5;
 /// Room an icon and its gap take, for a second line to start under the label.
 const ICON_ROOM: f32 = 26.;
 
 /// A label in a row.
 fn label(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
-        .text_size(px(13.5))
+        .text_size(px(13.))
         .text_color(theme::text2())
 }
 
 /// A value at the right of a row.
 fn value(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> AnyElement {
     ui::mono(faces, text)
-        .text_size(px(12.))
+        .text_size(px(11.5))
         .text_color(color)
         .flex_none()
         .into_any_element()
@@ -134,7 +134,7 @@ pub(crate) fn task_row(
         .gap(px(10.))
         .h(px(28.))
         .child(lead)
-        .child(ui::one_line(ui::text(faces, brief).text_size(px(13.5))))
+        .child(ui::one_line(ui::text(faces, brief).text_size(px(13.))))
         .child(
             ui::mono(faces, right)
                 .text_size(px(11.5))
@@ -676,7 +676,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .h(px(26.))
+                    .h(px(ROW))
                     .child(div().size(px(8.)).rounded(px(2.)).bg(color).flex_none())
                     .child(ui::one_line(
                         ui::text(faces, part_name(part))

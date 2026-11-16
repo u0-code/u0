@@ -12,14 +12,14 @@ use gpui::{Div, div, prelude::*, px};
 use crate::{fonts::Faces, theme, ui};
 
 /// The reading column, and the composer under it.
-pub const COLUMN: f32 = 720.;
+pub const COLUMN: f32 = 680.;
 
 /// Body text: what you said, and what is said about things.
-pub const BODY: f32 = 15.;
-pub const BODY_LINE: f32 = 24.;
+pub const BODY: f32 = 14.;
+pub const BODY_LINE: f32 = 21.;
 /// Her words, set in the serif: a little larger, with more lead.
-pub const PROSE: f32 = 16.;
-pub const PROSE_LINE: f32 = 26.;
+pub const PROSE: f32 = 14.;
+pub const PROSE_LINE: f32 = 21.;
 /// The gutter her avatar sits in, which everything of hers starts after.
 pub const GUTTER: f32 = 34.;
 /// Secondary text: steps, summaries, notes.
