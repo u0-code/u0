@@ -661,9 +661,136 @@ pub fn cli_version(program: &str) -> Result<String, String> {
     }
 }
 
+/// How long a CLI is given to answer one small question before the desk
+/// stops waiting: a CLI starts slowly, and its first request is its
+/// slowest.
+const CLI_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// What a CLI is asked to show it can think: as little as there is.
+const PROBE: &str = "Reply with just: ok";
+
+/// Ask the CLI `program`, of the kind `kind` (`claude-code` or `codex`),
+/// to think once with `model` (empty for its default), the way the daemon
+/// would; or why it could not. A version alone is not enough: a CLI that is
+/// signed out answers for its version and refuses to think.
+pub async fn cli_probe(kind: &str, program: &str, model: &str) -> Result<(), String> {
+    let mut command = tokio::process::Command::new(program);
+    if kind == "codex" {
+        command.args(["exec", "--skip-git-repo-check", "-s", "read-only"]);
+        if !model.is_empty() {
+            command.args(["-m", model]);
+        }
+    } else {
+        command.args([
+            "-p",
+            "--output-format",
+            "json",
+            "--max-turns",
+            "1",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--disable-slash-commands",
+        ]);
+        if !model.is_empty() {
+            command.args(["--model", model]);
+        }
+        // `claude` refuses to start inside another `claude`; this is not
+        // that, so the marker is not passed on, as the daemon does.
+        command.env_remove("CLAUDECODE");
+    }
+    command
+        .arg(PROBE)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let out = match tokio::time::timeout(CLI_DEADLINE, command.output()).await {
+        Err(_) => return Err(format!("it did not answer in {}s", CLI_DEADLINE.as_secs())),
+        Ok(Err(e)) => return Err(format!("{program}: {}", first_line(&e.to_string()))),
+        Ok(Ok(out)) => out,
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // `claude` says what went wrong in its JSON, and may exit non-zero
+    // while doing so: the JSON is read first.
+    if kind != "codex"
+        && let Some(said) = claude_said(&stdout)
+    {
+        return said;
+    }
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = first_line(&String::from_utf8_lossy(&out.stderr));
+        Err(if err.is_empty() {
+            first_line(&stdout)
+        } else {
+            err
+        })
+    }
+}
+
+/// What `claude -p --output-format json` answered, when it is its JSON:
+/// fine, or the text of its error.
+fn claude_said(stdout: &str) -> Option<Result<(), String>> {
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
+    let failed = v.get("is_error").and_then(serde_json::Value::as_bool)?;
+    if failed {
+        let result = v
+            .get("result")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("it answered with an error");
+        Some(Err(first_line(result)))
+    } else {
+        Some(Ok(()))
+    }
+}
+
+/// Why a CLI could not think, as a person reads it: one that is not signed
+/// in says how to sign it in; anything else is what it said.
+pub fn cli_failure(kind: &str, why: &str) -> String {
+    let low = why.to_lowercase();
+    let signed_out = [
+        "/login",
+        "401",
+        "oauth",
+        "not logged in",
+        "unauthorized",
+        "log in",
+        "login",
+    ]
+    .iter()
+    .any(|w| low.contains(w));
+    match (kind, signed_out) {
+        ("codex", true) => "Codex is not logged in — run `codex login` in a terminal".to_owned(),
+        (_, true) => {
+            "Claude Code is not logged in — run `claude` in a terminal and /login".to_owned()
+        }
+        _ => why.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_signed_out_claude_answers_with_an_error_and_says_how_to_sign_in() {
+        let out = r#"{"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"OAuth access token is invalid\"}} · Please run /login"}"#;
+        let why = claude_said(out).unwrap().unwrap_err();
+        assert!(why.starts_with("Failed to authenticate"), "{why}");
+        assert_eq!(
+            cli_failure("claude-code", &why),
+            "Claude Code is not logged in — run `claude` in a terminal and /login"
+        );
+        let fine = r#"{"type":"result","subtype":"success","is_error":false,"result":"ok"}"#;
+        assert_eq!(claude_said(fine), Some(Ok(())));
+        // Something that is not its JSON is read some other way.
+        assert_eq!(claude_said("command not found"), None);
+        assert_eq!(
+            cli_failure("codex", "stream error: 401"),
+            "Codex is not logged in — run `codex login` in a terminal"
+        );
+        assert_eq!(cli_failure("codex", "model not found"), "model not found");
+    }
 
     fn no_env(_: &str) -> Option<String> {
         None

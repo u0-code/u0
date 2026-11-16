@@ -63,6 +63,7 @@ impl Desk {
         // With a character open: her name, the place her thread shows, and
         // her clock; with the solver, the session's name and its clock.
         let (title, status, picker): (String, Option<&Status>, Option<Div>) = match &self.open {
+            _ if self.attending() => ("Attention".to_owned(), None, None),
             Some(open) => (
                 open.her.name(),
                 open.her.status.as_ref(),

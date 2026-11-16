@@ -1,22 +1,29 @@
 //! The thread of one place, in one stream by time: what passed between
-//! you and the solver in a session, or between a character and whoever
-//! she was with; what was opened or looked up while answering; and a card
-//! for each piece of work taken on there, with its parts under it. All of
-//! it is read from the ghost's journal, so what shows here is what is on
-//! record; what was said a moment ago and not yet written follows at the
-//! end.
+//! you and the little ghost in a session, or between a character and
+//! whoever she was with; what was opened or looked up while answering; a
+//! card for each piece of work taken on there, with its parts under it
+//! (drawn in `thread/cards.rs`); and a quiet line where she could not think,
+//! or was stopped. All of it is read from the ghost's journal, so what
+//! shows here is what is on record; what was said a moment ago and not yet
+//! written follows at the end.
+
+mod cards;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use ghost_link::protocol::CONSOLE;
 use gpui::{AnyElement, Context, Div, Hsla, SharedString, Stateful, div, prelude::*, px, relative};
 use serde_json::Value;
 
+use self::cards::{task, tool};
 use crate::{
     desk::Desk,
     fonts::Faces,
-    link, markdown,
+    markdown,
     model::{Entry, Message},
     solver::Abilities,
     theme, ui,
@@ -44,9 +51,41 @@ fn s<'a>(d: &'a Value, key: &str) -> &'a str {
     d.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-/// The place key a session has in the solver's memory.
-pub fn place_key(session: &str) -> String {
-    format!("{}:{session}", link::CHANNEL)
+/// The channel the desk spoke on before it spoke through the console: it
+/// registered a presence of its own called `desk`. What was said there is
+/// still in her journal, under the same place ids.
+pub const OLD_CHANNEL: &str = "desk";
+
+/// The key of the place you speak to her in from the desk, by its id: a
+/// session's id with the solver, or your name with a character.
+pub fn place_key(id: &str) -> String {
+    format!("{CONSOLE}:{id}")
+}
+
+/// The thread a place belongs to, by its key. A place on the old desk
+/// channel is one thread with the place of the same id on the console
+/// channel, so that what was said in a session before the desk spoke
+/// through the console is still in it; every other place is its own.
+pub fn thread_key(key: &str) -> String {
+    match key.split_once(':') {
+        Some((OLD_CHANNEL, id)) => place_key(id),
+        _ => key.to_owned(),
+    }
+}
+
+/// Whether something said on `channel` was said from the desk, now or before.
+fn from_desk(channel: &str) -> bool {
+    channel == CONSOLE || channel == OLD_CHANNEL
+}
+
+/// The key of the place the work `work` was taken on in, if her journal's
+/// tail still has it.
+pub fn task_place(journal: &[Entry], work: &str) -> Option<String> {
+    journal
+        .iter()
+        .find(|e| e.kind == "undertook" && s(&e.data, "id") == work)
+        .map(|e| s(&e.data, "place").to_owned())
+        .filter(|p| !p.is_empty())
 }
 
 /// Something said, as a journal entry tells it, on any channel.
@@ -101,11 +140,10 @@ pub fn said(e: &Entry) -> Option<Said> {
     })
 }
 
-/// The message a journal entry is, if it is one said on the desk.
-pub fn desk_message(e: &Entry) -> Option<Message> {
-    said(e)
-        .filter(|s| s.channel == link::CHANNEL)
-        .map(|s| s.message)
+/// The message a journal entry is, if it is one said on the console
+/// channel, where what you type now goes.
+pub fn console_message(e: &Entry) -> Option<Message> {
+    said(e).filter(|s| s.channel == CONSOLE).map(|s| s.message)
 }
 
 /// A place in her journal where something was said, as the place picker
@@ -121,11 +159,18 @@ pub struct Spot {
     pub at: DateTime<Utc>,
 }
 
-/// Every place something was said in `journal`, the most recent first.
+/// Every place something was said in `journal`, the most recent first. A
+/// place on the old desk channel is listed as one with its place on the
+/// console channel.
 pub fn places(journal: &[Entry]) -> Vec<Spot> {
     let mut spots: Vec<Spot> = Vec::new();
     for said in journal.iter().filter_map(said) {
-        let key = said.key();
+        let key = thread_key(&said.key());
+        let channel = if from_desk(&said.channel) {
+            CONSOLE
+        } else {
+            said.channel.as_str()
+        };
         // A place is called by its own name, or a private one by who it is
         // with.
         let name = said.place_name.clone().or_else(|| {
@@ -139,14 +184,13 @@ pub fn places(journal: &[Entry]) -> Vec<Spot> {
             Some(spot) => {
                 spot.at = spot.at.max(at);
                 if let Some(name) = name {
-                    spot.label = format!("{name} · {}", said.channel);
+                    spot.label = format!("{name} · {channel}");
                 }
             }
             None => spots.push(Spot {
                 label: format!(
-                    "{} · {}",
+                    "{} · {channel}",
                     name.unwrap_or_else(|| said.message.place.clone()),
-                    said.channel
                 ),
                 key,
                 at,
@@ -330,12 +374,14 @@ pub fn session_tasks<'a>(journal: &'a [Entry], session: &str) -> Vec<Task<'a>> {
     place_tasks(journal, &place_key(session))
 }
 
-/// The work taken on in the place `place`, a place key, oldest first,
-/// parts under each.
+/// The work taken on in the place `place`, a place key, or in the place
+/// on the old desk channel that is one thread with it; oldest first, parts
+/// under each.
 pub fn place_tasks<'a>(journal: &'a [Entry], place: &str) -> Vec<Task<'a>> {
+    let thread = thread_key(place);
     let ours: HashSet<&str> = journal
         .iter()
-        .filter(|e| e.kind == "undertook" && s(&e.data, "place") == place)
+        .filter(|e| e.kind == "undertook" && thread_key(s(&e.data, "place")) == thread)
         .map(|e| s(&e.data, "id"))
         .collect();
     if ours.is_empty() {
@@ -472,6 +518,11 @@ enum Item<'a> {
     },
     Tool(&'a Entry),
     Task(Task<'a>),
+    /// She looked and could not think, and so said nothing: why, as her
+    /// journal's `decided` entry has it.
+    Failed(String),
+    /// A stop was asked for from the desk; whether anything was stopped.
+    Stopped(bool),
 }
 
 /// What the journal says around the conversation: which of your messages
@@ -499,14 +550,16 @@ const TURN: f32 = 22.;
 /// solver, or any place a character is in.
 pub struct View<'a> {
     pub journal: &'a [Entry],
-    /// What was said on the desk that the journal has not shown yet.
+    /// What you said that the journal has not shown yet.
     pub pending: &'a [Message],
-    /// The place, by its key: `desk:<session>` for a session.
+    /// The place, by its key: `console:<session>` for a session. What was
+    /// said in its place on the old desk channel is in its thread too.
     pub place: &'a str,
+    /// The stops asked for from the desk, in whatever place.
+    pub stops: &'a [crate::model::Stop],
     pub name: String,
     pub who: String,
     pub tz: Tz,
-    pub typing: bool,
     /// Whether the daemon is there to hear what you send.
     pub connected: bool,
     /// What the solver can do, for its empty page. A character's empty
@@ -520,13 +573,14 @@ pub struct View<'a> {
 /// that the journal has not shown yet.
 fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     let you = view.who.to_lowercase();
+    let thread = thread_key(view.place);
     let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
     for e in view.journal {
         if let Some(said) = said(e) {
-            if said.key() == view.place {
-                // Yours if it came from you on the desk: anyone else's
+            if thread_key(&said.key()) == thread {
+                // Yours if it came from you at the desk: anyone else's
                 // words are drawn the same way, under their own name.
-                let mine = said.channel == link::CHANNEL
+                let mine = from_desk(&said.channel)
                     && said.from.as_ref().is_some_and(|(id, _)| *id == you);
                 let item = Item::Said {
                     m: said.message,
@@ -537,10 +591,20 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
                 items.push((e.at, e.seq, item));
             }
         } else if matches!(e.kind.as_str(), "opened" | "looked_up")
-            && e.data.get("place").and_then(Value::as_str) == Some(view.place)
+            && e.data
+                .get("place")
+                .and_then(Value::as_str)
+                .is_some_and(|p| thread_key(p) == thread)
         {
             items.push((e.at, e.seq, Item::Tool(e)));
+        } else if let Some(why) = could_not_think(e)
+            && thread_key(s(&e.data, "about")) == thread
+        {
+            items.push((e.at, e.seq, Item::Failed(why.to_owned())));
         }
+    }
+    for stop in view.stops.iter().filter(|x| place_key(&x.place) == thread) {
+        items.push((stop.at, i64::MAX, Item::Stopped(stop.stopped)));
     }
     for t in place_tasks(view.journal, view.place) {
         items.push((t.started, 0, Item::Task(t)));
@@ -548,7 +612,7 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     for m in view
         .pending
         .iter()
-        .filter(|m| place_key(&m.place) == view.place)
+        .filter(|m| place_key(&m.place) == thread)
     {
         let said = Item::Said {
             m: m.clone(),
@@ -562,11 +626,74 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     items
 }
 
+/// Why she could not think, if `e` is the entry that says so: when a look
+/// fails for good she decides on nothing, and the reason says why.
+fn could_not_think(e: &Entry) -> Option<&str> {
+    (e.kind == "decided" && s(&e.data, "decision") == "nothing")
+        .then(|| s(&e.data, "reason").strip_prefix("could not think:"))
+        .flatten()
+        .map(str::trim)
+}
+
+/// Why she could not think, as a person reads it: a brain that is not
+/// signed in says how to sign it in; anything else is the first line of
+/// what the brain said.
+pub fn could_not(reason: &str) -> String {
+    let low = reason.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| low.contains(w));
+    if has(&["please run /login", "/login"]) || (low.contains("claude") && has(&["oauth", "401"])) {
+        return "Couldn't think: Claude Code is not logged in — run `claude` in a terminal and /login".to_owned();
+    }
+    if has(&[
+        "401",
+        "403",
+        "unauthorized",
+        "authentication",
+        "not logged in",
+        "invalid api key",
+        "invalid_api_key",
+    ]) {
+        return "Couldn't think: the brain did not accept its key or its login".to_owned();
+    }
+    let first = reason.lines().next().unwrap_or_default().trim();
+    let mut line: String = first.chars().take(160).collect();
+    if first.chars().count() > 160 {
+        line.push('…');
+    }
+    format!("Couldn't think: {line}")
+}
+
+/// Since when what you said last in this place has waited on her: nothing
+/// she said, no work she took on, no failure and no stop has come after it.
+fn waiting_since(items: &[(DateTime<Utc>, i64, Item<'_>)]) -> Option<DateTime<Utc>> {
+    let mut since = None;
+    for (_, _, item) in items {
+        match item {
+            // Only what you said waits on her: in a character's places
+            // others speak, and she need not answer them.
+            Item::Said { m, mine: true, .. } if !m.hers => since = Some(m.at),
+            Item::Said { m, .. } if m.hers => since = None,
+            Item::Task(_) | Item::Failed(_) | Item::Stopped(_) => since = None,
+            _ => {}
+        }
+    }
+    since
+}
+
+/// Whether she is busy with what you said in the place `view` shows:
+/// thinking about your last line, or at work taken on there that is still
+/// open. While she is, the composer offers to stop her.
+pub fn busy(view: &View<'_>) -> bool {
+    waiting_since(&items(view)).is_some()
+        || place_tasks(view.journal, view.place).iter().any(Task::open)
+}
+
 pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
     let items = items(view);
-    if items.is_empty() && !view.typing {
+    if items.is_empty() {
         return empty(view, faces, cx);
     }
+    let waiting = waiting_since(&items);
     let marks = directed(view.journal);
     let mut column = div()
         .flex()
@@ -576,10 +703,9 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .max_w(px(COLUMN))
         .mx_auto();
 
-    // When you spoke last and nothing has answered since, the solver is
-    // working on it.
-    let mut waiting_since: Option<DateTime<Utc>> = None;
+    // What you said last, and when: a failure offers to say it again.
     let mut last_yours: Option<DateTime<Utc>> = None;
+    let mut last_line: Option<String> = None;
     let mut day: Option<String> = None;
     for (at, _, item) in items {
         let d = at.with_timezone(&view.tz).format("%A %-d %B").to_string();
@@ -593,30 +719,35 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     .filter(|y| *y <= m.at)
                     .map(|y| format!(" · {}", span((m.at - y).num_seconds())))
                     .unwrap_or_default();
-                waiting_since = None;
                 hers(faces, &m, &view.name, view.tz, &took).into_any_element()
             }
             Item::Said { m, seq, from, mine } => {
-                // Only what you said waits on her: in a character's places
-                // others speak, and she need not answer them.
                 if mine {
                     last_yours = Some(m.at);
-                    waiting_since = Some(m.at);
+                    last_line = Some(m.text.clone());
                 }
                 let directed = seq.and_then(|x| marks.get(&x).copied());
                 let who = from.as_deref().unwrap_or(&view.who);
                 yours(faces, &m, who, view.tz, directed).into_any_element()
             }
             Item::Tool(e) => tool(faces, e, view.tz, view.expanded, cx).into_any_element(),
-            Item::Task(t) => {
-                waiting_since = None;
-                task(faces, &t, view.tz, view.expanded, cx).into_any_element()
+            Item::Task(t) => task(faces, &t, view.tz, view.expanded, cx).into_any_element(),
+            Item::Failed(why) => {
+                failed(faces, &why, at, view.tz, last_line.clone(), cx).into_any_element()
+            }
+            Item::Stopped(stopped) => {
+                let word = if stopped {
+                    "Stopped"
+                } else {
+                    "Nothing was running to stop"
+                };
+                note(faces, format!("{word} · {}", clock(at, view.tz))).into_any_element()
             }
         };
         column = column.child(el);
     }
-    if view.typing || waiting_since.is_some() {
-        column = column.child(working(faces, view, waiting_since));
+    if let Some(since) = waiting {
+        column = column.child(working(faces, view, since));
     }
 
     div()
@@ -633,20 +764,92 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .into_any_element()
 }
 
+/// A small, quiet line in the thread: something that happened rather than
+/// something said.
+fn note(faces: &Faces, text: String) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .child(ui::dot(theme::faint()).size(px(7.)))
+        .child(
+            ui::mono(faces, text)
+                .text_size(px(12.))
+                .text_color(theme::muted()),
+        )
+}
+
+/// Where her answer would be, when she could not think: why, calmly, and
+/// a way to say your last line again.
+fn failed(
+    faces: &Faces,
+    why: &str,
+    at: DateTime<Utc>,
+    tz: Tz,
+    again: Option<String>,
+    cx: &mut Context<Desk>,
+) -> Div {
+    let mut line = div()
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .child(div().pt(px(6.)).child(ui::dot(theme::faint()).size(px(7.))))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .flex_1()
+                .min_w(px(0.))
+                .child(
+                    ui::text(faces, could_not(why))
+                        .text_size(px(13.))
+                        .line_height(px(19.))
+                        .text_color(theme::text2()),
+                )
+                .child(meta(faces, clock(at, tz))),
+        );
+    if let Some(text) = again {
+        line = line.child(
+            div()
+                .id(SharedString::from(format!(
+                    "again-{}",
+                    at.timestamp_millis()
+                )))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(5.))
+                .h(px(24.))
+                .px(px(8.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::border2())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(ui::icon("retry", 12.).text_color(theme::muted()))
+                .child(
+                    ui::text(faces, "Retry")
+                        .text_size(px(12.5))
+                        .text_color(theme::text2()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.say_again(text.clone(), cx))),
+        );
+    }
+    line
+}
+
 /// The line under the last thing you said while nothing has answered: the
-/// solver writing or thinking, for how long; or, with no daemon to hear
-/// it, that your line is waiting to be delivered.
-fn working(faces: &Faces, view: &View<'_>, since: Option<DateTime<Utc>>) -> Div {
-    let (color, word) = if !view.connected {
-        (theme::muted(), "waiting for the daemon")
-    } else if view.typing {
-        (theme::accent(), "writing")
-    } else {
+/// solver thinking, for how long; or, with no daemon to hear it, that your
+/// line is waiting to be delivered.
+fn working(faces: &Faces, view: &View<'_>, since: DateTime<Utc>) -> Div {
+    let (color, word) = if view.connected {
         (theme::accent(), "thinking")
+    } else {
+        (theme::muted(), "waiting for the daemon")
     };
-    let since = since.map_or_else(String::new, |w| {
-        format!(" · {}", span((Utc::now() - w).num_seconds()))
-    });
+    let since = format!(" · {}", span((Utc::now() - since).num_seconds()));
+
     div()
         .flex()
         .items_center()
@@ -788,462 +991,4 @@ fn hers(faces: &Faces, m: &Message, name: &str, tz: Tz, took: &str) -> Div {
         .gap(px(8.))
         .child(markdown::render(faces, &m.text))
         .child(meta(faces, format!("{name} · {}{took}", clock(m.at, tz))))
-}
-
-/// A quiet card: the frame tools and work are drawn in.
-fn card() -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .rounded(px(10.))
-        .border_1()
-        .border_color(theme::border())
-}
-
-/// Something opened or looked up while answering: one line, opened on a click.
-fn tool(
-    faces: &Faces,
-    e: &Entry,
-    tz: Tz,
-    expanded: &HashSet<String>,
-    cx: &mut Context<Desk>,
-) -> Stateful<Div> {
-    let key = format!("tool:{}", e.seq);
-    let open = expanded.contains(&key);
-    let (verb, what, body) = if e.kind.as_str() == "looked_up" {
-        ("Search", s(&e.data, "query"), s(&e.data, "found"))
-    } else {
-        let url = s(&e.data, "url");
-        let verb = if url.starts_with("http") {
-            "Fetch"
-        } else {
-            "Read"
-        };
-        (verb, url, s(&e.data, "text"))
-    };
-    let body: String = body.chars().take(1600).collect();
-    let head = div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .h(px(36.))
-        .px(px(14.))
-        .child(ui::dot(theme::green()).size(px(6.)))
-        .child(
-            ui::text(faces, verb)
-                .text_size(px(13.))
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .flex_none(),
-        )
-        .child(ui::one_line(
-            ui::mono(faces, what.to_owned())
-                .text_size(px(12.))
-                .text_color(theme::muted()),
-        ))
-        .child(
-            meta(
-                faces,
-                format!("{} {}", clock(e.at, tz), if open { "⌃" } else { "⌄" }),
-            )
-            .flex_none(),
-        );
-    let toggle = key.clone();
-    card()
-        .id(SharedString::from(key))
-        .cursor_pointer()
-        .hover(|s| s.border_color(theme::border2()))
-        .child(head)
-        .when(open && !body.is_empty(), |d| {
-            d.child(
-                div()
-                    .px(px(14.))
-                    .py(px(10.))
-                    .border_t_1()
-                    .border_color(theme::border())
-                    .bg(theme::well())
-                    .rounded_b(px(10.))
-                    .font_family(faces.mono.clone())
-                    .text_size(px(11.5))
-                    .line_height(px(17.))
-                    .text_color(theme::text2())
-                    .child(body),
-            )
-        })
-        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
-}
-
-/// A piece of work: a card that says where it stands at a glance, and
-/// opens to everything it said along the way and its parts.
-fn task(
-    faces: &Faces,
-    t: &Task<'_>,
-    tz: Tz,
-    expanded: &HashSet<String>,
-    cx: &mut Context<Desk>,
-) -> Stateful<Div> {
-    let key = format!("task:{}", t.id);
-    let open = expanded.contains(&key);
-    let state = t.state();
-    let elapsed = (t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds();
-    let figures = format!("{} · {}", span(elapsed), t.figures());
-
-    let head = div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .child(ui::dot(state.color()).size(px(7.)))
-        .child(ui::one_line(
-            ui::text(faces, t.brief.clone())
-                .text_size(px(13.5))
-                .font_weight(gpui::FontWeight::MEDIUM),
-        ))
-        .child(
-            ui::mono(faces, state.word())
-                .text_size(px(11.))
-                .text_color(state.color())
-                .flex_none(),
-        );
-
-    let summary = div()
-        .flex()
-        .items_baseline()
-        .justify_between()
-        .gap(px(12.))
-        .pl(px(17.))
-        .child(ui::one_line(
-            ui::text(faces, t.last_line())
-                .text_size(px(12.5))
-                .text_color(theme::muted()),
-        ))
-        .child(meta(faces, format!("{figures} {}", if open { "⌃" } else { "⌄" })).flex_none());
-
-    let mut body = div()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .px(px(14.))
-        .py(px(12.))
-        .child(head)
-        .child(summary);
-    if open {
-        body = body.child(timeline(faces, t, tz));
-    }
-
-    let toggle = key.clone();
-    card()
-        .id(SharedString::from(key))
-        .bg(theme::panel())
-        .when(t.open(), |d| d.border_color(theme::border2()))
-        .cursor_pointer()
-        .child(body)
-        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
-}
-
-/// Everything a piece of work said along the way, then its parts.
-fn timeline(faces: &Faces, t: &Task<'_>, tz: Tz) -> Div {
-    let mut timeline = div()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .mt(px(6.))
-        .pt(px(10.))
-        .pl(px(17.))
-        .border_t_1()
-        .border_color(theme::border());
-    for e in &t.events {
-        let (tag, text) = match e.kind.as_str() {
-            "worked" => (
-                format!(
-                    "worked · {}",
-                    e.data
-                        .get("steps")
-                        .and_then(Value::as_i64)
-                        .unwrap_or_default()
-                ),
-                s(&e.data, "summary"),
-            ),
-            "concluded" => (s(&e.data, "outcome").to_owned(), s(&e.data, "summary")),
-            "asked" => ("asked".to_owned(), s(&e.data, "question")),
-            other => (other.to_owned(), s(&e.data, "text")),
-        };
-        timeline = timeline.child(
-            div()
-                .flex()
-                .gap(px(10.))
-                .items_baseline()
-                .child(meta(faces, clock(e.at, tz)).w(px(38.)).flex_none())
-                .child(
-                    ui::mono(faces, tag)
-                        .text_size(px(11.))
-                        .text_color(theme::kind_color(&e.kind))
-                        .w(px(76.))
-                        .flex_none(),
-                )
-                .child(
-                    ui::text(faces, text.to_owned())
-                        .flex_1()
-                        .min_w(px(0.))
-                        .text_size(px(12.5))
-                        .text_color(theme::text2())
-                        .line_height(px(18.)),
-                ),
-        );
-    }
-    if !t.parts.is_empty() {
-        let mut parts = div()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .mt(px(4.))
-            .child(ui::eyebrow(faces, "parts").text_size(px(10.5)).pb(px(2.)));
-        for p in &t.parts {
-            parts = parts.child(part(faces, p));
-        }
-        timeline = timeline.child(parts);
-    }
-    timeline
-}
-
-/// One part of a piece of work, in its card.
-fn part(faces: &Faces, p: &Task<'_>) -> Div {
-    let ps = p.state();
-    let n = p.id.rsplit('/').next().unwrap_or_default().to_owned();
-    div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .py(px(3.))
-        .child(ui::dot(ps.color()).size(px(6.)))
-        .child(meta(faces, format!("#{n}")).flex_none())
-        .child(ui::one_line(
-            ui::text(faces, p.brief.clone()).text_size(px(12.5)),
-        ))
-        .child(
-            ui::mono(faces, format!("{} · {}", ps.word(), p.last_line()))
-                .text_size(px(11.))
-                .text_color(theme::muted())
-                .max_w(px(260.))
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap()
-                .flex_none(),
-        )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn entry(seq: i64, kind: &str, data: Value) -> Entry {
-        Entry {
-            seq,
-            at: Utc::now(),
-            kind: kind.to_owned(),
-            data,
-        }
-    }
-
-    #[test]
-    fn a_task_waits_on_you_from_its_question_until_its_answer() {
-        let mut journal = vec![
-            entry(1, "undertook", json!({"id": "a", "brief": "tidy"})),
-            entry(2, "asked", json!({"id": "a", "question": "which folder?"})),
-        ];
-        assert_eq!(tasks(&journal)[0].state(), State::Waiting);
-        journal.push(entry(3, "added", json!({"id": "a", "text": "Downloads"})));
-        assert_eq!(tasks(&journal)[0].state(), State::Running);
-        journal.push(entry(
-            4,
-            "concluded",
-            json!({"id": "a", "outcome": "gave_up", "summary": ""}),
-        ));
-        assert_eq!(tasks(&journal)[0].state(), State::Blocked);
-    }
-
-    #[test]
-    fn parts_are_kept_under_the_task_that_handed_them_out() {
-        let journal = vec![
-            entry(1, "undertook", json!({"id": "a", "brief": "tidy"})),
-            entry(2, "undertook", json!({"id": "a/1", "brief": "photos"})),
-            entry(
-                3,
-                "worked",
-                json!({"id": "a/1", "summary": "sorted", "steps": 4}),
-            ),
-            entry(4, "undertook", json!({"id": "b", "brief": "other"})),
-        ];
-        let all = tasks(&journal);
-        assert_eq!(all.len(), 2);
-        assert_eq!(all[0].parts.len(), 1);
-        assert_eq!(all[0].parts[0].steps(), 4);
-    }
-
-    /// Two sessions' worth of journal, as the daemon writes it: work taken
-    /// on in `s1` with two parts, one done; work in `s2`; a file reported
-    /// and one kept by `s1`'s work, one kept and let go, one kept by `s2`.
-    fn two_sessions() -> Vec<Entry> {
-        vec![
-            entry(
-                1,
-                "undertook",
-                json!({"id": "w1", "brief": "tidy downloads", "place": "desk:s1"}),
-            ),
-            entry(2, "undertook", json!({"id": "w1/1", "brief": "images"})),
-            entry(3, "undertook", json!({"id": "w1/2", "brief": "archives"})),
-            entry(
-                4,
-                "concluded",
-                json!({"id": "w1/1", "outcome": "finished", "summary": "done"}),
-            ),
-            entry(
-                5,
-                "undertook",
-                json!({"id": "w2", "brief": "other", "place": "desk:s2"}),
-            ),
-            entry(
-                6,
-                "reported",
-                json!({"id": "w1", "text": "listed", "files": ["/home/x/list.md"]}),
-            ),
-            entry(
-                7,
-                "kept",
-                json!({"file": "abc.png", "note": "a chart", "from": "w1/2"}),
-            ),
-            entry(
-                8,
-                "kept",
-                json!({"file": "old.png", "note": "gone", "from": "w1"}),
-            ),
-            entry(9, "let_go", json!({"kept": 8})),
-            entry(
-                10,
-                "kept",
-                json!({"file": "theirs.png", "note": "", "from": "w2"}),
-            ),
-            entry(
-                11,
-                "reported",
-                json!({"id": "w1", "text": "again", "files": ["/home/x/list.md"]}),
-            ),
-        ]
-    }
-
-    #[test]
-    fn a_session_holds_only_the_work_taken_on_in_its_place() {
-        let journal = two_sessions();
-        let s1 = session_tasks(&journal, "s1");
-        assert_eq!(s1.len(), 1);
-        assert_eq!(s1[0].id, "w1");
-        assert_eq!(session_tasks(&journal, "s2")[0].id, "w2");
-        assert!(session_tasks(&journal, "s3").is_empty());
-    }
-
-    #[test]
-    fn the_sidebar_nests_every_part_of_open_work_and_none_of_finished_work() {
-        let mut journal = two_sessions();
-        let s1 = session_tasks(&journal, "s1");
-        let parts: Vec<&str> = open_parts(&s1).iter().map(|p| p.brief.as_str()).collect();
-        assert_eq!(parts, ["images", "archives"]);
-        assert_eq!(open_parts(&s1)[0].state(), State::Finished);
-        assert_eq!(session_state(&s1), Some(State::Running));
-
-        journal.push(entry(
-            12,
-            "concluded",
-            json!({"id": "w1", "outcome": "finished", "summary": ""}),
-        ));
-        let s1 = session_tasks(&journal, "s1");
-        assert!(open_parts(&s1).is_empty());
-        assert_eq!(session_state(&s1), None);
-    }
-
-    #[test]
-    fn a_session_shows_waiting_before_running() {
-        let journal = vec![
-            entry(
-                1,
-                "undertook",
-                json!({"id": "a", "brief": "x", "place": "desk:s"}),
-            ),
-            entry(
-                2,
-                "undertook",
-                json!({"id": "b", "brief": "y", "place": "desk:s"}),
-            ),
-            entry(3, "asked", json!({"id": "b", "question": "which?"})),
-        ];
-        assert_eq!(
-            session_state(&session_tasks(&journal, "s")),
-            Some(State::Waiting)
-        );
-    }
-
-    #[test]
-    fn outputs_are_the_files_this_sessions_work_handed_over_each_once() {
-        let journal = two_sessions();
-        let out = outputs(&journal, "s1");
-        let files: Vec<&str> = out.iter().map(|o| o.file.as_str()).collect();
-        assert_eq!(files, ["/home/x/list.md", "abc.png"], "{out:?}");
-        assert_eq!(out[0].name(), "list.md");
-        assert_eq!(out[0].kind(), "md · handed over");
-        assert_eq!(out[1].kind(), "png · kept");
-        assert_eq!(outputs(&journal, "s2")[0].file, "theirs.png");
-        assert!(outputs(&journal, "s3").is_empty());
-    }
-
-    #[test]
-    fn a_long_list_shows_five_until_the_rest_are_asked_for() {
-        assert_eq!(shown(3, 5, false), (3, 0));
-        assert_eq!(shown(5, 5, false), (5, 0));
-        assert_eq!(shown(8, 5, false), (5, 3));
-        assert_eq!(shown(8, 5, true), (8, 0));
-    }
-
-    #[test]
-    fn her_places_are_listed_newest_first_each_once_and_called_by_name() {
-        let at = |m: i64| Utc::now() - chrono::Duration::minutes(60 - m);
-        let said = |seq, m, kind: &str, data| Entry {
-            at: at(m),
-            ..entry(seq, kind, data)
-        };
-        let journal = vec![
-            said(
-                1,
-                1,
-                "heard",
-                json!({"channel": "qq", "place": {"id": "g7", "kind": "group", "name": "the clinic"},
-                "from": {"id": "u1", "name": "Wen"}, "text": "anyone?"}),
-            ),
-            said(
-                2,
-                2,
-                "heard",
-                json!({"channel": "qq", "place": {"id": "u2", "kind": "direct"},
-                "from": {"id": "u2", "name": "Lin"}, "text": "hi"}),
-            ),
-            said(
-                3,
-                3,
-                "said",
-                json!({"channel": "qq", "place": "g7", "text": "here"}),
-            ),
-            said(
-                4,
-                4,
-                "said",
-                json!({"channel": "x", "place": "home", "text": "a post"}),
-            ),
-        ];
-        let spots = places(&journal);
-        let keys: Vec<&str> = spots.iter().map(|s| s.key.as_str()).collect();
-        assert_eq!(keys, ["x:home", "qq:g7", "qq:u2"]);
-        let labels: Vec<&str> = spots.iter().map(|s| s.label.as_str()).collect();
-        // A group by its name, not by whoever spoke last; a private place
-        // by who it is with; a place nobody named by its id.
-        assert_eq!(labels, ["home · x", "the clinic · qq", "Lin · qq"]);
-        // Only what came to her on the desk from the desk is the desk's.
-        assert!(journal.iter().all(|e| desk_message(e).is_none()));
-    }
 }

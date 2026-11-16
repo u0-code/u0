@@ -7,12 +7,15 @@
 //! tells it, and the line you speak into. Choosing a character changes the
 //! whole environment to hers.
 //!
-//! It is a client of the daemon like any presence: a console that asks and
-//! watches, and a presence named `desk` for the conversation between you
-//! and her. It never touches a ghost's files, and holds no key of hers.
+//! It is a client of the daemon: a console that asks and watches, and
+//! through which whoever sits at it speaks to her and answers and stops her
+//! work, as an operator of hers. It never touches a ghost's files, and
+//! holds no key of hers.
 
+mod answer;
 mod aside;
 mod assets;
+mod attention;
 mod brains;
 mod daemons;
 mod desk;
@@ -28,6 +31,7 @@ mod settings;
 mod sheet;
 mod sidebar;
 mod solver;
+mod task;
 mod theme;
 mod thread;
 mod ui;

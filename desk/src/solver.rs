@@ -436,43 +436,6 @@ impl Deployment {
         Ok(())
     }
 
-    /// Make whoever sits at the desk an operator of the solver on the
-    /// `desk` channel. In private, an operator has the machine in the
-    /// middle of a conversation, as at work; without it the solver could
-    /// only talk. Returns whether the file changed, so a running daemon
-    /// knows to be restarted.
-    pub fn ensure_operator(&self, channel: &str, who: &str) -> anyhow::Result<bool> {
-        let path = self.config();
-        let text =
-            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let mut doc = text
-            .parse::<toml_edit::DocumentMut>()
-            .with_context(|| format!("parse {}", path.display()))?;
-        let id = who.to_lowercase();
-        let present = doc
-            .get("operators")
-            .and_then(|o| o.get(channel))
-            .and_then(|a| a.as_array())
-            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(id.as_str())));
-        if present {
-            return Ok(false);
-        }
-        if !doc.contains_key("operators") {
-            doc["operators"] = toml_edit::table();
-        }
-        let mut ids = doc["operators"]
-            .get(channel)
-            .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default();
-        ids.push(id.as_str());
-        doc["operators"][channel] = toml_edit::value(ids);
-        std::fs::write(&path, doc.to_string())
-            .with_context(|| format!("write {}", path.display()))?;
-        info!("{id} on {channel} is an operator of the solver");
-        Ok(true)
-    }
-
     /// Change the deployment's file with `edit`, keeping every comment and
     /// everything `edit` does not touch.
     fn edit(
@@ -861,15 +824,6 @@ mod tests {
         );
         // Where it is, it is left as it is.
         assert_eq!(d.prompts(), Some(d.root.join("prompts/system/desk")));
-    }
-
-    #[test]
-    fn whoever_sits_at_the_desk_is_made_an_operator_once() {
-        let d = checkout("operator");
-        assert!(d.ensure_operator("desk", "Fox").unwrap());
-        assert!(!d.ensure_operator("desk", "fox").unwrap());
-        let text = std::fs::read_to_string(d.config()).unwrap();
-        assert!(text.contains("desk = [\"fox\"]"), "{text}");
     }
 
     /// What a new brain from `preset` writes, as the sheet would save it.

@@ -36,10 +36,10 @@ enabled = true
 machine = "local:"
 web = true
 
-# Whoever sits at the desk is added here by the desk, on the `desk`
-# channel: an operator has the machine in a private conversation, which is
-# what the solver is for.
-[operators]
+# Whoever sits at the desk is its operator without being listed here: the
+# desk speaks to it through a console holding this daemon's token, or from
+# this machine when it has none. An operator has the machine in a private
+# conversation, which is what the solver is for.
 
 # The brains it can think with. The desk picks among these, and adds to
 # them, from the line you type into; a key is never written here, only the

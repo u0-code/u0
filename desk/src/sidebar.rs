@@ -1,9 +1,10 @@
 //! The column down the left, laid out the way a coding agent's app has it:
-//! the controls beside the window's lights, New task and Search, then a
-//! group for each daemon the desk follows, and at the foot the solver and
+//! the controls beside the window's lights, New task, Search and Attention
+//! with how many things wait on you that you have not seen, then a group
+//! for each daemon the desk follows, and at the foot the little ghost and
 //! the brain it thinks with.
 //!
-//! The first group is this machine: your sessions with the solver, with
+//! The first group is this machine: your sessions with the little ghost, with
 //! the parts of their open work under them, and any other character its
 //! core runs. Then one group for each connection, its name and how the
 //! link to it stands, with the characters it runs, each with a dot for
@@ -138,7 +139,32 @@ impl Desk {
             .child(self.account(faces, cx))
     }
 
-    /// New task, and Search, which turns into a field when clicked.
+    /// Attention, with a count of what you have not seen, when there is any.
+    fn attention_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Stateful<Div> {
+        let count = self.attention_count();
+        menu_row("attention", faces, "bell", "Attention")
+            .when(self.attending(), |d| d.bg(theme::panel2()))
+            .when(count > 0, |d| {
+                d.child(div().flex_1()).child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(18.))
+                        .px(px(6.))
+                        .rounded_full()
+                        .bg(theme::purple().opacity(0.18))
+                        .child(
+                            ui::mono(faces, count.to_string())
+                                .text_size(px(11.))
+                                .text_color(theme::purple()),
+                        ),
+                )
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.open_attention(cx)))
+    }
+
+    /// New task, Search, which turns into a field when clicked, and
+    /// Attention.
     fn menu_rows(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let search: AnyElement = if self.searching {
             div()
@@ -168,6 +194,7 @@ impl Desk {
                     .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
             )
             .child(search)
+            .child(self.attention_row(faces, cx))
     }
 
     /// A group for each daemon, each under a head that folds it away, and
@@ -297,7 +324,7 @@ impl Desk {
         tasks: &[Task<'_>],
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let on = index == self.current && self.open.is_none();
+        let on = index == self.current && self.open.is_none() && !self.attending();
         let label_color = if s.title.is_empty() {
             theme::muted()
         } else if on {
@@ -330,8 +357,8 @@ impl Desk {
             .on_click(cx.listener(move |this, _, _, cx| this.choose(index, cx)))
     }
 
-    /// The solver at the foot of the column, the way a coding agent's app
-    /// shows the account: who, the brain it thinks with (which opens the
+    /// The little ghost at the foot of the column, the way a coding agent's
+    /// app shows the account: who, the brain it thinks with (which opens the
     /// brain menu), and whether the daemon is there.
     fn account(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let brain = self
@@ -561,10 +588,11 @@ impl Desk {
         her: &Listed,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let on = self
-            .open
-            .as_ref()
-            .is_some_and(|o| o.host == *host && o.id == her.id);
+        let on = !self.attending()
+            && self
+                .open
+                .as_ref()
+                .is_some_and(|o| o.host == *host && o.id == her.id);
         let dot = match her.awake {
             Some(true) => theme::green(),
             Some(false) => theme::faint(),

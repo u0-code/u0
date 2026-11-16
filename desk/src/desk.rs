@@ -1,15 +1,17 @@
 //! The desk: the whole window, and everything it knows.
 //!
 //! The first page is about tasks, not about anyone. Down the left, the way
-//! a coding agent's app has it: controls under the window's lights, New
-//! and Search, then the daemons the desk follows: this machine's, with
-//! your sessions with the solver, then each connection with the characters
-//! it runs; and at the bottom what the solver is running on. In the
-//! middle, the session's thread and the line you type into, with the brain
-//! it thinks with under your hand. Down the right, the solver's
-//! environment, its context and its work. Opening a character puts her
-//! thread in the middle, one place at a time, and her daemon and her work
-//! down the right.
+//! a coding agent's app has it: controls under the window's lights, New,
+//! Search and Attention, then the daemons the desk follows: this
+//! machine's, with your sessions with the little ghost, then each
+//! connection with the characters it runs; and at the bottom what the
+//! little ghost is running on. In the middle, the session's thread and the
+//! line you type into, with how it is said and the brain it thinks with
+//! under your hand. Down the right, the little ghost's environment, its
+//! context and its work. Opening a character puts her thread in the
+//! middle, one place at a time, and her daemon and her work down the
+//! right. Attention puts in the middle what every ghost is waiting on you
+//! for.
 //!
 //! Nothing on screen is made up: every line is the daemon's, the
 //! journal's or the deployment's, or a control that does what it says.
@@ -21,7 +23,9 @@
 //! between sessions and characters in `desk/navigate.rs`; the top bar in
 //! `desk/topbar.rs`; the line you type into in `desk/composer.rs`; the
 //! brain menu in `desk/brain_menu.rs`; and what the desk does to its
-//! connections and the core it runs in `desk/actions.rs`.
+//! connections and the core it runs in `desk/actions.rs`. Giving a task is
+//! in `task.rs`, answering and stopping work in `answer.rs`, and Attention
+//! in `attention.rs`.
 
 mod actions;
 mod brain_menu;
@@ -44,6 +48,8 @@ pub(crate) use self::{
     watched::{Open, Watched},
 };
 use crate::{
+    answer::Replies,
+    attention,
     daemons::Daemon,
     fonts,
     input::{Cancelled, Changed, Submitted, TextInput},
@@ -52,8 +58,28 @@ use crate::{
     settings::{SOLVER_URL, Session, Settings},
     sheet::Sheet,
     solver::{Abilities, Deployment, Provider},
-    theme, thread,
+    task, theme, thread,
 };
+
+/// What the desk calls its own ghost until her daemon says her name.
+pub const LITTLE_GHOST: &str = "小幽灵";
+
+/// What the middle shows: the thread on screen, with the line you type
+/// into, or Attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Page {
+    Thread,
+    Attention,
+}
+
+/// How what you type reaches her: said, as a directive she carries out,
+/// or as a task, which opens a form in place of the line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Say,
+    Directive,
+    Task,
+}
 
 /// The side columns' widths, the top bar's height.
 pub const LEFT: f32 = 272.;
@@ -131,6 +157,14 @@ pub struct Desk {
     pub expanded: HashSet<String>,
     /// Groups and sections folded away, by key, for as long as the desk runs.
     pub(crate) collapsed: HashSet<String>,
+    /// How what you type reaches her.
+    pub(crate) mode: Mode,
+    /// The form a task is given in.
+    pub(crate) task: task::Form,
+    /// A box to answer in for each piece of work waiting on an answer.
+    pub(crate) replies: Replies,
+    /// What is in the middle.
+    pub(crate) page: Page,
     /// A line at the foot of the composer: what the desk just did or could not.
     notice: Option<String>,
     last_tick: Instant,
@@ -142,8 +176,9 @@ pub struct Desk {
     forward: Vec<String>,
 }
 
-/// What the line you type into says while it is empty, with the solver.
-const ASK: &str = "Ask for anything on this machine";
+/// What the line you type into says while it is empty, with the little
+/// ghost, before its daemon has said its name.
+const ASK: &str = "Ask 小幽灵 for anything on this machine";
 
 /// The daemon's token, from the environment or `.env`: never from a file
 /// of the desk's own.
@@ -180,7 +215,7 @@ impl Desk {
         if settings.sessions.is_empty() {
             settings.sessions.push(Session::new());
         }
-        let input = cx.new(|cx| TextInput::new(cx, ASK));
+        let input = cx.new(|cx| TextInput::new(cx, ASK).wrapping(6).padded(5.));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
             this.say(text.clone(), cx);
         })
@@ -199,47 +234,34 @@ impl Desk {
         })
         .detach();
         let sheet = Sheet::new(window, cx);
+        let task = task::Form::new(window, cx);
 
-        // The solver on this machine is the desk's to look after: whoever
-        // sits here may use its machine, and if nothing runs it, the desk
-        // starts it.
+        // The little ghost on this machine is the desk's to look after: if
+        // nothing runs it, the desk starts it. Whoever sits here is its
+        // operator by holding its daemon's token, or by being on this
+        // machine when it has none, so nobody is listed for it.
         let mut deployment = Deployment::find();
         let mut notice = None;
-        let local = settings.solver_url == SOLVER_URL;
-        if local {
-            match deployment.ensure_operator(link::CHANNEL, &settings.who) {
-                Ok(true) if listening(&settings.solver_url) => {
-                    notice = Some(
-                        "You were made the solver's operator: restart its daemon for it to take effect."
-                            .to_owned(),
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => notice = Some(format!("{e:#}")),
-            }
-            if !listening(&settings.solver_url)
-                && let Err(e) = deployment.start()
-            {
-                warn!("could not start the solver: {e:#}");
-                notice = Some(format!("Could not start the solver: {e:#}"));
-            }
+        if settings.solver_url == SOLVER_URL
+            && !listening(&settings.solver_url)
+            && let Err(e) = deployment.start()
+        {
+            warn!("could not start the little ghost: {e:#}");
+            notice = Some(format!("Could not start the little ghost: {e:#}"));
         }
         let providers = deployment.providers();
         let brain = deployment.brain();
         let abilities = deployment.abilities();
 
-        let mut solver = Watched::start(
+        let solver = Watched::start(
             link::Config {
                 url: settings.solver_url.clone(),
                 token: token(),
                 ghost: None,
                 who: settings.who.clone(),
             },
-            "Solver",
+            LITTLE_GHOST,
         );
-        // The desk's channel is registered at once, so that the solver's
-        // environment can say it is.
-        solver.conn.speak();
         let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
         let connection_fields = [
@@ -288,6 +310,10 @@ impl Desk {
             picker: Picker::default(),
             expanded: HashSet::new(),
             collapsed: HashSet::new(),
+            mode: Mode::Say,
+            task,
+            replies: Replies::new(),
+            page: Page::Thread,
             notice,
             last_tick: Instant::now(),
             sidebar: true,
@@ -310,15 +336,41 @@ impl Desk {
         desk
     }
 
-    /// Take in everything the link has learned since last time, and tick
+    /// Take in everything the links have learned since last time, and tick
     /// once a second so that what is running shows its time.
     fn pump(&mut self, cx: &mut Context<Self>) {
         let mut changed = self.solver.pump();
+        let mut forgot = false;
         for daemon in &mut self.daemons {
             changed |= daemon.pump();
+            for ghost in std::mem::take(&mut daemon.attended) {
+                if let Some(items) = daemon.attention.get(&ghost) {
+                    forgot |= attention::forget_gone(
+                        &mut self.settings.seen,
+                        &daemon.host,
+                        &ghost,
+                        items,
+                    );
+                }
+            }
+            if let Some(why) = daemon.refused.take() {
+                self.notice = Some(why);
+            }
+        }
+        if forgot {
+            self.settings.save();
         }
         if let Some(open) = &mut self.open {
             changed |= open.her.pump();
+            if let Some(why) = open.her.refused.take() {
+                self.notice = Some(why);
+            }
+        }
+        if let Some(why) = self.solver.refused.take() {
+            self.notice = Some(why);
+        }
+        if changed {
+            self.sync_replies(cx);
         }
         if self.last_tick.elapsed() >= Duration::from_secs(1) {
             self.last_tick = Instant::now();
@@ -338,6 +390,11 @@ impl Desk {
             .or_else(|| self.settings.sessions.first())
             .cloned()
             .unwrap_or_else(Session::new)
+    }
+
+    /// Whether Attention is in the middle.
+    pub(crate) fn attending(&self) -> bool {
+        self.page == Page::Attention
     }
 
     pub fn who(&self) -> &str {
@@ -381,42 +438,46 @@ impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
-        // The solver's session, or the place her thread shows; either way
-        // a place, by its key, in one ghost's journal.
-        let (ghost, place, abilities) = match &self.open {
-            Some(open) => (&open.her, open.place(self.who()), None),
-            None => (
-                &self.solver,
-                thread::place_key(&self.session().id),
-                Some(&self.abilities),
-            ),
-        };
-        let typing = ghost
-            .typing
-            .as_deref()
-            .is_some_and(|p| thread::place_key(p) == place);
-        let view = thread::View {
-            journal: &ghost.journal,
-            pending: &ghost.pending,
-            place: &place,
-            name: ghost.name(),
-            who: self.who().to_owned(),
-            tz: ghost.tz(),
-            typing,
-            connected: ghost.link == LinkState::Connected,
-            abilities,
-            expanded: &self.expanded,
-        };
-        let thread = thread::render(&view, &faces, cx);
         let middle = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .child(self.topbar(&faces, lights, cx))
-            .child(thread)
-            .child(self.composer(&faces, cx));
+            .child(self.topbar(&faces, lights, cx));
+        let middle = if self.attending() {
+            middle.child(self.attention_view(&faces, cx))
+        } else {
+            // The little ghost's session, or the place her thread shows;
+            // either way a place, by its key, in one ghost's journal.
+            let (ghost, place, abilities) = match &self.open {
+                Some(open) => (&open.her, open.place(self.who()), None),
+                None => (
+                    &self.solver,
+                    thread::place_key(&self.session().id),
+                    Some(&self.abilities),
+                ),
+            };
+            let view = thread::View {
+                journal: &ghost.journal,
+                pending: &ghost.pending,
+                stops: &ghost.stops,
+                place: &place,
+                name: ghost.name(),
+                who: self.who().to_owned(),
+                tz: ghost.tz(),
+                connected: ghost.link == LinkState::Connected,
+                abilities,
+                expanded: &self.expanded,
+            };
+            // Only a place on the console channel is yours to stop her in.
+            let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
+                && thread::busy(&view);
+            middle
+                .child(thread::render(&view, &faces, cx))
+                .child(self.composer(&faces, busy, window, cx))
+        };
+
         div()
             .relative()
             .flex()
