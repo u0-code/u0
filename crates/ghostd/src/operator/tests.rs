@@ -161,6 +161,12 @@ async fn no_presence_can_take_the_console_s_channel() {
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
 }
 
+/// Her work ended because Fox, who runs her, stopped it.
+fn stopped_by_fox(event: &Event) -> bool {
+    matches!(event, Event::Concluded { outcome, summary, .. }
+        if outcome == "dropped" && summary.starts_with("Fox, who runs you, stopped it"))
+}
+
 /// Before her mind starts: she took something on, and it stopped to ask.
 fn waiting_on_an_answer(dir: &std::path::Path) {
     let mut ghost = ghost_core::Ghost::open(dir).unwrap();
@@ -209,11 +215,7 @@ async fn an_operator_at_a_console_answers_what_her_work_asked_and_stops_it() {
     assert_eq!(fox.work().await.unwrap()[0].question, None);
 
     fox.stop("w1").await.unwrap();
-    rig.until(0, "the end of her work", |e| {
-        matches!(e, Event::Concluded { outcome, summary, .. }
-            if outcome == "dropped" && summary.starts_with("Fox, who runs you, stopped it"))
-    })
-    .await;
+    rig.until(0, "the end of her work", stopped_by_fox).await;
     // It is over: neither can be done to it again.
     let e = fox.stop("w1").await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
@@ -386,7 +388,8 @@ async fn stopping_her_takes_an_operator_who_says_who_they_are_and_stops_nothing_
         .unwrap();
     assert!(!fox.stop_place(None).await.unwrap());
     assert!(!fox.stop_place(Some("desk-1".into())).await.unwrap());
-    assert!(!rig.journal(0).await.contains("\"stopped\""));
+    let events = rig.events(0).await;
+    assert!(!events.iter().any(|e| matches!(e, Event::Stopped { .. })));
 }
 
 /// Before her mind starts: Fox directed her, from his place at a console,
@@ -415,8 +418,11 @@ async fn an_operator_who_stops_her_in_their_place_stops_the_work_they_directed_t
     // Somewhere else at the console, there is nothing to stop.
     assert!(!fox.stop_place(Some("desk-1".into())).await.unwrap());
     assert!(fox.stop_place(None).await.unwrap());
-    rig.until_written(0, "\"stopped\"").await;
-    rig.until_written(0, "Fox, who runs you, stopped it").await;
+    rig.until(0, "her being stopped", |e| {
+        matches!(e, Event::Stopped { .. })
+    })
+    .await;
+    rig.until(0, "the end of her work", stopped_by_fox).await;
     let work = fox.work().await.unwrap();
     assert_eq!(work[0].state, ghost_protocol::WorkState::Dropped);
 }
