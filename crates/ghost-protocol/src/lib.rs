@@ -104,6 +104,15 @@ pub mod method {
     /// written in her journal and nowhere else: a console reads it as a
     /// `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
     pub const SAY: &str = "console.say";
+    /// Console → daemon request. Params [`ConsoleStop`](super::ConsoleStop),
+    /// result [`ConsoleStopped`](super::ConsoleStopped). An operator at the
+    /// console stops her in a place on the channel
+    /// [`CONSOLE`](super::CONSOLE), as one stops a person mid-sentence:
+    /// what she is thinking there is abandoned, nothing she has not yet
+    /// said there is said, what is unread there is left read, and the work
+    /// she took on there is stopped as [`WORK_STOP`] stops it. Allowed as
+    /// [`SAY`] is.
+    pub const STOP: &str = "console.stop";
     /// Console → daemon request. Params [`WorkAnswer`](super::WorkAnswer),
     /// result `{}`. An operator at the console answers what a piece of work
     /// of hers asked, or adds to what it was asked, as she would pass it
@@ -631,6 +640,25 @@ pub struct ConsoleSaid {
     pub place: String,
     /// The message's id.
     pub id: String,
+}
+
+/// Params of [`method::STOP`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleStop {
+    /// The place on the [`CONSOLE`] channel to stop her in, as for
+    /// [`ConsoleSay::place`]. Left out, it is the one named after whoever
+    /// is at the console.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+}
+
+/// The result of [`method::STOP`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleStopped {
+    /// Whether anything was stopped: a look she was in the middle of or
+    /// about to take, something she had not yet said, or work. False when
+    /// she was doing nothing there, which is not an error.
+    pub stopped: bool,
 }
 
 /// A piece of work she took on, or a part of one, as it stands: the result

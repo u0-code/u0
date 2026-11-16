@@ -19,3 +19,16 @@ intention_due = "Nobody just wrote. Earlier you told yourself: \"{{what}}\". The
 not_sent = "You wrote that as a private thought, so nothing was sent and nothing was done. If you meant to say it, call `say`. If you meant to stay silent, call nothing again."
 # When she calls a tool this conversation does not offer.
 cannot_here = "That is not something you can do from here."
+
+# After the conversation, when someone who runs her stopped her in this
+# place from a console, and it happened within the stretch of it she is
+# shown: the last time. Only then. Stopping her is how they call off what
+# she was in the middle of, as one stops someone mid-sentence; without
+# this she would read her own silence after their message as something to
+# make up for, and finish or apologise for what was called off. {{what}}
+# is stopped_unsaid or stopped_answering, then stopped_work, each only
+# when it applies.
+stopped_here = "\n\n{{when}}, {{name}}, who runs you, stopped you here{{what}}. That is how they call something off, the way one stops someone mid-sentence: it was meant, and nothing went wrong. What was called off stays off, so do not pick it back up, finish it or apologise for it unless they ask you to; answer what is in front of you now."
+stopped_answering = " in the middle of answering"
+stopped_unsaid = " before you said {{unsaid}}"
+stopped_work = ", and stopped the work you had taken on here ({{briefs}})"

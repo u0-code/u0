@@ -134,7 +134,10 @@ async fn looking_at_her_phone_does_not_stop_a_running_sitting() {
     rig.hear(dm("wen", "1", "are you there"), t0);
     let due = rig.mind.agenda.attend["t:wen"].due;
     rig.mind.on_time(due).unwrap();
-    assert!(rig.mind.thinking.contains("t:wen"), "she is looking at it");
+    assert!(
+        rig.mind.thinking.contains_key("t:wen"),
+        "she is looking at it"
+    );
     assert_eq!(running(&rig), std::slice::from_ref(&id));
     assert!(
         !rig.mind.working[&id]

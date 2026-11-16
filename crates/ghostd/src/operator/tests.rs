@@ -265,3 +265,50 @@ async fn a_console_lists_what_waits_on_her_operators_and_answering_it_takes_it_o
     fox.answer("w1", "next week").await.unwrap();
     assert!(watcher.attention().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn stopping_her_takes_an_operator_who_says_who_they_are_and_stops_nothing_when_she_is_idle() {
+    let rig = Rig::run(vec![Spec::new("lin")]).await;
+    let (mut nobody, _) = Console::connect(&rig.url, None, None).await.unwrap();
+    let e = nobody.stop_place(None).await.unwrap_err();
+    assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
+
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
+        .await
+        .unwrap();
+    assert!(!fox.stop_place(None).await.unwrap());
+    assert!(!fox.stop_place(Some("desk-1".into())).await.unwrap());
+    assert!(!rig.journal(0).await.contains("\"stopped\""));
+}
+
+/// Before her mind starts: Fox directed her, from his place at a console,
+/// to take something on, and it is still open.
+fn directed_from_the_console(dir: &std::path::Path) {
+    let mut ghost = ghost_core::Ghost::open(dir).unwrap();
+    ghost
+        .record(Event::Undertook {
+            id: "w1".into(),
+            brief: "Draw the east gate.".into(),
+            asked_by: Some("console:fox".into()),
+            place: Some("console:fox".into()),
+            directed: true,
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_operator_who_stops_her_in_their_place_stops_the_work_they_directed_there() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(directed_from_the_console);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
+        .await
+        .unwrap();
+    // Somewhere else at the console, there is nothing to stop.
+    assert!(!fox.stop_place(Some("desk-1".into())).await.unwrap());
+    assert!(fox.stop_place(None).await.unwrap());
+    rig.until_written(0, "\"stopped\"").await;
+    rig.until_written(0, "Fox, who runs you, stopped it").await;
+    let work = fox.work().await.unwrap();
+    assert_eq!(work[0].state, ghost_protocol::WorkState::Dropped);
+}

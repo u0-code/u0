@@ -477,6 +477,29 @@ pub enum Event {
         name: String,
         why: String,
     },
+    /// Someone who runs her body stopped her in a place, from a console,
+    /// as one stops a person mid-sentence: what she was thinking there was
+    /// abandoned, what she had not yet said there was not said, what was
+    /// unread there was left read, and the work she had taken on there was
+    /// stopped. It is what she remembers of being interrupted, so that she
+    /// does not take up again unasked what was called off.
+    Stopped {
+        /// The place, as a place key (`console:fox`).
+        place: String,
+        /// Who stopped her, as a person key.
+        by: String,
+        /// She was looking at what was said there, or about to: what she
+        /// would have made of it was never had.
+        #[serde(default, skip_serializing_if = "is_false")]
+        looking: bool,
+        /// What she was about to say there and did not, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unsaid: Vec<String>,
+        /// The work taken on there that was stopped with her, by id. Each
+        /// ends as `dropped` in an entry of its own.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        works: Vec<String>,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -599,6 +622,7 @@ kinds! {
     Uninstalled => "uninstalled",
     SkillInstalled => "skill_installed",
     SkillUninstalled => "skill_uninstalled",
+    Stopped => "stopped",
 }
 
 /// One line of her journal.

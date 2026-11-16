@@ -215,6 +215,27 @@ fn describe(event: &Event, tz: Tz) -> String {
             "{name} ({source} at {})",
             sha.chars().take(12).collect::<String>()
         ),
+        Event::Stopped {
+            place,
+            by,
+            looking,
+            unsaid,
+            works,
+        } => {
+            let mut what = Vec::new();
+            if *looking {
+                what.push("her look".to_owned());
+            }
+            if !unsaid.is_empty() {
+                let quoted: Vec<String> =
+                    unsaid.iter().map(|u| format!("\"{}\"", flat(u))).collect();
+                what.push(format!("unsaid {}", quoted.join(" ")));
+            }
+            if !works.is_empty() {
+                what.push(format!("work {}", works.join(", ")));
+            }
+            format!("[{place}] by {by}: {}", what.join("; "))
+        }
     }
 }
 

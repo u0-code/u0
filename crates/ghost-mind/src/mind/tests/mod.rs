@@ -20,6 +20,7 @@ mod public;
 mod reaching;
 mod report;
 mod sittings;
+mod stopping;
 mod tools;
 mod waiting;
 mod work;
@@ -497,7 +498,7 @@ impl Rig {
         loop {
             self.mind.on_time(now).unwrap();
             while let Some(done) = self.mind.jobs.join_next().await {
-                self.mind.on_outcome(done.unwrap(), now).unwrap();
+                self.outcome(done, now);
             }
             if self.mind.agenda.next_due().is_none_or(|due| due > now) {
                 return;
@@ -524,9 +525,22 @@ impl Rig {
         )
         .await
         {
-            self.mind.on_outcome(done.unwrap(), now).unwrap();
+            self.outcome(done, now);
         }
         now
+    }
+
+    /// Hand her what a job brought back. A job she called off brings back
+    /// nothing; any other that fell over is a failure of the test.
+    fn outcome(
+        &mut self,
+        done: std::result::Result<super::Outcome, tokio::task::JoinError>,
+        now: DateTime<Utc>,
+    ) {
+        match done {
+            Ok(outcome) => self.mind.on_outcome(outcome, now).unwrap(),
+            Err(e) => assert!(e.is_cancelled(), "a job fell over: {e}"),
+        }
     }
 
     /// Keep stepping beside a running sitting until `done`.

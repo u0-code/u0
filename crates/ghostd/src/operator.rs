@@ -19,7 +19,10 @@
 //!
 //! An operator can also answer what her work asked, and stop her work,
 //! without her. Both go to her mind, which does them the way she does and
-//! writes them in her journal as the operator's: it is the one writer.
+//! writes them in her journal as the operator's: it is the one writer. So
+//! does stopping her in a place on the console channel, as one stops a
+//! coding agent after sending it something: her mind calls off what she
+//! is thinking and about to say there, and the work she took on there.
 
 use std::{
     net::SocketAddr,
@@ -30,7 +33,8 @@ use std::{
 use ghost_core::social::{self, Actor, Place, PlaceKind};
 use ghost_mind::{Act, Acted, Can, Incoming, Operator, Order, Refused};
 use ghost_protocol::{
-    CONSOLE, ConsoleSaid, ConsoleSay, Frame, SayMode, WorkAnswer, WorkStop, code, method,
+    CONSOLE, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, SayMode, WorkAnswer,
+    WorkStop, code, method,
 };
 
 use crate::cast::Character;
@@ -126,6 +130,47 @@ pub(crate) async fn say(
             id: message,
         },
     )
+}
+
+/// `console.stop`, request `id`, from a console as for [`say`]: have `her`
+/// mind stop whatever she is in the middle of in the place named, as the
+/// operator's doing, and answer whether anything was.
+pub(crate) async fn stop(
+    id: u64,
+    frame: &Frame,
+    owner: bool,
+    at_console: Option<&str>,
+    her: &Character,
+) -> Frame {
+    let name = match operator(owner, at_console) {
+        Ok(name) => name,
+        Err((code, why)) => return Frame::err(id, code, why),
+    };
+    // A request with no params at all stops her in their own place.
+    let asked = if frame.params.as_ref().is_none_or(serde_json::Value::is_null) {
+        Ok(ConsoleStop::default())
+    } else {
+        frame.params::<ConsoleStop>()
+    };
+    let asked = match asked {
+        Ok(asked) => asked,
+        Err(e) => return Frame::err(id, e.code, e.message),
+    };
+    let person = name.to_lowercase();
+    let place = asked
+        .place
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(&person);
+    let by = Operator {
+        key: social::key(CONSOLE, &person),
+        name: name.to_owned(),
+    };
+    match her.mind().interrupt(&social::key(CONSOLE, place), by).await {
+        Ok(stopped) => Frame::ok(id, &ConsoleStopped { stopped }),
+        Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
+    }
 }
 
 /// `work.answer` or `work.stop`, request `id`, from a console as for

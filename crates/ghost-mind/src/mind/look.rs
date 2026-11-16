@@ -18,7 +18,7 @@ use ghost_work::{
 
 use super::{
     Mind, Outcome,
-    attend::{Thinking, Thought, Why},
+    attend::{Looking, Thinking, Thought, Why},
 };
 use crate::{
     Act, Can, Error, Result,
@@ -91,7 +91,10 @@ impl Mind {
             Some(self.compose(place, &mut job, now, with_tools, &abilities)?)
         };
         self.budget.spend(now);
-        self.thinking.insert(place.key.clone());
+        if job.look == 0 {
+            self.looks += 1;
+            job.look = self.looks;
+        }
         if job.round == 0
             && matches!(job.why, Why::Unread | Why::Directive(_))
             && self.can(&place.channel, Can::Read)
@@ -109,7 +112,8 @@ impl Mind {
                 },
             );
         }
-        if with_tools {
+        let (look, intention) = (job.look, job.intention());
+        let abort = if with_tools {
             let system = match request {
                 Some((system, prompt)) => {
                     job.items.push(Item::user(prompt));
@@ -147,8 +151,12 @@ impl Mind {
                     job: Box::new(job),
                     result,
                 }
-            });
-        } else if let Some((system, prompt)) = request {
+            })
+        } else {
+            // Answering in JSON, what she sees is always put together.
+            let Some((system, prompt)) = request else {
+                return Ok(());
+            };
             let request = Completion::ask(system, prompt, self.cfg.max_tokens)
                 .expecting_json()
                 .thinking(Effort::Low);
@@ -160,8 +168,16 @@ impl Mind {
                     job: Box::new(job),
                     result,
                 }
-            });
-        }
+            })
+        };
+        self.thinking.insert(
+            place.key.clone(),
+            Looking {
+                look,
+                abort,
+                intention,
+            },
+        );
         Ok(())
     }
 
@@ -287,6 +303,7 @@ impl Mind {
             .prompts
             .section("past", "past", &narrate::past(&touched));
 
+        let stopped_here = self.stopped_here(place, &lines, now)?;
         let (who, right_now) = self.portrait_on(now, Some(&place.channel), abilities)?;
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
@@ -322,7 +339,7 @@ impl Mind {
                 (
                     "transcript",
                     format!(
-                        "{}{}",
+                        "{}{}{}",
                         kept.map_or_else(String::new, |d| format!(
                             "What you kept of this conversation{} before the messages below:\n{}\n\n",
                             d.sources.map_or_else(String::new, |s| {
@@ -344,7 +361,10 @@ impl Mind {
                             self.prompts.text("directive_mark"),
                             self.life.clock(),
                             now
-                        )
+                        ),
+                        // Being stopped here goes with the conversation it
+                        // happened in, for as long as it is in front of her.
+                        stopped_here
                     ),
                 ),
                 ("recalled", recalled),

@@ -90,7 +90,7 @@ impl Mind {
         attend.sort_by_key(|a| a["due"].as_str().unwrap_or_default().to_owned());
         let mut speaking: Vec<&String> = self.agenda.speaking.keys().collect();
         speaking.sort();
-        let mut thinking: Vec<&String> = self.thinking.iter().collect();
+        let mut thinking: Vec<&String> = self.thinking.keys().collect();
         thinking.sort();
         json!({
             "attend": attend,

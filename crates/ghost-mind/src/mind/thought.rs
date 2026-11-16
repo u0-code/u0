@@ -10,11 +10,11 @@ use ghost_work::{
     catalog::{self, Need},
     undertaking::placeholder,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::{
     Attend, Mind, Outcome,
-    attend::{Found, Thinking, Thought, Why},
+    attend::{Found, Looking, Thinking, Thought, Why},
 };
 use crate::{
     Error, Result,
@@ -40,6 +40,16 @@ impl Mind {
         result: Result<Thought>,
         now: DateTime<Utc>,
     ) -> Result<()> {
+        if self
+            .thinking
+            .get(&job.place)
+            .is_none_or(|looking| looking.look != job.look)
+        {
+            // She was stopped in the middle of this look before it came
+            // back: what it came to is not hers to act on.
+            debug!("{}: a look she was stopped in came back", job.place);
+            return Ok(());
+        }
         self.thinking.remove(&job.place);
         let Some(place) = self.ghost.memory().place(&job.place)? else {
             return Ok(());
@@ -311,8 +321,8 @@ impl Mind {
                     clip(&call.args.to_string(), 80)
                 );
             }
-            self.thinking.insert(place.key.clone());
-            self.jobs.spawn(async move {
+            let (look, intention) = (job.look, job.intention());
+            let abort = self.jobs.spawn(async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
                     let outcome = tokio::time::timeout(budget, reaching.run(&call)).await.ok();
@@ -323,6 +333,14 @@ impl Mind {
                     result: Ok(Thought::Looked(found)),
                 }
             });
+            self.thinking.insert(
+                place.key.clone(),
+                Looking {
+                    look,
+                    abort,
+                    intention,
+                },
+            );
             return Ok(());
         }
         if again {

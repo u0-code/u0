@@ -20,8 +20,8 @@ pub mod text;
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
-    ConsoleSaid, ConsoleSay, Frame, Hello, JournalRead, ListGhosts, PROTOCOL, Role, Roster,
-    SayMode, Welcome, WorkAnswer, WorkStop, method,
+    ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello, JournalRead, ListGhosts,
+    PROTOCOL, Role, Roster, SayMode, Welcome, WorkAnswer, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -220,6 +220,15 @@ impl Console {
             mode,
         };
         self.conn.call(method::SAY, &params).await
+    }
+
+    /// Stop her in the place `place` on the console channel, or in the one
+    /// named after whoever is at the console, as an operator of hers: what
+    /// she is thinking and about to say there is called off, and the work
+    /// she took on there is stopped. Returns whether anything was.
+    pub async fn stop_place(&mut self, place: Option<String>) -> anyhow::Result<bool> {
+        let stopped: ConsoleStopped = self.conn.call(method::STOP, &ConsoleStop { place }).await?;
+        Ok(stopped.stopped)
     }
 
     /// Answer what the work `work` asked, or add to what it was asked, as
