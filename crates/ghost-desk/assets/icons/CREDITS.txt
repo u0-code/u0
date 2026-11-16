@@ -1,4 +1,6 @@
 ghost.svg      Ghost's own mark.
+sidebar.svg, chevron-*.svg, plus.svg, search.svg
+               Line icons drawn for the desk.
 openai.svg     OpenAI's mark, from lobehub/lobe-icons (MIT), for the Codex CLI
                and OpenAI-compatible providers. The mark belongs to OpenAI.
 claude.svg     Claude's mark, from lobehub/lobe-icons (MIT), for the Claude
