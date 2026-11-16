@@ -83,11 +83,10 @@ impl Mind {
         by: &Operator,
         now: DateTime<Utc>,
     ) -> Result<Option<i64>> {
-        let theirs = self
-            .ghost
-            .memory()
-            .line(to)?
-            .is_some_and(|(place, line)| place == key && line.person.as_deref() == Some(&by.key));
+        let theirs =
+            self.ghost.memory().line(to)?.is_some_and(|(place, line)| {
+                place == key && line.person.as_deref() == Some(&by.key)
+            });
         if !theirs {
             return Ok(None);
         }

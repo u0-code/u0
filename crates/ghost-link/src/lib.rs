@@ -21,9 +21,8 @@ use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
     ConsoleRewind, ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame,
-    Hello, JournalRead, ListGhosts,
-    Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead, Welcome, WorkAnswer, WorkLog,
-    WorkStop, method,
+    Hello, JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead,
+    Welcome, WorkAnswer, WorkLog, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;

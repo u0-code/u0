@@ -121,17 +121,29 @@ async fn a_line_taken_back_is_gone_from_the_conversation_with_everything_said_af
 
     // Her line is not his to take back, nor one that was never said.
     assert_eq!(
-        rig.mind.rewind("console:fox", thread[1].seq, &fox(), now).unwrap(),
+        rig.mind
+            .rewind("console:fox", thread[1].seq, &fox(), now)
+            .unwrap(),
         None
     );
-    assert_eq!(rig.mind.rewind("console:fox", 9999, &fox(), now).unwrap(), None);
+    assert_eq!(
+        rig.mind.rewind("console:fox", 9999, &fox(), now).unwrap(),
+        None
+    );
     assert!(stops(&rig).is_empty());
 
     assert_eq!(
         rig.mind.rewind("console:fox", line, &fox(), now).unwrap(),
         Some(2)
     );
-    assert!(rig.mind.ghost.memory().thread("console:fox", 10).unwrap().is_empty());
+    assert!(
+        rig.mind
+            .ghost
+            .memory()
+            .thread("console:fox", 10)
+            .unwrap()
+            .is_empty()
+    );
     assert!(rig.kinds().contains(&"rewound"));
     // Taking it back is not a stop: nothing was under way.
     assert!(stops(&rig).is_empty());

@@ -168,7 +168,10 @@ async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_bef
     assert_eq!((place.as_str(), to), ("console:fox", line));
     // The journal keeps every word, and says the line was taken back.
     let thread = fox.thread(&said.place, 20).await.unwrap();
-    assert!(kinds(&thread).ends_with(&["rewound".to_owned()]), "{thread:?}");
+    assert!(
+        kinds(&thread).ends_with(&["rewound".to_owned()]),
+        "{thread:?}"
+    );
     let rewound = thread.last().unwrap();
     assert_eq!(rewound["event"]["data"]["to"].as_i64(), Some(line));
 }
