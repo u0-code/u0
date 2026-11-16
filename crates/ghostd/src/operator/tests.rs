@@ -79,16 +79,20 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         next_where(&mut stream, said_on_console).await,
         ("fox".to_owned(), "lin here".to_owned())
     );
-    // It is a conversation with an operator of hers, kept like any other.
+    // It is a conversation with an operator of hers, kept like any other,
+    // and every line of theirs there is a directive: whoever sits at the
+    // console runs her, and what they write is for her to do.
     let thread = serde_json::to_string(&fox.thread(&said.place, 10).await.unwrap()).unwrap();
     assert!(
         thread.contains("5e1d") && thread.contains(&said.id),
         "{thread}"
     );
     let events = rig.events(0).await;
-    assert!(!events.iter().any(|e| matches!(e, Event::Directed { .. })));
+    assert!(events.iter().any(
+        |e| matches!(e, Event::Directed { text, .. } if text == "how are the patients, 5e1d")
+    ));
 
-    // Asked for a directive, in a place of its own, it is one.
+    // Marked as a directive or not, in a place of its own, it is one.
     let directed = fox
         .say(
             Some("desk-1".into()),
@@ -408,21 +412,21 @@ fn directed_from_the_console(dir: &std::path::Path) {
 }
 
 #[tokio::test]
-async fn an_operator_who_stops_her_in_their_place_stops_the_work_they_directed_there() {
+async fn an_operator_who_stops_her_in_their_place_leaves_the_work_they_directed_going() {
     let mut spec = Spec::new("lin");
     spec.before = Some(directed_from_the_console);
     let rig = Rig::run(vec![spec]).await;
     let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
         .await
         .unwrap();
-    // Somewhere else at the console, there is nothing to stop.
+    // With no look going on there, there is nothing to stop: the work she
+    // took on is stopped from its own card, not with her.
     assert!(!fox.stop_place(Some("desk-1".into())).await.unwrap());
-    assert!(fox.stop_place(None).await.unwrap());
-    rig.until(0, "her being stopped", |e| {
-        matches!(e, Event::Stopped { .. })
-    })
-    .await;
-    rig.until(0, "the end of her work", stopped_by_fox).await;
+    assert!(!fox.stop_place(None).await.unwrap());
+    let events = rig.events(0).await;
+    assert!(!events.iter().any(|e| matches!(e, Event::Stopped { .. })));
     let work = fox.work().await.unwrap();
-    assert_eq!(work[0].state, ghost_protocol::WorkState::Dropped);
+    assert_eq!(work[0].state, ghost_protocol::WorkState::Open);
+    fox.stop("w1").await.unwrap();
+    rig.until(0, "the end of her work", stopped_by_fox).await;
 }
