@@ -260,11 +260,13 @@ impl Mind {
         } else {
             did.join("; ")
         };
-        self.record(Event::Decided {
+        let decided = self.record(Event::Decided {
             about: place.key.clone(),
             decision: decision.clone(),
             reason: deliberation.thought,
         })?;
+        // Whoever watched her rounds of this look can find where it ended.
+        self.end_look(job, decided.seq);
         if let Why::Intention(intention) = &job.why {
             self.record(Event::Settled {
                 intention: intention.seq,

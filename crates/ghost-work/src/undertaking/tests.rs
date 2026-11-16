@@ -10,7 +10,10 @@ use ghost_core::media;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::*;
+use super::{
+    db::{SCHEMA, SCHEMA_VERSION},
+    *,
+};
 use crate::prompts::Prompts;
 
 impl Undertaking {

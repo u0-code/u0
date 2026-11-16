@@ -11,10 +11,14 @@
 //! undertakings   brief, plan, notes, outcome, running totals
 //! transcript     what the model is shown now, saved after every step
 //! history        every item the transcript ever held; append-only
-//! log            one line per step: what was called, what it cost
+//! log            one line per step: what the model said, what it called
+//!                with what, the head of what came back, what it cost
 //! inbox          what reached it from outside while it ran, of what kind,
 //!                and whether it has been taken
 //! ```
+//!
+//! The same database keeps what she called while she looked at a
+//! conversation, which is not work: see [`crate::looks`].
 //!
 //! What goes the other way, from the work to whoever it is for while it
 //! runs, is part of the state: what it told them (`told`) and what it kept
@@ -39,7 +43,7 @@
 //! looking from outside is shown in `look`. This file holds the handle on
 //! one undertaking, and how it is opened, read, changed and stopped.
 
-mod db;
+pub(crate) mod db;
 mod inbox;
 mod look;
 mod state;
@@ -48,20 +52,19 @@ mod tests;
 mod transcript;
 
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError},
-    time::Duration,
 };
 
 use chrono::Utc;
 use rusqlite::{Connection, TransactionBehavior};
 
-use self::db::{KIND_COLUMN, SCHEMA, SCHEMA_VERSION, load, other, store};
+use self::db::{load, other, store};
 pub use self::{
     db::WORK_DB,
     inbox::{Mail, MailKind},
-    look::{Glance, Look, glance, look},
+    look::{Glance, Logged, Look, Step, glance, look, steps},
     state::{AskKind, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
     transcript::placeholder,
 };
@@ -87,40 +90,10 @@ impl Undertaking {
     /// is already there. A brief is only taken the first time: what was
     /// asked does not change.
     pub fn open(db: &Path, id: &str, brief: Option<&str>) -> io::Result<Self> {
-        if let Some(parent) = db.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)?;
-        }
-        let mut conn = Connection::open(db).map_err(other)?;
-        // Several handles write here at once, from more than one process.
-        // A writer waits its turn rather than failing.
-        conn.busy_timeout(Duration::from_secs(10)).map_err(other)?;
-        conn.pragma_update(None, "journal_mode", "WAL")
-            .map_err(other)?;
+        let mut conn = db::open(db)?;
         let state = {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(other)?;
-            let version: i64 = tx
-                .pragma_query_value(None, "user_version", |row| row.get(0))
-                .map_err(other)?;
-            if version > SCHEMA_VERSION {
-                return Err(io::Error::other(format!(
-                    "{} was written by a newer ghost-work (schema {version})",
-                    db.display()
-                )));
-            }
-            tx.execute_batch(SCHEMA).map_err(other)?;
-            let has_kind: i64 = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('inbox') WHERE name = 'kind'",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(other)?;
-            if has_kind == 0 {
-                tx.execute_batch(KIND_COLUMN).map_err(other)?;
-            }
-            tx.pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(other)?;
             let state = if let Some(state) = load(&tx, id).map_err(other)? {
                 state

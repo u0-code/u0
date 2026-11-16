@@ -8,12 +8,13 @@
 use std::time::Instant;
 
 use ghost_brain::{Call, Item};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{Worker, preview};
 use crate::{
     outside,
     prompts::Prompts,
+    steps,
     tool::{self, Toolbox},
     undertaking::placeholder,
 };
@@ -72,14 +73,16 @@ impl Worker {
                 preview(&outcome.output, 100),
                 if outcome.failed { " [failed]" } else { "" }
             );
-            logged.push(json!({
-                "name": call.name,
-                "args": preview(&call.args.to_string(), 400),
-                "ms": ms,
-                "failed": outcome.failed,
-                "chars": outcome.output.len(),
-                "pictures": outcome.pictures.len(),
-            }));
+            // What it returned, as it returned it: the mark of where it
+            // came from is for the model, not for whoever reads the log.
+            logged.push(steps::call(
+                &call.name,
+                &call.args,
+                &outcome.output,
+                outcome.failed,
+                outcome.pictures.len(),
+                ms,
+            ));
             // Waiting on parts that are still at it comes back the same
             // way every time, and is not being stuck.
             if call.name != "wait" {
