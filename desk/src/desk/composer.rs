@@ -59,7 +59,7 @@ impl Desk {
                     "no brain".to_owned(),
                 )
             },
-            |p| (ui::mark(faces, p.mark(), 14.), p.label()),
+            |p| (ui::mark(faces, p.mark(), 14.), self.brain_label(p)),
         );
         let mut chip = div().relative().child(
             div()

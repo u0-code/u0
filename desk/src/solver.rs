@@ -68,7 +68,7 @@ impl Provider {
     /// answers at the address of an API on this machine.
     fn check(mut self, env: &dyn Fn(&str) -> Option<String>, dotenv: Option<&str>) -> Self {
         self.blocker = if let Some(program) = &self.program {
-            (!on_path(program)).then(|| format!("{program} is not installed"))
+            (!on_path(program)).then(|| format!("`{program}` was not found on this machine"))
         } else if let Some(var) = &self.key_env {
             (!brains::key_status(var, env, dotenv).found()).then(|| format!("{var} is not set"))
         } else {
@@ -406,6 +406,33 @@ impl Deployment {
         std::fs::write(&path, doc.to_string())
             .with_context(|| format!("write {}", path.display()))?;
         info!("the solver thinks with {name} from its next start");
+        Ok(())
+    }
+
+    /// Think with `model` on the brain `name` from its next start. An empty
+    /// model names none, for a CLI to use its own default.
+    pub fn set_model(&self, name: &str, model: &str) -> anyhow::Result<()> {
+        self.edit(|doc| {
+            let table = doc
+                .get_mut("providers")
+                .and_then(|p| p.get_mut(name))
+                .and_then(toml_edit::Item::as_table_like_mut)
+                .ok_or_else(|| anyhow!("no brain called {name}"))?;
+            if model.is_empty() {
+                table.remove("model");
+            } else {
+                table.insert("model", toml_edit::value(model));
+            }
+            Ok(())
+        })?;
+        info!(
+            "{name} thinks with {} from its next start",
+            if model.is_empty() {
+                "its default"
+            } else {
+                model
+            }
+        );
         Ok(())
     }
 
@@ -1016,7 +1043,7 @@ mod tests {
         let c = Provider::read("c", &cli["c"]).check(&|_| None, None);
         assert_eq!(
             c.blocker.as_deref(),
-            Some("/no/such/codex is not installed")
+            Some("`/no/such/codex` was not found on this machine")
         );
         let key: DocumentMut = "[k]\nkind = \"anthropic\"\nmodel = \"m\"\n"
             .parse()

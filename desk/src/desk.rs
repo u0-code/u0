@@ -40,7 +40,7 @@ use gpui::{Context, Entity, Focusable as _, MouseButton, Window, div, prelude::*
 use tracing::warn;
 
 pub(crate) use self::{
-    brain_menu::{At, Menu},
+    brain_menu::{At, Menu, Picker},
     watched::{Open, Watched},
 };
 use crate::{
@@ -124,6 +124,9 @@ pub struct Desk {
     pub(crate) sheet: Sheet,
     pub(crate) menu: Menu,
     pub(crate) menu_at: At,
+    /// What the brain menu is showing: the brain looked at, the models
+    /// each offers, and a switch being checked.
+    pub(crate) picker: Picker,
     /// Cards and lines opened in the thread, and lists shown in full, by key.
     pub expanded: HashSet<String>,
     /// Groups and sections folded away, by key, for as long as the desk runs.
@@ -282,6 +285,7 @@ impl Desk {
             sheet,
             menu: Menu::Closed,
             menu_at: At::Composer,
+            picker: Picker::default(),
             expanded: HashSet::new(),
             collapsed: HashSet::new(),
             notice,
