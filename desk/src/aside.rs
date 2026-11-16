@@ -53,7 +53,7 @@ fn value(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> Any
 }
 
 /// A small action at the right of a row, which does what it says.
-fn action(faces: &Faces, id: &'static str, text: &'static str) -> Stateful<Div> {
+fn action(faces: &Faces, id: impl Into<gpui::ElementId>, text: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -151,16 +151,22 @@ enum Whose {
     Hers,
 }
 
-/// How a link stands, in a small pill: a dot when it is up, a ring while
-/// it is not. Down is grey, not red: it is a state to act on, and the card
-/// says why and what to do.
-fn pill(faces: &Faces, link: &LinkState, reach: &Reach) -> AnyElement {
-    let (word, color, up) = match (link, &reach.why) {
+/// How a link stands, in a few words and a colour, and whether it is up.
+/// Down is grey, not red: it is a state to act on, and the card says why
+/// and what to do. A core the desk has just started is starting, not down.
+fn standing(link: &LinkState, reach: &Reach, starting: bool) -> (&'static str, gpui::Hsla, bool) {
+    match (link, &reach.why) {
         (LinkState::Connected, _) => ("online", theme::green(), true),
+        _ if starting => ("starting", theme::muted(), false),
         (LinkState::Connecting, None) => ("connecting", theme::muted(), false),
         (LinkState::Connecting, Some(_)) => ("retrying", theme::muted(), false),
         (LinkState::Lost(_), _) => ("offline", theme::faint(), false),
-    };
+    }
+}
+
+/// A link's standing in a small pill: a dot when it is up, a ring while
+/// it is not.
+fn pill(faces: &Faces, word: &'static str, color: gpui::Hsla, up: bool) -> AnyElement {
     let mark = if up {
         ui::dot(color).size(px(7.))
     } else {
@@ -191,35 +197,13 @@ fn pill(faces: &Faces, link: &LinkState, reach: &Reach) -> AnyElement {
         .into_any_element()
 }
 
-/// A button in a card: an outline, an icon and what it does.
-fn button(faces: &Faces, id: String, icon: &str, text: &'static str) -> Stateful<Div> {
-    div()
-        .id(SharedString::from(id))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(5.))
-        .h(px(24.))
-        .px(px(8.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(theme::border2())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(ui::icon(icon, 13.).text_color(theme::muted()))
-        .child(
-            ui::text(faces, text)
-                .text_size(px(12.5))
-                .text_color(theme::text2()),
-        )
-}
-
 /// The small print under a daemon's name: where it is, and for how long
 /// it has been up or down.
-fn reach_line(host: &str, link: &LinkState, reach: &Reach) -> String {
+fn reach_line(host: &str, link: &LinkState, reach: &Reach, starting: bool) -> String {
     let span = thread::span(i64::try_from(reach.since.elapsed().as_secs()).unwrap_or(i64::MAX));
     match link {
         LinkState::Connected => format!("{host} · up {span}"),
+        _ if starting => format!("{host} · starting"),
         _ if reach.why.is_none() => host.to_owned(),
         _ if reach.ever => format!("{host} · down {span}"),
         _ => format!("{host} · never reached"),
@@ -229,9 +213,10 @@ fn reach_line(host: &str, link: &LinkState, reach: &Reach) -> String {
 impl Desk {
     /// A daemon's connection, as a card: what the desk calls it, a pill
     /// for how it stands, where it is and for how long. While it cannot be
-    /// reached, why, in words, and what can be done: try again now, start
-    /// the core when it is the one on this machine, and the error itself
-    /// under Details.
+    /// reached, one line on why, and a row of quiet actions: try again
+    /// now, start the core when it is the one on this machine, and the
+    /// error itself under Details. A core the desk has just started shows
+    /// as starting, with nothing to act on yet.
     fn daemon_card(
         &self,
         faces: &Faces,
@@ -247,13 +232,15 @@ impl Desk {
             .trim_end_matches('/')
             .to_owned();
         let (link, reach) = (&watched.link, &watched.reach);
+        let starting = whose == Whose::Solver && self.deployment.starting();
+        let (word, color, up) = standing(link, reach, starting);
         let card = row_with(
             Some(row_icon("server")),
             label(faces, name.to_owned()),
-            Some(pill(faces, link, reach)),
-            under(faces, reach_line(&host, link, reach)),
+            Some(pill(faces, word, color, up)),
+            under(faces, reach_line(&host, link, reach, starting)),
         );
-        let Some(why) = reach.why.as_ref().filter(|_| *link != LinkState::Connected) else {
+        let Some(why) = reach.why.as_ref().filter(|_| !up && !starting) else {
             return card;
         };
         let tag = match whose {
@@ -262,82 +249,65 @@ impl Desk {
         };
         let key = format!("link:{url}");
         let open = self.expanded.contains(&key);
-        let retrying = *link == LinkState::Connecting;
-        let tries = match reach.tries {
-            1 => "Tried once".to_owned(),
-            n => format!("Tried {n} times"),
-        };
-        let next = if retrying {
-            "trying again now"
-        } else {
-            "trying again on its own"
-        };
-        let retry = button(faces, format!("{tag}-retry"), "retry", "Retry now").on_click(
-            cx.listener(move |this, _, _, cx| match whose {
-                Whose::Solver => this.retry_solver(cx),
-                Whose::Hers => this.retry_her(cx),
-            }),
-        );
+        let retry = action(
+            faces,
+            SharedString::from(format!("{tag}-retry")),
+            "Retry now",
+        )
+        .on_click(cx.listener(move |this, _, _, cx| match whose {
+            Whose::Solver => this.retry_solver(cx),
+            Whose::Hers => this.retry_her(cx),
+        }));
         let start = (whose == Whose::Solver && self.core_is_local()).then(|| {
             let word = if self.deployment.started() {
                 "Restart core"
             } else {
                 "Start core"
             };
-            button(faces, format!("{tag}-start"), "power", word)
+            action(faces, SharedString::from(format!("{tag}-start")), word)
                 .on_click(cx.listener(|this, _, _, cx| this.start_core(cx)))
         });
-        let details = div()
-            .id(SharedString::from(format!("{tag}-details")))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(3.))
-            .h(px(24.))
-            .px(px(4.))
-            .cursor_pointer()
-            .child(
-                ui::text(faces, "Details")
-                    .text_size(px(12.5))
-                    .text_color(theme::muted()),
+        let details = action(
+            faces,
+            SharedString::from(format!("{tag}-details")),
+            "Details",
+        )
+        .gap(px(3.))
+        .child(
+            ui::icon(
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                11.,
             )
-            .child(
-                ui::icon(
-                    if open {
-                        "chevron-down"
-                    } else {
-                        "chevron-right"
-                    },
-                    11.,
-                )
-                .text_color(theme::faint()),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)));
+            .text_color(theme::faint()),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)));
         card.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(8.))
+                .gap(px(4.))
                 .pl(px(ICON_ROOM))
-                .pt(px(6.))
+                .pt(px(4.))
                 .pb(px(2.))
                 .child(
-                    ui::text(faces, reason(why, &host))
+                    ui::text(faces, reason(why))
                         .text_size(px(13.))
                         .line_height(px(18.))
                         .text_color(theme::text2()),
                 )
                 .child(
-                    ui::mono(faces, format!("{tries} · {next}"))
-                        .text_size(px(11.5))
-                        .text_color(theme::faint()),
-                )
-                .child(
+                    // The actions start where the text does: each has its
+                    // own inner space, so the row steps back by that much.
                     div()
                         .flex()
                         .flex_wrap()
                         .items_center()
-                        .gap(px(6.))
+                        .gap(px(2.))
+                        .ml(px(-7.))
                         .child(retry)
                         .children(start)
                         .child(details),
@@ -348,6 +318,7 @@ impl Desk {
                             .text_size(px(11.))
                             .line_height(px(16.))
                             .text_color(theme::muted())
+                            .mt(px(2.))
                             .p(px(8.))
                             .rounded(px(6.))
                             .bg(theme::well())

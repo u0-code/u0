@@ -231,7 +231,7 @@ impl Desk {
                 let why = match group.link {
                     LinkState::Connecting => "Connecting…".to_owned(),
                     LinkState::Connected => "It runs nobody.".to_owned(),
-                    LinkState::Lost(why) => crate::model::reason(why, group.host.label()),
+                    LinkState::Lost(why) => crate::model::reason(why),
                 };
                 let down = matches!(group.link, LinkState::Lost(_));
                 let host = group.host.clone();
