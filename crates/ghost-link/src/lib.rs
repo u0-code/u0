@@ -181,6 +181,13 @@ impl Console {
         self.conn.call(method::WORK, &()).await
     }
 
+    /// What is waiting on whoever runs her, newest first: work waiting on
+    /// an answer, work that ended blocked or given up lately, and what was
+    /// told and reported to them lately.
+    pub async fn attention(&mut self) -> anyhow::Result<Vec<ghost_protocol::Attention>> {
+        self.conn.call(method::ATTENTION, &()).await
+    }
+
     /// The journal entries that belong to one place, oldest first.
     pub async fn thread(&mut self, place: &str, limit: u32) -> anyhow::Result<Vec<Value>> {
         let params = ghost_protocol::PlaceRead {

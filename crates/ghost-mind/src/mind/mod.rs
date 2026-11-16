@@ -28,6 +28,7 @@ mod speak;
 mod tests;
 mod thought;
 mod view;
+mod waiting;
 mod work;
 
 use std::{
@@ -129,6 +130,10 @@ pub enum Question {
     /// Journal entries from seq `from` on. Zero or less counts back from the
     /// newest entry.
     Journal { from: i64, limit: usize },
+    /// What is waiting on the people who run her, newest first: work
+    /// waiting on an answer, work that ended blocked or given up lately,
+    /// what work done for them told her lately, and her reports to them.
+    Waiting,
 }
 
 /// Someone who runs her body, acting on her from a console.

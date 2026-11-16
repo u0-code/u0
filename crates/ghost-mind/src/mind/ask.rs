@@ -35,6 +35,7 @@ impl Mind {
             Question::Canon => json!(self.ghost.memory().canon(500)?),
             Question::Places => self.places_view()?,
             Question::Work => self.work_view()?,
+            Question::Waiting => self.waiting_view(now)?,
             Question::Thread { place, limit } => self.thread_view(place, *limit)?,
             Question::Journal { from, limit } => {
                 let journal = self.ghost.journal();

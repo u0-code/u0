@@ -520,6 +520,7 @@ async fn watch<S>(
             Some(method::CANON) => Question::Canon,
             Some(method::PLACES) => Question::Places,
             Some(method::WORK) => Question::Work,
+            Some(method::ATTENTION) => Question::Waiting,
             Some(method::LIST) => {
                 if out.send(Frame::ok(id, &cast.roster().await)).await.is_err() {
                     break;
