@@ -67,6 +67,13 @@ pub(super) struct Thinking {
     /// was called, and its calls in order as the record keeps them, with
     /// those still out left `None`.
     pub out: Option<(DateTime<Utc>, Vec<Option<serde_json::Value>>)>,
+    /// What the brain's last turn cost, as the provider counted it, for
+    /// the record of her looks.
+    pub usage: Option<ghost_brain::Usage>,
+    /// What was put in front of the brain, in characters, by part, for the
+    /// record of her looks: measured when the look is composed, and the
+    /// tools again on each turn, as servers she loads add to them.
+    pub context: std::collections::BTreeMap<String, u64>,
 }
 
 impl Thinking {
@@ -111,6 +118,8 @@ impl Thinking {
             look: 0,
             kept: None,
             out: None,
+            usage: None,
+            context: std::collections::BTreeMap::new(),
         }
     }
 }

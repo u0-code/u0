@@ -444,10 +444,14 @@ mod tests {
                 LookRound {
                     at: "2026-11-16T12:00:00Z".into(),
                     calls: vec![call("shell"), call("say")],
+                    usage: None,
+                    context: None,
                 },
                 LookRound {
                     at: "2026-11-16T12:00:04Z".into(),
                     calls: vec![call("read")],
+                    usage: None,
+                    context: None,
                 },
             ],
         }
