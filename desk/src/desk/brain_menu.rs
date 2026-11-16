@@ -5,8 +5,10 @@
 //! and all.
 //!
 //! Whether a brain can run here is asked when it is chosen, not shown in
-//! advance: a CLI is asked its version, an API whether its key is there.
-//! If it cannot, the desk says why and goes on with the brain it had.
+//! advance: it is asked to think once, as little as there is, the way the
+//! daemon would ask it (a CLI that answers for its version may still be
+//! signed out). If it cannot, the desk says why and goes on with the brain
+//! it had.
 
 use std::collections::HashMap;
 
@@ -108,36 +110,14 @@ impl Desk {
                 .insert(name.to_owned(), Models::Listed(choices));
             return;
         }
-        let dotenv = self.deployment.dotenv();
-        let key = p
-            .key_env
-            .as_deref()
-            .and_then(|var| brains::key_value(var, &solver::env, dotenv.as_deref()));
-        if let (Some(var), None) = (&p.key_env, &key) {
-            self.picker.models.insert(
-                name.to_owned(),
-                Models::Unlisted(format!("{var} is not set")),
-            );
-            return;
-        }
-        let network = match self.deployment.network() {
-            Ok(n) => n,
+        let (network, end) = match self.endpoint(&p, &p.model) {
+            Ok(found) => found,
             Err(why) => {
                 self.picker
                     .models
                     .insert(name.to_owned(), Models::Unlisted(why));
                 return;
             }
-        };
-        let end = Endpoint {
-            wire: Wire::of(&p.kind),
-            base_url: p
-                .base_url
-                .clone()
-                .or_else(|| p.preset().map(|x| x.base_url.to_owned()))
-                .unwrap_or_default(),
-            key,
-            model: p.model.clone(),
         };
         self.picker.models.insert(name.to_owned(), Models::Asking);
         let task = link::runtime().spawn(async move { brains::models(&network, &end).await });
@@ -158,9 +138,38 @@ impl Desk {
         .detach();
     }
 
+    /// How to reach the API `p` with `model`: the network the daemon would
+    /// use, and its address and key; or why it cannot be reached.
+    fn endpoint(
+        &self,
+        p: &Provider,
+        model: &str,
+    ) -> Result<(ghost_net::Network, Endpoint), String> {
+        let dotenv = self.deployment.dotenv();
+        let key = p
+            .key_env
+            .as_deref()
+            .and_then(|var| brains::key_value(var, &solver::env, dotenv.as_deref()));
+        if let (Some(var), None) = (&p.key_env, &key) {
+            return Err(format!("{var} is not set"));
+        }
+        let network = self.deployment.network()?;
+        let end = Endpoint {
+            wire: Wire::of(&p.kind),
+            base_url: p
+                .base_url
+                .clone()
+                .or_else(|| p.preset().map(|x| x.base_url.to_owned()))
+                .unwrap_or_default(),
+            key,
+            model: model.to_owned(),
+        };
+        Ok((network, end))
+    }
+
     /// Think with `model` on the brain `name` from now on, once it is clear
-    /// this machine can run it: a CLI answers for its version, an API's key
-    /// is there. If it cannot, say why, and keep the brain there was.
+    /// this machine can run it: it answers one small request, within a
+    /// minute. If it cannot, say why, and keep the brain there was.
     pub(crate) fn use_model(&mut self, name: &str, model: &str, cx: &mut Context<Self>) {
         self.menu = Menu::Closed;
         let Some(p) = self.providers.iter().find(|p| p.name == name).cloned() else {
@@ -172,17 +181,31 @@ impl Desk {
         }
         self.picker.checking = Some(name.to_owned());
         self.notice = Some(format!("Checking {}…", p.title()));
-        let (blocker, program) = (p.blocker.clone(), p.program.clone());
+        // One real, small request, as the daemon would make it: a CLI that
+        // answers for its version may still be signed out.
+        let blocker = p.blocker.clone();
+        let api = match &p.program {
+            Some(_) => None,
+            None => Some(self.endpoint(&p, model)),
+        };
+        let (kind, program, asked) = (p.kind.clone(), p.program.clone(), model.to_owned());
         let task = link::runtime().spawn(async move {
             if let Some(why) = blocker {
                 return Err(why);
             }
-            match program {
-                Some(program) => tokio::task::spawn_blocking(move || brains::cli_version(&program))
+            match (program, api) {
+                (Some(program), _) => brains::cli_probe(&kind, &program, &asked)
                     .await
-                    .unwrap_or_else(|e| Err(e.to_string()))
-                    .map(drop),
-                None => Ok(()),
+                    .map_err(|why| brains::cli_failure(&kind, &why)),
+                (None, Some(Ok((network, end)))) => {
+                    let deadline = std::time::Duration::from_secs(60);
+                    match tokio::time::timeout(deadline, brains::probe(&network, &end)).await {
+                        Ok(probed) => probed.map(drop),
+                        Err(_) => Err("it did not answer in 60s".to_owned()),
+                    }
+                }
+                (None, Some(Err(why))) => Err(why),
+                (None, None) => Ok(()),
             }
         });
         let (name, model) = (name.to_owned(), model.to_owned());
@@ -196,10 +219,14 @@ impl Desk {
                         let still = this
                             .current_provider()
                             .map_or_else(|| "no brain".to_owned(), |c| c.label());
-                        this.notice = Some(format!(
-                            "{} can't run here: {why}. Still thinking with {still}.",
-                            p.title()
-                        ));
+                        // A reason that already names the brain stands on
+                        // its own.
+                        let why = if why.starts_with(&p.title()) {
+                            why
+                        } else {
+                            format!("{} can't think here: {why}", p.title())
+                        };
+                        this.notice = Some(format!("{why}. Still thinking with {still}."));
                         cx.notify();
                     }
                 }
