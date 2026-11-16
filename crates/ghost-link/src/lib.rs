@@ -20,9 +20,9 @@ pub mod text;
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
-    ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello, JournalRead, ListGhosts,
-    Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead, Welcome, WorkAnswer, WorkLog,
-    WorkStop, method,
+    ConsoleRewind, ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame,
+    Hello, JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead,
+    Welcome, WorkAnswer, WorkLog, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -265,6 +265,19 @@ impl Console {
     pub async fn stop_place(&mut self, place: Option<String>) -> anyhow::Result<bool> {
         let stopped: ConsoleStopped = self.conn.call(method::STOP, &ConsoleStop { place }).await?;
         Ok(stopped.stopped)
+    }
+
+    /// Take back the line `to` (the seq of its `heard` entry) in the place
+    /// `place` on the console channel, or in the one named after whoever
+    /// is at the console, as an operator of hers: she is stopped there,
+    /// and that line and everything said there after it leave the
+    /// conversation in front of her. Returns how many lines did.
+    pub async fn rewind_place(&mut self, place: Option<String>, to: i64) -> anyhow::Result<i64> {
+        let rewound: ConsoleRewound = self
+            .conn
+            .call(method::REWIND, &ConsoleRewind { place, to })
+            .await?;
+        Ok(rewound.lines)
     }
 
     /// Answer what the work `work` asked, or add to what it was asked, as

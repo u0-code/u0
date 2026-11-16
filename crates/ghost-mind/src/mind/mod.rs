@@ -218,6 +218,12 @@ enum Signal {
         by: Operator,
         answer: oneshot::Sender<bool>,
     },
+    Rewind {
+        place: String,
+        to: i64,
+        by: Operator,
+        answer: oneshot::Sender<Option<i64>>,
+    },
     Stop,
 }
 
@@ -289,6 +295,23 @@ impl MindHandle {
         let (answer, rx) = oneshot::channel();
         self.send(Signal::Interrupt {
             place: place.to_owned(),
+            by,
+            answer,
+        })
+        .await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// An operator takes back their line `to` (the seq of its `heard`
+    /// entry) in `place`, to put it another way: she is stopped there as
+    /// [`Self::interrupt`] stops her, and that line and everything said
+    /// there after it leave the conversation in front of her. Answers how
+    /// many lines did, or `None` when `to` is not a line of theirs there.
+    pub async fn rewind(&self, place: &str, to: i64, by: Operator) -> Result<Option<i64>> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Rewind {
+            place: place.to_owned(),
+            to,
             by,
             answer,
         })
@@ -702,6 +725,14 @@ impl Mind {
             }
             Signal::Interrupt { place, by, answer } => {
                 let _ = answer.send(self.interrupt(&place, &by, now)?);
+            }
+            Signal::Rewind {
+                place,
+                to,
+                by,
+                answer,
+            } => {
+                let _ = answer.send(self.rewind(&place, to, &by, now)?);
             }
             Signal::Stop => {}
         }

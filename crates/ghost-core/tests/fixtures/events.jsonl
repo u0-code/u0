@@ -76,3 +76,4 @@
 {"kind":"skill_uninstalled","data":{"name":"pdf","why":"its files changed on disk after you installed it"}}
 {"kind":"added","data":{"id":"20261112-150000-00cd","text":"Weekdays.","by":"console:fox"}}
 {"kind":"stopped","data":{"place":"console:fox","by":"console:fox","looking":true,"unsaid":["half past nine, I think"],"works":["20261112-150000-00cd"]}}
+{"kind":"rewound","data":{"place":"console:fox","by":"console:fox","to":41,"looking":true,"unsaid":["half past nine, I think"]}}

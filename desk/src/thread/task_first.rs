@@ -48,9 +48,9 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     };
     let mut column = div().flex().flex_col().w_full().max_w(px(COLUMN)).mx_auto();
 
-    // What you said last, and when: a failure offers to say it again.
+    // What you said last, and when: a failure offers to take it back.
     let mut last_yours: Option<DateTime<Utc>> = None;
-    let mut last_line: Option<String> = None;
+    let mut last_line: Option<(String, i64)> = None;
     // What was last said to her by anyone, for timing a look still going.
     let mut heard: Option<DateTime<Utc>> = None;
     let mut before = Before::Nothing;
@@ -68,12 +68,17 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
             Item::Said { m, seq, from, mine } => {
                 if mine {
                     last_yours = Some(m.at);
-                    last_line = Some(m.text.clone());
+                    last_line = seq.map(|seq| (m.text.clone(), seq));
                 }
                 heard = Some(m.at);
                 let directed = seq.and_then(|x| marks.get(&x).copied());
                 let who = from.as_deref().unwrap_or(&view.who);
-                let el = yours(faces, &m, who, view.tz, directed, mine, cx).into_any_element();
+                let whose = Whose {
+                    seq,
+                    directed,
+                    mine,
+                };
+                let el = yours(faces, &m, whose, who, view.tz, cx).into_any_element();
                 (el, Before::Other)
             }
             Item::Tool(e) => (
@@ -215,13 +220,13 @@ fn note(faces: &Faces, text: String) -> Div {
 }
 
 /// Where her answer would be, when she could not think: why, calmly, and
-/// a way to say your last line again.
+/// a way to take your last line back and put it another way.
 fn failed(
     faces: &Faces,
     why: &str,
     at: DateTime<Utc>,
     tz: chrono_tz::Tz,
-    again: Option<String>,
+    again: Option<(String, i64)>,
     cx: &mut Context<Desk>,
 ) -> Div {
     let mut line = div()
@@ -244,7 +249,7 @@ fn failed(
                 )
                 .child(meta(faces, clock(at, tz))),
         );
-    if let Some(text) = again {
+    if let Some((text, seq)) = again {
         line = line.child(
             div()
                 .id(SharedString::from(format!(
@@ -268,7 +273,9 @@ fn failed(
                         .text_size(px(SMALL))
                         .text_color(theme::text2()),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.say_again(text.clone(), cx))),
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.take_back(&text, seq, window, cx);
+                })),
         );
     }
     line
@@ -388,16 +395,31 @@ fn starter(faces: &Faces, i: usize, text: &'static str, cx: &mut Context<Desk>) 
 }
 
 /// What you said: a bubble on the right, the way a chat has it, and under
-/// it when it was, with a way to say it again and to copy it.
+/// it when it was, with a way to take it back and to copy it.
+/// Whose a line in the thread is, and where it stands in her journal.
+#[derive(Clone, Copy)]
+struct Whose {
+    /// Its `heard` entry, once her journal has it.
+    seq: Option<i64>,
+    /// The entry that marked it a directive, on a platform.
+    directed: Option<i64>,
+    /// It came from you at the desk.
+    mine: bool,
+}
+
 fn yours(
     faces: &Faces,
     m: &Message,
+    whose: Whose,
     who: &str,
     tz: chrono_tz::Tz,
-    directed: Option<i64>,
-    mine: bool,
     cx: &mut Context<Desk>,
 ) -> Div {
+    let Whose {
+        seq,
+        directed,
+        mine,
+    } = whose;
     let stamp = m.at.timestamp_millis();
     let mut line = ago(m.at, tz);
     if !mine {
@@ -413,17 +435,23 @@ fn yours(
         .gap(px(2.))
         .mr(px(S1))
         .child(meta(faces, line).mr(px(6.)));
-    if mine {
+    // A line of yours her journal has can be taken back, to be put
+    // another way; one still on its way to her cannot yet.
+    if mine && let Some(seq) = seq {
         foot = foot.child(
             small_button(SharedString::from(format!("again-{stamp}")), "retry")
-                .tooltip(ui::tip("Say it again"))
-                .on_click(cx.listener(move |this, _, _, cx| this.say_again(again.clone(), cx))),
+                .tooltip(ui::tip(
+                    "Say it again: back in the box, and what followed taken back",
+                ))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.take_back(&again, seq, window, cx);
+                })),
         );
     }
     foot = foot.child(
         small_button(SharedString::from(format!("copy-{stamp}")), "copy")
             .tooltip(ui::tip("Copy"))
-            .on_click(cx.listener(move |this, _, _, cx| this.copy_text(&copy, cx))),
+            .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
     );
     div()
         .flex()
@@ -488,7 +516,7 @@ fn hers(
                             small_button(SharedString::from(format!("copy-{stamp}")), "copy")
                                 .tooltip(ui::tip("Copy"))
                                 .on_click(
-                                    cx.listener(move |this, _, _, cx| this.copy_text(&copy, cx)),
+                                    cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx)),
                                 ),
                         )
                         .child(meta(faces, line).ml(px(4.))),

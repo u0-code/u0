@@ -88,9 +88,33 @@ impl Desk {
         self.speak(text, SayMode::Say, cx);
     }
 
-    /// Say your last line again, after she could not think about it.
-    pub(crate) fn say_again(&mut self, text: String, cx: &mut Context<Self>) {
-        self.speak(text, SayMode::Say, cx);
+    /// Take a line of yours back, to put it another way: it goes back in
+    /// the box as it was, and that line and everything said after it leave
+    /// the conversation, as rewinding a coding agent to before a turn
+    /// does. `seq` is the line's `heard` entry in her journal. Nothing is
+    /// sent until you send it.
+    pub(crate) fn take_back(
+        &mut self,
+        text: &str,
+        seq: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match &self.open {
+            Some(open) => {
+                let place = open.place(self.who());
+                let id = thread::thread_key(&place)
+                    .split_once(':')
+                    .map(|(_, id)| id.to_owned())
+                    .unwrap_or_default();
+                open.her.order(Order::Rewind { place: id, to: seq });
+            }
+            None => self.solver.order(Order::Rewind {
+                place: self.session().id,
+                to: seq,
+            }),
+        }
+        self.prefill(text, window, cx);
     }
 
     /// Say `text` to whoever is on screen, as `mode` has it.

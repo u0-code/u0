@@ -146,11 +146,10 @@ impl Desk {
         cx.notify();
     }
 
-    /// Put one message on the clipboard.
-    pub(crate) fn copy_text(&mut self, text: &str, cx: &mut Context<Self>) {
+    /// Put one message on the clipboard. Quietly: a copy needs no line
+    /// under the box to say it happened.
+    pub(crate) fn copy_text(text: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
-        self.notice = Some(Notice::said("Copied."));
-        cx.notify();
     }
 
     /// Put a session's thread on the clipboard as text: who said what, and
@@ -173,12 +172,11 @@ impl Desk {
             rendering: thread::Rendering::Task,
         };
         let (text, lines) = thread::transcript(&view);
-        self.notice = Some(if lines == 0 {
-            Notice::said("Nothing has been said in that session yet.")
+        if lines == 0 {
+            self.notice = Some(Notice::said("Nothing has been said in that session yet."));
         } else {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
-            Notice::said(format!("Copied {lines} lines."))
-        });
+        }
         cx.notify();
     }
 

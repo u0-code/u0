@@ -25,11 +25,21 @@ use ghost_core::{
 };
 use tracing::info;
 
-use super::{Mind, Operator};
+use super::{Mind, Operator, attend::Looking};
 use crate::{Result, actions::clip};
 
 /// How much of a work's brief she is reminded of when she was stopped at it.
 const BRIEF: usize = 120;
+
+/// What calling her off in a place came to: see [`Mind::call_off`].
+struct CalledOff {
+    /// The look she was in the middle of there, if one.
+    under_way: Option<Looking>,
+    /// What she was about to say there and did not, in order.
+    unsaid: Vec<String>,
+    /// She was looking at what was said there, or about to.
+    looking: bool,
+}
 
 impl Mind {
     /// The operator `by` stops her in the place `key`. Returns whether
@@ -41,6 +51,66 @@ impl Mind {
         by: &Operator,
         now: DateTime<Utc>,
     ) -> Result<bool> {
+        let off = self.call_off(key)?;
+        if !off.looking && off.unsaid.is_empty() {
+            return Ok(false);
+        }
+        info!("{key}: {} stops her", by.key);
+        let stopped = self.record(Event::Stopped {
+            place: key.to_owned(),
+            by: by.key.clone(),
+            looking: off.looking,
+            unsaid: off.unsaid,
+            // Her work there goes on; the journal keeps the field for the
+            // days it did not.
+            works: Vec::new(),
+        })?;
+        self.ended(key, off.under_way, stopped.seq, by)?;
+        let _ = now;
+        Ok(true)
+    }
+
+    /// The operator `by` takes back their line `to` (the seq of its
+    /// `heard` entry) in the place `key`, to put it another way: she is
+    /// stopped there as [`Self::interrupt`] stops her, and that line and
+    /// everything said there after it leave the conversation in front of
+    /// her. Returns how many lines did, or `None` when `to` is not a line
+    /// of theirs there, in which case nothing is done.
+    pub(super) fn rewind(
+        &mut self,
+        key: &str,
+        to: i64,
+        by: &Operator,
+        now: DateTime<Utc>,
+    ) -> Result<Option<i64>> {
+        let theirs =
+            self.ghost.memory().line(to)?.is_some_and(|(place, line)| {
+                place == key && line.person.as_deref() == Some(&by.key)
+            });
+        if !theirs {
+            return Ok(None);
+        }
+        let lines = self.ghost.memory().lines_after(key, to - 1)?;
+        let off = self.call_off(key)?;
+        info!("{key}: {} takes back m{to}", by.key);
+        let rewound = self.record(Event::Rewound {
+            place: key.to_owned(),
+            by: by.key.clone(),
+            to,
+            looking: off.looking,
+            unsaid: off.unsaid,
+        })?;
+        self.ended(key, off.under_way, rewound.seq, by)?;
+        let _ = now;
+        Ok(Some(lines))
+    }
+
+    /// Call off whatever she is doing in the place `key`: the look under
+    /// way or due there, and what she was about to say. What was unread
+    /// there is left read, so that she does not look again at the same
+    /// lines. Nothing is written down here: what it came to is returned
+    /// for the caller to record as what it was.
+    fn call_off(&mut self, key: &str) -> Result<CalledOff> {
         self.agenda.attend.remove(key);
         self.retries.remove(key);
         let under_way = self.thinking.remove(key);
@@ -60,10 +130,6 @@ impl Mind {
         let place = self.ghost.memory().place(key)?;
         let unread = place.as_ref().filter(|p| p.unread > 0);
         let looking = under_way.is_some() || unread.is_some();
-        if !looking && unsaid.is_empty() {
-            return Ok(false);
-        }
-        info!("{key}: {} stops her", by.key);
         if let Some(place) = unread {
             self.record(Event::Read {
                 channel: place.channel.clone(),
@@ -71,22 +137,27 @@ impl Mind {
                 upto: place.last_in_seq,
             })?;
         }
-        let stopped = self.record(Event::Stopped {
-            place: key.to_owned(),
-            by: by.key.clone(),
-            looking,
+        Ok(CalledOff {
+            under_way,
             unsaid,
-            // Her work there goes on; the journal keeps the field for the
-            // days it did not.
-            works: Vec::new(),
-        })?;
-        // A look whose rounds a console can read ends with this entry, as
-        // one she finished ends with what she decided.
+            looking,
+        })
+    }
+
+    /// A look called off in `key` ended with the entry `seq` that says so,
+    /// as one she finished ends with what she decided; and something she
+    /// meant to do there, and was doing when she was called off, is not
+    /// taken up again unasked.
+    fn ended(
+        &mut self,
+        key: &str,
+        under_way: Option<Looking>,
+        seq: i64,
+        by: &Operator,
+    ) -> Result<()> {
         if let Some(looking) = &under_way {
-            self.end_kept(key, looking.kept, stopped.seq);
+            self.end_kept(key, looking.kept, seq);
         }
-        // Something she meant to do there, and was doing when she was
-        // stopped, is not taken up again unasked.
         if let Some(intention) = under_way.and_then(|l| l.intention) {
             self.pursuing.remove(&intention);
             self.record(Event::Settled {
@@ -95,8 +166,7 @@ impl Mind {
             })?;
             self.refresh_intentions()?;
         }
-        let _ = now;
-        Ok(true)
+        Ok(())
     }
 
     /// What she is told of having been stopped in `place`, the last time,

@@ -101,6 +101,70 @@ async fn stopped_while_the_brain_is_thinking_she_says_nothing_even_when_it_answe
 }
 
 #[tokio::test]
+async fn a_line_taken_back_is_gone_from_the_conversation_with_everything_said_after_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    rig.online(CONSOLE, t0);
+    rig.think
+        .then_call("say", serde_json::json!({"text": "half past nine"}));
+    rig.hear_on(
+        CONSOLE,
+        from_fox("1", "what time does the tea house close"),
+        t0,
+    );
+    let now = rig.mind.agenda.next_due().unwrap();
+    rig.mind.on_time(now).unwrap();
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let thread = rig.mind.ghost.memory().thread("console:fox", 10).unwrap();
+    assert_eq!(thread.len(), 2);
+    let line = thread[0].seq;
+
+    // Her line is not his to take back, nor one that was never said.
+    assert_eq!(
+        rig.mind
+            .rewind("console:fox", thread[1].seq, &fox(), now)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        rig.mind.rewind("console:fox", 9999, &fox(), now).unwrap(),
+        None
+    );
+    assert!(stops(&rig).is_empty());
+
+    assert_eq!(
+        rig.mind.rewind("console:fox", line, &fox(), now).unwrap(),
+        Some(2)
+    );
+    assert!(
+        rig.mind
+            .ghost
+            .memory()
+            .thread("console:fox", 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(rig.kinds().contains(&"rewound"));
+    // Taking it back is not a stop: nothing was under way.
+    assert!(stops(&rig).is_empty());
+
+    // What he says next is looked at with no trace of it.
+    rig.think
+        .then_call("say", serde_json::json!({"text": "at seven"}));
+    rig.hear_on(CONSOLE, from_fox("2", "when does it open"), now);
+    let later = rig.mind.agenda.next_due().unwrap();
+    rig.mind.on_time(later).unwrap();
+    rig.until(|r| r.body.sent().len() == 2).await;
+    let turn = rig.think.turns.lock().unwrap()[1].clone();
+    let given = format!("{:?}", turn.items);
+    assert!(given.contains("when does it open"), "{given}");
+    assert!(
+        !given.contains("tea house close") && !given.contains("half past nine"),
+        "{given}"
+    );
+}
+
+#[tokio::test]
 async fn an_answer_already_back_when_she_was_stopped_is_let_go_and_the_next_look_knows_why() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);

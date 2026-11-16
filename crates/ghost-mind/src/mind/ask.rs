@@ -159,6 +159,9 @@ impl Mind {
                 | Event::Noted { about: person, .. }
                 | Event::Left { person, .. } => other.as_deref() == Some(person.as_str()),
                 Event::Canon { source, .. } => *source == said_here,
+                // Being stopped here, or a line taken back here, is part
+                // of this conversation.
+                Event::Stopped { place, .. } | Event::Rewound { place, .. } => place == key,
                 _ => false,
             };
             if belongs {
