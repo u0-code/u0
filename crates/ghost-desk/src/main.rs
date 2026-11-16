@@ -14,10 +14,13 @@
 mod assets;
 mod desk;
 mod fonts;
+mod icon;
 mod input;
 mod link;
+mod markdown;
 mod model;
 mod settings;
+mod solver;
 mod theme;
 mod thread;
 mod ui;
@@ -44,6 +47,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
             fonts::load(cx);
+            icon::set();
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
@@ -62,7 +66,7 @@ fn main() {
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
-            let bounds = Bounds::centered(None, size(px(1280.), px(840.)), cx);
+            let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {

@@ -1,4 +1,6 @@
-//! The ghost glyph, built into the binary so that the desk runs from anywhere.
+//! The icons, built into the binary so that the desk runs from anywhere:
+//! Ghost's own mark, and the marks of the brains it can run on. Whose each
+//! is, and where it came from, is in `assets/icons/CREDITS.txt`.
 
 use std::borrow::Cow;
 
@@ -6,10 +8,13 @@ use gpui::{AssetSource, SharedString};
 
 pub struct Assets;
 
-const FILES: &[(&str, &[u8])] = &[(
-    "icons/ghost.svg",
-    include_bytes!("../assets/icons/ghost.svg"),
-)];
+macro_rules! icons {
+    ($($name:literal),* $(,)?) => {
+        &[$((concat!("icons/", $name, ".svg"), include_bytes!(concat!("../assets/icons/", $name, ".svg")) as &[u8])),*]
+    };
+}
+
+const FILES: &[(&str, &[u8])] = icons!["ghost", "openai", "claude", "deepseek"];
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {

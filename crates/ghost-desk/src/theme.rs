@@ -26,6 +26,10 @@ pub fn panel() -> Hsla {
 pub fn panel2() -> Hsla {
     c(0x1D1D_1B)
 }
+/// A code block's ground.
+pub fn well() -> Hsla {
+    c(0x0F0F_0E)
+}
 /// Lines between things.
 pub fn border() -> Hsla {
     c(0x2222_20)
@@ -81,6 +85,16 @@ pub fn coral() -> Hsla {
 /// Something she kept.
 pub fn amber2() -> Hsla {
     c(0xC7A8_6E)
+}
+
+/// The colour each brain's mark is drawn in: GPUI draws an icon in one
+/// colour, so each gets its brand's own.
+pub fn brand(icon: &str) -> Hsla {
+    match icon {
+        "claude" => c(0xD977_57),
+        "deepseek" => c(0x4D6B_FE),
+        _ => text(),
+    }
 }
 
 /// The colour a journal kind is always shown in.

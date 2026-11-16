@@ -2,10 +2,11 @@
 //!
 //! Two roles at once, as the protocol has them: a console that asks about
 //! her and streams her journal, and a presence named `desk` that carries
-//! the conversation between you and her. Both run on a tokio runtime on a
-//! thread of their own and hand what they learn to the UI as [`Update`]s
-//! over a plain channel; the UI drains it on its own clock. Nothing here
-//! touches a ghost's files.
+//! the conversation between you and her. Each session on the desk is a
+//! place of its own on that channel, so her journal keeps the threads
+//! apart. Both roles run on a tokio runtime on a thread of their own and
+//! hand what they learn to the UI as [`Update`]s over a plain channel; the
+//! UI drains it on its own clock. Nothing here touches a ghost's files.
 
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -21,10 +22,10 @@ use ghost_link::{
 use serde_json::Value;
 use tracing::{info, warn};
 
-use crate::model::{Entry, LinkState, PersonView, PlaceView, Status, Update};
+use crate::model::{Entry, LinkState, PersonView, Status, Update};
 
 /// How many journal entries the desk holds when it connects.
-pub const TAIL: u32 = 300;
+pub const TAIL: u32 = 400;
 /// How often it asks after her again.
 const REFRESH: Duration = Duration::from_secs(20);
 const RETRY: Duration = Duration::from_secs(3);
@@ -41,8 +42,11 @@ pub struct Config {
     pub who: String,
 }
 
-/// A line you typed, on its way to her.
-pub struct Outgoing(pub String);
+/// A line you typed, on its way to her, in one session.
+pub struct Outgoing {
+    pub place: String,
+    pub text: String,
+}
 
 /// Start the link. Returns where updates arrive and where to put what you say.
 pub fn start(
@@ -153,13 +157,6 @@ async fn session(cfg: &Config, up: &mpsc::Sender<Update>) -> anyhow::Result<()> 
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let status = asker.status().await?;
     let _ = up.send(Update::Status(Box::new(Status::from_value(&status))));
-    let agenda = asker.agenda().await.unwrap_or(Value::Null);
-    let _ = up.send(Update::Agenda(agenda));
-    if let Ok(Value::Array(places)) = asker.places().await {
-        let _ = up.send(Update::Places(
-            places.iter().filter_map(PlaceView::from_value).collect(),
-        ));
-    }
     if let Ok(Value::Array(people)) = asker.people().await {
         let _ = up.send(Update::People(
             people.iter().filter_map(PersonView::from_value).collect(),
@@ -168,12 +165,12 @@ async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Resu
     Ok(())
 }
 
-/// The key of the private place between you and her, as her memory names it.
-pub fn place_key(who: &str) -> String {
+/// The key her memory gives you, as a person, on the desk.
+pub fn person_key(who: &str) -> String {
     format!("{CHANNEL}:{}", who.to_lowercase())
 }
 
-/// The desk as a platform: you type, she answers.
+/// The desk as a platform: you type, she answers. Each session is a place.
 struct Desk {
     who: String,
     lines: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Outgoing>>>,
@@ -187,14 +184,6 @@ impl Desk {
             .map_or(0, |d| d.as_millis());
         format!("desk-{stamp}")
     }
-
-    fn place(&self) -> Place {
-        Place {
-            id: self.who.to_lowercase(),
-            kind: PlaceKind::Direct,
-            name: None,
-        }
-    }
 }
 
 #[async_trait]
@@ -207,9 +196,13 @@ impl Platform for Desk {
             return Ok(());
         };
         let _ = self.up.send(Update::DeskOnline(true));
-        while let Some(Outgoing(text)) = lines.recv().await {
+        while let Some(Outgoing { place, text }) = lines.recv().await {
             up.inbound(Inbound {
-                place: self.place(),
+                place: Place {
+                    id: place,
+                    kind: PlaceKind::Direct,
+                    name: None,
+                },
                 from: Actor {
                     id: self.who.to_lowercase(),
                     name: self.who.clone(),
@@ -229,95 +222,19 @@ impl Platform for Desk {
 
     async fn act(&self, action: Action) -> anyhow::Result<Acted> {
         match action {
-            Action::Send { text, .. } => {
-                let _ = self.up.send(Update::HerSay(text));
+            Action::Send { place, text, .. } => {
+                let _ = self.up.send(Update::HerSay { place, text });
                 Ok(Acted {
                     id: Some(Self::id()),
                     items: Vec::new(),
                     measure: None,
                 })
             }
-            Action::Typing { .. } => {
-                let _ = self.up.send(Update::HerTyping);
+            Action::Typing { place } => {
+                let _ = self.up.send(Update::HerTyping { place });
                 Ok(Acted::default())
             }
             _ => Ok(Acted::default()),
         }
-    }
-}
-
-/// What a daemon said it runs, when asked without naming anyone.
-#[derive(Debug, Clone)]
-pub struct Discovered {
-    pub url: String,
-    /// Each character's directory name, or `None` for a daemon that runs
-    /// one and needs no name.
-    pub ghosts: Vec<Option<String>>,
-    pub error: Option<String>,
-}
-
-/// Ask a daemon which characters it runs. A daemon that runs one answers
-/// a hello without a name; one that runs several refuses it and names them
-/// in its refusal, which is the only way the protocol lists them today.
-pub fn discover(url: String, token: Option<String>, out: mpsc::Sender<Discovered>) {
-    std::thread::Builder::new()
-        .name("ghost-discover".into())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("a tokio runtime");
-            let found = rt.block_on(async {
-                match Console::connect(&url, token, None).await {
-                    Ok(_) => Discovered {
-                        url: url.clone(),
-                        ghosts: vec![None],
-                        error: None,
-                    },
-                    Err(e) => {
-                        let text = format!("{e:#}");
-                        let ghosts = names_in_refusal(&text);
-                        if ghosts.is_empty() {
-                            Discovered {
-                                url: url.clone(),
-                                ghosts: Vec::new(),
-                                error: Some(text),
-                            }
-                        } else {
-                            Discovered {
-                                url: url.clone(),
-                                ghosts: ghosts.into_iter().map(Some).collect(),
-                                error: None,
-                            }
-                        }
-                    }
-                }
-            });
-            let _ = out.send(found);
-        })
-        .expect("spawn the discovery thread");
-}
-
-/// The names in "this daemon runs a, b; say which of them this is for".
-fn names_in_refusal(text: &str) -> Vec<String> {
-    let Some(rest) = text.split("this daemon runs ").nth(1) else {
-        return Vec::new();
-    };
-    let list = rest.split(';').next().unwrap_or_default();
-    list.split(',')
-        .map(|n| n.trim().trim_matches('"').to_owned())
-        .filter(|n| !n.is_empty() && !n.contains(' '))
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_refusal_names_the_characters_it_runs() {
-        let text = "hello: this daemon runs lin, mei; say which of them this is for (--ghost or GHOST_NAME)";
-        assert_eq!(names_in_refusal(text), vec!["lin", "mei"]);
-        assert!(names_in_refusal("connect to ws://x: refused").is_empty());
     }
 }
