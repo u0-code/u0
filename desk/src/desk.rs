@@ -378,6 +378,8 @@ impl Desk {
             desk.new_session(cx);
             desk.say(task.trim().to_owned(), cx);
         }
+        // The brains' models, so that the picker has them when opened.
+        desk.warm_models(cx);
         desk
     }
 

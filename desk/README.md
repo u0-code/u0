@@ -175,7 +175,14 @@ lists it; the count beside Attention is what you have not seen.
 The brain chip beside the line, and the solver's row at the foot of the
 sidebar, open a small picker: every `[providers]` table of the deployment,
 with its mark and its name, and the models of the one looked at, with a
-check on the one in use. Picking a model first asks the brain to think
+check on the one in use. The models come from the brain itself, none
+from a list in the desk: Claude Code's are read out of the build
+installed on this machine, once per build, under the names Claude Code
+gives them (Opus 4.5, Sonnet 4.5); Codex's are what its own cache lists
+for your account; an API's are what its `/models` says, asked for when
+the desk starts and again after a day, and kept in
+`~/.config/ghost-desk/models.json` so that the picker has them at once,
+with or without the network. Picking a model first asks the brain to think
 once, as little as there is, the way the daemon would: Claude Code with
 `claude -p` and one turn, Codex with `codex exec`, an API with its model
 list or a one-token answer, each within a minute. If it cannot (a CLI
