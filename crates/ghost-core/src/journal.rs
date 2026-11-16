@@ -720,11 +720,23 @@ impl Journal {
 
     /// The last `n` entries whose kind is one of `kinds`, oldest first.
     pub fn last_n_of(&self, kinds: &[&str], n: usize) -> Result<Vec<Entry>> {
-        let placeholders = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        if kinds.is_empty() {
+            return Ok(Vec::new());
+        }
         let limit = i64::try_from(n).unwrap_or(i64::MAX);
-        let sql = format!(
-            "SELECT {COLUMNS} FROM events WHERE kind IN ({placeholders}) ORDER BY seq DESC LIMIT {limit}"
-        );
+        // The newest of each kind, read backwards along its index, and the
+        // newest of those. `kind IN (…)` would gather every entry of those
+        // kinds she ever wrote and sort them all to keep a few.
+        let sql = kinds
+            .iter()
+            .map(|_| {
+                format!(
+                    "SELECT * FROM (SELECT {COLUMNS} FROM events WHERE kind = ? ORDER BY seq DESC LIMIT {limit})"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" UNION ALL ")
+            + &format!(" ORDER BY seq DESC LIMIT {limit}");
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt
             .query_map(rusqlite::params_from_iter(kinds.iter()), row_to_entry)?
@@ -774,12 +786,11 @@ impl Journal {
         let mut expected_seq = 1;
         let mut count = 0;
         while let Some(row) = rows.next()? {
+            // Read in place rather than copied out: this walks the whole of
+            // her life each time anything looks at her.
             let seq: i64 = row.get(0)?;
-            let at: String = row.get(1)?;
-            let kind: String = row.get(2)?;
-            let payload: String = row.get(3)?;
-            let prev_hash: String = row.get(4)?;
-            let hash: String = row.get(5)?;
+            let (at, kind, payload) = (text(row, 1)?, text(row, 2)?, text(row, 3)?);
+            let (prev_hash, hash) = (text(row, 4)?, text(row, 5)?);
             if seq != expected_seq {
                 return Err(Error::BrokenChain {
                     seq,
@@ -792,14 +803,14 @@ impl Journal {
                     reason: "prev_hash does not match previous entry".into(),
                 });
             }
-            let recomputed = hash_entry(&prev_hash, seq, &at, &kind, &payload);
-            if recomputed != hash {
+            if hash_of(prev_hash, seq, at, kind, payload).to_hex().as_str() != hash {
                 return Err(Error::BrokenChain {
                     seq,
                     reason: "hash does not match contents".into(),
                 });
             }
-            expected_prev = hash;
+            expected_prev.clear();
+            expected_prev.push_str(hash);
             expected_seq += 1;
             count += 1;
         }
@@ -847,12 +858,23 @@ pub(crate) fn parse_stamp(s: &str) -> std::result::Result<DateTime<Utc>, chrono:
 
 /// `blake3(prev_hash ‖ seq ‖ at ‖ kind ‖ payload)`, hex.
 pub fn hash_entry(prev_hash: &str, seq: i64, at: &str, kind: &str, payload: &str) -> String {
+    hash_of(prev_hash, seq, at, kind, payload)
+        .to_hex()
+        .to_string()
+}
+
+fn hash_of(prev_hash: &str, seq: i64, at: &str, kind: &str, payload: &str) -> blake3::Hash {
     let mut h = blake3::Hasher::new();
     for part in [prev_hash, &seq.to_string(), at, kind, payload] {
         h.update(part.as_bytes());
         h.update(b"\n");
     }
-    h.finalize().to_hex().to_string()
+    h.finalize()
+}
+
+/// A text column of a row, as it is in the row.
+fn text<'r>(row: &'r rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<&'r str> {
+    Ok(row.get_ref(idx)?.as_str()?)
 }
 
 const SCHEMA: &str = "
@@ -936,6 +958,38 @@ mod tests {
         let after = j.of_kinds_after(&["lived"], 2).unwrap();
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].seq, 4);
+    }
+
+    #[test]
+    fn the_newest_of_several_kinds_are_interleaved_oldest_first() {
+        let mut j = Journal::in_memory();
+        for i in 0..20 {
+            j.append(lived(&i.to_string())).unwrap();
+            if i % 3 == 0 {
+                j.append(Event::Woke).unwrap();
+            }
+            if i % 7 == 0 {
+                j.append(Event::Slept).unwrap();
+            }
+        }
+        let kinds = ["slept", "woke", "lived"];
+        let all: Vec<i64> = j
+            .read(1, 100)
+            .unwrap()
+            .into_iter()
+            .filter(|e| kinds.contains(&e.event.kind()))
+            .map(|e| e.seq)
+            .collect();
+        for n in [0, 1, 4, 9, 50] {
+            let got: Vec<i64> = j
+                .last_n_of(&kinds, n)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.seq)
+                .collect();
+            assert_eq!(got, all[all.len().saturating_sub(n)..], "the last {n}");
+        }
+        assert!(j.last_n_of(&[], 3).unwrap().is_empty());
     }
 
     #[test]

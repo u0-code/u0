@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS feelings (
     delta INTEGER NOT NULL, why TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feelings_toward ON feelings (toward, seq);
+CREATE TABLE IF NOT EXISTS days_heard (
+    person TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (person, day)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS heard_in (
+    place TEXT NOT NULL, person TEXT NOT NULL, last_seq INTEGER NOT NULL,
+    PRIMARY KEY (place, person)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS heard_in_recent ON heard_in (place, last_seq);
 ";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
@@ -80,6 +88,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             ..
         } => {
             let place_key = social::key(channel, &place.id);
+            let person = social::key(channel, &from.id);
             let direct = (place.kind == PlaceKind::Direct).then_some(&place_key);
             tx.execute(
                 "INSERT INTO people (key, channel, id, name, handle, automated, first_at, last_at, heard, direct)
@@ -88,7 +97,7 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                      automated = ?6, last_at = ?7, heard = heard + 1,
                      direct = COALESCE(?8, direct)",
                 params![
-                    social::key(channel, &from.id),
+                    person,
                     channel,
                     from.id,
                     from.name,
@@ -97,6 +106,18 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                     at,
                     direct
                 ],
+            )?;
+            // The days she heard from someone, and the last time she heard
+            // from them in each place, are kept as they happen, so that
+            // reading either does not go through everything they ever said.
+            tx.execute(
+                "INSERT OR IGNORE INTO days_heard (person, day) VALUES (?1, substr(?2, 1, 10))",
+                params![person, at],
+            )?;
+            tx.execute(
+                "INSERT INTO heard_in (place, person, last_seq) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(place, person) DO UPDATE SET last_seq = MAX(last_seq, ?3)",
+                params![place_key, person, entry.seq],
             )?;
         }
         // How she stands with an account, and whether she has left it, are
@@ -153,7 +174,7 @@ impl Memory {
             return Ok(None);
         };
         person.active_days = self.conn.query_row(
-            "SELECT COUNT(DISTINCT substr(at, 1, 10)) FROM messages WHERE person = ?1",
+            "SELECT COUNT(*) FROM days_heard WHERE person = ?1",
             [key],
             |r| r.get(0),
         )?;
@@ -227,8 +248,7 @@ impl Memory {
     /// The people most recently heard in a place, most recent first.
     pub fn people_in(&self, place: &str, limit: usize) -> Result<Vec<Person>> {
         let mut stmt = self.conn.prepare(
-            "SELECT person FROM messages WHERE place = ?1 AND dir = 'in' AND person IS NOT NULL
-             GROUP BY person ORDER BY MAX(seq) DESC LIMIT ?2",
+            "SELECT person FROM heard_in WHERE place = ?1 ORDER BY last_seq DESC LIMIT ?2",
         )?;
         let keys = stmt
             .query_map(params![place, as_i64(limit)], |r| r.get::<_, String>(0))?
@@ -280,7 +300,7 @@ impl Memory {
 mod tests {
     use chrono::Utc;
 
-    use super::super::testing::{fold, heard, on, said};
+    use super::super::testing::{fold, heard, on, said, steps};
     use crate::{journal::Event, social::PlaceKind};
 
     #[test]
@@ -347,5 +367,31 @@ mod tests {
         );
         assert!(m.feelings_toward("t:a", since, 5).unwrap().is_empty());
         assert_eq!(m.people().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reading_someone_costs_the_same_however_much_they_have_said() {
+        let cost = |n: usize| {
+            let mut events = Vec::new();
+            for i in 0..n {
+                let who = if i % 2 == 0 { "a" } else { "b" };
+                let id = i.to_string();
+                events.push(heard("g", PlaceKind::Group, who, &id, "hello", false));
+                events.push(heard("a", PlaceKind::Direct, "a", &id, "you there", true));
+                events.push(said("a", "here"));
+            }
+            let (_, mut m) = fold(events);
+            let (people, steps) = steps(&mut m, |m| {
+                let a = m.person("t:a").unwrap().unwrap();
+                (a.active_days, m.people_in("t:g", 6).unwrap().len())
+            });
+            assert_eq!(people, (1, 2));
+            steps
+        };
+        let (short, long) = (cost(20), cost(400));
+        assert!(
+            long < short * 2,
+            "{short} steps after 20 messages each, {long} after 400"
+        );
     }
 }

@@ -48,6 +48,8 @@ pub struct Ghost {
 pub struct Peek {
     pub identity: Identity,
     pub journal: Journal,
+    /// How many entries her journal held when it was verified.
+    pub entries: i64,
     /// `ghost.toml` has been revised since the version in her journal. The
     /// revision is written there the next time she is opened to live.
     pub revised: bool,
@@ -93,6 +95,7 @@ impl Ghost {
             identity,
             journal,
             revised,
+            ..
         } = Self::peek(dir)?;
         fs::create_dir_all(dir.join("derived"))?;
         let lock = lock(dir)?;
@@ -125,11 +128,12 @@ impl Ghost {
             Some(_) => return Err(Error::NotHer("journal does not begin with birth".into())),
             None => return Err(Error::NotHer("journal is empty".into())),
         }
-        journal.verify()?;
+        let entries = journal.verify()?;
         let revised = recorded_seal(&journal)?.as_ref() != Some(identity.seal());
         Ok(Peek {
             identity,
             journal,
+            entries,
             revised,
         })
     }

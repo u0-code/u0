@@ -61,7 +61,7 @@ pub(crate) fn status(dir: &Path) -> anyhow::Result<()> {
             (Phase::Awake, None) => "awake, nothing planned right now".to_owned(),
         }
     );
-    println!("journal   {} entries", peek.journal.len()?);
+    println!("journal   {} entries", peek.entries);
     if let Some(last) = peek.journal.last()? {
         println!("last      {}", show::entry(&last, life.clock().tz()));
     }
@@ -134,6 +134,6 @@ pub(crate) fn journal(dir: &Path, last: usize) -> anyhow::Result<()> {
 
 pub(crate) fn verify(dir: &Path) -> anyhow::Result<()> {
     let peek = Ghost::peek(dir)?;
-    println!("chain ok, {} entries", peek.journal.len()?);
+    println!("chain ok, {} entries", peek.entries);
     Ok(())
 }
