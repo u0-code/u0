@@ -38,7 +38,7 @@ async fn work_ends_when_it_says_it_is_finished() {
 async fn each_step_is_logged_with_what_was_said_called_and_returned_and_reads_back_in_order() {
     let dir = tempfile::tempdir().unwrap();
     let mut first = calls("write", json!({"path": "hi.txt", "content": "hi\n"}));
-    first.text = "writing it first".into();
+    first.text = "writing it first:\n\n| file | lines |\n|---|---|\n| hi.txt | 1 |".into();
     let script = vec![
         first,
         calls(
@@ -57,7 +57,11 @@ async fn each_step_is_logged_with_what_was_said_called_and_returned_and_reads_ba
     assert!(!read.more);
     let steps = read.steps;
     assert_eq!(steps.iter().map(|s| s.n).collect::<Vec<_>>(), [1, 2, 3]);
-    assert_eq!(steps[0].said, "writing it first");
+    // What was said is kept as it was written, a table and all.
+    assert_eq!(
+        steps[0].said,
+        "writing it first:\n\n| file | lines |\n|---|---|\n| hi.txt | 1 |"
+    );
     assert!(steps[0].ms.is_some() && steps[0].at.is_some());
     let write = &steps[0].calls[0];
     assert_eq!(write["name"], "write");
