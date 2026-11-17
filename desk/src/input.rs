@@ -264,7 +264,7 @@ impl TextInput {
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
+                self.content[self.within(self.selected_range.clone())].to_string(),
             ));
         }
     }
@@ -272,7 +272,7 @@ impl TextInput {
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
+                self.content[self.within(self.selected_range.clone())].to_string(),
             ));
             self.replace_text_in_range(None, "", window, cx);
         }
@@ -362,6 +362,13 @@ impl TextInput {
         self.offset_from_utf16(range_utf16.start)..self.offset_from_utf16(range_utf16.end)
     }
 
+    /// `range` made safe to cut the text with: inside it, on character
+    /// boundaries, and in order. What an input method hands over can be
+    /// stale by the time it arrives.
+    fn within(&self, range: Range<usize>) -> Range<usize> {
+        within(&self.content, range)
+    }
+
     fn previous_boundary(&self, offset: usize) -> usize {
         self.content
             .grapheme_indices(true)
@@ -397,7 +404,7 @@ impl EntityInputHandler for TextInput {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
-        let range = self.range_from_utf16(&range_utf16);
+        let range = self.within(self.range_from_utf16(&range_utf16));
         actual_range.replace(self.range_to_utf16(&range));
         Some(self.content[range].to_string())
     }
@@ -436,6 +443,7 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
+        let range = self.within(range);
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -458,6 +466,7 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
+        let range = self.within(range);
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -466,13 +475,11 @@ impl EntityInputHandler for TextInput {
         } else {
             self.marked_range = Some(range.start..range.start + new_text.len());
         }
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|r| self.range_from_utf16(r))
-            .map_or_else(
-                || range.start + new_text.len()..range.start + new_text.len(),
-                |new_range| new_range.start + range.start..new_range.end + range.end,
-            );
+        // Where the input method puts the cursor is given within what it is
+        // composing, in UTF-16: it is measured in that text, not in the
+        // whole, and starts where that text does.
+        self.selected_range =
+            marked_selection(new_text, range.start, new_selected_range_utf16.as_ref());
         cx.emit(Changed);
         cx.notify();
     }
@@ -838,5 +845,68 @@ impl Render for TextInput {
 impl Focusable for TextInput {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+/// `range` inside `text`, on character boundaries, start before end.
+fn within(text: &str, range: Range<usize>) -> Range<usize> {
+    let at = |i: usize| {
+        let mut i = i.min(text.len());
+        while !text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    };
+    let (a, b) = (at(range.start), at(range.end));
+    a.min(b)..a.max(b)
+}
+
+/// A UTF-16 offset into `text` as a byte offset, at most its length.
+fn utf8_offset(text: &str, utf16: usize) -> usize {
+    let mut units = 0;
+    for (i, ch) in text.char_indices() {
+        if units >= utf16 {
+            return i;
+        }
+        units += ch.len_utf16();
+    }
+    text.len()
+}
+
+/// Where the cursor goes while an input method composes `new_text` at
+/// byte `start`: the range it asks for within `new_text`, in UTF-16, or the
+/// end of `new_text`.
+fn marked_selection(new_text: &str, start: usize, asked: Option<&Range<usize>>) -> Range<usize> {
+    match asked {
+        Some(r) => start + utf8_offset(new_text, r.start)..start + utf8_offset(new_text, r.end),
+        None => start + new_text.len()..start + new_text.len(),
+    }
+}
+
+#[cfg(test)]
+mod ime_tests {
+    use super::*;
+
+    #[test]
+    fn a_cursor_an_input_method_places_is_measured_in_what_it_composes() {
+        // Composing 你好 after "ab": the cursor it asks for at the end of
+        // the two characters (UTF-16 2) is byte 6 into them, byte 8 in all.
+        assert_eq!(marked_selection("你好", 2, Some(&(2..2))), 8..8);
+        assert_eq!(marked_selection("你好", 2, Some(&(1..2))), 5..8);
+        assert_eq!(marked_selection("ni", 0, None), 2..2);
+        // Asked past its end, it stays at the end.
+        assert_eq!(marked_selection("哦", 0, Some(&(4..4))), 3..3);
+    }
+
+    #[test]
+    fn a_range_to_cut_with_is_kept_inside_the_text_and_on_its_characters() {
+        assert_eq!(
+            within("哦", 4..4),
+            3..3,
+            "the range of the crash: past the end"
+        );
+        assert_eq!(within("哦a", 1..4), 0..4);
+        let (end, start) = (1, 2);
+        assert_eq!(within("abc", start..end), 1..2, "put in order");
     }
 }
