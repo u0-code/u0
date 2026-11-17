@@ -100,7 +100,7 @@ async fn a_brain_that_cannot_see_leaves_the_placeholder_and_fetches_nothing() {
     assert!(viewed(&rig).is_empty());
     let prompt = format!("{:?}", rig.think.seen.lock().unwrap()[0].messages);
     assert!(
-        prompt.contains("[image]") && !prompt.contains("[image:"),
+        prompt.contains("wen: [image]") && !prompt.contains("wen: [image:"),
         "{prompt}"
     );
 }

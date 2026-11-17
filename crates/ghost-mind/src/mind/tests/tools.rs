@@ -401,3 +401,41 @@ async fn a_look_that_spends_its_turns_on_looking_things_up_still_ends_in_an_answ
     // Earlier turns still had it.
     assert!(turns[0].tools.iter().any(|t| t.name == "recall"));
 }
+
+#[tokio::test]
+async fn at_a_console_she_is_not_offered_what_she_does_only_among_people() {
+    let t0 = at(14, 0);
+    let offered = |rig: &Rig| -> Vec<String> {
+        rig.think.turns.lock().unwrap()[0]
+            .tools
+            .iter()
+            .map(|t| t.name.clone())
+            .collect()
+    };
+    let among_people = ["react", "later", "feel", "leave"];
+
+    // In a chat that can put a reaction on a message: reacting, putting
+    // off, being moved, leaving.
+    let mut rig = Rig::with_tools(t0);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "hi"}))]);
+    rig.hear(dm("wen", "1", "hi"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let chat = offered(&rig);
+    for name in among_people {
+        assert!(chat.iter().any(|n| n == name), "{name}: {chat:?}");
+    }
+
+    // At a console she is waited on: none of it.
+    let mut rig = Rig::with_tools(t0);
+    rig.online(crate::CONSOLE, t0);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "hi"}))]);
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "hi"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let console = offered(&rig);
+    for name in among_people {
+        assert!(!console.iter().any(|n| n == name), "{name}: {console:?}");
+    }
+    assert!(console.iter().any(|n| n == "say" || n == "recall"));
+}
