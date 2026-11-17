@@ -133,6 +133,26 @@ fn connector(last: bool) -> Div {
         )
 }
 
+/// The `…` of a row: three dots drawn as dots, so they sit on the row's
+/// centre line rather than a glyph's baseline. `color` is theirs now, and
+/// `lit` theirs while the pointer is over the row `group`.
+fn more_dots(color: gpui::Hsla, group: &SharedString, lit: gpui::Hsla) -> Div {
+    let dot = |group: SharedString| {
+        div()
+            .size(px(3.5))
+            .rounded_full()
+            .bg(color)
+            .group_hover(group, move |s| s.bg(lit))
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(2.5))
+        .child(dot(group.clone()))
+        .child(dot(group.clone()))
+        .child(dot(group.clone()))
+}
+
 impl Desk {
     /// The column, with `lights` of room at the left of its top row.
     pub(crate) fn left(
@@ -404,16 +424,15 @@ impl Desk {
             .rounded(px(5.))
             .when(menu_open, |d| d.bg(theme::border2()))
             .hover(|s| s.bg(theme::border2()))
-            .child(
-                ui::mono(faces, "…")
-                    .text_size(px(13.))
-                    .text_color(if shown {
-                        theme::text2()
-                    } else {
-                        gpui::transparent_black()
-                    })
-                    .group_hover(group.clone(), |s| s.text_color(theme::text2())),
-            )
+            .child(more_dots(
+                if shown {
+                    theme::text2()
+                } else {
+                    gpui::transparent_black()
+                },
+                &group,
+                theme::text2(),
+            ))
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
                 this.toggle_session_menu(&for_more, cx);
@@ -653,13 +672,11 @@ impl Desk {
                     .size(px(20.))
                     .rounded(px(5.))
                     .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        ui::mono(faces, "…")
-                            .text_color(gpui::transparent_black())
-                            .group_hover(SharedString::from(key.clone()), |s| {
-                                s.text_color(theme::muted())
-                            }),
-                    )
+                    .child(more_dots(
+                        gpui::transparent_black(),
+                        &SharedString::from(key.clone()),
+                        theme::muted(),
+                    ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.popup = Popup::Connection(menu_for.clone());
