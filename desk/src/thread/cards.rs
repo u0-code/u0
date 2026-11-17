@@ -8,13 +8,13 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use ghost_link::protocol::{AskKind, LoggedStep, Work};
-use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, Stateful, div, prelude::*, px};
 use serde_json::Value;
 
 use super::{
     State, Task, calls, clock, drawn, kinds, s, span, steps,
     style::{
-        BODY, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, SMALL_LINE, meta,
+        BODY, BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta,
         well,
     },
     task_first::breathing,
@@ -209,22 +209,9 @@ pub(super) fn task(
         whole = whole.child(asking(faces, w, question, whom, cx));
     }
     if open {
-        // Opened, everything it did is in one panel, the way a coding
-        // agent's app opens a group of steps: what it was asked first, then
-        // each step, then how it ended.
-        let brief =
-            div()
-                .w_full()
-                .px(px(10.))
-                .pt(px(S2))
-                .pb(px(S2))
-                .child(crate::markdown::render_as(
-                    faces,
-                    &format!("brief:{}", t.id),
-                    t.brief_shown(),
-                    crate::markdown::Setting::Small,
-                ));
-        // The plan as it was last set, on top: where the work stands.
+        // Opened, under a rule: the plan as it was last set, then each
+        // step and what she said between them, then the parts it handed
+        // out. Rows are drawn 16 in from the card's edge, as its head is.
         let plan = read
             .and_then(|r| {
                 r.steps
@@ -239,18 +226,27 @@ pub(super) fn task(
                 .flex()
                 .flex_col()
                 .w_full()
-                .gap(px(S2))
-                .px(px(S3))
-                .pt(px(S2))
-                .pb(px(S3))
+                .px(px(S4 - 10.))
+                .pt(px(14.))
+                .pb(px(S4))
                 .border_t_1()
                 .border_color(theme::border())
                 .when(!plan.is_empty(), |d| {
-                    d.child(drawn::plan(faces, &plan).px(px(10.)).pt(px(S2)).pb(px(S1)))
+                    d.child(drawn::plan(faces, &plan).px(px(10.))).child(
+                        div()
+                            .h(px(1.))
+                            .mx(px(10.))
+                            .mt(px(S3))
+                            .mb(px(S2))
+                            .bg(theme::border()),
+                    )
                 })
                 .child(
-                    steps::panel()
-                        .child(brief)
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .gap(px(2.))
                         .children(along_the_way(faces, t, tz, following, expanded, cx)),
                 )
                 .children(parts(faces, t, following, expanded, cx)),
@@ -504,33 +500,23 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
         "added" => ("Added".to_owned(), s(&e.data, "text")),
         other => (other.to_owned(), s(&e.data, "text")),
     };
+    // Drawn as what she says between steps is: quiet words, with what
+    // happened and when in small print over them.
     div()
         .flex()
         .flex_col()
         .gap(px(2.))
         .px(px(10.))
-        .py(px(S1 + 2.))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    ui::text(faces, tag)
-                        .text_size(px(SMALL))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::kind_color(&e.kind)),
-                )
-                .child(meta(faces, clock(e.at, tz))),
-        )
+        .py(px(S1))
+        .child(meta(faces, format!("{tag} · {}", clock(e.at, tz))))
         .when(!text.trim().is_empty(), |d| {
             d.child(
                 // Cut by characters here: GPUI's own clamp with an
                 // ellipsis cuts Chinese inside a character and panics.
                 ui::text(faces, calls::one_line(text, SAID_SHORT))
-                    .text_size(px(SMALL))
-                    .line_height(px(SMALL_LINE))
-                    .text_color(theme::muted()),
+                    .text_size(px(SMALL + 1.))
+                    .line_height(px(BODY_LINE))
+                    .text_color(theme::text2()),
             )
         })
 }

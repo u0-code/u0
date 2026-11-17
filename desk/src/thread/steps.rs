@@ -535,9 +535,23 @@ pub(super) fn step(
         // What she said at a step is written as she writes to anyone:
         // drawn the same way, small and quiet.
         let key = format!("said:{work}:{}", step.n);
-        block = block.child(div().w_full().px(px(10.)).pt(px(S2)).pb(px(S2)).child(
-            crate::markdown::render_as(faces, &key, said, crate::markdown::Setting::Small),
-        ));
+        // A flex column, as her prose sits in: a table's columns are shares
+        // of the width, and a plain block here leaves them nothing to share.
+        block = block.child(
+            div()
+                .flex()
+                .flex_col()
+                .w_full()
+                .px(px(10.))
+                .pt(px(S2))
+                .pb(px(S1))
+                .child(crate::markdown::render_as(
+                    faces,
+                    &key,
+                    said,
+                    crate::markdown::Setting::Small,
+                )),
+        );
     }
     // How the work ended has a line of its own under its steps.
     for (i, call) in step
