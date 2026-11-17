@@ -368,8 +368,8 @@ the `claude-code` relay.
 | `at_once` | `2` | pieces of work that may have a sitting running at once. Work an operator directed goes first, then whatever has waited longest. Each sitting takes one call from `calls_per_hour`, and none starts while that is spent |
 | `sitting_steps` | `40` | steps in one sitting |
 | `sitting_minutes` | `15` | minutes in one sitting |
-| `rest_minutes` | `10` | rest after a sitting that was stopped or went nowhere. Work runs on her machine apart from her day, and a sitting that ran out of steps or time is followed at once by the next |
-| `max_sittings` | `12` | sittings she gives one thing before letting it go |
+| `rest_minutes` | `10` | rest after a sitting that was paused, could not reach its model, or stopped to ask. Work runs on her machine apart from her day, and a sitting that ran out of steps or time is followed at once by the next |
+| `max_sittings` | `12` | sittings she gives one thing. Work that is not done by then, or that stops getting anywhere, comes back to her unfinished, and she tells whoever asked and decides with them what to do next |
 | `parts` | `4` | parts of one piece of work that may run at once, each a worker of its own alongside her sitting |
 | `part_steps` | `200` | steps one part may take, over every sitting it runs in |
 | `per_day` | `4` | things she will take on in a day |

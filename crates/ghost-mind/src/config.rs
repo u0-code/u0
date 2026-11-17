@@ -195,11 +195,12 @@ pub struct WorkConfig {
     pub sitting_steps: u32,
     /// Minutes in one sitting.
     pub sitting_minutes: u32,
-    /// Minutes a piece of work rests after a sitting that was stopped or
-    /// went nowhere. A sitting that only ran out of steps or time is
+    /// Minutes a piece of work rests after a sitting that was paused, could
+    /// not reach its model, or stopped to ask. A sitting that only ran out of steps or time is
     /// followed at once by the next, without this rest.
     pub rest_minutes: u32,
-    /// Sittings she gives one thing before letting it go.
+    /// Sittings she gives one thing. Work not done by then comes back to
+    /// her unfinished, for her to tell whoever asked.
     pub max_sittings: u32,
     /// Parts of one piece of work that may run at once, each a worker of
     /// its own. One handed out beyond this waits for one of them to end.
