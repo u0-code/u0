@@ -855,6 +855,41 @@ pub struct WorkLog {
     /// There are steps after the last of these: ask again after it.
     #[serde(default)]
     pub more: bool,
+    /// What the newest step of the work put in front of its model,
+    /// whatever steps were asked for; none before its first step, from a
+    /// daemon from before it was kept, or for steps it did not take itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<WorkContext>,
+}
+
+/// What one step of work put in front of its model, and the room it had:
+/// what a console shows as the worker's context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkContext {
+    /// The step, by [`LoggedStep::n`].
+    pub n: u64,
+    /// When it was taken, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// What the model read and wrote for it, in tokens, as the provider
+    /// counted them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<LookUsage>,
+    /// What it was given, in characters, by part: `system` (how to work,
+    /// and for whom), `tools` (what it may call), `task` (what its sitting
+    /// opened with: the task, and after a fold the plan, the handoff and
+    /// the notes), `messages` (what it said and called, and what it was
+    /// told along the way), `results` (what its calls brought back). The
+    /// tokens `usage` measures can be shared out among them by this.
+    #[serde(default)]
+    pub parts: std::collections::BTreeMap<String, u64>,
+    /// The model's context window, in tokens, where the daemon knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<u64>,
+    /// The size, in tokens, past which the work folds its transcript into
+    /// a handoff and goes on from that: the room above it is left free.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folds_at: Option<u64>,
 }
 
 /// One step of a piece of work: what the model said, and what it called.
@@ -977,7 +1012,8 @@ pub struct LookRound {
     pub context: Option<std::collections::BTreeMap<String, u64>>,
 }
 
-/// Tokens one round of a look cost, as the provider counted them.
+/// Tokens one round of a look, or one step of work, cost, as the provider
+/// counted them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct LookUsage {
     /// Everything the brain read, cached or not.

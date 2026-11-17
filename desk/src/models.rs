@@ -295,6 +295,34 @@ pub fn of_cli(kind: &str, home: Option<&Path>) -> Option<Vec<Choice>> {
     }
 }
 
+/// The context window, in tokens, of the model `id` a CLI of `kind` runs,
+/// where the CLI says: Codex keeps it with each model in its cache, and
+/// its default model in its config. `None` for anything else.
+pub fn cli_window(kind: &str, id: &str, home: Option<&Path>) -> Option<u64> {
+    if kind != "codex" {
+        return None;
+    }
+    let dir = home?.join(".codex");
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok();
+    let id = if id.is_empty() {
+        codex_default(&read("config.toml")?)?
+    } else {
+        id.to_owned()
+    };
+    codex_window(&read("models_cache.json")?, &id)
+}
+
+/// The context window Codex's cache gives the model `id`.
+pub fn codex_window(json: &str, id: &str) -> Option<u64> {
+    let v: Value = serde_json::from_str(json).ok()?;
+    v.get("models")?
+        .as_array()?
+        .iter()
+        .find(|m| m.get("slug").and_then(Value::as_str) == Some(id))?
+        .get("context_window")?
+        .as_u64()
+}
+
 /// The models in Codex's cache it shows in its own picker, in its order.
 pub fn codex_listed(json: &str) -> Vec<Choice> {
     let Ok(v) = serde_json::from_str::<Value>(json) else {
@@ -355,6 +383,18 @@ mod tests {
         let ids: Vec<_> = codex_listed(json).into_iter().map(|c| c.id).collect();
         assert_eq!(ids, ["a", "b"]);
         assert!(codex_listed("not json").is_empty());
+    }
+
+    #[test]
+    fn codex_says_how_large_each_models_window_is() {
+        let json = r#"{"models":[
+            {"slug":"a","context_window":272000},
+            {"slug":"b"}
+        ]}"#;
+        assert_eq!(codex_window(json, "a"), Some(272_000));
+        assert_eq!(codex_window(json, "b"), None, "a model it says nothing of");
+        assert_eq!(codex_window(json, "c"), None);
+        assert_eq!(cli_window("claude-code", "opus", None), None);
     }
 
     #[test]

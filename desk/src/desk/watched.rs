@@ -152,6 +152,18 @@ impl Watched {
         }
     }
 
+    /// Ask her daemon what filled the context of `work`, the work whose
+    /// context the right column shows, as `follow.rs` decides; `open` is
+    /// whether it is still going.
+    pub(super) fn follow_context(&mut self, work: &str, open: bool) {
+        if self.link != LinkState::Connected {
+            return;
+        }
+        if let Some(read) = self.following.context(work, Instant::now(), open) {
+            self.conn.read(read);
+        }
+    }
+
     /// Try its daemon again now, instead of after the wait.
     pub fn retry(&self) {
         self.conn.retry();
@@ -178,6 +190,9 @@ impl Watched {
             }
             Update::Looks { place, looks } => self.following.looks(&place, Instant::now(), looks),
             Update::Steps { work, log } => self.following.steps(&work, Instant::now(), log),
+            Update::Context { work, context } => {
+                self.following.took_context(&work, Instant::now(), context);
+            }
             Update::Welcome(card) => self.card = Some(card),
             Update::Status(status) => {
                 self.status = Some(*status);

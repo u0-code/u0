@@ -129,13 +129,19 @@ the clipboard as text, who said what and when; Delete takes the session
 off the desk's list, and no more: what was said in it stays in Ghost's
 journal, which keeps everything. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder; the daemon and its link; the brain),
-Context (what filled its context the last time it looked here, as its
-daemon's record of the look says: the tokens the brain read and how many
-came from the provider's cache, then a bar and a row for each part of
-what it was given, by its share of the characters: the conversation,
-who it is, the people here, its tools, what it recalled, its past, and
-the rest; the tokens on each row are that share of what was read, as
-the provider counts the whole, not the parts), Background
+Context (what fills the context window of each brain at work here, the
+way a coding agent's context panel shows its own: Role, its brain the
+last time it looked at this conversation, as its daemon's record of the
+look says; Worker, the model stepping this session's work, the open one
+or else the newest, at its newest step. Each says how much of the window
+is used, then a thin bar and a row for each part of what was given, by
+its share of the characters, with its tokens and its share of the whole
+window: for Role the conversation, who it is, the people here, its tools,
+what it recalled, its past and the rest; for Worker its messages, tool
+results, tools, system prompt and task, then the room above where the
+work folds its transcript. Free space comes last. The tokens on each row
+are that share of what was read, as the provider counts the whole, not
+the parts; a window the daemon does not know is left out), Background
 tasks (the work taken on in this session: what is still going, newest
 first, each with how long it has run or that it waits on you; then what
 has ended, folded into one line, `3 finished · 1 blocked`, that opens),

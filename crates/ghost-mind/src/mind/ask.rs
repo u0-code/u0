@@ -74,6 +74,9 @@ impl Mind {
             "channels": channels,
             "tempo": self.tempo.scale(),
             "brains": {"think": self.think.label(), "tick": self.tick.label()},
+            // Each brain's context window in tokens, where it is known: a
+            // console shows how full her looks keep it against this.
+            "windows": {"think": self.think.window(), "tick": self.tick.window()},
             "calls_this_hour": self.budget.spent.len(),
         }))
     }
@@ -204,7 +207,12 @@ impl Mind {
                     .collect()
             })
             .unwrap_or_default();
-        json!({"steps": logged.steps, "parts": parts, "more": logged.more})
+        json!({
+            "steps": logged.steps,
+            "parts": parts,
+            "more": logged.more,
+            "context": logged.context,
+        })
     }
 
     /// The looks at `place` that ended after the journal entry `after`,

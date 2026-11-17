@@ -448,6 +448,9 @@ impl Desk {
         };
         let wanted = thread::wanted(&thread_view(ghost, &place, &who, None, &self.expanded));
         ghost.follow(&wanted);
+        if let Some((work, open)) = crate::aside::context_work(&ghost.journal, &place) {
+            ghost.follow_context(&work, open);
+        }
         let looking = ghost
             .following
             .places

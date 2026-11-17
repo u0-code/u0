@@ -187,7 +187,10 @@ Both give each call in one shape:
      "calls":[{"name":"read","args":{"path":"rota.md"},"out":"…","cut":false,"chars":812,"ms":3,"failed":false,"pictures":0}]}
   ],
   "parts":[{"id":"20261116-140000-1a2b/1","brief":"Check the weekend shifts.","state":"running"}],
-  "more":false}}
+  "more":false,
+  "context":{"n":13,"at":"…","usage":{"input":48210,"cached":40960,"output":312},
+    "parts":{"system":5120,"tools":16800,"task":640,"messages":9200,"results":110400},
+    "window":1048576,"folds_at":838860}}}
 ```
 
 - `work` is an id `work.list` gives, of open work or work that ended. A
@@ -203,6 +206,16 @@ Both give each call in one shape:
   and no `ms`: its own words are in its own transcript, which is not ours.
 - `parts` lists every part the work handed out, whatever steps were asked
   for, with `state` as `work.list` has it.
+- `context` is what the newest step the work's own loop took put in front
+  of its model, whatever steps were asked for: `usage` in tokens as the
+  provider counted them, `parts` in characters (`system`, how to work and
+  for whom; `tools`, what it may call; `task`, what its sitting opened
+  with, which after a fold holds its plan, handoff and notes; `messages`,
+  what it said and called and was told along the way; `results`, what its
+  calls brought back), the model's `window` where the daemon knows it, and
+  `folds_at`, the size past which the work folds its transcript into a
+  handoff. Asked for `after` its last step, an answer holds this and no
+  steps. Left out before the first step and from a daemon from before it.
 
 An id she has no work by is refused with `-32005`.
 

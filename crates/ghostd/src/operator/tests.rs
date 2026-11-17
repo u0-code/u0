@@ -322,6 +322,12 @@ fn worked_and_looked(dir: &std::path::Path) {
             "said": format!("step {n}"),
             "model_ms": 40,
             "calls": [call("shell", &json!({"command": format!("echo {n}")}), &format!("{n}\n"), false, 0, 5)],
+            "read": 1000 * n,
+            "cached": 600,
+            "wrote": 50,
+            "context": {"system": 900, "tools": 1200, "task": 40, "messages": 30 * n, "results": 10 * n},
+            "window": 1_048_576,
+            "folds_at": 838_860,
         }));
     }
     let mut line = call("read", &json!({"path": "rota.md"}), "mon: wen", false, 0, 2);
@@ -371,10 +377,28 @@ async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
     assert_eq!(all.parts[0].id, "w1/1");
     assert_eq!(all.parts[0].brief, "Check the weekend.");
     assert_eq!(all.parts[0].state, ghost_protocol::WorkState::Open);
+    // What fills the worker's context is its newest step's, though a call
+    // a command-line agent made came after it.
+    let context = all.context.expect("what the worker was given");
+    assert_eq!(context.n, 3);
+    assert_eq!(
+        context.usage.map(|u| (u.input, u.cached)),
+        Some((3000, 600))
+    );
+    assert_eq!(context.parts["results"], 30);
+    assert_eq!(
+        (context.window, context.folds_at),
+        (Some(1_048_576), Some(838_860))
+    );
 
     let next = watcher.work_steps("w1", Some(1), Some(2)).await.unwrap();
     assert_eq!(next.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [2, 3]);
     assert!(next.more);
+    assert_eq!(
+        next.context.map(|c| c.n),
+        Some(3),
+        "whatever steps were asked for"
+    );
     let part = watcher.work_steps("w1/1", None, None).await.unwrap();
     assert_eq!(part.steps[0].said, "looking at the weekend");
     assert!(part.parts.is_empty());

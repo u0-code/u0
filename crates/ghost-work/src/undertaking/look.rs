@@ -1,7 +1,7 @@
 //! Looking at work from outside while it goes on. The database is opened
 //! read-only, so that looking can never get in the way of the work.
 
-use std::{io, path::Path};
+use std::{collections::BTreeMap, io, path::Path};
 
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension};
@@ -140,12 +140,47 @@ pub struct Step {
     pub calls: Vec<Value>,
 }
 
-/// Steps of one piece of work, and whether there are more after them.
+/// Steps of one piece of work, whether there are more after them, and what
+/// its newest step put in front of the model.
 #[derive(Debug, Clone)]
 pub struct Logged {
     pub steps: Vec<Step>,
     pub more: bool,
+    pub context: Option<StepContext>,
 }
+
+/// What one step put in front of the model, and the room it had, as the
+/// work's own loop logged it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StepContext {
+    /// The step, as [`Step::n`] has it.
+    pub n: u64,
+    pub at: Option<String>,
+    /// Tokens: what the model read (`input`), how much of that came from
+    /// the provider's cache (`cached`), and what it wrote (`output`).
+    pub usage: StepUsage,
+    /// What it was given, in characters, by part.
+    pub parts: BTreeMap<String, u64>,
+    /// The model's context window in tokens, where it is known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<u64>,
+    /// The size in tokens past which the transcript is folded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folds_at: Option<u64>,
+}
+
+/// Tokens one step cost, as the provider counted them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct StepUsage {
+    pub input: u64,
+    pub cached: u64,
+    pub output: u64,
+}
+
+/// How many of the newest lines are looked through for the newest step
+/// that says what it was given: calls a server of tools logged come
+/// between, and say nothing of it.
+const CONTEXT_LOOKED: i64 = 50;
 
 /// The steps of the undertaking `id` in the database at `db` after the
 /// `after`th, at most `limit` of them, oldest first; `None` if there is no
@@ -190,7 +225,42 @@ pub fn steps(db: &Path, id: &str, after: u64, limit: usize) -> io::Result<Option
             }
         })
         .collect();
-    Ok(Some(Logged { steps, more }))
+    let context = newest_context(&conn, id)?;
+    Ok(Some(Logged {
+        steps,
+        more,
+        context,
+    }))
+}
+
+/// What the newest step of undertaking `id` that says so put in front of
+/// the model.
+fn newest_context(conn: &Connection, id: &str) -> io::Result<Option<StepContext>> {
+    let rows: Vec<(i64, String)> = conn
+        .prepare("SELECT n, line FROM log WHERE id = ?1 ORDER BY n DESC LIMIT ?2")
+        .and_then(|mut stmt| {
+            stmt.query_map(rusqlite::params![id, CONTEXT_LOOKED], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect()
+        })
+        .map_err(other)?;
+    Ok(rows.into_iter().find_map(|(n, line)| {
+        let line: Value = serde_json::from_str(&line).ok()?;
+        let parts = serde_json::from_value(line.get("context")?.clone()).ok()?;
+        Some(StepContext {
+            n: u64::try_from(n).unwrap_or_default(),
+            at: line["at"].as_str().map(str::to_owned),
+            usage: StepUsage {
+                input: line["read"].as_u64().unwrap_or(0),
+                cached: line["cached"].as_u64().unwrap_or(0),
+                output: line["wrote"].as_u64().unwrap_or(0),
+            },
+            parts,
+            window: line["window"].as_u64(),
+            folds_at: line["folds_at"].as_u64(),
+        })
+    }))
 }
 
 #[derive(Clone, Copy)]
