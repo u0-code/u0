@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px, relative};
 
 use super::{
-    Item, STARTERS, View, ago,
+    Item, View, ago,
     cards::{task, tool},
     clock, could_not, directed, items, look_started, span, steps,
     style::{
@@ -36,7 +36,7 @@ enum Before {
 pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
     let items = items(view);
     if items.is_empty() {
-        return empty(view, faces, cx);
+        return empty(view, faces);
     }
     let waiting = waiting_since(&items);
     // At a console every line of yours is an operator's, so none is marked
@@ -306,56 +306,15 @@ fn working(faces: &Faces, view: &View<'_>, since: DateTime<Utc>) -> Div {
         .child(meta(faces, since))
 }
 
-/// A session with nothing in it yet: what the solver is, what it can do on
-/// this machine as its deployment says, and a few things to ask for.
-fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
-    let Some(abilities) = view.abilities else {
-        return div()
-            .id("thread")
-            .flex()
-            .flex_1()
-            .items_center()
-            .justify_center()
-            .child(
-                ui::text(
-                    faces,
-                    format!("Nothing is said here in {}'s journal yet.", view.name),
-                )
-                .text_size(px(BODY))
-                .text_color(theme::muted()),
-            )
-            .into_any_element();
+/// A session with nothing in it yet: her mark, and one line that says
+/// what she is. Nothing to click: what she does here is whatever you
+/// say, and the line you type into is right below.
+fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
+    let line = if view.abilities.is_some() {
+        format!("{} lives on this machine.", view.name)
+    } else {
+        format!("Nothing is said here in {}'s journal yet.", view.name)
     };
-    let mut column = div()
-        .flex()
-        .flex_col()
-        .items_center()
-        .w_full()
-        .max_w(px(520.))
-        .child(ui::icon("ghost", 40.).text_color(theme::muted()))
-        .child(
-            ui::serif(faces, "What needs doing?")
-                .text_size(px(34.))
-                .line_height(px(40.))
-                .mt(px(18.)),
-        )
-        .child(
-            ui::text(faces, abilities.sentence())
-                .text_size(px(BODY))
-                .line_height(px(BODY_LINE))
-                .text_color(theme::muted())
-                .text_center()
-                .mt(px(10.)),
-        );
-    // The starters all need the machine; without it they would only be
-    // promises.
-    if abilities.local() {
-        let mut starters = div().flex().flex_col().gap(px(S2)).w_full().mt(px(28.));
-        for (i, text) in STARTERS.iter().enumerate() {
-            starters = starters.child(starter(faces, i, text, cx));
-        }
-        column = column.child(starters);
-    }
     div()
         .id("thread")
         .flex()
@@ -366,32 +325,23 @@ fn empty(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
         .justify_center()
         .px(px(32.))
         .pb(px(40.))
-        .child(column)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .w_full()
+                .max_w(px(520.))
+                .child(ui::icon("ghost", 40.).text_color(theme::muted()))
+                .child(
+                    ui::serif(faces, line)
+                        .text_size(px(34.))
+                        .line_height(px(40.))
+                        .text_center()
+                        .mt(px(18.)),
+                ),
+        )
         .into_any_element()
-}
-
-/// One thing to ask for, which goes into the line you type into.
-fn starter(faces: &Faces, i: usize, text: &'static str, cx: &mut Context<Desk>) -> Stateful<Div> {
-    div()
-        .id(("starter", i))
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(S3))
-        .h(px(42.))
-        .px(px(S4))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(theme::border())
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()).border_color(theme::border2()))
-        .child(ui::one_line(
-            ui::text(faces, text)
-                .text_size(px(13.5))
-                .text_color(theme::text2()),
-        ))
-        .child(ui::icon("chevron-right", 14.).text_color(theme::faint()))
-        .on_click(cx.listener(move |this, _, window, cx| this.prefill(text, window, cx)))
 }
 
 /// What you said: a bubble on the right, the way a chat has it, and under

@@ -151,20 +151,6 @@ impl Abilities {
     pub fn local(&self) -> bool {
         self.work && self.machine.as_deref() == Some("local:")
     }
-
-    /// One line saying what it can do, for the empty page.
-    pub fn sentence(&self) -> String {
-        let web = self.work && self.web;
-        match (self.local(), web) {
-            (true, true) => {
-                "It has a shell on this machine, as you, and can search and read the web."
-            }
-            (true, false) => "It has a shell on this machine, as you. It has no web.",
-            (false, true) => "It can search and read the web. It has no machine here.",
-            (false, false) => "It can only talk: its deployment gives it no machine and no web.",
-        }
-        .to_owned()
-    }
 }
 
 /// The published example of the core's configuration, under the checkout.
@@ -773,14 +759,12 @@ mod tests {
     }
 
     #[test]
-    fn the_empty_page_says_only_what_the_deployment_allows() {
+    fn the_abilities_are_what_the_deployment_allows() {
         let d = checkout("abilities");
         let a = d.abilities();
         assert!(a.local() && a.web);
-        assert!(a.sentence().contains("shell on this machine"));
         let none = Abilities::default();
         assert!(!none.local());
-        assert!(none.sentence().starts_with("It can only talk"));
         let off = Abilities { work: false, ..a };
         assert!(!off.local(), "a machine is nothing with work turned off");
     }
