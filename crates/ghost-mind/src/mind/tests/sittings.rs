@@ -285,6 +285,7 @@ async fn what_work_asked_for_at_a_terminal_comes_back_with_is_taken_there_in_her
         .then(r#"{"thought":"","actions":[{"do":"say","text":"the twelfth"}]}"#);
     // The work runs in her sleep, and what it came back with is taken to
     // the console then, not in the morning.
+    let done = rig.until(|r| r.kinds().contains(&"concluded")).await;
     let told = rig.until(|r| r.body.sent().len() == 2).await;
     assert!(told < at(8, 30), "she told them at {told}");
     assert_eq!(rig.body.sent(), ["on it", "the twelfth"]);
@@ -298,4 +299,10 @@ async fn what_work_asked_for_at_a_terminal_comes_back_with_is_taken_there_in_her
         &meant[0].event,
         Event::Intended { directed: true, .. }
     ));
+    // Someone waits at a terminal, so it is meant for the moment the work
+    // is done, not a minute after.
+    let Event::Intended { due, .. } = &meant[0].event else {
+        unreachable!()
+    };
+    assert!(*due <= done, "meant for {due}, done at {done}");
 }
