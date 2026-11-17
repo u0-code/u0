@@ -229,25 +229,14 @@ pub fn with_skills(
     }
 }
 
-/// The tools that reach beyond a conversation, for a conversation, in the
-/// catalog's order: the web if `web`, and the machine if there is one she
-/// may use there. They are the same tools work has; only the loop around
-/// them differs.
-pub fn reaching(web: Option<&WebConfig>, machine: Option<Arc<dyn Machine>>) -> Toolbox {
-    let tools = match web {
+/// The tools that reach beyond a conversation, for a conversation: the web
+/// if `web`. They are the same tools work has; only the loop around them
+/// differs. A machine is never among them: a conversation looks things up
+/// and answers, and anything that runs or changes something is work.
+pub fn reaching(web: Option<&WebConfig>) -> Toolbox {
+    match web {
         Some(web) => with_web(Toolbox::new(), web),
         None => Toolbox::new(),
-    };
-    match machine {
-        Some(machine) => {
-            let desk = Desk::new(machine);
-            tools
-                .with(Shell::new(desk.clone()))
-                .with(Read::new(desk.clone()))
-                .with(Write::new(desk.clone()))
-                .with(Edit::new(desk))
-        }
-        None => tools,
     }
 }
 

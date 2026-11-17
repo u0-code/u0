@@ -342,7 +342,6 @@ How she lives.
 | `talk_tools` | `true` | where her brain can take tools, what she does in a conversation is tool calls: she can search her memory or the web before answering, and a call she gets wrong comes back to her. Off, it is one JSON reply |
 | `talk_steps` | `8` | turns in one look at a conversation |
 | `talk_tool_seconds` | `30` | seconds one search, page, picture or command may take in a conversation; anything bigger is taken on as work |
-| `talk_machine` | `true` | her machine (`shell`, `read`, `write`, `edit`) in a conversation, as at work: only in private, and only with a friend or closer. Needs `[mind.work] machine` |
 | `calls_per_hour` | `120` | ceiling on brain calls; `0` is none |
 | `live` | `true` | the life engine: plan her days, live through them, reflect at night |
 | `weather` | `true` | look up the real weather where she lives (open-meteo.com, no key) |

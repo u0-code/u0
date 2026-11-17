@@ -428,71 +428,46 @@ async fn a_call_beyond_the_conversation_that_outlasts_its_time_comes_back_failed
 }
 
 #[tokio::test]
-async fn her_machine_is_hers_to_use_in_private_with_a_friend_and_not_with_a_stranger() {
-    let t0 = at(14, 0);
-    let mut rig = Rig::with_tools(t0);
-    let desk = tempfile::tempdir().unwrap();
-    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
-    rig.hear(dm("mei", "1", "hi"), t0);
-    rig.until(|r| r.think.turns.lock().unwrap().len() == 1)
-        .await;
-    let offered = |rig: &Rig, turn: usize| -> Vec<String> {
-        rig.think.turns.lock().unwrap()[turn]
-            .tools
-            .iter()
-            .map(|t| t.name.clone())
-            .collect()
-    };
-    assert!(!offered(&rig, 0).iter().any(|n| n == "shell"));
-
-    let later = t0 + Duration::hours(1);
-    befriend(&mut rig, "wen", later);
-    rig.think.then_turn(
-        "",
-        &[(
-            "shell",
-            serde_json::json!({"command": "echo hello > note.txt; cat note.txt"}),
-        )],
-    );
-    rig.think
-        .then_turn("", &[("say", serde_json::json!({"text": "done"}))]);
-    rig.hear(
-        dm("wen", "2", "can you make a note on your computer?"),
-        later,
-    );
-    rig.until(|r| r.body.sent().len() == 1).await;
-    assert!(offered(&rig, 1).iter().any(|n| n == "shell"));
-    let (output, failed) = last_result(&rig, "shell");
-    assert!(!failed && output.contains("hello"), "{output}");
-    assert!(desk.path().join("note.txt").exists());
-}
-
-/// Wen, a friend, asks her what her computer says; she runs a command on
-/// it, and is held in the middle of the look, before her second turn
-/// comes back. Returns the rig, the gate that lets that turn come back,
-/// the moment she is at, and her machine's directory.
-async fn in_the_middle_of_a_look() -> (
-    Rig,
-    Arc<tokio::sync::Notify>,
-    DateTime<Utc>,
-    tempfile::TempDir,
-) {
+async fn her_machine_is_never_offered_in_a_conversation_and_doing_things_is_taken_on_as_work() {
     let t0 = at(14, 0);
     let mut rig = Rig::with_tools(t0);
     let desk = tempfile::tempdir().unwrap();
     rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
     befriend(&mut rig, "wen", t0);
+    rig.think
+        .then_turn("", &[("say", serde_json::json!({"text": "on it"}))]);
+    rig.hear(dm("wen", "1", "can you make a note on your computer?"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let offered: Vec<String> = rig.think.turns.lock().unwrap()[0]
+        .tools
+        .iter()
+        .map(|t| t.name.clone())
+        .collect();
+    for machine in ["shell", "read", "write", "edit"] {
+        assert!(
+            !offered.iter().any(|n| n == machine),
+            "{machine}: {offered:?}"
+        );
+    }
+    assert!(offered.iter().any(|n| n == "undertake"), "{offered:?}");
+}
+
+/// Wen, a friend, asks her about the tea house; she searches her memory,
+/// and is held in the middle of the look, before her second turn comes
+/// back. Returns the rig, the gate that lets that turn come back, and the
+/// moment she is at.
+async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<Utc>) {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    befriend(&mut rig, "wen", t0);
     rig.think.then_turn(
-        "let me look",
-        &[(
-            "shell",
-            serde_json::json!({"command": "echo hello from her desk"}),
-        )],
+        "let me think",
+        &[("recall", serde_json::json!({"query": "tea house"}))],
     );
     rig.think
-        .then_turn("", &[("say", serde_json::json!({"text": "it says hello"}))]);
+        .then_turn("", &[("say", serde_json::json!({"text": "not sure"}))]);
     let gate = rig.think.hold(1);
-    rig.hear(dm("wen", "1", "what does your computer say?"), t0);
+    rig.hear(dm("wen", "1", "when does the tea house close?"), t0);
     let mut now = t0;
     while !rig.mind.thinking.contains_key("t:wen") {
         now = rig.mind.agenda.next_due().expect("she looks").max(now);
@@ -511,7 +486,7 @@ async fn in_the_middle_of_a_look() -> (
             rig.mind.on_outcome(done.unwrap(), now).unwrap();
         }
     }
-    (rig, gate, now, desk)
+    (rig, gate, now)
 }
 
 /// Her looks at Wen's that ended after the journal entry `after`, and the
@@ -529,26 +504,21 @@ fn looks_at_wen(rig: &Rig, after: i64, now: DateTime<Utc>) -> serde_json::Value 
 }
 
 #[tokio::test]
-async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_where_the_look_ended() {
-    let (mut rig, gate, now, _desk) = in_the_middle_of_a_look().await;
+async fn what_she_calls_in_a_conversation_is_kept_round_by_round_and_tied_to_where_the_look_ended()
+{
+    let (mut rig, gate, now) = in_the_middle_of_a_look().await;
     let ask = |rig: &Rig, after: i64| looks_at_wen(rig, after, now);
 
     let going = ask(&rig, 0);
     assert_eq!(going.as_array().unwrap().len(), 1, "{going}");
     assert_eq!(going[0]["running"], true);
     assert!(going[0]["seq"].is_null());
-    let shell = &going[0]["rounds"][0]["calls"][0];
-    assert_eq!(shell["name"], "shell");
-    assert_eq!(shell["args"]["command"], "echo hello from her desk");
-    assert!(
-        shell["out"]
-            .as_str()
-            .unwrap()
-            .contains("hello from her desk"),
-        "{shell}"
-    );
-    assert_eq!(shell["failed"], false);
-    assert_eq!(shell["cut"], false);
+    let recall = &going[0]["rounds"][0]["calls"][0];
+    assert_eq!(recall["name"], "recall");
+    assert_eq!(recall["args"]["query"], "tea house");
+    assert!(recall["out"].is_string(), "{recall}");
+    assert_eq!(recall["failed"], false);
+    assert_eq!(recall["cut"], false);
     // The round says what the brain read and wrote, as the provider
     // counted it, and what was in front of it, by part.
     let round = &going[0]["rounds"][0];
@@ -563,7 +533,7 @@ async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_wher
         );
     }
     assert!(
-        context["transcript"].as_u64().unwrap() >= "what does your computer say?".len() as u64,
+        context["transcript"].as_u64().unwrap() >= "when does the tea house close?".len() as u64,
         "the transcript holds what Wen said"
     );
 
@@ -596,7 +566,7 @@ async fn what_she_runs_in_a_conversation_is_kept_round_by_round_and_tied_to_wher
 
 #[tokio::test]
 async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
-    let (mut rig, gate, now, _desk) = in_the_middle_of_a_look().await;
+    let (mut rig, gate, now) = in_the_middle_of_a_look().await;
     let going = looks_at_wen(&rig, 0, now);
     assert_eq!(going[0]["running"], true);
     // The look her mind is waiting on is the one a console reads.

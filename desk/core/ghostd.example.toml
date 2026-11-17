@@ -28,7 +28,6 @@ posts_per_day = 0
 browse_minutes = [0, 0]
 # In conversation it may use its machine straight away.
 talk_steps = 12
-talk_machine = true
 
 [mind.work]
 enabled = true
