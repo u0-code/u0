@@ -181,8 +181,10 @@ impl Mind {
         if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
-        // What comes of a directive does not wait on her day either.
-        if !self.tempo.instant() && !intention.directed {
+        // What comes of a directive, or is to be said at a terminal, does
+        // not wait on her day either.
+        let waited_on = intention.directed || self.kind(&place.channel) == crate::Kind::Terminal;
+        if !self.tempo.instant() && !waited_on {
             let moment = self.life.moment(self.ghost.journal(), now)?;
             if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy {
                 let slack = Duration::seconds(i64::from(self.rng.u32(60..600)));
@@ -191,7 +193,7 @@ impl Mind {
         }
         if !self.budget.allow(now) {
             // The budget holds for it too: it waits a minute rather than ten.
-            let wait = if intention.directed { 1 } else { 10 };
+            let wait = if waited_on { 1 } else { 10 };
             return Ok(Err(Wait::Until(now + Duration::minutes(wait))));
         }
         Ok(Ok(()))

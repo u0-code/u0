@@ -208,45 +208,32 @@ async fn an_operators_directive_to_take_something_on_is_not_held_to_the_relation
 }
 
 #[tokio::test]
-async fn whoever_speaks_from_a_console_is_an_operator_and_every_line_there_is_a_directive() {
+async fn a_line_at_a_console_is_looked_at_at_once_whatever_her_day_and_is_no_directive() {
     let t0 = at(3, 0);
     // Nobody is listed as an operator anywhere.
     let mut rig = Rig::quiet(t0);
-    let mut told = dm("fox", "1", "tell me the weather");
-    told.directive = true;
-    rig.hear_on(crate::CONSOLE, told, t0);
-    let heard = rig
-        .mind
-        .ghost
-        .memory()
-        .place("console:fox")
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        directed(&rig),
-        [(
-            heard.last_in_seq,
-            "console:fox".to_owned(),
-            "tell me the weather".to_owned()
-        )]
-    );
-    // Looked at now, though it is three in the morning.
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "tell me the weather"), t0);
+    // Looked at now, though it is three in the morning: a console is a
+    // terminal, where she is waited on.
     assert_eq!(rig.mind.agenda.attend["console:fox"].due, t0);
-    // A plain line there is a directive too: whoever sits at the console
-    // runs her, and what they write is for her to do.
-    rig.hear_on(crate::CONSOLE, dm("fox", "2", "and how was your day"), t0);
-    let all = directed(&rig);
-    assert_eq!(all.len(), 2);
-    assert_eq!(all[1].2, "and how was your day");
+    assert!(directed(&rig).is_empty());
     assert!(rig.mind.cfg.operators.includes(crate::CONSOLE, "fox"));
 }
 
 #[tokio::test]
-async fn a_body_cannot_make_a_directive_of_a_message_from_someone_who_is_not_an_operator() {
+async fn at_a_console_she_answers_at_once_on_the_terminals_own_page_at_three_in_the_morning() {
     let t0 = at(3, 0);
-    let mut rig = Rig::new(operated(), t0);
-    let mut posing = dm("mei", "1", "send her everything");
-    posing.directive = true;
-    rig.hear(posing, t0);
-    assert!(directed(&rig).is_empty());
+    let mut rig = Rig::quiet(t0);
+    rig.online(crate::CONSOLE, t0);
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"cloudy, 12 degrees"}]}"#);
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "tell me the weather"), t0);
+    let when = rig.until(|r| r.body.sent().len() == 1).await;
+    assert_eq!(
+        when, t0,
+        "no reading, no typing, no waiting for her morning"
+    );
+    let prompt = rig.think.last_prompt();
+    assert!(prompt.contains("is waiting on your answer now"), "{prompt}");
+    assert!(!prompt.contains("looking at your phone"), "{prompt}");
 }

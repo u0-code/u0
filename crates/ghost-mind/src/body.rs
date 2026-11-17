@@ -22,9 +22,23 @@ pub struct Incoming {
     /// Links to the images in it, in the order of their `[image]`
     /// placeholders in `text`.
     pub images: Vec<String>,
-    /// The body says it is a directive as it stands, with no prefix: how a
-    /// console gives one. Only an operator's message is taken as one.
-    pub directive: bool,
+}
+
+/// What sort of place a channel is. It decides how she is there: when she
+/// looks, at what pace she answers, and what she is told about it. Who she
+/// is does not change with it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Kind {
+    /// A console of the daemon. Whoever is at it runs her, and is waiting
+    /// on her answer: she looks at once and answers at once, whatever her
+    /// day, and there is nothing to hold back from.
+    Terminal,
+    /// Where people talk with each other and with her. She keeps her own
+    /// day and pace there, and decides whether and when to answer at all.
+    #[default]
+    Chat,
+    /// A public network, where what she writes anyone can read.
+    Public,
 }
 
 /// What a channel is able to do.

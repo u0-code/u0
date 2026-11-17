@@ -369,8 +369,13 @@ impl Mind {
             ("recalled", chars(&recalled)),
             ("past", chars(&brought_back)),
         ];
+        // A terminal is not a chat on her phone: it has a page of its own.
+        let template = match self.kind(&place.channel) {
+            crate::Kind::Terminal => &self.prompts.terminal,
+            crate::Kind::Chat | crate::Kind::Public => &self.prompts.attend,
+        };
         let prompt = narrate::fill(
-            &self.prompts.attend,
+            template,
             &[
                 ("where", self.describe_place(place, &people)),
                 ("elsewhere", self.elsewhere(place, now)?),

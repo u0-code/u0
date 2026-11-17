@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use ghost_core::journal::{Entry, Event};
 use ghost_link::{Conn, Console};
-use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError};
+use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError, SayMode};
 
 use super::*;
 use crate::cast::tests::{Rig, Spec};
@@ -79,21 +79,17 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         next_where(&mut stream, said_on_console).await,
         ("fox".to_owned(), "lin here".to_owned())
     );
-    // It is a conversation with an operator of hers, kept like any other,
-    // and every line of theirs there is a directive: whoever sits at the
-    // console runs her, and what they write is for her to do.
+    // It is a conversation with an operator of hers, kept like any other.
+    // A console is a terminal: she answers what is said there at once, by
+    // what the place is, and nothing said there is a directive.
     let thread = serde_json::to_string(&fox.thread(&said.place, 10).await.unwrap()).unwrap();
     assert!(
         thread.contains("5e1d") && thread.contains(&said.id),
         "{thread}"
     );
-    let events = rig.events(0).await;
-    assert!(events.iter().any(
-        |e| matches!(e, Event::Directed { text, .. } if text == "how are the patients, 5e1d")
-    ));
 
-    // Marked as a directive or not, in a place of its own, it is one.
-    let directed = fox
+    // Marked as a directive or not, in a place of its own, it is the same.
+    let other = fox
         .say(
             Some("desk-1".into()),
             "send me the rota",
@@ -101,19 +97,15 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         )
         .await
         .unwrap();
-    assert_eq!(directed.place, "console:desk-1");
-    let (from, text) = next_where(&mut stream, |event| match event {
-        Event::Directed { from, text, .. } => Some((from, text)),
-        _ => None,
-    })
-    .await;
-    assert_eq!(
-        (from.as_str(), text.as_str()),
-        ("console:fox", "send me the rota")
-    );
+    assert_eq!(other.place, "console:desk-1");
     assert_eq!(
         next_where(&mut stream, said_on_console).await,
         ("desk-1".to_owned(), "lin here".to_owned())
+    );
+    let events = rig.events(0).await;
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Directed { .. })),
+        "{events:?}"
     );
 }
 
@@ -197,12 +189,15 @@ async fn a_console_with_the_daemon_s_token_speaks_as_its_owner() {
     let (mut fox, _) = Console::connect_as(&rig.url, Some(token.into()), None, Some("fox".into()))
         .await
         .unwrap();
-    fox.say(None, "evening, 3c9a", SayMode::Directive)
-        .await
-        .unwrap();
+    fox.say(None, "evening, 3c9a", SayMode::Say).await.unwrap();
     rig.until_heard(0, "evening, 3c9a").await;
-    rig.until(0, "the directive", |e| matches!(e, Event::Directed { .. }))
-        .await;
+    // Admitted, it is the console's terminal she answers on.
+    rig.until(
+        0,
+        "her answer at the console",
+        |e| matches!(e, Event::Said { channel, .. } if channel == CONSOLE),
+    )
+    .await;
 }
 
 #[tokio::test]

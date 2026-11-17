@@ -68,7 +68,7 @@ const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
 use super::{Mind, Operator, Order, Outcome, Refused};
-use crate::{Result, actions::clip};
+use crate::{Kind, Result, actions::clip};
 
 /// A sitting in progress.
 pub(super) struct Working {
@@ -112,9 +112,9 @@ impl Mind {
 
     /// She decided to take something on. Returns why not, if it is refused.
     /// `directed` is what an operator of hers directed in the look this
-    /// came from, if anything: then it is a piece of work of its own,
-    /// whatever she has already taken on today or for whom, and its brief
-    /// says it was directed.
+    /// came from, if anything, and its brief says so. Directed, or asked
+    /// for at a terminal, it is a piece of work of its own, whatever she has
+    /// already taken on today or for whom, and it goes first.
     pub(super) fn undertake(
         &mut self,
         brief: &str,
@@ -130,10 +130,14 @@ impl Mind {
         if !self.can_work() {
             return Ok(Some("this body has nothing to work with".into()));
         }
+        // Asked at a terminal, or directed, it is not hers to weigh: whoever
+        // runs her asked for it.
+        let run_by_them =
+            !directed.is_empty() || place.is_some_and(|p| self.kind(&p.channel) == Kind::Terminal);
         let memory = self.ghost.memory();
         // More about something she is already doing for the same person is
         // added to it, not started as a second thing.
-        if directed.is_empty()
+        if !run_by_them
             && let Some(person) = asked_by
             && let Some(open) = memory
                 .undertakings(true, 20)?
@@ -170,7 +174,7 @@ impl Mind {
         }
         // How much she takes on, and for whom, is hers to decide, and a
         // directive is not something she decides on.
-        if directed.is_empty()
+        if !run_by_them
             && memory.undertaken_since(now - Duration::hours(24))?
                 >= i64::from(self.cfg.work.per_day)
         {
@@ -178,9 +182,7 @@ impl Mind {
         }
         // Her will decides what she agrees to. This is only the floor under
         // it: a stranger does not get her hands on a shell.
-        if directed.is_empty()
-            && let Some(person) = asked_by
-        {
+        if !run_by_them && let Some(person) = asked_by {
             let stage = will::standing(person, now).stage;
             let needed = if self.workshop.machine.is_some() {
                 Stage::Friend
@@ -217,7 +219,7 @@ impl Mind {
             brief,
             asked_by: asked_by.map(|p| p.key.clone()),
             place: place.map(|p| p.key.clone()),
-            directed: !directed.is_empty(),
+            directed: run_by_them,
         })?;
         self.work_at(now);
         Ok(None)

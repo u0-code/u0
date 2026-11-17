@@ -113,7 +113,7 @@ impl Mind {
         bubbles: VecDeque<Bubble>,
         now: DateTime<Utc>,
     ) {
-        let until = after(now, self.tempo.read(job.unread_chars));
+        let until = after(now, self.pace(&place.key).read(job.unread_chars));
         self.agenda.speaking.insert(
             place.key.clone(),
             Speaking {
@@ -167,7 +167,7 @@ impl Mind {
         );
         match speaking.step {
             Step::Reading { until } if now >= until => {
-                let typing = self.tempo.compose(&front.text, &mut self.rng);
+                let typing = self.pace(key).compose(&front.text, &mut self.rng);
                 self.set_step(
                     key,
                     Step::Typing {
@@ -338,8 +338,9 @@ impl Mind {
             // Anything that arrived while she was talking is still unread.
             return self.schedule_attend(key, now);
         };
-        let pause = self.tempo.between(&mut self.rng);
-        let typing = self.tempo.compose(&next.text, &mut self.rng);
+        let pace = self.pace(key);
+        let pause = pace.between(&mut self.rng);
+        let typing = pace.compose(&next.text, &mut self.rng);
         self.set_step(
             key,
             Step::Typing {

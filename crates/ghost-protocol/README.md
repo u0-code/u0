@@ -44,7 +44,7 @@ A console that speaks says who is at it in its hello, with `who`:
 and then says something with `console.say`:
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"console.say","params":{"place":"desk-1","text":"send me the rota","mode":"directive"}}
+{"jsonrpc":"2.0","id":2,"method":"console.say","params":{"place":"desk-1","text":"send me the rota"}}
 
 {"jsonrpc":"2.0","id":2,"result":{"place":"console:desk-1","id":"console-1763280000000-0"}}
 ```
@@ -53,10 +53,9 @@ and then says something with `console.say`:
 - `place` is a place on the channel `console`, by its id. Each is a private
   conversation of its own. Left out, it is the one named after `who` in
   lower case.
-- `mode` is `say`, the default, or `directive`. `say` reaches her as
-  anything an operator says; `directive` as an operator's directive does
-  from a platform with the prefix: looked at at once, whatever her day, and
-  carried out rather than weighed.
+- `mode` is still accepted, and changes nothing. The channel `console` is
+  a terminal: whoever is at it runs her and is waiting on her, so every
+  line there is looked at and answered at once, whatever her day.
 
 She knows whoever is at the console as `console:` and `who` in lower case.
 The result is the place's key and the message's id, as her journal's

@@ -47,10 +47,14 @@ begins with the configured prefix is a directive. It is recorded as
 holds), shown to her as a directive with the texts of
 `system/logic/texts/directive.toml` saying she carries it out, and work she
 takes on for it is not held to the floors her will keeps for everyone else.
-The prefix from anyone else is a message. Everyone on the channel `console`
-is an operator: only the daemon puts a message there, from a console that
-holds its token, and a console can say a message is a directive without the
-prefix.
+The prefix from anyone else is a message.
+
+Everyone on the channel `console` is an operator: only the daemon puts a
+message there, from a console that holds its token. The console is a
+terminal, not a chat: what is said there is looked at and answered at once,
+whatever her day, with no reading or typing time, on a page of its own
+(`system/logic/terminal.md`) instead of the phone she reads chats on. Work
+asked for there goes first and is not held to her floors.
 
 In public she posts, is shown how her posts did, and writes down what that
 taught her. Every post is read over before it goes out. What a platform does

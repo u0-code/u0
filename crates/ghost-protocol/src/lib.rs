@@ -645,21 +645,18 @@ pub struct ConsoleSay {
     pub mode: SayMode,
 }
 
-/// How something said from a console asks to reach her. On the
-/// [`CONSOLE`] channel it reaches her as a directive whichever this says:
-/// whoever is at a console runs her, and what they write is for her to do,
-/// the way a coding agent takes its user's lines. So it is looked at at
-/// once, whatever her day, and carried out rather than weighed, as a line
-/// sent from a platform with the operators' prefix is. The field stays
-/// because the wire format does, and clients send it.
+/// How something said from a console asked to reach her, once. It no
+/// longer changes anything: the [`CONSOLE`] channel is a terminal, where
+/// whoever is at it runs her, and every line there is looked at and
+/// answered at once, whatever her day. The field stays because the wire
+/// format does, and clients send it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SayMode {
-    /// The default. A line from a console is a directive all the same.
+    /// The default.
     #[default]
     Say,
-    /// A directive, said in so many words. On the console channel it is
-    /// what every line already is.
+    /// Taken as `say`.
     Directive,
 }
 
