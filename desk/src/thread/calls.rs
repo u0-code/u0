@@ -77,6 +77,31 @@ fn address(url: &str) -> &str {
         .trim_start_matches("www.")
 }
 
+/// How long a path in a row may be before its head gives way: the end of
+/// a path is what says which file it is.
+const PATH_KEPT: usize = 48;
+
+/// A path as a row shows it: whole when it is short, else as many of its
+/// last parts as fit after "…/", and at least its file name.
+fn path_tail(path: &str, most: usize) -> String {
+    let path = path.trim();
+    if path.chars().count() <= most {
+        return path.to_owned();
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    let mut len = 2;
+    for part in path.rsplit('/').filter(|p| !p.is_empty()) {
+        let more = part.chars().count() + 1;
+        if !kept.is_empty() && len + more > most {
+            break;
+        }
+        kept.push(part);
+        len += more;
+    }
+    kept.reverse();
+    format!("…/{}", kept.join("/"))
+}
+
 /// Say the call `name` made with `args`.
 pub fn say(name: &str, args: &Value) -> Said {
     let args = object(args);
@@ -89,9 +114,9 @@ pub fn say(name: &str, args: &Value) -> Said {
             }
             None => ("Ran", command(a("command")).to_owned()),
         },
-        "read" => ("Read", a("path").to_owned()),
-        "write" => ("Wrote", a("path").to_owned()),
-        "edit" => ("Edited", a("path").to_owned()),
+        "read" => ("Read", path_tail(a("path"), PATH_KEPT)),
+        "write" => ("Wrote", path_tail(a("path"), PATH_KEPT)),
+        "edit" => ("Edited", path_tail(a("path"), PATH_KEPT)),
         "search" => ("Searched", quoted(a("query"))),
         "fetch" => ("Opened", address(a("url")).to_owned()),
         "recall" => ("Recalled", quoted(a("query"))),
@@ -421,6 +446,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_long_path_keeps_its_end_and_a_short_one_stays_whole() {
+        assert_eq!(path_tail("src/main.rs", 48), "src/main.rs");
+        let long =
+            "/private/tmp/claude-501/-Users-0xhacker-Desktop-work-Ghost/e7/ghost/home/hello.py";
+        assert_eq!(path_tail(long, 48), "…/e7/ghost/home/hello.py");
+        assert!(path_tail(long, 48).chars().count() <= 48);
+        assert_eq!(
+            path_tail(&format!("/{}", "x".repeat(60)), 48),
+            format!("…/{}", "x".repeat(60))
+        );
+    }
 
     #[allow(
         clippy::needless_pass_by_value,
