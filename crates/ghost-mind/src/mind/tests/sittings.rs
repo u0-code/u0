@@ -3,18 +3,35 @@
 
 use super::*;
 
-/// Work she has taken on for herself, by its id. Returns the id.
-fn take_on(rig: &mut Rig, brief: &str, directed: &[&str], now: DateTime<Utc>) -> String {
+/// A place on the console, where whoever runs her is waited on.
+fn at_the_console() -> ghost_core::memory::PlaceState {
+    ghost_core::memory::PlaceState {
+        key: "console:fox".into(),
+        channel: crate::CONSOLE.into(),
+        id: "fox".into(),
+        kind: PlaceKind::Direct,
+        name: None,
+        read_upto: 0,
+        last_in_seq: 0,
+        last_in_at: None,
+        last_out_seq: 0,
+        last_out_at: None,
+        unread: 0,
+        unread_addressed: 0,
+        unread_directed: 0,
+        quiet_until: None,
+    }
+}
+
+/// Work she has taken on, for herself or as asked at a terminal, by its
+/// id. Returns the id.
+fn take_on(rig: &mut Rig, brief: &str, at_terminal: bool, now: DateTime<Utc>) -> String {
     rig.think
         .hands
         .store(true, std::sync::atomic::Ordering::Relaxed);
-    let directed: Vec<String> = directed.iter().map(|d| (*d).to_owned()).collect();
-    assert_eq!(
-        rig.mind
-            .undertake(brief, None, None, &directed, now)
-            .unwrap(),
-        None
-    );
+    let console = at_the_console();
+    let place = at_terminal.then_some(&console);
+    assert_eq!(rig.mind.undertake(brief, None, place, now).unwrap(), None);
     let mut open = rig.mind.ghost.memory().undertakings(true, 20).unwrap();
     open.sort_by_key(|u| u.seq);
     open.last().unwrap().id.clone()
@@ -28,7 +45,7 @@ async fn a_sitting_starts_while_she_is_asleep() {
     let id = take_on(
         &mut rig,
         "Read up on the history of Kuixinglou street.",
-        &[],
+        false,
         t0,
     );
     rig.mind.on_time(t0).unwrap();
@@ -46,7 +63,7 @@ async fn looking_at_her_phone_does_not_stop_a_running_sitting() {
     let id = take_on(
         &mut rig,
         "Read up on the history of Kuixinglou street.",
-        &[],
+        false,
         t0,
     );
     rig.mind.on_time(t0).unwrap();
@@ -91,9 +108,9 @@ async fn two_pieces_of_work_run_at_once_and_a_third_waits() {
     assert_eq!(rig.mind.cfg.work.at_once, 2);
     let first = rig.think.hold(0);
     let second = rig.think.hold(1);
-    let a = take_on(&mut rig, "Draw the east gate.", &[], t0);
-    let b = take_on(&mut rig, "Draw the west gate.", &[], t0);
-    let c = take_on(&mut rig, "Draw the north gate.", &[], t0);
+    let a = take_on(&mut rig, "Draw the east gate.", false, t0);
+    let b = take_on(&mut rig, "Draw the west gate.", false, t0);
+    let c = take_on(&mut rig, "Draw the north gate.", false, t0);
     rig.mind.on_time(t0).unwrap();
     let mut both = [a.clone(), b.clone()];
     both.sort();
@@ -118,7 +135,7 @@ async fn two_pieces_of_work_run_at_once_and_a_third_waits() {
 }
 
 #[tokio::test]
-async fn directed_work_starts_before_older_work() {
+async fn work_asked_for_at_a_terminal_starts_before_older_work() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
@@ -131,13 +148,8 @@ async fn directed_work_starts_before_older_work() {
         t0,
     );
     let gate = rig.think.hold(0);
-    let older = take_on(&mut rig, "Draw the east gate.", &[], t0);
-    let directed = take_on(
-        &mut rig,
-        "Write today's date down.",
-        &["write the date"],
-        t0,
-    );
+    let older = take_on(&mut rig, "Draw the east gate.", false, t0);
+    let directed = take_on(&mut rig, "Write today's date down.", true, t0);
     assert!(
         rig.mind
             .ghost
@@ -171,7 +183,7 @@ async fn an_unfinished_work_starts_its_next_sitting_right_after_the_last_one_end
     take_on(
         &mut rig,
         "Read up on the history of Kuixinglou street.",
-        &[],
+        false,
         t0,
     );
     rig.think
@@ -208,7 +220,7 @@ async fn the_hourly_budget_bounds_how_many_sittings_start() {
     take_on(
         &mut rig,
         "Read up on the history of Kuixinglou street.",
-        &[],
+        false,
         t0,
     );
     for n in 0..6 {
@@ -230,26 +242,24 @@ async fn the_hourly_budget_bounds_how_many_sittings_start() {
 }
 
 #[tokio::test]
-async fn what_directed_work_comes_back_with_is_taken_to_them_in_her_sleep() {
+async fn what_work_asked_for_at_a_terminal_comes_back_with_is_taken_there_in_her_sleep() {
     let t0 = at(3, 0);
-    let mut rig = Rig::new(operated(), t0);
+    let mut rig = Rig::quiet(t0);
+    rig.online(crate::CONSOLE, t0);
+    // Asked at the console in the middle of her night, and answered then.
+    rig.think
+        .then(r#"{"thought":"","actions":[{"do":"say","text":"on it"}]}"#);
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "write the date down"), t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
     rig.think
         .hands
         .store(true, std::sync::atomic::Ordering::Relaxed);
-    // Boss wrote earlier without a directive: that waits for her morning.
-    rig.hear(dm("boss", "1", "hello"), t0);
     let memory = rig.mind.ghost.memory();
-    let boss = memory.person("t:boss").unwrap().unwrap();
-    let place = memory.place("t:boss").unwrap().unwrap();
+    let fox = memory.person("console:fox").unwrap().unwrap();
+    let place = memory.place("console:fox").unwrap().unwrap();
     assert_eq!(
         rig.mind
-            .undertake(
-                "Write today's date down.",
-                Some(&boss),
-                Some(&place),
-                &["write the date down".to_owned()],
-                t0,
-            )
+            .undertake("Write today's date down.", Some(&fox), Some(&place), t0)
             .unwrap(),
         None
     );
@@ -260,10 +270,10 @@ async fn what_directed_work_comes_back_with_is_taken_to_them_in_her_sleep() {
     rig.think
         .then(r#"{"thought":"","actions":[{"do":"say","text":"the twelfth"}]}"#);
     // The work runs in her sleep, and what it came back with is taken to
-    // them then, not in the morning.
-    let told = rig.until(|r| r.body.sent().len() == 1).await;
+    // the console then, not in the morning.
+    let told = rig.until(|r| r.body.sent().len() == 2).await;
     assert!(told < at(8, 30), "she told them at {told}");
-    assert_eq!(rig.body.sent(), ["the twelfth"]);
+    assert_eq!(rig.body.sent(), ["on it", "the twelfth"]);
     let meant = rig
         .mind
         .ghost

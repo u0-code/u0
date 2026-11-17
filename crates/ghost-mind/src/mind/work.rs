@@ -15,7 +15,7 @@
 //! not something she sits at.
 //!
 //! Up to `at_once` pieces of work have a sitting running at
-//! the same time. When a place is free, what an operator directed goes
+//! the same time. When a place is free, what was asked for at a terminal goes
 //! first, then whatever has waited longest since it was last touched,
 //! leaving aside what waits on somebody's answer and what is resting.
 //!
@@ -34,7 +34,7 @@
 //! and once more when each ends, and writes into her journal what she has
 //! not had yet. Something she could hand over makes her mean to go back to
 //! whoever asked; like anything she means to do, that waits for her to be
-//! awake and free, unless an operator directed the work. Nothing of what
+//! awake and free, unless it was asked for at a terminal. Nothing of what
 //! it did to get there reaches her. She speaks to it the same way: what
 //! she adds goes into its inbox, taken before its next step, and stopping
 //! it is an outcome written into its record, which it sees before its next
@@ -105,22 +105,29 @@ impl Mind {
         Undertaking::open(&self.ghost.dir().join(WORK_DB), id, Some(brief))
     }
 
+    /// Whether `person` is an account of whoever runs her: anyone at a
+    /// console, or an account listed under `[operators]`.
+    pub(super) fn runs_her(&self, person: &Person) -> bool {
+        ghost_core::social::split_key(&person.key)
+            .is_some_and(|(channel, id)| self.cfg.operators.includes(channel, id))
+    }
+
     /// Whether taking things on is possible at all in this body.
     pub(super) fn can_work(&self) -> bool {
         self.cfg.work.enabled && self.stepper().is_some()
     }
 
     /// She decided to take something on. Returns why not, if it is refused.
-    /// `directed` is what an operator of hers directed in the look this
-    /// came from, if anything, and its brief says so. Directed, or asked
-    /// for at a terminal, it is a piece of work of its own, whatever she has
-    /// already taken on today or for whom, and it goes first.
+    /// Asked for at a terminal, it is a piece of work of its own, whatever
+    /// she has already taken on today or for whom, and it goes first. Asked
+    /// for by an account of whoever runs her, on any channel, it is not held
+    /// to the floors her will keeps for everyone else; it is weighed and
+    /// paced like anything else she is asked in a chat.
     pub(super) fn undertake(
         &mut self,
         brief: &str,
         asked_by: Option<&Person>,
         place: Option<&PlaceState>,
-        directed: &[String],
         now: DateTime<Utc>,
     ) -> Result<Option<String>> {
         let brief = brief.trim();
@@ -130,14 +137,16 @@ impl Mind {
         if !self.can_work() {
             return Ok(Some("this body has nothing to work with".into()));
         }
-        // Asked at a terminal, or directed, it is not hers to weigh: whoever
-        // runs her asked for it.
-        let run_by_them =
-            !directed.is_empty() || place.is_some_and(|p| self.kind(&p.channel) == Kind::Terminal);
+        // Asked at a terminal, it is not hers to weigh: whoever runs her
+        // asked for it, and is waiting.
+        let terminal = place.is_some_and(|p| self.kind(&p.channel) == Kind::Terminal);
+        // Whoever runs her is let past the floors anywhere: it is their
+        // machine and their account she would be spending.
+        let theirs = terminal || asked_by.is_some_and(|p| self.runs_her(p));
         let memory = self.ghost.memory();
         // More about something she is already doing for the same person is
         // added to it, not started as a second thing.
-        if !run_by_them
+        if !terminal
             && let Some(person) = asked_by
             && let Some(open) = memory
                 .undertakings(true, 20)?
@@ -172,9 +181,9 @@ impl Mind {
                 },
             );
         }
-        // How much she takes on, and for whom, is hers to decide, and a
-        // directive is not something she decides on.
-        if !run_by_them
+        // How much she takes on, and for whom, is hers to decide, except
+        // for whoever runs her.
+        if !theirs
             && memory.undertaken_since(now - Duration::hours(24))?
                 >= i64::from(self.cfg.work.per_day)
         {
@@ -182,7 +191,7 @@ impl Mind {
         }
         // Her will decides what she agrees to. This is only the floor under
         // it: a stranger does not get her hands on a shell.
-        if !run_by_them && let Some(person) = asked_by {
+        if !theirs && let Some(person) = asked_by {
             let stage = will::standing(person, now).stage;
             let needed = if self.workshop.machine.is_some() {
                 Stage::Friend
@@ -200,26 +209,18 @@ impl Mind {
         let id = format!("{}-{:04x}", now.format("%Y%m%d-%H%M%S"), self.rng.u16(..));
         // Her own account of what is wanted, and under it what they said.
         let brief = format!(
-            "{brief}{}{}",
+            "{brief}{}",
             match (place, asked_by) {
                 (Some(place), Some(person)) => self.their_words(place, person)?,
                 _ => String::new(),
             },
-            if directed.is_empty() {
-                String::new()
-            } else {
-                self.prompts.fill(
-                    "directive_brief",
-                    &[("directives", self.directives(directed))],
-                )
-            }
         );
         self.record(Event::Undertook {
             id,
             brief,
             asked_by: asked_by.map(|p| p.key.clone()),
             place: place.map(|p| p.key.clone()),
-            directed: run_by_them,
+            directed: terminal,
         })?;
         self.work_at(now);
         Ok(None)
@@ -303,7 +304,7 @@ impl Mind {
                 None => ready.push(u),
             }
         }
-        // What an operator directed goes first; then whatever has waited
+        // What was asked for at a terminal goes first; then whatever has waited
         // longest since it was last touched.
         let Some(next) = ready
             .into_iter()

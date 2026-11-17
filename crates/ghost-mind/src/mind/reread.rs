@@ -194,13 +194,7 @@ impl Mind {
             {
                 out.push(format!("In {}:", self.place_words(&state)?));
             }
-            out.push(narrate::transcript(
-                &run,
-                i64::MAX,
-                self.prompts.text("directive_mark"),
-                clock,
-                now,
-            ));
+            out.push(narrate::transcript(&run, i64::MAX, clock, now));
         }
         if withheld > 0 {
             out.push(format!(

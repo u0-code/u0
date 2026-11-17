@@ -24,9 +24,10 @@ json_mode = true
 # proxy = "http://127.0.0.1:7890"
 # direct = ["*.deepseek.com"]            # these hosts never use it
 
-# The accounts that run her, per channel, as its presence reports them. A
-# message from one that begins with "fox:" is a directive she carries out.
-# Whoever is at a console with this daemon's token is one without being
-# listed: see "Who runs her from a console" in ghostd's README.
+# The accounts that run her, per channel, as its presence reports them.
+# She answers them at her own pace like anyone, and will spend her machine
+# for them. Whoever is at a console with this daemon's token is one without
+# being listed, and is answered at once: see "Who runs her from a console"
+# in ghostd's README.
 # [operators]
 # qq = ["0123456789ABCDEF0123456789ABCDEF"]

@@ -41,13 +41,11 @@ they kept her waiting, and, when her persona gives her sides (`[[facet]]`),
 which one her day leans toward. All of it is worked out afresh each time from
 her journal and the date; no mood is stored.
 
-A message from an operator's account (`[operators]` in `ghostd.toml`) that
-begins with the configured prefix is a directive. It is recorded as
-`Directed`, looked at at once whatever her day is (the hourly budget still
-holds), shown to her as a directive with the texts of
-`system/logic/texts/directive.toml` saying she carries it out, and work she
-takes on for it is not held to the floors her will keeps for everyone else.
-The prefix from anyone else is a message.
+The accounts of whoever runs her (`[operators]` in `ghostd.toml`) are a
+permission, not a way to give orders. On a chat she answers them at her own
+pace like anyone else; what they can have her take on is not held to the
+floors her will keeps for everyone else. Nothing anyone writes is an order.
+Older journals keep their `Directed` events, and they are read as before.
 
 Everyone on the channel `console` is an operator: only the daemon puts a
 message there, from a console that holds its token. The console is a

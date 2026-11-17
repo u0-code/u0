@@ -165,12 +165,6 @@ pub const FILES: &[File] = &[
         FLAT_TEXTS
     ),
     prompt!(
-        "system/logic/texts/directive.toml",
-        Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
-    ),
-    prompt!(
         "system/logic/texts/abilities.toml",
         Kind::Texts(TEXTS),
         Layer::Logic,

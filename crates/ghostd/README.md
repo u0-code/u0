@@ -92,8 +92,9 @@ while it listens on loopback; without a token, a console is taken as the
 owner's only from this machine. Nobody is listed in `[operators]` for it:
 holding the token is the listing.
 
-Such a console can speak to her with `console.say`, as an operator, or give
-her a directive without the prefix, stop her mid-thought there with
+Such a console can speak to her with `console.say`, as an operator, where
+she answers at once whatever her day (the console is a terminal, not a
+chat), stop her mid-thought there with
 `console.stop`, and can answer or stop her work with
 `work.answer` and `work.stop`; the protocol's README has the wire. Each of
 these goes to her mind, which writes it in her journal as the operator's.
@@ -380,25 +381,25 @@ the `claude-code` relay.
 
 ### `[operators]`
 
-The people who run her. A message from one of these accounts that begins
-with the prefix is a directive: she carries it out at once, whatever her
-day is, without deciding whether to, in her own voice, and it is written
-into her journal as `directed`. Everyone else, and these accounts without
-the prefix, she answers as herself. Whoever is at a console with this
-daemon's token is an operator without being listed here (see [Who runs her
-from a console](#who-runs-her-from-a-console)).
+The accounts of the people who run her, on the platforms they talk to her
+on. There they are people like anyone else: she answers them as herself, at
+her own pace. What being listed changes is what she will spend for them:
+work on her machine, and more than her day's share of work. Nothing anyone
+writes gives her an order; whoever wants her at once uses a console, where
+she is waited on. Whoever is at a console with this daemon's token is an
+operator without being listed here (see [Who runs her from a
+console](#who-runs-her-from-a-console)). A `prefix` key, from when a
+message could be an order, is refused with a reason.
 
 | key | default | |
 |-----|---------|---|
-| `prefix` | `"fox:"` | what a directive begins with; case, and a full-width colon for `:`, do not matter |
 | `report` | `"21:00"` | the time of day, in her timezone, at which she comes to mean to tell each operator what she has done and seen since she last told them; `""` is never |
 | `<channel>` | | a list of account ids on that channel, e.g. `qq = ["…"]`, `telegram = ["42"]` |
 
-The prefix alone is not trusted: the same words from any other account are
-an ordinary message, so list only accounts you control. A channel is named
-as its presence connects; an id is an account as that presence reports it.
-On QQ that is the OpenID the bot is given, which differs between a private
-chat and a group: list both to direct her in both. An id is only as sure as
+List only accounts you control. A channel is named as its presence
+connects; an id is an account as that presence reports it. On QQ that is
+the OpenID the bot is given, which differs between a private chat and a
+group: list both for both. An id is only as sure as
 the channel that reports it: the terminal takes whatever name it is started
 with, so a `term` operator is whoever can reach this daemon.
 

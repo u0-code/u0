@@ -59,8 +59,8 @@ pub struct MindConfig {
     pub prompts: Option<PathBuf>,
     /// Whether and how she takes things on.
     pub work: WorkConfig,
-    /// Who can give her directives, and how one begins. Set from the
-    /// top-level `[operators]` table of `ghostd.toml`, not from `[mind]`.
+    /// The accounts of whoever runs her. Set from the top-level
+    /// `[operators]` table of `ghostd.toml`, not from `[mind]`.
     #[serde(skip)]
     pub operators: Operators,
     /// What the people who run her say about particular places, by place
@@ -90,16 +90,15 @@ pub struct PlaceConfig {
 /// whatever `[operators]` lists.
 pub const CONSOLE: &str = "console";
 
-/// The accounts that run her body, and the prefix that turns a message from
-/// one of them into a directive. A directive is carried out, not weighed,
-/// so what makes one is the account it came from: the prefix alone, from
-/// anyone else, is an ordinary message.
+/// The accounts of whoever runs her body, on the platforms they talk to
+/// her on. On a platform they are people as everyone is, and she answers
+/// them at her own pace there; what their accounts change is what she is
+/// allowed to spend for them: work on her machine, and more than her day's
+/// share of it. Nothing anyone writes, on any account, gives an order:
+/// whoever runs her and wants her at once uses a console.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Operators {
-    /// What a directive begins with, after any leading whitespace. Matched
-    /// without regard to case, and a `:` in it matches a full-width `：`.
-    pub prefix: String,
     /// The time of day, in her own timezone, at which she tells each of
     /// them what she has been doing, written `"HH:MM"`. An empty string,
     /// read as `None`, is never.
@@ -113,7 +112,6 @@ pub struct Operators {
 impl Default for Operators {
     fn default() -> Self {
         Self {
-            prefix: "fox:".to_owned(),
             report: NaiveTime::from_hms_opt(21, 0, 0),
             accounts: BTreeMap::new(),
         }
@@ -142,36 +140,6 @@ impl Operators {
                 .get(channel)
                 .is_some_and(|ids| ids.iter().any(|i| i == id))
     }
-
-    /// The directive in `text`, without its prefix, if `text` is one: from
-    /// an operator's account and beginning with the prefix, with something
-    /// after it.
-    pub fn directive<'a>(&self, channel: &str, from: &str, text: &'a str) -> Option<&'a str> {
-        if !self.includes(channel, from) {
-            return None;
-        }
-        let prefix = self.prefix.trim();
-        if prefix.is_empty() {
-            return None;
-        }
-        let text = text.trim_start();
-        let mut rest = text.char_indices();
-        for want in prefix.chars() {
-            let (_, got) = rest.next()?;
-            if !same(want, got) {
-                return None;
-            }
-        }
-        let after = rest.next().map_or(text.len(), |(at, _)| at);
-        Some(text[after..].trim()).filter(|d| !d.is_empty())
-    }
-}
-
-/// Whether two characters of a prefix are the same, as a person typing it
-/// would mean: case aside, and a full-width colon for an ASCII one.
-fn same(a: char, b: char) -> bool {
-    let fold = |c: char| if c == '：' { ':' } else { c };
-    fold(a).to_lowercase().eq(fold(b).to_lowercase())
 }
 
 /// Taking things on: work that needs more than one thought.
@@ -287,32 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn a_directive_is_the_prefix_from_an_operator_whatever_its_case_and_colon() {
+    fn an_operator_is_an_account_listed_for_its_channel_or_anyone_at_a_console() {
         let ops = operators();
-        assert_eq!(
-            ops.directive("qq", "D6E3", "fox: send the weather"),
-            Some("send the weather")
-        );
-        assert_eq!(
-            ops.directive("qq", "D6E3", "  FOX：洗澡前回我"),
-            Some("洗澡前回我")
-        );
-        assert_eq!(ops.directive("qq", "D6E3", "Fox:hi"), Some("hi"));
-    }
-
-    #[test]
-    fn the_prefix_alone_does_not_make_a_directive() {
-        let ops = operators();
-        // From anyone else, on the channel or another, it is a message.
-        assert_eq!(ops.directive("qq", "A1B2", "fox: send the weather"), None);
-        assert_eq!(
-            ops.directive("telegram", "D6E3", "fox: send the weather"),
-            None
-        );
-        // From an operator, it has to begin the message and say something.
-        assert_eq!(ops.directive("qq", "D6E3", "hey fox: send it"), None);
-        assert_eq!(ops.directive("qq", "D6E3", "foxy: send it"), None);
-        assert_eq!(ops.directive("qq", "D6E3", "fox:   "), None);
-        assert_eq!(ops.directive("qq", "D6E3", "f"), None);
+        assert!(ops.includes("qq", "D6E3"));
+        assert!(!ops.includes("qq", "A1B2"));
+        assert!(!ops.includes("telegram", "D6E3"));
+        assert!(ops.includes(CONSOLE, "anyone"));
     }
 }

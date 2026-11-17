@@ -195,8 +195,7 @@ fn begin(
     }
     if !mind.operators.accounts.is_empty() {
         info!(
-            "directives begin with {:?}, from operators on {}",
-            mind.operators.prefix,
+            "run by accounts on {}",
             mind.operators
                 .accounts
                 .iter()
