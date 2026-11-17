@@ -180,7 +180,7 @@ fn avatar() -> Div {
         .justify_center()
         .size(px(24.))
         .rounded_full()
-        .bg(theme::panel2())
+        .bg(theme::bubble())
         .child(ui::icon("ghost", 13.).text_color(theme::text2()))
 }
 
@@ -415,7 +415,7 @@ fn yours(
                 .px(px(S4))
                 .py(px(10.))
                 .rounded(px(BUBBLE_RADIUS))
-                .bg(theme::panel2())
+                .bg(theme::bubble())
                 .when(directed.is_some(), |d| {
                     d.border_1().border_color(theme::purple().opacity(0.4))
                 })

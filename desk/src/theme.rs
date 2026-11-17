@@ -25,6 +25,16 @@ pub fn rail() -> Hsla {
 pub fn panel() -> Hsla {
     c(0x2626_25)
 }
+/// What you said, in its bubble, and a name in code in her prose: a
+/// shade over the ground, as light as Claude's app keeps it (#252525 on
+/// #191919), not a panel's grey.
+pub fn bubble() -> Hsla {
+    c(0x2525_24)
+}
+/// The rules of a table, under its head and between its rows.
+pub fn rule() -> Hsla {
+    c(0x3030_2F)
+}
 /// A panel's deeper inset, or a selected row.
 pub fn panel2() -> Hsla {
     c(0x3434_33)
