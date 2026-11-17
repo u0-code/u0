@@ -264,8 +264,8 @@ pub struct Prompts {
     pub report: String,
     /// `review.md`: the brief for sitting down to look at her public writing.
     pub review: String,
-    /// `system/work/working.md`: what she is told about a piece of work she
-    /// took on.
+    /// `system/work/working.md`: what the work loop is told about a piece
+    /// of work she took on and handed to it.
     pub working: String,
     store: Store,
 }

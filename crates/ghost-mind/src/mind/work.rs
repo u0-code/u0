@@ -412,12 +412,13 @@ impl Mind {
             part_steps: self.cfg.work.part_steps,
             ..Limits::default()
         };
-        // Who she is, without what moment it is: the same words at every
-        // sitting, so that a sitting picked up later reads its transcript
-        // from the provider's cache instead of afresh.
+        // Not who she is: the work is done for her, not as her, and what
+        // comes of it reaches people only in her words. What working has
+        // taught her goes with it. The same words at every sitting, so that
+        // a sitting picked up later reads its transcript from the
+        // provider's cache instead of afresh.
         let who = format!(
-            "{}\n\n{}{}",
-            self.who(now)?,
+            "{}{}",
             self.prompts.working.trim_end(),
             self.practice_block()?
         );

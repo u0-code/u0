@@ -34,10 +34,11 @@ async fn she_takes_something_on_does_it_and_comes_back_with_it() {
     let ended = kinds.iter().position(|k| *k == "concluded").unwrap();
     assert!(took < ended, "{kinds:?}");
 
-    // She worked as herself, on the brief, with no shell in this body.
+    // The work was handed the brief, not her persona, with no shell in
+    // this body.
     {
         let turns = rig.think.turns.lock().unwrap();
-        assert!(turns[0].system.contains("Weiwei"));
+        assert!(!turns[0].system.contains("Weiwei"));
         assert!(
             matches!(&turns[0].items[0], ghost_brain::Item::User { text } if text.contains("Heming tea house"))
         );
