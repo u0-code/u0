@@ -136,11 +136,14 @@ pub(super) fn task(
     // reason's word first, in that state's colour.
     let standing = !matches!(state, State::Finished | State::Running);
     let said_already = done.to_lowercase().starts_with(state.word());
+    // Held to the card's width, so that a long title ends in an ellipsis
+    // rather than running past the frame.
     let words = div()
         .flex()
         .flex_col()
         .flex_1()
         .min_w(px(0.))
+        .overflow_hidden()
         .gap(px(2.))
         .child(
             ui::one_line(ui::text(faces, t.title().to_owned()))
