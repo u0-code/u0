@@ -171,3 +171,38 @@ async fn a_refused_context_is_folded_and_remembered() {
     // Every request it went on to make was one the model would take.
     assert_eq!(report.steps, 11);
 }
+
+#[tokio::test]
+async fn the_newest_step_says_what_its_request_was_made_of_and_the_room_it_had() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![
+        calls("shell", json!({"command": "echo hello there"})),
+        calls("done", json!({"outcome": "finished", "summary": "said"})),
+    ];
+    let (worker, brain) = worker(dir.path(), script, Limits::default());
+    brain.window.store(200_000, Ordering::Relaxed);
+    worker.run().await;
+
+    let logged = crate::undertaking::steps(&state_db(dir.path()), "main", 0, 100)
+        .unwrap()
+        .unwrap();
+    let context = logged.context.expect("the newest step says");
+    assert_eq!(context.n, 2, "the second step, not the first");
+    assert_eq!(context.window, Some(200_000));
+    assert!(context.folds_at.is_some_and(|f| f < 200_000));
+    let seen = brain.seen.lock().unwrap();
+    let last = seen.last().unwrap();
+    // The model read what it was shown: the provider's count comes back
+    // with the parts it can be shared out among.
+    assert_eq!(
+        context.usage.input,
+        (chars(&last.items) / 3).max(100) as u64
+    );
+    let part = |name: &str| context.parts.get(name).copied().unwrap_or(0);
+    let n = |s: &str| s.chars().count() as u64;
+    assert_eq!(part("system"), n(&last.system));
+    assert!(part("tools") > 0);
+    assert!(matches!(&last.items[0], Item::User { text } if part("task") == n(text)));
+    assert!(part("messages") > n("echo hello there"), "what it called");
+    assert!(part("results") >= n("hello there"), "what came back");
+}

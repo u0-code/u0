@@ -7,6 +7,8 @@
 //! dropped. If that is not enough the worker writes a handoff and a new
 //! sitting begins from the record and the last stretch of the transcript.
 
+use std::collections::BTreeMap;
+
 use ghost_brain::{Item, Turn, Usage};
 use serde_json::Value;
 
@@ -64,6 +66,53 @@ pub(super) struct Gauge {
 
 pub(super) fn chars(items: &[Item]) -> usize {
     items.iter().map(Item::weight).sum()
+}
+
+/// What one request put in front of the model, in characters, by part:
+/// `system` (how to work, and for whom), `tools` (what it may call),
+/// `task` (what the sitting opened with: the task, and after a fold the
+/// plan, the handoff and the notes), `messages` (what it said and called,
+/// and what it was told along the way), `results` (what its calls brought
+/// back, a picture counted as [`ghost_brain::PICTURE_WEIGHT`]). A console
+/// shows what fills the worker's context from this, against the tokens the
+/// provider counted.
+pub(super) fn parts(shown: &Shown, items: &[Item]) -> BTreeMap<&'static str, u64> {
+    let n = |s: &str| s.chars().count() as u64;
+    let tools = shown
+        .specs
+        .iter()
+        .map(|s| n(&s.name) + n(&s.description) + n(&s.parameters.to_string()))
+        .sum();
+    let mut parts = BTreeMap::from([
+        ("system", n(&shown.system)),
+        ("tools", tools),
+        ("task", 0),
+        ("messages", 0),
+        ("results", 0),
+    ]);
+    for (i, item) in items.iter().enumerate() {
+        let (part, size) = match item {
+            Item::User { text } if i == 0 => ("task", n(text)),
+            Item::User { text } => ("messages", n(text)),
+            Item::Assistant { text, calls, carry } => (
+                "messages",
+                n(text)
+                    + calls
+                        .iter()
+                        .map(|c| n(&c.name) + n(&c.args.to_string()))
+                        .sum::<u64>()
+                    + carry.as_ref().map_or(0, |c| n(&c.to_string())),
+            ),
+            Item::Result {
+                output, pictures, ..
+            } => (
+                "results",
+                n(output) + (pictures.len() * ghost_brain::PICTURE_WEIGHT) as u64,
+            ),
+        };
+        *parts.entry(part).or_default() += size;
+    }
+    parts
 }
 
 impl Gauge {

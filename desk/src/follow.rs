@@ -16,6 +16,10 @@
 //!   opened, every two seconds while it is open and still going, once more
 //!   after it ends, and again at once while its answer says there is more.
 //!
+//! - The work of the place on screen whose context the right column shows
+//!   is asked about for that alone, by the same rule as an open card,
+//!   without its steps.
+//!
 //! One ask is in flight per place and per work at a time. An ask that is
 //! refused (a daemon from before these methods, a work it no longer has)
 //! is not repeated for a while; one that never comes back is given up on.
@@ -25,7 +29,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ghost_link::protocol::{LoggedStep, Look, WorkLog, WorkPart};
+use ghost_link::protocol::{LoggedStep, Look, WorkContext, WorkLog, WorkPart};
 
 /// How often a place she is thinking in is asked about.
 pub const LOOK_EVERY: Duration = Duration::from_secs(1);
@@ -50,6 +54,9 @@ pub enum Read {
     /// `journal.place`: the entries of the place, by key, so that a thread
     /// older than the tail the desk holds can be shown.
     Place { place: String },
+    /// `work.steps` of a work, by id, for what its newest step put in front
+    /// of its model, and none of its steps.
+    Context { work: String },
 }
 
 /// What one ghost's thread has learned of her steps.
@@ -59,6 +66,8 @@ pub struct Following {
     pub places: HashMap<String, PlaceLooks>,
     /// By work id, parts by their own.
     pub works: HashMap<String, WorkSteps>,
+    /// What filled a worker's context, by work id.
+    pub contexts: HashMap<String, Contexts>,
 }
 
 /// An ask that is due: after which journal entry, or which step, to read.
@@ -207,6 +216,52 @@ impl WorkSteps {
     }
 }
 
+/// What filled one worker's context at its newest step, followed for
+/// that alone.
+#[derive(Debug, Default)]
+pub struct Contexts {
+    pub newest: Option<WorkContext>,
+    asked: Option<Asked>,
+    answered: Option<Instant>,
+    answered_open: bool,
+    quiet_until: Option<Instant>,
+}
+
+impl Contexts {
+    /// Whether to ask now: once at first, every two seconds while the
+    /// work is open, and once more after it ends.
+    fn due(&self, now: Instant, open: bool) -> bool {
+        if self.asked.is_some_and(|a| a.pending(now)) || self.quiet_until.is_some_and(|q| now < q) {
+            return false;
+        }
+        let Some(answered) = self.answered else {
+            return true;
+        };
+        (open && now.duration_since(answered) >= WORK_EVERY) || (!open && self.answered_open)
+    }
+
+    /// Keep `context` if it is newer than the one held.
+    fn keep(&mut self, context: Option<WorkContext>) {
+        if let Some(c) = context
+            && self.newest.as_ref().is_none_or(|held| held.n <= c.n)
+        {
+            self.newest = Some(c);
+        }
+    }
+
+    fn take(&mut self, now: Instant, answer: Result<Option<WorkContext>, String>) {
+        let asked = self.asked.take();
+        self.answered = Some(now);
+        self.answered_open = asked.is_some_and(|a| a.open);
+        if let Ok(context) = answer {
+            self.keep(context);
+        } else {
+            self.quiet_until = Some(now + QUIET);
+            self.answered_open = false;
+        }
+    }
+}
+
 impl Following {
     /// What to ask about the place `place` now, if anything; it is taken
     /// as asked.
@@ -246,6 +301,42 @@ impl Following {
         })
     }
 
+    /// What to ask about the context of the work `work` now, if anything;
+    /// it is taken as asked.
+    pub fn context(&mut self, work: &str, now: Instant, open: bool) -> Option<Read> {
+        let held = self.contexts.entry(work.to_owned()).or_default();
+        if !held.due(now, open) {
+            return None;
+        }
+        held.asked = Some(Asked {
+            at: now,
+            upto: None,
+            open,
+        });
+        Some(Read::Context {
+            work: work.to_owned(),
+        })
+    }
+
+    /// Take in what filled a worker's context, or why it could not be read.
+    pub fn took_context(
+        &mut self,
+        work: &str,
+        now: Instant,
+        answer: Result<Option<WorkContext>, String>,
+    ) {
+        self.contexts
+            .entry(work.to_owned())
+            .or_default()
+            .take(now, answer);
+    }
+
+    /// What filled the context of the work `work` at its newest step, as
+    /// far as the desk has heard.
+    pub fn work_context(&self, work: &str) -> Option<&WorkContext> {
+        self.contexts.get(work)?.newest.as_ref()
+    }
+
     /// Take in her looks at `place`, or why they could not be read.
     pub fn looks(&mut self, place: &str, now: Instant, answer: Result<Vec<Look>, String>) {
         self.places
@@ -254,8 +345,14 @@ impl Following {
             .take(now, answer);
     }
 
-    /// Take in a work's steps, or why they could not be read.
+    /// Take in a work's steps, or why they could not be read. What its
+    /// newest step was given comes with them.
     pub fn steps(&mut self, work: &str, now: Instant, answer: Result<WorkLog, String>) {
+        if let Ok(log) = &answer
+            && let Some(held) = self.contexts.get_mut(work)
+        {
+            held.keep(log.context.clone());
+        }
         self.works
             .entry(work.to_owned())
             .or_default()
@@ -270,6 +367,9 @@ impl Following {
         }
         for w in self.works.values_mut() {
             w.asked = None;
+        }
+        for c in self.contexts.values_mut() {
+            c.asked = None;
         }
     }
 }
@@ -407,6 +507,7 @@ mod tests {
                 state: WorkState::Running,
             }],
             more: false,
+            context: None,
         };
         f.steps("w1", t, Ok(log));
         assert_eq!(f.work("w1", t + Duration::from_secs(1), true), None);
@@ -418,6 +519,7 @@ mod tests {
                 steps: vec![step(2), step(3)],
                 parts: Vec::new(),
                 more: false,
+                context: None,
             }),
         );
         let held: Vec<u64> = f.works["w1"].steps.iter().map(|s| s.n).collect();
@@ -431,6 +533,7 @@ mod tests {
                 steps: Vec::new(),
                 parts: Vec::new(),
                 more: false,
+                context: None,
             }),
         );
         assert_eq!(f.work("w1", end + Duration::from_secs(60), false), None);
@@ -448,6 +551,7 @@ mod tests {
                 steps: (1..=100).map(step).collect(),
                 parts: Vec::new(),
                 more: true,
+                context: None,
             }),
         );
         assert_eq!(
@@ -457,5 +561,47 @@ mod tests {
                 after: Some(100)
             })
         );
+    }
+
+    fn context(n: u64) -> WorkContext {
+        WorkContext {
+            n,
+            at: None,
+            usage: None,
+            parts: BTreeMap::new(),
+            window: None,
+            folds_at: None,
+        }
+    }
+
+    #[test]
+    fn the_context_of_open_work_is_asked_about_every_two_seconds_and_only_the_newest_is_kept() {
+        let mut f = Following::default();
+        let t = Instant::now();
+        let ask = Some(Read::Context { work: "w3".into() });
+        assert_eq!(f.context("w3", t, true), ask);
+        assert_eq!(f.context("w3", t, true), None, "one at a time");
+        f.took_context("w3", t, Ok(Some(context(4))));
+        assert_eq!(f.context("w3", t + Duration::from_secs(1), true), None);
+        assert_eq!(f.context("w3", t + WORK_EVERY, true), ask);
+        // Its card's steps came in meanwhile with a newer one; the answer
+        // asked before them is older and does not take its place.
+        f.steps(
+            "w3",
+            t + WORK_EVERY,
+            Ok(WorkLog {
+                steps: Vec::new(),
+                parts: Vec::new(),
+                more: false,
+                context: Some(context(9)),
+            }),
+        );
+        f.took_context("w3", t + WORK_EVERY, Ok(Some(context(8))));
+        assert_eq!(f.work_context("w3").map(|c| c.n), Some(9));
+        let end = t + Duration::from_secs(5);
+        assert_eq!(f.context("w3", end, false), ask, "once more when it ends");
+        f.took_context("w3", end, Ok(None));
+        assert_eq!(f.work_context("w3").map(|c| c.n), Some(9), "kept");
+        assert_eq!(f.context("w3", end + Duration::from_secs(60), false), None);
     }
 }

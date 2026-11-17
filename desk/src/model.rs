@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{Attention, GhostCard, Listed, Look, Work, WorkLog};
+use ghost_link::protocol::{Attention, GhostCard, Listed, Look, Work, WorkContext, WorkLog};
 use serde_json::Value;
 
 /// One line of her journal.
@@ -45,6 +45,9 @@ pub struct Status {
     pub tz: Tz,
     pub local_time: String,
     pub think: String,
+    /// The context window of the brain she looks with, in tokens, where
+    /// her daemon knows it.
+    pub think_window: Option<u64>,
 }
 
 impl Status {
@@ -56,6 +59,10 @@ impl Status {
             tz,
             local_time: s(v, "local_time"),
             think: v.get("brains").map(|b| s(b, "think")).unwrap_or_default(),
+            think_window: v
+                .get("windows")
+                .and_then(|w| w.get("think"))
+                .and_then(Value::as_u64),
         }
     }
 
@@ -234,6 +241,12 @@ pub enum Update {
         work: String,
         log: Result<WorkLog, String>,
     },
+    /// What a work's newest step put in front of its model, by id, as
+    /// `work.steps` says; or why it could not be read.
+    Context {
+        work: String,
+        context: Result<Option<WorkContext>, String>,
+    },
 }
 
 /// A message in the conversation between you and her from the desk, in
@@ -275,6 +288,17 @@ pub struct Stop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn her_brains_window_is_what_her_daemon_says_and_none_from_one_that_does_not() {
+        let said = serde_json::json!({
+            "brains": {"think": "main"},
+            "windows": {"think": 1_048_576, "tick": null},
+        });
+        assert_eq!(Status::from_value(&said).think_window, Some(1_048_576));
+        let older = serde_json::json!({"brains": {"think": "main"}});
+        assert_eq!(Status::from_value(&older).think_window, None);
+    }
 
     #[test]
     fn a_refused_connection_says_nothing_is_listening() {

@@ -162,6 +162,16 @@ async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>
                 .map_err(|e| format!("{e:#}")),
             work,
         },
+        // Asked after every step there could be, the answer holds none of
+        // them, and what the newest one was given.
+        Read::Context { work } => Update::Context {
+            context: console
+                .work_steps(&work, Some(u64::MAX), Some(1))
+                .await
+                .map(|log| log.context)
+                .map_err(|e| format!("{e:#}")),
+            work,
+        },
         // A place that cannot be read shows what the desk holds of it; a
         // daemon that refuses says so in the log, not on the desk.
         Read::Place { place } => match console.thread(&place, PLACE_READ).await {

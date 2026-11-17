@@ -408,6 +408,10 @@ impl Worker {
                 gauge.reweigh(&items);
             }
 
+            // What this request is made of, and the room it has, for
+            // whoever follows the work: kept with the step it was for.
+            let context = context::parts(&shown, &items);
+            let folds_at = self.ceiling(base);
             let asked = Instant::now();
             let turn = Turn {
                 system: shown.system.clone(),
@@ -550,6 +554,9 @@ impl Worker {
                 "model_ms": model_ms,
                 "said": as_written(&said, SAID_KEPT),
                 "calls": logged,
+                "context": context,
+                "window": self.brain.window(),
+                "folds_at": folds_at,
             }));
             self.save(&items, &mut recorded);
 
