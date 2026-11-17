@@ -1,11 +1,7 @@
 //! Answering observers. Read-only: nothing here can change her.
 
 use chrono::{DateTime, Utc};
-use ghost_core::{
-    journal::{Entry, Event},
-    memory::Undertaking,
-    social, will,
-};
+use ghost_core::{memory::Undertaking, will};
 use ghost_work::{
     WORK_DB, looks,
     undertaking::{self, Look, Outcome},
@@ -16,8 +12,6 @@ use tracing::warn;
 use super::{Mind, Question};
 use crate::Result;
 
-/// How far back in her journal a place's thread is looked for.
-const SCAN: usize = 5000;
 /// How many pieces of work that have ended are shown beside those still
 /// open.
 const ENDED: usize = 20;
@@ -120,56 +114,11 @@ impl Mind {
     }
 
     /// Everything in her journal that belongs to one place: what was said
-    /// there, and what she read, decided, felt, noted and intended about it.
+    /// there, and what she read, decided, felt, noted and intended about
+    /// it, as her memory sorted it when each entry was written.
     fn thread_view(&self, key: &str, limit: usize) -> Result<Value> {
-        let memory = self.ghost.memory();
-        let Some((channel, id)) = social::split_key(key) else {
-            return Ok(json!([]));
-        };
-        let other = memory.person_of_direct(key)?.map(|p| p.key);
-        let said_here = format!("said in {key}");
-        let here = |c: &str, p: &str| c == channel && p == id;
-        let mut intentions: Vec<i64> = Vec::new();
-        let mut heard: Vec<i64> = Vec::new();
-        let mut entries: Vec<Entry> = Vec::new();
-        for entry in self.ghost.journal().tail(SCAN)? {
-            let belongs = match &entry.event {
-                Event::Heard { channel, place, .. } => {
-                    let mine = here(channel, &place.id);
-                    if mine {
-                        heard.push(entry.seq);
-                    }
-                    mine
-                }
-                Event::Viewed { message, .. } => heard.contains(message),
-                Event::Read { channel, place, .. }
-                | Event::Said { channel, place, .. }
-                | Event::Reacted { channel, place, .. } => here(channel, place),
-                Event::Decided { about, .. } => about == key,
-                Event::Intended { place, about, .. } => {
-                    let mine =
-                        place.as_deref() == Some(key) || (about.is_some() && *about == other);
-                    if mine {
-                        intentions.push(entry.seq);
-                    }
-                    mine
-                }
-                Event::Settled { intention, .. } => intentions.contains(intention),
-                Event::Felt { toward: person, .. }
-                | Event::Noted { about: person, .. }
-                | Event::Left { person, .. } => other.as_deref() == Some(person.as_str()),
-                Event::Canon { source, .. } => *source == said_here,
-                // Being stopped here, or a line taken back here, is part
-                // of this conversation.
-                Event::Stopped { place, .. } | Event::Rewound { place, .. } => place == key,
-                _ => false,
-            };
-            if belongs {
-                entries.push(entry);
-            }
-        }
-        let skip = entries.len().saturating_sub(limit.clamp(1, 2000));
-        Ok(json!(entries[skip..]))
+        let seqs = self.ghost.memory().thread_of(key, limit.clamp(1, 2000))?;
+        Ok(json!(self.ghost.journal().entries_at(&seqs)?))
     }
 
     fn people_view(&self, now: DateTime<Utc>) -> Result<Value> {
