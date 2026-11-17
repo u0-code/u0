@@ -137,6 +137,8 @@ impl Desk {
             self.settings.save();
         }
         self.solver.say(place, text, mode);
+        // What you send is where you read on from.
+        self.thread_scroll.scroll_to_bottom();
         cx.notify();
     }
 

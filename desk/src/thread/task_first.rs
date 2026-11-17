@@ -137,14 +137,15 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
 
     div()
         .id("thread")
-        .flex()
-        .flex_col()
         .flex_1()
         .min_h(px(0.))
         .overflow_y_scroll()
+        .when_some(view.scroll, StatefulInteractiveElement::track_scroll)
         .px(px(32.))
         .pt(px(28.))
         .pb(px(S6))
+        // Not a flex column: in one, the column would be shrunk to the
+        // window, and the thread would end where the window does.
         .child(column)
         .into_any_element()
 }

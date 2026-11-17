@@ -12,8 +12,9 @@ use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px
 use serde_json::Value;
 
 use super::{
-    State, Task, clock, s, span, steps,
-    style::{CARD_RADIUS, MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
+    State, Task, calls, clock, s, span, steps,
+    style::{BODY, BODY_LINE, CARD_RADIUS, MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
+    task_first::breathing,
 };
 use crate::{aside, desk::Desk, follow::Following, fonts::Faces, model::Entry, theme, ui};
 
@@ -96,8 +97,11 @@ pub(super) fn tool(
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
 }
 
-/// A piece of work: a card that says where it stands at a glance, and
-/// opens to what it did and its parts.
+/// A piece of work, drawn as a coding agent's app draws what it did: no
+/// frame, a line saying what the work is, and under it a quieter line
+/// saying what it has done so far and for how long, which opens to every
+/// step. What it came to is in her answer after it, so it is not said
+/// here again until it is opened.
 pub(super) fn task(
     faces: &Faces,
     t: &Task<'_>,
@@ -109,42 +113,55 @@ pub(super) fn task(
     let key = format!("task:{}", t.id);
     let open = expanded.contains(&key);
     let state = t.state();
-    let elapsed = (t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds();
-    let figures = format!("{} · {}", span(elapsed), t.figures());
+    let read = following.works.get(&t.id).filter(|r| r.read());
+    let done = summary_of(t, read.map(|r| r.steps.as_slice()));
 
+    let glyph = div()
+        .flex()
+        .flex_none()
+        .w(px(MARK))
+        .h(px(BODY_LINE))
+        .items_center()
+        .child(if state == State::Running {
+            breathing(aside::glyph(state))
+        } else {
+            aside::glyph(state)
+        });
     let title = div()
         .flex()
-        .items_center()
-        .gap(px(10.))
-        .child(aside::glyph(state))
+        .items_start()
+        .child(glyph)
         .child(
-            ui::text(faces, t.brief.clone())
+            ui::text(faces, t.title().to_owned())
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .text_size(px(13.5))
-                .font_weight(FontWeight::MEDIUM),
+                .text_size(px(BODY))
+                .line_height(px(BODY_LINE))
+                .text_color(theme::text()),
         )
-        .child(
-            meta(faces, state.word())
-                .text_color(state.color())
-                .flex_none(),
-        );
-    let summary = div()
+        .when(!matches!(state, State::Finished | State::Running), |d| {
+            d.child(
+                meta(faces, state.word())
+                    .flex_none()
+                    .pl(px(S3))
+                    .line_height(px(BODY_LINE))
+                    .text_color(state.color()),
+            )
+        });
+    let toggle = key.clone();
+    let line = div()
         .flex()
         .items_center()
-        .justify_between()
-        .gap(px(S3))
-        .pl(px(19.))
+        .gap(px(6.))
+        .pl(px(MARK))
+        .h(px(24.))
         .child(
-            ui::text(faces, t.last_line())
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(SMALL))
-                .text_color(theme::muted()),
+            ui::text(faces, done)
+                .text_size(px(BODY))
+                .text_color(theme::muted())
+                .group_hover("work-head", |s| s.text_color(theme::text2())),
         )
-        .child(meta(faces, figures).flex_none())
         .child(
             ui::icon(
                 if open {
@@ -154,42 +171,82 @@ pub(super) fn task(
                 },
                 12.,
             )
-            .flex_none()
             .text_color(theme::faint()),
         );
-    let toggle = key.clone();
     let head = div()
         .id(SharedString::from(key))
+        .group("work-head")
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .px(px(14.))
-        .py(px(S3))
         .cursor_pointer()
         .child(title)
-        .child(summary)
+        .child(line)
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
 
-    let mut frame = card()
-        .bg(theme::panel())
-        .when(t.open(), |d| d.border_color(theme::border2()))
-        .child(head);
+    let mut whole = div().flex().flex_col().w_full().child(head);
     if open {
-        frame = frame.child(
+        let brief = t.brief_shown();
+        whole = whole.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(S2))
-                .px(px(S3))
-                .pt(px(S2))
-                .pb(px(S3))
-                .border_t_1()
-                .border_color(theme::border())
+                .w_full()
+                .pl(px(MARK - 2.))
+                // What it was asked to do, over the line its steps hang
+                // from: what it did.
+                .child(
+                    div()
+                        .w_full()
+                        .pl(px(2. + S3 + 6.))
+                        .pr(px(6.))
+                        .pt(px(S1))
+                        .pb(px(S1))
+                        .child(crate::markdown::render_as(
+                            faces,
+                            &format!("brief:{}", t.id),
+                            brief,
+                            crate::markdown::Setting::Small,
+                        )),
+                )
                 .child(along_the_way(faces, t, tz, following, expanded, cx))
                 .children(parts(faces, t, following, expanded, cx)),
         );
     }
-    frame
+    whole
+}
+
+/// How much of what a milestone says shows: a few lines' worth.
+const SAID_SHORT: usize = 240;
+
+/// The room a work's mark takes before its words.
+const MARK: f32 = 20.;
+
+/// What a piece of work has done, in a line: `Ran 7 commands · 42s` once
+/// it is over, `Working for 13s · 6 steps` while it goes on, and before its
+/// steps are read, where it stands and for how long.
+fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>) -> String {
+    let state = t.state();
+    let secs = (t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds();
+    let said: Vec<calls::Said> = steps
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|s| s.calls.iter())
+        .filter(|c| calls::shown(&c.name) && c.name != "done")
+        .map(|c| calls::say(&c.name, &c.args))
+        .collect();
+    match state {
+        State::Running => calls::worked(secs, steps.map_or(0, <[LoggedStep]>::len), true),
+        State::Waiting => format!("Waiting on you · {}", span(secs)),
+        _ if !said.is_empty() => calls::summary(&said, secs),
+        _ => {
+            let word = state.word();
+            let mut w = word.to_owned();
+            if let Some(c) = w.get_mut(0..1) {
+                c.make_ascii_uppercase();
+            }
+            format!("{w} in {}", span(secs))
+        }
+    }
 }
 
 /// One thing in a work's card: a step it took, or something its journal
@@ -230,7 +287,7 @@ fn along_the_way(
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    let mut column = div().flex().flex_col().gap(px(S1));
+    let mut column = div().flex().flex_col().w_full().gap(px(S1));
     let read = following.works.get(&t.id).filter(|r| r.read());
     let held: &[LoggedStep] = read.map_or(&[], |r| r.steps.as_slice());
     let (shown, earlier) = steps::earlier(faces, &t.id, held.len(), expanded, cx);
@@ -262,12 +319,14 @@ fn along_the_way(
 }
 
 /// Something a piece of work's journal says of it: a sitting's summary,
-/// what it told or asked, how it ended.
+/// what it told or asked, how it ended. A line saying which, in the colour
+/// of its kind, with when at the right; under it what was said, quietly,
+/// a few lines at most, since how it ended is said again in her answer.
 fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
     let (tag, text) = match e.kind.as_str() {
         "worked" => (
             format!(
-                "worked · {}",
+                "Sat down · {} steps",
                 e.data
                     .get("steps")
                     .and_then(Value::as_i64)
@@ -275,34 +334,49 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
             ),
             s(&e.data, "summary"),
         ),
-        "concluded" => (
-            s(&e.data, "outcome").replace('_', " "),
-            s(&e.data, "summary"),
-        ),
-        "asked" => ("asked".to_owned(), s(&e.data, "question")),
+        "concluded" => {
+            let mut word = s(&e.data, "outcome").replace('_', " ");
+            if let Some(c) = word.get_mut(0..1) {
+                c.make_ascii_uppercase();
+            }
+            (word, s(&e.data, "summary"))
+        }
+        "asked" => ("Asked".to_owned(), s(&e.data, "question")),
+        "reported" => ("Told".to_owned(), s(&e.data, "text")),
+        "added" => ("Added".to_owned(), s(&e.data, "text")),
         other => (other.to_owned(), s(&e.data, "text")),
     };
     div()
         .flex()
-        .gap(px(10.))
-        .items_baseline()
-        .py(px(S1))
-        .px(px(6.))
-        .child(meta(faces, clock(e.at, tz)).w(px(38.)).flex_none())
+        .flex_col()
+        .gap(px(2.))
+        // In line with the rows of the steps above it.
+        .pl(px(2. + S3 + 6.))
+        .pr(px(6.))
+        .py(px(S1 + 2.))
         .child(
-            meta(faces, tag)
-                .text_color(theme::kind_color(&e.kind))
-                .w(px(76.))
-                .flex_none(),
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    ui::text(faces, tag)
+                        .text_size(px(SMALL))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::kind_color(&e.kind)),
+                )
+                .child(meta(faces, clock(e.at, tz))),
         )
-        .child(
-            ui::text(faces, text.to_owned())
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(SMALL))
-                .line_height(px(SMALL_LINE))
-                .text_color(theme::text2()),
-        )
+        .when(!text.trim().is_empty(), |d| {
+            d.child(
+                // Cut by characters here: GPUI's own clamp with an
+                // ellipsis cuts Chinese inside a character and panics.
+                ui::text(faces, calls::one_line(text, SAID_SHORT))
+                    .text_size(px(SMALL))
+                    .line_height(px(SMALL_LINE))
+                    .text_color(theme::muted()),
+            )
+        })
 }
 
 /// The parts a piece of work handed out, each a card of its own: as its
@@ -347,4 +421,70 @@ fn parts(
         ));
     }
     Some(column)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+    use ghost_link::protocol::ToolCall;
+    use serde_json::json;
+
+    use super::*;
+    use crate::thread::tasks;
+
+    fn entry(seq: i64, at: DateTime<Utc>, kind: &str, data: Value) -> Entry {
+        Entry {
+            seq,
+            at,
+            kind: kind.to_owned(),
+            data,
+        }
+    }
+
+    fn step(n: u64, calls: &[&str]) -> LoggedStep {
+        LoggedStep {
+            n,
+            at: None,
+            said: String::new(),
+            ms: None,
+            calls: calls
+                .iter()
+                .map(|name| ToolCall {
+                    name: (*name).to_owned(),
+                    args: json!({"command": "ls"}),
+                    out: String::new(),
+                    cut: false,
+                    chars: 0,
+                    ms: 0,
+                    failed: false,
+                    pictures: 0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_works_line_says_what_it_did_and_how_long_or_where_it_stands_before_its_steps_are_read() {
+        let t0 = Utc::now() - Duration::minutes(5);
+        let open = vec![entry(1, t0, "undertook", json!({"id": "w", "brief": "b"}))];
+        let mut done = open.clone();
+        done.push(entry(
+            2,
+            t0 + Duration::seconds(42),
+            "concluded",
+            json!({"id": "w", "outcome": "finished", "summary": "s"}),
+        ));
+        let steps = [step(1, &["shell", "shell"]), step(2, &["shell", "done"])];
+
+        let running = &tasks(&open)[0];
+        assert!(summary_of(running, Some(&steps)).starts_with("Working for "));
+        assert!(summary_of(running, Some(&steps)).ends_with("· 2 steps"));
+        let finished = &tasks(&done)[0];
+        assert_eq!(
+            summary_of(finished, Some(&steps)),
+            "Ran 3 commands · 42s",
+            "the call that ends the work is not counted as something it did"
+        );
+        assert_eq!(summary_of(finished, None), "Finished in 42s");
+    }
 }

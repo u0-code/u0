@@ -117,6 +117,7 @@ pub(super) fn rail() -> Div {
     div()
         .flex()
         .flex_col()
+        .w_full()
         .gap(px(1.))
         .ml(px(2.))
         .pl(px(S3))
@@ -241,14 +242,24 @@ pub(super) fn step(
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    let mut block = div().flex().flex_col();
+    let mut block = div().flex().flex_col().w_full();
     let said = step.said.trim();
     if !said.is_empty() {
+        // What she said at a step is written as she writes to anyone:
+        // drawn the same way, small and quiet.
+        let key = format!("said:{work}:{}", step.n);
         block = block.child(
-            secondary(faces, said.to_owned())
+            div()
+                .w_full()
                 .px(px(6.))
-                .pt(px(S1))
-                .pb(px(2.)),
+                .pt(px(S1 + 2.))
+                .pb(px(S1 + 2.))
+                .child(crate::markdown::render_as(
+                    faces,
+                    &key,
+                    said,
+                    crate::markdown::Setting::Small,
+                )),
         );
     }
     for (i, call) in step.calls.iter().enumerate() {

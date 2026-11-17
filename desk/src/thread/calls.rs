@@ -87,7 +87,7 @@ pub fn say(name: &str, args: &Value) -> Said {
             None if args.get("background").and_then(Value::as_bool) == Some(true) => {
                 ("Started", a("command").to_owned())
             }
-            None => ("Ran", a("command").to_owned()),
+            None => ("Ran", command(a("command")).to_owned()),
         },
         "read" => ("Read", a("path").to_owned()),
         "write" => ("Wrote", a("path").to_owned()),
@@ -165,6 +165,21 @@ pub fn say(name: &str, args: &Value) -> Said {
         verb: verb.to_owned(),
         what: one_line(&what, KEY_KEPT),
     }
+}
+
+/// A command as a row says it: without the `cd somewhere &&` it began
+/// with, which is the same for every command of a piece of work and would
+/// leave rows that look alike once cut to the width of the column. Where it
+/// ran is in what it printed, a click away.
+fn command(text: &str) -> &str {
+    let t = text.trim_start();
+    if let Some(rest) = t.strip_prefix("cd ")
+        && let Some((_, after)) = rest.split_once("&&")
+        && !after.trim().is_empty()
+    {
+        return after.trim_start();
+    }
+    t
 }
 
 fn first_of(args: &Value, keys: &[&str]) -> String {
@@ -327,6 +342,18 @@ mod tests {
             ("Ran".into(), "du -sh ~/Library".into())
         );
         assert_eq!(
+            said(
+                "shell",
+                json!({"command": "cd /Users/me/Ghost/crates && for d in */; do wc -l $d; done"})
+            ),
+            ("Ran".into(), "for d in */; do wc -l $d; done".into()),
+            "the cd every command of the work starts with is left out"
+        );
+        assert_eq!(
+            said("shell", json!({"command": "cd /tmp"})),
+            ("Ran".into(), "cd /tmp".into())
+        );
+        assert_eq!(
             said("read", json!({"path": "src/main.rs", "from": 3})),
             ("Read".into(), "src/main.rs".into())
         );
@@ -391,9 +418,9 @@ mod tests {
 
     #[test]
     fn a_key_argument_is_one_line_and_trails_off_when_long() {
-        let command = format!("cd /tmp &&\n  {}", "x".repeat(400));
+        let command = format!("ls /tmp &&\n  {}", "x".repeat(400));
         let what = say("shell", &json!({"command": command})).what;
-        assert!(what.starts_with("cd /tmp && xxx"));
+        assert!(what.starts_with("ls /tmp && xxx"));
         assert_eq!(what.chars().count(), KEY_KEPT);
         assert!(what.ends_with('…'));
         assert_eq!(one_line("短 的\n句子", 10), "短 的 句子");

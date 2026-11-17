@@ -171,6 +171,7 @@ impl Desk {
             abilities: None,
             expanded: &self.expanded,
             following: &self.solver.following,
+            scroll: None,
             rendering: thread::Rendering::Task,
         };
         let (text, lines) = thread::transcript(&view);
@@ -205,6 +206,8 @@ impl Desk {
             self.back.push(was);
             self.forward.clear();
         }
+        // Another thread opens at its end, where its latest words are.
+        self.thread_scroll.scroll_to_bottom();
     }
 
     /// Where a session id is now.

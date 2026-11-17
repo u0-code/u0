@@ -41,7 +41,8 @@ use std::{
 };
 
 use gpui::{
-    Context, Entity, FocusHandle, Focusable as _, MouseButton, Window, div, prelude::*, px,
+    Context, Entity, FocusHandle, Focusable as _, MouseButton, ScrollHandle, Window, div,
+    prelude::*, px,
 };
 use tracing::warn;
 
@@ -175,6 +176,8 @@ pub struct Desk {
     pub(crate) picker: Picker,
     /// Cards and lines opened in the thread, and lists shown in full, by key.
     pub expanded: HashSet<String>,
+    /// Where the thread on screen is scrolled to, and how far it goes.
+    pub thread_scroll: ScrollHandle,
     /// Groups and sections folded away, by key, for as long as the desk runs.
     pub(crate) collapsed: HashSet<String>,
     /// A box to answer in for each piece of work waiting on an answer.
@@ -345,6 +348,7 @@ impl Desk {
             menu_focus: cx.focus_handle(),
             picker: Picker::default(),
             expanded: HashSet::new(),
+            thread_scroll: ScrollHandle::new(),
             collapsed: HashSet::new(),
             replies: Replies::new(),
             page: Page::Thread,
@@ -414,6 +418,11 @@ impl Desk {
         }
         if changed {
             self.sync_replies(cx);
+            // Read at its end, the thread stays at its end as it grows,
+            // the way a chat does; scrolled up to read, it stays put.
+            if self.at_end() {
+                self.thread_scroll.scroll_to_bottom();
+            }
         }
         if self.steps.asked.elapsed() >= FOLLOW {
             self.steps.asked = Instant::now();
@@ -446,7 +455,14 @@ impl Desk {
             }
             None => (&mut self.solver, session),
         };
-        let wanted = thread::wanted(&thread_view(ghost, &place, &who, None, &self.expanded));
+        let wanted = thread::wanted(&thread_view(
+            ghost,
+            &place,
+            &who,
+            None,
+            &self.expanded,
+            &self.thread_scroll,
+        ));
         ghost.follow(&wanted);
         if let Some((work, open)) = crate::aside::context_work(&ghost.journal, &place) {
             ghost.follow_context(&work, open);
@@ -478,6 +494,14 @@ impl Desk {
 
     pub fn who(&self) -> &str {
         &self.settings.who
+    }
+
+    /// Whether the thread is scrolled to its end, or near enough that what
+    /// comes next would be read there.
+    pub(crate) fn at_end(&self) -> bool {
+        let max = self.thread_scroll.max_offset().height;
+        let at = -self.thread_scroll.offset().y;
+        max - at <= px(END_SLACK)
     }
 
     pub fn toggle(&mut self, key: &str, cx: &mut Context<Self>) {
@@ -513,6 +537,9 @@ impl Desk {
     }
 }
 
+/// How near its end, in pixels, the thread counts as read to the end.
+const END_SLACK: f32 = 48.;
+
 /// How often, at most, the desk asks itself what of her steps to read:
 /// well under the second a look is followed at.
 const FOLLOW: Duration = Duration::from_millis(300);
@@ -525,6 +552,7 @@ fn thread_view<'a>(
     who: &str,
     abilities: Option<&'a Abilities>,
     expanded: &'a HashSet<String>,
+    scroll: &'a ScrollHandle,
 ) -> thread::View<'a> {
     thread::View {
         journal: &ghost.journal,
@@ -538,6 +566,7 @@ fn thread_view<'a>(
         abilities,
         expanded,
         following: &ghost.following,
+        scroll: Some(scroll),
         rendering: thread::Rendering::Task,
     }
 }
@@ -566,7 +595,14 @@ impl Render for Desk {
                     Some(&self.abilities),
                 ),
             };
-            let view = thread_view(ghost, &place, self.who(), abilities, &self.expanded);
+            let view = thread_view(
+                ghost,
+                &place,
+                self.who(),
+                abilities,
+                &self.expanded,
+                &self.thread_scroll,
+            );
             // Only a place on the console channel is yours to stop her in.
             let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
                 && thread::busy(&view);

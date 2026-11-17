@@ -1,8 +1,8 @@
 //! What the solver says, drawn the way it was written: the small part of
 //! Markdown a model actually writes. Paragraphs, headings, lists (nested
-//! by their indent), quotes, fenced code, and inside a line `code`,
-//! **bold** and *italic* (with asterisks only). Anything else is left as
-//! the text it is.
+//! by their indent), quotes, fenced code, tables, and inside a line
+//! `code`, **bold** and *italic* (with asterisks only). Anything else is
+//! left as the text it is.
 //!
 //! It is set in the thread's type (`thread/style.rs`): body text with room
 //! between its lines, blocks a step apart and the items of a list closer,
@@ -18,7 +18,10 @@ use gpui::{
 use crate::{
     fonts::{self, Faces},
     theme,
-    thread::style::{H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, WELL_RADIUS},
+    thread::style::{
+        H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, S4, SMALL, SMALL_LINE,
+        WELL_RADIUS,
+    },
     ui,
 };
 
@@ -39,6 +42,38 @@ pub enum Block {
         lang: String,
         text: String,
     },
+    /// A table: its head, how each column is set, and its rows, each cut
+    /// or padded to as many cells as the head has.
+    Table {
+        head: Vec<String>,
+        right: Vec<bool>,
+        rows: Vec<Vec<String>>,
+    },
+}
+
+/// The cells of a table's line: what is between its bars, trimmed.
+fn cells(line: &str) -> Vec<String> {
+    let inner = line.trim();
+    let inner = inner.strip_prefix('|').unwrap_or(inner);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    inner.split('|').map(|c| c.trim().to_owned()).collect()
+}
+
+/// Whether a line is the rule under a table's head, `|---|:--:|`; and if
+/// so, which of its columns are set to the right.
+fn rule(line: &str) -> Option<Vec<bool>> {
+    let t = line.trim();
+    if !t.contains('-') || !t.contains('|') && !t.starts_with('-') {
+        return None;
+    }
+    cells(t)
+        .iter()
+        .map(|c| {
+            let dashes = c.trim_matches(':');
+            (!dashes.is_empty() && dashes.chars().all(|ch| ch == '-'))
+                .then(|| c.ends_with(':') && !c.starts_with(':'))
+        })
+        .collect()
 }
 
 /// How deep a line is nested, by its indent: two spaces, or a tab, a level.
@@ -82,16 +117,39 @@ fn joined(lines: &[&str]) -> String {
 pub fn parse(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut paragraph: Vec<&str> = Vec::new();
-    let mut lines = text.lines();
+    let lines = text.lines();
     let flush = |paragraph: &mut Vec<&str>, blocks: &mut Vec<Block>| {
         if !paragraph.is_empty() {
             blocks.push(Block::Paragraph(joined(paragraph)));
             paragraph.clear();
         }
     };
+    let mut lines = lines.peekable();
     while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
-        if let Some(lang) = trimmed.strip_prefix("```") {
+        // A table: a line of bars over a rule, then the lines of bars that
+        // follow.
+        if trimmed.starts_with('|')
+            && let Some(right) = lines.peek().and_then(|next| rule(next))
+        {
+            flush(&mut paragraph, &mut blocks);
+            lines.next();
+            let head = cells(trimmed);
+            let n = head.len();
+            let mut rows = Vec::new();
+            while let Some(next) = lines.peek() {
+                if !next.trim_start().starts_with('|') {
+                    break;
+                }
+                let mut row = cells(next);
+                row.resize(n, String::new());
+                rows.push(row);
+                lines.next();
+            }
+            let mut right = right;
+            right.resize(n, false);
+            blocks.push(Block::Table { head, right, rows });
+        } else if let Some(lang) = trimmed.strip_prefix("```") {
             flush(&mut paragraph, &mut blocks);
             let mut code = Vec::new();
             for inner in lines.by_ref() {
@@ -256,16 +314,63 @@ pub fn spans(line: &Inline) -> Vec<(Range<usize>, Mark)> {
     out
 }
 
+/// The weight bold is set in: in the serif a true bold, since the Chinese
+/// it falls back to (Songti) has a bold and no semibold, and a semibold
+/// would leave Chinese words beside bold Latin ones looking plain.
+fn strong_weight(faces: &Faces, face: &SharedString) -> FontWeight {
+    if face == &faces.serif {
+        FontWeight::BOLD
+    } else {
+        FontWeight::SEMIBOLD
+    }
+}
+
 /// How a block's text is set before its marks: its weight and its colour.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Base {
     weight: FontWeight,
     color: Hsla,
+    /// What is set in bold is set in.
+    strong: Hsla,
+    /// The face its words are set in: the serif for her prose, the
+    /// interface's for what is said about a step.
+    face: SharedString,
+}
+
+/// How a message is set: in her prose, the serif at body size, or small
+/// and quiet, as what she said along the way at a step of her work.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    Prose,
+    Small,
+}
+
+impl Setting {
+    fn size(self) -> (f32, f32) {
+        match self {
+            Setting::Prose => (PROSE, PROSE_LINE),
+            Setting::Small => (SMALL, SMALL_LINE),
+        }
+    }
+
+    fn face(self, faces: &Faces) -> SharedString {
+        match self {
+            Setting::Prose => faces.serif.clone(),
+            Setting::Small => faces.ui.clone(),
+        }
+    }
+
+    fn color(self) -> Hsla {
+        match self {
+            Setting::Prose => theme::text(),
+            Setting::Small => theme::muted(),
+        }
+    }
 }
 
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
-fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
+fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
     let parsed = inline(line);
     let face = |family: &SharedString, weight, style| gpui::Font {
         family: family.clone(),
@@ -283,8 +388,16 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
         .map(|(r, mark)| {
             let (font, color, background) = match mark {
                 Mark::Plain => (
-                    face(&faces.serif, base.weight, FontStyle::Normal),
+                    face(&base.face, base.weight, FontStyle::Normal),
                     base.color,
+                    None,
+                ),
+                // In her prose a name in code stands out in amber on a
+                // ground of its own; in the small print of a step, where
+                // there are many, it is only set in mono.
+                Mark::Code if base.face == faces.ui => (
+                    face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
+                    base.strong,
                     None,
                 ),
                 Mark::Code => (
@@ -293,12 +406,16 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
                     Some(theme::panel2()),
                 ),
                 Mark::Bold => (
-                    face(&faces.serif, FontWeight::SEMIBOLD, FontStyle::Normal),
-                    theme::text(),
+                    face(
+                        &base.face,
+                        strong_weight(faces, &base.face),
+                        FontStyle::Normal,
+                    ),
+                    base.strong,
                     None,
                 ),
                 Mark::Italic => (
-                    face(&faces.serif, base.weight, FontStyle::Italic),
+                    face(&base.face, base.weight, FontStyle::Italic),
                     base.color,
                     None,
                 ),
@@ -316,96 +433,194 @@ fn styled(faces: &Faces, line: &str, base: Base) -> StyledText {
     StyledText::new(SharedString::from(parsed.text)).with_runs(runs)
 }
 
-/// A message, drawn. `key` tells its code blocks apart from every other
-/// message's, for their scrolling.
+/// A message, drawn in her prose. `key` tells its code blocks apart from
+/// every other message's, for their scrolling.
 pub fn render(faces: &Faces, key: &str, text: &str) -> Div {
-    let mut column = div().flex().flex_col().min_w(px(0.));
+    render_as(faces, key, text, Setting::Prose)
+}
+
+/// A message, drawn in the setting given.
+pub fn render_as(faces: &Faces, key: &str, text: &str, set: Setting) -> Div {
+    let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
     let blocks = parse(text);
+    let (_, line) = set.size();
+    // Blocks stand apart by most of a line; a list's items by a little.
+    let apart = (line * 0.6).round();
     for (i, block) in blocks.iter().enumerate() {
         let gap = match (before, block) {
             (None, _) => 0.,
             (Some(Block::Item { .. }), Block::Item { .. }) => S1 + 2.,
             (Some(Block::Heading(..)), _) => S2,
-            (Some(_), Block::Heading(..)) => S3 + S2,
-            _ => S3,
+            (Some(_), Block::Heading(..)) => apart + S2,
+            _ => apart,
         };
-        column = column.child(block_element(faces, &format!("{key}-{i}"), block).mt(px(gap)));
+        let el = block_element(faces, &format!("{key}-{i}"), block, set);
+        column = column.child(el.mt(px(gap)));
         before = Some(block);
     }
     column
 }
 
-/// Body text: what a paragraph or a list item is set in.
-fn body() -> Base {
+/// Body text in a setting: what a paragraph, a list item or a cell is set in.
+fn body(faces: &Faces, set: Setting) -> Base {
     Base {
         weight: FontWeight::NORMAL,
-        color: theme::text(),
+        color: set.color(),
+        strong: match set {
+            Setting::Prose => theme::text(),
+            Setting::Small => theme::text2(),
+        },
+        face: set.face(faces),
     }
 }
 
-fn block_element(faces: &Faces, key: &str, block: &Block) -> Div {
+/// A block of text in a setting's size.
+fn sized(set: Setting) -> Div {
+    let (size, line) = set.size();
+    div().text_size(px(size)).line_height(px(line))
+}
+
+fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
     match block {
-        Block::Paragraph(text) => div()
-            .text_size(px(PROSE))
-            .line_height(px(PROSE_LINE))
-            .child(styled(faces, text, body())),
+        Block::Paragraph(text) => sized(set).child(styled(faces, text, &body(faces, set))),
         Block::Heading(level, text) => {
-            let (size, line) = match level {
-                1 => H1,
-                2 => H2,
+            let (size, line) = match (set, level) {
+                (Setting::Small, _) => set.size(),
+                (_, 1) => H1,
+                (_, 2) => H2,
                 _ => H3,
             };
             let base = Base {
-                weight: FontWeight::SEMIBOLD,
-                color: theme::text(),
+                weight: strong_weight(faces, &set.face(faces)),
+                color: body(faces, set).strong,
+                ..body(faces, set)
             };
             div()
                 .text_size(px(size))
                 .line_height(px(line))
-                .child(styled(faces, text, base))
+                .child(styled(faces, text, &base))
         }
         Block::Item {
             marker,
             text,
             depth,
-        } => div()
-            .flex()
-            .gap(px(S2))
-            .pl(px(f32::from(*depth) * 20.))
-            .child(
-                ui::mono(faces, marker.clone())
-                    .min_w(px(14.))
-                    .flex_none()
-                    .text_right()
-                    .text_size(px(MONO))
-                    .text_color(theme::muted())
-                    .line_height(px(PROSE_LINE)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_size(px(PROSE))
-                    .line_height(px(PROSE_LINE))
-                    .child(styled(faces, text, body())),
-            ),
-        Block::Quote(text) => div()
+        } => {
+            // The marker hangs in front, in the face of the text, so that
+            // a wrapped line comes back under the words and not under it.
+            let bullet = marker == "•";
+            div()
+                .flex()
+                .pl(px(f32::from(*depth) * 22.))
+                .child(
+                    sized(set)
+                        .w(px(if bullet { 18. } else { 24. }))
+                        .flex_none()
+                        .font_family(set.face(faces))
+                        .when(bullet, |d| d.font_weight(FontWeight::BOLD))
+                        .text_color(body(faces, set).strong)
+                        .child(marker.clone()),
+                )
+                .child(sized(set).flex_1().min_w(px(0.)).child(styled(
+                    faces,
+                    text,
+                    &body(faces, set),
+                )))
+        }
+        Block::Quote(text) => sized(set)
             .pl(px(S3))
             .border_l_2()
             .border_color(theme::border2())
-            .text_size(px(PROSE))
-            .line_height(px(PROSE_LINE))
             .child(styled(
                 faces,
                 text,
-                Base {
-                    weight: FontWeight::NORMAL,
+                &Base {
                     color: theme::text2(),
+                    ..body(faces, set)
                 },
             )),
         Block::Code { lang, text } => code(faces, key, lang, text),
+        Block::Table { head, right, rows } => table(faces, head, right, rows, set),
     }
+}
+
+/// How wide a cell's text is, in columns: a Chinese or Japanese character
+/// takes two.
+fn width(text: &str) -> usize {
+    text.chars().map(|c| if unspaced(c) { 2 } else { 1 }).sum()
+}
+
+/// Each column's share of a table's width, by the widest thing in it, so
+/// that a column of short numbers stays narrow and one of words gets room.
+pub fn shares(head: &[String], rows: &[Vec<String>]) -> Vec<f32> {
+    let widths: Vec<usize> = (0..head.len())
+        .map(|i| {
+            std::iter::once(&head[i])
+                .chain(rows.iter().filter_map(|r| r.get(i)))
+                .map(|c| width(&inline(c).text))
+                .max()
+                .unwrap_or(0)
+                .clamp(4, 48)
+        })
+        .collect();
+    let total: usize = widths.iter().sum::<usize>().max(1);
+    widths.iter().map(|w| *w as f32 / total as f32).collect()
+}
+
+/// A table, set the way a careful page sets one: the head in the bold of
+/// the text over a rule, a hairline between rows and none around, each
+/// column as wide as it needs to be in the whole width.
+fn table(
+    faces: &Faces,
+    head: &[String],
+    right: &[bool],
+    rows: &[Vec<String>],
+    set: Setting,
+) -> Div {
+    let shares = shares(head, rows);
+    let row = |cells: &[String], strong: bool| {
+        let base = if strong {
+            Base {
+                weight: strong_weight(faces, &set.face(faces)),
+                color: body(faces, set).strong,
+                ..body(faces, set)
+            }
+        } else {
+            body(faces, set)
+        };
+        let mut line = div().flex().w_full().items_start();
+        for (i, cell) in cells.iter().enumerate() {
+            let last = i + 1 == cells.len();
+            // Each column grows by its share from nothing, so that the
+            // shares hold however wide the table turns out to be.
+            let mut frame = sized(set);
+            frame.style().flex_grow = Some(shares.get(i).copied().unwrap_or(0.));
+            frame.style().flex_shrink = Some(1.);
+            frame.style().flex_basis = Some(px(0.).into());
+            line = line.child(
+                frame
+                    .min_w(px(0.))
+                    .py(px(S2 + 1.))
+                    .when(!last, |d| d.pr(px(S4)))
+                    .when(right.get(i).copied().unwrap_or(false), |d| {
+                        d.flex().justify_end()
+                    })
+                    .child(styled(faces, cell, &base)),
+            );
+        }
+        line
+    };
+    let mut column = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .child(row(head, true).border_b_1().border_color(theme::border2()));
+    for (i, cells) in rows.iter().enumerate() {
+        let last = i + 1 == rows.len();
+        column = column
+            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::border())));
+    }
+    column
 }
 
 /// A fenced block: its language, small, over its text in mono, in a well
@@ -479,6 +694,46 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_table_is_its_head_its_rule_and_the_lines_of_bars_after() {
+        let text = "统计好了：\n\n| crate | 行数 |\n|---|---:|\n| ghost-mind | 18,856 |\n| ghost-net |\n\n最大的三个";
+        assert_eq!(
+            parse(text),
+            vec![
+                Block::Paragraph("统计好了：".into()),
+                Block::Table {
+                    head: vec!["crate".into(), "行数".into()],
+                    right: vec![false, true],
+                    rows: vec![
+                        vec!["ghost-mind".into(), "18,856".into()],
+                        vec!["ghost-net".into(), String::new()],
+                    ],
+                },
+                Block::Paragraph("最大的三个".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_of_bars_with_no_rule_under_it_is_text() {
+        assert_eq!(
+            parse("| not | a table |\nreally"),
+            vec![Block::Paragraph("| not | a table | really".into())]
+        );
+    }
+
+    #[test]
+    fn a_column_of_short_numbers_gets_less_of_a_table_than_one_of_words() {
+        let head = vec!["crate".to_owned(), "行数".to_owned()];
+        let rows = vec![vec![
+            "ghost-protocol 和它的说明".to_owned(),
+            "1,339".to_owned(),
+        ]];
+        let shares = shares(&head, &rows);
+        assert!(shares[0] > shares[1], "{shares:?}");
+        assert!((shares.iter().sum::<f32>() - 1.).abs() < 1e-4);
     }
 
     #[test]

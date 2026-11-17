@@ -45,7 +45,7 @@ fn parts_are_kept_under_the_task_that_handed_them_out() {
     let all = tasks(&journal);
     assert_eq!(all.len(), 2);
     assert_eq!(all[0].parts.len(), 1);
-    assert_eq!(all[0].parts[0].steps(), 4);
+    assert_eq!(all[0].parts[0].events.len(), 1, "its sitting is its own");
 }
 
 /// Two sessions' worth of journal, as the daemon writes it: work taken
@@ -278,6 +278,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         abilities: None,
         expanded: &expanded,
         following: &NOTHING_READ,
+        scroll: None,
         rendering: Rendering::Task,
     };
     let said: Vec<(String, bool)> = items(&view)
@@ -361,6 +362,7 @@ fn view<'a>(
         abilities: None,
         expanded,
         following: &NOTHING_READ,
+        scroll: None,
         rendering: Rendering::Task,
     }
 }
@@ -570,15 +572,17 @@ fn a_look_is_timed_from_its_first_call_when_nothing_said_comes_before_it() {
 }
 
 #[test]
-fn the_thread_asks_for_the_steps_of_open_cards_and_their_open_parts_only() {
+fn the_thread_asks_for_the_steps_of_every_work_and_of_the_open_parts_of_open_cards() {
     let journal = two_sessions();
     let place = place_key("s1");
     let mut expanded = HashSet::new();
     let works = |expanded: &HashSet<String>| wanted(&view(&journal, &[], &place, expanded)).works;
-    assert!(works(&expanded).is_empty(), "no card is open");
+    // A folded work's steps are read too: its line says what it did.
+    assert_eq!(works(&expanded), [("w1".to_owned(), true)]);
     expanded.insert("part:w1/2".to_owned());
-    assert!(
-        works(&expanded).is_empty(),
+    assert_eq!(
+        works(&expanded),
+        [("w1".to_owned(), true)],
         "a part shows only inside its open card"
     );
     expanded.insert("task:w1".to_owned());
@@ -664,6 +668,7 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         abilities: None,
         expanded: &std::collections::HashSet::default(),
         following: &NOTHING_READ,
+        scroll: None,
         rendering: Rendering::Task,
     };
     let texts: Vec<String> = items(&view)
@@ -675,4 +680,22 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         .collect();
     assert_eq!(texts, ["one", "two", "five"]);
     assert_eq!(taken_back(&journal, &place), [(3, 5)]);
+}
+
+#[test]
+fn a_works_brief_shows_without_the_words_it_was_handed_and_its_title_is_its_first_line() {
+    let brief = "统计每个 crate 的行数，排成表。\n\n步骤：\n1. 列出目录\n\nWhat Fox wrote, word for word:\n> 帮我看看";
+    let journal = vec![entry(1, "undertook", json!({"id": "w", "brief": brief}))];
+    let t = &tasks(&journal)[0];
+    assert_eq!(
+        t.brief_shown(),
+        "统计每个 crate 的行数，排成表。\n\n步骤：\n1. 列出目录"
+    );
+    assert_eq!(t.title(), "统计每个 crate 的行数，排成表。");
+    let plain = vec![entry(
+        1,
+        "undertook",
+        json!({"id": "w", "brief": "  tidy up  "}),
+    )];
+    assert_eq!(tasks(&plain)[0].brief_shown(), "tidy up");
 }
