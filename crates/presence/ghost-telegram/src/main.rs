@@ -232,6 +232,7 @@ async fn main() -> anyhow::Result<()> {
         channel: args.channel,
         me: Some(convert::actor(&me)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],
+        allows: ghost_link::protocol::Allows::default(),
     };
     presence::run(Arc::new(Telegram { bot, me }), link).await
 }

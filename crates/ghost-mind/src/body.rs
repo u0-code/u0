@@ -24,19 +24,57 @@ pub struct Incoming {
     pub images: Vec<String>,
 }
 
-/// What sort of place a channel is. It decides how she is there: when she
-/// looks, at what pace she answers, and what she is told about it. Who she
-/// is does not change with it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Kind {
-    /// A console of the daemon. Whoever is at it runs her, and is waiting
-    /// on her answer: she looks at once and answers at once, whatever her
-    /// day, and there is nothing to hold back from.
-    Terminal,
-    /// Where people talk with each other and with her. She keeps her own
-    /// day and pace there, and decides whether and when to answer at all.
-    #[default]
-    Chat,
+/// What a channel is like, as far as what she does there goes: whether
+/// whoever writes is waiting on her, and what the platform allows her. Each
+/// channel says it when it comes online; the console's are the daemon's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelFacts {
+    /// Whoever writes here runs her and is waiting on her answer: the
+    /// console. She looks and answers at once, whatever her day, and what
+    /// she does only among people (putting off, reacting, leaving) is not
+    /// offered.
+    pub waited_on: bool,
+    /// How long after a message reaches her in a private chat she can still
+    /// answer it, where the platform limits it.
+    pub answer_direct: Option<std::time::Duration>,
+    /// The same in a group.
+    pub answer_group: Option<std::time::Duration>,
+    /// Whether she may write to someone who has not just written to her.
+    pub writes_first: bool,
+}
+
+impl ChannelFacts {
+    /// The console: waited on, with nothing it does not allow.
+    pub fn console() -> Self {
+        Self {
+            waited_on: true,
+            ..Self::default()
+        }
+    }
+
+    /// How long she has to answer what reaches her in a place of `kind`,
+    /// where the platform limits it.
+    pub fn answer_within(
+        &self,
+        kind: ghost_core::social::PlaceKind,
+    ) -> Option<std::time::Duration> {
+        match kind {
+            ghost_core::social::PlaceKind::Direct => self.answer_direct,
+            _ => self.answer_group,
+        }
+    }
+}
+
+impl Default for ChannelFacts {
+    /// A chat that allows her anything a person may do.
+    fn default() -> Self {
+        Self {
+            waited_on: false,
+            answer_direct: None,
+            answer_group: None,
+            writes_first: true,
+        }
+    }
 }
 
 /// What a channel is able to do.

@@ -200,7 +200,7 @@ enum Signal {
         channel: String,
         me: Option<Actor>,
         can: Vec<Can>,
-        kind: crate::Kind,
+        facts: crate::ChannelFacts,
     },
     Offline {
         channel: String,
@@ -254,20 +254,20 @@ impl MindHandle {
         .await
     }
 
-    /// A channel became reachable. `me` is who she is there, and `kind`
-    /// what sort of place it is.
+    /// A channel became reachable. `me` is who she is there, and `facts`
+    /// what it is like.
     pub async fn online(
         &self,
         channel: &str,
         me: Option<Actor>,
         can: Vec<Can>,
-        kind: crate::Kind,
+        facts: crate::ChannelFacts,
     ) -> Result<()> {
         self.send(Signal::Online {
             channel: channel.to_owned(),
             me,
             can,
-            kind,
+            facts,
         })
         .await
     }
@@ -419,7 +419,7 @@ enum Outcome {
 struct Channel {
     me: Option<Actor>,
     can: Vec<Can>,
-    kind: crate::Kind,
+    facts: crate::ChannelFacts,
 }
 
 struct Attend {
@@ -709,7 +709,7 @@ impl Mind {
                 channel,
                 me,
                 can,
-                kind,
+                facts,
             } => {
                 info!(
                     "{channel} is reachable{}",
@@ -718,7 +718,7 @@ impl Mind {
                         .unwrap_or_default()
                 );
                 self.channels
-                    .insert(channel.clone(), Channel { me, can, kind });
+                    .insert(channel.clone(), Channel { me, can, facts });
                 for place in self.ghost.memory().places_unread()? {
                     if place.channel == channel {
                         self.schedule_attend(&place.key, now)?;
@@ -869,14 +869,14 @@ impl Mind {
         });
     }
 
-    /// What sort of place `channel` is, as it said when it came online.
-    /// Out of reach, the console is still the terminal it always is, and
-    /// anything else is taken for a chat.
-    pub(super) fn kind(&self, channel: &str) -> crate::Kind {
+    /// What `channel` is like, as it said when it came online. Out of
+    /// reach, the console is still the console, and anything else is taken
+    /// for a chat that allows anything.
+    pub(super) fn facts(&self, channel: &str) -> crate::ChannelFacts {
         match self.channels.get(channel) {
-            Some(c) => c.kind,
-            None if channel == crate::CONSOLE => crate::Kind::Terminal,
-            None => crate::Kind::Chat,
+            Some(c) => c.facts,
+            None if channel == crate::CONSOLE => crate::ChannelFacts::console(),
+            None => crate::ChannelFacts::default(),
         }
     }
 
@@ -884,7 +884,7 @@ impl Mind {
     /// waited on, and her own everywhere else.
     pub(super) fn pace(&self, place_key: &str) -> Tempo {
         match social::split_key(place_key) {
-            Some((channel, _)) if self.kind(channel) == crate::Kind::Terminal => Tempo::new(0.0),
+            Some((channel, _)) if self.facts(channel).waited_on => Tempo::new(0.0),
             _ => self.tempo,
         }
     }

@@ -28,10 +28,11 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
-use ghost_mind::{Act, Acted, Body, Kind, MindHandle, Question};
+use ghost_mind::{Act, Acted, Body, ChannelFacts, MindHandle, Question};
 use ghost_protocol::{
-    Action, Actor, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts,
-    LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome, code, method,
+    Action, Actor, Allows, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead,
+    ListGhosts, LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome,
+    code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -70,6 +71,7 @@ struct Presence {
     pending: Pending,
     me: Option<Actor>,
     can: Vec<Capability>,
+    allows: Allows,
 }
 
 /// The presences currently connected for one character, keyed by channel.
@@ -87,22 +89,29 @@ impl Presences {
     /// there, since what she says on it is kept in her journal.
     pub async fn announce(&self, mind: &MindHandle) {
         let _ = mind
-            .online(CONSOLE, None, operator::CAN.to_vec(), Kind::Terminal)
+            .online(
+                CONSOLE,
+                None,
+                operator::CAN.to_vec(),
+                ChannelFacts::console(),
+            )
             .await;
-        let present: Vec<(String, Option<Actor>, Vec<Capability>)> =
+        let present: Vec<(String, Option<Actor>, Vec<Capability>, Allows)> =
             self.channels.lock().map_or_else(
                 |_| Vec::new(),
                 |channels| {
                     channels
                         .iter()
-                        .map(|(channel, p)| (channel.clone(), p.me.clone(), p.can.clone()))
+                        .map(|(channel, p)| {
+                            (channel.clone(), p.me.clone(), p.can.clone(), p.allows)
+                        })
                         .collect()
                 },
             );
-        for (channel, me, can) in present {
+        for (channel, me, can, allows) in present {
             let can = can.into_iter().map(wire::can).collect();
             let _ = mind
-                .online(&channel, me.map(wire::actor), can, Kind::Chat)
+                .online(&channel, me.map(wire::actor), can, wire::facts(allows))
                 .await;
         }
     }
@@ -400,6 +409,7 @@ async fn carry<S>(
                 pending: pending.clone(),
                 me: hello.me.clone(),
                 can: hello.can.clone(),
+                allows: hello.allows,
             },
         )
     }) else {
@@ -423,7 +433,12 @@ async fn carry<S>(
     let can = hello.can.into_iter().map(wire::can).collect();
     let _ = who
         .mind()
-        .online(&channel, hello.me.map(wire::actor), can, Kind::Chat)
+        .online(
+            &channel,
+            hello.me.map(wire::actor),
+            can,
+            wire::facts(hello.allows),
+        )
         .await;
 
     loop {

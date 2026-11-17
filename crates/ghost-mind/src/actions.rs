@@ -209,9 +209,12 @@ impl Offer {
         match need {
             Need::Work => self.means.is_some(),
             Need::Memory => true,
-            Need::UnderWay | Need::Files | Need::Group | Need::Social | Need::React => {
-                self.here.contains(&need)
-            }
+            Need::UnderWay
+            | Need::Files
+            | Need::Group
+            | Need::Social
+            | Need::React
+            | Need::WritesFirst => self.here.contains(&need),
             // Those reach beyond the conversation, and are offered as
             // they are given.
             _ => false,

@@ -212,6 +212,7 @@ async fn no_presence_can_take_the_console_s_channel() {
             channel: CONSOLE.into(),
             me: None,
             can: vec![Capability::Send],
+            allows: ghost_protocol::Allows::default(),
         }),
         who: None,
     };

@@ -345,7 +345,10 @@ impl Mind {
         let prompt = narrate::fill(
             template,
             &[
-                ("where", self.describe_place(place, &people)),
+                (
+                    "where",
+                    self.describe_place(place, &people) + &self.allowed_here(place),
+                ),
                 ("elsewhere", self.elsewhere(place, now)?),
                 ("now", right_now),
                 ("right_now", self.right_now(place, &lines, now)?),
@@ -367,6 +370,25 @@ impl Mind {
         job.context
             .insert("frame".to_owned(), chars(&prompt).saturating_sub(inside));
         Ok((who, prompt))
+    }
+
+    /// What the platform does not allow her in `place`, said after where
+    /// she is; nothing where it allows all a person may do.
+    fn allowed_here(&self, place: &PlaceState) -> String {
+        let facts = self.facts(&place.channel);
+        let mut out = String::new();
+        if let Some(within) = facts.answer_within(place.kind) {
+            let minutes = (within.as_secs() / 60).max(1);
+            out.push_str(
+                &self
+                    .prompts
+                    .fill("place_answer_within", &[("minutes", minutes.to_string())]),
+            );
+        }
+        if !facts.writes_first {
+            out.push_str(self.prompts.text("place_not_first"));
+        }
+        out
     }
 
     pub(super) fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {
@@ -449,11 +471,9 @@ impl Mind {
             (Need::Files, self.can(&place.channel, Can::Files)),
             (Need::UnderWay, self.has_work_under_way()?),
             (Need::Group, place.kind == PlaceKind::Group),
-            (
-                Need::Social,
-                self.kind(&place.channel) != crate::Kind::Terminal,
-            ),
+            (Need::Social, !self.facts(&place.channel).waited_on),
             (Need::React, self.can(&place.channel, Can::React)),
+            (Need::WritesFirst, self.facts(&place.channel).writes_first),
         ]
         .into_iter()
         .filter_map(|(need, had)| had.then_some(need))

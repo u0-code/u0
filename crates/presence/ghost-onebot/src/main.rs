@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
             automated: true,
         }),
         can: vec![Capability::Send, Capability::Typing],
+        allows: ghost_link::protocol::Allows::default(),
     };
     let onebot = OneBot {
         wire,

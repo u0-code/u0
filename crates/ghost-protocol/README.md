@@ -17,6 +17,15 @@ desk.
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
 | `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
+A presence's hello says what its platform can do (`can`) and what it allows
+her (`allows`): how long after a message she can still answer it, in a
+private chat and in a group (`answer_direct_secs`, `answer_group_secs`), and
+whether she may write to someone who has not just written to her
+(`writes_first`, true when left out). QQ's bot platform says 1800, 300 and
+false. She keeps to it: awake, she looks at what is said to her well within
+the time, nothing that needs speaking first is offered there, and what she
+meant to say later is let go once it can no longer be answered.
+
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
 a window left open or an adapter that was restarted cannot hold a channel
