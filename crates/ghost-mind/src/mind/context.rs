@@ -156,12 +156,7 @@ impl Mind {
                         self.prompts
                             .fill("waiting_answer", &[("question", clip(question, 200))])
                     } else if self.working.contains_key(&u.id) {
-                        self.prompts
-                            .text(match self.cfg.work.runs {
-                                crate::Runs::Always => "work_running",
-                                crate::Runs::Awake => "work_running_awake",
-                            })
-                            .to_owned()
+                        self.prompts.text("work_running").to_owned()
                     } else if u.sittings == 0 {
                         "You have not started yet.".to_owned()
                     } else {

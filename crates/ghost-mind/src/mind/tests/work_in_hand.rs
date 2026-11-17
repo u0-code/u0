@@ -384,11 +384,10 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
         MindConfig {
             live: false,
             browse_minutes: [0, 0],
-            // Sat down to, so that it rests after its sitting runs out of
-            // steps and is still under way when she looks.
+            // A sitting that runs out of steps, so that the work is still
+            // under way when she looks.
             work: crate::WorkConfig {
                 sitting_steps: 2,
-                runs: crate::Runs::Awake,
                 ..crate::WorkConfig::default()
             },
             ..MindConfig::default()
@@ -403,9 +402,11 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
         "tell",
         serde_json::json!({"text": "Two sources agree: nine on weekdays.", "files": ["/w/hours.md"]}),
     );
-    // One sitting, out of steps: still under way.
+    // One sitting, out of steps, and the next one goes straight on and is
+    // held at its first step: still under way when she looks.
+    let gate = rig.think.hold(2);
     rig.mind.on_time(t0).unwrap();
-    rig.until(|r| r.kinds().contains(&"worked")).await;
+    rig.beside_until(|r| r.kinds().contains(&"worked")).await;
     {
         // The work itself saw the page.
         let turns = rig.think.turns.lock().unwrap();
@@ -416,7 +417,7 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
     rig.think
         .then(r#"{"thought":"","actions":[{"do":"say","text":"soon"}]}"#);
     rig.hear(dm("wen", "2", "any luck?"), t0 + Duration::minutes(1));
-    rig.until(|r| r.think.calls() >= 1).await;
+    rig.beside_until(|r| r.think.calls() >= 1).await;
     let prompt = rig.think.last_prompt();
     assert!(
         prompt.contains(&format!(
@@ -435,6 +436,7 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
     );
     assert!(!prompt.contains("7f3e"), "{prompt}");
     assert!(!prompt.contains("opening hours table"), "{prompt}");
+    gate.notify_one();
 }
 
 #[tokio::test]

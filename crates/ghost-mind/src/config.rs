@@ -193,8 +193,6 @@ pub struct WorkConfig {
     pub workdir: Option<String>,
     /// Let her search and read the web while working.
     pub web: bool,
-    /// Whether work runs apart from her day, or only while she is at it.
-    pub runs: Runs,
     /// Pieces of work that may have a sitting running at once. Another
     /// waits for one of them to end.
     pub at_once: u32,
@@ -202,8 +200,8 @@ pub struct WorkConfig {
     pub sitting_steps: u32,
     /// Minutes in one sitting.
     pub sitting_minutes: u32,
-    /// Minutes a piece of work rests between sittings, at human pace. With
-    /// `runs = "always"`, a sitting that ran out of steps or time is
+    /// Minutes a piece of work rests after a sitting that was stopped or
+    /// went nowhere. A sitting that only ran out of steps or time is
     /// followed at once by the next, without this rest.
     pub rest_minutes: u32,
     /// Sittings she gives one thing before letting it go.
@@ -232,18 +230,6 @@ pub struct WorkConfig {
     pub review_days: u32,
 }
 
-/// When work runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Runs {
-    /// On the machine, apart from her day: while she sleeps, talks or
-    /// reads, and one sitting straight after another until it is done.
-    Always,
-    /// Only while she is awake and not in a conversation, as something
-    /// she sits down to; looking at her phone puts it down.
-    Awake,
-}
-
 impl Default for WorkConfig {
     fn default() -> Self {
         Self {
@@ -251,7 +237,6 @@ impl Default for WorkConfig {
             machine: None,
             workdir: None,
             web: true,
-            runs: Runs::Always,
             at_once: 2,
             sitting_steps: 40,
             sitting_minutes: 15,

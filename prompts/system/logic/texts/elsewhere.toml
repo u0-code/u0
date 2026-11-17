@@ -39,7 +39,6 @@ work_part = "\n  Part {{part}} of it ({{status}}), given \"{{brief}}\": {{latest
 # that she need not stay with it; with work she sits down to, she has just
 # put it down.
 work_running = "Running now, on your machine. It goes on by itself while you sleep, talk or read, and tells you what it finds; you need not stay with it."
-work_running_awake = "You were in the middle of it just now."
 part_running = "running"
 part_paused = "paused until you sit down to the work again"
 part_asking = "waiting for the work to answer it"
