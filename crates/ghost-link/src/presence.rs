@@ -18,8 +18,8 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use ghost_protocol::{
-    Acted, Action, Actor, Capability, Frame, GhostCard, Hello, Inbound, PROTOCOL, PresenceHello,
-    Role, RpcError, Typing, code, method,
+    Acted, Action, Actor, Allows, Capability, Frame, GhostCard, Hello, Inbound, PROTOCOL,
+    PresenceHello, Role, RpcError, Typing, code, method,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -113,6 +113,8 @@ pub struct Link {
     /// Who she is on this platform, so her own messages can be recognized.
     pub me: Option<Actor>,
     pub can: Vec<Capability>,
+    /// What the platform allows her.
+    pub allows: Allows,
 }
 
 /// The adapter's way of telling the daemon what happened on the platform.
@@ -162,6 +164,7 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
             channel: link.channel.clone(),
             me: link.me.clone(),
             can: link.can.clone(),
+            allows: link.allows,
         }),
         who: None,
     };

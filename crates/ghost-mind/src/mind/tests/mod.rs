@@ -15,6 +15,7 @@ mod directives;
 mod groups;
 mod images;
 mod memory;
+mod platforms;
 mod prompts;
 mod public;
 mod reaching;
@@ -445,7 +446,7 @@ impl Rig {
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::React, Can::Post, Can::Feed],
-                kind: crate::Kind::Chat,
+                facts: crate::ChannelFacts::default(),
             },
             now,
         )
@@ -507,10 +508,10 @@ impl Rig {
                         automated: true,
                     }),
                     can: vec![Can::Send, Can::Typing],
-                    kind: if channel == crate::CONSOLE {
-                        crate::Kind::Terminal
+                    facts: if channel == crate::CONSOLE {
+                        crate::ChannelFacts::console()
                     } else {
-                        crate::Kind::Chat
+                        crate::ChannelFacts::default()
                     },
                 },
                 now,
@@ -795,7 +796,7 @@ fn takes_files(rig: &mut Rig, now: DateTime<Utc>) {
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::Files],
-                kind: crate::Kind::Chat,
+                facts: crate::ChannelFacts::default(),
             },
             now,
         )

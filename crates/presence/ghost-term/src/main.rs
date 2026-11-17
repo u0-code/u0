@@ -257,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
                 Capability::React,
                 Capability::Files,
             ],
+            allows: ghost_link::protocol::Allows::default(),
         },
     )
     .await

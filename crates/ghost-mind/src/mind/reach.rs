@@ -178,12 +178,27 @@ impl Mind {
         if !self.channels.contains_key(&place.channel) {
             return Ok(Err(Wait::Until(now + Duration::minutes(15))));
         }
+        // Where the platform does not let her speak first, she can say it
+        // only while what was last said to her there can still be answered.
+        let facts = self.facts(&place.channel);
+        if !facts.writes_first {
+            let answerable = facts
+                .answer_within(place.kind)
+                .and_then(|within| Duration::from_std(within).ok())
+                .zip(place.last_in_at)
+                .is_some_and(|(within, at)| now < at + within);
+            if !answerable {
+                return Ok(Err(Wait::Never(
+                    "this channel does not let her speak first, and what was said to her there can no longer be answered",
+                )));
+            }
+        }
         if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
         // What comes of work asked for at a terminal, or is to be said at
         // one, does not wait on her day either.
-        let waited_on = intention.directed || self.kind(&place.channel) == crate::Kind::Terminal;
+        let waited_on = intention.directed || self.facts(&place.channel).waited_on;
         if !self.tempo.instant() && !waited_on {
             let moment = self.life.moment(self.ghost.journal(), now)?;
             if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy {

@@ -41,7 +41,7 @@ conversations anyway.
 | private chats | yes |
 | groups | only messages that @ her; QQ shows a bot nothing else in a group unless it has been granted more |
 | answering | each message she receives can be answered a few times within minutes (5 in a group, 30 in a private chat); her reply is sent as an answer to the most recent one |
-| writing to someone first | rarely; QQ limits what a bot sends unprompted, and refuses the rest |
+| writing to someone first | rarely; QQ limits what a bot sends unprompted, and refuses the rest. The presence tells the daemon so (`allows`), and she does not plan to: putting an answer off and meaning to say something later are not offered here |
 | typing indicator | not used |
 | reactions | no; the API has none |
 | quoting a message | not carried; QQ quotes by an index of its own, not by message id |

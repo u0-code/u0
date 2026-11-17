@@ -68,7 +68,7 @@ const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
 use super::{Mind, Operator, Order, Outcome, Refused};
-use crate::{Kind, Result, actions::clip};
+use crate::{Result, actions::clip};
 
 /// A sitting in progress.
 pub(super) struct Working {
@@ -139,7 +139,7 @@ impl Mind {
         }
         // Asked at a terminal, it is not hers to weigh: whoever runs her
         // asked for it, and is waiting.
-        let terminal = place.is_some_and(|p| self.kind(&p.channel) == Kind::Terminal);
+        let terminal = place.is_some_and(|p| self.facts(&p.channel).waited_on);
         // Whoever runs her is let past the floors anywhere: it is their
         // machine and their account she would be spending.
         let theirs = terminal || asked_by.is_some_and(|p| self.runs_her(p));

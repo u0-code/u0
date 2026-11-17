@@ -346,6 +346,43 @@ pub struct PresenceHello {
     pub me: Option<Actor>,
     /// What this channel can do.
     pub can: Vec<Capability>,
+    /// What the platform allows her, beyond what it can do. Left out, no
+    /// limits.
+    #[serde(default)]
+    pub allows: Allows,
+}
+
+/// What a platform allows her: how long she has to answer what is written
+/// to her, and whether she may speak first. Some platforms limit a bot in
+/// both (QQ's bot platform does), and what she does has to fit: an answer
+/// put off past the limit, or a message to someone who has not just
+/// written, is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Allows {
+    /// Seconds after a message reaches her in a private chat within which
+    /// she can still answer it, where the platform limits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_direct_secs: Option<u64>,
+    /// The same in a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_group_secs: Option<u64>,
+    /// Whether she may write to someone who has not just written to her.
+    #[serde(default = "yes")]
+    pub writes_first: bool,
+}
+
+impl Default for Allows {
+    fn default() -> Self {
+        Self {
+            answer_direct_secs: None,
+            answer_group_secs: None,
+            writes_first: true,
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// The daemon's answer to [`Hello`].
@@ -1283,5 +1320,20 @@ mod tests {
         let hello: Hello = serde_json::from_str(r#"{"protocol":1,"role":"console"}"#).unwrap();
         assert_eq!(hello.who, None);
         assert!(!serde_json::to_string(&hello).unwrap().contains("who"));
+    }
+
+    #[test]
+    fn a_presence_that_says_nothing_of_what_it_allows_has_no_limits() {
+        let older: PresenceHello =
+            serde_json::from_value(serde_json::json!({"channel": "qq", "can": ["send"]})).unwrap();
+        assert_eq!(older.allows, Allows::default());
+        assert!(older.allows.writes_first);
+        let qq: PresenceHello = serde_json::from_value(serde_json::json!({
+            "channel": "qq", "can": ["send"],
+            "allows": {"answer_direct_secs": 1800, "answer_group_secs": 300, "writes_first": false}
+        }))
+        .unwrap();
+        assert_eq!(qq.allows.answer_group_secs, Some(300));
+        assert!(!qq.allows.writes_first);
     }
 }

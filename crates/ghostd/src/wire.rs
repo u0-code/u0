@@ -6,7 +6,7 @@
 
 use base64::Engine as _;
 use ghost_core::social;
-use ghost_mind::{Act, Acted, Can, Feed, Incoming};
+use ghost_mind::{Act, Acted, Can, ChannelFacts, Feed, Incoming};
 use ghost_protocol as wire;
 
 pub fn actor(a: wire::Actor) -> social::Actor {
@@ -39,6 +39,18 @@ pub fn incoming(m: wire::Inbound) -> Incoming {
         reply_to: m.reply_to,
         addressed: m.addressed,
         images: m.images.into_iter().map(|i| i.url).collect(),
+    }
+}
+
+/// What a presence says its platform allows her, as her mind takes it. No
+/// presence is waited on the way the console is.
+pub fn facts(allows: wire::Allows) -> ChannelFacts {
+    let secs = |s: Option<u64>| s.map(std::time::Duration::from_secs);
+    ChannelFacts {
+        waited_on: false,
+        answer_direct: secs(allows.answer_direct_secs),
+        answer_group: secs(allows.answer_group_secs),
+        writes_first: allows.writes_first,
     }
 }
 

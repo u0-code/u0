@@ -4,7 +4,7 @@
 //! in pace and in budget. So there is one list. Each tool says which loops
 //! it belongs to and what it needs before it can be offered at all: a
 //! machine, the web, a place that takes files, a place among people rather
-//! than a terminal, a channel that can react. What a place is decides what
+//! than a terminal, a channel that can react or lets her speak first. What a place is decides what
 //! is offered there, through these, and nothing else does. Whoever offers tools goes
 //! through this list in order, and offers what belongs to its loop and
 //! whose needs are met. What each tool is said to be is in `tools.toml`;
@@ -57,6 +57,10 @@ pub enum Need {
     Social,
     /// A channel that can put a reaction on a message.
     React,
+    /// A channel that lets her write to someone who has not just written
+    /// to her: coming back to a conversation later, or saying something she
+    /// meant to, needs one.
+    WritesFirst,
     /// A registry to find servers of tools in, and leave to install them.
     Registry,
     /// Servers of tools she has, to load.
@@ -99,10 +103,10 @@ const fn entry(name: &'static str, loops: &'static [Loop], needs: &'static [Need
 pub const TOOLS: &[Entry] = &[
     entry("say", TALK, &[]),
     entry("react", TALK, &[Need::Social, Need::React]),
-    entry("later", TALK, &[Need::Social]),
+    entry("later", TALK, &[Need::Social, Need::WritesFirst]),
     entry("note", BOTH, &[]),
     entry("feel", TALK, &[Need::Social]),
-    entry("intend", TALK, &[]),
+    entry("intend", TALK, &[Need::WritesFirst]),
     entry("canon", TALK, &[]),
     entry("recall", BOTH, &[Need::Memory]),
     entry("reread", TALK, &[Need::Memory]),

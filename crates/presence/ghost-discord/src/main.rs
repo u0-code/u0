@@ -243,6 +243,7 @@ async fn main() -> anyhow::Result<()> {
         channel: args.channel,
         me: Some(convert::actor(&me, None)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],
+        allows: ghost_link::protocol::Allows::default(),
     };
     let discord = Discord {
         token: args.bot_token,

@@ -328,6 +328,7 @@ impl Client {
                 channel: "t".into(),
                 me: None,
                 can: vec![Capability::Send],
+                allows: ghost_protocol::Allows::default(),
             }),
             who: None,
         };

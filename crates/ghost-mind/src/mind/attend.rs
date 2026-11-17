@@ -19,7 +19,6 @@ use ghost_core::{
 use tracing::{debug, warn};
 
 use super::{Attend, Mind, after};
-use crate::Kind;
 use crate::{
     Incoming, Result,
     actions::{Action, Deliberation},
@@ -209,7 +208,7 @@ impl Mind {
         }
         // At a terminal she looks as soon as it is in: whatever her day is,
         // it is not hers to fit in around it.
-        if self.kind(&place.channel) == Kind::Terminal {
+        if self.facts(&place.channel).waited_on {
             self.agenda.attend.insert(
                 place_key.to_owned(),
                 Attend {
@@ -277,6 +276,16 @@ impl Mind {
             .attend
             .get(place_key)
             .map_or(due, |existing| existing.due.min(due).max(floor));
+        // Where the platform lets her answer only for a while, what is
+        // said to her is looked at well within it while she is awake: an
+        // answer put off past it is refused, and she would have said
+        // nothing at all. Asleep, she is asleep.
+        let due = match self.facts(&place.channel).answer_within(place.kind) {
+            Some(within) if addressed && moment.phase != Phase::Asleep => {
+                due.min(after(since, within / 2).max(floor))
+            }
+            _ => due,
+        };
         self.agenda.attend.insert(
             place_key.to_owned(),
             Attend {
@@ -319,7 +328,7 @@ impl Mind {
         }
         // A terminal does not wait on her day: not on sleep, not on how
         // often she has spoken here, not on who else is talking.
-        let terminal = self.kind(&place.channel) == Kind::Terminal;
+        let terminal = self.facts(&place.channel).waited_on;
         let addressed = terminal || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
         if !addressed && self.holds_back(&place, now) {
             return Ok(());

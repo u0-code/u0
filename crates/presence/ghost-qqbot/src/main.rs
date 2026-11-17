@@ -310,6 +310,13 @@ async fn main() -> anyhow::Result<()> {
             automated: true,
         }),
         can: vec![Capability::Send, Capability::Files],
+        // QQ lets a bot answer a message only for a while after it came,
+        // and seldom lets it write first.
+        allows: ghost_link::protocol::Allows {
+            answer_direct_secs: Some(30 * 60),
+            answer_group_secs: Some(5 * 60),
+            writes_first: false,
+        },
     };
     let bot = QqBot {
         api,

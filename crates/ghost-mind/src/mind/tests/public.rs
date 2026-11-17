@@ -115,7 +115,7 @@ async fn a_mention_on_a_public_network_is_read_on_the_public_page() {
                 channel: "x".into(),
                 me: None,
                 can: vec![Can::Send, Can::Post],
-                kind: crate::Kind::Chat,
+                facts: crate::ChannelFacts::default(),
             },
             t0,
         )
@@ -282,7 +282,7 @@ async fn she_sees_how_her_posts_did_and_keeps_what_she_learns() {
                 channel: "t".into(),
                 me: None,
                 can: vec![Can::Post, Can::Feed, Can::Metrics],
-                kind: crate::Kind::Chat,
+                facts: crate::ChannelFacts::default(),
             },
             t0,
         )
@@ -365,7 +365,7 @@ async fn once_a_week_she_looks_at_how_her_writing_is_going() {
                 channel: "t".into(),
                 me: None,
                 can: vec![Can::Post, Can::Feed, Can::Metrics],
-                kind: crate::Kind::Chat,
+                facts: crate::ChannelFacts::default(),
             },
             t0,
         )

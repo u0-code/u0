@@ -396,6 +396,7 @@ async fn main() -> anyhow::Result<()> {
             Capability::Feed,
             Capability::Metrics,
         ],
+        allows: ghost_link::protocol::Allows::default(),
     };
     let account = Account {
         x,
