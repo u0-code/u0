@@ -6,7 +6,14 @@ all-features = true
 [advisories]
 # A known vulnerability or an unmaintained crate anywhere in the tree fails
 # the check. Exceptions go here by id, with the reason.
-ignore = []
+ignore = [
+    # chrono and chrono-tz were marked unmaintained in 2026-11. They carry
+    # no known vulnerability, and every time in the journal, her clock and
+    # the protocol is a chrono type, so leaving them is a migration (to
+    # jiff, the advisory's suggestion) of its own, not a version bump.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no vulnerability; replacing it is its own migration" },
+    { id = "RUSTSEC-2026-0555", reason = "chrono-tz unmaintained, no vulnerability; goes with chrono" },
+]
 
 [licenses]
 # Licences that can be combined with Apache-2.0 without asking more of
