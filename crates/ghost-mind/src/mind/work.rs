@@ -899,14 +899,20 @@ impl Mind {
             if outcome != "finished" {
                 tell.push_str(self.prompts.text("unfinished_next"));
             }
-            self.intend_as(
-                now + Duration::minutes(1),
-                tell,
-                u.asked_by,
-                u.place,
-                true,
-                u.directed,
-            )?;
+            // Whoever waits at a terminal hears as soon as it is done;
+            // elsewhere the news keeps a minute, the way a person comes
+            // back to a chat rather than answering on the instant.
+            let waited_on = u
+                .place
+                .as_deref()
+                .and_then(ghost_core::social::split_key)
+                .is_some_and(|(channel, _)| self.facts(channel).waited_on);
+            let due = if waited_on {
+                now
+            } else {
+                now + Duration::minutes(1)
+            };
+            self.intend_as(due, tell, u.asked_by, u.place, true, u.directed)?;
             self.refresh_intentions()?;
         }
         Ok(())
