@@ -108,9 +108,23 @@ pub fn code_argument() -> Hsla {
     c(0xACE7_75)
 }
 
+/// A number in code.
+pub fn code_number() -> Hsla {
+    c(0xE5B7_7A)
+}
+/// A function's name in code.
+pub fn code_function() -> Hsla {
+    c(0xC9A6_F2)
+}
+
 /// A link, as Claude's app draws one.
 pub fn link() -> Hsla {
     c(0x79A9_EB)
+}
+
+/// The line under a link: a shade darker than its words.
+pub fn link_line() -> Hsla {
+    c(0x3F53_6D)
 }
 
 /// Something she kept.

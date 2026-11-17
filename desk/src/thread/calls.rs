@@ -334,6 +334,29 @@ pub fn one_line(text: &str, most: usize) -> String {
     }
 }
 
+/// `text` on one line in at most `cols` columns, a Chinese character
+/// taking two, ending in "…" when it is cut. GPUI cuts a line that is too
+/// long at the edge without an ellipsis (it measures before it knows the
+/// width), so a line that must end in one is cut here first.
+pub fn fit(text: &str, cols: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let wide = |c: char| if c.len_utf8() >= 3 { 2 } else { 1 };
+    if flat.chars().map(wide).sum::<usize>() <= cols {
+        return flat;
+    }
+    let mut out = String::new();
+    let mut used = 1;
+    for c in flat.chars() {
+        if used + wide(c) > cols {
+            break;
+        }
+        used += wide(c);
+        out.push(c);
+    }
+    out.push('…');
+    out
+}
+
 /// What came back, as the row opens to it: the head that was kept, and a
 /// line saying how much more there was, if it was cut.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -446,6 +469,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_line_too_long_is_cut_with_an_ellipsis_counting_chinese_as_two() {
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit("abcdefghijkl", 6), "abcde…");
+        assert_eq!(fit("一二三四五六", 7), "一二三…");
+        assert_eq!(fit("一二三", 6), "一二三");
+    }
 
     #[test]
     fn a_long_path_keeps_its_end_and_a_short_one_stays_whole() {

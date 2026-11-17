@@ -193,7 +193,7 @@ fn call_row(
                 .text_color(theme::muted()),
         )
         .child(
-            ui::mono(faces, said.what)
+            ui::mono(faces, calls::fit(&said.what, ROW_COLS))
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
@@ -287,6 +287,8 @@ fn call_row(
             return row;
         }
         let out = calls::output(&call.out, call.cut, call.chars, call.pictures);
+        let all_key = format!("{key}:all");
+        let all = expanded.contains(&all_key);
         body = if out.text.is_empty() && out.more.is_none() {
             body.child(
                 ui::text(faces, "Nothing came back.")
@@ -294,18 +296,34 @@ fn call_row(
                     .text_size(px(SMALL))
                     .text_color(theme::faint()),
             )
+        } else if call.name == "read" && !call.failed {
+            let path = call.args.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            body.child(read_well(
+                faces,
+                &out.text,
+                crate::syntax::by_path(path),
+                all,
+            ))
         } else {
-            body.child(
-                div()
-                    .w_full()
-                    .px(px(10.))
-                    .font_family(faces.mono.clone())
-                    .text_size(px(MONO))
-                    .line_height(px(MONO_LINE))
-                    .text_color(theme::muted())
-                    .child(out.text),
-            )
+            body.child(printed(faces, &out.text, all))
         };
+        let lines = out.text.lines().count();
+        if !all && lines > folded_at(&call.name) {
+            let toggle = all_key.clone();
+            body = body.child(
+                div()
+                    .id(SharedString::from(all_key))
+                    .px(px(10.))
+                    .cursor_pointer()
+                    .child(
+                        ui::text(faces, format!("Show all {lines} lines"))
+                            .text_size(px(SMALL))
+                            .text_color(theme::muted())
+                            .hover(|s| s.text_color(theme::text())),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
+            );
+        }
         if let Some(more) = out.more {
             body = body.child(meta(faces, more).px(px(10.)));
         }
@@ -313,6 +331,106 @@ fn call_row(
     }
     row
 }
+
+/// How many lines of what came back show before the rest is folded: a
+/// file read shows its first twelve; anything else, if longer than eight,
+/// its first three and its last.
+fn folded_at(name: &str) -> usize {
+    if name == "read" { 12 } else { 8 }
+}
+
+/// What a command printed, in mono, quiet: whole when it is short or
+/// asked for, else its head, how much was left out, and its last line.
+fn printed(faces: &Faces, text: &str, all: bool) -> Div {
+    let lines: Vec<&str> = text.lines().collect();
+    let mono = || {
+        div()
+            .w_full()
+            .px(px(10.))
+            .font_family(faces.mono.clone())
+            .text_size(px(MONO))
+            .line_height(px(MONO_LINE))
+            .text_color(theme::muted())
+            .whitespace_nowrap()
+            .overflow_hidden()
+    };
+    if all || lines.len() <= folded_at("") {
+        return mono().child(text.to_owned());
+    }
+    let head = lines[..3].join("\n");
+    let gone = lines.len() - 4;
+    div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .child(mono().child(head))
+        .child(
+            mono()
+                .text_color(theme::ghost_line())
+                .child(format!("… {gone} lines")),
+        )
+        .child(mono().child(lines[lines.len() - 1].to_owned()))
+}
+
+/// A file read: its line numbers in a quiet gutter, its lines coloured by
+/// the kind of file it is, the first twelve unless all are asked for.
+fn read_well(faces: &Faces, text: &str, lang: &str, all: bool) -> Div {
+    let mut gutter = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .w(px(40.))
+        .pr(px(14.))
+        .items_end()
+        .text_color(theme::ghost_line());
+    let mut code = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .overflow_hidden();
+    let mut tail: Option<String> = None;
+    for (i, line) in text.lines().enumerate() {
+        if !all && i >= folded_at("read") {
+            break;
+        }
+        let trimmed = line.trim_start();
+        let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
+        if digits > 0 && trimmed[digits..].starts_with("  ") {
+            gutter = gutter.child(trimmed[..digits].to_owned());
+            let words = &trimmed[digits + 2..];
+            code = code.child(div().whitespace_nowrap().child(crate::syntax::styled(
+                faces,
+                if words.is_empty() { " " } else { words },
+                lang,
+            )));
+        } else {
+            tail = Some(line.to_owned());
+        }
+    }
+    let well = div()
+        .flex()
+        .w_full()
+        .py(px(S2))
+        .rounded(px(WELL_RADIUS))
+        .border_1()
+        .border_color(theme::border())
+        .font_family(faces.mono.clone())
+        .text_size(px(MONO))
+        .line_height(px(MONO_LINE))
+        .child(gutter)
+        .child(code);
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(S2))
+        .w_full()
+        .child(well)
+        .when_some(tail, |d, t| d.child(meta(faces, t).px(px(10.))))
+}
+
+/// How many columns of mono a step's row has for what it was about.
+const ROW_COLS: usize = 60;
 
 /// What an opened call's box is headed with: the shell for a command, as a
 /// terminal is named, and otherwise what was done.

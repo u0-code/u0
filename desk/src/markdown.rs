@@ -12,16 +12,16 @@
 use std::ops::Range;
 
 use gpui::{
-    Div, FontStyle, FontWeight, Hsla, SharedString, StyledText, TextRun, div, prelude::*, px,
-    relative,
+    AnyElement, Div, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StyledText,
+    TextRun, div, prelude::*, px, relative,
 };
 
 use crate::{
     fonts::{self, Faces},
     theme,
     thread::style::{
-        BOX_RADIUS, H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, S4, SMALL,
-        SMALL_LINE, WELL_RADIUS,
+        BODY_LINE, BOX_RADIUS, H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S2, S3, S4, SMALL,
+        WELL_RADIUS,
     },
     ui,
 };
@@ -227,6 +227,8 @@ pub struct Inline {
     pub code: Vec<Range<usize>>,
     pub bold: Vec<Range<usize>>,
     pub italic: Vec<Range<usize>>,
+    /// Links: where each is in the text, and where it goes.
+    pub links: Vec<(Range<usize>, String)>,
 }
 
 /// Take `code`, **bold** and *italic* out of a line. An unclosed mark is
@@ -237,9 +239,18 @@ pub fn inline(source: &str) -> Inline {
         code: Vec::new(),
         bold: Vec::new(),
         italic: Vec::new(),
+        links: Vec::new(),
     };
     let mut rest = source;
     while let Some(c) = rest.chars().next() {
+        // A link written `[words](address)`, or an address on its own.
+        if let Some((words, address, used)) = link(rest) {
+            let start = out.text.len();
+            out.text.push_str(words);
+            out.links.push((start..out.text.len(), address.to_owned()));
+            rest = &rest[used..];
+            continue;
+        }
         let marked = match c {
             '`' => take(rest, "`").map(|(inner, used)| (inner, used, 0)),
             '*' if rest.starts_with("**") => take(rest, "**").map(|(inner, used)| (inner, used, 1)),
@@ -268,6 +279,35 @@ pub fn inline(source: &str) -> Inline {
     out
 }
 
+/// A link at the start of `s`: its words, its address and how many bytes
+/// the whole took. `[words](https://…)` shows its words; an address on its
+/// own shows itself, up to a space or a mark of Chinese punctuation, and
+/// without a full stop or comma it ends a sentence with.
+fn link(s: &str) -> Option<(&str, &str, usize)> {
+    if let Some(after) = s.strip_prefix('[') {
+        let close = after.find("](")?;
+        let words = &after[..close];
+        let rest = &after[close + 2..];
+        let end = rest.find(')')?;
+        let address = &rest[..end];
+        let web = address.starts_with("http://") || address.starts_with("https://");
+        return (web && !words.is_empty() && !words.contains('[')).then_some((
+            words,
+            address,
+            1 + close + 2 + end + 1,
+        ));
+    }
+    if !(s.starts_with("https://") || s.starts_with("http://")) {
+        return None;
+    }
+    let end = s
+        .char_indices()
+        .find(|(_, c)| c.is_whitespace() || unspaced(*c) || "，。）、；：》」』\"'<>`".contains(*c))
+        .map_or(s.len(), |(i, _)| i);
+    let address = s[..end].trim_end_matches(['.', ',', ')', ';', ':', '!', '?']);
+    (address.len() > "https://".len()).then_some((address, address, address.len()))
+}
+
 /// The text between an opening `mark` at the start of `s` and the next
 /// one, and how many bytes the whole took.
 fn take<'a>(s: &'a str, mark: &str) -> Option<(&'a str, usize)> {
@@ -287,6 +327,7 @@ pub enum Mark {
     Code,
     Bold,
     Italic,
+    Link,
 }
 
 /// The whole of a line's text in stretches, each with how it is set, in
@@ -298,6 +339,7 @@ pub fn spans(line: &Inline) -> Vec<(Range<usize>, Mark)> {
         .map(|r| (r.clone(), Mark::Code))
         .chain(line.bold.iter().map(|r| (r.clone(), Mark::Bold)))
         .chain(line.italic.iter().map(|r| (r.clone(), Mark::Italic)))
+        .chain(line.links.iter().map(|(r, _)| (r.clone(), Mark::Link)))
         .collect();
     marked.sort_by_key(|(r, _)| r.start);
     let mut out = Vec::new();
@@ -315,15 +357,9 @@ pub fn spans(line: &Inline) -> Vec<(Range<usize>, Mark)> {
     out
 }
 
-/// The weight bold is set in: in the serif a true bold, since the Chinese
-/// it falls back to (Songti) has a bold and no semibold, and a semibold
-/// would leave Chinese words beside bold Latin ones looking plain.
-fn strong_weight(faces: &Faces, face: &SharedString) -> FontWeight {
-    if face == &faces.serif {
-        FontWeight::BOLD
-    } else {
-        FontWeight::SEMIBOLD
-    }
+/// The weight bold is set in: a semibold, as the design sets it.
+fn strong_weight(_: &Faces, _: &SharedString) -> FontWeight {
+    FontWeight::SEMIBOLD
 }
 
 /// How a block's text is set before its marks: its weight and its colour.
@@ -350,7 +386,7 @@ impl Setting {
     fn size(self) -> (f32, f32) {
         match self {
             Setting::Prose => (PROSE, PROSE_LINE),
-            Setting::Small => (SMALL, SMALL_LINE),
+            Setting::Small => (SMALL + 1., BODY_LINE),
         }
     }
 
@@ -364,7 +400,7 @@ impl Setting {
     fn color(self) -> Hsla {
         match self {
             Setting::Prose => theme::text(),
-            Setting::Small => theme::muted(),
+            Setting::Small => theme::text2(),
         }
     }
 }
@@ -372,7 +408,29 @@ impl Setting {
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
 fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
+    styled_from(faces, &inline(line), base)
+}
+
+/// A line whose links open in the browser when clicked; one without links
+/// is plain styled text.
+fn linked(faces: &Faces, id: String, line: &str, base: &Base) -> AnyElement {
     let parsed = inline(line);
+    let text = styled_from(faces, &parsed, base);
+    if parsed.links.is_empty() {
+        return text.into_any_element();
+    }
+    let ranges: Vec<Range<usize>> = parsed.links.iter().map(|(r, _)| r.clone()).collect();
+    let addresses: Vec<String> = parsed.links.into_iter().map(|(_, a)| a).collect();
+    InteractiveText::new(SharedString::from(id), text)
+        .on_click(ranges, move |i, _, cx| {
+            if let Some(address) = addresses.get(i) {
+                cx.open_url(address);
+            }
+        })
+        .into_any_element()
+}
+
+fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
     let face = |family: &SharedString, weight, style| gpui::Font {
         family: family.clone(),
         features: gpui::FontFeatures::default(),
@@ -384,7 +442,7 @@ fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
         weight,
         style,
     };
-    let runs = spans(&parsed)
+    let runs = spans(parsed)
         .into_iter()
         .map(|(r, mark)| {
             let (font, color, background) = match mark {
@@ -420,18 +478,28 @@ fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
                     base.color,
                     None,
                 ),
+                Mark::Link => (
+                    face(&base.face, base.weight, FontStyle::Normal),
+                    theme::link(),
+                    None,
+                ),
             };
             TextRun {
                 len: r.len(),
                 font,
                 color,
                 background_color: background,
-                underline: None,
+                // A link is underlined a shade darker than its words.
+                underline: (mark == Mark::Link).then(|| gpui::UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(theme::link_line()),
+                    wavy: false,
+                }),
                 strikethrough: None,
             }
         })
         .collect();
-    StyledText::new(SharedString::from(parsed.text)).with_runs(runs)
+    StyledText::new(SharedString::from(parsed.text.clone())).with_runs(runs)
 }
 
 /// A message, drawn in her prose. `key` tells its code blocks apart from
@@ -445,16 +513,15 @@ pub fn render_as(faces: &Faces, key: &str, text: &str, set: Setting) -> Div {
     let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
     let blocks = parse(text);
-    let (_, line) = set.size();
-    // Blocks stand apart by most of a line; a list's items by a little.
-    let apart = (line * 0.6).round();
+    // Blocks stand apart by 14, a list's items by 6; a heading has 24
+    // above it (20 for the third level) and 14 under it.
     for (i, block) in blocks.iter().enumerate() {
         let gap = match (before, block) {
             (None, _) => 0.,
-            (Some(Block::Item { .. }), Block::Item { .. }) => S1 + 2.,
-            (Some(Block::Heading(..)), _) => S2,
-            (Some(_), Block::Heading(..)) => apart + S2,
-            _ => apart,
+            (Some(Block::Item { .. }), Block::Item { .. }) => ITEM_GAP,
+            (Some(_), Block::Heading(level, _)) if *level <= 2 => 24.,
+            (Some(_), Block::Heading(..)) => 20.,
+            _ => BLOCK_GAP,
         };
         let el = block_element(faces, &format!("{key}-{i}"), block, set);
         column = column.child(el.mt(px(gap)));
@@ -463,14 +530,19 @@ pub fn render_as(faces: &Faces, key: &str, text: &str, set: Setting) -> Div {
     column
 }
 
+/// The space between blocks of a message, and between the items of a list.
+const BLOCK_GAP: f32 = 14.;
+const ITEM_GAP: f32 = 6.;
+/// How far a list's words stand in from its marker's edge, at each level.
+const LIST_INDENT: f32 = 22.;
+
 /// Body text in a setting: what a paragraph, a list item or a cell is set in.
 fn body(faces: &Faces, set: Setting) -> Base {
     Base {
         weight: FontWeight::NORMAL,
         color: set.color(),
         strong: match set {
-            Setting::Prose => theme::text(),
-            Setting::Small => theme::text2(),
+            Setting::Prose | Setting::Small => theme::text(),
         },
         face: set.face(faces),
     }
@@ -484,7 +556,9 @@ fn sized(set: Setting) -> Div {
 
 fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
     match block {
-        Block::Paragraph(text) => sized(set).child(styled(faces, text, &body(faces, set))),
+        Block::Paragraph(text) => {
+            sized(set).child(linked(faces, key.to_owned(), text, &body(faces, set)))
+        }
         Block::Heading(level, text) => {
             let (size, line) = match (set, level) {
                 (Setting::Small, _) => set.size(),
@@ -509,21 +583,22 @@ fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
         } => {
             // The marker hangs in front, in the face of the text, so that
             // a wrapped line comes back under the words and not under it.
-            let bullet = marker == "•";
+            // The marker sits in the indent, grey, so the words line up
+            // with each other whatever the marker is.
             div()
                 .flex()
-                .pl(px(f32::from(*depth) * 22.))
+                .pl(px(f32::from(*depth) * LIST_INDENT))
                 .child(
                     sized(set)
-                        .w(px(if bullet { 18. } else { 24. }))
+                        .w(px(LIST_INDENT))
                         .flex_none()
                         .font_family(set.face(faces))
-                        .when(bullet, |d| d.font_weight(FontWeight::BOLD))
                         .text_color(theme::muted())
                         .child(marker.clone()),
                 )
-                .child(sized(set).flex_1().min_w(px(0.)).child(styled(
+                .child(sized(set).flex_1().min_w(px(0.)).child(linked(
                     faces,
+                    key.to_owned(),
                     text,
                     &body(faces, set),
                 )))
@@ -612,7 +687,7 @@ fn table(
     for (i, cells) in rows.iter().enumerate() {
         let last = i + 1 == rows.len();
         column = column
-            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::rule())));
+            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::panel())));
     }
     column
 }
@@ -639,27 +714,50 @@ fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
                 .text_size(px(14.))
                 .text_color(theme::muted()),
         )
-        .child(
+        .child({
+            let copy = text.to_owned();
             div()
-                .id(SharedString::from(format!("{key}-code")))
-                .flex()
-                .rounded(px(WELL_RADIUS))
-                .border_1()
-                .border_color(theme::border())
-                .overflow_x_scroll()
+                .relative()
+                .w_full()
                 .child(
                     div()
-                        .flex_none()
-                        .px(px(14.))
-                        .py(px(10.))
-                        .font_family(faces.mono.clone())
-                        .text_size(px(MONO))
-                        .line_height(px(MONO_LINE))
-                        .text_color(theme::text())
-                        .whitespace_nowrap()
-                        .child(text.to_owned()),
-                ),
-        )
+                        .id(SharedString::from(format!("{key}-code")))
+                        .flex()
+                        .rounded(px(WELL_RADIUS))
+                        .border_1()
+                        .border_color(theme::border())
+                        .overflow_x_scroll()
+                        .child(
+                            div()
+                                .flex_none()
+                                .pl(px(14.))
+                                .pr(px(44.))
+                                .py(px(10.))
+                                .text_size(px(MONO))
+                                .line_height(px(MONO_LINE))
+                                .whitespace_nowrap()
+                                .child(crate::syntax::styled(faces, text, lang)),
+                        ),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{key}-copy")))
+                        .absolute()
+                        .top(px(S2))
+                        .right(px(S2))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(24.))
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme::bubble()))
+                        .child(ui::icon("copy", 15.).text_color(theme::text()))
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                        }),
+                )
+        })
 }
 
 #[cfg(test)]
@@ -741,6 +839,18 @@ mod tests {
             parse("我看了一下\n磁盘的情况\nthen ran\ndu"),
             vec![Block::Paragraph("我看了一下磁盘的情况 then ran du".into())]
         );
+    }
+
+    #[test]
+    fn a_link_shows_its_words_and_an_address_shows_itself() {
+        let line =
+            inline("见 [PR 147](https://github.com/a/b/pull/147)，或 https://example.com/x。");
+        assert_eq!(line.text, "见 PR 147，或 https://example.com/x。");
+        assert_eq!(line.links.len(), 2);
+        assert_eq!(&line.text[line.links[0].0.clone()], "PR 147");
+        assert_eq!(line.links[0].1, "https://github.com/a/b/pull/147");
+        assert_eq!(line.links[1].1, "https://example.com/x");
+        assert!(inline("[not](a link)").links.is_empty());
     }
 
     #[test]

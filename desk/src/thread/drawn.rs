@@ -67,10 +67,13 @@ pub fn diff(faces: &Faces, lines: &[Line]) -> Div {
     well
 }
 
+/// How many of a search's results show.
+const HITS_SHOWN: usize = 5;
+
 /// A search's results: each title a link, the site under it, quiet.
 pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> Div {
     let mut list = div().flex().flex_col().w_full().gap(px(S2)).px(px(10.));
-    for (i, hit) in found.iter().enumerate() {
+    for (i, hit) in found.iter().take(HITS_SHOWN).enumerate() {
         let url = hit.url.clone();
         list = list.child(
             div()
@@ -82,7 +85,7 @@ pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> 
                 .gap(px(1.))
                 .cursor_pointer()
                 .child(
-                    ui::text(faces, hit.title.clone())
+                    ui::text(faces, super::calls::fit(&hit.title, 84))
                         .w_full()
                         .truncate()
                         .text_size(px(14.))
