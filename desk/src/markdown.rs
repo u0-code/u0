@@ -404,7 +404,7 @@ fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
                 Mark::Code => (
                     face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
                     theme::amber2(),
-                    Some(theme::panel2()),
+                    Some(theme::bubble()),
                 ),
                 Mark::Bold => (
                     face(
@@ -611,11 +611,11 @@ fn table(
         .flex()
         .flex_col()
         .w_full()
-        .child(row(head, true).border_b_1().border_color(theme::border2()));
+        .child(row(head, true).border_b_1().border_color(theme::rule()));
     for (i, cells) in rows.iter().enumerate() {
         let last = i + 1 == rows.len();
         column = column
-            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::border())));
+            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::rule())));
     }
     column
 }
