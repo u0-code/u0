@@ -22,8 +22,9 @@ name; a provider sees when its configuration says `vision = true`. The CLI
 relays never see, and read the text alone.
 
 A CLI cannot take one step at a time, but it brings a loop of its own.
-`Brain::cli` says how to start it, and `ghost-work` hands it a ghost's tools
-and lets it step through a piece of work itself.
+`Brain::cli` says how to start it, and `ghost-work` hands it a part of a
+piece of work, which it does with its own tools. It never steps a ghost's
+own work: that needs a brain that steps.
 
 `discover` looks for what is usable on this machine: keys in the environment,
 the two CLIs, a local Ollama. Requests retry with backoff on rate limits,

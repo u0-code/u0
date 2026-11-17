@@ -123,7 +123,7 @@ pub(crate) fn about(picture: &ghost_brain::Picture) -> String {
 }
 
 /// Keep the beginning and the end of long text, and say what was cut.
-pub(crate) fn clip(text: &str, head: usize, tail: usize) -> String {
+pub fn clip(text: &str, head: usize, tail: usize) -> String {
     let total = text.chars().count();
     if total <= head + tail {
         return text.to_owned();

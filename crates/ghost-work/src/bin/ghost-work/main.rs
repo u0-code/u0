@@ -3,16 +3,19 @@
 //! ```text
 //! ghost-work --task "..." --state ./run1 --local ./workspace
 //! ghost-work --task-file task.md --state ./run1 --docker my-container --workdir /app
-//! ghost-work --task "..." --state ./run1 --local ./workspace --runtime claude
+//! ghost-work --task "..." --state ./run1 --local ./workspace --agent claude
 //! ```
 //!
 //! The plan, notes, transcript and log are kept in `<state>/work.db`. Run it
 //! again with the same `--state` to pick up where it stopped. The report is
 //! printed to stdout as JSON; progress goes to stderr.
 //!
-//! `--runtime claude` or `--runtime codex` has that installed CLI do the
-//! stepping, with this program's tools and not its own. `--serve-mcp` is the other
-//! half of that: it serves the tools on stdio and is started by the CLI.
+//! `--agent claude` or `--agent codex` lets the work hand parts of itself to
+//! that installed CLI, which does them in the `--local` directory with its
+//! own tools. `--serve-mcp` does no work: it serves this program's tools on
+//! stdio, for any agent that speaks the Model Context Protocol.
+
+mod mcp;
 
 use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
 
@@ -20,9 +23,7 @@ use anyhow::{Context, bail};
 use clap::Parser;
 use ghost_brain::{Brain, CliAgent, CliKind, Effort, anthropic::Anthropic, openai::OpenAi};
 use ghost_work::{
-    Docker, Limits, Local, Machine, Prompts, Undertaking, WORK_DB, Worker, claude, codex, mcp,
-    prompts, tools,
-    worker::{opening_text, system_prompt},
+    Docker, Limits, Local, Machine, Prompts, Undertaking, WORK_DB, Worker, prompts, tools,
 };
 
 #[derive(Parser)]
@@ -78,15 +79,14 @@ struct Args {
     #[arg(long, conflicts_with_all = ["local", "docker"])]
     no_machine: bool,
 
-    /// What does the stepping: `native` is this program's own loop over a
-    /// model API; `claude` is the installed Claude Code CLI, given this
-    /// program's tools.
-    #[arg(long, default_value = "native")]
-    runtime: String,
-    /// The Claude Code program, for `--runtime claude`.
+    /// An installed agent the work may hand parts to: `claude` or `codex`.
+    /// Repeatable. Needs `--local`, the directory it works in.
+    #[arg(long = "agent", requires = "local")]
+    agents: Vec<String>,
+    /// The Claude Code program, for `--agent claude`.
     #[arg(long, default_value = "claude")]
     claude_bin: String,
-    /// The Codex program, for `--runtime codex`.
+    /// The Codex program, for `--agent codex`.
     #[arg(long, default_value = "codex")]
     codex_bin: String,
     /// An extra argument for the command-line agent. Repeatable. For
@@ -94,10 +94,15 @@ struct Args {
     #[arg(long = "agent-arg", allow_hyphen_values = true)]
     agent_args: Vec<String>,
 
-    /// For the native runtime: `openai` (any compatible server) or `anthropic`.
+    /// Serve the tools over MCP on stdio instead of working, for an agent
+    /// that brings its own loop.
+    #[arg(long)]
+    serve_mcp: bool,
+
+    /// The model API: `openai` (any compatible server) or `anthropic`.
     #[arg(long, default_value = "openai")]
     kind: String,
-    /// The model. With `--runtime claude`, leave it out for the CLI's default.
+    /// The model.
     #[arg(long)]
     model: Option<String>,
     #[arg(long, default_value = "https://api.deepseek.com")]
@@ -133,44 +138,6 @@ struct Args {
     effort: Option<String>,
     #[arg(long)]
     temperature: Option<f32>,
-
-    /// Serve the tools over MCP on stdio instead of working. Started by a
-    /// command-line agent, not by a person.
-    #[arg(long)]
-    serve_mcp: bool,
-    /// Offer `tell`, for work someone follows as it runs and reads what it
-    /// is told from the record.
-    #[arg(long)]
-    tell: bool,
-}
-
-impl Args {
-    /// The arguments that say where to work, for handing to a child.
-    fn place(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        if let Some(dir) = &self.local {
-            out.extend(["--local".to_owned(), dir.display().to_string()]);
-        }
-        if let Some(container) = &self.docker {
-            out.extend(["--docker".to_owned(), container.clone()]);
-        }
-        if let Some(dir) = &self.workdir {
-            out.extend(["--workdir".to_owned(), dir.clone()]);
-        }
-        if let Some(user) = &self.user {
-            out.extend(["--user".to_owned(), user.clone()]);
-        }
-        for pair in &self.docker_env {
-            out.extend(["--docker-env".to_owned(), pair.clone()]);
-        }
-        if self.no_machine {
-            out.push("--no-machine".to_owned());
-        }
-        if self.web {
-            out.push("--web".to_owned());
-        }
-        out
-    }
 }
 
 #[tokio::main]
@@ -239,12 +206,6 @@ async fn main() -> anyhow::Result<()> {
     // What it keeps stays in this undertaking's record. A helper is not
     // given `keep`: its record is its own, and nobody reads what it kept.
     let toolbox = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
-    let toolbox = if args.tell {
-        toolbox.with(tools::Tell::new(undertaking.clone()))
-    } else {
-        toolbox
-    };
-
     if args.serve_mcp {
         let input = tokio::io::BufReader::new(tokio::io::stdin());
         return Ok(mcp::serve(toolbox, words, undertaking, input, tokio::io::stdout()).await?);
@@ -291,102 +252,69 @@ async fn main() -> anyhow::Result<()> {
         ..Limits::default()
     };
 
-    let report = match args.runtime.as_str() {
-        "claude" | "codex" => {
-            let me = std::env::current_exe().context("find this program")?;
-            let state = args
-                .state
-                .canonicalize()
-                .with_context(|| format!("resolve {}", args.state.display()))?;
-            let mut tool_server = vec![
-                me.display().to_string(),
-                "--serve-mcp".to_owned(),
-                "--state".to_owned(),
-                state.display().to_string(),
-                "--id".to_owned(),
-                args.id.clone(),
-            ];
-            // A relative directory would mean something else to the child.
-            let mut place_args = args.place();
-            if let Some(dir) = &args.local
-                && let Some(at) = place_args.iter().position(|a| a == "--local")
-            {
-                place_args[at + 1] = dir.canonicalize()?.display().to_string();
-            }
-            tool_server.extend(place_args);
-            if let Some(dir) = &args.prompts {
-                tool_server.extend([
-                    "--prompts".to_owned(),
-                    dir.canonicalize()?.display().to_string(),
-                ]);
-            }
-            let by_codex = args.runtime == "codex";
-            let seat = claude::Seat {
-                agent: CliAgent {
-                    kind: if by_codex {
-                        CliKind::Codex
-                    } else {
-                        CliKind::Claude
-                    },
-                    program: if by_codex {
-                        args.codex_bin.clone()
-                    } else {
-                        args.claude_bin.clone()
-                    },
-                    model: args.model.clone(),
-                    args: args.agent_args.clone(),
-                },
-                system: system_prompt(&prompts::hold(&words), "", &place, &limits),
-                opening: opening_text(&prompts::hold(&words), &undertaking.state()),
-                undertaking,
-                tool_server,
-                max_turns: args.max_steps,
-                max_seconds: args.max_minutes * 60,
-                stop: Arc::new(AtomicBool::new(false)),
-            };
-            if by_codex {
-                codex::sit(&seat).await
-            } else {
-                claude::sit(&seat).await
-            }
+    let report = {
+        let key = std::env::var(&args.api_key_env)
+            .ok()
+            .filter(|k| !k.trim().is_empty())
+            .with_context(|| format!("set {} to the API key", args.api_key_env))?;
+        let model = args
+            .model
+            .clone()
+            .unwrap_or_else(|| "deepseek-flash".to_owned());
+        let brain: Arc<dyn Brain> = match args.kind.as_str() {
+            "openai" => Arc::new(
+                OpenAi::new(key, model, Some(args.base_url.clone()), None, false)
+                    .with_window(args.context_window),
+            ),
+            "anthropic" => Arc::new(
+                Anthropic::new(key, model, Some(args.base_url.clone()))
+                    .with_window(args.context_window),
+            ),
+            other => bail!("unknown kind {other:?}: use openai or anthropic"),
+        };
+        Worker {
+            brain,
+            tools: toolbox,
+            undertaking,
+            limits,
+            who: String::new(),
+            machine: place,
+            pause: Arc::new(AtomicBool::new(false)),
+            helpers: Some(equip),
+            prompts: words,
+            agents: agents(&args)?,
         }
-        "native" => {
-            let key = std::env::var(&args.api_key_env)
-                .ok()
-                .filter(|k| !k.trim().is_empty())
-                .with_context(|| format!("set {} to the API key", args.api_key_env))?;
-            let model = args
-                .model
-                .clone()
-                .unwrap_or_else(|| "deepseek-flash".to_owned());
-            let brain: Arc<dyn Brain> = match args.kind.as_str() {
-                "openai" => Arc::new(
-                    OpenAi::new(key, model, Some(args.base_url.clone()), None, false)
-                        .with_window(args.context_window),
-                ),
-                "anthropic" => Arc::new(
-                    Anthropic::new(key, model, Some(args.base_url.clone()))
-                        .with_window(args.context_window),
-                ),
-                other => bail!("unknown kind {other:?}: use openai or anthropic"),
-            };
-            Worker {
-                brain,
-                tools: toolbox,
-                undertaking,
-                limits,
-                who: String::new(),
-                machine: place,
-                pause: Arc::new(AtomicBool::new(false)),
-                helpers: Some(equip),
-                prompts: words,
-                agents: Vec::new(),
-            }
-            .run()
-            .await
-        }
-        other => bail!("unknown runtime {other:?}: use native, claude or codex"),
+        .run()
+        .await
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+/// The installed agents `--agent` names, working in `--local`.
+fn agents(args: &Args) -> anyhow::Result<Vec<ghost_work::agents::Agent>> {
+    let Some(dir) = &args.local else {
+        return Ok(Vec::new());
+    };
+    let dir = dir.canonicalize()?;
+    args.agents
+        .iter()
+        .map(|name| {
+            let (kind, program, name) = match name.as_str() {
+                "claude" | "claude-code" => (CliKind::Claude, &args.claude_bin, "claude-code"),
+                "codex" => (CliKind::Codex, &args.codex_bin, "codex"),
+                other => bail!("unknown agent {other:?}: use claude or codex"),
+            };
+            Ok(ghost_work::agents::Agent {
+                name: name.to_owned(),
+                cli: CliAgent {
+                    kind,
+                    program: program.clone(),
+                    model: None,
+                    args: args.agent_args.clone(),
+                },
+                dir: dir.clone(),
+            })
+        })
+        .collect()
 }

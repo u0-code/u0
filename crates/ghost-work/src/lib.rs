@@ -12,11 +12,8 @@
 
 pub mod agents;
 pub mod catalog;
-pub mod claude;
-pub mod codex;
 pub mod looks;
 pub mod machine;
-pub mod mcp;
 pub mod outside;
 pub mod parts;
 pub mod prompts;

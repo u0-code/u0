@@ -1,10 +1,9 @@
-//! A toolbox, served over the Model Context Protocol on stdio.
-//!
-//! This is how an agent that brings its own loop (the Claude Code CLI, for
-//! one) is given a ghost's tools instead of its own: it is started with its
-//! built-in tools turned off and pointed at this server. The tools, the
-//! machine they act on and the undertaking they write to are all still ours;
-//! only the stepping is theirs.
+//! This program's tools, served over the Model Context Protocol on stdio
+//! (`--serve-mcp`), for any agent that speaks it. A ghost's own work does
+//! not use it: her loop steps her work, and an installed agent handed a
+//! part brings its own tools. The tools, the machine they act on and the
+//! undertaking they write to are this program's; only the stepping is the
+//! agent's.
 //!
 //! The protocol is small when all you serve is tools: newline-delimited
 //! JSON-RPC, an `initialize` handshake, `tools/list` and `tools/call`.
@@ -15,7 +14,7 @@ use ghost_brain::Call;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{
+use ghost_work::{
     outside,
     prompts::{self, Loop, Shared},
     steps,
@@ -98,7 +97,7 @@ pub async fn serve(
                 let ended = undertaking.state().finish.is_some();
                 let started = std::time::Instant::now();
                 let mut outcome = if ended {
-                    crate::tool::Outcome::fail(
+                    ghost_work::tool::Outcome::fail(
                         "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here.",
                     )
                 } else {
@@ -134,12 +133,12 @@ pub async fn serve(
                 let mut said = outcome.output;
                 for file in undertaking.keep(&outcome.pictures) {
                     said.push('\n');
-                    said.push_str(&crate::undertaking::placeholder(&file));
+                    said.push_str(&ghost_work::undertaking::placeholder(&file));
                 }
                 answer(
                     id,
                     json!({
-                        "content": [{"type": "text", "text": crate::tools::clip(&said, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
+                        "content": [{"type": "text", "text": ghost_work::tools::clip(&said, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
                         "isError": outcome.failed,
                     }),
                 )
@@ -156,18 +155,18 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{machine::Local, tools};
+    use ghost_work::{machine::Local, tools};
 
     async fn talk(dir: &std::path::Path, requests: &[Value]) -> Vec<Value> {
         let undertaking = Arc::new(
             Undertaking::open(
-                &dir.join("state").join(crate::WORK_DB),
+                &dir.join("state").join(ghost_work::WORK_DB),
                 "main",
                 Some("make hi.txt"),
             )
             .unwrap(),
         );
-        let words = crate::Prompts::shipped().shared();
+        let words = ghost_work::Prompts::shipped().shared();
         let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking, &words);
         let input = requests
             .iter()
@@ -238,9 +237,12 @@ mod tests {
             ],
         )
         .await;
-        let record =
-            Undertaking::open(&dir.path().join("state").join(crate::WORK_DB), "main", None)
-                .unwrap();
+        let record = Undertaking::open(
+            &dir.path().join("state").join(ghost_work::WORK_DB),
+            "main",
+            None,
+        )
+        .unwrap();
         let logged = record.logged();
         assert_eq!(logged.len(), 2);
         assert_eq!(logged[0]["via"], "mcp");
