@@ -161,7 +161,7 @@ fn the_system_prompt_is_her_persona_then_her_being_then_what_is_true_of_her_life
 }
 
 #[tokio::test]
-async fn two_characters_are_told_the_same_being_logic_and_work_in_their_own_persona() {
+async fn two_characters_talk_in_their_own_persona_and_are_handed_the_same_work() {
     let t0 = at(14, 0);
     let talk = |seed: &'static str| async move {
         let mut rig = Rig::build_as(
@@ -200,22 +200,24 @@ async fn two_characters_are_told_the_same_being_logic_and_work_in_their_own_pers
         rig.until(|r| r.kinds().contains(&"concluded")).await;
         rig.think.turns.lock().unwrap()[0].clone()
     };
-    for (hers, his) in [
-        (talk(SEED).await, talk(OTHER).await),
-        (work(SEED).await, work(OTHER).await),
-    ] {
-        let (her_persona, her_being) = persona_and_being(&hers.system);
-        let (his_persona, his_being) = persona_and_being(&his.system);
-        assert_ne!(her_persona, his_persona);
-        assert!(his_persona.contains("大肥鱼") && !her_persona.contains("大肥鱼"));
-        // Being, and for work what she is told about it after: the same.
-        assert_eq!(her_being, his_being);
-        // The conversation or the work itself, and the tools: the same.
-        let rest = |turn: &ghost_brain::Turn| {
-            without_times(&format!("{:#?}\n{:#?}", turn.items, turn.tools))
-        };
-        assert_eq!(rest(&hers), rest(&his));
-    }
+    let rest =
+        |turn: &ghost_brain::Turn| without_times(&format!("{:#?}\n{:#?}", turn.items, turn.tools));
+    // Talking, each is told their own persona and the same being.
+    let (hers, his) = (talk(SEED).await, talk(OTHER).await);
+    let (her_persona, her_being) = persona_and_being(&hers.system);
+    let (his_persona, his_being) = persona_and_being(&his.system);
+    assert_ne!(her_persona, his_persona);
+    assert!(his_persona.contains("大肥鱼") && !her_persona.contains("大肥鱼"));
+    assert_eq!(her_being, his_being);
+    // The conversation itself, and the tools: the same.
+    assert_eq!(rest(&hers), rest(&his));
+
+    // The work is done for them, not as them: it is told the same thing
+    // whoever handed it over, and nobody's persona.
+    let (hers, his) = (work(SEED).await, work(OTHER).await);
+    assert_eq!(hers.system, his.system);
+    assert!(!hers.system.contains("Weiwei") && !his.system.contains("大肥鱼"));
+    assert_eq!(rest(&hers), rest(&his));
 }
 
 /// [`SEED`] with two sides to her.

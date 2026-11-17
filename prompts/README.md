@@ -9,7 +9,7 @@ system/                 Ghost's own: the same for every character
   being.md              what she is, whose word counts, the ground rules
   logic/                how a conversation and her day go: a template each
   logic/texts/          the short framings, nudges and refusals, a file per feature
-  work/                 how a piece of work goes: working.md (her side),
+  work/                 how a piece of work goes: working.md (handed over),
                         work.md and texts.toml (the work loop's)
   tools.toml            what every tool is, in a conversation and at work
   desk/                 Ghost, the mascot the desktop app runs

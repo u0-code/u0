@@ -12,8 +12,8 @@ at the top of the repository: `character/persona.md` arranges her own
 fields from `ghost.toml` into prose; `system/being.md` is what she is and
 the ground rules; `system/logic/` is how a conversation and a day go, whole
 templates as Markdown, with the short framings, nudges and refusals a file
-per feature in `system/logic/texts/`; `system/work/working.md` is what she
-is told about a piece of work. Her system prompt is the persona, then her
+per feature in `system/logic/texts/`; `system/work/working.md` is what the
+work loop is told about a piece of work she hands it; it is not given her persona. Her system prompt is the persona, then her
 being, which ends with what is true of her life. What each tool is said to
 do is in `system/tools.toml`, one file for every tool of both loops. All of
 it is shared by every character: swapping one for another changes only her
