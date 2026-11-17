@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use ghost_link::protocol::WorkState;
+use ghost_link::protocol::{Work, WorkState};
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
     relative,
@@ -139,6 +139,65 @@ pub(crate) fn task_row(
             ui::mono(faces, right)
                 .text_size(px(11.5))
                 .text_color(right_color)
+                .flex_none(),
+        )
+}
+
+/// How a part stands, at the right of its row: waiting its turn, how long
+/// it has run, asking the work it is part of, or how it ended. A part
+/// waits on its work, never on you, so it is never shown as waiting.
+pub(crate) fn part_standing(part: &Work, now: DateTime<Utc>) -> String {
+    let started = part
+        .started
+        .as_deref()
+        .and_then(|t| t.parse::<DateTime<Utc>>().ok());
+    match (part.state, started) {
+        (WorkState::Open | WorkState::Running, None) => "queued".to_owned(),
+        (WorkState::Open | WorkState::Running, Some(t)) => thread::span((now - t).num_seconds()),
+        (WorkState::Waiting, _) => "asking".to_owned(),
+        (WorkState::Finished, _) => "done".to_owned(),
+        (WorkState::Blocked | WorkState::GaveUp, _) => "blocked".to_owned(),
+        (WorkState::Dropped | WorkState::Other, _) => "stopped".to_owned(),
+    }
+}
+
+/// One part a task handed out, under the task's row and set in by the room
+/// of its icon, smaller than the task: its glyph, its brief, and how it
+/// stands. A coding agent's panel shows the sub-agents of a task this way.
+pub(crate) fn part_row(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    part: &Work,
+    now: DateTime<Utc>,
+) -> Stateful<Div> {
+    // A part waiting its turn is a quiet ring: nothing of it runs yet.
+    let lead = match (state_of(part.state), &part.started) {
+        (State::Running | State::Waiting, None) => div()
+            .flex_none()
+            .size(px(9.))
+            .rounded_full()
+            .border_2()
+            .border_color(theme::faint()),
+        (State::Waiting, Some(_)) => glyph(State::Running),
+        (state, _) => glyph(state),
+    };
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(px(24.))
+        .pl(px(ICON_ROOM))
+        .child(lead)
+        .child(ui::one_line(
+            ui::text(faces, part.brief.clone())
+                .text_size(px(12.5))
+                .text_color(theme::text2()),
+        ))
+        .child(
+            ui::mono(faces, part_standing(part, now))
+                .text_size(px(11.5))
+                .text_color(theme::faint())
                 .flex_none(),
         )
 }
@@ -762,9 +821,23 @@ impl Desk {
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx))),
             );
-            // What its daemon says of it, when it says: what it asks, and
-            // a way to stop it while it is open.
+            // What its daemon says of it, when it says: the parts it
+            // handed out, each of which opens in the thread inside the
+            // task's card; what it asks; and a way to stop it while it is
+            // open.
             if let Some(w) = self.solver.work.iter().find(|w| w.id == t.id) {
+                let now = Utc::now();
+                for p in &w.parts {
+                    let keys = [format!("task:{}", t.id), format!("part:{}", p.id)];
+                    list = list.child(
+                        part_row(faces, SharedString::from(format!("part-{}", p.id)), p, now)
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.expanded.extend(keys.iter().cloned());
+                                cx.notify();
+                            })),
+                    );
+                }
                 let ask = Ask::of(Whom::Solver, w);
                 if ask.open {
                     list = list.child(
@@ -981,6 +1054,41 @@ fn kilo(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn part(state: WorkState, started: Option<&str>) -> Work {
+        serde_json::from_value(serde_json::json!({
+            "id": "w/1",
+            "brief": "Read the reviews",
+            "state": state,
+            "started": started,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_part_reads_queued_until_it_starts_then_its_time_then_how_it_ended() {
+        let now: DateTime<Utc> = "2026-11-17T12:00:00Z".parse().unwrap();
+        assert_eq!(part_standing(&part(WorkState::Open, None), now), "queued");
+        let running = part(WorkState::Running, Some("2026-11-17T11:58:00Z"));
+        assert_eq!(
+            part_standing(&running, now),
+            thread::span(120),
+            "how long it has run"
+        );
+        assert_eq!(
+            part_standing(&part(WorkState::Waiting, None), now),
+            "asking"
+        );
+        assert_eq!(part_standing(&part(WorkState::Finished, None), now), "done");
+        assert_eq!(
+            part_standing(&part(WorkState::GaveUp, None), now),
+            "blocked"
+        );
+        assert_eq!(
+            part_standing(&part(WorkState::Dropped, None), now),
+            "stopped"
+        );
+    }
 
     #[test]
     fn tokens_read_as_a_person_writes_them() {
