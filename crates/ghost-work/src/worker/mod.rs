@@ -225,6 +225,21 @@ fn too_long(error: &ghost_brain::Error) -> bool {
     matches!(error, ghost_brain::Error::TooLong { .. })
 }
 
+/// What the model said at a step, as its log keeps it: as it was written,
+/// line breaks and all, so that whoever reads the log can draw it the way
+/// it was written (a list, a table), trimmed and cut at `max` characters.
+pub(crate) fn as_written(text: &str, max: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max {
+        text.to_owned()
+    } else {
+        format!("{}…", text.chars().take(max).collect::<String>().trim_end())
+    }
+}
+
+/// How much of what the model said at a step its log keeps.
+pub(crate) const SAID_KEPT: usize = 4000;
+
 pub(crate) fn preview(text: &str, max: usize) -> String {
     let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
@@ -533,7 +548,7 @@ impl Worker {
                 "wrote": usage.output,
                 "thought": usage.thought,
                 "model_ms": model_ms,
-                "said": preview(&said, 400),
+                "said": as_written(&said, SAID_KEPT),
                 "calls": logged,
             }));
             self.save(&items, &mut recorded);

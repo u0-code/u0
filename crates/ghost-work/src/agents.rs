@@ -525,7 +525,7 @@ async fn once(
             part.log(&json!({
                 "at": Utc::now().to_rfc3339(),
                 "step": steps,
-                "said": preview(&said, 400),
+                "said": crate::worker::as_written(&said, crate::worker::SAID_KEPT),
                 "calls": calls,
             }));
         }
