@@ -72,6 +72,7 @@ impl Desk {
             self.settings.save();
         }
         self.visited(was);
+        self.follow();
         cx.notify();
     }
 
@@ -81,6 +82,7 @@ impl Desk {
         let was = self.session().id;
         self.current = index.min(self.settings.sessions.len().saturating_sub(1));
         self.visited(was);
+        self.follow();
         cx.notify();
     }
 
@@ -300,6 +302,7 @@ impl Desk {
         let placeholder = self.placeholder();
         self.input
             .update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+        self.follow();
         cx.notify();
     }
 
@@ -320,6 +323,7 @@ impl Desk {
             open.place = Some(key);
         }
         self.popup = Popup::Closed;
+        self.follow();
         cx.notify();
     }
 }

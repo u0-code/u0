@@ -22,6 +22,7 @@ mod daemons;
 mod desk;
 mod follow;
 mod fonts;
+mod held;
 mod icon;
 mod input;
 mod link;
