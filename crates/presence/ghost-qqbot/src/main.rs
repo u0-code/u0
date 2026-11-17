@@ -310,7 +310,6 @@ async fn main() -> anyhow::Result<()> {
             automated: true,
         }),
         can: vec![Capability::Send, Capability::Files],
-        kind: ghost_link::protocol::PresenceKind::Chat,
     };
     let bot = QqBot {
         api,

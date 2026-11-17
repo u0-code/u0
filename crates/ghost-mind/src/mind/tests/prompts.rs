@@ -114,10 +114,14 @@ fn persona_and_being(system: &str) -> (&str, &str) {
 fn the_system_prompt_is_her_persona_then_her_being_then_what_is_true_of_her_life() {
     let t0 = at(14, 0);
     let quiet = MindConfig {
-        public: crate::PublicConfig {
-            browse_minutes: [0, 0],
-            ..crate::PublicConfig::default()
-        },
+        channels: [(
+            "t".to_owned(),
+            crate::ChannelConfig {
+                browse_minutes: [0, 0],
+                ..crate::ChannelConfig::default()
+            },
+        )]
+        .into(),
         live: false,
         ..MindConfig::default()
     };
@@ -170,10 +174,14 @@ async fn two_characters_talk_in_their_own_persona_and_are_handed_the_same_work()
         let mut rig = Rig::build_as(
             seed,
             MindConfig {
-                public: crate::PublicConfig {
-                    browse_minutes: [0, 0],
-                    ..crate::PublicConfig::default()
-                },
+                channels: [(
+                    "t".to_owned(),
+                    crate::ChannelConfig {
+                        browse_minutes: [0, 0],
+                        ..crate::ChannelConfig::default()
+                    },
+                )]
+                .into(),
                 live: false,
                 ..MindConfig::default()
             },
@@ -192,10 +200,14 @@ async fn two_characters_talk_in_their_own_persona_and_are_handed_the_same_work()
         let mut rig = Rig::build_as(
             seed,
             MindConfig {
-                public: crate::PublicConfig {
-                    browse_minutes: [0, 0],
-                    ..crate::PublicConfig::default()
-                },
+                channels: [(
+                    "t".to_owned(),
+                    crate::ChannelConfig {
+                        browse_minutes: [0, 0],
+                        ..crate::ChannelConfig::default()
+                    },
+                )]
+                .into(),
                 live: false,
                 ..MindConfig::default()
             },
@@ -251,10 +263,14 @@ fn quiet_as(seed: &str, now: DateTime<Utc>) -> Rig {
     Rig::build_as(
         seed,
         MindConfig {
-            public: crate::PublicConfig {
-                browse_minutes: [0, 0],
-                ..crate::PublicConfig::default()
-            },
+            channels: [(
+                "t".to_owned(),
+                crate::ChannelConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::ChannelConfig::default()
+                },
+            )]
+            .into(),
             talk_tools: false,
             live: false,
             ..MindConfig::default()
@@ -443,4 +459,42 @@ async fn her_sides_are_set_out_under_who_she_is_and_a_persona_without_them_reads
         system.contains("# Who you are\n\nquiet\n\n# How you talk"),
         "{system}"
     );
+}
+
+#[tokio::test]
+async fn every_channel_is_read_on_its_own_page_or_the_one_it_is_set_to() {
+    let t0 = at(14, 0);
+    let page_of = |channel: &'static str, config: MindConfig| async move {
+        let mut rig = Rig::new(config, t0);
+        rig.online(channel, t0);
+        rig.think
+            .then(r#"{"thought":"","actions":[{"do":"say","text":"hi"}]}"#);
+        rig.hear_on(channel, dm("wen", "1", "hi"), t0);
+        rig.until(|r| r.body.sent().len() == 1).await;
+        rig.think.last_prompt()
+    };
+    let quiet = || MindConfig {
+        live: false,
+        ..MindConfig::default()
+    };
+    // QQ is read on QQ's page.
+    let qq = page_of("qq", quiet()).await;
+    assert!(qq.contains("This is QQ"), "{qq}");
+    // A channel with no page of its own is read on the chat page.
+    let term = page_of("term", quiet()).await;
+    assert!(!term.contains("This is QQ") && term.contains("looking at your phone"));
+    // And one set to read another's page reads that one.
+    let set = MindConfig {
+        channels: [(
+            "term".to_owned(),
+            crate::ChannelConfig {
+                page: Some("discord".into()),
+                ..crate::ChannelConfig::default()
+            },
+        )]
+        .into(),
+        ..quiet()
+    };
+    let as_discord = page_of("term", set).await;
+    assert!(as_discord.contains("This is Discord"), "{as_discord}");
 }

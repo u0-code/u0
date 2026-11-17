@@ -340,13 +340,8 @@ impl Mind {
             ("recalled", chars(&recalled)),
             ("past", chars(&brought_back)),
         ];
-        // Each sort of place has a page of its own: a terminal is not a
-        // chat on her phone, and a public network is neither.
-        let template = match self.kind(&place.channel) {
-            crate::Kind::Terminal => &self.prompts.terminal,
-            crate::Kind::Chat => &self.prompts.attend,
-            crate::Kind::Public => &self.prompts.public,
-        };
+        // Every channel is a place of its own, read on a page of its own.
+        let template = self.prompts.page(&self.cfg.page(&place.channel));
         let prompt = narrate::fill(
             template,
             &[

@@ -31,8 +31,7 @@ use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, Kind, MindHandle, Question};
 use ghost_protocol::{
     Action, Actor, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts,
-    LookRead, PROTOCOL, PlaceRead, PresenceHello, PresenceKind, Role, StepsRead, Typing, Welcome,
-    code, method,
+    LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -71,7 +70,6 @@ struct Presence {
     pending: Pending,
     me: Option<Actor>,
     can: Vec<Capability>,
-    kind: PresenceKind,
 }
 
 /// The presences currently connected for one character, keyed by channel.
@@ -91,20 +89,20 @@ impl Presences {
         let _ = mind
             .online(CONSOLE, None, operator::CAN.to_vec(), Kind::Terminal)
             .await;
-        let present: Vec<(String, Option<Actor>, Vec<Capability>, PresenceKind)> =
+        let present: Vec<(String, Option<Actor>, Vec<Capability>)> =
             self.channels.lock().map_or_else(
                 |_| Vec::new(),
                 |channels| {
                     channels
                         .iter()
-                        .map(|(channel, p)| (channel.clone(), p.me.clone(), p.can.clone(), p.kind))
+                        .map(|(channel, p)| (channel.clone(), p.me.clone(), p.can.clone()))
                         .collect()
                 },
             );
-        for (channel, me, can, kind) in present {
+        for (channel, me, can) in present {
             let can = can.into_iter().map(wire::can).collect();
             let _ = mind
-                .online(&channel, me.map(wire::actor), can, wire::kind(kind))
+                .online(&channel, me.map(wire::actor), can, Kind::Chat)
                 .await;
         }
     }
@@ -402,7 +400,6 @@ async fn carry<S>(
                 pending: pending.clone(),
                 me: hello.me.clone(),
                 can: hello.can.clone(),
-                kind: hello.kind,
             },
         )
     }) else {
@@ -426,12 +423,7 @@ async fn carry<S>(
     let can = hello.can.into_iter().map(wire::can).collect();
     let _ = who
         .mind()
-        .online(
-            &channel,
-            hello.me.map(wire::actor),
-            can,
-            wire::kind(hello.kind),
-        )
+        .online(&channel, hello.me.map(wire::actor), can, Kind::Chat)
         .await;
 
     loop {

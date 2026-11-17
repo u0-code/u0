@@ -130,10 +130,14 @@ async fn looking_at_images_spends_from_the_hourly_budget() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
-            public: crate::PublicConfig {
-                browse_minutes: [0, 0],
-                ..crate::PublicConfig::default()
-            },
+            channels: [(
+                "t".to_owned(),
+                crate::ChannelConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::ChannelConfig::default()
+                },
+            )]
+            .into(),
             live: false,
             calls_per_hour: 1,
             ..MindConfig::default()

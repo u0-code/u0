@@ -119,7 +119,7 @@ belongs to one of four layers:
 |---------|-------|------------|
 | persona | `character/persona.md`, `character/texts.toml` | the template that arranges her own fields from `ghost.toml` into prose, and nothing else |
 | being   | `system/being.md` | what she is, a person made of language; whose word counts; the ground rules |
-| logic   | `system/logic/attend.md`, `now.md`, `plan.md`, … and `system/logic/texts/*.toml` | how a conversation and her day go |
+| logic   | `system/channels/*.md` (a page per channel), `system/logic/now.md`, `plan.md`, … and `system/logic/texts/*.toml` | how a conversation and her day go |
 | work    | `system/work/working.md`, `work.md`, `texts.toml`, and `system/tools.toml` | how a piece of work goes, and what every tool is |
 
 Her system prompt is `character/persona.md` then `system/being.md`, filled
@@ -134,8 +134,8 @@ Each file is looked for in two places, and the first that has it wins:
    set;
 2. what is built into the binary.
 
-The directory is laid out as `prompts/` is: `system/logic/attend.md`
-there stands for `system/logic/attend.md` in the tree, and it holds only
+The directory is laid out as `prompts/` is: `system/channels/qq.md`
+there stands for `system/channels/qq.md` in the tree, and it holds only
 the files you change. A directory laid out the old way, flat, with every
 file at its top under its own name (`attend.md`, `texts.toml`,
 `work_texts.toml`, …), is still read, file by file, and the tree wins over
@@ -166,7 +166,7 @@ else `[mind] prompts` in `ghostd.toml` (`--config` names that file).
 
 ```
 ghostd prompts export                            write the built-ins into the directory
-ghostd prompts export --only system/logic/attend.md
+ghostd prompts export --only system/channels/qq.md
                                                  only the files you mean to change
 ghostd prompts export --only character           or a directory of the tree
 ghostd prompts export --force                    and overwrite what is already there
@@ -178,7 +178,7 @@ ghostd prompts list                              each prompt, text and tool: its
                                                  moved on since
 ghostd prompts update                            replace copies nobody edited with this
                                                  build's built-ins; leave edited ones be
-ghostd prompts update --looked-at system/logic/attend.md
+ghostd prompts update --looked-at system/channels/qq.md
                                                  say an edited copy has been brought up
                                                  to date by hand
 ```
@@ -190,7 +190,7 @@ the file the built-in keeps it in:
 persona  character/persona.md                                              built-in
 persona  character/texts.toml examples                                     built-in
 being    system/being.md                                          changed  deployment /etc/ghost/prompts/system/being.md
-logic    system/logic/attend.md                                            built-in
+logic    system/channels/qq.md                                             built-in
 logic    system/logic/texts/addressed.toml fact_note                       built-in
 work     system/tools.toml say                                             built-in
 ```
@@ -348,15 +348,20 @@ How she lives.
 | `weather` | `true` | look up the real weather where she lives (open-meteo.com, no key) |
 | `prompts` | built in | the deployment's directory of prompts, laid out as [`prompts/`](../../prompts/README.md) is, overriding the built-in ones for every character the daemon runs. Changes are taken in without a restart. See [Prompts](#prompts) |
 
-### `[mind.public]`
+### `[channels.<name>]`
 
-What she does on a public network: a channel whose presence comes online
-as `public` (X). None of it touches a chat or a console, and a mention or
-reply there is read on a page of its own (`system/logic/public.md`): what
-she writes there anyone can read.
+Every channel is a place of its own, named as its presence connects: `qq`,
+`discord`, `telegram`, `x`, and `console` for the daemon's own. She reads
+each on its own page in `system/channels/` (see [Prompts](#prompts)), and
+each can have a table of its own here. A channel nobody writes about is as
+she is anywhere. A character's own `[ghosts.<id>.channels.<name>]` is laid
+over the deployment's, key by key.
+
+The rest only matters where the channel has a feed and takes posts (X).
 
 | key | default | |
 |-----|---------|---|
+| `page` | the channel's name | the page in `system/channels/` she reads it on; a channel with no page of its own reads `chat` |
 | `posts_per_day` | `3` | the most posts in a day |
 | `browse_minutes` | `[45, 150]` | minutes between the times she scrolls a feed, as `[min, max]`; `[0, 0]` turns scrolling off |
 | `likes` | `false` | like posts while scrolling. X forbids automated likes |
