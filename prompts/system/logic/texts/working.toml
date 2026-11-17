@@ -17,6 +17,14 @@ tell_them = "tell them what came of what you took on (\"{{brief}}\"). {{how}}. W
 how_finished = "It is done"
 how_blocked = "You could not finish it"
 how_gave_up = "You gave up on it"
+# The summary of work that went as many sittings as one thing is given
+# without being done, and of work that stopped getting anywhere. Either
+# comes back to her unfinished, and she tells whoever asked.
+out_of_sittings = "It went {{sittings}} sittings without getting to the end, and stopped there. Where it had got to: {{progress}}"
+stalled = "It stopped getting anywhere: it kept answering without doing anything, and stopped there. Where it had got to: {{progress}}"
+# After telling them about work that did not get done: what happens next is
+# hers to decide with them, not the work's.
+unfinished_next = " Then decide with them what to do: take it on again, a different way or with what you now know, or leave it."
 # The summary of work she stopped herself.
 stopped = "You stopped it before it was done. Where it had got to: {{progress}}"
 # The summary of work someone who runs her stopped from a console, without

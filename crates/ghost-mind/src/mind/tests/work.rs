@@ -405,3 +405,72 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     assert!(note.starts_with("A heron, wings out."));
     assert_eq!(from.as_deref(), Some(id.as_str()));
 }
+
+/// What she means to do about the work that came back to her for Wen.
+fn meant_for_wen(rig: &Rig) -> String {
+    let open = rig.mind.ghost.memory().open_intentions().unwrap();
+    assert_eq!(open.len(), 1, "{open:?}");
+    open[0].what.clone()
+}
+
+#[tokio::test]
+async fn work_that_runs_out_of_sittings_comes_back_unfinished_and_she_means_to_tell_whoever_asked()
+{
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(
+        MindConfig {
+            live: false,
+            browse_minutes: [0, 0],
+            work: crate::WorkConfig {
+                sitting_steps: 1,
+                max_sittings: 1,
+                ..crate::WorkConfig::default()
+            },
+            ..MindConfig::default()
+        },
+        t0,
+    );
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    rig.think
+        .then_call("note", serde_json::json!({"text": "two sources disagree"}));
+    rig.mind.on_time(t0).unwrap();
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+
+    let u = &rig.mind.ghost.memory().undertakings(false, 5).unwrap()[0];
+    assert_eq!(u.outcome.as_deref(), Some("blocked"));
+    let summary = u.summary.clone().unwrap_or_default();
+    assert!(summary.contains("two sources disagree"), "{summary}");
+    let meant = meant_for_wen(&rig);
+    assert!(
+        meant.contains(rig.mind.prompts.text("how_blocked")),
+        "{meant}"
+    );
+    assert!(
+        meant.contains(rig.mind.prompts.text("unfinished_next").trim()),
+        "{meant}"
+    );
+}
+
+#[tokio::test]
+async fn work_that_stops_getting_anywhere_comes_back_unfinished_after_one_sitting() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    // Nothing scripted: every step of the work only talks.
+    rig.mind.on_time(t0).unwrap();
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+
+    assert_eq!(
+        count(&rig, "worked"),
+        0,
+        "no second sitting from the same place"
+    );
+    let u = &rig.mind.ghost.memory().undertakings(false, 5).unwrap()[0];
+    assert_eq!(u.outcome.as_deref(), Some("blocked"));
+    let meant = meant_for_wen(&rig);
+    assert!(meant.contains("stopped getting anywhere"), "{meant}");
+    assert!(
+        meant.contains(rig.mind.prompts.text("unfinished_next").trim()),
+        "{meant}"
+    );
+}

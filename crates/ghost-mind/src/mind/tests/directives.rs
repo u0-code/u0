@@ -191,7 +191,9 @@ async fn an_operators_directive_to_take_something_on_is_not_held_to_the_relation
     rig.think.then(take_on);
     rig.hear(dm("boss", "2", "fox: write today's date into a file"), now);
     rig.until(|r| r.kinds().contains(&"undertook")).await;
-    let u = &rig.mind.ghost.memory().undertakings(true, 5).unwrap()[0];
+    // Open or, with nothing scripted for the work to do, already back
+    // with her unfinished: either way it was taken on.
+    let u = &rig.mind.ghost.memory().undertakings(false, 5).unwrap()[0];
     assert_eq!(u.asked_by.as_deref(), Some("t:boss"));
     assert!(u.brief.starts_with("Write today's date into date.txt."));
     let carried = rig.mind.prompts.fill(

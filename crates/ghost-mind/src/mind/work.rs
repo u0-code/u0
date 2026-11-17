@@ -309,16 +309,18 @@ impl Mind {
         else {
             return Ok(false);
         };
+        // As many sittings as one thing is given, and not done: it comes
+        // back to her unfinished, to decide what to do with, not let go
+        // without a word.
         if next.sittings >= i64::from(self.cfg.work.max_sittings) {
-            self.record(Event::Concluded {
-                id: next.id.clone(),
-                outcome: "dropped".into(),
-                summary: format!(
-                    "Let go after {} sittings without finishing. {}",
-                    next.sittings,
-                    next.summary.unwrap_or_default()
-                ),
-            })?;
+            let summary = self.prompts.fill(
+                "out_of_sittings",
+                &[
+                    ("sittings", next.sittings.to_string()),
+                    ("progress", next.summary.clone().unwrap_or_default()),
+                ],
+            );
+            self.end_work(&next.id, "blocked", &summary, None, &[], now)?;
             return Ok(true);
         }
         // A sitting is one call from the body's budget: its steps are
@@ -858,15 +860,23 @@ impl Mind {
                 self.rest(id, now + rest);
                 return Ok(());
             }
-            Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused | Ended::Stalled => {
+            // Going nowhere: it kept talking without doing anything, or a
+            // command-line agent ended without saying the work was done.
+            // Another sitting from the same place would go the same way, so
+            // it comes back to her unfinished.
+            Ended::Stalled => {
+                info!("{id} stalled after {} steps", report.steps);
+                let summary = self.prompts.fill("stalled", &[("progress", progress)]);
+                return self.end_work(id, "blocked", &summary, None, &report.files, now);
+            }
+            Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused => {
                 self.record(Event::Worked {
                     id: id.to_owned(),
                     summary: progress,
                     steps,
                 })?;
                 // A sitting that only ran up against its limits is followed
-                // straight on. Otherwise the work rests first: it was stopped,
-                // or it was going nowhere.
+                // straight on. One that was paused rests first.
                 let straight_on = matches!(report.ended, Ended::OutOfSteps | Ended::OutOfTime);
                 if !straight_on {
                     self.rest(id, now + rest);
@@ -880,18 +890,41 @@ impl Mind {
         } else {
             report.summary.trim().to_owned()
         };
+        self.end_work(
+            id,
+            outcome,
+            &summary,
+            report.lesson.as_deref(),
+            &report.files,
+            now,
+        )
+    }
+
+    /// The work `id` ends with `outcome`. What it taught her about working
+    /// is kept, and whoever asked for it is to be told, finished or not:
+    /// what to do about work that did not get done is hers to decide with
+    /// them.
+    fn end_work(
+        &mut self,
+        id: &str,
+        outcome: &str,
+        summary: &str,
+        lesson: Option<&str>,
+        files: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<()> {
         let undertaking = self.ghost.memory().undertaking(id)?;
         self.record(Event::Concluded {
             id: id.to_owned(),
             outcome: outcome.to_owned(),
-            summary: summary.clone(),
+            summary: summary.to_owned(),
         })?;
-        if let Some(lesson) = &report.lesson {
+        if let Some(lesson) = lesson {
             self.on_practice(lesson)?;
         }
         // What a review of her own writing came to becomes part of her craft.
         if id.starts_with(super::public::REVIEW) && outcome == "finished" {
-            self.learn(super::public::conclusions(&summary))?;
+            self.learn(super::public::conclusions(summary))?;
         }
         // If someone asked, she means to tell them. How and whether is
         // decided when the moment comes, like any other intention.
@@ -905,7 +938,7 @@ impl Mind {
             });
             // What she made, if it is files, and whether this place can
             // take a file at all.
-            let made = if report.files.is_empty() {
+            let made = if files.is_empty() {
                 String::new()
             } else {
                 let can_send = self.workshop.machine.is_some()
@@ -916,7 +949,7 @@ impl Mind {
                 self.prompts.fill(
                     "made",
                     &[
-                        ("files", report.files.join(", ")),
+                        ("files", files.join(", ")),
                         (
                             "send",
                             self.prompts
@@ -926,15 +959,18 @@ impl Mind {
                     ],
                 )
             };
-            let tell = self.prompts.fill(
+            let mut tell = self.prompts.fill(
                 "tell_them",
                 &[
                     ("brief", clip(&u.brief, 160)),
                     ("how", how.to_owned()),
-                    ("summary", clip(&summary, 6000)),
+                    ("summary", clip(summary, 6000)),
                     ("made", made),
                 ],
             );
+            if outcome != "finished" {
+                tell.push_str(self.prompts.text("unfinished_next"));
+            }
             self.intend_as(
                 now + Duration::minutes(1),
                 tell,
