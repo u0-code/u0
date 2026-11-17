@@ -310,14 +310,6 @@ impl Task<'_> {
         }
     }
 
-    pub fn steps(&self) -> i64 {
-        self.events
-            .iter()
-            .filter(|e| e.kind == "worked")
-            .filter_map(|e| e.data.get("steps").and_then(Value::as_i64))
-            .sum()
-    }
-
     /// Whether it is still going: running, or waiting on you.
     pub fn open(&self) -> bool {
         matches!(self.state(), State::Running | State::Waiting)
@@ -328,17 +320,24 @@ impl Task<'_> {
         self.events.last().map_or(self.started, |e| e.at)
     }
 
-    /// One line about it in figures: steps, parts, how many still run.
-    pub fn figures(&self) -> String {
-        let mut meta = format!("{} steps", self.steps());
-        if !self.parts.is_empty() {
-            meta = format!("{meta} · {} parts", self.parts.len());
-            let running = self.parts.iter().filter(|p| p.open()).count();
-            if running > 0 {
-                meta = format!("{meta}, {running} open");
-            }
-        }
-        meta
+    /// The brief as she wrote it for the work: without the words of
+    /// whoever asked for it, which the work is handed after it and which
+    /// are in the thread above it already.
+    pub fn brief_shown(&self) -> &str {
+        let brief = self.brief.trim();
+        brief
+            .find(" wrote, word for word:")
+            .and_then(|i| brief[..i].rfind("\n\n"))
+            .map_or(brief, |cut| brief[..cut].trim_end())
+    }
+
+    /// What the work is, in a line: the first of its brief.
+    pub fn title(&self) -> &str {
+        self.brief_shown()
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or_default()
     }
 
     pub fn ended(&self) -> Option<DateTime<Utc>> {
@@ -548,6 +547,8 @@ pub struct View<'a> {
     pub expanded: &'a HashSet<String>,
     /// What has been read of her steps on this ghost.
     pub following: &'a Following,
+    /// Where the thread is scrolled to, when it is drawn on screen.
+    pub scroll: Option<&'a gpui::ScrollHandle>,
     pub rendering: Rendering,
 }
 
@@ -713,10 +714,12 @@ pub struct Wanted {
 pub fn wanted(view: &View<'_>) -> Wanted {
     let mut works = Vec::new();
     for t in place_tasks(view.journal, view.place) {
+        // Every work's steps are read, folded or not: its line says what
+        // it did in them. Its parts only once it is opened.
+        works.push((t.id.clone(), t.open()));
         if !view.expanded.contains(&format!("task:{}", t.id)) {
             continue;
         }
-        works.push((t.id.clone(), t.open()));
         // Its parts as its steps list them, or else as the journal does.
         let listed = view.following.works.get(&t.id).map(|w| &w.parts);
         let parts: Vec<(String, bool)> = match listed {
