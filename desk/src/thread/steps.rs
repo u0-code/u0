@@ -23,7 +23,10 @@ use gpui::{
 
 use super::{
     State, calls,
-    style::{BODY, MONO, MONO_LINE, S1, S2, S3, SMALL, SMALL_LINE, meta},
+    style::{
+        BOX_RADIUS, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL, SMALL_LINE, WELL_RADIUS,
+        meta,
+    },
     task_first::{breathing, secondary},
 };
 use crate::{desk::Desk, follow, fonts::Faces, theme, ui};
@@ -81,11 +84,11 @@ pub(super) fn look(
         .flex()
         .items_center()
         .gap(px(6.))
-        .h(px(24.))
+        .h(px(ROW_LINE))
         .cursor_pointer()
         .child(
             ui::text(faces, head)
-                .text_size(px(BODY))
+                .text_size(px(ROW))
                 .text_color(theme::muted())
                 .hover(|s| s.text_color(theme::text2())),
         )
@@ -96,7 +99,7 @@ pub(super) fn look(
                 } else {
                     "chevron-right"
                 },
-                12.,
+                14.,
             )
             .text_color(theme::faint()),
         )
@@ -115,20 +118,16 @@ pub(super) fn look(
     group.into_any_element()
 }
 
-/// What a group of steps opens into: a panel a shade lighter than the
-/// thread, rounded, its rows inside it, as a coding agent's app opens one.
+/// What a group of steps opens into: its rows, a little in from the line
+/// they open from, on the thread's own ground, as Claude's app opens one.
 pub(super) fn panel() -> Div {
     div()
         .flex()
         .flex_col()
         .w_full()
-        .gap(px(1.))
-        .mt(px(6.))
-        .p(px(4.))
-        .rounded(px(12.))
-        .bg(theme::rail())
-        .border_1()
-        .border_color(theme::border())
+        .gap(px(2.))
+        .mt(px(S1))
+        .pl(px(S4 - 10.))
 }
 
 /// The last row of something still going on: a ring breathing, and a word.
@@ -148,7 +147,7 @@ pub(super) fn live_row(faces: &Faces, word: &'static str) -> Div {
         .child(breathing(ring))
         .child(
             ui::text(faces, word)
-                .text_size(px(SMALL))
+                .text_size(px(ROW - 1.))
                 .text_color(theme::muted()),
         )
 }
@@ -183,18 +182,18 @@ fn call_row(
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .child(
-            ui::text(faces, said.verb)
+            ui::text(faces, said.verb.clone())
                 .flex_none()
-                .text_size(px(BODY - 0.5))
-                .text_color(theme::text2()),
+                .text_size(px(ROW))
+                .text_color(theme::muted()),
         )
         .child(
             ui::mono(faces, said.what)
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .text_size(px(MONO))
-                .text_color(theme::muted()),
+                .text_size(px(MONO + 0.5))
+                .text_color(theme::text()),
         )
         .child(right.flex_none())
         .child(
@@ -217,14 +216,28 @@ fn call_row(
         .w_full()
         .child(head);
     if open {
+        // Opened, a call is a box: what it was in a word, the command in a
+        // well under it, and what came back, all in hairline frames on the
+        // thread's ground.
         let mut body = div()
             .flex()
             .flex_col()
             .w_full()
-            .gap(px(S2))
-            .px(px(10.))
-            .pt(px(2.))
-            .pb(px(S3));
+            .gap(px(S3))
+            .mt(px(S1))
+            .mb(px(S2))
+            .px(px(S3))
+            .pt(px(14.))
+            .pb(px(S4))
+            .rounded(px(BOX_RADIUS))
+            .border_1()
+            .border_color(theme::border())
+            .child(
+                ui::text(faces, label(&call.name, &said.verb))
+                    .px(px(10.))
+                    .text_size(px(ROW - 1.))
+                    .text_color(theme::muted()),
+            );
         if let Some(command) = calls::command_of(&call.name, &call.args) {
             body = body.child(command_well(faces, key, &command, cx));
         }
@@ -232,6 +245,7 @@ fn call_row(
         body = if out.text.is_empty() && out.more.is_none() {
             body.child(
                 ui::text(faces, "Nothing came back.")
+                    .px(px(10.))
                     .text_size(px(SMALL))
                     .text_color(theme::faint()),
             )
@@ -239,7 +253,7 @@ fn call_row(
             body.child(
                 div()
                     .w_full()
-                    .px(px(2.))
+                    .px(px(10.))
                     .font_family(faces.mono.clone())
                     .text_size(px(MONO))
                     .line_height(px(MONO_LINE))
@@ -248,11 +262,21 @@ fn call_row(
             )
         };
         if let Some(more) = out.more {
-            body = body.child(meta(faces, more).px(px(2.)));
+            body = body.child(meta(faces, more).px(px(10.)));
         }
         row = row.child(body);
     }
     row
+}
+
+/// What an opened call's box is headed with: the shell for a command, as a
+/// terminal is named, and otherwise what was done.
+fn label(name: &str, verb: &str) -> String {
+    if name == "shell" {
+        "Shell".to_owned()
+    } else {
+        verb.to_owned()
+    }
 }
 
 /// A command in full, in a well: a prompt before it, its words coloured
@@ -266,15 +290,14 @@ fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>)
         .w_full()
         .gap(px(10.))
         .px(px(14.))
-        .py(px(12.))
-        .rounded(px(10.))
-        .bg(theme::bg())
+        .py(px(10.))
+        .rounded(px(WELL_RADIUS))
         .border_1()
         .border_color(theme::border())
         .font_family(faces.mono.clone())
         .text_size(px(MONO))
-        .line_height(px(MONO_LINE + 2.))
-        .child(div().flex_none().text_color(theme::faint()).child("$"))
+        .line_height(px(MONO_LINE))
+        .child(div().flex_none().text_color(theme::muted()).child("$"))
         .child(
             div()
                 .flex_1()
@@ -291,30 +314,29 @@ fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>)
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(px(22.))
+                .size(px(24.))
                 .rounded(px(6.))
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon("copy", 13.).text_color(theme::muted()))
+                .hover(|s| s.bg(theme::bubble()))
+                .child(ui::icon("copy", 15.).text_color(theme::text()))
                 .tooltip(ui::tip("Copy"))
                 .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
         )
 }
 
 /// A command with its words coloured: the program at the head of each
-/// command in blue, the joints between commands (`&&`, `|`, `;`) plain,
-/// a comment faint, and everything else, arguments and quoted strings, in
+/// command in blue, the joints between commands (`&&`, `|`, `;`) and a
+/// comment faint, and everything else, arguments and quoted strings, in
 /// green.
 fn shell(faces: &Faces, command: &str) -> StyledText {
     let runs = calls::shell_words(command)
         .into_iter()
         .map(|(len, word)| {
             let color = match word {
-                calls::Word::Program => theme::blue(),
-                calls::Word::Joint => theme::text2(),
-                calls::Word::Comment => theme::faint(),
+                calls::Word::Program => theme::code_program(),
+                calls::Word::Joint | calls::Word::Comment => theme::faint(),
                 calls::Word::Space => theme::text2(),
-                calls::Word::Argument => theme::green(),
+                calls::Word::Argument => theme::code_argument(),
             };
             TextRun {
                 len,
@@ -500,10 +522,9 @@ pub(super) fn part(
     let mut card = div()
         .flex()
         .flex_col()
-        .rounded(px(8.))
+        .rounded(px(10.))
         .border_1()
         .border_color(theme::border())
-        .bg(theme::bg())
         .p(px(2.))
         .child(head);
     if !open && let Some(last) = last.filter(|l| !l.is_empty()) {

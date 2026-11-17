@@ -20,8 +20,8 @@ use crate::{
     fonts::{self, Faces},
     theme,
     thread::style::{
-        H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, S4, SMALL, SMALL_LINE,
-        WELL_RADIUS,
+        BOX_RADIUS, H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S1, S2, S3, S4, SMALL,
+        SMALL_LINE, WELL_RADIUS,
     },
     ui,
 };
@@ -393,9 +393,9 @@ fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
                     base.color,
                     None,
                 ),
-                // In her prose a name in code stands out in amber on a
-                // ground of its own; in the small print of a step, where
-                // there are many, it is only set in mono.
+                // In her prose a name in code sits on a light shade of its
+                // own, in the text's colour; in the small print of a step,
+                // where there are many, it is only set in mono.
                 Mark::Code if base.face == faces.ui => (
                     face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
                     base.strong,
@@ -403,7 +403,7 @@ fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
                 ),
                 Mark::Code => (
                     face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
-                    theme::amber2(),
+                    theme::text(),
                     Some(theme::bubble()),
                 ),
                 Mark::Bold => (
@@ -519,7 +519,7 @@ fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
                         .flex_none()
                         .font_family(set.face(faces))
                         .when(bullet, |d| d.font_weight(FontWeight::BOLD))
-                        .text_color(body(faces, set).strong)
+                        .text_color(theme::muted())
                         .child(marker.clone()),
                 )
                 .child(sized(set).flex_1().min_w(px(0.)).child(styled(
@@ -528,18 +528,15 @@ fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
                     &body(faces, set),
                 )))
         }
-        Block::Quote(text) => sized(set)
-            .pl(px(S3))
-            .border_l_2()
-            .border_color(theme::border2())
-            .child(styled(
-                faces,
-                text,
-                &Base {
-                    color: theme::text2(),
-                    ..body(faces, set)
-                },
-            )),
+        // A quote steps in and goes a shade quieter: no bar beside it.
+        Block::Quote(text) => sized(set).pl(px(S4)).child(styled(
+            faces,
+            text,
+            &Base {
+                color: theme::text2(),
+                ..body(faces, set)
+            },
+        )),
         Block::Code { lang, text } => code(faces, key, lang, text),
         Block::Table { head, right, rows } => table(faces, head, right, rows, set),
     }
@@ -620,40 +617,45 @@ fn table(
     column
 }
 
-/// A fenced block: its language, small, over its text in mono, in a well
-/// that scrolls sideways so that a long command keeps its lines.
+/// A fenced block, drawn as a command is when opened: a box with its
+/// language at the head, and its text in mono in a well under it that
+/// scrolls sideways so that a long line keeps its shape. Both are hairline
+/// frames on the thread's ground.
 fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
+    let lang = if lang.is_empty() { "text" } else { lang };
     div()
         .flex()
         .flex_col()
-        .rounded(px(WELL_RADIUS))
-        .bg(theme::well())
+        .gap(px(S3))
+        .px(px(S3))
+        .pt(px(14.))
+        .pb(px(S4))
+        .rounded(px(BOX_RADIUS))
         .border_1()
         .border_color(theme::border())
-        .overflow_hidden()
-        .when(!lang.is_empty(), |d| {
-            d.child(
-                ui::mono(faces, lang.to_owned())
-                    .text_size(px(10.5))
-                    .text_color(theme::faint())
-                    .px(px(S3))
-                    .pt(px(S2)),
-            )
-        })
+        .child(
+            ui::text(faces, lang.to_owned())
+                .px(px(10.))
+                .text_size(px(14.))
+                .text_color(theme::muted()),
+        )
         .child(
             div()
                 .id(SharedString::from(format!("{key}-code")))
                 .flex()
+                .rounded(px(WELL_RADIUS))
+                .border_1()
+                .border_color(theme::border())
                 .overflow_x_scroll()
                 .child(
                     div()
                         .flex_none()
-                        .px(px(S3))
+                        .px(px(14.))
                         .py(px(10.))
                         .font_family(faces.mono.clone())
                         .text_size(px(MONO))
                         .line_height(px(MONO_LINE))
-                        .text_color(theme::text2())
+                        .text_color(theme::text())
                         .whitespace_nowrap()
                         .child(text.to_owned()),
                 ),

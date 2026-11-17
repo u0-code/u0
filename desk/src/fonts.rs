@@ -1,10 +1,12 @@
 //! Three faces: a sans for the interface, a mono for the journal and every
 //! number, and a serif for her own words and the one headline on a page.
 //!
-//! The faces the design is set in (IBM Plex Sans, IBM Plex Mono, Instrument
-//! Serif) are open fonts, loaded from `assets/fonts/` when they are there.
+//! The sans and the mono the design is set in (IBM Plex Sans, IBM Plex
+//! Mono) are open fonts, loaded from `assets/fonts/` when they are there.
 //! Until they are, each falls back to a face macOS always has, so the desk
-//! still reads as three voices.
+//! still reads as three voices. Her words are in a text serif macOS has (New
+//! York, else Charter): one made to be read at 15, as Claude's app sets its
+//! own answers, not a display face that thins out at that size.
 //!
 //! None of them has Chinese, and what she says often is. Each falls back
 //! to `PingFang SC` for it, the face macOS sets Chinese in, rather than to
@@ -55,7 +57,7 @@ pub fn load(cx: &mut App) {
     cx.set_global(Faces {
         ui: pick(&["IBM Plex Sans", ".SystemUIFont", "Helvetica Neue"]),
         mono: pick(&["IBM Plex Mono", "SF Mono", "Menlo"]),
-        serif: pick(&["Instrument Serif", "New York", "Georgia"]),
+        serif: pick(&["New York", "Charter", "Georgia"]),
     });
 }
 

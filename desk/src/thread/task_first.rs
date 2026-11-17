@@ -1,11 +1,12 @@
 //! The thread drawn task-first, the way a coding agent's app shows a
 //! session: what you said in a bubble on the right, what she said as
-//! prose in the reading column with her mark beside it, under each a line
+//! prose in the reading column, under each a line
 //! of small print with when it was and what can be done with it, and above
 //! each answer what she did to get to it, folded into one line that says
 //! what was done (drawn in `steps.rs`). Work taken on has a card of its
 //! own (`cards.rs`). While she thinks, what she does shows as she does it.
-//! Everything of hers starts after the gutter her mark sits in.
+//! Everything of hers starts at the column's edge, as in Claude's app: her
+//! words are told from yours by their face and their side, not by a mark.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -17,18 +18,20 @@ use super::{
     cards::{task, tool},
     clock, could_not, directed, items, look_started, span, steps,
     style::{
-        BODY, BODY_LINE, BUBBLE_RADIUS, COLUMN, GUTTER, S1, S2, S3, S4, S6, SMALL, SMALL_LINE,
-        TURN, meta,
+        BODY, BODY_LINE, BUBBLE_RADIUS, COLUMN, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL,
+        SMALL_LINE, TURN, meta,
     },
     thread_key, waiting_since,
 };
 use crate::{desk::Desk, fonts::Faces, markdown, model::Message, theme, ui};
 
-/// What came before an item, for the space above it: a look's steps sit
-/// close over the answer they led to; turns stand apart.
+/// What came before an item, for the space above it: her answer sits
+/// close under your line and under the steps that led to it; turns stand
+/// apart.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Before {
     Nothing,
+    Yours,
     Look,
     Other,
 }
@@ -79,23 +82,23 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     mine,
                 };
                 let el = yours(faces, &m, whose, who, view.tz, cx).into_any_element();
-                (el, Before::Other)
+                (el, Before::Yours)
             }
             Item::Tool(e) => (
-                after_gutter(tool(faces, e, view.tz, view.expanded, cx)),
+                tool(faces, e, view.tz, view.expanded, cx).into_any_element(),
                 Before::Other,
             ),
             Item::Look { look, from, to } => {
                 let el = steps::look(faces, look, from, to, view.expanded, cx);
-                (after_gutter(el), Before::Look)
+                (el, Before::Look)
             }
             Item::Task(t) => {
                 let el = task(faces, &t, view.tz, view.expanded, view.following, cx);
-                (after_gutter(el), Before::Other)
+                (el.into_any_element(), Before::Other)
             }
             Item::Failed(why) => {
                 let el = failed(faces, &why, at, view.tz, last_line.clone(), cx);
-                (after_gutter(el), Before::Other)
+                (el.into_any_element(), Before::Other)
             }
             Item::Stopped(stopped) => {
                 let word = if stopped {
@@ -104,13 +107,14 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     "Nothing was running to stop"
                 };
                 let el = note(faces, format!("{word} · {}", clock(at, view.tz)));
-                (after_gutter(el), Before::Other)
+                (el.into_any_element(), Before::Other)
             }
         };
-        let gap = match (before, now) {
-            (Before::Nothing, _) => 0.,
-            (Before::Look, _) => S3,
-            _ => TURN,
+        let gap = match before {
+            Before::Nothing => 0.,
+            Before::Yours => S4,
+            Before::Look => S6,
+            Before::Other => TURN,
         };
         column = column.child(div().mt(px(gap)).child(el));
         before = now;
@@ -129,10 +133,10 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
             .or_else(|| look_started(look, heard))
             .unwrap_or_else(Utc::now);
         let el = steps::look(faces, look, from, Utc::now(), view.expanded, cx);
-        column = column.child(div().mt(px(TURN)).child(after_gutter(el)));
+        column = column.child(div().mt(px(gap_after(before))).child(el));
     } else if let Some(since) = waiting {
         let el = working(faces, view, since).into_any_element();
-        column = column.child(div().mt(px(TURN)).child(after_gutter(el)));
+        column = column.child(div().mt(px(gap_after(before))).child(el));
     }
 
     div()
@@ -150,10 +154,9 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .into_any_element()
 }
 
-/// Something of hers, set after the gutter her mark sits in, so that it
-/// lines up with her words.
-fn after_gutter(el: impl IntoElement) -> AnyElement {
-    div().ml(px(GUTTER)).child(el).into_any_element()
+/// The space above what she is doing now, after what came last.
+fn gap_after(before: Before) -> f32 {
+    if before == Before::Yours { S4 } else { TURN }
 }
 
 /// A small round button under a message: an icon that does one thing.
@@ -164,24 +167,11 @@ fn small_button(id: impl Into<gpui::ElementId>, icon: &'static str) -> Stateful<
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(22.))
+        .size(px(24.))
         .rounded(px(6.))
         .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(ui::icon(icon, 13.).text_color(theme::muted()))
-}
-
-/// Her mark, beside her words: the ghost on a small round tile.
-fn avatar() -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(24.))
-        .rounded_full()
-        .bg(theme::bubble())
-        .child(ui::icon("ghost", 13.).text_color(theme::text2()))
+        .hover(|s| s.bg(theme::bubble()))
+        .child(ui::icon(icon, 15.).text_color(theme::muted()))
 }
 
 /// How long one breath of something going on takes.
@@ -213,11 +203,7 @@ fn note(faces: &Faces, text: String) -> Div {
         .items_center()
         .gap(px(10.))
         .child(ui::dot(theme::faint()).size(px(6.)))
-        .child(
-            meta(faces, text)
-                .text_size(px(11.5))
-                .text_color(theme::muted()),
-        )
+        .child(meta(faces, text).text_color(theme::muted()))
 }
 
 /// Where her answer would be, when she could not think: why, calmly, and
@@ -234,7 +220,7 @@ fn failed(
         .flex()
         .items_start()
         .gap(px(10.))
-        .child(div().pt(px(7.)).child(ui::dot(theme::faint()).size(px(6.))))
+        .child(div().pt(px(8.)).child(ui::dot(theme::coral()).size(px(6.))))
         .child(
             div()
                 .flex()
@@ -244,9 +230,9 @@ fn failed(
                 .min_w(px(0.))
                 .child(
                     ui::text(faces, could_not(why))
-                        .text_size(px(13.))
-                        .line_height(px(20.))
-                        .text_color(theme::text2()),
+                        .text_size(px(ROW - 1.))
+                        .line_height(px(BODY_LINE))
+                        .text_color(theme::muted()),
                 )
                 .child(meta(faces, clock(at, tz))),
         );
@@ -297,18 +283,17 @@ fn working(faces: &Faces, view: &View<'_>, since: DateTime<Utc>) -> Div {
         .flex()
         .items_center()
         .gap(px(10.))
-        .h(px(24.))
+        .h(px(ROW_LINE))
         .child(if view.connected { breathing(dot) } else { dot })
         .child(
             ui::text(faces, word)
-                .text_size(px(SMALL))
-                .text_color(theme::text2()),
+                .text_size(px(ROW - 1.))
+                .text_color(theme::muted()),
         )
         .child(meta(faces, since))
 }
 
-/// A session with nothing in it yet: her mark, and one line that says
-/// what she is. Nothing to click: what she does here is whatever you
+/// A session with nothing in it yet: one line that says what she is. Nothing to click: what she does here is whatever you
 /// say, and the line you type into is right below.
 fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
     let line = if view.abilities.is_some() {
@@ -333,13 +318,11 @@ fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
                 .items_center()
                 .w_full()
                 .max_w(px(520.))
-                .child(ui::icon("ghost", 40.).text_color(theme::muted()))
                 .child(
                     ui::serif(faces, line)
-                        .text_size(px(34.))
-                        .line_height(px(40.))
-                        .text_center()
-                        .mt(px(18.)),
+                        .text_size(px(22.))
+                        .line_height(px(30.))
+                        .text_center(),
                 ),
         )
         .into_any_element()
@@ -384,7 +367,7 @@ fn yours(
         .flex()
         .items_center()
         .gap(px(2.))
-        .mr(px(S1))
+        .mr(px(2.))
         .child(meta(faces, line).mr(px(6.)));
     // A line of yours her journal has can be taken back, to be put
     // another way; one still on its way to her cannot yet.
@@ -408,12 +391,12 @@ fn yours(
         .flex()
         .flex_col()
         .items_end()
-        .gap(px(S1))
+        .gap(px(S2))
         .child(
             div()
                 .max_w(relative(0.8))
                 .px(px(S4))
-                .py(px(10.))
+                .py(px(S3))
                 .rounded(px(BUBBLE_RADIUS))
                 .bg(theme::bubble())
                 .when(directed.is_some(), |d| {
@@ -428,8 +411,7 @@ fn yours(
         .child(foot)
 }
 
-/// What she said: her mark in the gutter, her words as prose beside it,
-/// and under them when it was, how long it took, and a way to copy them.
+/// What she said: her words as prose at the column's edge, and under them when it was, how long it took, and a way to copy them.
 fn hers(
     faces: &Faces,
     m: &Message,
@@ -446,32 +428,22 @@ fn hers(
     let copy = m.text.clone();
     div()
         .flex()
-        .items_start()
-        .gap(px(GUTTER - 24.))
-        .child(avatar().mt(px(1.)))
+        .flex_col()
+        .w_full()
+        .gap(px(S3))
+        .child(markdown::render(faces, &key, &m.text))
         .child(
             div()
                 .flex()
-                .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .gap(px(S2))
-                .child(markdown::render(faces, &key, &m.text))
+                .items_center()
+                .gap(px(2.))
+                .ml(px(-4.))
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(2.))
-                        .ml(px(-5.))
-                        .child(
-                            small_button(SharedString::from(format!("copy-{stamp}")), "copy")
-                                .tooltip(ui::tip("Copy"))
-                                .on_click(
-                                    cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx)),
-                                ),
-                        )
-                        .child(meta(faces, line).ml(px(4.))),
-                ),
+                    small_button(SharedString::from(format!("copy-{stamp}")), "copy")
+                        .tooltip(ui::tip("Copy"))
+                        .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
+                )
+                .child(meta(faces, line).ml(px(4.))),
         )
 }
 

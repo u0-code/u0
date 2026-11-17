@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::{
     State, Task, calls, clock, s, span, steps,
-    style::{BODY, BODY_LINE, CARD_RADIUS, MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
+    style::{BODY, CARD_RADIUS, MONO, ROW, S1, S2, S3, S4, SMALL, SMALL_LINE, meta, well},
     task_first::breathing,
 };
 use crate::{aside, desk::Desk, follow::Following, fonts::Faces, model::Entry, theme, ui};
@@ -53,15 +53,13 @@ pub(super) fn tool(
     let head = div()
         .flex()
         .items_center()
-        .gap(px(S2))
-        .h(px(34.))
-        .px(px(S3))
-        .child(ui::dot(theme::green().opacity(0.7)).size(px(6.)))
+        .gap(px(6.))
+        .h(px(40.))
+        .px(px(S4))
         .child(
             ui::text(faces, verb)
-                .text_size(px(SMALL))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme::text2())
+                .text_size(px(ROW - 1.))
+                .text_color(theme::muted())
                 .flex_none(),
         )
         .child(
@@ -69,8 +67,8 @@ pub(super) fn tool(
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .text_size(px(MONO))
-                .text_color(theme::muted()),
+                .text_size(px(MONO + 0.5))
+                .text_color(theme::text()),
         )
         .child(meta(faces, clock(e.at, tz)).flex_none())
         .child(
@@ -92,13 +90,13 @@ pub(super) fn tool(
         .hover(|s| s.border_color(theme::border2()))
         .child(head)
         .when(open && !body.is_empty(), |d| {
-            d.child(div().px(px(S2)).pb(px(S2)).child(well(faces).child(body)))
+            d.child(div().px(px(S3)).pb(px(S3)).child(well(faces).child(body)))
         })
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
 }
 
-/// A piece of work, drawn as a coding agent's app draws what it did: no
-/// frame, a line saying what the work is, and under it a quieter line
+/// A piece of work, drawn as a coding agent's app draws what it did: a
+/// card with a line saying what the work is, and under it a quieter line
 /// saying what it has done so far and for how long, which opens to every
 /// step. What it came to is in her answer after it, so it is not said
 /// here again until it is opened.
@@ -119,49 +117,59 @@ pub(super) fn task(
     let glyph = div()
         .flex()
         .flex_none()
-        .w(px(MARK))
-        .h(px(BODY_LINE))
+        .size(px(MARK))
         .items_center()
+        .justify_center()
         .child(if state == State::Running {
             breathing(aside::glyph(state))
         } else {
             aside::glyph(state)
         });
-    let title = div()
+    // What it has done so far, or, when it stands still for a reason, the
+    // reason's word first, in that state's colour.
+    let standing = !matches!(state, State::Finished | State::Running);
+    let words = div()
         .flex()
-        .items_start()
-        .child(glyph)
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .gap(px(2.))
         .child(
-            ui::text(faces, t.title().to_owned())
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(BODY))
-                .line_height(px(BODY_LINE))
+            ui::one_line(ui::text(faces, t.title().to_owned()))
+                .whitespace_nowrap()
+                .text_size(px(BODY - 1.))
+                .line_height(px(20.))
                 .text_color(theme::text()),
         )
-        .when(!matches!(state, State::Finished | State::Running), |d| {
-            d.child(
-                meta(faces, state.word())
-                    .flex_none()
-                    .pl(px(S3))
-                    .line_height(px(BODY_LINE))
-                    .text_color(state.color()),
-            )
-        });
+        .child(
+            ui::one_line(ui::text(
+                faces,
+                if standing {
+                    format!("{} · {done}", state.word())
+                } else {
+                    done
+                },
+            ))
+            .whitespace_nowrap()
+            .text_size(px(SMALL))
+            .line_height(px(18.))
+            .text_color(if standing {
+                state.color()
+            } else {
+                theme::muted()
+            }),
+        );
     let toggle = key.clone();
-    let line = div()
+    let head = div()
+        .id(SharedString::from(key))
         .flex()
         .items_center()
-        .gap(px(6.))
-        .pl(px(MARK))
-        .h(px(24.))
-        .child(
-            ui::text(faces, done)
-                .text_size(px(BODY))
-                .text_color(theme::muted())
-                .group_hover("work-head", |s| s.text_color(theme::text2())),
-        )
+        .gap(px(S3))
+        .px(px(S4))
+        .py(px(10.))
+        .cursor_pointer()
+        .child(glyph)
+        .child(words)
         .child(
             ui::icon(
                 if open {
@@ -169,21 +177,16 @@ pub(super) fn task(
                 } else {
                     "chevron-right"
                 },
-                12.,
+                14.,
             )
-            .text_color(theme::faint()),
-        );
-    let head = div()
-        .id(SharedString::from(key))
-        .group("work-head")
-        .flex()
-        .flex_col()
-        .cursor_pointer()
-        .child(title)
-        .child(line)
+            .flex_none()
+            .text_color(theme::muted()),
+        )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
 
-    let mut whole = div().flex().flex_col().w_full().child(head);
+    // A card, as Claude's app draws a session it started: a hairline frame,
+    // no ground, the steps inside it under a rule once it is opened.
+    let mut whole = card().w_full().child(head);
     if open {
         // Opened, everything it did is in one panel, the way a coding
         // agent's app opens a group of steps: what it was asked first, then
@@ -206,7 +209,11 @@ pub(super) fn task(
                 .flex_col()
                 .w_full()
                 .gap(px(S2))
-                .pl(px(MARK))
+                .px(px(S3))
+                .pt(px(S2))
+                .pb(px(S3))
+                .border_t_1()
+                .border_color(theme::border())
                 .child(
                     steps::panel()
                         .child(brief)
@@ -222,7 +229,7 @@ pub(super) fn task(
 const SAID_SHORT: usize = 240;
 
 /// The room a work's mark takes before its words.
-const MARK: f32 = 20.;
+const MARK: f32 = 16.;
 
 /// What a piece of work has done, in a line: `Ran 7 commands · 42s` once
 /// it is over, `Working for 13s · 6 steps` while it goes on, and before its
