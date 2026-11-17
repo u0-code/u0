@@ -16,11 +16,14 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use ghost_link::protocol::{LoggedStep, Look, ToolCall};
-use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, SharedString, Stateful, StyledText, TextRun, div,
+    prelude::*, px,
+};
 
 use super::{
     State, calls,
-    style::{BODY, MONO, S1, S2, S3, SMALL, SMALL_LINE, meta, well},
+    style::{BODY, MONO, MONO_LINE, S1, S2, S3, SMALL, SMALL_LINE, meta},
     task_first::{breathing, secondary},
 };
 use crate::{desk::Desk, follow, fonts::Faces, theme, ui};
@@ -100,7 +103,7 @@ pub(super) fn look(
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
     let mut group = div().flex().flex_col().child(header);
     if open {
-        let mut list = rail();
+        let mut list = panel();
         for (i, call) in rows.into_iter().enumerate() {
             list = list.child(call_row(faces, &format!("{key}:{i}"), call, expanded, cx));
         }
@@ -112,32 +115,20 @@ pub(super) fn look(
     group.into_any_element()
 }
 
-/// The column rows hang in: a hairline down the left, under the chevron.
-pub(super) fn rail() -> Div {
+/// What a group of steps opens into: a panel a shade lighter than the
+/// thread, rounded, its rows inside it, as a coding agent's app opens one.
+pub(super) fn panel() -> Div {
     div()
         .flex()
         .flex_col()
         .w_full()
         .gap(px(1.))
-        .ml(px(2.))
-        .pl(px(S3))
-        .mt(px(4.))
-        .border_l_1()
+        .mt(px(6.))
+        .p(px(4.))
+        .rounded(px(12.))
+        .bg(theme::rail())
+        .border_1()
         .border_color(theme::border())
-}
-
-/// Where a call stands, as a small mark: done, or failed.
-fn call_glyph(failed: bool) -> Div {
-    if failed {
-        div()
-            .flex_none()
-            .size(px(7.))
-            .rounded_full()
-            .border_1()
-            .border_color(theme::coral())
-    } else {
-        ui::dot(theme::green().opacity(0.7)).size(px(6.)).m(px(0.5))
-    }
 }
 
 /// The last row of something still going on: a ring breathing, and a word.
@@ -152,8 +143,8 @@ pub(super) fn live_row(faces: &Faces, word: &'static str) -> Div {
         .flex()
         .items_center()
         .gap(px(S2))
-        .h(px(26.))
-        .px(px(6.))
+        .h(px(30.))
+        .px(px(10.))
         .child(breathing(ring))
         .child(
             ui::text(faces, word)
@@ -162,8 +153,10 @@ pub(super) fn live_row(faces: &Faces, word: &'static str) -> Div {
         )
 }
 
-/// One call: its mark, its verb, what it was about, how long it took; and
-/// opened, the head of what came back.
+/// One call: its verb, what it was about, how long it took, and a chevron;
+/// opened, a command in full in a well of its own, with a prompt before
+/// it, its words coloured and a way to copy it, and under the well what
+/// came back.
 fn call_row(
     faces: &Faces,
     key: &str,
@@ -174,7 +167,7 @@ fn call_row(
     let said = calls::say(&call.name, &call.args);
     let open = expanded.contains(key);
     let right = if call.failed {
-        meta(faces, "failed").text_color(theme::coral().opacity(0.8))
+        meta(faces, "failed").text_color(theme::coral().opacity(0.85))
     } else {
         meta(faces, calls::took(call.ms))
     };
@@ -184,18 +177,15 @@ fn call_row(
         .flex()
         .items_center()
         .gap(px(S2))
-        .h(px(26.))
-        .px(px(6.))
-        .rounded(px(6.))
+        .h(px(30.))
+        .px(px(10.))
+        .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
-        .when(open, |d| d.bg(theme::hover()))
-        .child(call_glyph(call.failed))
         .child(
             ui::text(faces, said.verb)
                 .flex_none()
-                .text_size(px(SMALL))
-                .font_weight(FontWeight::MEDIUM)
+                .text_size(px(BODY - 0.5))
                 .text_color(theme::text2()),
         )
         .child(
@@ -207,15 +197,38 @@ fn call_row(
                 .text_color(theme::muted()),
         )
         .child(right.flex_none())
+        .child(
+            ui::icon(
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                11.,
+            )
+            .flex_none()
+            .text_color(theme::faint()),
+        )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
     let mut row = div()
         .id(SharedString::from(key.to_owned()))
         .flex()
         .flex_col()
+        .w_full()
         .child(head);
     if open {
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .gap(px(S2))
+            .px(px(10.))
+            .pt(px(2.))
+            .pb(px(S3));
+        if let Some(command) = calls::command_of(&call.name, &call.args) {
+            body = body.child(command_well(faces, key, &command, cx));
+        }
         let out = calls::output(&call.out, call.cut, call.chars, call.pictures);
-        let mut body = well(faces).ml(px(20.)).mt(px(2.)).mb(px(S1));
         body = if out.text.is_empty() && out.more.is_none() {
             body.child(
                 ui::text(faces, "Nothing came back.")
@@ -223,14 +236,103 @@ fn call_row(
                     .text_color(theme::faint()),
             )
         } else {
-            body.child(out.text)
+            body.child(
+                div()
+                    .w_full()
+                    .px(px(2.))
+                    .font_family(faces.mono.clone())
+                    .text_size(px(MONO))
+                    .line_height(px(MONO_LINE))
+                    .text_color(theme::muted())
+                    .child(out.text),
+            )
         };
         if let Some(more) = out.more {
-            body = body.child(meta(faces, more).mt(px(6.)));
+            body = body.child(meta(faces, more).px(px(2.)));
         }
         row = row.child(body);
     }
     row
+}
+
+/// A command in full, in a well: a prompt before it, its words coloured
+/// the way a terminal colours them, wrapping rather than cut, and a button
+/// at the top right to copy it.
+fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>) -> Div {
+    let copy = command.to_owned();
+    div()
+        .relative()
+        .flex()
+        .w_full()
+        .gap(px(10.))
+        .px(px(14.))
+        .py(px(12.))
+        .rounded(px(10.))
+        .bg(theme::bg())
+        .border_1()
+        .border_color(theme::border2())
+        .font_family(faces.mono.clone())
+        .text_size(px(MONO))
+        .line_height(px(MONO_LINE + 2.))
+        .child(div().flex_none().text_color(theme::faint()).child("$"))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .pr(px(22.))
+                .child(shell(faces, command)),
+        )
+        .child(
+            div()
+                .id(SharedString::from(format!("{key}-copy")))
+                .absolute()
+                .top(px(8.))
+                .right(px(8.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(22.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(ui::icon("copy", 13.).text_color(theme::muted()))
+                .tooltip(ui::tip("Copy"))
+                .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
+        )
+}
+
+/// A command with its words coloured: the program at the head of each
+/// command in blue, the joints between commands (`&&`, `|`, `;`) plain,
+/// a comment faint, and everything else, arguments and quoted strings, in
+/// green.
+fn shell(faces: &Faces, command: &str) -> StyledText {
+    let runs = calls::shell_words(command)
+        .into_iter()
+        .map(|(len, word)| {
+            let color = match word {
+                calls::Word::Program => theme::blue(),
+                calls::Word::Joint => theme::text2(),
+                calls::Word::Comment => theme::faint(),
+                calls::Word::Space => theme::text2(),
+                calls::Word::Argument => theme::green(),
+            };
+            TextRun {
+                len,
+                font: gpui::Font {
+                    family: faces.mono.clone(),
+                    features: gpui::FontFeatures::default(),
+                    fallbacks: Some(crate::fonts::fallbacks()),
+                    weight: FontWeight::NORMAL,
+                    style: gpui::FontStyle::Normal,
+                },
+                color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }
+        })
+        .collect();
+    StyledText::new(SharedString::from(command.to_owned())).with_runs(runs)
 }
 
 /// One step of a piece of work: what the model said then, if anything,
@@ -248,21 +350,17 @@ pub(super) fn step(
         // What she said at a step is written as she writes to anyone:
         // drawn the same way, small and quiet.
         let key = format!("said:{work}:{}", step.n);
-        block = block.child(
-            div()
-                .w_full()
-                .px(px(6.))
-                .pt(px(S1 + 2.))
-                .pb(px(S1 + 2.))
-                .child(crate::markdown::render_as(
-                    faces,
-                    &key,
-                    said,
-                    crate::markdown::Setting::Small,
-                )),
-        );
+        block = block.child(div().w_full().px(px(10.)).pt(px(S2)).pb(px(S2)).child(
+            crate::markdown::render_as(faces, &key, said, crate::markdown::Setting::Small),
+        ));
     }
-    for (i, call) in step.calls.iter().enumerate() {
+    // How the work ended has a line of its own under its steps.
+    for (i, call) in step
+        .calls
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.name != "done")
+    {
         let key = format!("step:{work}:{}:{i}", step.n);
         block = block.child(call_row(faces, &key, call, expanded, cx));
     }
@@ -280,7 +378,7 @@ pub(super) fn work_steps(
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    let mut list = rail();
+    let mut list = panel();
     let Some(read) = read.filter(|r| r.read()) else {
         return list.child(quiet(faces, "Reading its steps…"));
     };
@@ -314,8 +412,8 @@ pub(super) fn earlier(
     let line = (hidden > 0).then(|| {
         div()
             .id(SharedString::from(all_key.clone()))
-            .px(px(6.))
-            .h(px(24.))
+            .px(px(10.))
+            .h(px(30.))
             .flex()
             .items_center()
             .cursor_pointer()
@@ -333,8 +431,8 @@ pub(super) fn earlier(
 /// A line where there is nothing to show yet.
 pub(super) fn quiet(faces: &Faces, text: &'static str) -> Div {
     ui::text(faces, text)
-        .px(px(6.))
-        .h(px(24.))
+        .px(px(10.))
+        .h(px(30.))
         .flex()
         .items_center()
         .text_size(px(SMALL))

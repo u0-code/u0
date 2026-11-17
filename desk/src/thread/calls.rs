@@ -167,6 +167,102 @@ pub fn say(name: &str, args: &Value) -> Said {
     }
 }
 
+/// The whole command a call ran, when it ran one: what its opened row
+/// shows in a well.
+pub fn command_of(name: &str, args: &Value) -> Option<String> {
+    let args = object(args);
+    (name == "shell")
+        .then(|| arg(&args, "command").trim().to_owned())
+        .filter(|c| !c.is_empty())
+}
+
+/// What a stretch of a command is, for its colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Word {
+    /// The program at the head of a command.
+    Program,
+    /// What joins commands: `&&`, `||`, `|`, `;`, a line break.
+    Joint,
+    Comment,
+    Space,
+    /// Everything else: arguments, flags, quoted strings, redirections.
+    Argument,
+}
+
+/// A command cut into stretches, each with what it is, their lengths in
+/// bytes covering the whole of it in order. Quotes are honoured, so that
+/// a `|` inside a string is part of the string.
+pub fn shell_words(command: &str) -> Vec<(usize, Word)> {
+    let mut out: Vec<(usize, Word)> = Vec::new();
+    let mut push = |len: usize, word: Word| match out.last_mut() {
+        Some((l, w)) if *w == word && word != Word::Program && word != Word::Argument => {
+            *l += len;
+        }
+        _ => out.push((len, word)),
+    };
+    let bytes = command.as_bytes();
+    let mut i = 0;
+    // The next word is a program: at the start, and after a joint.
+    let mut head = true;
+    while i < bytes.len() {
+        let rest = &command[i..];
+        let c = rest.chars().next().unwrap_or(' ');
+        if c.is_whitespace() && c != '\n' {
+            push(c.len_utf8(), Word::Space);
+            i += c.len_utf8();
+            continue;
+        }
+        let joint = ["&&", "||", "|", ";", "\n", "$(", "("]
+            .iter()
+            .find(|j| rest.starts_with(**j));
+        if let Some(j) = joint {
+            push(j.len(), Word::Joint);
+            i += j.len();
+            head = true;
+            continue;
+        }
+        if c == '#' && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {
+            let end = rest.find('\n').unwrap_or(rest.len());
+            push(end, Word::Comment);
+            i += end;
+            continue;
+        }
+        // A word: up to the next space or joint outside quotes.
+        let mut j = 0;
+        let mut quote: Option<char> = None;
+        for (k, ch) in rest.char_indices() {
+            match quote {
+                Some(q) if ch == q => quote = None,
+                Some(_) => {}
+                None if ch == '\'' || ch == '"' => quote = Some(ch),
+                None if ch.is_whitespace() || matches!(ch, '|' | ';' | '&' | ')') => {
+                    j = k;
+                    break;
+                }
+                None => {}
+            }
+            j = k + ch.len_utf8();
+        }
+        let j = j.max(c.len_utf8());
+        let word = &rest[..j];
+        // An assignment before a program does not take its place.
+        let program = head && !word.contains('=');
+        push(
+            j,
+            if program {
+                Word::Program
+            } else {
+                Word::Argument
+            },
+        );
+        if program {
+            head = false;
+        }
+        i += j;
+    }
+    out
+}
+
 /// A command as a row says it: without the `cd somewhere &&` it began
 /// with, which is the same for every command of a piece of work and would
 /// leave rows that look alike once cut to the width of the column. Where it
@@ -414,6 +510,28 @@ mod tests {
             said("shell", json!("not json")),
             ("Ran".into(), String::new())
         );
+    }
+
+    #[test]
+    fn a_command_is_coloured_by_what_each_word_is_and_every_byte_is_covered() {
+        let command = "cd desk && cargo fmt --check | grep -E 'a|b' ; X=1 git log # done";
+        let words = shell_words(command);
+        assert_eq!(words.iter().map(|(l, _)| l).sum::<usize>(), command.len());
+        let mut at = 0;
+        let mut programs = Vec::new();
+        for (len, word) in &words {
+            if *word == Word::Program {
+                programs.push(&command[at..at + len]);
+            }
+            at += len;
+        }
+        assert_eq!(programs, ["cd", "cargo", "grep", "git"]);
+        assert_eq!(words.last().map(|w| w.1), Some(Word::Comment));
+        assert_eq!(
+            command_of("shell", &json!({"command": " ls "})),
+            Some("ls".into())
+        );
+        assert_eq!(command_of("read", &json!({"path": "a"})), None);
     }
 
     #[test]
