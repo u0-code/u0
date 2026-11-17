@@ -526,14 +526,6 @@ fn directed(journal: &[Entry]) -> HashMap<i64, i64> {
         .collect()
 }
 
-/// Things to ask for on an empty page. Clicking one only puts it in the
-/// line you type into; nothing is sent until you send it.
-pub const STARTERS: [&str; 3] = [
-    "Find what is filling up my disk",
-    "Summarise the last 20 commits in a repo",
-    "Check whether port 7438 is in use",
-];
-
 /// Everything the thread needs to draw one place: a session with the
 /// solver, or any place a character is in.
 pub struct View<'a> {
