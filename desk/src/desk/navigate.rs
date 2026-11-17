@@ -171,6 +171,8 @@ impl Desk {
             abilities: None,
             expanded: &self.expanded,
             following: &self.solver.following,
+            work: &self.solver.work,
+            whom: crate::answer::Whom::Solver,
             scroll: None,
             rendering: thread::Rendering::Task,
         };

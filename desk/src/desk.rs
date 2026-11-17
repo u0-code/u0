@@ -52,7 +52,7 @@ pub(crate) use self::{
     watched::{Open, Watched},
 };
 use crate::{
-    answer::Replies,
+    answer::{Replies, Whom},
     attention,
     daemons::Daemon,
     follow::PlaceLooks,
@@ -448,6 +448,11 @@ impl Desk {
         }
         let session = thread::place_key(&self.session().id);
         let who = self.settings.who.clone();
+        let whom = if self.open.is_some() {
+            Whom::Her
+        } else {
+            Whom::Solver
+        };
         let (ghost, place) = match &mut self.open {
             Some(open) => {
                 let place = open.place(&who);
@@ -459,6 +464,7 @@ impl Desk {
             ghost,
             &place,
             &who,
+            whom,
             None,
             &self.expanded,
             &self.thread_scroll,
@@ -550,6 +556,7 @@ fn thread_view<'a>(
     ghost: &'a Watched,
     place: &'a str,
     who: &str,
+    whom: Whom,
     abilities: Option<&'a Abilities>,
     expanded: &'a HashSet<String>,
     scroll: &'a ScrollHandle,
@@ -566,6 +573,8 @@ fn thread_view<'a>(
         abilities,
         expanded,
         following: &ghost.following,
+        work: &ghost.work,
+        whom,
         scroll: Some(scroll),
         rendering: thread::Rendering::Task,
     }
@@ -595,10 +604,16 @@ impl Render for Desk {
                     Some(&self.abilities),
                 ),
             };
+            let whom = if self.open.is_some() {
+                Whom::Her
+            } else {
+                Whom::Solver
+            };
             let view = thread_view(
                 ghost,
                 &place,
                 self.who(),
+                whom,
                 abilities,
                 &self.expanded,
                 &self.thread_scroll,

@@ -15,6 +15,8 @@
 
 mod calls;
 mod cards;
+mod drawn;
+mod kinds;
 mod outputs;
 mod steps;
 pub mod style;
@@ -263,7 +265,7 @@ impl State {
     pub fn color(self) -> Hsla {
         match self {
             State::Running => theme::accent(),
-            State::Waiting => theme::purple(),
+            State::Waiting => theme::accent(),
             State::Finished => theme::green(),
             State::Blocked => theme::coral(),
             State::Dropped => theme::muted(),
@@ -547,6 +549,11 @@ pub struct View<'a> {
     pub expanded: &'a HashSet<String>,
     /// What has been read of her steps on this ghost.
     pub following: &'a Following,
+    /// Her work as her daemon keeps it: what a piece asks, and the options
+    /// it gave to choose from, which her journal does not hold.
+    pub work: &'a [ghost_link::protocol::Work],
+    /// Whose thread this is, for answering what her work asks.
+    pub whom: crate::answer::Whom,
     /// Where the thread is scrolled to, when it is drawn on screen.
     pub scroll: Option<&'a gpui::ScrollHandle>,
     pub rendering: Rendering,
