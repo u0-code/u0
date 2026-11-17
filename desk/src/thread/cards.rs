@@ -185,30 +185,33 @@ pub(super) fn task(
 
     let mut whole = div().flex().flex_col().w_full().child(head);
     if open {
-        let brief = t.brief_shown();
+        // Opened, everything it did is in one panel, the way a coding
+        // agent's app opens a group of steps: what it was asked first, then
+        // each step, then how it ended.
+        let brief =
+            div()
+                .w_full()
+                .px(px(10.))
+                .pt(px(S2))
+                .pb(px(S2))
+                .child(crate::markdown::render_as(
+                    faces,
+                    &format!("brief:{}", t.id),
+                    t.brief_shown(),
+                    crate::markdown::Setting::Small,
+                ));
         whole = whole.child(
             div()
                 .flex()
                 .flex_col()
                 .w_full()
-                .pl(px(MARK - 2.))
-                // What it was asked to do, over the line its steps hang
-                // from: what it did.
+                .gap(px(S2))
+                .pl(px(MARK))
                 .child(
-                    div()
-                        .w_full()
-                        .pl(px(2. + S3 + 6.))
-                        .pr(px(6.))
-                        .pt(px(S1))
-                        .pb(px(S1))
-                        .child(crate::markdown::render_as(
-                            faces,
-                            &format!("brief:{}", t.id),
-                            brief,
-                            crate::markdown::Setting::Small,
-                        )),
+                    steps::panel()
+                        .child(brief)
+                        .children(along_the_way(faces, t, tz, following, expanded, cx)),
                 )
-                .child(along_the_way(faces, t, tz, following, expanded, cx))
                 .children(parts(faces, t, following, expanded, cx)),
         );
     }
@@ -277,8 +280,8 @@ pub fn along<'a>(
     all.into_iter().map(|(_, a)| a).collect()
 }
 
-/// What a piece of work did and said, interleaved: its steps in rails,
-/// broken by what it told, asked and concluded, each on a line of its own.
+/// What a piece of work did and said, interleaved, as the rows of its
+/// panel: its steps, broken by what it told, asked and concluded.
 fn along_the_way(
     faces: &Faces,
     t: &Task<'_>,
@@ -286,36 +289,26 @@ fn along_the_way(
     following: &Following,
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
-) -> Div {
-    let mut column = div().flex().flex_col().w_full().gap(px(S1));
+) -> Vec<Div> {
+    let mut rows = Vec::new();
     let read = following.works.get(&t.id).filter(|r| r.read());
     let held: &[LoggedStep] = read.map_or(&[], |r| r.steps.as_slice());
     let (shown, earlier) = steps::earlier(faces, &t.id, held.len(), expanded, cx);
     if let Some(earlier) = earlier {
-        column = column.child(steps::rail().child(earlier));
+        rows.push(div().child(earlier));
     }
-    let mut rail: Option<Div> = None;
     for item in along(t.started, &t.events, &held[held.len() - shown..]) {
-        match item {
-            Along::Step(step) => {
-                let r = rail.take().unwrap_or_else(steps::rail);
-                rail = Some(r.child(steps::step(faces, &t.id, step, expanded, cx)));
-            }
-            Along::Event(e) => {
-                column = column.children(rail.take());
-                column = column.child(milestone(faces, e, tz));
-            }
-        }
+        rows.push(match item {
+            Along::Step(step) => steps::step(faces, &t.id, step, expanded, cx),
+            Along::Event(e) => milestone(faces, e, tz),
+        });
     }
-    let running = t.state() == State::Running;
     if read.is_none() {
-        let r = rail.take().unwrap_or_else(steps::rail);
-        rail = Some(r.child(steps::quiet(faces, "Reading its steps…")));
-    } else if running {
-        let r = rail.take().unwrap_or_else(steps::rail);
-        rail = Some(r.child(steps::live_row(faces, "Working")));
+        rows.push(steps::quiet(faces, "Reading its steps…"));
+    } else if t.state() == State::Running {
+        rows.push(steps::live_row(faces, "Working"));
     }
-    column.children(rail)
+    rows
 }
 
 /// Something a piece of work's journal says of it: a sitting's summary,
@@ -350,9 +343,7 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
         .flex()
         .flex_col()
         .gap(px(2.))
-        // In line with the rows of the steps above it.
-        .pl(px(2. + S3 + 6.))
-        .pr(px(6.))
+        .px(px(10.))
         .py(px(S1 + 2.))
         .child(
             div()

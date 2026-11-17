@@ -13,6 +13,7 @@ use std::ops::Range;
 
 use gpui::{
     Div, FontStyle, FontWeight, Hsla, SharedString, StyledText, TextRun, div, prelude::*, px,
+    relative,
 };
 
 use crate::{
@@ -591,14 +592,10 @@ fn table(
         let mut line = div().flex().w_full().items_start();
         for (i, cell) in cells.iter().enumerate() {
             let last = i + 1 == cells.len();
-            // Each column grows by its share from nothing, so that the
-            // shares hold however wide the table turns out to be.
-            let mut frame = sized(set);
-            frame.style().flex_grow = Some(shares.get(i).copied().unwrap_or(0.));
-            frame.style().flex_shrink = Some(1.);
-            frame.style().flex_basis = Some(px(0.).into());
             line = line.child(
-                frame
+                sized(set)
+                    .w(relative(shares.get(i).copied().unwrap_or(0.)))
+                    .flex_none()
                     .min_w(px(0.))
                     .py(px(S2 + 1.))
                     .when(!last, |d| d.pr(px(S4)))
