@@ -279,7 +279,8 @@ impl Desk {
     /// then the rest when asked for; each with what it asks and Stop.
     pub(crate) fn her_work(&self, faces: &Faces, work: &[Work], cx: &mut Context<Self>) -> Div {
         use crate::aside::{
-            ended_row, ended_summary, glyph, open_standing, running_lead, state_of, task_row,
+            ended_row, ended_summary, glyph, open_standing, part_row, running_lead, state_of,
+            task_row,
         };
         if work.is_empty() {
             return div().child(
@@ -301,6 +302,15 @@ impl Desk {
                 right,
                 color,
             ));
+            let now = Utc::now();
+            for p in &w.parts {
+                list = list.child(part_row(
+                    faces,
+                    SharedString::from(format!("her-part-{}", p.id)),
+                    p,
+                    now,
+                ));
+            }
             let controls = self.ask_controls(faces, &Ask::of(Whom::Her, w), cx);
             list = list.child(controls.pl(px(26.)).pb(px(4.)));
         }
