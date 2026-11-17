@@ -100,10 +100,7 @@ impl Mind {
             self.looks += 1;
             job.look = self.looks;
         }
-        if job.round == 0
-            && matches!(job.why, Why::Unread | Why::Directive(_))
-            && self.can(&place.channel, Can::Read)
-        {
+        if job.round == 0 && matches!(job.why, Why::Unread) && self.can(&place.channel, Can::Read) {
             let upto = self
                 .ghost
                 .memory()
@@ -247,7 +244,7 @@ impl Mind {
         let keys: Vec<String> = people.iter().map(|p| p.key.clone()).collect();
         let pursuing = match &job.why {
             Why::Intention(intention) => Some(intention.seq),
-            Why::Unread | Why::Directive(_) => None,
+            Why::Unread => None,
         };
         let meant: Vec<String> = self
             .intentions_about(&place.key, &keys)?
@@ -281,9 +278,6 @@ impl Mind {
             Why::Intention(intention) => self
                 .prompts
                 .fill("intention_due", &[("what", intention.what.clone())]),
-            Why::Directive(directives) => self
-                .prompts
-                .fill("directive", &[("directives", self.directives(directives))]),
         };
         let recalled = self.prompts.section(
             "recalled",
@@ -347,16 +341,7 @@ impl Mind {
                 }),
                 d.text
             )),
-            // A directive is marked in its line's heading,
-            // where nothing anyone types can reach, so that she
-            // can tell it from what people say to her.
-            narrate::transcript(
-                &lines,
-                place.read_upto,
-                self.prompts.text("directive_mark"),
-                self.life.clock(),
-                now
-            ),
+            narrate::transcript(&lines, place.read_upto, self.life.clock(), now),
             // Being stopped here goes with the conversation it
             // happened in, for as long as it is in front of her.
             stopped_here
@@ -554,15 +539,6 @@ impl Mind {
             Need::SkillIndex => self.workshop.skills.as_ref().is_some_and(|s| s.installs()),
             _ => false,
         }
-    }
-
-    /// Directives as she is shown them: one to a line.
-    pub(super) fn directives(&self, directives: &[String]) -> String {
-        directives
-            .iter()
-            .map(|d| self.prompts.fill("directive_item", &[("text", d.clone())]))
-            .collect::<Vec<_>>()
-            .join("\n")
     }
 }
 

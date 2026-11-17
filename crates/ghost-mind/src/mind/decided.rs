@@ -134,11 +134,7 @@ impl Mind {
                 },
                 Action::Undertake { brief, for_whom } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
-                    let directed = match &job.why {
-                        Why::Directive(directives) => directives.as_slice(),
-                        _ => &[],
-                    };
-                    match self.undertake(&brief, asker.as_ref(), Some(place), directed, now)? {
+                    match self.undertake(&brief, asker.as_ref(), Some(place), now)? {
                         None => did.push("took something on".to_owned()),
                         Some(why) => {
                             self.record(Event::Decided {

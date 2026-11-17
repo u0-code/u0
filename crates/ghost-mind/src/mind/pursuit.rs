@@ -104,7 +104,7 @@ impl Mind {
         if brief.trim().is_empty() || !self.may_start_own_work(now)? {
             return Ok(());
         }
-        if let Some(why) = self.undertake(brief, None, None, &[], now)? {
+        if let Some(why) = self.undertake(brief, None, None, now)? {
             debug!("did not take on something of her own: {why}");
         }
         Ok(())

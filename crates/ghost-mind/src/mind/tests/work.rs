@@ -379,7 +379,7 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     // An image a tool showed her at work, kept beside her work database.
     let file = ghost_core::media::store(rig.mind.ghost.dir(), PIXEL, "image/png").unwrap();
     rig.mind
-        .undertake("Find a good picture of a heron.", None, None, &[], t0)
+        .undertake("Find a good picture of a heron.", None, None, t0)
         .unwrap();
     // The first sitting keeps it and runs out of steps; the second finishes.
     rig.think.then_call(

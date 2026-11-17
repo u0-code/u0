@@ -39,7 +39,7 @@ the rest, and tells you what she found.
 | **Solves long problems** | Takes work on and keeps at it for hours in the background, with a plan, notes and a context that folds instead of overflowing. Reports while she works, and can be steered or stopped midway. The design borrows from Claude Code and Codex. |
 | **Picks up new abilities** | When something calls for what she cannot do yet, she finds a tool on the MCP Registry or a skill on skills.sh, installs it and uses it from then on: a real browser, a site's API, a maker of pictures or video. |
 | **Sees, keeps, sends** | Understands the pictures people send her, keeps the ones she likes with a note, and sends them back when they fit. Memes come from these three, with no meme-specific code. |
-| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Her operators can give her directives, and every directive is on record. |
+| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Whoever runs her talks to her at a console, where she answers at once, and everything she does is on record. |
 | **A journal that is never rewritten** | Everything she lives through is one append-only, hash-chained log. Her memory is derived from it and can be rebuilt from it at any time. |
 
 ## Quick start
@@ -127,8 +127,8 @@ people talk to on a personal subscription.
 ## Security
 
 Anything a page, a file, a tool or a skill brings back reaches her marked as
-outside words, and only the people she talks with and her operators'
-directives count as asks. What she installs runs with none of her keys, and
+outside words, and only the people she talks with and whoever runs her
+count as asks. What she installs runs with none of her keys, and
 everything she does is in her journal. Give a ghost other people talk to its
 own account or a container, not your laptop. See [SECURITY.md](SECURITY.md),
 and report a vulnerability there rather than in an issue.

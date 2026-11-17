@@ -16,7 +16,7 @@ use ghost_core::{
     tempo::Notice,
     will,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::{Attend, Mind, after};
 use crate::Kind;
@@ -82,7 +82,7 @@ impl Thinking {
     pub fn intention(&self) -> Option<i64> {
         match &self.why {
             Why::Intention(intention) => Some(intention.seq),
-            Why::Unread | Why::Directive(_) => None,
+            Why::Unread => None,
         }
     }
 }
@@ -148,9 +148,6 @@ pub(super) struct Found {
 pub(super) enum Why {
     Unread,
     Intention(Intention),
-    /// An operator of hers gave her a directive here: what each unread
-    /// one says, oldest first.
-    Directive(Vec<String>),
 }
 
 impl Mind {
@@ -170,17 +167,8 @@ impl Mind {
             debug!("{place_key}: {} delivered twice", m.id);
             return Ok(());
         }
-        // Whose account it came from is what makes a directive, and the
-        // prefix says which line is meant. A terminal needs neither: what
-        // is said there is answered at once by what the place is.
-        let directive = self
-            .cfg
-            .operators
-            .directive(channel, &m.from.id, &m.text)
-            .map(str::to_owned);
         let from = social::key(channel, &m.from.id);
-        if directive.is_none()
-            && m.place.kind == PlaceKind::Direct
+        if m.place.kind == PlaceKind::Direct
             && self.ghost.memory().person(&from)?.is_some_and(|p| p.gone)
         {
             // She left. Their private messages no longer reach her.
@@ -205,14 +193,6 @@ impl Mind {
             addressed,
             images: images.clone(),
         })?;
-        if let Some(text) = directive {
-            info!("{place_key}: a directive from {from}");
-            self.record(Event::Directed {
-                message: heard.seq,
-                from,
-                text,
-            })?;
-        }
         if !images.is_empty() {
             self.view(heard.seq, &place_key, &images, now)?;
         }
@@ -227,9 +207,9 @@ impl Mind {
         if place.unread == 0 {
             return Ok(());
         }
-        // At a terminal, and for a directive, she looks as soon as it is
-        // in: whatever her day is, it is not hers to fit in around it.
-        if place.unread_directed > 0 || self.kind(&place.channel) == Kind::Terminal {
+        // At a terminal she looks as soon as it is in: whatever her day is,
+        // it is not hers to fit in around it.
+        if self.kind(&place.channel) == Kind::Terminal {
             self.agenda.attend.insert(
                 place_key.to_owned(),
                 Attend {
@@ -337,12 +317,10 @@ impl Mind {
             // Nothing new, or no way to look. Coming back online reschedules.
             return Ok(());
         }
-        // A terminal, or a directive, does not wait on her day: not on
-        // sleep, not on how often she has spoken here, not on who else is
-        // talking.
+        // A terminal does not wait on her day: not on sleep, not on how
+        // often she has spoken here, not on who else is talking.
         let terminal = self.kind(&place.channel) == Kind::Terminal;
-        let directed = terminal || place.unread_directed > 0;
-        let addressed = directed || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        let addressed = terminal || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
         if !addressed && self.holds_back(&place, now) {
             return Ok(());
         }
@@ -350,10 +328,10 @@ impl Mind {
             return self.schedule_attend(place_key, now);
         }
         let moment = self.life.moment(self.ghost.journal(), now)?;
-        if moment.phase == Phase::Asleep && !self.tempo.instant() && !directed {
+        if moment.phase == Phase::Asleep && !self.tempo.instant() && !terminal {
             return self.schedule_attend(place_key, now);
         }
-        if !directed
+        if !terminal
             && self.only_bots_talking(&place)?
             && self
                 .ghost
@@ -366,17 +344,17 @@ impl Mind {
                 "only automated accounts are talking, and she has said enough",
             );
         }
-        if !directed && self.in_a_loop_with_bots(&place)? {
+        if !terminal && self.in_a_loop_with_bots(&place)? {
             return self.stay_out(
                 &place,
                 "she and automated accounts have been answering each other with no person in between",
             );
         }
         if !self.budget.allow(now) {
-            // The budget is the body's, and holds for directives too: one
-            // waits a minute rather than ten.
-            let wait = if directed {
-                warn!("brain budget for this hour is spent; a directive in {place_key} waits");
+            // The budget is the body's, and holds at a terminal too: what
+            // is said there waits a minute rather than ten.
+            let wait = if terminal {
+                warn!("brain budget for this hour is spent; the terminal {place_key} waits");
                 Duration::minutes(1)
             } else {
                 warn!("brain budget for this hour is spent; {place_key} waits");
@@ -399,15 +377,7 @@ impl Mind {
             self.phone_in_hand(&place.key, now)?;
         }
         self.consider_digest(&place, now)?;
-        let why = if place.unread_directed > 0 {
-            Why::Directive(
-                self.ghost
-                    .memory()
-                    .directives(&place.key, place.read_upto)?,
-            )
-        } else {
-            Why::Unread
-        };
+        let why = Why::Unread;
         self.ponder(Thinking::new(&place.key, why, !addressed), &place, now)
     }
 

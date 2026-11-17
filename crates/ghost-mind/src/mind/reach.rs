@@ -47,8 +47,8 @@ impl Mind {
         self.intend_as(due, what, about, place, owed, false)
     }
 
-    /// The same, saying whether it comes of work an operator directed: then
-    /// it is acted on whatever her day is, as the directive was.
+    /// The same, saying whether it comes of work asked for at a terminal:
+    /// then it is acted on whatever her day is, as the asking was.
     pub(super) fn intend_as(
         &mut self,
         due: DateTime<Utc>,
@@ -181,8 +181,8 @@ impl Mind {
         if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
-        // What comes of a directive, or is to be said at a terminal, does
-        // not wait on her day either.
+        // What comes of work asked for at a terminal, or is to be said at
+        // one, does not wait on her day either.
         let waited_on = intention.directed || self.kind(&place.channel) == crate::Kind::Terminal;
         if !self.tempo.instant() && !waited_on {
             let moment = self.life.moment(self.ghost.journal(), now)?;

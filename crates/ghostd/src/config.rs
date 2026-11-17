@@ -67,8 +67,7 @@ pub struct Config {
 pub struct Hers {
     #[serde(default)]
     pub mind: MindConfig,
-    /// The accounts that run her, per channel, and the prefix of a
-    /// directive from one of them.
+    /// The accounts that run her, per channel.
     #[serde(default)]
     pub operators: Operators,
     /// What they say about particular places, by place key.
@@ -181,6 +180,19 @@ impl Config {
     /// for each character.
     pub fn parse(text: &str) -> anyhow::Result<Self> {
         let cfg: Self = toml::from_str(text)?;
+        let prefixed = cfg.operators.contains_key("prefix")
+            || cfg.ghosts.iter().any(|(_, own)| {
+                own.get("operators")
+                    .and_then(toml::Value::as_table)
+                    .is_some_and(|ops| ops.contains_key("prefix"))
+            });
+        if prefixed {
+            bail!(
+                "[operators] prefix is gone: nothing anyone writes gives her an order any more. \
+                 Remove the line. The accounts listed there are still whoever runs her, and \
+                 a console is where she answers them at once"
+            );
+        }
         cfg.deployment()?;
         for id in cfg.ghosts.keys() {
             cfg.hers(id)?;
@@ -374,7 +386,7 @@ mod operator_tests {
         let cfg = parse(
             "[mind]\ntempo = 0.5\ncalls_per_hour = 60\nweather = false\n\
              [mind.work]\nenabled = true\nper_day = 4\n\
-             [operators]\nprefix = \"op:\"\nqq = [\"A\"]\n\
+             [operators]\nreport = \"20:00\"\nqq = [\"A\"]\n\
              [places.\"qq:group:1\"]\nnote = \"everyone's\"\n\
              [ghosts.lin.mind]\ncalls_per_hour = 10\n\
              [ghosts.lin.mind.work]\nper_day = 1\n\
@@ -393,7 +405,10 @@ mod operator_tests {
         // Inherited, beside hers in the same tables.
         assert!((lin.tempo - 0.5).abs() < f32::EPSILON);
         assert!(!lin.weather && lin.work.enabled);
-        assert_eq!(lin.operators.prefix, "op:");
+        assert_eq!(
+            lin.operators.report,
+            chrono::NaiveTime::from_hms_opt(20, 0, 0)
+        );
         assert_eq!(lin.places["qq:group:1"].note.as_deref(), Some("everyone's"));
         // Someone with nothing of her own has the deployment's, untouched.
         let mei = cfg.hers("mei").unwrap().mind();
@@ -426,33 +441,30 @@ mod operator_tests {
     }
 
     #[test]
-    fn operators_are_read_per_channel_with_or_without_a_prefix() {
+    fn operators_are_read_per_channel_and_a_prefix_is_refused_with_why() {
         let none = parse("");
-        assert_eq!(none.mind().operators.prefix, "fox:");
         assert!(none.mind().operators.accounts.is_empty());
 
-        let qq = parse("[operators]\nqq = [\"0123456789ABCDEF0123456789ABCDEF\"]\n");
-        let ops = qq.mind().operators;
-        assert_eq!(ops.prefix, "fox:");
-        assert!(ops.includes("qq", "0123456789ABCDEF0123456789ABCDEF"));
-        assert!(!ops.includes("telegram", "0123456789ABCDEF0123456789ABCDEF"));
-
-        let several = parse(
-            "[operators]\nprefix = \"op:\"\nqq = [\"A\", \"B\"]\ntelegram = [\"42\"]\nterm = [\"fox\"]\n",
-        );
+        let several =
+            parse("[operators]\nqq = [\"A\", \"B\"]\ntelegram = [\"42\"]\nterm = [\"fox\"]\n");
         let ops = several.mind().operators;
-        assert_eq!(ops.prefix, "op:");
         assert_eq!(ops.accounts.len(), 3);
         assert!(
             ops.includes("qq", "B")
                 && ops.includes("telegram", "42")
                 && ops.includes("term", "fox")
         );
-        assert_eq!(
-            ops.directive("telegram", "42", "OP： restart"),
-            Some("restart")
-        );
-        assert_eq!(ops.directive("telegram", "42", "fox: restart"), None);
+        assert!(!ops.includes("telegram", "B"));
+
+        for old in [
+            "[operators]\nprefix = \"fox:\"\nqq = [\"A\"]\n",
+            "[ghosts.lin.operators]\nprefix = \"op:\"\n",
+        ] {
+            let e = Config::parse(&format!("{BRAIN}{old}"))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("prefix is gone"), "{e}");
+        }
     }
 
     #[test]
