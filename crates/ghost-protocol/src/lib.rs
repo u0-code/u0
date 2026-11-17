@@ -112,9 +112,10 @@ pub mod method {
     /// result [`ConsoleSaid`](super::ConsoleSaid). Whoever is at the
     /// console, as its hello names them in [`Hello::who`](super::Hello::who),
     /// says something to her, as an operator of hers, in a place on the
-    /// channel [`CONSOLE`](super::CONSOLE). What she says back there is
-    /// written in her journal and nowhere else: a console reads it as a
-    /// `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
+    /// channel [`CONSOLE`](super::CONSOLE), where every line is a
+    /// directive (see [`SayMode`](super::SayMode)). What she says back
+    /// there is written in her journal and nowhere else: a console reads
+    /// it as a `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
     pub const SAY: &str = "console.say";
     /// Console → daemon request. Params [`ConsoleStop`](super::ConsoleStop),
     /// result [`ConsoleStopped`](super::ConsoleStopped). An operator at the
@@ -644,17 +645,21 @@ pub struct ConsoleSay {
     pub mode: SayMode,
 }
 
-/// How something said from a console reaches her.
+/// How something said from a console asks to reach her. On the
+/// [`CONSOLE`] channel it reaches her as a directive whichever this says:
+/// whoever is at a console runs her, and what they write is for her to do,
+/// the way a coding agent takes its user's lines. So it is looked at at
+/// once, whatever her day, and carried out rather than weighed, as a line
+/// sent from a platform with the operators' prefix is. The field stays
+/// because the wire format does, and clients send it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SayMode {
-    /// As anything an operator of hers says: she takes it in when her day
-    /// lets her, and answers as she would.
+    /// The default. A line from a console is a directive all the same.
     #[default]
     Say,
-    /// As an operator's directive: looked at at once, whatever her day,
-    /// and carried out rather than weighed, as one sent from a platform
-    /// with the operators' prefix is.
+    /// A directive, said in so many words. On the console channel it is
+    /// what every line already is.
     Directive,
 }
 
@@ -1265,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn something_said_from_a_console_is_ordinary_speech_unless_it_says_it_is_a_directive() {
+    fn something_said_from_a_console_says_say_unless_it_names_a_directive_on_the_wire() {
         let said: ConsoleSay = serde_json::from_str(r#"{"text":"hi"}"#).unwrap();
         assert_eq!((said.place, said.mode), (None, SayMode::Say));
         let directed = ConsoleSay {
