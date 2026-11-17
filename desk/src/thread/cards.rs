@@ -7,16 +7,22 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::LoggedStep;
+use ghost_link::protocol::{AskKind, LoggedStep, Work};
 use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px};
 use serde_json::Value;
 
 use super::{
-    State, Task, calls, clock, s, span, steps,
-    style::{BODY, CARD_RADIUS, MONO, ROW, S1, S2, S3, S4, SMALL, SMALL_LINE, meta, well},
+    State, Task, calls, clock, drawn, kinds, s, span, steps,
+    style::{
+        BODY, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, SMALL_LINE, meta,
+        well,
+    },
     task_first::breathing,
 };
-use crate::{aside, desk::Desk, follow::Following, fonts::Faces, model::Entry, theme, ui};
+use crate::{
+    answer::Whom, aside, desk::Desk, follow::Following, fonts::Faces, link::Order, model::Entry,
+    theme, ui,
+};
 
 /// A quiet card: the frame tools and work are drawn in.
 fn card() -> Div {
@@ -106,6 +112,7 @@ pub(super) fn task(
     tz: Tz,
     expanded: &HashSet<String>,
     following: &Following,
+    asks: Option<(&Work, &Whom)>,
     cx: &mut Context<Desk>,
 ) -> Div {
     let key = format!("task:{}", t.id);
@@ -128,6 +135,7 @@ pub(super) fn task(
     // What it has done so far, or, when it stands still for a reason, the
     // reason's word first, in that state's colour.
     let standing = !matches!(state, State::Finished | State::Running);
+    let said_already = done.to_lowercase().starts_with(state.word());
     let words = div()
         .flex()
         .flex_col()
@@ -144,7 +152,7 @@ pub(super) fn task(
         .child(
             ui::one_line(ui::text(
                 faces,
-                if standing {
+                if standing && !said_already {
                     format!("{} · {done}", state.word())
                 } else {
                     done
@@ -187,6 +195,13 @@ pub(super) fn task(
     // A card, as Claude's app draws a session it started: a hairline frame,
     // no ground, the steps inside it under a rule once it is opened.
     let mut whole = card().w_full().child(head);
+    // What it asks, under its head whether it is opened or not: the work
+    // is waiting, and the one who can answer is looking at it.
+    if let Some((w, whom)) = asks
+        && let Some(question) = w.question.as_deref()
+    {
+        whole = whole.child(asking(faces, w, question, whom, cx));
+    }
     if open {
         // Opened, everything it did is in one panel, the way a coding
         // agent's app opens a group of steps: what it was asked first, then
@@ -203,6 +218,16 @@ pub(super) fn task(
                     t.brief_shown(),
                     crate::markdown::Setting::Small,
                 ));
+        // The plan as it was last set, on top: where the work stands.
+        let plan = read
+            .and_then(|r| {
+                r.steps
+                    .iter()
+                    .flat_map(|s| s.calls.iter())
+                    .rfind(|c| c.name == "plan" && !c.failed)
+            })
+            .map(|c| kinds::plan(&c.args))
+            .unwrap_or_default();
         whole = whole.child(
             div()
                 .flex()
@@ -214,6 +239,9 @@ pub(super) fn task(
                 .pb(px(S3))
                 .border_t_1()
                 .border_color(theme::border())
+                .when(!plan.is_empty(), |d| {
+                    d.child(drawn::plan(faces, &plan).px(px(10.)).pt(px(S2)).pb(px(S1)))
+                })
                 .child(
                     steps::panel()
                         .child(brief)
@@ -223,6 +251,68 @@ pub(super) fn task(
         );
     }
     whole
+}
+
+/// What a piece of work asks, under its card's head: the question in her
+/// own face, since she is the one asking, and the options it gave as
+/// buttons, one click an answer. A question to answer in words is answered
+/// in the right column, where its box is.
+fn asking(faces: &Faces, w: &Work, question: &str, whom: &Whom, cx: &mut Context<Desk>) -> Div {
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .gap(px(S3))
+        .px(px(S4))
+        .pt(px(S1))
+        .pb(px(14.))
+        .child(
+            ui::serif(faces, question.to_owned())
+                .text_size(px(PROSE))
+                .line_height(px(PROSE_LINE)),
+        );
+    let mut answers: Vec<String> = Vec::new();
+    if w.kind == Some(AskKind::Choose) {
+        answers.extend(w.options.iter().cloned());
+    } else if w.kind == Some(AskKind::Act) {
+        answers.push("Done.".to_owned());
+    }
+    if answers.is_empty() {
+        return block.child(meta(
+            faces,
+            "Answer it under Background tasks, on the right.",
+        ));
+    }
+    let mut row = div().flex().flex_wrap().gap(px(S2));
+    for (i, text) in answers.into_iter().enumerate() {
+        let (whom, work) = (whom.clone(), w.id.clone());
+        row = row.child(
+            div()
+                .id(SharedString::from(format!("ask:{}:{i}", w.id)))
+                .flex()
+                .items_center()
+                .h(px(30.))
+                .px(px(S3))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(theme::border2())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::bubble()))
+                .child(
+                    ui::text(faces, text.clone())
+                        .text_size(px(SMALL))
+                        .text_color(theme::text()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let order = Order::Answer {
+                        work: work.clone(),
+                        text: text.clone(),
+                    };
+                    this.order(&whom, order, cx);
+                })),
+        );
+    }
+    block = block.child(row);
+    block
 }
 
 /// How much of what a milestone says shows: a few lines' worth.

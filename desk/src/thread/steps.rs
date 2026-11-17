@@ -22,7 +22,7 @@ use gpui::{
 };
 
 use super::{
-    State, calls,
+    State, calls, drawn, kinds,
     style::{
         BOX_RADIUS, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL, SMALL_LINE, WELL_RADIUS,
         meta,
@@ -170,6 +170,11 @@ fn call_row(
     } else {
         meta(faces, calls::took(call.ms))
     };
+    // An edit or a file written says how much it changed, as a diff does.
+    let changed = (!call.failed)
+        .then(|| kinds::changed(&call.name, &call.args))
+        .flatten();
+    let counts = changed.as_deref().map(kinds::counted);
     let toggle = key.to_owned();
     let head = div()
         .id(SharedString::from(format!("{key}-row")))
@@ -195,6 +200,22 @@ fn call_row(
                 .text_size(px(MONO + 0.5))
                 .text_color(theme::text()),
         )
+        .when_some(counts, |d, (gone, added)| {
+            d.when(added > 0, |d| {
+                d.child(
+                    meta(faces, format!("+{added}"))
+                        .flex_none()
+                        .text_color(theme::code_argument()),
+                )
+            })
+            .when(gone > 0, |d| {
+                d.child(
+                    meta(faces, format!("−{gone}"))
+                        .flex_none()
+                        .text_color(theme::coral()),
+                )
+            })
+        })
         .child(right.flex_none())
         .child(
             ui::icon(
@@ -240,6 +261,30 @@ fn call_row(
             );
         if let Some(command) = calls::command_of(&call.name, &call.args) {
             body = body.child(command_well(faces, key, &command, cx));
+        }
+        // What it holds, drawn as what it is when it is one of those that
+        // can be; anything else, or a call that failed, as what came back.
+        let found = if call.name == "search" && !call.failed {
+            kinds::hits(&call.out)
+        } else {
+            Vec::new()
+        };
+        let plan = if call.name == "plan" && !call.failed {
+            kinds::plan(&call.args)
+        } else {
+            Vec::new()
+        };
+        if let Some(lines) = changed {
+            row = row.child(body.child(drawn::diff(faces, &lines)));
+            return row;
+        }
+        if !found.is_empty() {
+            row = row.child(body.child(drawn::hits(faces, key, &found, cx)));
+            return row;
+        }
+        if !plan.is_empty() {
+            row = row.child(body.child(drawn::plan(faces, &plan).px(px(10.))));
+            return row;
         }
         let out = calls::output(&call.out, call.cut, call.chars, call.pictures);
         body = if out.text.is_empty() && out.more.is_none() {

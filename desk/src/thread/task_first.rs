@@ -32,6 +32,8 @@ use crate::{desk::Desk, fonts::Faces, markdown, model::Message, theme, ui};
 enum Before {
     Nothing,
     Yours,
+    /// Someone else's line, after one of theirs: close under it.
+    Theirs,
     Look,
     Other,
 }
@@ -57,7 +59,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     // What was last said to her by anyone, for timing a look still going.
     let mut heard: Option<DateTime<Utc>> = None;
     let mut before = Before::Nothing;
+    // Who said the last line, when it was someone else's.
+    let mut speaker: Option<String> = None;
     for (at, _, item) in items {
+        if !matches!(&item, Item::Said { m, mine: false, .. } if !m.hers) {
+            speaker = None;
+        }
         let (el, now) = match item {
             Item::Said { m, .. } if m.hers => {
                 // Her reply says how long it took, unless the steps above
@@ -81,8 +88,18 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     directed,
                     mine,
                 };
-                let el = yours(faces, &m, whose, who, view.tz, cx).into_any_element();
-                (el, Before::Yours)
+                if mine {
+                    let el = yours(faces, &m, whose, who, view.tz, cx).into_any_element();
+                    (el, Before::Yours)
+                } else {
+                    // Someone else's line, on a platform: under their name,
+                    // unless the line before was theirs too.
+                    let named = speaker.as_deref() != Some(who);
+                    speaker = Some(who.to_owned());
+                    let el = theirs(faces, &m, directed, who, named, view.tz);
+                    let after = if named { Before::Other } else { Before::Theirs };
+                    (el.into_any_element(), after)
+                }
             }
             Item::Tool(e) => (
                 tool(faces, e, view.tz, view.expanded, cx).into_any_element(),
@@ -93,7 +110,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 (el, Before::Look)
             }
             Item::Task(t) => {
-                let el = task(faces, &t, view.tz, view.expanded, view.following, cx);
+                let asks = view
+                    .work
+                    .iter()
+                    .find(|w| w.id == t.id)
+                    .map(|w| (w, &view.whom));
+                let el = task(faces, &t, view.tz, view.expanded, view.following, asks, cx);
                 (el.into_any_element(), Before::Other)
             }
             Item::Failed(why) => {
@@ -113,6 +135,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         let gap = match before {
             Before::Nothing => 0.,
             Before::Yours => S4,
+            Before::Theirs => S1,
             Before::Look => S6,
             Before::Other => TURN,
         };
@@ -339,6 +362,51 @@ struct Whose {
     directed: Option<i64>,
     /// It came from you at the desk.
     mine: bool,
+}
+
+/// Someone else's line in a place on a platform: their name and when, and
+/// their words in the interface's face, on the left with no bubble; a line
+/// marked as a directive says so in the operator's colour.
+fn theirs(
+    faces: &Faces,
+    m: &Message,
+    directed: Option<i64>,
+    who: &str,
+    named: bool,
+    tz: chrono_tz::Tz,
+) -> Div {
+    let head = div()
+        .flex()
+        .items_center()
+        .gap(px(S2))
+        .child(
+            ui::text(faces, who.to_owned())
+                .text_size(px(SMALL))
+                .text_color(theme::muted()),
+        )
+        .when(directed.is_some(), |d| {
+            d.child(
+                ui::text(faces, "operator")
+                    .px(px(6.))
+                    .rounded(px(5.))
+                    .border_1()
+                    .border_color(theme::purple().opacity(0.35))
+                    .text_size(px(11.5))
+                    .text_color(theme::purple()),
+            )
+        })
+        .child(meta(faces, ago(m.at, tz)));
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .when(named, |d| d.child(head))
+        .child(
+            ui::text(faces, m.text.clone())
+                .text_size(px(BODY))
+                .line_height(px(BODY_LINE))
+                .text_color(theme::text()),
+        )
 }
 
 fn yours(

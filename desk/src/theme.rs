@@ -108,6 +108,11 @@ pub fn code_argument() -> Hsla {
     c(0xACE7_75)
 }
 
+/// A link, as Claude's app draws one.
+pub fn link() -> Hsla {
+    c(0x79A9_EB)
+}
+
 /// Something she kept.
 pub fn amber2() -> Hsla {
     c(0xC7A8_6E)

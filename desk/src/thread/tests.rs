@@ -278,6 +278,8 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         abilities: None,
         expanded: &expanded,
         following: &NOTHING_READ,
+        work: &[],
+        whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
     };
@@ -362,6 +364,8 @@ fn view<'a>(
         abilities: None,
         expanded,
         following: &NOTHING_READ,
+        work: &[],
+        whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
     }
@@ -532,6 +536,8 @@ fn what_she_called_in_a_look_goes_above_the_answer_it_led_to() {
     let place = place_key("s1");
     let view = View {
         following: &following,
+        work: &[],
+        whom: crate::answer::Whom::Solver,
         ..view(&journal, &[], &place, &expanded)
     };
     let shown: Vec<String> = items(&view)
@@ -668,6 +674,8 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         abilities: None,
         expanded: &std::collections::HashSet::default(),
         following: &NOTHING_READ,
+        work: &[],
+        whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
     };
