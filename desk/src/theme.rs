@@ -149,16 +149,3 @@ pub fn brand(icon: &str) -> Hsla {
         _ => text(),
     }
 }
-
-/// The colour a journal kind is always shown in.
-pub fn kind_color(kind: &str) -> Hsla {
-    match kind {
-        "said" | "posted" | "reacted" => text(),
-        "kept" | "viewed" => amber2(),
-        "undertook" | "worked" | "reported" | "concluded" | "asked" | "added" => blue(),
-        "directed" => purple(),
-        "woke" | "slept" | "born" => green(),
-        "described" | "canon" => coral(),
-        _ => muted(),
-    }
-}
