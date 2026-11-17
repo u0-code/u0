@@ -6,7 +6,7 @@
 
 use base64::Engine as _;
 use ghost_core::social;
-use ghost_mind::{Act, Acted, Can, Feed, Incoming};
+use ghost_mind::{Act, Acted, Can, Feed, Incoming, Kind};
 use ghost_protocol as wire;
 
 pub fn actor(a: wire::Actor) -> social::Actor {
@@ -39,6 +39,15 @@ pub fn incoming(m: wire::Inbound) -> Incoming {
         reply_to: m.reply_to,
         addressed: m.addressed,
         images: m.images.into_iter().map(|i| i.url).collect(),
+    }
+}
+
+/// What sort of place a presence says its platform is, as her mind takes
+/// it. No presence can make a terminal of itself: only the console is one.
+pub fn kind(k: wire::PresenceKind) -> Kind {
+    match k {
+        wire::PresenceKind::Public => Kind::Public,
+        wire::PresenceKind::Chat | wire::PresenceKind::Other => Kind::Chat,
     }
 }
 
@@ -110,5 +119,17 @@ pub fn acted(a: wire::Acted) -> Acted {
                 })
                 .collect(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_presence_can_make_a_terminal_of_itself() {
+        assert_eq!(kind(wire::PresenceKind::Public), Kind::Public);
+        assert_eq!(kind(wire::PresenceKind::Chat), Kind::Chat);
+        assert_eq!(kind(wire::PresenceKind::Other), Kind::Chat);
     }
 }

@@ -22,7 +22,7 @@ use ghost_link::Conn;
 use ghost_mind::{Mind, MindConfig, Numb, Parts, Prompts, Question, WorkConfig, Workshop};
 use ghost_protocol::{
     Acted, Action, Actor, Capability, Frame, GhostCard, Hello, Inbound, ListGhosts, PROTOCOL,
-    Place, PlaceKind, PresenceHello, Role, Roster, RpcError, Welcome, code, method,
+    Place, PlaceKind, PresenceHello, PresenceKind, Role, Roster, RpcError, Welcome, code, method,
 };
 use tokio::{net::TcpListener, sync::mpsc};
 
@@ -93,11 +93,14 @@ impl Spec {
 /// answers at once whatever the hour.
 fn quick() -> MindConfig {
     MindConfig {
+        public: ghost_mind::PublicConfig {
+            browse_minutes: [0, 0],
+            ..ghost_mind::PublicConfig::default()
+        },
         tempo: 0.0,
         live: false,
         weather: false,
         talk_tools: false,
-        browse_minutes: [0, 0],
         work: WorkConfig {
             enabled: false,
             ..WorkConfig::default()
@@ -321,6 +324,7 @@ impl Client {
                 channel: "t".into(),
                 me: None,
                 can: vec![Capability::Send],
+                kind: PresenceKind::Chat,
             }),
             who: None,
         };

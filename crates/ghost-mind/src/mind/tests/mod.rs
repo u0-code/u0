@@ -370,8 +370,11 @@ impl Rig {
     fn with_tools(now: DateTime<Utc>) -> Self {
         let rig = Self::build(
             MindConfig {
+                public: crate::PublicConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::PublicConfig::default()
+                },
                 live: false,
-                browse_minutes: [0, 0],
                 ..MindConfig::default()
             },
             now,
@@ -456,8 +459,11 @@ impl Rig {
     fn quiet(now: DateTime<Utc>) -> Self {
         Self::new(
             MindConfig {
+                public: crate::PublicConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::PublicConfig::default()
+                },
                 live: false,
-                browse_minutes: [0, 0],
                 ..MindConfig::default()
             },
             now,
@@ -845,8 +851,11 @@ fn count(rig: &Rig, kind: &str) -> usize {
 /// Her attention, with `boss` on `t` as an operator of hers.
 fn operated() -> MindConfig {
     MindConfig {
+        public: crate::PublicConfig {
+            browse_minutes: [0, 0],
+            ..crate::PublicConfig::default()
+        },
         live: false,
-        browse_minutes: [0, 0],
         operators: crate::Operators {
             accounts: [("t".to_owned(), vec!["boss".to_owned()])].into(),
             ..crate::Operators::default()

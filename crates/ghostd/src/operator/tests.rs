@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use ghost_core::journal::{Entry, Event};
 use ghost_link::{Conn, Console};
-use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError, SayMode};
+use ghost_protocol::{
+    Capability, Hello, PROTOCOL, PresenceHello, PresenceKind, Role, RpcError, SayMode,
+};
 
 use super::*;
 use crate::cast::tests::{Rig, Spec};
@@ -212,6 +214,7 @@ async fn no_presence_can_take_the_console_s_channel() {
             channel: CONSOLE.into(),
             me: None,
             can: vec![Capability::Send],
+            kind: PresenceKind::Chat,
         }),
         who: None,
     };

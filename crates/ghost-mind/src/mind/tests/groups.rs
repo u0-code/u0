@@ -422,8 +422,11 @@ async fn quiet_is_offered_only_in_groups() {
 async fn an_operator_can_keep_her_to_being_spoken_to_in_a_place_and_tell_her_about_another() {
     let t0 = at(14, 0);
     let mut config = MindConfig {
+        public: crate::PublicConfig {
+            browse_minutes: [0, 0],
+            ..crate::PublicConfig::default()
+        },
         live: false,
-        browse_minutes: [0, 0],
         ..MindConfig::default()
     };
     config.places.insert(

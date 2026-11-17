@@ -257,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
                 Capability::React,
                 Capability::Files,
             ],
+            kind: ghost_link::protocol::PresenceKind::Chat,
         },
     )
     .await

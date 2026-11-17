@@ -363,8 +363,11 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             work: crate::WorkConfig {
                 sitting_steps: 2,
                 ..crate::WorkConfig::default()
@@ -420,8 +423,11 @@ async fn work_that_runs_out_of_sittings_comes_back_unfinished_and_she_means_to_t
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             work: crate::WorkConfig {
                 sitting_steps: 1,
                 max_sittings: 1,

@@ -33,7 +33,7 @@ const REMEMBERED: usize = 500;
 impl Mind {
     /// When she next picks up her phone to scroll, if any channel has a feed.
     pub(super) fn next_phone(&mut self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        let [lo, hi] = self.cfg.browse_minutes;
+        let [lo, hi] = self.cfg.public.browse_minutes;
         if hi == 0 || !self.channels.values().any(|c| c.can.contains(&Can::Feed)) {
             return None;
         }
@@ -59,7 +59,7 @@ impl Mind {
         let channel = feeds[self.rng.usize(..feeds.len())].clone();
         self.measure_if_due(&channel, now)?;
         let posted = self.posted_today(now)?;
-        let allowance = if posted >= self.cfg.posts_per_day as usize {
+        let allowance = if posted >= self.cfg.public.posts_per_day as usize {
             self.prompts.text("posted_enough")
         } else {
             ""
@@ -92,7 +92,7 @@ impl Mind {
             .get(&channel)
             .map(|ids| ids.iter().cloned().collect())
             .unwrap_or_default();
-        let may_post = posted < self.cfg.posts_per_day as usize;
+        let may_post = posted < self.cfg.public.posts_per_day as usize;
         self.browsing.insert(channel.clone());
         self.budget.spend(now);
         self.jobs.spawn(async move {
@@ -168,10 +168,10 @@ impl Mind {
     /// nothing. What a platform forbids an automated account is not offered.
     fn scrolling_actions(&self) -> String {
         let mut out = String::new();
-        if self.cfg.public_likes {
+        if self.cfg.public.likes {
             out.push_str(self.prompts.text("scroll_like"));
         }
-        if self.cfg.public_replies {
+        if self.cfg.public.replies {
             out.push_str(self.prompts.text("scroll_reply"));
         }
         out
@@ -203,7 +203,7 @@ impl Mind {
             match action {
                 Action::React { to, emoji } => {
                     let Some(target) = item(to) else { continue };
-                    if !self.cfg.public_likes || !self.can(channel, Can::React) {
+                    if !self.cfg.public.likes || !self.can(channel, Can::React) {
                         continue;
                     }
                     self.fire(
@@ -229,7 +229,7 @@ impl Mind {
                         continue;
                     };
                     let key = social::key(channel, &target.place.id);
-                    if !self.cfg.public_replies {
+                    if !self.cfg.public.replies {
                         debug!("{channel}: replying to posts not addressed to her is turned off");
                         continue;
                     }
@@ -277,7 +277,7 @@ impl Mind {
                 Action::Post { text } => {
                     let text = text.trim().to_owned();
                     if text.is_empty()
-                        || posted >= self.cfg.posts_per_day as usize
+                        || posted >= self.cfg.public.posts_per_day as usize
                         || !self.can(channel, Can::Post)
                     {
                         continue;
@@ -285,7 +285,7 @@ impl Mind {
                     posted += 1;
                     let body = self.body.clone();
                     // Read it over first, as herself, for what must not go out.
-                    let check = if self.cfg.gate {
+                    let check = if self.cfg.public.gate {
                         Some((self.tick.clone(), self.gate_request(channel, &text, now)?))
                     } else {
                         None
@@ -349,7 +349,7 @@ impl Mind {
         Ok(self
             .ghost
             .journal()
-            .last_n_of(&["posted"], self.cfg.posts_per_day as usize + 1)?
+            .last_n_of(&["posted"], self.cfg.public.posts_per_day as usize + 1)?
             .iter()
             .filter(|e| e.at >= day_began)
             .count())

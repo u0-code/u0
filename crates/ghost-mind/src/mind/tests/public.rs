@@ -8,12 +8,15 @@ async fn scrolling_mostly_ends_in_nothing_and_sometimes_in_a_post() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [10, 10],
+                posts_per_day: 1,
+                likes: true,
+                replies: true,
+                gate: false,
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [10, 10],
-            posts_per_day: 1,
-            public_likes: true,
-            public_replies: true,
-            gate: false,
             ..MindConfig::default()
         },
         t0,
@@ -98,6 +101,39 @@ async fn in_public_her_messages_hang_off_each_other() {
     );
 }
 
+#[tokio::test]
+async fn a_mention_on_a_public_network_is_read_on_the_public_page() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.mind
+        .on_signal(
+            Signal::Online {
+                channel: "x".into(),
+                me: None,
+                can: vec![Can::Send, Can::Post],
+                kind: crate::Kind::Public,
+            },
+            t0,
+        )
+        .unwrap();
+    rig.think
+        .then(r#"{"actions":[{"do":"say","text":"most mornings, yes"}]}"#);
+    let mut mention = dm("mei", "tweet-9", "@weiwei is the teahouse really closing?");
+    mention.place = Place {
+        id: "thread-9".into(),
+        kind: PlaceKind::Public,
+        name: None,
+    };
+    rig.hear_on("x", mention, t0);
+    rig.until(|r| r.body.sent().len() == 1).await;
+    let prompt = rig.think.last_prompt();
+    assert!(
+        prompt.contains("This is a public network, not a chat."),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("looking at your phone"), "{prompt}");
+}
+
 fn public_post(id: &str, from: &str, text: &str) -> Incoming {
     let mut post = dm(from, id, text);
     post.place = Place {
@@ -114,9 +150,12 @@ async fn by_default_she_neither_likes_nor_replies_to_strangers_posts() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [10, 10],
+                gate: false,
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [10, 10],
-            gate: false,
             ..MindConfig::default()
         },
         t0,
@@ -147,8 +186,11 @@ async fn a_post_is_read_over_and_held_if_it_carries_something_private() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [10, 10],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [10, 10],
             ..MindConfig::default()
         },
         t0,
@@ -207,9 +249,12 @@ async fn she_sees_how_her_posts_did_and_keeps_what_she_learns() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [10, 10],
+                gate: false,
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [10, 10],
-            gate: false,
             ..MindConfig::default()
         },
         t0,
@@ -221,7 +266,7 @@ async fn she_sees_how_her_posts_did_and_keeps_what_she_learns() {
                 channel: "t".into(),
                 me: None,
                 can: vec![Can::Post, Can::Feed, Can::Metrics],
-                kind: crate::Kind::Chat,
+                kind: crate::Kind::Public,
             },
             t0,
         )
@@ -304,7 +349,7 @@ async fn once_a_week_she_looks_at_how_her_writing_is_going() {
                 channel: "t".into(),
                 me: None,
                 can: vec![Can::Post, Can::Feed, Can::Metrics],
-                kind: crate::Kind::Chat,
+                kind: crate::Kind::Public,
             },
             t0,
         )

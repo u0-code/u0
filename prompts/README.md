@@ -8,7 +8,8 @@ deployment changes them without a rebuild.
 system/                 Ghost's own: the same for every character
   being.md              what she is, whose word counts, the ground rules
   logic/                how a conversation and her day go: a template each
-                        (attend.md for a chat, terminal.md for a console)
+                        (attend.md for a chat, terminal.md for a console,
+                        public.md for a public network)
   logic/texts/          the short framings, nudges and refusals, a file per feature
   work/                 how a piece of work goes: working.md (handed over),
                         work.md and texts.toml (the work loop's)
