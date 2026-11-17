@@ -41,6 +41,7 @@ use ghost_brain::{Brain, ToolSpec, Usage};
 use serde_json::{Value, json};
 
 use crate::{
+    agents::{self, Agent},
     prompts::{self, Loop, Shared, Store},
     tool::{self, Tool, Toolbox},
     tools::{self, clip, list, outcome_of, step_number},
@@ -72,6 +73,8 @@ pub(crate) struct Parts {
     deadline: Instant,
     /// The parts running now, by number.
     running: Mutex<HashMap<u64, tokio::task::JoinHandle<()>>>,
+    /// Agents installed here that a part can be handed to.
+    agents: Vec<Agent>,
 }
 
 impl Parts {
@@ -89,6 +92,7 @@ impl Parts {
             halt: Arc::new(AtomicBool::new(false)),
             deadline: started + Duration::from_secs(worker.limits.max_seconds),
             running: Mutex::new(HashMap::new()),
+            agents: worker.agents.clone(),
         })
     }
 
@@ -169,6 +173,16 @@ impl Parts {
         let left = u64::from(self.limits.part_steps).saturating_sub(before.steps);
         let ended = if left == 0 {
             Ended::OutOfSteps
+        } else if let Some(name) = before.agent.clone() {
+            // Handed to an agent installed here, which steps it itself.
+            match self.agents.iter().find(|a| a.name == name) {
+                Some(agent) => {
+                    let task = self.fill("agent_task", &[("task", before.task_text())]);
+                    let go_on = self.text("agent_go_on");
+                    agents::run(agent, &part, &task, &go_on, &self.halt, self.deadline).await
+                }
+                None => Ended::Failed(self.fill("no_agent", &[("agent", name)])),
+            }
         } else {
             let tools = (self.equip)(&part)
                 .with(Told {
@@ -196,6 +210,7 @@ impl Parts {
                 pause: self.halt.clone(),
                 helpers: None,
                 prompts: self.prompts.clone(),
+                agents: Vec::new(),
             };
             worker.run().await.ended
         };
@@ -401,13 +416,14 @@ impl Tool for Delegate {
     }
 
     fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
-        prompts::spec(
-            words,
-            lp,
-            "delegate",
-            json!({"task": {"type": "string"}, "step": {"type": "integer"}}),
-            &["task"],
-        )
+        // An agent can be named only where one is installed, and only one
+        // of those.
+        let mut arguments = json!({"task": {"type": "string"}, "step": {"type": "integer"}});
+        if !self.0.agents.is_empty() {
+            let names: Vec<&str> = self.0.agents.iter().map(|a| a.name.as_str()).collect();
+            arguments["agent"] = json!({"type": "string", "enum": names});
+        }
+        prompts::spec(words, lp, "delegate", arguments, &["task"])
     }
 
     async fn call(&self, args: &Value) -> tool::Outcome {
@@ -432,6 +448,13 @@ impl Tool for Delegate {
         if let Some(why) = step.and_then(|step| self.0.unready(step)) {
             return tool::Outcome::fail(why);
         }
+        let agent = match args.get("agent").and_then(Value::as_str).map(str::trim) {
+            None | Some("") => None,
+            Some(name) if self.0.agents.iter().any(|a| a.name == name) => Some(name.to_owned()),
+            Some(name) => {
+                return tool::Outcome::fail(self.0.fill("no_agent", &[("agent", name.to_owned())]));
+            }
+        };
         // Kept beside the work it is part of, under an id that says so.
         let part = match self.0.parent.open_part(task) {
             Ok(part) => part,
@@ -440,6 +463,9 @@ impl Tool for Delegate {
         let Some(n) = part.number() else {
             return tool::Outcome::fail("no part could be set up");
         };
+        if agent.is_some() {
+            part.update(|state| state.agent.clone_from(&agent));
+        }
         if let Some(step) = step {
             self.0.parent.update(|state| {
                 if let Some(on) = state.plan.get_mut(step - 1) {

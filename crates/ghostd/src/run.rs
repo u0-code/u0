@@ -181,7 +181,7 @@ fn begin(
     } else {
         Arc::new(Numb)
     };
-    let workshop = workshop(hers, dir)?;
+    let workshop = workshop(hers, dir, cfg.agents())?;
     if mind.work.enabled {
         info!(
             "work: {}, {}",

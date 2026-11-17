@@ -762,3 +762,137 @@ async fn a_part_handed_out_in_a_later_sitting_is_new_work_not_one_already_finish
         "name the largest file"
     );
 }
+
+/// An installed agent standing in for Claude Code: a script in `dir` that
+/// writes each command line it was run with to `runs.txt` there, says it
+/// started session `s1`, runs one command and answers. Resumed, it answers
+/// with what it was given.
+fn fake_claude(dir: &std::path::Path) -> crate::agents::Agent {
+    use std::os::unix::fs::PermissionsExt;
+    let script = dir.join("claude");
+    let runs = dir.join("runs.txt");
+    std::fs::write(
+        &script,
+        format!(
+            r#"#!/bin/sh
+echo "$@" >> '{runs}'
+echo '{{"type":"system","subtype":"init","session_id":"s1"}}'
+echo '{{"type":"assistant","message":{{"content":[{{"type":"tool_use","name":"Bash","input":{{"command":"make test"}}}}]}}}}'
+case "$*" in
+  *--resume*) echo '{{"type":"result","result":"Also did: '"$2"'","is_error":false,"usage":{{}}}}' ;;
+  *) echo '{{"type":"result","result":"Tests pass: 12.","is_error":false,"usage":{{}}}}' ;;
+esac
+"#,
+            runs = runs.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::agents::Agent {
+        name: "claude-code".into(),
+        cli: ghost_brain::CliAgent {
+            kind: ghost_brain::CliKind::Claude,
+            program: script.display().to_string(),
+            model: None,
+            args: Vec::new(),
+        },
+        dir: dir.to_path_buf(),
+    }
+}
+
+#[tokio::test]
+async fn a_part_handed_to_an_installed_agent_is_done_by_it_step_by_step_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![
+        calls(
+            "delegate",
+            json!({"task": "make the tests pass", "agent": "claude-code"}),
+        ),
+        calls("wait", json!({"seconds": 10})),
+        calls(
+            "done",
+            json!({"outcome": "finished", "summary": "the tests pass"}),
+        ),
+    ];
+    let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+    with_parts(&mut worker, dir.path(), None);
+    worker.agents = vec![fake_claude(dir.path())];
+    let report = worker.run().await;
+    assert_eq!(report.ended, Ended::Finished);
+
+    // The agent is offered by name, and only the one there is.
+    let turns = brain.turns_of(PARENT);
+    let delegate = turns[0]
+        .tools
+        .iter()
+        .find(|t| t.name == "delegate")
+        .unwrap();
+    assert_eq!(
+        delegate.parameters["properties"]["agent"]["enum"],
+        json!(["claude-code"])
+    );
+    // It was given the task, and its answer is the part's report.
+    let runs = std::fs::read_to_string(dir.path().join("runs.txt")).unwrap();
+    assert!(runs.contains("make the tests pass"), "{runs}");
+    let part = part_record(dir.path(), 1);
+    let state = part.state();
+    assert_eq!(state.agent.as_deref(), Some("claude-code"));
+    assert_eq!(state.session.as_deref(), Some("s1"));
+    assert_eq!(state.finish.unwrap().summary, "Tests pass: 12.");
+    assert!(
+        messages(turns.last().unwrap())
+            .iter()
+            .any(|m| m.starts_with("Part 1 finished") && m.ends_with("Tests pass: 12."))
+    );
+    // What it did is the part's steps, for whoever follows the work.
+    let logged = part.logged();
+    assert_eq!(logged[0]["calls"][0]["name"], "Bash");
+    assert_eq!(logged[0]["calls"][0]["args"]["command"], "make test");
+}
+
+#[tokio::test]
+async fn what_is_passed_on_to_an_agents_part_is_given_to_it_in_the_same_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = Undertaking::open(&state_db(dir.path()), "main", Some("build it")).unwrap();
+    let part = parent.open_part("make the tests pass").unwrap();
+    // Passed on before it next stops.
+    part.add("and update the changelog").unwrap();
+    let agent = fake_claude(dir.path());
+    let ended = crate::agents::run(
+        &agent,
+        &part,
+        "make the tests pass",
+        "go on",
+        &AtomicBool::new(false),
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(ended, Ended::Finished);
+    let runs = std::fs::read_to_string(dir.path().join("runs.txt")).unwrap();
+    let runs: Vec<&str> = runs.lines().collect();
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert!(runs[1].contains("--resume s1") && runs[1].contains("and update the changelog"));
+    assert_eq!(
+        part.state().finish.unwrap().summary,
+        "Also did: and update the changelog"
+    );
+}
+
+#[tokio::test]
+async fn a_part_cannot_be_handed_to_an_agent_that_is_not_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![
+        calls("delegate", json!({"task": "fix it", "agent": "codex"})),
+        calls("done", json!({"outcome": "gave_up", "summary": "no"})),
+    ];
+    let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+    with_parts(&mut worker, dir.path(), None);
+    worker.agents = vec![fake_claude(dir.path())];
+    worker.run().await;
+    let turns = brain.turns_of(PARENT);
+    assert_eq!(
+        result_of(&turns[1], "delegate"),
+        "There is no agent called codex here."
+    );
+    assert!(Undertaking::open(&state_db(dir.path()), "main/1", None).is_err());
+}

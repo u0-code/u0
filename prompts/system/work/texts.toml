@@ -182,6 +182,16 @@ part_who = """\
     others, and work outside your part can undo theirs."""
 
 # What `delegate` returns: the part's number, and nothing of its work yet.
+# A part handed to an agent installed here (Claude Code, Codex), which is
+# given none of her instructions: only this.
+agent_task = """\
+{{task}}
+
+Work in this directory. When you are done, end with a short report for whoever handed you this: what you \
+did, what you found, and what is not done and why."""
+# What such an agent is told when it is picked up again with nothing new.
+agent_go_on = "Go on with the task where you left off, and end with the report it asks for."
+no_agent = "There is no agent called {{agent}} here."
 part_started = "Part {{part}} has started on it, alongside you."
 part_queued = "Part {{part}} is queued, because as many parts as may run at once ({{running}}) already are. It starts when one of them ends."
 # After either, when the part was handed a step of the plan.

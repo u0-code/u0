@@ -280,6 +280,11 @@ a read-only sandbox in an empty directory). Whatever account the CLI is
 signed in to answers. For your own experiments: a character other people
 talk to should run on an API key.
 
+Every such provider in the file is also an agent her work can hand a part
+to (`delegate` with `agent = "<provider name>"`), where her machine is a
+directory on this computer (`local:`): it runs there with its own tools and
+no approvals asked, as her own shell does, and reports when it is done.
+
 | key | default | |
 |-----|---------|---|
 | `program` | `claude` or `codex` on `PATH` | |

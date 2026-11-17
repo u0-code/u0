@@ -306,6 +306,7 @@ description = """\
 
 [delegate.parameters]
 task = "A complete instruction, since the part has seen none of your work: what to find out or do, where to look, what not to touch, and exactly what to report back."
+agent = "An agent installed on this machine to do the part instead of a worker like you, by name. It brings its own tools and its own way of working, in the same directory; it is given only `task`, cannot ask you anything or keep anything, and reports when it is done. Good for code: writing, fixing and testing it. Leave out for a worker like you."
 step = "The number of the step of your plan this part does, if it does one. The step is marked in progress, and done or failed with the first line of the part's report when it ends, so put what the step's check asks for in `task`, and ask for the report to begin with how it was met."
 
 [wait]

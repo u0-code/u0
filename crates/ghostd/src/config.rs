@@ -305,6 +305,16 @@ impl Config {
         cfg.build().with_context(|| format!("provider {name:?}"))
     }
 
+    /// The command-line agents among the providers, by provider name:
+    /// what her work can hand a part to.
+    pub fn agents(&self) -> Vec<(String, ghost_brain::CliAgent)> {
+        self.providers
+            .iter()
+            .filter(|(_, p)| matches!(p.kind(), "claude-code" | "codex"))
+            .filter_map(|(name, p)| Some((name.clone(), p.build().ok()?.cli()?)))
+            .collect()
+    }
+
     pub fn think(&self) -> anyhow::Result<Arc<dyn Brain>> {
         self.brain(&self.brain.think)
     }

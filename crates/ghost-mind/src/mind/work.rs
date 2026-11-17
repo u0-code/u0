@@ -450,6 +450,7 @@ impl Mind {
                     pause,
                     helpers: Some(equip),
                     prompts: shared,
+                    agents: self.workshop.agents.clone(),
                 };
                 self.jobs.spawn(async move {
                     let report = worker.run().await;
