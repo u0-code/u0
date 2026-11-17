@@ -175,6 +175,9 @@ pub struct Worker {
     /// What it is told, and what its tools are said to be. Looked at again
     /// before each step, so that an edit reaches work already running.
     pub prompts: Shared,
+    /// Agents installed on this machine that a part can be handed to
+    /// instead of a helper of ours.
+    pub agents: Vec<crate::agents::Agent>,
 }
 
 /// Builds the tools for work on a given undertaking: the same machine and

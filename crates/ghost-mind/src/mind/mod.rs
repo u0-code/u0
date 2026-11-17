@@ -105,6 +105,9 @@ pub struct Workshop {
     /// The skills she has and the index she finds more in. `None` is no
     /// skills at all.
     pub skills: Option<Arc<ghost_work::skills::Skills>>,
+    /// Agents installed on her machine (Claude Code, Codex) that her work
+    /// can hand a part to.
+    pub agents: Vec<ghost_work::agents::Agent>,
 }
 
 /// Something an observer can ask a running mind.

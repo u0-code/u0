@@ -168,6 +168,7 @@ fn worker(dir: &std::path::Path, script: Vec<Step>, limits: Limits) -> (Worker, 
         pause: Arc::new(AtomicBool::new(false)),
         helpers: None,
         prompts,
+        agents: Vec::new(),
     };
     (worker, brain)
 }

@@ -380,6 +380,7 @@ async fn main() -> anyhow::Result<()> {
                 pause: Arc::new(AtomicBool::new(false)),
                 helpers: Some(equip),
                 prompts: words,
+                agents: Vec::new(),
             }
             .run()
             .await

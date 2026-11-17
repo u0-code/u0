@@ -168,6 +168,10 @@ pub struct State {
     /// work, so its next sitting can pick its own context back up.
     #[serde(default)]
     pub session: Option<String>,
+    /// The installed agent this part was handed to, by name, when it is
+    /// not done by a worker of ours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     /// A question the worker put to whoever the work is for. The work
     /// waits here until something is added to the task from outside.
     #[serde(default)]

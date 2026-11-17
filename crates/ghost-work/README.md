@@ -43,6 +43,14 @@ What makes it hold up over hours:
   undertaking and resumes at the parent's next sitting; it hands out no
   parts of its own, and the work cannot be called `finished` while one is
   still going. Calls that only look run side by side.
+- A part can instead be handed to an agent installed on this machine,
+  Claude Code or Codex (`delegate` with `agent`, offered only for the ones
+  there are). It runs in the machine's directory with its own loop and its
+  own tools, given only the task. What it does is written to the part's log
+  as steps, its answer is the part's report, and its session is kept:
+  what is passed on to the part is given to it when it next stops, in the
+  same session, and a part that outlives a sitting is resumed. It asks
+  nobody anything and keeps nothing (`agents.rs`).
 - Where there is someone to ask, the worker can stop and ask (`ask`), and
   goes on when the answer is added to the task. It may say what answering
   takes, `answer`, `file`, `act` or `choose` with `options`; the record

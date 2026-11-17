@@ -10,6 +10,7 @@
 //! more than one thought.
 //!
 
+pub mod agents;
 pub mod catalog;
 pub mod claude;
 pub mod codex;

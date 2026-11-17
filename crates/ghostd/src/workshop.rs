@@ -10,9 +10,14 @@ use crate::config::Hers;
 
 /// What she has to work with, from her `[mind.work]`. Everything in it that
 /// keeps anything is under her own directory.
-pub(crate) fn workshop(hers: &Hers, ghost_dir: &Path) -> anyhow::Result<ghost_mind::Workshop> {
+pub(crate) fn workshop(
+    hers: &Hers,
+    ghost_dir: &Path,
+    agents: Vec<(String, ghost_brain::CliAgent)>,
+) -> anyhow::Result<ghost_mind::Workshop> {
     use ghost_work::{Docker, Local, Machine, tools::WebConfig};
     let cfg = &hers.mind.work;
+    let mut local = None;
     let machine: Option<Arc<dyn Machine>> = match cfg.machine.as_deref().map(str::trim) {
         None | Some("" | "none") => None,
         Some(spec) => match spec.split_once(':') {
@@ -33,7 +38,9 @@ pub(crate) fn workshop(hers: &Hers, ghost_dir: &Path) -> anyhow::Result<ghost_mi
                     "her shell runs on this computer, in {}, as you. That is not a sandbox.",
                     dir.display()
                 );
-                Some(Arc::new(Local::new(dir.canonicalize()?)))
+                let dir = dir.canonicalize()?;
+                local = Some(dir.clone());
+                Some(Arc::new(Local::new(dir)))
             }
             _ => bail!(
                 "work.machine is {spec:?}: use \"docker:<container>\" or \"local:<directory>\""
@@ -72,6 +79,19 @@ pub(crate) fn workshop(hers: &Hers, ghost_dir: &Path) -> anyhow::Result<ghost_mi
             let beside = std::env::current_exe().ok()?.with_file_name("ghost-work");
             beside.exists().then_some(beside)
         });
+    // An installed agent works in her machine's directory, so only where
+    // that is a directory on this computer.
+    let agents = match &local {
+        Some(dir) => agents
+            .into_iter()
+            .map(|(name, cli)| ghost_work::agents::Agent {
+                name,
+                cli,
+                dir: dir.clone(),
+            })
+            .collect(),
+        None => Vec::new(),
+    };
     Ok(ghost_mind::Workshop {
         machine,
         web: if cfg.web {
@@ -88,6 +108,7 @@ pub(crate) fn workshop(hers: &Hers, ghost_dir: &Path) -> anyhow::Result<ghost_mi
             hers.skills.clone(),
             ghost_dir.join("skills"),
         )),
+        agents,
     })
 }
 
