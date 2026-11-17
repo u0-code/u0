@@ -31,24 +31,6 @@ pub struct MindConfig {
     pub talk_tool_seconds: u64,
     /// Ceiling on brain calls per hour. `0` means no ceiling.
     pub calls_per_hour: u32,
-    /// Most public posts she will make in a day.
-    pub posts_per_day: u32,
-    /// Minutes between phone sessions on channels with a feed, as `[min, max]`.
-    /// `[0, 0]` turns scrolling off.
-    pub browse_minutes: [u32; 2],
-    /// Like posts while scrolling. Off by default: X forbids automated
-    /// likes, and a like from her is one.
-    pub public_likes: bool,
-    /// Reply in public to posts that were not addressed to her. Off by
-    /// default: X allows automated replies only to people who wrote to the
-    /// account first. Replies to mentions are not affected.
-    pub public_replies: bool,
-    /// Read a post over before it goes out: for anything learned in
-    /// private, anything that contradicts what is true of her, and whether
-    /// it is worth posting at all.
-    pub gate: bool,
-    /// Hours between asking a channel how her posts are doing. `0` is never.
-    pub measure_hours: u32,
     /// Run the life engine: plan days, live through them, reflect at night.
     pub live: bool,
     /// Look up the real weather where she lives when planning a day.
@@ -59,6 +41,8 @@ pub struct MindConfig {
     pub prompts: Option<PathBuf>,
     /// Whether and how she takes things on.
     pub work: WorkConfig,
+    /// What she does on a public network, and how much of it.
+    pub public: PublicConfig,
     /// The accounts of whoever runs her. Set from the top-level
     /// `[operators]` table of `ghostd.toml`, not from `[mind]`.
     #[serde(skip)]
@@ -188,10 +172,51 @@ pub struct WorkConfig {
     /// keep what she has seen in front of her, the less she loses, and the
     /// more each step costs to read.
     pub context_tokens: Option<u64>,
-    /// Days between the times she sits down to look at how her public
-    /// writing is going. `0` is never. Needs a channel that reports how
-    /// her posts are doing, and a few posts to look at.
+}
+
+/// What she does on a public network, a channel that comes online as
+/// public (X), and how much of it. Nothing here touches a chat or a
+/// console: what is right for a feed anyone can read is not what is right
+/// for a conversation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PublicConfig {
+    /// Most posts she will make in a day.
+    pub posts_per_day: u32,
+    /// Minutes between the times she scrolls a feed, as `[min, max]`.
+    /// `[0, 0]` turns scrolling off.
+    pub browse_minutes: [u32; 2],
+    /// Like posts while scrolling. Off by default: X forbids automated
+    /// likes, and a like from her is one.
+    pub likes: bool,
+    /// Reply to posts that were not addressed to her. Off by default: X
+    /// allows automated replies only to people who wrote to the account
+    /// first. Replies to mentions are not affected.
+    pub replies: bool,
+    /// Read a post over before it goes out: for anything learned in
+    /// private, anything that contradicts what is true of her, and whether
+    /// it is worth posting at all.
+    pub gate: bool,
+    /// Hours between asking a channel how her posts are doing. `0` is never.
+    pub measure_hours: u32,
+    /// Days between the times she sits down to look at how her writing is
+    /// going. `0` is never. Needs a channel that reports how her posts are
+    /// doing, and a few posts to look at.
     pub review_days: u32,
+}
+
+impl Default for PublicConfig {
+    fn default() -> Self {
+        Self {
+            posts_per_day: 3,
+            browse_minutes: [45, 150],
+            likes: false,
+            replies: false,
+            gate: true,
+            measure_hours: 12,
+            review_days: 7,
+        }
+    }
 }
 
 impl Default for WorkConfig {
@@ -212,7 +237,6 @@ impl Default for WorkConfig {
             pursue_days: 2,
             ask_hours: 24,
             context_tokens: None,
-            review_days: 7,
         }
     }
 }
@@ -227,16 +251,11 @@ impl Default for MindConfig {
             talk_steps: 8,
             talk_tool_seconds: 30,
             calls_per_hour: 120,
-            posts_per_day: 3,
-            browse_minutes: [45, 150],
-            public_likes: false,
-            public_replies: false,
-            gate: true,
-            measure_hours: 12,
             live: true,
             weather: true,
             prompts: None,
             work: WorkConfig::default(),
+            public: PublicConfig::default(),
             operators: Operators::default(),
             places: BTreeMap::new(),
         }

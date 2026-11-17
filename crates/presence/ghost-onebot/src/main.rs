@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
             automated: true,
         }),
         can: vec![Capability::Send, Capability::Typing],
+        kind: ghost_link::protocol::PresenceKind::Chat,
     };
     let onebot = OneBot {
         wire,

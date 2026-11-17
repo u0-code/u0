@@ -8,8 +8,11 @@ async fn her_day_is_planned_and_lived_without_anyone_asking() {
     let t0 = at(9, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             weather: false,
-            browse_minutes: [0, 0],
             ..MindConfig::default()
         },
         t0,

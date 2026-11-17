@@ -382,8 +382,11 @@ async fn reports_appear_in_her_context_and_the_works_tool_output_does_not() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             // A sitting that runs out of steps, so that the work is still
             // under way when she looks.
             work: crate::WorkConfig {

@@ -114,8 +114,11 @@ fn persona_and_being(system: &str) -> (&str, &str) {
 fn the_system_prompt_is_her_persona_then_her_being_then_what_is_true_of_her_life() {
     let t0 = at(14, 0);
     let quiet = MindConfig {
+        public: crate::PublicConfig {
+            browse_minutes: [0, 0],
+            ..crate::PublicConfig::default()
+        },
         live: false,
-        browse_minutes: [0, 0],
         ..MindConfig::default()
     };
     let rig = Rig::build_as(OTHER, quiet, t0);
@@ -167,8 +170,11 @@ async fn two_characters_talk_in_their_own_persona_and_are_handed_the_same_work()
         let mut rig = Rig::build_as(
             seed,
             MindConfig {
+                public: crate::PublicConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::PublicConfig::default()
+                },
                 live: false,
-                browse_minutes: [0, 0],
                 ..MindConfig::default()
             },
             t0,
@@ -186,8 +192,11 @@ async fn two_characters_talk_in_their_own_persona_and_are_handed_the_same_work()
         let mut rig = Rig::build_as(
             seed,
             MindConfig {
+                public: crate::PublicConfig {
+                    browse_minutes: [0, 0],
+                    ..crate::PublicConfig::default()
+                },
                 live: false,
-                browse_minutes: [0, 0],
                 ..MindConfig::default()
             },
             t0,
@@ -242,9 +251,12 @@ fn quiet_as(seed: &str, now: DateTime<Utc>) -> Rig {
     Rig::build_as(
         seed,
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             talk_tools: false,
             live: false,
-            browse_minutes: [0, 0],
             ..MindConfig::default()
         },
         now,

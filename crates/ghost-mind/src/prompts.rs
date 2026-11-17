@@ -89,6 +89,12 @@ pub const FILES: &[File] = &[
         Layer::Logic,
         "terminal.md"
     ),
+    prompt!(
+        "system/logic/public.md",
+        Kind::Whole,
+        Layer::Logic,
+        "public.md"
+    ),
     prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic, "plan.md"),
     prompt!(
         "system/logic/lived.md",
@@ -249,6 +255,9 @@ pub struct Prompts {
     /// `terminal.md`: looking at what was said at a console, where she is
     /// waited on.
     pub terminal: String,
+    /// `public.md`: looking at a thread on a public network, where what
+    /// she writes anyone can read.
+    pub public: String,
     /// `plan.md`: sketching a day.
     pub plan: String,
     /// `lived.md`: how a stretch of the day actually went.
@@ -297,6 +306,7 @@ impl Prompts {
             reply_tools: text("system/logic/reply_tools.md"),
             attend: text("system/logic/attend.md"),
             terminal: text("system/logic/terminal.md"),
+            public: text("system/logic/public.md"),
             plan: text("system/logic/plan.md"),
             lived: text("system/logic/lived.md"),
             reflect: text("system/logic/reflect.md"),

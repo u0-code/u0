@@ -97,8 +97,11 @@ async fn a_long_conversation_is_kept_as_a_note_and_its_end_word_for_word() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             thread_window: 4,
             ..MindConfig::default()
         },

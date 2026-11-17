@@ -170,8 +170,11 @@ async fn an_unfinished_work_starts_its_next_sitting_right_after_the_last_one_end
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             work: crate::WorkConfig {
                 sitting_steps: 1,
                 ..crate::WorkConfig::default()
@@ -206,8 +209,11 @@ async fn the_hourly_budget_bounds_how_many_sittings_start() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
+            public: crate::PublicConfig {
+                browse_minutes: [0, 0],
+                ..crate::PublicConfig::default()
+            },
             live: false,
-            browse_minutes: [0, 0],
             calls_per_hour: 2,
             work: crate::WorkConfig {
                 sitting_steps: 1,

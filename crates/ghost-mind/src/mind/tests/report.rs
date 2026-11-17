@@ -7,8 +7,11 @@ use super::*;
 /// are told about her day at the time it is told by default.
 fn reporting() -> MindConfig {
     MindConfig {
+        public: crate::PublicConfig {
+            browse_minutes: [0, 0],
+            ..crate::PublicConfig::default()
+        },
         live: false,
-        browse_minutes: [0, 0],
         operators: crate::Operators {
             accounts: [("t".to_owned(), vec!["boss".to_owned(), "carol".to_owned()])].into(),
             ..crate::Operators::default()

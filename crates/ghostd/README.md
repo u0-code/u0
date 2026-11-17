@@ -346,13 +346,24 @@ How she lives.
 | `calls_per_hour` | `120` | ceiling on brain calls; `0` is none |
 | `live` | `true` | the life engine: plan her days, live through them, reflect at night |
 | `weather` | `true` | look up the real weather where she lives (open-meteo.com, no key) |
-| `posts_per_day` | `3` | the most public posts in a day |
-| `browse_minutes` | `[45, 150]` | minutes between phone sessions on channels with a feed, as `[min, max]`; `[0, 0]` turns scrolling off |
-| `public_likes` | `false` | like posts while scrolling. X forbids automated likes |
-| `public_replies` | `false` | reply in public to posts not addressed to her. X allows automated replies only to people who wrote to the account first. Replies to mentions always work. Turn these two on only where the platform's rules, or its written approval, let you |
+| `prompts` | built in | the deployment's directory of prompts, laid out as [`prompts/`](../../prompts/README.md) is, overriding the built-in ones for every character the daemon runs. Changes are taken in without a restart. See [Prompts](#prompts) |
+
+### `[mind.public]`
+
+What she does on a public network: a channel whose presence comes online
+as `public` (X). None of it touches a chat or a console, and a mention or
+reply there is read on a page of its own (`system/logic/public.md`): what
+she writes there anyone can read.
+
+| key | default | |
+|-----|---------|---|
+| `posts_per_day` | `3` | the most posts in a day |
+| `browse_minutes` | `[45, 150]` | minutes between the times she scrolls a feed, as `[min, max]`; `[0, 0]` turns scrolling off |
+| `likes` | `false` | like posts while scrolling. X forbids automated likes |
+| `replies` | `false` | reply to posts not addressed to her. X allows automated replies only to people who wrote to the account first. Replies to mentions always work. Turn these two on only where the platform's rules, or its written approval, let you |
 | `gate` | `true` | she reads every post over before it goes out, as herself: for anything she was told in private, anything that contradicts what is true of her, and whether it is worth posting at all. One extra call to the `tick` brain per post |
 | `measure_hours` | `12` | hours between asking a channel how her posts are doing; `0` is never |
-| `prompts` | built in | the deployment's directory of prompts, laid out as [`prompts/`](../../prompts/README.md) is, overriding the built-in ones for every character the daemon runs. Changes are taken in without a restart. See [Prompts](#prompts) |
+| `review_days` | `7` | days between the times she sits down, unasked, to look at how her writing is going and decide what to try next. `0` is never. Needs a channel that reports how her posts are doing, and at least five posts |
 
 ### `[mind.work]`
 
@@ -377,7 +388,6 @@ the `claude-code` relay.
 | `pursue_days` | `2` | once she has put into words something she is after, she may take work on toward it unasked: at most one every this many days, and only when nothing of her own is in hand. `0` is never |
 | `ask_hours` | `24` | in the middle of work she can ask whoever it is for; if nobody answers in this many hours she goes on with her own judgement |
 | `context_tokens` | most of the model's window | the size at which her working context is folded. Set it to cap what a long piece of work costs; left out, she keeps what she has seen in front of her for longer, and each step reads more |
-| `review_days` | `7` | days between the times she sits down, unasked, to look at how her public writing is going and decide what to try next. `0` is never. Needs a channel that reports how her posts are doing, and at least five posts |
 
 ### `[operators]`
 
