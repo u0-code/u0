@@ -42,6 +42,7 @@ mod places;
 mod public;
 mod recall;
 mod skills;
+mod threads;
 mod work;
 
 pub use belongings::Belonging;
@@ -67,7 +68,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -141,6 +142,7 @@ impl Memory {
             belongings::SCHEMA,
             installed::SCHEMA,
             skills::SCHEMA,
+            threads::SCHEMA,
             recall::SCHEMA,
         ] {
             conn.execute_batch(tables)?;
@@ -211,6 +213,8 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     belongings::fold(tx, entry, at)?;
     installed::fold(tx, entry, at)?;
     skills::fold(tx, entry, at)?;
+    // After the people, so that a note about someone finds their place.
+    threads::fold(tx, entry, at)?;
     recall::fold(tx, entry, at)
 }
 

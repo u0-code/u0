@@ -807,6 +807,42 @@ impl Journal {
             .collect()
     }
 
+    /// The entries with these seqs, oldest first; one that is not there is
+    /// left out.
+    pub fn entries_at(&self, seqs: &[i64]) -> Result<Vec<Entry>> {
+        if seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = seqs.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM events WHERE seq IN ({placeholders}) ORDER BY seq ASC"
+        ))?;
+        stmt.query_map(rusqlite::params_from_iter(seqs.iter()), row_to_entry)?
+            .map(|r| r.map_err(Error::from))
+            .collect()
+    }
+
+    /// The seq of the first entry written at or after `at`; one past the
+    /// newest when none was. Entries are written as things happen, so
+    /// their times rise with their seqs and the answer is found by
+    /// halving, in a few reads however long the journal is. Were a clock
+    /// ever set back, the entries written while it was behind would be
+    /// placed by the entries around them.
+    pub fn first_seq_since(&self, at: DateTime<Utc>) -> Result<i64> {
+        let since = stamp(&at);
+        let mut stmt = self.conn.prepare("SELECT at FROM events WHERE seq = ?1")?;
+        let (mut low, mut high) = (1, self.last_seq()? + 1);
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let written: Option<String> = stmt.query_row([mid], |r| r.get(0)).optional()?;
+            match written {
+                Some(written) if written < since => low = mid + 1,
+                _ => high = mid,
+            }
+        }
+        Ok(low)
+    }
+
     /// Read up to `limit` entries starting at `from_seq` (inclusive).
     pub fn read(&self, from_seq: i64, limit: usize) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(&format!(
@@ -1039,6 +1075,49 @@ mod tests {
             assert_eq!(got, all[all.len().saturating_sub(n)..], "the last {n}");
         }
         assert!(j.last_n_of(&[], 3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn entries_are_read_by_seq_in_order_and_a_missing_one_is_left_out() {
+        let mut j = Journal::in_memory();
+        for i in 0..5 {
+            j.append(lived(&i.to_string())).unwrap();
+        }
+        let read = j.entries_at(&[4, 9, 2]).unwrap();
+        assert_eq!(read.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 4]);
+        assert!(j.entries_at(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_first_entry_since_a_time_is_found_by_halving() {
+        let mut j = Journal::in_memory();
+        let t0 = DateTime::parse_from_rfc3339("2026-11-13T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(j.first_seq_since(t0).unwrap(), 1, "nothing yet: one past");
+        for i in 0..7 {
+            j.append_at(t0 + chrono::Duration::minutes(i), lived(&i.to_string()))
+                .unwrap();
+        }
+        assert_eq!(
+            j.first_seq_since(t0 - chrono::Duration::hours(1)).unwrap(),
+            1
+        );
+        assert_eq!(
+            j.first_seq_since(t0 + chrono::Duration::minutes(3))
+                .unwrap(),
+            4
+        );
+        assert_eq!(
+            j.first_seq_since(t0 + chrono::Duration::seconds(150))
+                .unwrap(),
+            4,
+            "between two entries: the later"
+        );
+        assert_eq!(
+            j.first_seq_since(t0 + chrono::Duration::hours(1)).unwrap(),
+            8
+        );
     }
 
     #[test]

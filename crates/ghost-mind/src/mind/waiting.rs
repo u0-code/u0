@@ -29,8 +29,6 @@ use crate::Result;
 
 /// How many days back what has ended, been told and been reported is shown.
 pub(super) const DAYS: i64 = 3;
-/// How many entries of the kinds looked at are read back, at most.
-const SCAN: usize = 5000;
 
 /// A report she is in the middle of saying: the intention it carries out,
 /// and what she has said of it so far.
@@ -103,10 +101,11 @@ impl Mind {
     /// What ended badly, was told, and was reported since `since`.
     fn lately(&self, since: DateTime<Utc>) -> Result<Vec<(DateTime<Utc>, Value)>> {
         let memory = self.ghost.memory();
-        let entries: Vec<Entry> = self
-            .ghost
-            .journal()
-            .last_n_of(
+        let journal = self.ghost.journal();
+        // Only the days asked about are read, however long she has lived.
+        let from = journal.first_seq_since(since)?;
+        let entries: Vec<Entry> = journal
+            .of_kinds_after(
                 &[
                     "concluded",
                     "reported",
@@ -116,7 +115,7 @@ impl Mind {
                     "heard",
                     "decided",
                 ],
-                SCAN,
+                from - 1,
             )?
             .into_iter()
             .filter(|e| e.at >= since)

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS intentions (
     owed INTEGER NOT NULL DEFAULT 0, directed INTEGER NOT NULL DEFAULT 0,
     report INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS intentions_open ON intentions (settled, due);
 ";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, _at: &str) -> Result<()> {

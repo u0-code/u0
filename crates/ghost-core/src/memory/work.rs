@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS reports (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL,
     files TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS undertakings_open ON undertakings (outcome, last_at);
 CREATE INDEX IF NOT EXISTS reports_id ON reports (id, seq);
 ";
 
