@@ -168,7 +168,10 @@ Only what you mean her to use:
 - **A command-line agent** (`claude-code` or `codex` in `ghostd.toml`), as
   a brain for talking or as an agent her work hands parts to: the CLI
   installed, and logged in as her account, because it answers as whoever it
-  is signed in as: `sudo -u ghost -H claude`, then log in.
+  is signed in as. With no browser on the server: `sudo -u ghost -H claude
+  setup-token` and the token in `CLAUDE_CODE_OAUTH_TOKEN` in her `.env`;
+  `sudo -u ghost -H codex login --device-auth`. `ghostd brains` then says
+  whether each is ready, and what to run if not.
 - **Backups**: `sqlite3`.
 
 ## Platforms

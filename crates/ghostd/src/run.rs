@@ -70,6 +70,7 @@ pub(crate) async fn run(
 
     // Each is made in full before anyone is listened to: one that cannot
     // be started stops the daemon here, as a single ghost always has.
+    let agents = Arc::new(crate::brains::ready_agents(&cfg).await);
     let cfg = Arc::new(cfg);
     let mut cast = Vec::new();
     let mut lives = Vec::new();
@@ -78,17 +79,19 @@ pub(crate) async fn run(
         let hers = Arc::new(hers);
         let body = Arc::new(Presences::default());
         let (life, card) =
-            span.in_scope(|| begin(&cfg, &hers, &dir, deployment.as_deref(), &body))?;
+            span.in_scope(|| begin(&cfg, &hers, &dir, deployment.as_deref(), &body, &agents))?;
         let make: Maker = {
-            let (cfg, hers, dir, deployment, body) = (
+            let (cfg, hers, dir, deployment, body, agents) = (
                 cfg.clone(),
                 hers.clone(),
                 dir.clone(),
                 deployment.clone(),
                 body.clone(),
+                agents.clone(),
             );
             Box::new(move || {
-                begin(&cfg, &hers, &dir, deployment.as_deref(), &body).map(|(life, _)| life)
+                begin(&cfg, &hers, &dir, deployment.as_deref(), &body, &agents)
+                    .map(|(life, _)| life)
             })
         };
         let who = Arc::new(Character::new(id, dir, card, body, life.handle.clone()));
@@ -149,6 +152,7 @@ fn begin(
     dir: &Path,
     deployment: Option<&Path>,
     body: &Arc<Presences>,
+    agents: &[(String, ghost_brain::CliAgent)],
 ) -> anyhow::Result<(Life, GhostCard)> {
     let ghost = Ghost::open(dir).with_context(|| format!("open {}", dir.display()))?;
     let seed = ghost.identity().seed();
@@ -181,7 +185,7 @@ fn begin(
     } else {
         Arc::new(Numb)
     };
-    let workshop = workshop(hers, dir, cfg.agents())?;
+    let workshop = workshop(hers, dir, agents.to_vec())?;
     if mind.work.enabled {
         info!(
             "work: {}, {}",

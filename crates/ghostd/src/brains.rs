@@ -4,6 +4,8 @@
 use std::{path::Path, time::Instant};
 
 use ghost_brain::Completion;
+use ghost_work::agents::Readiness;
+use tracing::{info, warn};
 
 use crate::{config::Config, run::network};
 
@@ -24,6 +26,37 @@ pub(crate) async fn discover() -> anyhow::Result<()> {
         println!("{}", f.toml());
     }
     Ok(())
+}
+
+/// The command-line agents the providers give her work, checked once at
+/// start. One that cannot work here is said, with the command that fixes
+/// it, and left out, so that her work is not handed something that fails.
+pub(crate) async fn ready_agents(cfg: &Config) -> Vec<(String, ghost_brain::CliAgent)> {
+    let mut ready = Vec::new();
+    for (name, cli) in cfg.agents() {
+        let agent = ghost_work::agents::Agent {
+            name: name.clone(),
+            cli: cli.clone(),
+            dir: std::path::PathBuf::new(),
+        };
+        match agent.check().await {
+            Readiness::Ready => {
+                info!("{name} can do parts of her work");
+                ready.push((name, cli));
+            }
+            Readiness::Unchecked(what) => {
+                info!("{name} can do parts of her work; {what}");
+                ready.push((name, cli));
+            }
+            Readiness::Unusable(u) => {
+                warn!(
+                    "{name} cannot do parts of her work: {}. To fix: {}",
+                    u.why, u.fix
+                );
+            }
+        }
+    }
+    ready
 }
 
 pub(crate) async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
@@ -54,6 +87,26 @@ pub(crate) async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result
                 r.text
             ),
             Err(e) => println!("{:<14} err {e}", ""),
+        }
+    }
+    let agents = cfg.agents();
+    if !agents.is_empty() {
+        println!();
+        println!("agents her work can hand parts to (where her machine is local:)");
+        for (name, cli) in agents {
+            let agent = ghost_work::agents::Agent {
+                name: name.clone(),
+                cli,
+                dir: std::path::PathBuf::new(),
+            };
+            match agent.check().await {
+                Readiness::Ready => println!("{name:<14} ready"),
+                Readiness::Unchecked(what) => println!("{name:<14} ready, but {what}"),
+                Readiness::Unusable(u) => {
+                    println!("{name:<14} cannot work: {}", u.why);
+                    println!("{:<14} fix: {}", "", u.fix);
+                }
+            }
         }
     }
     Ok(())

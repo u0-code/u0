@@ -50,7 +50,10 @@ What makes it hold up over hours:
   as steps, its answer is the part's report, and its session is kept:
   what is passed on to the part is given to it when it next stops, in the
   same session, and a part that outlives a sitting is resumed. It asks
-  nobody anything and keeps nothing (`agents.rs`).
+  nobody anything and keeps nothing (`agents.rs`). An agent that turns out
+  not to be installed, not logged in, or too old for its account comes back
+  as why and the exact command that fixes it, for the work to report and
+  not to try itself; it is handed nothing more in that sitting.
 - Where there is someone to ask, the worker can stop and ask (`ask`), and
   goes on when the answer is added to the task. It may say what answering
   takes, `answer`, `file`, `act` or `choose` with `options`; the record

@@ -281,8 +281,9 @@ impl Mind {
         // answer put off past it is refused, and she would have said
         // nothing at all. Asleep, she is asleep.
         let due = match self.facts(&place.channel).answer_within(place.kind) {
+            // Even a burst still settling waits no longer than that.
             Some(within) if addressed && moment.phase != Phase::Asleep => {
-                due.min(after(since, within / 2).max(floor))
+                due.min(after(since, within / 2))
             }
             _ => due,
         };

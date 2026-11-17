@@ -192,6 +192,11 @@ did, what you found, and what is not done and why."""
 # What such an agent is told when it is picked up again with nothing new.
 agent_go_on = "Go on with the task where you left off, and end with the report it asks for."
 no_agent = "There is no agent called {{agent}} here."
+# An installed agent that cannot work here: not installed, not logged in,
+# too old. Fixing it is done on someone's account, as them, so it is never
+# the work's to fix, and trying (installing or upgrading something
+# system-wide) can break what they use. {{fix}} is the exact command.
+agent_unusable = "{{agent}} cannot do parts here: {{why}}. That is for whoever runs you to fix ({{fix}}), not for you: do not install, upgrade or log in to anything yourself. Say it in your report, and do this part another way or hand it to a worker like you."
 part_started = "Part {{part}} has started on it, alongside you."
 part_queued = "Part {{part}} is queued, because as many parts as may run at once ({{running}}) already are. It starts when one of them ends."
 # After either, when the part was handed a step of the plan.

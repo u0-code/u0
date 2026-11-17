@@ -47,12 +47,177 @@ pub struct Agent {
     pub dir: PathBuf,
 }
 
+/// Why an installed agent cannot do parts here, and what whoever runs her
+/// does about it: an exact command, the way Codex names the command that
+/// fixes a server it cannot reach. It is never hers to fix: installing,
+/// upgrading and logging in are done on someone's account, as them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unusable {
+    pub why: String,
+    pub fix: String,
+}
+
+/// What a check of an agent found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Readiness {
+    Ready,
+    /// It is there, but something could not be checked without running it
+    /// on a part: what.
+    Unchecked(String),
+    Unusable(Unusable),
+}
+
+/// What is wrong with an agent that cannot work, as far as can be told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cause {
+    Missing,
+    LoggedOut,
+    Outdated,
+}
+
+impl Agent {
+    /// `cause`, said with the command that fixes it for this agent.
+    fn unusable(&self, cause: Cause) -> Unusable {
+        let program = &self.cli.program;
+        let (why, fix) = match (cause, self.cli.kind) {
+            (Cause::Missing, CliKind::Claude) => (
+                format!("{program} is not installed"),
+                "install Claude Code (`npm install -g @anthropic-ai/claude-code`), or set `program` in its provider to where it is".to_owned(),
+            ),
+            (Cause::Missing, CliKind::Codex) => (
+                format!("{program} is not installed"),
+                "install Codex (`npm install -g @openai/codex`, or `brew install codex`), or set `program` in its provider to where it is".to_owned(),
+            ),
+            (Cause::LoggedOut, CliKind::Claude) => (
+                "Claude Code is not logged in".to_owned(),
+                "run `claude` once in a terminal, as the user the daemon runs as, and log in; on a server, run `claude setup-token` and put the token in CLAUDE_CODE_OAUTH_TOKEN in the .env file".to_owned(),
+            ),
+            (Cause::LoggedOut, CliKind::Codex) => (
+                "Codex is not logged in".to_owned(),
+                "run `codex login` as the user the daemon runs as; on a server, `codex login --device-auth`, or `printenv OPENAI_API_KEY | codex login --with-api-key`".to_owned(),
+            ),
+            (Cause::Outdated, CliKind::Claude) => (
+                "Claude Code is older than its account or model needs".to_owned(),
+                "update it: `claude update`".to_owned(),
+            ),
+            (Cause::Outdated, CliKind::Codex) => (
+                "Codex is older than its account or model needs".to_owned(),
+                "update it: `npm install -g @openai/codex@latest`, or `brew upgrade codex` if it came from Homebrew".to_owned(),
+            ),
+        };
+        Unusable { why, fix }
+    }
+
+    /// Whether it can be handed parts: installed, saying its version, and
+    /// logged in where that can be seen without running it on something.
+    /// Codex says so itself (`codex login status`); Claude Code does not,
+    /// short of a key or token in the environment.
+    pub async fn check(&self) -> Readiness {
+        let says = |args: &[&str]| {
+            let mut command = Command::new(&self.cli.program);
+            command.args(args).stdin(Stdio::null()).kill_on_drop(true);
+            for name in handed_on_not(std::env::vars()) {
+                command.env_remove(name);
+            }
+            async move {
+                tokio::time::timeout(Duration::from_secs(20), command.output())
+                    .await
+                    .map_err(|_| std::io::Error::other("it did not answer"))
+                    .and_then(|done| done)
+            }
+        };
+        match says(&["--version"]).await {
+            Ok(out) if out.status.success() && !out.stdout.is_empty() => {}
+            _ => return Readiness::Unusable(self.unusable(Cause::Missing)),
+        }
+        match self.cli.kind {
+            CliKind::Codex => match says(&["login", "status"]).await {
+                // It says so on stderr.
+                Ok(out)
+                    if out.status.success()
+                        && [&out.stdout, &out.stderr].iter().any(|said| {
+                            String::from_utf8_lossy(said)
+                                .to_lowercase()
+                                .contains("logged in using")
+                        }) =>
+                {
+                    Readiness::Ready
+                }
+                _ => Readiness::Unusable(self.unusable(Cause::LoggedOut)),
+            },
+            CliKind::Claude => {
+                let keyed = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
+                    .iter()
+                    .any(|k| std::env::var(k).is_ok_and(|v| !v.trim().is_empty()));
+                if keyed {
+                    Readiness::Ready
+                } else {
+                    Readiness::Unchecked(format!(
+                        "whether it is logged in cannot be seen without running it; if a part comes back saying it is not: {}",
+                        self.unusable(Cause::LoggedOut).fix
+                    ))
+                }
+            }
+        }
+    }
+}
+
+/// What a failure an agent reported says is wrong with it, where that is
+/// something whoever runs her fixes.
+fn cause_of(text: &str) -> Option<Cause> {
+    let text = text.to_lowercase();
+    let any = |words: &[&str]| words.iter().any(|w| text.contains(w));
+    if any(&[
+        "requires a newer version",
+        "please upgrade",
+        "update to the latest",
+        "upgrade to the latest",
+    ]) {
+        Some(Cause::Outdated)
+    } else if any(&[
+        "please run /login",
+        "not logged in",
+        "authentication_error",
+        "oauth access token",
+        "invalid api key",
+        "401 ",
+        "403 ",
+        "codex login",
+    ]) {
+        Some(Cause::LoggedOut)
+    } else {
+        None
+    }
+}
+
+/// The names in `vars`, this process's environment, that belong to a
+/// Claude Code session the daemon was itself started from, and are not
+/// handed on: an agent that inherited them would take that session, and
+/// its login, for its own. A token put in the environment on purpose
+/// (`CLAUDE_CODE_OAUTH_TOKEN`) is handed on.
+fn handed_on_not(vars: impl Iterator<Item = (String, String)>) -> Vec<String> {
+    let names: Vec<String> = vars.map(|(name, _)| name).collect();
+    let inside = names.iter().any(|n| n == "CLAUDECODE");
+    names
+        .into_iter()
+        .filter(|n| {
+            n == "CLAUDECODE"
+                || (n.starts_with("CLAUDE_CODE_") && n != "CLAUDE_CODE_OAUTH_TOKEN")
+                || n.starts_with("CLAUDE_AGENT_SDK_")
+                // Inside a session, the address of the session's own host.
+                || (inside && n == "ANTHROPIC_BASE_URL")
+        })
+        .collect()
+}
+
 /// How one run of the agent came out.
 enum Run {
     /// It answered, with this.
     Answered(String),
     /// It could not be started, or said it failed.
     Failed(String),
+    /// It cannot work here until whoever runs her fixes something.
+    Unusable(Unusable),
     /// The sitting ended, or the part was stopped, while it ran.
     Halted,
     /// The sitting's time ran out while it ran.
@@ -62,6 +227,9 @@ enum Run {
 /// Do `part` with `agent` until it ends, the sitting halts, or `deadline`.
 /// The first run is given `task`; a later one, what was passed on to the
 /// part since, or `go_on` if nothing was.
+///
+/// An agent that cannot work here at all comes back as why and what fixes
+/// it, for the work to say to whoever runs her and not to try itself.
 pub(crate) async fn run(
     agent: &Agent,
     part: &Undertaking,
@@ -69,7 +237,7 @@ pub(crate) async fn run(
     go_on: &str,
     halt: &AtomicBool,
     deadline: Instant,
-) -> Ended {
+) -> Result<Ended, Unusable> {
     let mut prompt = if part.state().session.is_none() {
         task.to_owned()
     } else {
@@ -95,19 +263,20 @@ pub(crate) async fn run(
                         });
                     }
                 });
-                return part
+                return Ok(part
                     .state()
                     .finish
-                    .map_or(Ended::Finished, |f| f.outcome.into());
+                    .map_or(Ended::Finished, |f| f.outcome.into()));
             }
-            Run::Failed(why) => return Ended::Failed(why),
+            Run::Failed(why) => return Ok(Ended::Failed(why)),
+            Run::Unusable(unusable) => return Err(unusable),
             Run::Halted => {
-                return part
+                return Ok(part
                     .state()
                     .finish
-                    .map_or(Ended::Paused, |f| f.outcome.into());
+                    .map_or(Ended::Paused, |f| f.outcome.into()));
             }
-            Run::OutOfTime => return Ended::OutOfTime,
+            Run::OutOfTime => return Ok(Ended::OutOfTime),
         }
     }
 }
@@ -141,10 +310,6 @@ fn command(agent: &Agent, prompt: &str, session: Option<&str>) -> Command {
             if let Some(session) = session {
                 command.args(["--resume", session]);
             }
-            // It refuses to start inside another session of itself.
-            command
-                .env_remove("CLAUDECODE")
-                .env_remove("CLAUDE_CODE_ENTRYPOINT");
         }
         CliKind::Codex => {
             command
@@ -161,6 +326,10 @@ fn command(agent: &Agent, prompt: &str, session: Option<&str>) -> Command {
                 None => command.arg(prompt),
             };
         }
+    }
+    // Nothing of a Claude Code session the daemon runs inside.
+    for name in handed_on_not(std::env::vars()) {
+        command.env_remove(name);
     }
     command
         .current_dir(&agent.dir)
@@ -182,6 +351,8 @@ struct Heard {
     usage: Option<Usage>,
     answer: Option<String>,
     failed: Option<String>,
+    /// Something it said of itself that is not a failure on its own.
+    note: Option<String>,
 }
 
 /// Read one line of Claude Code's `stream-json`.
@@ -274,14 +445,19 @@ fn codex_line(event: &Value, last_said: &mut String) -> Heard {
             });
             heard.answer = Some(last_said.clone());
         }
-        Some("turn.failed" | "error") => {
-            heard.failed = Some(
-                event["error"]["message"]
-                    .as_str()
-                    .or_else(|| event["message"].as_str())
-                    .unwrap_or("it reported an error")
-                    .to_owned(),
-            );
+        Some(kind @ ("turn.failed" | "error")) => {
+            let said = event["error"]["message"]
+                .as_str()
+                .or_else(|| event["message"].as_str())
+                .unwrap_or("it reported an error")
+                .to_owned();
+            // A dropped stream it is reconnecting to is not the end of the
+            // turn: kept, in case the turn never ends, but not a failure.
+            if kind == "error" && said.trim_start().to_lowercase().starts_with("reconnecting") {
+                heard.note = Some(said);
+            } else {
+                heard.failed = Some(said);
+            }
         }
         _ => {}
     }
@@ -300,6 +476,9 @@ async fn once(
     let session = part.state().session;
     let mut child = match command(agent, prompt, session.as_deref()).spawn() {
         Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Run::Unusable(agent.unusable(Cause::Missing));
+        }
         Err(e) => return Run::Failed(format!("could not start {}: {e}", agent.cli.program)),
     };
     let Some(stdout) = child.stdout.take() else {
@@ -315,6 +494,7 @@ async fn once(
     let mut lines = BufReader::new(stdout).lines();
     let (mut answer, mut failed, mut usage) = (None, None, Usage::default());
     let mut last_said = String::new();
+    let mut noted = String::new();
     let mut steps = 0u64;
     let ended = loop {
         if halt.load(Ordering::Relaxed) || part.state().finish.is_some() {
@@ -358,6 +538,9 @@ async fn once(
         if heard.failed.is_some() {
             failed = heard.failed;
         }
+        if let Some(note) = heard.note {
+            noted = note;
+        }
     };
     if ended.is_some() {
         let _ = child.kill().await;
@@ -375,14 +558,16 @@ async fn once(
     if let Some(ended) = ended {
         return ended;
     }
-    match (failed, answer) {
-        (Some(why), _) => Run::Failed(preview(&why, 400)),
-        (None, Some(answer)) => Run::Answered(answer),
-        (None, None) => Run::Failed(format!(
-            "{} ended without an answer. {}",
-            agent.name,
-            preview(complaint.trim(), 400)
-        )),
+    let why = match (failed, answer) {
+        (Some(why), _) => why,
+        (None, Some(answer)) => return Run::Answered(answer),
+        (None, None) => format!("ended without an answer. {noted} {}", complaint.trim()),
+    };
+    // What it said, and what it complained of, can say what is wrong with
+    // it rather than with the part.
+    match cause_of(&format!("{why}\n{complaint}")) {
+        Some(cause) => Run::Unusable(agent.unusable(cause)),
+        None => Run::Failed(preview(&why, 400)),
     }
 }
 
@@ -436,5 +621,112 @@ mod tests {
             &mut last,
         );
         assert_eq!(done.answer.as_deref(), Some("Fixed it."));
+        // A stream it reconnects to is noted, not a failure.
+        let dropped = codex_line(
+            &json!({"type": "error", "message": "Reconnecting... 2/5 (stream disconnected)"}),
+            &mut last,
+        );
+        assert!(dropped.failed.is_none() && dropped.note.is_some());
+        let failed = codex_line(
+            &json!({"type": "turn.failed", "error": {"message": "stream disconnected"}}),
+            &mut last,
+        );
+        assert_eq!(failed.failed.as_deref(), Some("stream disconnected"));
+    }
+
+    #[test]
+    fn what_an_agent_failed_with_says_whether_it_needs_a_login_or_an_upgrade() {
+        assert_eq!(
+            cause_of("API Error: 401 {\"error\":{\"type\":\"authentication_error\"}}"),
+            Some(Cause::LoggedOut)
+        );
+        assert_eq!(
+            cause_of("API Error: 403 forbidden · Please run /login"),
+            Some(Cause::LoggedOut)
+        );
+        assert_eq!(
+            cause_of("The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade"),
+            Some(Cause::Outdated)
+        );
+        assert_eq!(cause_of("cargo test failed: 3 tests"), None);
+    }
+
+    #[test]
+    fn nothing_of_a_claude_code_session_the_daemon_runs_in_is_handed_on() {
+        let vars = |pairs: &[&str]| {
+            pairs
+                .iter()
+                .map(|n| ((*n).to_owned(), "x".to_owned()))
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        let inside = handed_on_not(vars(&[
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_AGENT_SDK_VERSION",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "PATH",
+        ]));
+        assert_eq!(
+            inside,
+            [
+                "CLAUDECODE",
+                "CLAUDE_CODE_SESSION_ID",
+                "CLAUDE_AGENT_SDK_VERSION",
+                "ANTHROPIC_BASE_URL"
+            ]
+        );
+        // Outside one, a base URL set on purpose is handed on.
+        assert!(handed_on_not(vars(&["ANTHROPIC_BASE_URL", "PATH"])).is_empty());
+    }
+
+    fn fake(dir: &std::path::Path, kind: CliKind, body: &str) -> Agent {
+        use std::os::unix::fs::PermissionsExt;
+        let program = dir.join("cli");
+        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Agent {
+            name: "it".into(),
+            cli: CliAgent {
+                kind,
+                program: program.display().to_string(),
+                model: None,
+                args: Vec::new(),
+            },
+            dir: dir.to_path_buf(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_check_finds_an_agent_missing_or_logged_out_and_says_the_fix() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut missing = fake(dir.path(), CliKind::Claude, "exit 0");
+        missing.cli.program = dir.path().join("nowhere").display().to_string();
+        let Readiness::Unusable(u) = missing.check().await else {
+            panic!("a program that is not there")
+        };
+        assert!(
+            u.why.ends_with("is not installed") && u.fix.contains("npm install"),
+            "{u:?}"
+        );
+
+        let codex = fake(
+            dir.path(),
+            CliKind::Codex,
+            r#"case "$*" in --version) echo "codex-cli 0.169.0";; "login status") echo "Not logged in"; exit 1;; esac"#,
+        );
+        let Readiness::Unusable(u) = codex.check().await else {
+            panic!("codex says it is not logged in")
+        };
+        assert_eq!(u.why, "Codex is not logged in");
+        assert!(u.fix.contains("codex login"), "{u:?}");
+
+        let logged_in = fake(
+            dir.path(),
+            CliKind::Codex,
+            r#"case "$*" in --version) echo "codex-cli 0.169.0";; "login status") echo "Logged in using ChatGPT" >&2;; esac"#,
+        );
+        assert_eq!(logged_in.check().await, Readiness::Ready);
     }
 }
