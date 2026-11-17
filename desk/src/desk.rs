@@ -428,9 +428,10 @@ impl Desk {
         }
     }
 
-    /// Ask the daemon of the thread on screen for what it would show of
-    /// her steps and does not have: what she called in her looks there,
-    /// and what the work whose cards are open did.
+    /// Ask the daemon of the thread on screen for what it would show and
+    /// does not have: the place's entries, what she called in her looks
+    /// there, and what the work whose cards are open did. Called every
+    /// [`FOLLOW`], and as soon as what is on screen changes.
     fn follow(&mut self) {
         self.steps.live = false;
         if self.attending() {

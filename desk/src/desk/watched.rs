@@ -3,7 +3,7 @@
 //! thread on screen; and the character opened from the left, with the
 //! place her thread shows.
 
-use std::time::Instant;
+use std::{collections::HashSet, time::Instant};
 
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -12,7 +12,8 @@ use ghost_link::protocol::{CONSOLE, SayMode, Work};
 use crate::{
     cache,
     daemons::Host,
-    follow::Following,
+    follow::{Following, Read},
+    held::Held,
     link::{self, Link, Order},
     model::{Entry, LinkState, Message, Reach, Status, Stop, Update},
     thread,
@@ -30,8 +31,13 @@ pub struct Watched {
     pub card: Option<ghost_link::protocol::GhostCard>,
     pub status: Option<Status>,
 
-    /// Its journal's tail, oldest first. Every thread is read from it.
-    pub journal: Vec<Entry>,
+    /// What has been seen of her journal, oldest first: its tail, kept up
+    /// to date, and the places read for the threads shown. Every thread is
+    /// read from it.
+    pub journal: Held,
+    /// The places whose entries were read, once each, when their thread
+    /// was first shown.
+    read_places: HashSet<String>,
     /// What you said that the journal has not shown yet.
     pub pending: Vec<Message>,
     /// Her work and what ended lately, as the daemon keeps it.
@@ -57,14 +63,16 @@ impl Watched {
     pub(super) fn start(cfg: link::Config, fallback: &str) -> Self {
         let kept = cache::load(&cfg.url, cfg.ghost.as_deref());
         let keeper = cache::Keeper::new(&cfg.url, cfg.ghost.as_deref());
+        let journal = Held::kept(kept.journal);
         Self {
-            conn: Link::watch(cfg),
+            conn: Link::watch(cfg, journal.newest()),
             fallback: fallback.to_owned(),
             link: LinkState::Connecting,
             reach: Reach::default(),
             card: None,
             status: None,
-            journal: kept.journal,
+            journal,
+            read_places: HashSet::new(),
             pending: Vec::new(),
             work: kept.work,
             refused: None,
@@ -92,7 +100,7 @@ impl Watched {
         }
         let (journal, work, status) = (&self.journal, &self.work, &self.status);
         self.keeper.settle(|| cache::Cached {
-            journal: journal.clone(),
+            journal: journal.tail().to_vec(),
             work: work.clone(),
             timezone: status.as_ref().map(|s| s.tz.name().to_owned()),
         });
@@ -116,12 +124,18 @@ impl Watched {
         self.conn.order(order);
     }
 
-    /// Ask her daemon for what the thread on screen would show of her
-    /// steps and does not have yet, as `follow.rs` decides; nothing while
-    /// her daemon cannot be reached.
+    /// Ask her daemon for what the thread on screen would show and does
+    /// not have yet: the place's own entries, once, when it is first
+    /// shown, and her steps as `follow.rs` decides; nothing while her
+    /// daemon cannot be reached.
     pub(super) fn follow(&mut self, wanted: &thread::Wanted) {
         if self.link != LinkState::Connected {
             return;
+        }
+        if self.read_places.insert(wanted.place.clone()) {
+            self.conn.read(Read::Place {
+                place: wanted.place.clone(),
+            });
         }
         let now = Instant::now();
         let place = self
@@ -170,29 +184,16 @@ impl Watched {
                 self.keeper.changed();
             }
             Update::Journal(entries) => {
-                self.journal = entries;
-                self.keeper.changed();
-                // Each line the journal holds settles one shown before it,
-                // so the same words sent twice still show twice.
-                for written in self.journal.iter().filter_map(thread::console_message) {
-                    if let Some(i) = self.pending.iter().position(|m| m.written_as(&written)) {
-                        self.pending.remove(i);
-                    }
-                }
+                let new = self.journal.stretch(entries);
+                self.hold(&new);
             }
             Update::Entry(entry) => {
-                if self.journal.last().is_none_or(|last| last.seq < entry.seq) {
-                    if let Some(m) = thread::console_message(&entry)
-                        && let Some(i) = self.pending.iter().position(|p| p.written_as(&m))
-                    {
-                        self.pending.remove(i);
-                    }
-                    if self.journal.len() >= link::TAIL as usize * 4 {
-                        self.journal.remove(0);
-                    }
-                    self.journal.push(entry);
-                    self.keeper.changed();
-                }
+                let new = self.journal.stretch(vec![entry]);
+                self.hold(&new);
+            }
+            Update::Place(entries) => {
+                let new = self.journal.place(entries);
+                self.hold(&new);
             }
             Update::Refused { order, why } => {
                 // A line that was not said is not left waiting for her.
@@ -217,6 +218,22 @@ impl Watched {
             }
             Update::Roster(_) | Update::Attention { .. } | Update::Ordered { .. } => {}
         }
+    }
+}
+
+impl Watched {
+    /// Entries newly held: each line among them settles one shown before
+    /// her journal had it, so the same words sent twice still show twice.
+    fn hold(&mut self, new: &[Entry]) {
+        if new.is_empty() {
+            return;
+        }
+        for written in new.iter().filter_map(thread::console_message) {
+            if let Some(i) = self.pending.iter().position(|m| m.written_as(&written)) {
+                self.pending.remove(i);
+            }
+        }
+        self.keeper.changed();
     }
 }
 

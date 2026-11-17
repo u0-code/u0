@@ -188,10 +188,15 @@ pub enum Update {
     Link(LinkState),
     Welcome(GhostCard),
     Status(Box<Status>),
-    /// The journal's recent tail, oldest first. Replaces what was held.
+    /// A stretch of the journal that ends at its newest entry, oldest
+    /// first: the tail at a first connection, or what was written since the
+    /// newest the desk held. Added to what is held.
     Journal(Vec<Entry>),
     /// One new entry, as it is written.
     Entry(Entry),
+    /// The entries of one place, as `journal.place` says, however old.
+    /// Added to what is held.
+    Place(Vec<Entry>),
     /// Something you did to her could not be done, and why, in a line.
     Refused {
         order: crate::link::Order,

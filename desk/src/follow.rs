@@ -7,10 +7,11 @@
 //! and the work whose cards are open. From that alone this decides when to
 //! ask, so that the decisions can be tested without a daemon:
 //!
-//! - A place is asked about once when the thread first shows it, once
-//!   more each time an entry a look ends with (`decided`, `stopped`) comes
-//!   in, and about once a second while she thinks there or a look of hers
-//!   there is still going on.
+//! - A place is asked about once when the thread first shows it, whether
+//!   or not anything is going on there, once more each time an entry a
+//!   look ends with (`decided`, `stopped`) comes in, and about once a
+//!   second while she thinks there or a look of hers there is still going
+//!   on.
 //! - A piece of work, or a part of it, is asked about when its card is
 //!   opened, every two seconds while it is open and still going, once more
 //!   after it ends, and again at once while its answer says there is more.
@@ -46,6 +47,9 @@ pub enum Read {
     Looks { place: String, after: Option<u64> },
     /// `work.steps` of a work or a part, by id, after the step `after`.
     Steps { work: String, after: Option<u64> },
+    /// `journal.place`: the entries of the place, by key, so that a thread
+    /// older than the tail the desk holds can be shown.
+    Place { place: String },
 }
 
 /// What one ghost's thread has learned of her steps.
@@ -110,8 +114,9 @@ impl PlaceLooks {
             return None;
         }
         let Some(answered) = self.answered else {
-            // Nothing to put a look beside yet, and nothing going on.
-            return (thinking || newest_end.is_some()).then_some(After(None));
+            // A place first shown is asked about once, whatever is going
+            // on there: what filled her context last is part of it.
+            return Some(After(None));
         };
         let live = thinking || self.running().is_some();
         let ended = newest_end > self.covered;
@@ -305,13 +310,13 @@ mod tests {
     fn a_quiet_place_is_asked_about_once_and_again_only_when_a_look_may_have_ended() {
         let mut f = Following::default();
         let t = Instant::now();
-        assert_eq!(f.place(PLACE, t, false, None), None, "nothing to show yet");
         assert_eq!(
-            f.place(PLACE, t, false, Some(40)),
+            f.place(PLACE, t, false, None),
             Some(Read::Looks {
                 place: PLACE.into(),
                 after: None
-            })
+            }),
+            "once when first shown, though nothing shows a look yet"
         );
         assert_eq!(f.place(PLACE, t, false, Some(40)), None, "one at a time");
         f.looks(PLACE, t, Ok(vec![look(7, Some(40))]));

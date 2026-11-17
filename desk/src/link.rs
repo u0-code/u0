@@ -3,11 +3,14 @@
 //! Two kinds. A [`Link`] follows one ghost on one daemon as a console: it
 //! asks about her, streams her journal, and carries what whoever sits at
 //! the desk says to her and does to her work, as an operator of hers, with
-//! `console.say`, `work.answer` and `work.stop`; and it reads her steps,
-//! what she called while she looked and what her work did, when the thread
-//! asks (`look.steps`, `work.steps`). Each session with the
+//! `console.say`, `work.answer` and `work.stop`; and it reads what the
+//! thread asks for: her steps, what she called while she looked and what
+//! her work did (`look.steps`, `work.steps`), and the entries of a place
+//! older than what the desk holds (`journal.place`). Each session with the
 //! solver is a place of its own on the console channel, so her journal
-//! keeps the threads apart. A [`Listing`] asks a daemon who it runs, now
+//! keeps the threads apart. What it reads of her journal is added to what
+//! the desk holds, never put in its place: the tail once, then the stream,
+//! and after a daemon was out of reach what was written meanwhile. A [`Listing`] asks a daemon who it runs, now
 //! and then, and what each of them is waiting on you for, so that the desk
 //! can show a daemon's cast and its Attention without opening any of them;
 //! and it carries an answer given from Attention on a short connection of
@@ -35,8 +38,10 @@ use crate::{
     model::{Entry, LinkState, Status, Update},
 };
 
-/// How many journal entries the desk holds when it connects.
+/// How many journal entries the desk reads when it first connects.
 pub const TAIL: u32 = 400;
+/// How many entries of a place are read when its thread is first shown.
+const PLACE_READ: u32 = 200;
 /// How often it asks after her, and after who a daemon runs, again.
 const REFRESH: Duration = Duration::from_secs(20);
 /// The first wait before trying a lost daemon again; it doubles on each
@@ -157,8 +162,24 @@ async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>
                 .map_err(|e| format!("{e:#}")),
             work,
         },
+        // A place that cannot be read shows what the desk holds of it; a
+        // daemon that refuses says so in the log, not on the desk.
+        Read::Place { place } => match console.thread(&place, PLACE_READ).await {
+            Ok(entries) => Update::Place(sorted(&entries)),
+            Err(e) => {
+                debug!("could not read the place {place}: {e:#}");
+                return;
+            }
+        },
     };
     let _ = up.send(update);
+}
+
+/// Entries as the daemon serves them, oldest first.
+fn sorted(values: &[serde_json::Value]) -> Vec<Entry> {
+    let mut entries: Vec<Entry> = values.iter().filter_map(Entry::from_value).collect();
+    entries.sort_by_key(|e| e.seq);
+    entries
 }
 
 /// One ghost the desk follows.
@@ -176,14 +197,15 @@ pub struct Link {
 }
 
 impl Link {
-    /// Follow the ghost `cfg` names: ask about her, follow her journal, and
-    /// carry what you do to her.
-    pub fn watch(cfg: Config) -> Self {
+    /// Follow the ghost `cfg` names: ask about her, follow her journal from
+    /// the entry after `newest`, the newest the desk holds of it (zero for
+    /// none), and carry what you do to her.
+    pub fn watch(cfg: Config, newest: i64) -> Self {
         let (up, rx) = mpsc::channel();
         let (orders, taken) = tokio::sync::mpsc::unbounded_channel();
         let (reads, to_read) = tokio::sync::mpsc::unbounded_channel();
         let wake = Arc::new(tokio::sync::Notify::new());
-        let task = runtime().spawn(console(cfg, up, wake.clone(), taken, to_read));
+        let task = runtime().spawn(console(cfg, newest, up, wake.clone(), taken, to_read));
         Self {
             rx,
             orders,
@@ -358,9 +380,11 @@ async fn waiting(
 
 /// The console role: connect, ask everything once, then follow her journal
 /// as it is written, ask again now and then, and carry out what you do to
-/// her. Reconnects when the daemon goes away.
+/// her. Reconnects when the daemon goes away, and reads what was written
+/// meanwhile; `newest` is the newest entry handed to the desk so far.
 async fn console(
     cfg: Config,
+    mut newest: i64,
     up: mpsc::Sender<Update>,
     wake: Arc<tokio::sync::Notify>,
     mut orders: Orders,
@@ -369,7 +393,7 @@ async fn console(
     let mut wait = RETRY;
     loop {
         let _ = up.send(Update::Link(LinkState::Connecting));
-        match session(&cfg, &up, &mut orders, &mut reads).await {
+        match session(&cfg, &mut newest, &up, &mut orders, &mut reads).await {
             Ok(()) => {
                 let _ = up.send(Update::Link(LinkState::Lost(
                     "the daemon closed the connection".into(),
@@ -385,6 +409,7 @@ async fn console(
 
 async fn session(
     cfg: &Config,
+    newest: &mut i64,
     up: &mpsc::Sender<Update>,
     orders: &mut Orders,
     reads: &mut Reads,
@@ -408,13 +433,17 @@ async fn session(
     let _ = up.send(Update::Welcome(welcome.ghost));
     let _ = up.send(Update::Link(LinkState::Connected));
 
-    ask_all(&mut asker, up).await?;
-    let tail = asker.journal(-i64::from(TAIL), TAIL).await?;
-    let mut entries: Vec<Entry> = tail.iter().filter_map(Entry::from_value).collect();
-    entries.sort_by_key(|e| e.seq);
-    let _ = up.send(Update::Journal(entries));
-
+    // Subscribed before anything is read, so that an entry written while
+    // the questions are answered is streamed rather than lost; one the
+    // read brings as well is held once.
     stream.subscribe().await?;
+    ask_all(&mut asker, up).await?;
+    let stretch = since(&mut asker, *newest).await?;
+    if let Some(last) = stretch.last() {
+        *newest = last.seq.max(*newest);
+    }
+    let _ = up.send(Update::Journal(stretch));
+
     let mut refresh = tokio::time::interval(REFRESH);
     refresh.tick().await;
     loop {
@@ -423,6 +452,7 @@ async fn session(
                 match entry? {
                     Some(v) => {
                         if let Some(entry) = Entry::from_value(&v) {
+                            *newest = entry.seq.max(*newest);
                             let _ = up.send(Update::Entry(entry));
                         }
                     }
@@ -453,6 +483,20 @@ async fn session(
             }
         }
     }
+}
+
+/// What the desk is missing of her journal: everything after `newest`, or
+/// the tail when nothing is held yet or so much was written meanwhile that
+/// the tail is what there is to show. Oldest first.
+async fn since(asker: &mut Console, newest: i64) -> anyhow::Result<Vec<Entry>> {
+    const MOST: u32 = TAIL * 4;
+    if newest > 0 {
+        let gap = sorted(&asker.journal(newest + 1, MOST).await?);
+        if gap.len() < MOST as usize {
+            return Ok(gap);
+        }
+    }
+    Ok(sorted(&asker.journal(-i64::from(TAIL), TAIL).await?))
 }
 
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
