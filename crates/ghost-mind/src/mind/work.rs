@@ -6,24 +6,15 @@
 //! `ghost-work`, sent off as a job like any brain call, so the actor stays
 //! the only writer of her journal and stays free to notice everything else.
 //!
-//! When sittings run is the body's to say, in `[work] runs`:
+//! Work runs on her machine, apart from her day and her attention. A
+//! sitting starts while she is asleep, talking or reading; a conversation
+//! does not wait for work, and work does not wait for a conversation. A
+//! sitting that ends because it ran out of steps or time is followed at
+//! once by the next sitting of the same work, up to `max_sittings`. What
+//! she is doing in her day stays what it was: the work is the machine's,
+//! not something she sits at.
 //!
-//! - `"always"`, the default. Work runs on her machine, apart from her day
-//!   and her attention. A sitting starts while she is asleep, talking or
-//!   reading; looking at her phone does not stop one, and a conversation
-//!   does not wait for work. A sitting that ends because it ran out of
-//!   steps or time is followed at once by the next sitting of the same
-//!   work, up to `max_sittings`. What she is doing in her day stays what
-//!   it was: the work is the machine's, not something she sits at.
-//! - `"awake"`. Work is one foreground activity among others. Sittings
-//!   start only while she is awake and not in a conversation, and a piece
-//!   of work rests between them. While one runs she is busy, and messages
-//!   wait as they would for anyone at a desk. When she does look at her
-//!   phone, the sitting is asked to stop after the step it is on;
-//!   everything it needs to go on is on disk. She returns to it when she is
-//!   done talking.
-//!
-//! In either mode up to `at_once` pieces of work have a sitting running at
+//! Up to `at_once` pieces of work have a sitting running at
 //! the same time. When a place is free, what an operator directed goes
 //! first, then whatever has waited longest since it was last touched,
 //! leaving aside what waits on somebody's answer and what is resting.
@@ -63,7 +54,6 @@ use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{CliAgent, CliKind};
 use ghost_core::{
     journal::Event,
-    life::Phase,
     memory::{Person, PlaceState},
     will::{self, Stage},
 };
@@ -78,7 +68,7 @@ const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
 use super::{Mind, Operator, Order, Outcome, Refused};
-use crate::{Result, Runs, actions::clip};
+use crate::{Result, actions::clip};
 
 /// A sitting in progress.
 pub(super) struct Working {
@@ -267,20 +257,6 @@ impl Mind {
         let Some(stepper) = self.stepper().filter(|_| self.cfg.work.enabled) else {
             return Ok(false);
         };
-        // Work she sits down to waits on her day; work that runs apart
-        // from it does not.
-        if self.cfg.work.runs == Runs::Awake {
-            let moment = self.life.moment(self.ghost.journal(), now)?;
-            if moment.phase == Phase::Asleep && !self.tempo.instant() {
-                self.work_at(moment.until + Duration::minutes(20));
-                return Ok(false);
-            }
-            // A conversation in progress comes first.
-            if !self.agenda.speaking.is_empty() || !self.thinking.is_empty() {
-                self.work_at(now + Duration::seconds(30));
-                return Ok(false);
-            }
-        }
         let open = self.ghost.memory().undertakings(true, 20)?;
         let patience = Duration::hours(i64::from(self.cfg.work.ask_hours));
         let unanswered = open
@@ -802,19 +778,6 @@ impl Mind {
         Ok(())
     }
 
-    /// Ask the sittings in progress to stop after their current step,
-    /// when work is something she sits down to. Returns whether there were
-    /// any. Work that runs apart from her day is not put down.
-    pub(super) fn set_work_aside(&mut self) -> bool {
-        if self.cfg.work.runs == Runs::Always {
-            return false;
-        }
-        for working in self.working.values() {
-            working.pause.store(true, Ordering::Relaxed);
-        }
-        !self.working.is_empty()
-    }
-
     /// A sitting ended.
     pub(super) fn on_worked(
         &mut self,
@@ -900,11 +863,10 @@ impl Mind {
                     summary: progress,
                     steps,
                 })?;
-                // Work that runs apart from her day goes straight on when a
-                // sitting only ran up against its limits. Otherwise it rests
-                // first: she was taken away from it, or it was going nowhere.
-                let straight_on = self.cfg.work.runs == Runs::Always
-                    && matches!(report.ended, Ended::OutOfSteps | Ended::OutOfTime);
+                // A sitting that only ran up against its limits is followed
+                // straight on. Otherwise the work rests first: it was stopped,
+                // or it was going nowhere.
+                let straight_on = matches!(report.ended, Ended::OutOfSteps | Ended::OutOfTime);
                 if !straight_on {
                     self.rest(id, now + rest);
                 }

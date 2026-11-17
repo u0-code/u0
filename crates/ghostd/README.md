@@ -366,11 +366,10 @@ the `claude-code` relay.
 | `machine` | none | where her shell and files are. `"docker:<container>"` is a running container: use this on a server. `"local:<directory>"` is a directory under her own on this machine, as you, and `"local:"` alone is `home` in her directory: not a sandbox, only for a machine that is hers. Without one she can look things up and think, and nothing else, which is the safe default |
 | `workdir` | the container's | the directory she starts in inside a container. Two characters on one container need different ones; the daemon refuses to start otherwise |
 | `web` | `true` | search and read the web while working. Search uses `DEEPSEEK_API_KEY`, `BRAVE_API_KEY` or `SEARXNG_URL`, whichever is set first |
-| `runs` | `"always"` | `"always"`: on her machine, apart from her day; sittings run while she sleeps, talks or reads, and one that runs out of steps or minutes is followed at once by the next. `"awake"`: only while she is awake and not talking, as something she sits down to; reading a message stops the sitting after its step, and she rests between sittings |
 | `at_once` | `2` | pieces of work that may have a sitting running at once. Work an operator directed goes first, then whatever has waited longest. Each sitting takes one call from `calls_per_hour`, and none starts while that is spent |
 | `sitting_steps` | `40` | steps in one sitting |
 | `sitting_minutes` | `15` | minutes in one sitting |
-| `rest_minutes` | `10` | rest between sittings, except after one that ran out of steps or time with `runs = "always"` |
+| `rest_minutes` | `10` | rest after a sitting that was stopped or went nowhere. Work runs on her machine apart from her day, and a sitting that ran out of steps or time is followed at once by the next |
 | `max_sittings` | `12` | sittings she gives one thing before letting it go |
 | `parts` | `4` | parts of one piece of work that may run at once, each a worker of its own alongside her sitting |
 | `part_steps` | `200` | steps one part may take, over every sitting it runs in |

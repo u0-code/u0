@@ -1,65 +1,7 @@
-//! When work runs: sittings she sits down to or that run beside her day, how
-//! many at once, in what order, and within what budget.
+//! When work runs: beside her day, how many sittings at once, in what
+//! order, and within what budget.
 
 use super::*;
-
-/// Her attention, with work that is something she sits down to.
-fn sat_down_to() -> MindConfig {
-    MindConfig {
-        live: false,
-        browse_minutes: [0, 0],
-        work: crate::WorkConfig {
-            runs: crate::Runs::Awake,
-            ..crate::WorkConfig::default()
-        },
-        ..MindConfig::default()
-    }
-}
-
-#[tokio::test]
-async fn with_work_she_sits_down_to_a_sitting_is_put_down_when_she_looks_at_her_phone() {
-    let t0 = at(14, 0);
-    let mut rig = Rig::new(sat_down_to(), t0);
-    rig.think
-        .then_call("note", serde_json::json!({"text": "first thing"}));
-    rig.mind
-        .undertake(
-            "Read up on the history of Kuixinglou street.",
-            None,
-            None,
-            &[],
-            t0,
-        )
-        .unwrap();
-    // She sits down to it.
-    rig.mind.on_time(t0).unwrap();
-    assert!(!rig.mind.working.is_empty());
-
-    // A message is due while the sitting is still running: looking at it
-    // waits, and the sitting is told to stop.
-    rig.hear(dm("wen", "1", "are you there"), t0);
-    let due = rig.mind.agenda.attend["t:wen"].due;
-    rig.mind.on_time(due).unwrap();
-    assert_eq!(rig.think.calls(), 0, "she has not looked yet");
-    assert!(rig.mind.agenda.attend["t:wen"].due > due);
-
-    rig.think
-        .then(r#"{"thought":"","actions":[{"do":"say","text":"here"}]}"#);
-    rig.until(|r| r.body.sent().len() == 1).await;
-    let kinds = rig.kinds();
-    let worked = kinds.iter().position(|k| *k == "worked").unwrap();
-    let read = kinds.iter().position(|k| *k == "read").unwrap();
-    assert!(
-        worked < read,
-        "the sitting ended before she read: {kinds:?}"
-    );
-    // The work is still hers, and still open.
-    assert_eq!(
-        rig.mind.ghost.memory().undertakings(true, 5).unwrap().len(),
-        1
-    );
-    assert!(rig.mind.agenda.work.is_some());
-}
 
 /// Work she has taken on for herself, by its id. Returns the id.
 fn take_on(rig: &mut Rig, brief: &str, directed: &[&str], now: DateTime<Utc>) -> String {
@@ -79,7 +21,7 @@ fn take_on(rig: &mut Rig, brief: &str, directed: &[&str], now: DateTime<Utc>) ->
 }
 
 #[tokio::test]
-async fn with_work_that_runs_always_a_sitting_starts_while_she_is_asleep() {
+async fn a_sitting_starts_while_she_is_asleep() {
     let t0 = at(3, 0);
     let mut rig = Rig::quiet(t0);
     let gate = rig.think.hold(0);
@@ -92,22 +34,6 @@ async fn with_work_that_runs_always_a_sitting_starts_while_she_is_asleep() {
     rig.mind.on_time(t0).unwrap();
     assert_eq!(running(&rig), [id]);
     gate.notify_one();
-}
-
-#[tokio::test]
-async fn with_work_she_sits_down_to_no_sitting_starts_while_she_is_asleep() {
-    let t0 = at(3, 0);
-    let mut rig = Rig::new(sat_down_to(), t0);
-    take_on(
-        &mut rig,
-        "Read up on the history of Kuixinglou street.",
-        &[],
-        t0,
-    );
-    rig.mind.on_time(t0).unwrap();
-    assert!(running(&rig).is_empty());
-    let next = rig.mind.agenda.work.expect("she means to come back to it");
-    assert!(next >= at(8, 30), "not before her morning: {next}");
 }
 
 #[tokio::test]
