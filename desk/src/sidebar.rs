@@ -36,6 +36,8 @@ use crate::{
 /// the measure a coding agent's app lists sessions at, with room in each.
 const ROW: f32 = 32.;
 const SESSION_ROW: f32 = 32.;
+/// Between two rows that light up, so two pills never touch.
+const ROW_GAP: f32 = 2.;
 const TEXT: f32 = 13.5;
 /// A group's head: its text, and the room above it that sets groups apart.
 const HEAD_TEXT: f32 = 12.;
@@ -214,6 +216,7 @@ impl Desk {
             .flex_none()
             .px(px(8.))
             .pt(px(12.))
+            .gap(px(ROW_GAP))
             .child(
                 menu_row("new", faces, "plus", "New")
                     .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
@@ -444,7 +447,7 @@ impl Desk {
                     cx.notify();
                 }),
             );
-        let mut wrap = div().relative().child(row);
+        let mut wrap = div().relative().mt(px(ROW_GAP)).child(row);
         if menu_open {
             wrap = wrap.child(
                 div()
@@ -736,6 +739,7 @@ impl Desk {
             .items_center()
             .gap(px(10.))
             .h(px(SESSION_ROW))
+            .mt(px(ROW_GAP))
             .px(px(10.))
             .rounded(px(8.))
             .cursor_pointer()
