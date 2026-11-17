@@ -41,8 +41,11 @@ pub struct MindConfig {
     pub prompts: Option<PathBuf>,
     /// Whether and how she takes things on.
     pub work: WorkConfig,
-    /// What she does on a public network, and how much of it.
-    pub public: PublicConfig,
+    /// What the people who run her say about each channel, by its name.
+    /// Set from the top-level `[channels]` tables of `ghostd.toml`, not
+    /// from `[mind]`.
+    #[serde(skip)]
+    pub channels: BTreeMap<String, ChannelConfig>,
     /// The accounts of whoever runs her. Set from the top-level
     /// `[operators]` table of `ghostd.toml`, not from `[mind]`.
     #[serde(skip)]
@@ -174,13 +177,16 @@ pub struct WorkConfig {
     pub context_tokens: Option<u64>,
 }
 
-/// What she does on a public network, a channel that comes online as
-/// public (X), and how much of it. Nothing here touches a chat or a
-/// console: what is right for a feed anyone can read is not what is right
-/// for a conversation.
+/// How she is on one channel, as the people who run her set it up: which
+/// page she reads it on, and, where the channel has a feed and takes posts,
+/// what she does there and how much. Every channel is a place of its own:
+/// what is right for QQ is not what is right for X or a console.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct PublicConfig {
+pub struct ChannelConfig {
+    /// The page in `system/channels/` she reads this channel on. Left out,
+    /// the one named after the channel, or `chat` if there is none.
+    pub page: Option<String>,
     /// Most posts she will make in a day.
     pub posts_per_day: u32,
     /// Minutes between the times she scrolls a feed, as `[min, max]`.
@@ -205,9 +211,10 @@ pub struct PublicConfig {
     pub review_days: u32,
 }
 
-impl Default for PublicConfig {
+impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
+            page: None,
             posts_per_day: 3,
             browse_minutes: [45, 150],
             likes: false,
@@ -241,6 +248,21 @@ impl Default for WorkConfig {
     }
 }
 
+impl MindConfig {
+    /// How she is on `channel`, as set, or as she is anywhere by default.
+    pub fn channel(&self, channel: &str) -> ChannelConfig {
+        self.channels.get(channel).cloned().unwrap_or_default()
+    }
+
+    /// The page she reads `channel` on.
+    pub fn page(&self, channel: &str) -> String {
+        self.channels
+            .get(channel)
+            .and_then(|c| c.page.clone())
+            .unwrap_or_else(|| channel.to_owned())
+    }
+}
+
 impl Default for MindConfig {
     fn default() -> Self {
         Self {
@@ -255,7 +277,7 @@ impl Default for MindConfig {
             weather: true,
             prompts: None,
             work: WorkConfig::default(),
-            public: PublicConfig::default(),
+            channels: BTreeMap::new(),
             operators: Operators::default(),
             places: BTreeMap::new(),
         }

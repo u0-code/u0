@@ -396,7 +396,6 @@ async fn main() -> anyhow::Result<()> {
             Capability::Feed,
             Capability::Metrics,
         ],
-        kind: ghost_link::protocol::PresenceKind::Public,
     };
     let account = Account {
         x,

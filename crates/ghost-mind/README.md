@@ -51,7 +51,7 @@ Everyone on the channel `console` is an operator: only the daemon puts a
 message there, from a console that holds its token. The console is a
 terminal, not a chat: what is said there is looked at and answered at once,
 whatever her day, with no reading or typing time, on a page of its own
-(`system/logic/terminal.md`) instead of the phone she reads chats on. Work
+(`system/channels/console.md`) instead of the phone she reads chats on. Work
 asked for there goes first and is not held to her floors.
 
 In public she posts, is shown how her posts did, and writes down what that

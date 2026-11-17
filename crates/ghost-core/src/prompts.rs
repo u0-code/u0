@@ -19,8 +19,8 @@
 //! binary. The built-ins are only the last resort, so that a lone binary
 //! still runs; anything a person might want to change is a file.
 //!
-//! A deployment's directory mirrors the tree: `system/logic/attend.md`
-//! there stands for `system/logic/attend.md` here, so that what a person
+//! A deployment's directory mirrors the tree: `system/logic/now.md`
+//! there stands for `system/logic/now.md` here, so that what a person
 //! edits sits where they would look for it, and `ghostd prompts export`
 //! writes the same tree. Before the tree, such a directory was flat, every
 //! file at its top under a name of its own; a file still found there by its
@@ -82,7 +82,7 @@ const CHECK_EVERY: Duration = Duration::seconds(2);
 /// from.
 ///
 /// ```ignore
-/// prompt!("system/logic/attend.md", Kind::Whole, Layer::Logic, "attend.md")
+/// prompt!("system/logic/now.md", Kind::Whole, Layer::Logic, "now.md")
 /// ```
 #[macro_export]
 macro_rules! prompt {
@@ -147,7 +147,7 @@ impl fmt::Display for Layer {
 #[derive(Debug, Clone, Copy)]
 pub struct File {
     /// Where it is under `prompts/`, and so in a deployment's directory:
-    /// `system/logic/attend.md`.
+    /// `system/logic/now.md`.
     pub path: &'static str,
     pub built_in: &'static str,
     pub kind: Kind,

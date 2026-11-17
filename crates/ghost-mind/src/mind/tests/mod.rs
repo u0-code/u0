@@ -370,10 +370,14 @@ impl Rig {
     fn with_tools(now: DateTime<Utc>) -> Self {
         let rig = Self::build(
             MindConfig {
-                public: crate::PublicConfig {
-                    browse_minutes: [0, 0],
-                    ..crate::PublicConfig::default()
-                },
+                channels: [(
+                    "t".to_owned(),
+                    crate::ChannelConfig {
+                        browse_minutes: [0, 0],
+                        ..crate::ChannelConfig::default()
+                    },
+                )]
+                .into(),
                 live: false,
                 ..MindConfig::default()
             },
@@ -459,10 +463,14 @@ impl Rig {
     fn quiet(now: DateTime<Utc>) -> Self {
         Self::new(
             MindConfig {
-                public: crate::PublicConfig {
-                    browse_minutes: [0, 0],
-                    ..crate::PublicConfig::default()
-                },
+                channels: [(
+                    "t".to_owned(),
+                    crate::ChannelConfig {
+                        browse_minutes: [0, 0],
+                        ..crate::ChannelConfig::default()
+                    },
+                )]
+                .into(),
                 live: false,
                 ..MindConfig::default()
             },
@@ -851,10 +859,14 @@ fn count(rig: &Rig, kind: &str) -> usize {
 /// Her attention, with `boss` on `t` as an operator of hers.
 fn operated() -> MindConfig {
     MindConfig {
-        public: crate::PublicConfig {
-            browse_minutes: [0, 0],
-            ..crate::PublicConfig::default()
-        },
+        channels: [(
+            "t".to_owned(),
+            crate::ChannelConfig {
+                browse_minutes: [0, 0],
+                ..crate::ChannelConfig::default()
+            },
+        )]
+        .into(),
         live: false,
         operators: crate::Operators {
             accounts: [("t".to_owned(), vec!["boss".to_owned()])].into(),

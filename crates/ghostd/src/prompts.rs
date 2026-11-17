@@ -339,7 +339,7 @@ mod tests {
             "deployment {}",
             deployment.path().join("system/being.md").display()
         )));
-        assert!(line("system/logic/attend.md", None).starts_with("logic "));
+        assert!(line("system/channels/chat.md", None).starts_with("logic "));
         assert!(line("system/logic/texts/addressed.toml", Some("fact_note")).starts_with("logic "));
         assert!(line("system/work/working.md", None).starts_with("work "));
         assert!(line("system/work/work.md", None).starts_with("work "));

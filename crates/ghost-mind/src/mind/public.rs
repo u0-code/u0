@@ -147,7 +147,8 @@ impl Mind {
     /// Ask `channel` how her posts are doing, if it can say and it has been
     /// long enough since she last asked.
     pub(super) fn measure_if_due(&mut self, channel: &str, now: DateTime<Utc>) -> Result<()> {
-        if self.cfg.public.measure_hours == 0 || !self.can(channel, Can::Metrics) {
+        let hours = self.cfg.channel(channel).measure_hours;
+        if hours == 0 || !self.can(channel, Can::Metrics) {
             return Ok(());
         }
         let asked_recently = self
@@ -157,7 +158,7 @@ impl Mind {
             .iter()
             .any(|e| {
                 matches!(&e.event, Event::Measured { channel: c, .. } if c == channel)
-                    && now - e.at < Duration::hours(i64::from(self.cfg.public.measure_hours))
+                    && now - e.at < Duration::hours(i64::from(hours))
             });
         if asked_recently || !self.measuring.insert(channel.to_owned()) {
             return Ok(());
@@ -291,11 +292,22 @@ impl Mind {
     /// On waking: is it time to sit down and look at how her public writing
     /// is going? If so she takes it on herself, like anything else.
     pub(super) fn consider_review(&mut self, now: DateTime<Utc>) -> Result<()> {
-        if self.cfg.public.review_days == 0 || !self.can_work() {
+        // As often as the most often of the channels she posts on says.
+        let Some(days) = self
+            .channels
+            .iter()
+            .filter(|(_, c)| c.can.contains(&Can::Post))
+            .map(|(name, _)| self.cfg.channel(name).review_days)
+            .filter(|days| *days > 0)
+            .min()
+        else {
+            return Ok(());
+        };
+        if !self.can_work() {
             return Ok(());
         }
         let memory = self.ghost.memory();
-        let since = now - Duration::days(i64::from(self.cfg.public.review_days));
+        let since = now - Duration::days(i64::from(days));
         let reviewed_lately = memory
             .undertakings(false, 60)?
             .iter()

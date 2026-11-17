@@ -20,8 +20,7 @@ addr = "127.0.0.1:7438"
 
 [mind]
 prompts = "prompts/system/desk"
-# No day of its own and no weather: it waits for tasks. It has no public
-# network, so nothing of [mind.public] applies.
+# No day of its own and no weather: it waits for tasks.
 live = false
 weather = false
 # Enough turns to look things up before answering.

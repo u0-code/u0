@@ -37,8 +37,6 @@ pub enum Kind {
     /// day and pace there, and decides whether and when to answer at all.
     #[default]
     Chat,
-    /// A public network, where what she writes anyone can read.
-    Public,
 }
 
 /// What a channel is able to do.

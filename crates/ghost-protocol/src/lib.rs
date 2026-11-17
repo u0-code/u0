@@ -346,27 +346,6 @@ pub struct PresenceHello {
     pub me: Option<Actor>,
     /// What this channel can do.
     pub can: Vec<Capability>,
-    /// What sort of place the platform is. Left out, a chat.
-    #[serde(default)]
-    pub kind: PresenceKind,
-}
-
-/// What sort of place a platform is, as its presence declares it. It
-/// decides how she is there: a chat she keeps her own pace in, or a public
-/// network where what she writes anyone can read. A console is neither:
-/// only the daemon has one, and no presence can be one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PresenceKind {
-    /// People talking with each other and with her: QQ, Telegram, Discord.
-    #[default]
-    Chat,
-    /// A public network: X.
-    Public,
-    /// A kind this daemon does not know, from a newer presence. Taken as a
-    /// chat.
-    #[serde(other)]
-    Other,
 }
 
 /// The daemon's answer to [`Hello`].
@@ -1304,21 +1283,5 @@ mod tests {
         let hello: Hello = serde_json::from_str(r#"{"protocol":1,"role":"console"}"#).unwrap();
         assert_eq!(hello.who, None);
         assert!(!serde_json::to_string(&hello).unwrap().contains("who"));
-    }
-
-    #[test]
-    fn a_presence_that_does_not_say_what_it_is_is_a_chat_and_a_newer_kind_still_reads() {
-        let older: PresenceHello =
-            serde_json::from_value(serde_json::json!({"channel": "qq", "can": ["send"]})).unwrap();
-        assert_eq!(older.kind, PresenceKind::Chat);
-        let public: PresenceHello = serde_json::from_value(
-            serde_json::json!({"channel": "x", "can": ["post"], "kind": "public"}),
-        )
-        .unwrap();
-        assert_eq!(public.kind, PresenceKind::Public);
-        let newer: PresenceHello =
-            serde_json::from_value(serde_json::json!({"channel": "y", "can": [], "kind": "forum"}))
-                .unwrap();
-        assert_eq!(newer.kind, PresenceKind::Other);
     }
 }

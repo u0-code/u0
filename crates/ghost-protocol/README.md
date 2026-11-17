@@ -17,14 +17,6 @@ desk.
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
 | `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
 
-A presence's hello says what its platform can do (`can`) and what sort of
-place it is (`kind`): `chat`, the default, for people talking with each
-other and with her (QQ, Telegram, Discord), or `public` for a network where
-what she writes anyone can read (X). She keeps her own pace in a chat, and
-reads a public thread on a page of its own. A kind the daemon does not know
-is taken as a chat. No presence can be a terminal: only the daemon's own
-console is one.
-
 One presence carries a channel at a time. When a newer one registers the same
 channel it takes over, and the older is sent `presence.displaced` and closed, so
 a window left open or an adapter that was restarted cannot hold a channel

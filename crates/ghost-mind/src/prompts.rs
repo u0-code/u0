@@ -28,6 +28,7 @@
 //! the modification time of each file it could read.
 
 use std::{
+    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
 };
@@ -41,6 +42,11 @@ use ghost_core::{prompt, prompts::Store};
 pub const TEXTS: &str = "mind";
 /// Where each of the mind's texts was before there was a tree.
 const FLAT_TEXTS: &str = "texts.toml";
+
+/// The channels that have a page of their own in `system/channels/`. A
+/// channel by any other name reads `chat`'s, unless its settings name
+/// another (`[channels.<name>] page`).
+pub const PAGES: &[&str] = &["chat", "console", "qq", "discord", "telegram", "x"];
 
 /// The files the mind reads, with what is built in. The work loop's are in
 /// [`ghost_work::prompts::FILES`], and are read beside them.
@@ -78,23 +84,31 @@ pub const FILES: &[File] = &[
         "reply_tools.md"
     ),
     prompt!(
-        "system/logic/attend.md",
+        "system/channels/chat.md",
         Kind::Whole,
         Layer::Logic,
-        "attend.md"
+        "chat.md"
     ),
     prompt!(
-        "system/logic/terminal.md",
+        "system/channels/console.md",
         Kind::Whole,
         Layer::Logic,
-        "terminal.md"
+        "console.md"
+    ),
+    prompt!("system/channels/qq.md", Kind::Whole, Layer::Logic, "qq.md"),
+    prompt!(
+        "system/channels/discord.md",
+        Kind::Whole,
+        Layer::Logic,
+        "discord.md"
     ),
     prompt!(
-        "system/logic/public.md",
+        "system/channels/telegram.md",
         Kind::Whole,
         Layer::Logic,
-        "public.md"
+        "telegram.md"
     ),
+    prompt!("system/channels/x.md", Kind::Whole, Layer::Logic, "x.md"),
     prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic, "plan.md"),
     prompt!(
         "system/logic/lived.md",
@@ -250,14 +264,10 @@ pub struct Prompts {
     pub reply_json: String,
     /// `reply_tools.md`: how to answer when what she does is tool calls.
     pub reply_tools: String,
-    /// `attend.md`: looking at a conversation.
-    pub attend: String,
-    /// `terminal.md`: looking at what was said at a console, where she is
-    /// waited on.
-    pub terminal: String,
-    /// `public.md`: looking at a thread on a public network, where what
-    /// she writes anyone can read.
-    pub public: String,
+    /// `system/channels/`: the page she reads a place on, one for each
+    /// channel that has a page of its own, by name. `chat` is for any
+    /// other.
+    pages: BTreeMap<String, String>,
     /// `plan.md`: sketching a day.
     pub plan: String,
     /// `lived.md`: how a stretch of the day actually went.
@@ -304,9 +314,13 @@ impl Prompts {
             digest: text("system/logic/digest.md"),
             reply_json: text("system/logic/reply_json.md"),
             reply_tools: text("system/logic/reply_tools.md"),
-            attend: text("system/logic/attend.md"),
-            terminal: text("system/logic/terminal.md"),
-            public: text("system/logic/public.md"),
+            pages: PAGES
+                .iter()
+                .map(|name| {
+                    let path = format!("system/channels/{name}.md");
+                    ((*name).to_owned(), store.whole(&path).to_owned())
+                })
+                .collect(),
             plan: text("system/logic/plan.md"),
             lived: text("system/logic/lived.md"),
             reflect: text("system/logic/reflect.md"),
@@ -319,6 +333,15 @@ impl Prompts {
             working: text("system/work/working.md"),
             store,
         }
+    }
+
+    /// The page called `name`, or the chat page if there is none by that
+    /// name.
+    pub fn page(&self, name: &str) -> &str {
+        self.pages
+            .get(name)
+            .or_else(|| self.pages.get("chat"))
+            .map_or("", String::as_str)
     }
 
     /// Take in any file that changed, if the files have not been looked at
@@ -450,9 +473,11 @@ mod tests {
             }
         }
         assert_eq!(
-            shipped.attend,
-            include_str!("../../../prompts/system/logic/attend.md")
+            shipped.page("qq"),
+            include_str!("../../../prompts/system/channels/qq.md")
         );
+        // A channel with no page of its own reads the chat page.
+        assert_eq!(shipped.page("term"), shipped.page("chat"));
     }
 
     #[test]
@@ -508,7 +533,7 @@ mod tests {
         }
         let layer = |path: &str| all_files().iter().find(|f| f.path == path).unwrap().layer;
         assert_eq!(layer("system/being.md"), Layer::Being);
-        assert_eq!(layer("system/logic/attend.md"), Layer::Logic);
+        assert_eq!(layer("system/channels/chat.md"), Layer::Logic);
         assert_eq!(layer(LOOK), Layer::Logic);
         assert_eq!(layer("system/work/working.md"), Layer::Work);
         assert_eq!(layer(TOOLS), Layer::Work);
@@ -564,7 +589,7 @@ mod tests {
         let p = Prompts::load(Some(dir.path()));
         assert_eq!(p.gate, "the deployment's gate");
         assert_eq!(p.persona, "Call me {{name}}.");
-        assert_eq!(p.attend, Prompts::shipped().attend);
+        assert_eq!(p.page("chat"), Prompts::shipped().page("chat"));
         assert_eq!(p.text("last_turn"), "the deployment's");
         assert_eq!(p.text("not_sent"), Prompts::shipped().text("not_sent"));
 
@@ -585,7 +610,7 @@ mod tests {
             (Origin::Deployment, true)
         );
         assert_eq!(
-            origin("system/logic/attend.md", None),
+            origin("system/channels/chat.md", None),
             (Origin::BuiltIn, false)
         );
         assert_eq!(origin(LOOK, Some("last_turn")), (Origin::Deployment, true));

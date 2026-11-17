@@ -23,7 +23,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use ghost_brain::{Brain, config::ProviderConfig};
-use ghost_mind::{MindConfig, Operators, PlaceConfig};
+use ghost_mind::{ChannelConfig, MindConfig, Operators, PlaceConfig};
 use serde::Deserialize;
 
 pub const FILE: &str = "ghostd.toml";
@@ -50,6 +50,8 @@ pub struct Config {
     #[serde(default)]
     places: toml::Table,
     #[serde(default)]
+    channels: toml::Table,
+    #[serde(default)]
     tools: toml::Table,
     #[serde(default)]
     mcp: toml::value::Array,
@@ -73,6 +75,9 @@ pub struct Hers {
     /// What they say about particular places, by place key.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceConfig>,
+    /// How she is on each channel, by its name.
+    #[serde(default)]
+    pub channels: BTreeMap<String, ChannelConfig>,
     /// How she finds and runs servers of tools.
     #[serde(default)]
     pub tools: ghost_work::servers::Config,
@@ -90,6 +95,7 @@ impl Hers {
         MindConfig {
             operators: self.operators.clone(),
             places: self.places.clone(),
+            channels: self.channels.clone(),
             ..self.mind.clone()
         }
     }
@@ -218,6 +224,7 @@ impl Config {
             ("mind", &self.mind),
             ("operators", &self.operators),
             ("places", &self.places),
+            ("channels", &self.channels),
             ("tools", &self.tools),
             ("skills", &self.skills),
         ] {
@@ -438,6 +445,25 @@ mod operator_tests {
         );
         // A file with no [ghosts] runs whoever it is given.
         assert!(parse("").check_ids(&["anyone"]).is_ok());
+    }
+
+    #[test]
+    fn each_channel_has_its_own_table_and_a_character_can_lay_hers_over_it() {
+        let cfg = parse(
+            "[channels.x]\nposts_per_day = 2\nlikes = true\n\
+             [channels.term]\npage = \"qq\"\n\
+             [ghosts.lin.channels.x]\nposts_per_day = 5\n",
+        );
+        let mei = cfg.hers("mei").unwrap().mind();
+        assert_eq!(mei.channel("x").posts_per_day, 2);
+        assert!(mei.channel("x").likes);
+        assert_eq!(mei.page("term"), "qq");
+        assert_eq!(mei.page("discord"), "discord");
+        // A channel nobody wrote about is as she is anywhere.
+        assert_eq!(mei.channel("qq").posts_per_day, 3);
+        let lin = cfg.hers("lin").unwrap().mind();
+        assert_eq!(lin.channel("x").posts_per_day, 5);
+        assert!(lin.channel("x").likes, "what she leaves out she inherits");
     }
 
     #[test]

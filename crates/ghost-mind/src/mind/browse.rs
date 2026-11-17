@@ -27,16 +27,32 @@ use crate::{
 
 /// How many posts she looks at in one scroll.
 const SCROLL: u32 = 20;
+/// How many of her latest posts are looked through to count today's on
+/// one channel.
+const POSTS_LOOKED_AT: usize = 200;
 /// How many scrolled-past posts she remembers per channel.
 const REMEMBERED: usize = 500;
 
 impl Mind {
-    /// When she next picks up her phone to scroll, if any channel has a feed.
+    /// The channels with a feed she scrolls: each says how often, in its
+    /// own settings.
+    fn feeds(&self) -> Vec<(String, [u32; 2])> {
+        self.channels
+            .iter()
+            .filter(|(_, c)| c.can.contains(&Can::Feed))
+            .map(|(name, _)| (name.clone(), self.cfg.channel(name).browse_minutes))
+            .filter(|(_, [_, hi])| *hi > 0)
+            .collect()
+    }
+
+    /// When she next picks up her phone to scroll, if any channel has a feed
+    /// she scrolls: as soon as the most often scrolled of them says.
     pub(super) fn next_phone(&mut self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        let [lo, hi] = self.cfg.public.browse_minutes;
-        if hi == 0 || !self.channels.values().any(|c| c.can.contains(&Can::Feed)) {
-            return None;
-        }
+        let [lo, hi] = self
+            .feeds()
+            .into_iter()
+            .map(|(_, minutes)| minutes)
+            .min_by_key(|[_, hi]| *hi)?;
         let minutes = self.rng.u32(lo.min(hi)..=hi);
         Some(now + Duration::minutes(i64::from(minutes.max(1))))
     }
@@ -48,18 +64,19 @@ impl Mind {
             return Ok(());
         }
         let feeds: Vec<String> = self
-            .channels
-            .iter()
-            .filter(|(name, c)| c.can.contains(&Can::Feed) && !self.browsing.contains(*name))
-            .map(|(name, _)| name.clone())
+            .feeds()
+            .into_iter()
+            .map(|(name, _)| name)
+            .filter(|name| !self.browsing.contains(name))
             .collect();
         if feeds.is_empty() {
             return Ok(());
         }
         let channel = feeds[self.rng.usize(..feeds.len())].clone();
         self.measure_if_due(&channel, now)?;
-        let posted = self.posted_today(now)?;
-        let allowance = if posted >= self.cfg.public.posts_per_day as usize {
+        let set = self.cfg.channel(&channel);
+        let posted = self.posted_today(&channel, now)?;
+        let allowance = if posted >= set.posts_per_day as usize {
             self.prompts.text("posted_enough")
         } else {
             ""
@@ -69,7 +86,7 @@ impl Mind {
             ("channel", channel.clone()),
             ("posted", posted.to_string()),
             ("allowance", allowance.to_owned()),
-            ("actions", self.scrolling_actions()),
+            ("actions", self.scrolling_actions(&channel)),
             (
                 "standing",
                 self.prompts.section(
@@ -92,7 +109,7 @@ impl Mind {
             .get(&channel)
             .map(|ids| ids.iter().cloned().collect())
             .unwrap_or_default();
-        let may_post = posted < self.cfg.public.posts_per_day as usize;
+        let may_post = posted < set.posts_per_day as usize;
         self.browsing.insert(channel.clone());
         self.budget.spend(now);
         self.jobs.spawn(async move {
@@ -166,12 +183,13 @@ impl Mind {
 
     /// The actions offered while scrolling, beyond posting and doing
     /// nothing. What a platform forbids an automated account is not offered.
-    fn scrolling_actions(&self) -> String {
+    fn scrolling_actions(&self, channel: &str) -> String {
+        let set = self.cfg.channel(channel);
         let mut out = String::new();
-        if self.cfg.public.likes {
+        if set.likes {
             out.push_str(self.prompts.text("scroll_like"));
         }
-        if self.cfg.public.replies {
+        if set.replies {
             out.push_str(self.prompts.text("scroll_reply"));
         }
         out
@@ -198,12 +216,13 @@ impl Mind {
             }
         };
         let item = |n: i64| usize::try_from(n - 1).ok().and_then(|i| items.get(i));
-        let mut posted = self.posted_today(now)?;
+        let set = self.cfg.channel(channel);
+        let mut posted = self.posted_today(channel, now)?;
         for action in deliberation.actions {
             match action {
                 Action::React { to, emoji } => {
                     let Some(target) = item(to) else { continue };
-                    if !self.cfg.public.likes || !self.can(channel, Can::React) {
+                    if !set.likes || !self.can(channel, Can::React) {
                         continue;
                     }
                     self.fire(
@@ -229,7 +248,7 @@ impl Mind {
                         continue;
                     };
                     let key = social::key(channel, &target.place.id);
-                    if !self.cfg.public.replies {
+                    if !set.replies {
                         debug!("{channel}: replying to posts not addressed to her is turned off");
                         continue;
                     }
@@ -277,7 +296,7 @@ impl Mind {
                 Action::Post { text } => {
                     let text = text.trim().to_owned();
                     if text.is_empty()
-                        || posted >= self.cfg.public.posts_per_day as usize
+                        || posted >= set.posts_per_day as usize
                         || !self.can(channel, Can::Post)
                     {
                         continue;
@@ -285,7 +304,7 @@ impl Mind {
                     posted += 1;
                     let body = self.body.clone();
                     // Read it over first, as herself, for what must not go out.
-                    let check = if self.cfg.public.gate {
+                    let check = if set.gate {
                         Some((self.tick.clone(), self.gate_request(channel, &text, now)?))
                     } else {
                         None
@@ -342,16 +361,19 @@ impl Mind {
         Ok(())
     }
 
-    /// How many times she has posted since she woke today.
-    fn posted_today(&self, now: DateTime<Utc>) -> Result<usize> {
+    /// How many times she has posted on `channel` since she woke today.
+    fn posted_today(&self, channel: &str, now: DateTime<Utc>) -> Result<usize> {
         let clock = self.life.clock();
         let day_began = clock.instant(clock.day_of(now), clock.wake());
         Ok(self
             .ghost
             .journal()
-            .last_n_of(&["posted"], self.cfg.public.posts_per_day as usize + 1)?
+            .last_n_of(&["posted"], POSTS_LOOKED_AT)?
             .iter()
-            .filter(|e| e.at >= day_began)
+            .filter(|e| {
+                e.at >= day_began
+                    && matches!(&e.event, Event::Posted { channel: c, .. } if c == channel)
+            })
             .count())
     }
 }
