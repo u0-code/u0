@@ -3,7 +3,9 @@
 //! What she can do does not depend on which loop she is in: the two differ
 //! in pace and in budget. So there is one list. Each tool says which loops
 //! it belongs to and what it needs before it can be offered at all: a
-//! machine, the web, a place that takes files. Whoever offers tools goes
+//! machine, the web, a place that takes files, a place among people rather
+//! than a terminal, a channel that can react. What a place is decides what
+//! is offered there, through these, and nothing else does. Whoever offers tools goes
 //! through this list in order, and offers what belongs to its loop and
 //! whose needs are met. What each tool is said to be is in `tools.toml`;
 //! the shared ones run through the same [`Tool`](crate::Tool) in either
@@ -48,6 +50,13 @@ pub enum Need {
     Helpers,
     /// A place where several people talk, not all of it to her.
     Group,
+    /// A place among people, where she keeps her own pace: not a terminal,
+    /// where she is waited on. Putting off an answer, reacting instead of
+    /// answering, being moved by someone and leaving them are things she
+    /// does with people, not with whoever runs her at a console.
+    Social,
+    /// A channel that can put a reaction on a message.
+    React,
     /// A registry to find servers of tools in, and leave to install them.
     Registry,
     /// Servers of tools she has, to load.
@@ -89,10 +98,10 @@ const fn entry(name: &'static str, loops: &'static [Loop], needs: &'static [Need
 /// Every tool, in the order a conversation is offered them.
 pub const TOOLS: &[Entry] = &[
     entry("say", TALK, &[]),
-    entry("react", TALK, &[]),
-    entry("later", TALK, &[]),
+    entry("react", TALK, &[Need::Social, Need::React]),
+    entry("later", TALK, &[Need::Social]),
     entry("note", BOTH, &[]),
-    entry("feel", TALK, &[]),
+    entry("feel", TALK, &[Need::Social]),
     entry("intend", TALK, &[]),
     entry("canon", TALK, &[]),
     entry("recall", BOTH, &[Need::Memory]),
@@ -118,7 +127,7 @@ pub const TOOLS: &[Entry] = &[
     entry("stop", BOTH, &[Need::UnderWay]),
     entry("send_file", TALK, &[Need::Files]),
     entry("quiet", TALK, &[Need::Group]),
-    entry("leave", TALK, &[]),
+    entry("leave", TALK, &[Need::Social]),
     entry("plan", WORK, &[]),
     entry("done", WORK, &[]),
     entry("handoff", WORK, &[]),

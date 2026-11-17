@@ -194,12 +194,10 @@ pub struct Offer {
     /// How she would take something on, if she can: what fills `{{means}}`
     /// in `undertake`.
     pub means: Option<String>,
-    /// The place takes files.
-    pub files: bool,
-    /// She has work she could steer or stop.
-    pub under_way: bool,
-    /// The place is a group.
-    pub group: bool,
+    /// What the place and she have here, as the catalog of tools asks it:
+    /// a place that takes files, work under way, a group, a place among
+    /// people, a channel that reacts.
+    pub here: Vec<Need>,
     /// The tools that reach beyond the conversation, offered here, as they
     /// are said here: the web, and her machine.
     pub reaching: Vec<ToolSpec>,
@@ -210,10 +208,10 @@ impl Offer {
     fn has(&self, need: Need) -> bool {
         match need {
             Need::Work => self.means.is_some(),
-            Need::UnderWay => self.under_way,
-            Need::Files => self.files,
-            Need::Group => self.group,
             Need::Memory => true,
+            Need::UnderWay | Need::Files | Need::Group | Need::Social | Need::React => {
+                self.here.contains(&need)
+            }
             // Those reach beyond the conversation, and are offered as
             // they are given.
             _ => false,
@@ -336,6 +334,36 @@ pub fn tools(words: &Prompts, offer: &Offer) -> Vec<ToolSpec> {
             .cloned(),
     );
     tools
+}
+
+/// What she can do here, as a brain that answers in JSON is told it: the
+/// same list a brain that takes tools is offered, so that both are offered
+/// the same things in the same place. Each is the object to write, what it
+/// is, and what its fields are for.
+pub fn listing(tools: &[ToolSpec]) -> String {
+    let mut out = String::new();
+    for tool in tools {
+        let mut object = format!("{{\"do\":\"{}\"", tool.name);
+        let mut fields = Vec::new();
+        if let Some(properties) = tool.parameters["properties"].as_object() {
+            for (field, schema) in properties {
+                let kind = schema["type"].as_str().unwrap_or("string");
+                let shown = if kind == "string" {
+                    "\"...\"".to_owned()
+                } else {
+                    format!("<{kind}>")
+                };
+                object.push_str(&format!(",\"{field}\":{shown}"));
+                if let Some(said) = schema["description"].as_str() {
+                    fields.push(format!("  \"{field}\": {said}\n"));
+                }
+            }
+        }
+        object.push('}');
+        out.push_str(&format!("- {object}\n  {}\n", tool.description));
+        out.extend(fields);
+    }
+    out
 }
 
 /// Read a deliberation out of whatever a brain wrote.

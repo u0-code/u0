@@ -75,20 +75,15 @@ impl Mind {
         let request = if with_tools && !job.items.is_empty() {
             None
         } else {
-            let names: Vec<&str> = if with_tools {
-                tools.iter().map(|t| t.name.as_str()).collect()
-            } else {
-                // Answering in JSON, she can do what reply_json.md lists.
-                ["undertake", "send_file"]
-                    .into_iter()
-                    .filter(|n| match *n {
-                        "undertake" => offer.means.is_some(),
-                        _ => offer.files,
-                    })
-                    .collect()
-            };
+            let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
             let abilities = self.abilities_here(&names);
-            Some(self.compose(place, &mut job, now, with_tools, &abilities)?)
+            // Answering in JSON, she is told the same things as a list.
+            let actions = if with_tools {
+                String::new()
+            } else {
+                actions::listing(&tools)
+            };
+            Some(self.compose(place, &mut job, now, with_tools, &abilities, &actions)?)
         };
         if with_tools {
             let spec = serde_json::to_string(&tools).unwrap_or_default();
@@ -196,6 +191,7 @@ impl Mind {
         now: DateTime<Utc>,
         with_tools: bool,
         abilities: &str,
+        actions: &str,
     ) -> Result<(String, String)> {
         let memory = self.ghost.memory();
         let tz = self.life.clock().tz();
@@ -310,17 +306,7 @@ impl Mind {
         let reply = if with_tools {
             self.prompts.reply_tools.clone()
         } else {
-            narrate::fill(
-                &self.prompts.reply_json,
-                &[(
-                    "abilities",
-                    self.abilities(
-                        self.can(&place.channel, Can::Files),
-                        self.has_work_under_way()?,
-                        place.kind == PlaceKind::Group,
-                    ),
-                )],
-            )
+            narrate::fill(&self.prompts.reply_json, &[("actions", actions.to_owned())])
         };
         let people_text = if cards.is_empty() {
             "(nobody you know yet)".to_owned()
@@ -462,11 +448,22 @@ impl Mind {
         with_tools: bool,
         loaded: &ghost_work::tools::Loaded,
     ) -> Result<Offer> {
+        let here = [
+            (Need::Files, self.can(&place.channel, Can::Files)),
+            (Need::UnderWay, self.has_work_under_way()?),
+            (Need::Group, place.kind == PlaceKind::Group),
+            (
+                Need::Social,
+                self.kind(&place.channel) != crate::Kind::Terminal,
+            ),
+            (Need::React, self.can(&place.channel, Can::React)),
+        ]
+        .into_iter()
+        .filter_map(|(need, had)| had.then_some(need))
+        .collect();
         let mut offer = Offer {
             means: self.work_means().map(str::to_owned),
-            files: self.can(&place.channel, Can::Files),
-            under_way: self.has_work_under_way()?,
-            group: place.kind == PlaceKind::Group,
+            here,
             reaching: Vec::new(),
         };
         if with_tools {
