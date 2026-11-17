@@ -284,6 +284,22 @@ Every such provider in the file is also an agent her work can hand a part
 to (`delegate` with `agent = "<provider name>"`), where her machine is a
 directory on this computer (`local:`): it runs there with its own tools and
 no approvals asked, as her own shell does, and reports when it is done.
+Each is checked when the daemon starts: whether it is installed and, for
+Codex, logged in (`codex login status`). One that cannot work is said in
+the log with the command that fixes it, and is not offered. `ghostd brains`
+shows the same for every agent:
+
+```text
+agents her work can hand parts to (where her machine is local:)
+claude-code    ready, but whether it is logged in cannot be seen without running it; …
+codex          cannot work: Codex is not logged in
+               fix: run `codex login` as the user the daemon runs as; …
+```
+
+Claude Code cannot say whether it is logged in without being run, so a
+part that finds it is not comes back with the fix and the agent is handed
+nothing more that sitting. Started from inside a Claude Code session, the
+daemon does not hand that session's variables on to the agents.
 
 | key | default | |
 |-----|---------|---|

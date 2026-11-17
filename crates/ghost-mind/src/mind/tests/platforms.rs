@@ -31,11 +31,12 @@ fn online_as(rig: &mut Rig, channel: &str, facts: crate::ChannelFacts, now: Date
 }
 
 /// A mind slow enough that, left to her own pace, she would look at a
-/// message long after a platform's limit.
+/// message long after a platform's limit, and let a burst settle for
+/// longer than the limit too.
 fn slow() -> MindConfig {
     MindConfig {
         live: false,
-        tempo: 60.0,
+        tempo: 600.0,
         ..MindConfig::default()
     }
 }

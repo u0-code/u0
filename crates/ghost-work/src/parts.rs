@@ -41,7 +41,7 @@ use ghost_brain::{Brain, ToolSpec, Usage};
 use serde_json::{Value, json};
 
 use crate::{
-    agents::{self, Agent},
+    agents::{self, Agent, Unusable},
     prompts::{self, Loop, Shared, Store},
     tool::{self, Tool, Toolbox},
     tools::{self, clip, list, outcome_of, step_number},
@@ -75,6 +75,9 @@ pub(crate) struct Parts {
     running: Mutex<HashMap<u64, tokio::task::JoinHandle<()>>>,
     /// Agents installed here that a part can be handed to.
     agents: Vec<Agent>,
+    /// Those of them found unable to work in this sitting, by name, with
+    /// why: they are handed nothing more.
+    unusable: Mutex<HashMap<String, Unusable>>,
 }
 
 impl Parts {
@@ -93,6 +96,7 @@ impl Parts {
             deadline: started + Duration::from_secs(worker.limits.max_seconds),
             running: Mutex::new(HashMap::new()),
             agents: worker.agents.clone(),
+            unusable: Mutex::new(HashMap::new()),
         })
     }
 
@@ -112,6 +116,18 @@ impl Parts {
 
     fn running(&self) -> MutexGuard<'_, HashMap<u64, tokio::task::JoinHandle<()>>> {
         self.running.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// What the work is told of an agent that cannot work here.
+    fn unusable_said(&self, name: &str, unusable: &Unusable) -> String {
+        self.fill(
+            "agent_unusable",
+            &[
+                ("agent", name.to_owned()),
+                ("why", unusable.why.clone()),
+                ("fix", unusable.fix.clone()),
+            ],
+        )
     }
 
     fn text(&self, key: &str) -> String {
@@ -179,7 +195,23 @@ impl Parts {
                 Some(agent) => {
                     let task = self.fill("agent_task", &[("task", before.task_text())]);
                     let go_on = self.text("agent_go_on");
-                    agents::run(agent, &part, &task, &go_on, &self.halt, self.deadline).await
+                    match agents::run(agent, &part, &task, &go_on, &self.halt, self.deadline).await
+                    {
+                        Ok(ended) => ended,
+                        Err(unusable) => {
+                            let said = self.unusable_said(&name, &unusable);
+                            tracing::warn!(
+                                "{name} cannot do parts here: {}. To fix: {}",
+                                unusable.why,
+                                unusable.fix
+                            );
+                            self.unusable
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .insert(name, unusable);
+                            Ended::Failed(said)
+                        }
+                    }
                 }
                 None => Ended::Failed(self.fill("no_agent", &[("agent", name)])),
             }
@@ -265,7 +297,7 @@ impl Parts {
             }
             Ended::Failed(why) => {
                 end(Outcome::Blocked);
-                self.fill("part_failed", &[("why", preview(why, 160))])
+                self.fill("part_failed", &[("why", preview(why, 800))])
             }
         };
         let state = part.state();
@@ -448,7 +480,20 @@ impl Tool for Delegate {
         if let Some(why) = step.and_then(|step| self.0.unready(step)) {
             return tool::Outcome::fail(why);
         }
-        let agent = match args.get("agent").and_then(Value::as_str).map(str::trim) {
+        let named = args.get("agent").and_then(Value::as_str).map(str::trim);
+        if let Some(name) = named {
+            let found = self
+                .0
+                .unusable
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(name)
+                .cloned();
+            if let Some(unusable) = found {
+                return tool::Outcome::fail(self.0.unusable_said(name, &unusable));
+            }
+        }
+        let agent = match named {
             None | Some("") => None,
             Some(name) if self.0.agents.iter().any(|a| a.name == name) => Some(name.to_owned()),
             Some(name) => {

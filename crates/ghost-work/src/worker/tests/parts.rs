@@ -867,7 +867,7 @@ async fn what_is_passed_on_to_an_agents_part_is_given_to_it_in_the_same_session(
         std::time::Instant::now() + std::time::Duration::from_secs(30),
     )
     .await;
-    assert_eq!(ended, Ended::Finished);
+    assert_eq!(ended, Ok(Ended::Finished));
     let runs = std::fs::read_to_string(dir.path().join("runs.txt")).unwrap();
     let runs: Vec<&str> = runs.lines().collect();
     assert_eq!(runs.len(), 2, "{runs:?}");
@@ -895,4 +895,69 @@ async fn a_part_cannot_be_handed_to_an_agent_that_is_not_here() {
         "There is no agent called codex here."
     );
     assert!(Undertaking::open(&state_db(dir.path()), "main/1", None).is_err());
+}
+
+/// An agent standing in for Claude Code that is not logged in: it answers
+/// every run with the error Claude Code gives then.
+fn logged_out_claude(dir: &std::path::Path) -> crate::agents::Agent {
+    use std::os::unix::fs::PermissionsExt;
+    let script = dir.join("claude-out");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+echo '{"type":"system","subtype":"init","session_id":"s9"}'
+echo '{"type":"result","result":"API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}} · Please run /login","is_error":true,"usage":{}}'
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::agents::Agent {
+        name: "claude-code".into(),
+        cli: ghost_brain::CliAgent {
+            kind: ghost_brain::CliKind::Claude,
+            program: script.display().to_string(),
+            model: None,
+            args: Vec::new(),
+        },
+        dir: dir.to_path_buf(),
+    }
+}
+
+#[tokio::test]
+async fn an_agent_that_is_not_logged_in_is_reported_with_the_fix_and_handed_nothing_more() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![
+        calls(
+            "delegate",
+            json!({"task": "write it", "agent": "claude-code"}),
+        ),
+        calls("wait", json!({"seconds": 10})),
+        calls(
+            "delegate",
+            json!({"task": "write it again", "agent": "claude-code"}),
+        ),
+        calls("done", json!({"outcome": "blocked", "summary": "no agent"})),
+    ];
+    let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+    with_parts(&mut worker, dir.path(), None);
+    worker.agents = vec![logged_out_claude(dir.path())];
+    worker.run().await;
+    let turns = brain.turns_of(PARENT);
+    // Its report says what is wrong and the command that fixes it, and
+    // that the fix is not the work's to make.
+    let report = messages(&turns[2])
+        .into_iter()
+        .find(|m| m.starts_with("Part 1 failed"))
+        .unwrap()
+        .to_owned();
+    assert!(report.contains("Claude Code is not logged in"), "{report}");
+    assert!(report.contains("claude setup-token"), "{report}");
+    assert!(
+        report.contains("do not install, upgrade or log in"),
+        "{report}"
+    );
+    // Nothing more is handed to it in this sitting.
+    let again = result_of(&turns[3], "delegate");
+    assert!(again.contains("Claude Code is not logged in"), "{again}");
+    assert!(Undertaking::open(&state_db(dir.path()), "main/2", None).is_err());
 }
