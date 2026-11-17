@@ -165,7 +165,8 @@ Only what you mean her to use:
 - **A headless browser**: Chromium and the libraries it needs, for instance
   with `npx playwright install --with-deps chromium` run once as root.
 - **Video**: `ffmpeg`.
-- **A command-line brain** (`claude-code` or `codex` in `ghostd.toml`): the CLI
+- **A command-line agent** (`claude-code` or `codex` in `ghostd.toml`), as
+  a brain for talking or as an agent her work hands parts to: the CLI
   installed, and logged in as her account, because it answers as whoever it
   is signed in as: `sudo -u ghost -H claude`, then log in.
 - **Backups**: `sqlite3`.

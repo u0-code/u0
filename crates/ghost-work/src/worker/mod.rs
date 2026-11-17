@@ -53,7 +53,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use self::context::{Gauge, PICTURES_KEPT, chars, unsee};
-pub use self::instructions::{opening_text, system_prompt};
+
 use crate::{
     parts::Parts,
     prompts::{Prompts, Shared},

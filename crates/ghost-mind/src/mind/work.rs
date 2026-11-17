@@ -51,17 +51,12 @@ use std::sync::{
 };
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_brain::{CliAgent, CliKind};
 use ghost_core::{
     journal::Event,
     memory::{Person, PlaceState},
     will::{self, Stage},
 };
-use ghost_work::{
-    Ended, Limits, Report, Undertaking, WORK_DB, Worker, claude, codex, tools,
-    undertaking::Kept,
-    worker::{opening_text, system_prompt},
-};
+use ghost_work::{Ended, Limits, Report, Undertaking, WORK_DB, Worker, tools, undertaking::Kept};
 
 /// How often she glances at what a sitting in progress has told her.
 const GLANCE: Duration = Duration::seconds(30);
@@ -81,22 +76,15 @@ pub(super) struct Working {
     pub stopped_by: Option<String>,
 }
 
-/// What moves a sitting from one step to the next.
-enum Stepper {
-    /// Our own loop, over a brain that can take tools.
-    Own(Arc<dyn ghost_brain::Brain>),
-    /// A command-line agent that brings its loop and is given our tools.
-    Cli(CliAgent),
-}
-
 impl Mind {
-    /// How she would work, if she can in this body.
-    fn stepper(&self) -> Option<Stepper> {
-        if let Some(brain) = [&self.think, &self.tick].into_iter().find(|b| b.works()) {
-            return Some(Stepper::Own(brain.clone()));
-        }
-        self.workshop.runner.as_ref()?;
-        self.think.cli().map(Stepper::Cli)
+    /// The brain her own loop steps work with, if this body has one that
+    /// can take tools. A command-line agent cannot: it does parts of work
+    /// it is handed, with its own loop, and never steps hers.
+    fn working_brain(&self) -> Option<Arc<dyn ghost_brain::Brain>> {
+        [&self.think, &self.tick]
+            .into_iter()
+            .find(|b| b.works())
+            .cloned()
     }
 
     /// The undertaking `id` in her work database, started from `brief` if
@@ -114,7 +102,7 @@ impl Mind {
 
     /// Whether taking things on is possible at all in this body.
     pub(super) fn can_work(&self) -> bool {
-        self.cfg.work.enabled && self.stepper().is_some()
+        self.cfg.work.enabled && self.working_brain().is_some()
     }
 
     /// She decided to take something on. Returns why not, if it is refused.
@@ -257,7 +245,7 @@ impl Mind {
     /// Sit down to the next piece of work, if one can be. Returns whether
     /// anything changed that makes it worth looking for another.
     fn sit_down(&mut self, now: DateTime<Utc>) -> Result<bool> {
-        let Some(stepper) = self.stepper().filter(|_| self.cfg.work.enabled) else {
+        let Some(brain) = self.working_brain().filter(|_| self.cfg.work.enabled) else {
             return Ok(false);
         };
         let open = self.ghost.memory().undertakings(true, 20)?;
@@ -347,7 +335,7 @@ impl Mind {
             }
         };
         self.budget.spend(now);
-        self.sit(&next, undertaking, stepper, now)?;
+        self.sit(&next, undertaking, brain, now)?;
         Ok(true)
     }
 
@@ -356,7 +344,7 @@ impl Mind {
         &mut self,
         next: &ghost_core::memory::Undertaking,
         undertaking: Arc<Undertaking>,
-        stepper: Stepper,
+        brain: Arc<dyn ghost_brain::Brain>,
         now: DateTime<Utc>,
     ) -> Result<()> {
         let before = undertaking.state().steps;
@@ -401,9 +389,8 @@ impl Mind {
         let tools = equip(&undertaking)
             .with(tools::Keep::new(undertaking.clone()))
             .with(tools::Tell::new(undertaking.clone()));
-        // With someone to ask and her own loop to carry the question, she
-        // can stop and ask.
-        let tools = if next.asked_by.is_some() && matches!(stepper, Stepper::Own(_)) {
+        // With someone to ask, she can stop and ask.
+        let tools = if next.asked_by.is_some() {
             tools.with(tools::Ask::new(undertaking.clone()))
         } else {
             tools
@@ -438,91 +425,28 @@ impl Mind {
         );
         self.work_at(now + GLANCE);
         let id = next.id.clone();
-        match stepper {
-            Stepper::Own(brain) => {
-                let worker = Worker {
-                    brain,
-                    tools,
-                    undertaking,
-                    limits,
-                    who,
-                    machine: place,
-                    pause,
-                    helpers: Some(equip),
-                    prompts: shared,
-                    agents: self.workshop.agents.clone(),
-                };
-                self.jobs.spawn(async move {
-                    let report = worker.run().await;
-                    Outcome::Worked {
-                        id,
-                        before,
-                        report,
-                        progress: worker.undertaking.state().progress(),
-                        record: worker.undertaking,
-                    }
-                });
+        let worker = Worker {
+            brain,
+            tools,
+            undertaking,
+            limits,
+            who,
+            machine: place,
+            pause,
+            helpers: Some(equip),
+            prompts: shared,
+            agents: self.workshop.agents.clone(),
+        };
+        self.jobs.spawn(async move {
+            let report = worker.run().await;
+            Outcome::Worked {
+                id,
+                before,
+                report,
+                progress: worker.undertaking.state().progress(),
+                record: worker.undertaking,
             }
-            Stepper::Cli(agent) => {
-                // The agent is handed her tools by a server it starts itself.
-                let mut tool_server = vec![
-                    self.workshop
-                        .runner
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default(),
-                    "--serve-mcp".to_owned(),
-                    // Her work database, and which undertaking in it.
-                    // Absolute: the agent starts the server from elsewhere.
-                    "--state".to_owned(),
-                    self.ghost
-                        .dir()
-                        .canonicalize()
-                        .unwrap_or_else(|_| self.ghost.dir().to_path_buf())
-                        .display()
-                        .to_string(),
-                    "--id".to_owned(),
-                    id.clone(),
-                    // She follows it as it runs.
-                    "--tell".to_owned(),
-                ];
-                // The deployment's prompts, so that the server describes
-                // her tools in the same words she is given them.
-                if let Some(dir) = &self.cfg.prompts {
-                    tool_server.extend([
-                        "--prompts".to_owned(),
-                        dir.canonicalize()
-                            .unwrap_or_else(|_| dir.clone())
-                            .display()
-                            .to_string(),
-                    ]);
-                }
-                tool_server.extend(self.workshop.runner_args.iter().cloned());
-                let seat = claude::Seat {
-                    agent,
-                    system: system_prompt(&words, &who, &place, &limits),
-                    opening: opening_text(&words, &undertaking.state()),
-                    undertaking,
-                    tool_server,
-                    max_turns: limits.max_steps,
-                    max_seconds: limits.max_seconds,
-                    stop: pause,
-                };
-                self.jobs.spawn(async move {
-                    let report = match seat.agent.kind {
-                        CliKind::Claude => claude::sit(&seat).await,
-                        CliKind::Codex => codex::sit(&seat).await,
-                    };
-                    Outcome::Worked {
-                        id,
-                        before,
-                        report,
-                        progress: seat.undertaking.state().progress(),
-                        record: seat.undertaking,
-                    }
-                });
-            }
-        }
+        });
         Ok(())
     }
 

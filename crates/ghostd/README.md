@@ -378,8 +378,10 @@ The rest only matters where the channel has a feed and takes posts (X).
 ### `[mind.work]`
 
 Taking things on: work that needs more than one thought, done in sittings
-in her own time. It needs a brain that can run tools: any API provider, or
-the `claude-code` relay.
+in her own time. It needs a brain that can run tools: an API provider
+(`anthropic` or `openai`). A `claude-code` or `codex` provider does not step
+her work; where her machine is `local:`, it is an agent her work can hand
+parts to.
 
 | key | default | |
 |-----|---------|---|

@@ -10,7 +10,7 @@ publish.workspace = true
 
 [[bin]]
 name = "ghost-work"
-path = "src/bin/ghost-work.rs"
+path = "src/bin/ghost-work/main.rs"
 
 [dependencies]
 anyhow = "1.0.104"
