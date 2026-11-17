@@ -351,7 +351,6 @@ fn dm(from: &str, id: &str, text: &str) -> Incoming {
         reply_to: None,
         addressed: true,
         images: Vec::new(),
-        directive: false,
     }
 }
 
@@ -439,6 +438,7 @@ impl Rig {
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::React, Can::Post, Can::Feed],
+                kind: crate::Kind::Chat,
             },
             now,
         )
@@ -493,6 +493,11 @@ impl Rig {
                         automated: true,
                     }),
                     can: vec![Can::Send, Can::Typing],
+                    kind: if channel == crate::CONSOLE {
+                        crate::Kind::Terminal
+                    } else {
+                        crate::Kind::Chat
+                    },
                 },
                 now,
             )
@@ -643,7 +648,6 @@ fn group(place: &str, from: &str, id: &str, text: &str, addressed: bool) -> Inco
         reply_to: None,
         addressed,
         images: Vec::new(),
-        directive: false,
     }
 }
 
@@ -777,6 +781,7 @@ fn takes_files(rig: &mut Rig, now: DateTime<Utc>) {
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::Files],
+                kind: crate::Kind::Chat,
             },
             now,
         )

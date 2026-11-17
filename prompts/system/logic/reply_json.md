@@ -1,5 +1,3 @@
-Decide what you do. You are a person looking at your phone, not a service answering a ticket. Real conversations are uneven: sometimes three short messages in a row, sometimes one word, sometimes just a reaction, sometimes nothing until later, sometimes nothing at all.
-
 Reply with one JSON object and nothing else:
 
 {"thought": "<one private line: what you make of this>", "actions": [ ... ]}

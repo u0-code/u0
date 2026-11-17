@@ -200,6 +200,7 @@ enum Signal {
         channel: String,
         me: Option<Actor>,
         can: Vec<Can>,
+        kind: crate::Kind,
     },
     Offline {
         channel: String,
@@ -253,12 +254,20 @@ impl MindHandle {
         .await
     }
 
-    /// A channel became reachable. `me` is who she is there.
-    pub async fn online(&self, channel: &str, me: Option<Actor>, can: Vec<Can>) -> Result<()> {
+    /// A channel became reachable. `me` is who she is there, and `kind`
+    /// what sort of place it is.
+    pub async fn online(
+        &self,
+        channel: &str,
+        me: Option<Actor>,
+        can: Vec<Can>,
+        kind: crate::Kind,
+    ) -> Result<()> {
         self.send(Signal::Online {
             channel: channel.to_owned(),
             me,
             can,
+            kind,
         })
         .await
     }
@@ -410,6 +419,7 @@ enum Outcome {
 struct Channel {
     me: Option<Actor>,
     can: Vec<Can>,
+    kind: crate::Kind,
 }
 
 struct Attend {
@@ -695,14 +705,20 @@ impl Mind {
                     attend.due = attend.due.max(floor);
                 }
             }
-            Signal::Online { channel, me, can } => {
+            Signal::Online {
+                channel,
+                me,
+                can,
+                kind,
+            } => {
                 info!(
                     "{channel} is reachable{}",
                     me.as_ref()
                         .map(|m| format!(" as {}", m.handle.as_deref().unwrap_or(&m.name)))
                         .unwrap_or_default()
                 );
-                self.channels.insert(channel.clone(), Channel { me, can });
+                self.channels
+                    .insert(channel.clone(), Channel { me, can, kind });
                 for place in self.ghost.memory().places_unread()? {
                     if place.channel == channel {
                         self.schedule_attend(&place.key, now)?;
@@ -851,6 +867,26 @@ impl Mind {
             }
             Outcome::Done
         });
+    }
+
+    /// What sort of place `channel` is, as it said when it came online.
+    /// Out of reach, the console is still the terminal it always is, and
+    /// anything else is taken for a chat.
+    pub(super) fn kind(&self, channel: &str) -> crate::Kind {
+        match self.channels.get(channel) {
+            Some(c) => c.kind,
+            None if channel == crate::CONSOLE => crate::Kind::Terminal,
+            None => crate::Kind::Chat,
+        }
+    }
+
+    /// The pace she keeps at `place_key`: none at a terminal, where she is
+    /// waited on, and her own everywhere else.
+    pub(super) fn pace(&self, place_key: &str) -> Tempo {
+        match social::split_key(place_key) {
+            Some((channel, _)) if self.kind(channel) == crate::Kind::Terminal => Tempo::new(0.0),
+            _ => self.tempo,
+        }
     }
 
     fn can(&self, channel: &str, what: Can) -> bool {

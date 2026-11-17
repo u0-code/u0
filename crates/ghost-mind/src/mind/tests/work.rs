@@ -179,6 +179,7 @@ async fn what_she_made_is_handed_over_as_a_file() {
                     automated: true,
                 }),
                 can: vec![Can::Send, Can::Typing, Can::Files],
+                kind: crate::Kind::Chat,
             },
             t0,
         )

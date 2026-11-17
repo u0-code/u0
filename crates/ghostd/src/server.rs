@@ -28,7 +28,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
-use ghost_mind::{Act, Acted, Body, MindHandle, Question};
+use ghost_mind::{Act, Acted, Body, Kind, MindHandle, Question};
 use ghost_protocol::{
     Action, Actor, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead, ListGhosts,
     LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome, code, method,
@@ -86,7 +86,9 @@ impl Presences {
     /// there and have nothing new to say. The console's channel is always
     /// there, since what she says on it is kept in her journal.
     pub async fn announce(&self, mind: &MindHandle) {
-        let _ = mind.online(CONSOLE, None, operator::CAN.to_vec()).await;
+        let _ = mind
+            .online(CONSOLE, None, operator::CAN.to_vec(), Kind::Terminal)
+            .await;
         let present: Vec<(String, Option<Actor>, Vec<Capability>)> =
             self.channels.lock().map_or_else(
                 |_| Vec::new(),
@@ -99,7 +101,9 @@ impl Presences {
             );
         for (channel, me, can) in present {
             let can = can.into_iter().map(wire::can).collect();
-            let _ = mind.online(&channel, me.map(wire::actor), can).await;
+            let _ = mind
+                .online(&channel, me.map(wire::actor), can, Kind::Chat)
+                .await;
         }
     }
 }
@@ -419,7 +423,7 @@ async fn carry<S>(
     let can = hello.can.into_iter().map(wire::can).collect();
     let _ = who
         .mind()
-        .online(&channel, hello.me.map(wire::actor), can)
+        .online(&channel, hello.me.map(wire::actor), can, Kind::Chat)
         .await;
 
     loop {

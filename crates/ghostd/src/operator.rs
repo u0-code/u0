@@ -34,7 +34,7 @@ use ghost_core::social::{self, Actor, Place, PlaceKind};
 use ghost_mind::{Act, Acted, Can, Incoming, Operator, Order, Refused};
 use ghost_protocol::{
     CONSOLE, ConsoleRewind, ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped,
-    Frame, SayMode, WorkAnswer, WorkStop, code, method,
+    Frame, WorkAnswer, WorkStop, code, method,
 };
 
 use crate::cast::Character;
@@ -119,7 +119,6 @@ pub(crate) async fn say(
             reply_to: None,
             addressed: true,
             images: Vec::new(),
-            directive: said.mode == SayMode::Directive,
         },
     )
     .await;

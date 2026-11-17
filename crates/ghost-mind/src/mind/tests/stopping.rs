@@ -22,6 +22,11 @@ fn from_fox(id: &str, text: &str) -> Incoming {
 /// Every time she was stopped: by whom, whether in the middle of a look,
 /// what went unsaid and what work with it.
 fn stops(rig: &Rig) -> Vec<(String, bool, Vec<String>, Vec<String>)> {
+    stops_in(rig, "console:fox")
+}
+
+/// The same, where every stop is to have been in `at`.
+fn stops_in(rig: &Rig, at: &str) -> Vec<(String, bool, Vec<String>, Vec<String>)> {
     rig.mind
         .ghost
         .journal()
@@ -36,7 +41,7 @@ fn stops(rig: &Rig) -> Vec<(String, bool, Vec<String>, Vec<String>)> {
                 unsaid,
                 works,
             } => {
-                assert_eq!(place, "console:fox");
+                assert_eq!(place, at);
                 Some((by, looking, unsaid, works))
             }
             _ => None,
@@ -219,27 +224,24 @@ async fn an_answer_already_back_when_she_was_stopped_is_let_go_and_the_next_look
 #[tokio::test]
 async fn stopped_while_she_is_typing_nothing_she_meant_to_say_is_sent() {
     let t0 = at(14, 0);
+    // In a chat, where she types at her own pace: at a terminal she
+    // answers at once, and there is no typing to be stopped in.
     let mut rig = Rig::quiet(t0);
-    rig.online(CONSOLE, t0);
     rig.think.then(
         r#"{"thought":"","actions":[{"do":"say","text":"half past nine"},{"do":"say","text":"I think"}]}"#,
     );
-    rig.hear_on(
-        CONSOLE,
-        from_fox("1", "what time does the tea house close"),
-        t0,
-    );
+    rig.hear(dm("wen", "1", "what time does the tea house close"), t0);
     let now = rig
-        .until(|r| r.mind.agenda.speaking.contains_key("console:fox"))
+        .until(|r| r.mind.agenda.speaking.contains_key("t:wen"))
         .await;
     assert!(rig.body.sent().is_empty());
 
-    assert!(rig.mind.interrupt("console:fox", &fox(), now).unwrap());
+    assert!(rig.mind.interrupt("t:wen", &fox(), now).unwrap());
     assert!(rig.mind.agenda.speaking.is_empty());
     rig.pump(now + Duration::hours(1)).await;
     assert!(rig.body.sent().is_empty(), "{:?}", rig.body.sent());
     assert_eq!(
-        stops(&rig),
+        stops_in(&rig, "t:wen"),
         [(
             "console:fox".to_owned(),
             false,
@@ -255,9 +257,7 @@ async fn work_directed_where_she_was_stopped_goes_on_and_is_stopped_only_from_it
     let mut rig = Rig::quiet(t0);
     rig.online(CONSOLE, t0);
     at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
-    let mut told = from_fox("1", "draw the east gate");
-    told.directive = true;
-    rig.hear_on(CONSOLE, told, t0);
+    rig.hear_on(CONSOLE, from_fox("1", "draw the east gate"), t0);
     let (person, place) = {
         let memory = rig.mind.ghost.memory();
         (

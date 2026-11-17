@@ -20,13 +20,12 @@ addr = "127.0.0.1:7438"
 
 [mind]
 prompts = "prompts/system/desk"
-tempo = 0.05
 # No day of its own, no weather, no feeds: it waits for tasks.
 live = false
 weather = false
 posts_per_day = 0
 browse_minutes = [0, 0]
-# In conversation it may use its machine straight away.
+# Enough turns to look things up before answering.
 talk_steps = 12
 
 [mind.work]

@@ -39,7 +39,6 @@ pub fn incoming(m: wire::Inbound) -> Incoming {
         reply_to: m.reply_to,
         addressed: m.addressed,
         images: m.images.into_iter().map(|i| i.url).collect(),
-        directive: false,
     }
 }
 
