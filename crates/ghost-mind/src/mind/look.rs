@@ -9,7 +9,7 @@ use ghost_core::{
     prompts::Loop,
     social::PlaceKind,
     when::when,
-    will::{self, Stage},
+    will,
 };
 use ghost_work::{
     Toolbox,
@@ -57,7 +57,7 @@ impl Mind {
             self.think.clone()
         };
         let with_tools = self.cfg.talk_tools && brain.works();
-        let offer = self.offer(place, with_tools, &job.loaded, now)?;
+        let offer = self.offer(place, with_tools, &job.loaded)?;
         let mut tools = actions::tools(&self.prompts, &offer);
         // On the last turn of a look nothing more can come back to her, so
         // only what acts is offered, and she is told so: a look that runs out
@@ -471,7 +471,6 @@ impl Mind {
         place: &PlaceState,
         with_tools: bool,
         loaded: &ghost_work::tools::Loaded,
-        now: DateTime<Utc>,
     ) -> Result<Offer> {
         let mut offer = Offer {
             means: self.work_means().map(str::to_owned),
@@ -483,7 +482,7 @@ impl Mind {
         if with_tools {
             let glance = self.prompts.text("at_a_glance");
             offer.reaching = self
-                .reaching(place, loaded, now)?
+                .reaching(loaded)
                 .specs(self.prompts.store(), Loop::Conversation)
                 .into_iter()
                 .map(|mut spec| {
@@ -495,56 +494,21 @@ impl Mind {
         Ok(offer)
     }
 
-    /// The tools that reach beyond a conversation, as she has them in
-    /// `place`: the web, if she has it; her machine, if she has one and
-    /// may use it here; the servers of tools she has, with the tools of
-    /// those `loaded` in this look; and her skills.
-    pub(super) fn reaching(
-        &self,
-        place: &PlaceState,
-        loaded: &ghost_work::tools::Loaded,
-        now: DateTime<Utc>,
-    ) -> Result<Toolbox> {
+    /// The tools that reach beyond a conversation, as she has them: the
+    /// web, if she has it; the servers of tools she has, with
+    /// the tools of those `loaded` in this look; and her skills. Never her
+    /// machine: what runs or changes something is work.
+    pub(super) fn reaching(&self, loaded: &ghost_work::tools::Loaded) -> Toolbox {
         let web = self.cfg.work.web.then_some(&self.workshop.web);
-        let machine = if self.machine_here(place, now)? {
-            self.workshop.machine.clone()
-        } else {
-            None
-        };
-        let tools = ghost_work::tools::reaching(web, machine);
+        let tools = ghost_work::tools::reaching(web);
         let tools = match &self.workshop.servers {
             Some(servers) => ghost_work::tools::with_servers(tools, servers, loaded, false),
             None => tools,
         };
-        Ok(match &self.workshop.skills {
+        match &self.workshop.skills {
             Some(skills) => ghost_work::tools::with_skills(tools, skills, false),
             None => tools,
-        })
-    }
-
-    /// Whether she may use her machine in the middle of this conversation.
-    /// Nobody she does not know well gets her hands on a shell, here any
-    /// more than at work: only in private, with a friend or closer. Those
-    /// who run her body are not held to that: where one of them has given
-    /// her a directive, or in private with one of them, it is there.
-    fn machine_here(&self, place: &PlaceState, now: DateTime<Utc>) -> Result<bool> {
-        if !self.cfg.talk_machine || self.workshop.machine.is_none() {
-            return Ok(false);
         }
-        if place.unread_directed > 0 {
-            return Ok(true);
-        }
-        if place.kind != PlaceKind::Direct {
-            return Ok(false);
-        }
-        Ok(self
-            .ghost
-            .memory()
-            .person_of_direct(&place.key)?
-            .is_some_and(|p| {
-                self.cfg.operators.includes(&p.channel, &p.id)
-                    || will::standing(&p, now).stage >= Stage::Friend
-            }))
     }
 
     /// What she is told she can do here, from the tools offered here that

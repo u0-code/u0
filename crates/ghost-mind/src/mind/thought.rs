@@ -338,7 +338,7 @@ impl Mind {
             return self.conclude(job, place, now);
         }
         let mut again = false;
-        let reaching = self.reaching(place, &job.loaded, now)?;
+        let reaching = self.reaching(&job.loaded);
         let reachable = reaching.names();
         let mut outside = Vec::new();
         // The round as the record of her looks keeps it, call by call;

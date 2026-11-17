@@ -25,15 +25,10 @@ pub struct MindConfig {
     /// she does is tool calls: enough to look something up, open it and
     /// remember something before answering, and no more.
     pub talk_steps: u8,
-    /// Seconds one search, page, picture or command may take in the middle
+    /// Seconds one search, page or picture may take in the middle
     /// of a conversation before it is left and she is told so. Anything
     /// longer is work.
     pub talk_tool_seconds: u64,
-    /// Let her use her machine (`shell`, `read`, `write`, `edit`) in the
-    /// middle of a conversation, as she does at work, kept small by the
-    /// conversation's pace. Only in a private conversation with someone at
-    /// least a friend: the same floor as taking work on with a machine.
-    pub talk_machine: bool,
     /// Ceiling on brain calls per hour. `0` means no ceiling.
     pub calls_per_hour: u32,
     /// Most public posts she will make in a day.
@@ -262,7 +257,6 @@ impl Default for MindConfig {
             talk_tools: true,
             talk_steps: 8,
             talk_tool_seconds: 30,
-            talk_machine: true,
             calls_per_hour: 120,
             posts_per_day: 3,
             browse_minutes: [45, 150],
