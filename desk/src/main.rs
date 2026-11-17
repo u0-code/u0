@@ -34,6 +34,7 @@ mod settings;
 mod sheet;
 mod sidebar;
 mod solver;
+mod syntax;
 mod theme;
 mod thread;
 mod ui;

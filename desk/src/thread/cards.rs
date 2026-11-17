@@ -69,7 +69,7 @@ pub(super) fn tool(
                 .flex_none(),
         )
         .child(
-            ui::mono(faces, what.to_owned())
+            ui::mono(faces, calls::fit(what, 60))
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
@@ -146,7 +146,7 @@ pub(super) fn task(
         .overflow_hidden()
         .gap(px(2.))
         .child(
-            ui::one_line(ui::text(faces, t.title().to_owned()))
+            ui::one_line(ui::text(faces, calls::fit(t.title(), 76)))
                 .whitespace_nowrap()
                 .text_size(px(BODY - 1.))
                 .line_height(px(20.))
@@ -155,11 +155,14 @@ pub(super) fn task(
         .child(
             ui::one_line(ui::text(
                 faces,
-                if standing && !said_already {
-                    format!("{} · {done}", state.word())
-                } else {
-                    done
-                },
+                calls::fit(
+                    &if standing && !said_already {
+                        format!("{} · {done}", state.word())
+                    } else {
+                        done
+                    },
+                    84,
+                ),
             ))
             .whitespace_nowrap()
             .text_size(px(SMALL))
@@ -253,7 +256,69 @@ pub(super) fn task(
                 .children(parts(faces, t, following, expanded, cx)),
         );
     }
-    whole
+    // What it handed over, as small cards under it, once it is done: each
+    // opens where it is on the machine.
+    let files: Vec<String> = t
+        .events
+        .iter()
+        .chain(t.parts.iter().flat_map(|p| p.events.iter()))
+        .filter(|e| e.kind == "reported")
+        .filter_map(|e| e.data.get("files").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    if state != State::Finished || files.is_empty() {
+        return whole;
+    }
+    let mut chips = div().flex().flex_wrap().gap(px(S2));
+    for (i, file) in files.into_iter().enumerate() {
+        let out = super::Output {
+            file: file.clone(),
+            source: super::Source::Report,
+        };
+        chips = chips.child(
+            div()
+                .id(SharedString::from(format!("out:{}:{i}", t.id)))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .pl(px(10.))
+                .pr(px(14.))
+                .py(px(S2))
+                .rounded(px(CARD_RADIUS))
+                .border_1()
+                .border_color(theme::border())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::bubble()))
+                .child(ui::icon("file", 18.).text_color(theme::muted()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            ui::text(faces, calls::fit(out.name(), 40))
+                                .text_size(px(13.5))
+                                .text_color(theme::text()),
+                        )
+                        .child(
+                            ui::text(faces, out.kind())
+                                .text_size(px(12.))
+                                .text_color(theme::muted()),
+                        ),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.reveal(std::path::Path::new(&file), cx);
+                })),
+        );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .gap(px(S3))
+        .child(whole)
+        .child(chips)
 }
 
 /// What a piece of work asks, under its card's head: the question in her

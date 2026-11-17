@@ -11,7 +11,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
-use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px, relative};
+use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
 use super::{
     Item, View, ago,
@@ -89,7 +89,8 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     mine,
                 };
                 if mine {
-                    let el = yours(faces, &m, whose, who, view.tz, cx).into_any_element();
+                    let el =
+                        yours(faces, &m, whose, who, view.tz, view.expanded, cx).into_any_element();
                     (el, Before::Yours)
                 } else {
                     // Someone else's line, on a platform: under their name,
@@ -123,12 +124,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 (el.into_any_element(), Before::Other)
             }
             Item::Stopped(stopped) => {
-                let word = if stopped {
-                    "Stopped"
-                } else {
-                    "Nothing was running to stop"
-                };
-                let el = note(faces, format!("{word} · {}", clock(at, view.tz)));
+                let el = note(faces, stopped, clock(at, view.tz));
                 (el.into_any_element(), Before::Other)
             }
         };
@@ -177,6 +173,11 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .into_any_element()
 }
 
+/// The widest your bubble grows, and how many lines of it show before the
+/// rest is folded.
+const BUBBLE_WIDTH: f32 = 520.;
+const BUBBLE_LINES: usize = 8;
+
 /// The space above what she is doing now, after what came last.
 fn gap_after(before: Before) -> f32 {
     if before == Before::Yours { S4 } else { TURN }
@@ -218,15 +219,41 @@ pub(super) fn breathing(dot: Div) -> Div {
     dot.opacity(breath(EPOCH.get_or_init(std::time::Instant::now).elapsed()))
 }
 
-/// A small, quiet line in the thread: something that happened rather than
-/// something said.
-fn note(faces: &Faces, text: String) -> Div {
+/// A stop asked for from the desk, as a quiet line: a square, filled when
+/// something was stopped and empty when nothing was running, and when.
+fn note(faces: &Faces, stopped: bool, at: String) -> Div {
+    let square = div().size(px(8.)).rounded(px(1.5));
+    let square = if stopped {
+        square.bg(theme::faint())
+    } else {
+        square.border_1().border_color(theme::faint())
+    };
     div()
         .flex()
         .items_center()
-        .gap(px(10.))
-        .child(ui::dot(theme::faint()).size(px(6.)))
-        .child(meta(faces, text).text_color(theme::muted()))
+        .gap(px(S2))
+        .h(px(28.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(14.))
+                .child(square),
+        )
+        .child(
+            ui::text(
+                faces,
+                if stopped {
+                    "Stopped."
+                } else {
+                    "Nothing was running."
+                },
+            )
+            .text_size(px(ROW - 1.))
+            .text_color(theme::muted()),
+        )
+        .child(meta(faces, at))
 }
 
 /// Where her answer would be, when she could not think: why, calmly, and
@@ -239,7 +266,45 @@ fn failed(
     again: Option<(String, i64)>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    let mut line = div()
+    let button = |id: String, text: &'static str| {
+        div()
+            .id(SharedString::from(id))
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(px(28.))
+            .px(px(10.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme::border2())
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::bubble()))
+            .child(
+                ui::text(faces, text)
+                    .text_size(px(SMALL))
+                    .text_color(theme::text()),
+            )
+    };
+    let stamp = at.timestamp_millis();
+    let mut buttons = div().flex().gap(px(S2));
+    if let Some((text, seq)) = again {
+        buttons = buttons.child(button(format!("again-{stamp}"), "Try again").on_click(
+            cx.listener(move |this, _, window, cx| {
+                this.take_back(&text, seq, window, cx);
+            }),
+        ));
+    }
+    buttons = buttons.child(button(format!("brain-{stamp}"), "Switch brain").on_click(
+        cx.listener(|this, _, window, cx| {
+            this.open_menu(
+                crate::desk::Menu::Brains,
+                crate::desk::At::Composer,
+                window,
+                cx,
+            );
+        }),
+    ));
+    div()
         .flex()
         .items_start()
         .gap(px(10.))
@@ -248,7 +313,7 @@ fn failed(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(S1))
+                .gap(px(S2))
                 .flex_1()
                 .min_w(px(0.))
                 .child(
@@ -257,38 +322,9 @@ fn failed(
                         .line_height(px(BODY_LINE))
                         .text_color(theme::muted()),
                 )
+                .child(buttons)
                 .child(meta(faces, clock(at, tz))),
-        );
-    if let Some((text, seq)) = again {
-        line = line.child(
-            div()
-                .id(SharedString::from(format!(
-                    "again-{}",
-                    at.timestamp_millis()
-                )))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(5.))
-                .h(px(24.))
-                .px(px(S2))
-                .rounded(px(6.))
-                .border_1()
-                .border_color(theme::border2())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon("retry", 12.).text_color(theme::muted()))
-                .child(
-                    ui::text(faces, "Retry")
-                        .text_size(px(SMALL))
-                        .text_color(theme::text2()),
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.take_back(&text, seq, window, cx);
-                })),
-        );
-    }
-    line
+        )
 }
 
 /// The line under the last thing you said while nothing has answered and
@@ -396,17 +432,37 @@ fn theirs(
             )
         })
         .child(meta(faces, ago(m.at, tz)));
-    div()
+    // Their mark: the first letter of their name on a small round tile,
+    // only beside the first of their lines in a row.
+    let initial: String = who.chars().take(1).collect();
+    let mark = div()
         .flex()
-        .flex_col()
-        .gap(px(2.))
-        .when(named, |d| d.child(head))
-        .child(
-            ui::text(faces, m.text.clone())
-                .text_size(px(BODY))
-                .line_height(px(BODY_LINE))
-                .text_color(theme::text()),
-        )
+        .flex_none()
+        .size(px(24.))
+        .items_center()
+        .justify_center()
+        .when(named, |d| {
+            d.rounded_full().bg(theme::border2()).child(
+                ui::text(faces, initial)
+                    .text_size(px(11.))
+                    .text_color(theme::text2()),
+            )
+        });
+    div().flex().items_start().gap(px(10.)).child(mark).child(
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .gap(px(2.))
+            .when(named, |d| d.child(head))
+            .child(
+                ui::text(faces, m.text.clone())
+                    .text_size(px(BODY))
+                    .line_height(px(BODY_LINE))
+                    .text_color(theme::text()),
+            ),
+    )
 }
 
 fn yours(
@@ -415,6 +471,7 @@ fn yours(
     whose: Whose,
     who: &str,
     tz: chrono_tz::Tz,
+    expanded: &std::collections::HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
     let Whose {
@@ -431,6 +488,16 @@ fn yours(
         line = format!("{line} · directed · #{seq}");
     }
     let (again, copy) = (m.text.clone(), m.text.clone());
+    // A long line of yours shows its first eight lines until it is opened.
+    let fold_key = format!("bubble-{stamp}");
+    let all = expanded.contains(&fold_key);
+    let lines = m.text.lines().count();
+    let shown_text = if lines > BUBBLE_LINES && !all {
+        let head: Vec<&str> = m.text.lines().take(BUBBLE_LINES).collect();
+        format!("{}…", head.join("\n"))
+    } else {
+        m.text.clone()
+    };
     let mut foot = div()
         .flex()
         .items_center()
@@ -462,7 +529,7 @@ fn yours(
         .gap(px(S2))
         .child(
             div()
-                .max_w(relative(0.8))
+                .max_w(px(BUBBLE_WIDTH))
                 .px(px(S4))
                 .py(px(S3))
                 .rounded(px(BUBBLE_RADIUS))
@@ -471,11 +538,27 @@ fn yours(
                     d.border_1().border_color(theme::purple().opacity(0.4))
                 })
                 .child(
-                    ui::text(faces, m.text.clone())
+                    ui::text(faces, shown_text)
                         .text_size(px(BODY))
                         .line_height(px(BODY_LINE)),
                 ),
         )
+        .when(lines > BUBBLE_LINES && !all, |d| {
+            let toggle = fold_key.clone();
+            d.child(
+                div()
+                    .id(SharedString::from(fold_key.clone()))
+                    .mr(px(S1))
+                    .cursor_pointer()
+                    .child(
+                        ui::text(faces, format!("Show all {lines} lines"))
+                            .text_size(px(SMALL))
+                            .text_color(theme::muted())
+                            .hover(|s| s.text_color(theme::text())),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
+            )
+        })
         .child(foot)
 }
 

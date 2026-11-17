@@ -212,7 +212,7 @@ pub(crate) fn running_lead() -> AnyElement {
 /// has run, or that it waits on you.
 pub(crate) fn open_standing(state: State, started: Option<DateTime<Utc>>) -> (String, gpui::Hsla) {
     match state {
-        State::Waiting => ("waiting".to_owned(), theme::purple()),
+        State::Waiting => ("waiting".to_owned(), theme::accent()),
         _ => (
             started.map_or_else(String::new, |t| {
                 thread::span((Utc::now() - t).num_seconds())

@@ -453,7 +453,7 @@ impl Desk {
             .child(name)
             .children(thread::session_state(tasks).map(|st| {
                 ui::dot(match st {
-                    State::Waiting => theme::purple(),
+                    State::Waiting => theme::accent(),
                     _ => theme::accent(),
                 })
             }))

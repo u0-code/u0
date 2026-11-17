@@ -169,7 +169,7 @@ impl Desk {
                 ui::text(faces, question.to_owned())
                     .text_size(px(12.5))
                     .line_height(px(18.))
-                    .text_color(theme::purple()),
+                    .text_color(theme::text2()),
             );
             if ask.kind == Some(AskKind::Choose) && !ask.options.is_empty() {
                 let mut options = div().flex().flex_wrap().gap(px(6.));

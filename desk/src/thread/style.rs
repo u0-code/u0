@@ -63,7 +63,7 @@ pub const WELL_RADIUS: f32 = 12.;
 /// A line of small print under a message or beside a step: who, when,
 /// how long.
 pub fn meta(faces: &Faces, text: impl Into<gpui::SharedString>) -> Div {
-    ui::mono(faces, text)
+    ui::text(faces, text)
         .text_size(px(META))
         .line_height(px(18.))
         .text_color(theme::faint())
