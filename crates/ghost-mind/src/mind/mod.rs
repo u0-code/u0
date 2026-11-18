@@ -91,6 +91,9 @@ pub struct Workshop {
     /// Where her shell and files are. `None` means she can look things up
     /// and think, and nothing else.
     pub machine: Option<Arc<dyn ghost_work::Machine>>,
+    /// The directory her machine works in, as a full path, when it is this
+    /// computer: a console is told it, to open what she makes there.
+    pub local: Option<std::path::PathBuf>,
     /// How she reaches the web.
     pub web: ghost_work::tools::WebConfig,
     /// Servers of tools: those she installs from the registry, and those

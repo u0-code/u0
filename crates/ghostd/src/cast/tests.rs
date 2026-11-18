@@ -197,6 +197,7 @@ impl Rig {
                 brains: Arc::new(held),
                 token: token.map(str::to_owned),
                 origins: Vec::new(),
+                core: crate::host::core(root.path()),
             }),
         ));
         for (who, life, make) in lives {
@@ -664,6 +665,26 @@ async fn a_daemon_running_several_lists_each_in_order_with_her_own_card_and_pict
         .await
         .unwrap();
     assert_eq!(ids(&console.list().await.unwrap()), ["lin", "mei"]);
+}
+
+#[tokio::test]
+async fn every_character_a_daemon_runs_says_the_same_core_and_where_its_id_is_kept() {
+    let rig = Rig::run(vec![Spec::new("lin"), Spec::new("mei")]).await;
+    let mut cores = Vec::new();
+    for ghost in ["lin", "mei"] {
+        let (mut console, _) = ghost_link::Console::connect(&rig.url, None, Some(ghost.into()))
+            .await
+            .unwrap();
+        let status = console.status().await.unwrap();
+        // What her mind says is all still there beside it.
+        assert!(status["abilities"].is_object(), "{status}");
+        let core: ghost_protocol::CoreInfo =
+            serde_json::from_value(status["core"].clone()).unwrap();
+        cores.push(core);
+    }
+    assert_eq!(cores[0], cores[1], "one daemon, one core");
+    let kept = std::fs::read_to_string(&cores[0].id_file).unwrap();
+    assert_eq!(kept.trim(), cores[0].id, "a console here finds it");
 }
 
 #[tokio::test]

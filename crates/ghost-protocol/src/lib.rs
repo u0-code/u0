@@ -65,7 +65,9 @@ pub mod method {
 
     /// Console → daemon request. No params. Result: who she is and what
     /// she is in the middle of, as a JSON object; among it, what she can do
-    /// besides talk, under `abilities`, as [`Abilities`](super::Abilities).
+    /// besides talk, under `abilities`, as [`Abilities`](super::Abilities),
+    /// and where her daemon runs, under `core`, as
+    /// [`CoreInfo`](super::CoreInfo).
     pub const STATUS: &str = "ghost.status";
     /// Console → daemon request. No params.
     pub const AGENDA: &str = "mind.agenda";
@@ -1234,6 +1236,11 @@ pub struct MachineInfo {
     pub kind: String,
     /// As her configuration writes it: `local:`, `docker:box`.
     pub spec: String,
+    /// The directory it works in, as a full path on her daemon's computer,
+    /// for a `local` machine. A path she gives that is not absolute is
+    /// under it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 impl MachineInfo {
@@ -1241,6 +1248,28 @@ impl MachineInfo {
     pub fn local(&self) -> bool {
         self.kind == "local"
     }
+}
+
+/// Where her daemon runs: `core` in the answer to [`method::STATUS`]. The
+/// paths she gives (her machine's directory, the folders of her work, the
+/// files it hands over) are paths on that computer. A client can open them
+/// only on the same one, and it knows it is there when it finds the same
+/// [`id`](Self::id) in [`id_file`](Self::id_file): the file is the
+/// daemon's, so finding it is finding the daemon's own file system. A host
+/// name proves nothing: two computers can share one, and a laptop's
+/// changes with the network it is on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoreInfo {
+    /// Made at random the first time the daemon runs, and kept: no two
+    /// daemons have the same, on one computer or on two.
+    pub id: String,
+    /// Where the daemon keeps [`id`](Self::id), as a full path on its own
+    /// computer: `core-id` in its home.
+    pub id_file: String,
+    /// The name of the computer it runs on, as that computer gives it, for
+    /// saying where it is. Never for telling whether it is here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// The result of [`method::BRAINS`], and of every request that changes
@@ -1436,6 +1465,7 @@ mod tests {
             machine: Some(MachineInfo {
                 kind: "local".into(),
                 spec: "local:".into(),
+                dir: Some("/srv/ghost/ghosts/solver/home".into()),
             }),
             web: true,
             agents: vec!["claude-code".into()],
@@ -1443,11 +1473,15 @@ mod tests {
         let sent = serde_json::to_value(&full).unwrap();
         assert_eq!(
             sent,
-            serde_json::json!({"work": true, "machine": {"kind": "local", "spec": "local:"},
-                "web": true, "agents": ["claude-code"]})
+            serde_json::json!({"work": true, "machine": {"kind": "local", "spec": "local:",
+                "dir": "/srv/ghost/ghosts/solver/home"}, "web": true, "agents": ["claude-code"]})
         );
         assert_eq!(serde_json::from_value::<Abilities>(sent).unwrap(), full);
         assert!(full.local());
+        // A daemon from before machines had a directory says none.
+        let older: MachineInfo =
+            serde_json::from_str(r#"{"kind": "local", "spec": "local:"}"#).unwrap();
+        assert_eq!(older.dir, None);
 
         // Without a machine or agents, neither is written at all.
         let bare = Abilities {
@@ -1469,6 +1503,7 @@ mod tests {
             machine: Some(MachineInfo {
                 kind: "docker".into(),
                 spec: "docker:box".into(),
+                dir: None,
             }),
             ..full.clone()
         };
@@ -1479,6 +1514,30 @@ mod tests {
                 ..full
             }
             .local()
+        );
+    }
+
+    #[test]
+    fn where_a_core_runs_round_trips_and_its_host_may_be_left_out() {
+        let core = CoreInfo {
+            id: "5f0c3a9e1b7d4e2a8c6f0b1d3e5a7c9f".into(),
+            id_file: "/Users/me/Library/Application Support/Ghost/core-id".into(),
+            host: Some("studio".into()),
+        };
+        let sent = serde_json::to_value(&core).unwrap();
+        assert_eq!(
+            sent,
+            serde_json::json!({"id": "5f0c3a9e1b7d4e2a8c6f0b1d3e5a7c9f",
+                "id_file": "/Users/me/Library/Application Support/Ghost/core-id", "host": "studio"})
+        );
+        assert_eq!(serde_json::from_value::<CoreInfo>(sent).unwrap(), core);
+        let nameless: CoreInfo =
+            serde_json::from_str(r#"{"id": "a", "id_file": "/srv/ghost/core-id"}"#).unwrap();
+        assert_eq!(nameless.host, None);
+        assert_eq!(
+            serde_json::to_value(&nameless).unwrap(),
+            serde_json::json!({"id": "a", "id_file": "/srv/ghost/core-id"}),
+            "a host it does not know is not written"
         );
     }
 

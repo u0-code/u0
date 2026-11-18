@@ -594,7 +594,7 @@ async fn since(asker: &mut Console, newest: i64) -> anyhow::Result<Vec<Entry>> {
 
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let status = asker.status().await?;
-    let _ = up.send(Update::Status(Box::new(Status::from_value(&status))));
+    let _ = up.send(Update::Status(Box::new(Status::read(&status))));
     // A daemon from before work could be listed has no answer; the desk
     // then shows none.
     if let Ok(work) = asker.work().await {

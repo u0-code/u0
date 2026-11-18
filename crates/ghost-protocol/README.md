@@ -35,14 +35,22 @@ There is no method that edits her identity or removes a journal entry.
 
 `ghost.status` says, under `abilities`, what she can do besides talk, as
 her daemon runs her: whether she takes things on as work, the machine it
-runs on (`local`, her daemon's own computer, or `docker`, with the spec her
-configuration writes), whether she may use the web, and the agents
-installed there that she can hand a part to. A console offers that, and
-reads nothing of her daemon's configuration to know it. A daemon from
-before it said so leaves it out.
+runs on (`local`, her daemon's own computer, with the directory it works
+in, or `docker`, with the spec her configuration writes), whether she may
+use the web, and the agents installed there that she can hand a part to.
+A console offers that, and reads nothing of her daemon's configuration to
+know it. A daemon from before it said so leaves it out.
+
+Under `core` it says where her daemon runs: an id the daemon made once
+and keeps, the full path of the file it keeps it in, and the computer's
+name. Every path she gives is a path on that computer. A console that
+reads the same id at `id_file` is on it, and may open those paths; any
+other shows them as text. The host name is only for saying where: two
+computers can share one.
 
 ```json
-"abilities": {"work": true, "machine": {"kind": "local", "spec": "local:"}, "web": true, "agents": ["claude-code"]}
+"abilities": {"work": true, "machine": {"kind": "local", "spec": "local:", "dir": "/Users/me/Library/Application Support/Ghost/ghosts/solver/home"}, "web": true, "agents": ["claude-code"]},
+"core": {"id": "5f0c3a9e1b7d4e2a8c6f0b1d3e5a7c9f", "id_file": "/Users/me/Library/Application Support/Ghost/core-id", "host": "studio.local"}
 ```
 
 A browser may connect only from a page served on the same machine or from

@@ -661,16 +661,17 @@ impl Desk {
             .child(self.brain_row(faces, cx))
     }
 
-    /// The machine Ghost's work runs on, as its core says. On this one,
-    /// its home, which Open shows in Finder; anywhere else, what the core
-    /// names; before the core has said, a dash.
+    /// The machine Ghost's work runs on, as its core says. A directory on
+    /// this computer, which Open shows in Finder; a directory on the
+    /// computer of a core elsewhere, named, with its path as text; anything
+    /// else, what the core names; before the core has said, a dash.
     fn machine_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let abilities = self
-            .solver
-            .status
-            .as_ref()
-            .and_then(|s| s.abilities.as_ref());
-        if !abilities.is_some_and(Abilities::local) {
+        let status = self.solver.status.as_ref();
+        let abilities = status.and_then(|s| s.abilities.as_ref());
+        let dir = status
+            .and_then(crate::model::Status::machine_dir)
+            .filter(|_| abilities.is_some_and(Abilities::local));
+        let (Some(status), Some(home)) = (status, dir) else {
             let what = match abilities {
                 None => "—".to_owned(),
                 Some(Abilities {
@@ -685,8 +686,22 @@ impl Desk {
                 label(faces, "Machine"),
                 Some(value(faces, what, theme::muted())),
             );
+        };
+        if !status.here {
+            // On its core's computer: named, and the path as that
+            // computer has it, which means nothing to Finder here.
+            let host = status.core.as_ref().and_then(|c| c.host.clone());
+            return row_with(
+                Some(row_icon("laptop")),
+                label(faces, "Machine"),
+                Some(value(
+                    faces,
+                    host.unwrap_or_else(|| "elsewhere".to_owned()),
+                    theme::muted(),
+                )),
+                under(faces, home.display().to_string()),
+            );
         }
-        let home = self.deployment.home();
         let you = std::env::var_os("HOME").map(PathBuf::from);
         let shown = ui::short_path(&home, you.as_deref());
         let open = action(faces, "open-machine", "Open")
@@ -836,39 +851,46 @@ impl Desk {
         list
     }
 
-    /// The files this session's work handed over; each shows in Finder.
+    /// The files this session's work handed over: each shows in Finder
+    /// when its core is on this computer, and otherwise says where it is
+    /// on the core's.
     fn outputs(&self, faces: &Faces, outputs: &[Output], cx: &mut Context<Self>) -> Div {
+        let here = self.solver.status.as_ref().is_some_and(|s| s.here);
         let mut list = div().flex().flex_col();
         for (i, o) in outputs.iter().enumerate() {
             let path = self.output_path(o);
-            list = list.child(
-                row(
-                    Some(row_icon("file")),
-                    label(faces, o.name().to_owned()),
-                    Some(value(faces, o.kind(), theme::faint())),
-                )
-                .id(("output", i))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx))),
+            let line = (
+                Some(row_icon("file")),
+                label(faces, o.name().to_owned()),
+                Some(value(faces, o.kind(), theme::faint())),
             );
+            list = list.child(match path {
+                Some(path) if here => row(line.0, line.1, line.2)
+                    .id(("output", i))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx)))
+                    .into_any_element(),
+                Some(path) => row_with(
+                    line.0,
+                    line.1,
+                    line.2,
+                    under(faces, path.display().to_string()),
+                )
+                .into_any_element(),
+                None => row(line.0, line.1, line.2).into_any_element(),
+            });
         }
         list
     }
 
-    /// Where a handed-over file is on this machine: a report names a path
-    /// on the solver's machine (relative ones are under its home), and a
-    /// kept file is in the ghost's `media/`.
-    fn output_path(&self, o: &Output) -> PathBuf {
+    /// Where a handed-over file is on the solver's core: a report names a
+    /// path on its machine (relative ones are under its machine's
+    /// directory, as the core says it), and a kept file is in the ghost's
+    /// `media/`.
+    fn output_path(&self, o: &Output) -> Option<PathBuf> {
         match o.source {
-            Source::Report => {
-                let p = PathBuf::from(&o.file);
-                if p.is_absolute() {
-                    p
-                } else {
-                    self.deployment.home().join(p)
-                }
-            }
-            Source::Kept => self.deployment.ghost_dir().join("media").join(&o.file),
+            Source::Report => self.solver.status.as_ref()?.locate(&o.file, None),
+            Source::Kept => Some(self.deployment.ghost_dir().join("media").join(&o.file)),
         }
     }
 }

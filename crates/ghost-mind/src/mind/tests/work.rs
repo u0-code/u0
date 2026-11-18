@@ -595,11 +595,13 @@ fn her_status_says_what_she_can_do_as_her_daemon_runs_her() {
         }
     );
 
-    // With one, and a shell on this computer, she works here.
+    // With one, and a shell on this computer, she works here, and says
+    // in which directory.
     let mut rig = Rig::with_tools(t0);
     assert!(abilities(&rig).work && abilities(&rig).machine.is_none());
     let desk = tempfile::tempdir().unwrap();
     rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
+    rig.mind.workshop.local = Some(desk.path().to_path_buf());
     rig.mind.cfg.work.machine = Some(" local: ".into());
     let said = abilities(&rig);
     assert_eq!(
@@ -607,6 +609,7 @@ fn her_status_says_what_she_can_do_as_her_daemon_runs_her() {
         Some(MachineInfo {
             kind: "local".into(),
             spec: "local:".into(),
+            dir: Some(desk.path().display().to_string()),
         })
     );
     assert!(said.local());

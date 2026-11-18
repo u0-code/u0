@@ -152,6 +152,19 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         cast.push(who.clone());
         lives.push((who, life, make, span));
     }
+    let first = cast
+        .first()
+        .map_or_else(|| PathBuf::from("."), |c| c.dir.clone());
+    let core = crate::host::core(&crate::host::keeps_in(
+        home,
+        from_file.then_some(cfg_path.as_path()),
+        &first,
+    ));
+    info!(
+        "core {} on {}",
+        core.id,
+        core.host.as_deref().unwrap_or("a computer with no name")
+    );
 
     // Listened for before anything is said about listening, so that a
     // SIGTERM sent the moment she is up still stops her in order.
@@ -175,6 +188,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
             brains: held,
             token,
             origins: cfg.listen.origins.clone(),
+            core,
         }),
     ));
 

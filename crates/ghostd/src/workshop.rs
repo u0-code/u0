@@ -74,6 +74,7 @@ pub(crate) fn workshop(
     Ok(ghost_mind::Workshop {
         folders,
         machine,
+        local,
         web: if cfg.web {
             WebConfig::from_env()
         } else {

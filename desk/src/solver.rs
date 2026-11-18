@@ -119,11 +119,11 @@ const GHOST: &str = "ghosts/solver";
 /// The desk's core, and the daemon if the desk started it.
 ///
 /// The core keeps everything in a home of its own, which `ghostd` makes
-/// ready by itself: the desk only names it. Its brains and their keys, and
-/// what its ghost can do besides talk, are behind the Ghost Protocol. What
-/// the desk still reads there itself (the media and the machine directory
-/// of its ghost) are the next steps' to move behind it, after which the
-/// desk will read none of its files.
+/// ready by itself: the desk only names it. Its brains and their keys,
+/// what its ghost can do besides talk, where it runs and the directory her
+/// machine works in are behind the Ghost Protocol. What the desk still
+/// reads there itself, its ghost's media, is the next step's to move
+/// behind it, after which the desk will read none of its files.
 pub struct Deployment {
     /// The core's home: `ghost_link::home()`.
     pub core: PathBuf,
@@ -168,7 +168,8 @@ impl Deployment {
         }
     }
 
-    /// Where the solver lives.
+    /// Where the solver lives, for its media, which is still read here
+    /// rather than asked of the core.
     pub fn ghost_dir(&self) -> PathBuf {
         self.core.join(GHOST)
     }
@@ -179,12 +180,6 @@ impl Deployment {
             .ok()
             .and_then(|exe| Some(exe.parent()?.join("ghostd")));
         pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.checkout)
-    }
-
-    /// The directory its machine works in: `machine = "local:"` runs as
-    /// you, under the ghost's own `home`.
-    pub fn home(&self) -> PathBuf {
-        self.ghost_dir().join("home")
     }
 
     /// Whether the desk started a daemon it has not yet seen stop. Unlike
@@ -389,7 +384,6 @@ mod tests {
     fn what_the_desk_reads_of_its_core_is_in_the_cores_home_and_never_in_the_checkout() {
         let d = checkout("home");
         assert_eq!(d.ghost_dir(), d.core.join("ghosts/solver"));
-        assert_eq!(d.home(), d.core.join("ghosts/solver/home"));
     }
 
     #[test]
