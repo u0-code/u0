@@ -110,41 +110,20 @@ impl Provider {
     }
 }
 
-/// What the solver can do besides talk, as `[mind.work]` sets it: the
-/// empty page says so, and offers only what it can do.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Abilities {
-    /// Work is on at all.
-    pub work: bool,
-    /// The machine its work runs on, as written: `local:` is this one.
-    pub machine: Option<String>,
-    /// It may search and read the web.
-    pub web: bool,
-}
-
-impl Abilities {
-    /// Whether it has a shell on this machine, as you.
-    pub fn local(&self) -> bool {
-        self.work && self.machine.as_deref() == Some("local:")
-    }
-}
-
 /// Where the desk's core listens, which is what [`crate::settings::SOLVER_URL`]
 /// reaches.
 const LISTEN: &str = "127.0.0.1:7438";
-/// The core's configuration, in its home.
-const CONFIG: &str = "ghostd.toml";
 /// The mascot, in its home.
 const GHOST: &str = "ghosts/solver";
 
 /// The desk's core, and the daemon if the desk started it.
 ///
 /// The core keeps everything in a home of its own, which `ghostd` makes
-/// ready by itself: the desk only names it. Its brains and their keys are
-/// behind the Ghost Protocol. What the desk still reads there itself (what
-/// it may do, from `[mind.work]` in its configuration; the media and the
-/// machine directory of its ghost) are the next steps' to move behind it,
-/// after which the desk will read none of its files.
+/// ready by itself: the desk only names it. Its brains and their keys, and
+/// what its ghost can do besides talk, are behind the Ghost Protocol. What
+/// the desk still reads there itself (the media and the machine directory
+/// of its ghost) are the next steps' to move behind it, after which the
+/// desk will read none of its files.
 pub struct Deployment {
     /// The core's home: `ghost_link::home()`.
     pub core: PathBuf,
@@ -189,11 +168,6 @@ impl Deployment {
         }
     }
 
-    /// The configuration the daemon runs with, in its home.
-    pub fn config(&self) -> PathBuf {
-        self.core.join(CONFIG)
-    }
-
     /// Where the solver lives.
     pub fn ghost_dir(&self) -> PathBuf {
         self.core.join(GHOST)
@@ -205,30 +179,6 @@ impl Deployment {
             .ok()
             .and_then(|exe| Some(exe.parent()?.join("ghostd")));
         pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.checkout)
-    }
-
-    /// What `[mind.work]` lets it do. Work is on unless it says otherwise.
-    pub fn abilities(&self) -> Abilities {
-        let Some(doc) = std::fs::read_to_string(self.config())
-            .ok()
-            .and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
-        else {
-            return Abilities::default();
-        };
-        let work = doc.get("mind").and_then(|m| m.get("work"));
-        let field = |k: &str| work.and_then(|w| w.get(k));
-        Abilities {
-            work: work.is_some()
-                && field("enabled")
-                    .and_then(toml_edit::Item::as_bool)
-                    .unwrap_or(true),
-            machine: field("machine")
-                .and_then(toml_edit::Item::as_str)
-                .map(str::to_owned),
-            web: field("web")
-                .and_then(toml_edit::Item::as_bool)
-                .unwrap_or(false),
-        }
     }
 
     /// The directory its machine works in: `machine = "local:"` runs as
@@ -379,19 +329,14 @@ fn run_args(core: &Path) -> Vec<OsString> {
 mod tests {
     use super::*;
 
-    /// A core's home with only its configuration in it, and a checkout
-    /// with nothing in it, each its own directory under one for the test.
+    /// A core's home and a checkout, both empty, each its own directory
+    /// under one for the test.
     fn checkout(name: &str) -> Deployment {
         let root = std::env::temp_dir().join(format!("ghost-desk-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (core, checkout) = (root.join("core"), root.join("checkout"));
         std::fs::create_dir_all(&core).unwrap();
         std::fs::create_dir_all(&checkout).unwrap();
-        std::fs::write(
-            core.join(CONFIG),
-            "# how it thinks\n[brain]\nthink = \"main\"\ntick = \"main\"\n\n[mind.work]\nenabled = true\nmachine = \"local:\"\nweb = true\n\n[operators]\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"m\"\napi_key_env = \"NO_SUCH_KEY_FOR_A_TEST\"\n",
-        )
-        .unwrap();
         Deployment::at(core, checkout)
     }
 
@@ -441,20 +386,8 @@ mod tests {
     }
 
     #[test]
-    fn the_abilities_are_what_the_deployment_allows() {
-        let d = checkout("abilities");
-        let a = d.abilities();
-        assert!(a.local() && a.web);
-        let none = Abilities::default();
-        assert!(!none.local());
-        let off = Abilities { work: false, ..a };
-        assert!(!off.local(), "a machine is nothing with work turned off");
-    }
-
-    #[test]
     fn what_the_desk_reads_of_its_core_is_in_the_cores_home_and_never_in_the_checkout() {
         let d = checkout("home");
-        assert_eq!(d.config(), d.core.join("ghostd.toml"));
         assert_eq!(d.ghost_dir(), d.core.join("ghosts/solver"));
         assert_eq!(d.home(), d.core.join("ghosts/solver/home"));
     }

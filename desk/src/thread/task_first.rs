@@ -530,7 +530,7 @@ fn her_state(view: &View<'_>) -> String {
     }
     match view.status.and_then(|s| s.awake) {
         // The solver keeps no day: she is there whenever her daemon is.
-        _ if view.abilities.is_some() => format!("{name} is here"),
+        _ if view.whom == crate::answer::Whom::Solver => format!("{name} is here"),
         Some(false) => format!("{name} is asleep"),
         Some(true) => format!("{name} is awake"),
         None => format!("{name} is here"),

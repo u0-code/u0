@@ -63,7 +63,9 @@ pub mod method {
     /// registered this channel; this one has been replaced and should stop.
     pub const DISPLACED: &str = "presence.displaced";
 
-    /// Console → daemon request. No params.
+    /// Console → daemon request. No params. Result: who she is and what
+    /// she is in the middle of, as a JSON object; among it, what she can do
+    /// besides talk, under `abilities`, as [`Abilities`](super::Abilities).
     pub const STATUS: &str = "ghost.status";
     /// Console → daemon request. No params.
     pub const AGENDA: &str = "mind.agenda";
@@ -1192,6 +1194,55 @@ pub struct WorkStep {
     pub part: Option<u64>,
 }
 
+/// What she can do besides talk, as her daemon runs her: `abilities` in
+/// the answer to [`method::STATUS`]. A console says so and offers only
+/// that, rather than reading her daemon's configuration, which is on the
+/// daemon's machine and is not its to read. A daemon from before it said
+/// so leaves it out.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Abilities {
+    /// She takes things on as work: work is on for her, and she has a
+    /// brain that can run tools.
+    #[serde(default)]
+    pub work: bool,
+    /// The machine her work runs on, if she has one. Without one she works
+    /// only by looking things up and thinking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<MachineInfo>,
+    /// She may search and read the web while working.
+    #[serde(default)]
+    pub web: bool,
+    /// The agents installed on her machine that her work can hand a part
+    /// to, by name: `claude-code`, `codex`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<String>,
+}
+
+impl Abilities {
+    /// Whether her work has a shell on her daemon's own computer, as
+    /// whoever runs the daemon.
+    pub fn local(&self) -> bool {
+        self.work && self.machine.as_ref().is_some_and(MachineInfo::local)
+    }
+}
+
+/// The machine her work runs on, in [`Abilities`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineInfo {
+    /// `local`, a directory on her daemon's own computer, worked in as
+    /// whoever runs the daemon; or `docker`, a container.
+    pub kind: String,
+    /// As her configuration writes it: `local:`, `docker:box`.
+    pub spec: String,
+}
+
+impl MachineInfo {
+    /// Whether it is her daemon's own computer.
+    pub fn local(&self) -> bool {
+        self.kind == "local"
+    }
+}
+
 /// The result of [`method::BRAINS`], and of every request that changes
 /// the brains: what they are once it has.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1376,6 +1427,59 @@ mod tests {
         );
         let used: BrainUse = serde_json::from_str(r#"{"name":"main"}"#).unwrap();
         assert_eq!(used.model, None, "left out, the model it is set to");
+    }
+
+    #[test]
+    fn abilities_round_trip_and_a_daemon_that_says_little_can_do_little() {
+        let full = Abilities {
+            work: true,
+            machine: Some(MachineInfo {
+                kind: "local".into(),
+                spec: "local:".into(),
+            }),
+            web: true,
+            agents: vec!["claude-code".into()],
+        };
+        let sent = serde_json::to_value(&full).unwrap();
+        assert_eq!(
+            sent,
+            serde_json::json!({"work": true, "machine": {"kind": "local", "spec": "local:"},
+                "web": true, "agents": ["claude-code"]})
+        );
+        assert_eq!(serde_json::from_value::<Abilities>(sent).unwrap(), full);
+        assert!(full.local());
+
+        // Without a machine or agents, neither is written at all.
+        let bare = Abilities {
+            work: true,
+            ..Abilities::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&bare).unwrap(),
+            serde_json::json!({"work": true, "web": false})
+        );
+        // Whatever a daemon leaves out, she cannot do.
+        let said: Abilities = serde_json::from_str("{}").unwrap();
+        assert_eq!(said, Abilities::default());
+        assert!(!said.local());
+
+        // A container is not her daemon's computer, and a machine is
+        // nothing with work turned off.
+        let docker = Abilities {
+            machine: Some(MachineInfo {
+                kind: "docker".into(),
+                spec: "docker:box".into(),
+            }),
+            ..full.clone()
+        };
+        assert!(!docker.local());
+        assert!(
+            !Abilities {
+                work: false,
+                ..full
+            }
+            .local()
+        );
     }
 
     #[test]

@@ -62,7 +62,7 @@ use crate::{
     model::LinkState,
     settings::{SOLVER_URL, Session, Settings},
     sheet::Sheet,
-    solver::{Abilities, Deployment, Provider},
+    solver::{Deployment, Provider},
     theme, thread,
 };
 
@@ -148,14 +148,12 @@ pub struct Desk {
     pub(crate) form: Form,
     pub(crate) deployment: Deployment,
     /// Whether the deployment has been looked after as the desk opened:
-    /// started if it was to be, and its brains and abilities read.
+    /// started if it was to be.
     core_ready: bool,
     /// The brains the core has, as it last said, and which one it thinks
     /// with.
     pub(crate) providers: Vec<Provider>,
     pub(crate) brain: Option<String>,
-    /// What the deployment lets the solver do besides talk.
-    pub(crate) abilities: Abilities,
     /// Index into the sessions.
     pub current: usize,
     pub input: Entity<TextInput>,
@@ -206,7 +204,6 @@ pub struct Desk {
 struct Core {
     deployment: Deployment,
     started: anyhow::Result<()>,
-    abilities: Abilities,
 }
 
 /// What the line you type into says while it is empty, with the little
@@ -300,9 +297,8 @@ impl Desk {
                 Ok(())
             };
             Core {
-                started,
-                abilities: deployment.abilities(),
                 deployment,
+                started,
             }
         });
         cx.spawn(async move |this, cx| {
@@ -365,7 +361,6 @@ impl Desk {
             core_ready: false,
             providers: Vec::new(),
             brain: None,
-            abilities: Abilities::default(),
             current: 0,
             input,
             search,
@@ -419,7 +414,6 @@ impl Desk {
             self.notice = Some(Notice::trouble(format!("Could not start Ghost: {e:#}")));
         }
         self.deployment = core.deployment;
-        self.abilities = core.abilities;
         self.core_ready = true;
         // Its brains are asked of it once it listens, which a core just
         // started does within a few seconds; their models after them.
@@ -515,7 +509,6 @@ impl Desk {
             &place,
             &who,
             whom,
-            None,
             &self.expanded,
             &self.thread_scroll,
         ));
@@ -607,7 +600,6 @@ fn thread_view<'a>(
     place: &'a str,
     who: &str,
     whom: Whom,
-    abilities: Option<&'a Abilities>,
     expanded: &'a HashSet<String>,
     scroll: &'a ScrollHandle,
 ) -> thread::View<'a> {
@@ -620,7 +612,6 @@ fn thread_view<'a>(
         who: who.to_owned(),
         tz: ghost.tz(),
         connected: ghost.link == LinkState::Connected,
-        abilities,
         expanded,
         following: &ghost.following,
         work: &ghost.work,
@@ -649,13 +640,9 @@ impl Render for Desk {
         } else {
             // Ghost's session, or the place her thread shows;
             // either way a place, by its key, in one ghost's journal.
-            let (ghost, place, abilities) = match &self.open {
-                Some(open) => (&open.her, open.place(self.who()), None),
-                None => (
-                    &self.solver,
-                    thread::place_key(&self.session().id),
-                    Some(&self.abilities),
-                ),
+            let (ghost, place) = match &self.open {
+                Some(open) => (&open.her, open.place(self.who())),
+                None => (&self.solver, thread::place_key(&self.session().id)),
             };
             let whom = if self.open.is_some() {
                 Whom::Her
@@ -667,7 +654,6 @@ impl Render for Desk {
                 &place,
                 self.who(),
                 whom,
-                abilities,
                 &self.expanded,
                 &self.thread_scroll,
             );

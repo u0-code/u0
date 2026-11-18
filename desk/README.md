@@ -105,11 +105,12 @@ window.
 
 The core's brains, and their keys, are its own: the desk asks it which
 there are and changes them over the Ghost Protocol (`brains.*`), and
-reads neither its `ghostd.toml` nor its `.env` for them. What the desk
-still reads in the core's home, rather than asking the core, is what
-`[mind.work]` lets it do, and its ghost's media and machine directory.
-Those move behind the Ghost Protocol next, after which the desk reads
-none of the core's files.
+reads neither its `ghostd.toml` nor its `.env` for them. What its ghost
+can do besides talk (work, the machine it runs on, the web, the agents
+installed there) the core says in `ghost.status`, under `abilities`. What
+the desk still reads in the core's home, rather than asking the core, is
+its ghost's media and machine directory. Those move behind the Ghost
+Protocol next, after which the desk reads none of the core's files.
 
 ## Other daemons
 
@@ -176,8 +177,8 @@ what the model said at a step, as a quiet line, and that step's calls as
 rows, between what its journal says it reported, asked and concluded. Its
 parts, the workers it handed pieces to, are cards inside it, each with
 its state, which open to their own steps. A session with nothing in it
-says what the solver can do here, as its deployment's `[mind.work]`
-allows, and offers a few things to ask for, which only fill in the line.
+says who is there and how she is, and nothing more: what she does here
+is whatever you say.
 
 When she looked and could not think (her brain refused, or is signed out),
 her journal says so, and the thread says it where her answer would be, in
