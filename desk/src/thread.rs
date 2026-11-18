@@ -729,8 +729,39 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     items.retain(|(at, _, item)| {
         !matches!(item, Item::Tool(_)) || !spans.iter().any(|(from, to)| from <= at && at <= to)
     });
+    out_there_while_here(&mut items, looks.and_then(PlaceLooks::running).is_some());
     items.sort_by_key(|(at, seq, _)| (*at, *seq));
     between_turns(items)
+}
+
+/// Keep what she did out there, on other channels, only to the stretch of
+/// time the thread itself covers: from its first line or card to its
+/// last, and on to now while something here is still going. A console
+/// session is a conversation, not her whole life: what she said in a
+/// group days before it began, or her sleeping and waking, is not part of
+/// it.
+fn out_there_while_here(items: &mut Vec<(DateTime<Utc>, i64, Item<'_>)>, going: bool) {
+    let own = |item: &Item<'_>| match item {
+        Item::Did(did) => did.here,
+        Item::Brain { .. } => false,
+        _ => true,
+    };
+    let times = items
+        .iter()
+        .filter(|(_, _, i)| own(i))
+        .map(|(at, _, _)| *at);
+    let (Some(first), Some(last)) = (times.clone().min(), times.max()) else {
+        items.retain(|(_, _, i)| !matches!(i, Item::Did(d) if !d.here));
+        return;
+    };
+    let open = items
+        .iter()
+        .any(|(_, _, i)| matches!(i, Item::Task(t) if t.open()));
+    let last = if going || open { Utc::now() } else { last };
+    items.retain(|(at, _, i)| match i {
+        Item::Did(d) if !d.here => first <= *at && *at <= last,
+        _ => true,
+    });
 }
 
 /// A change of brain, if `e` is one with a brain before it. The first
