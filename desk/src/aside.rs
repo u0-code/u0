@@ -27,7 +27,7 @@ use crate::{
     fonts::Faces,
     media::{self, Shown},
     model::{LinkState, Reach, reason},
-    settings::Session,
+    sessions::Session,
     theme,
     thread::{self, Output, Source, State, Task},
     ui,

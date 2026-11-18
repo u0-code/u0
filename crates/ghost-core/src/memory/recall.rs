@@ -188,7 +188,12 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         | Event::Digested { .. }
         // Which brain she thinks with is her body's, not something she
         // lived.
-        | Event::BrainChanged { .. } => return None,
+        | Event::BrainChanged { .. }
+        // What a session is called, and whether a console lists it, is
+        // how its operator finds it again; what was said in it is kept
+        // as it was said.
+        | Event::SessionNamed { .. }
+        | Event::SessionSetAside { .. } => return None,
     })
 }
 

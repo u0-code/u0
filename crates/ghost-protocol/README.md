@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `ghost.avatar`, `media.get`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop`, `brains.list`, `brains.save`, `brains.remove`, `brains.use`, `brains.models`, `brains.check` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `ghost.avatar`, `media.get`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `console.rewind`, `sessions.list`, `sessions.new`, `sessions.rename`, `sessions.delete`, `work.answer`, `work.stop`, `brains.list`, `brains.save`, `brains.remove`, `brains.use`, `brains.models`, `brains.check` | answers, then `journal.entry` notifications |
 
 A presence's hello says what its platform can do (`can`) and what it allows
 her (`allows`): how long after a message she can still answer it, in a
@@ -66,6 +66,24 @@ was given, by the core's id and the name.
 {"jsonrpc":"2.0","id":6,"method":"media.get","params":{"name":"9f2c…e1.png"}}
 
 {"jsonrpc":"2.0","id":6,"result":{"mime":"image/png","data":"iVBORw0KGgo…"}}
+```
+
+Her sessions at a console are hers, not a console's: each is a place on
+the console channel, and `sessions.list` gives every console the same
+ones, newest first, by the name an operator gave each (`sessions.rename`)
+or else by its first line, with when it began and when anything was last
+said in it. A session is kept from its first line, or from a name given
+it with `sessions.new`, which takes the id a console proposes when it is
+free and otherwise makes one. `sessions.delete` sets one aside: it leaves
+the list, and what was said in it stays in her journal; a line said there
+again brings it back. One not in the list is refused with `-32013`. Any
+console may list them; only an operator changes them, and each change is
+an entry in her journal, so her memory rebuilds the list from it.
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"sessions.list"}
+
+{"jsonrpc":"2.0","id":7,"result":[{"id":"s1763452800000","title":"Free some disk space","started":"2026-11-19T09:00:00.000000Z","last":"2026-11-19T09:05:12.000000Z"}]}
 ```
 
 A browser may connect only from a page served on the same machine or from

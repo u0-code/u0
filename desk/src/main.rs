@@ -31,6 +31,7 @@ mod media;
 mod model;
 mod models;
 mod path;
+mod sessions;
 mod settings;
 mod sheet;
 mod sidebar;

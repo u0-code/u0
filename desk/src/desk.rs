@@ -60,7 +60,8 @@ use crate::{
     input::{Cancelled, Changed, Submitted, TextInput},
     link,
     model::LinkState,
-    settings::{SOLVER_URL, Session, Settings},
+    sessions::{self, Session, Sessions},
+    settings::{SOLVER_URL, Settings},
     sheet::Sheet,
     solver::{Deployment, Provider},
     theme, thread,
@@ -154,8 +155,9 @@ pub struct Desk {
     /// with.
     pub(crate) providers: Vec<Provider>,
     pub(crate) brain: Option<String>,
-    /// Index into the sessions.
-    pub current: usize,
+    /// Your sessions with the solver, as its core keeps them, and the one
+    /// on screen.
+    pub sessions: Sessions,
     pub input: Entity<TextInput>,
     /// The sidebar's search, and whether it is open in place of its row.
     pub(crate) search: Entity<TextInput>,
@@ -242,8 +244,14 @@ fn listening(url: &str) -> bool {
 impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut settings = Settings::load();
-        if settings.sessions.is_empty() {
-            settings.sessions.push(Session::new());
+        let sessions = Sessions::new(
+            settings.kept.clone().unwrap_or_default(),
+            settings.open.clone(),
+        );
+        // Sessions the core began from now on are not ones deleted here.
+        if settings.kept.is_some() && settings.since.is_none() {
+            settings.since = Some(chrono::Utc::now());
+            settings.save();
         }
         let input = cx.new(|cx| TextInput::new(cx, ASK).wrapping(6).padded(5.));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
@@ -314,6 +322,7 @@ impl Desk {
                 token: token(),
                 ghost: None,
                 who: settings.who.clone(),
+                sessions: true,
             },
             MASCOT,
         );
@@ -361,7 +370,7 @@ impl Desk {
             core_ready: false,
             providers: Vec::new(),
             brain: None,
-            current: 0,
+            sessions,
             input,
             search,
             searching: false,
@@ -460,6 +469,13 @@ impl Desk {
         if let Some(why) = self.solver.refused.take() {
             self.notice = Some(Notice::trouble(why));
         }
+        for id in std::mem::take(&mut self.solver.unsessioned) {
+            self.sessions.refused(&id);
+        }
+        if let Some(listed) = self.solver.sessions.take() {
+            self.take_sessions(&listed);
+            changed = true;
+        }
         if changed {
             self.sync_replies(cx);
             // Read at its end, the thread stays at its end as it grows,
@@ -528,12 +544,41 @@ impl Desk {
     /// The session on screen. There is always one: the desk opens a new
     /// one when it has none.
     pub fn session(&self) -> Session {
-        self.settings
-            .sessions
-            .get(self.current)
-            .or_else(|| self.settings.sessions.first())
-            .cloned()
-            .unwrap_or_else(Session::new)
+        self.sessions.current()
+    }
+
+    /// Take in the sessions as the solver's core lists them now; and,
+    /// while `desk.json` still keeps sessions from before the core kept
+    /// them, hand those over to it, once, and let them go once it lists
+    /// them as the desk did.
+    fn take_sessions(&mut self, listed: &[ghost_link::protocol::Session]) {
+        let core: Vec<Session> = listed.iter().map(Session::listed).collect();
+        if let (Some(kept), Some(since)) = (&self.settings.kept, self.settings.since) {
+            let left = sessions::handover(kept, &core, since);
+            if left.done() {
+                self.settings.kept = None;
+                self.settings.since = None;
+                self.settings.save();
+            } else if self.sessions.handing_over() {
+                for session in &left.name {
+                    self.sessions.hand_over(session);
+                    self.solver.order(link::Order::Rename {
+                        place: session.id.clone(),
+                        title: sessions::tidy(&session.title),
+                    });
+                }
+                for id in &left.set_aside {
+                    self.sessions.set_aside(id);
+                    self.solver
+                        .order(link::Order::SetAside { place: id.clone() });
+                }
+            }
+        }
+        let was = self.sessions.current_id().to_owned();
+        self.sessions.take(core);
+        if self.sessions.current_id() != was {
+            self.follow();
+        }
     }
 
     /// Whether Attention is in the middle.

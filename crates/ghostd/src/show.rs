@@ -261,6 +261,10 @@ fn describe(event: &Event, tz: Tz) -> String {
             Some(was) => format!("{think}, was {was}"),
             None => think.clone(),
         },
+        Event::SessionNamed { place, by, title } => {
+            format!("{place} called \"{}\" by {by}", flat(title))
+        }
+        Event::SessionSetAside { place, by } => format!("{place} set aside by {by}"),
     }
 }
 

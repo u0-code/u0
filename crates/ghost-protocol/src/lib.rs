@@ -169,6 +169,36 @@ pub mod method {
     /// client's to remember, by each item's id.
     pub const ATTENTION: &str = "attention.list";
 
+    /// Console → daemon request. No params. Result: a list of
+    /// [`Session`](super::Session), newest first: her conversations on
+    /// the channel [`CONSOLE`](super::CONSOLE), as every console lists
+    /// them, with what each is called. One that was set aside is left
+    /// out. Any console of hers may ask.
+    pub const SESSIONS: &str = "sessions.list";
+    /// Console → daemon request. Params [`SessionNew`](super::SessionNew),
+    /// result [`Session`](super::Session): a session to begin, with an id
+    /// no conversation of hers on the console has. The id proposed is
+    /// taken if it is free and fit to be one; otherwise the daemon makes
+    /// one. A session is kept from the first line said in it with
+    /// [`SAY`], or from the name given here, if one is. Allowed as
+    /// [`SAY`] is.
+    pub const SESSION_NEW: &str = "sessions.new";
+    /// Console → daemon request. Params
+    /// [`SessionRename`](super::SessionRename), result `{}`. An operator
+    /// gives a session a name, which every console then lists it by; a
+    /// session nobody has named goes by its first line. It need not have
+    /// been listed: naming one is also how a console hands over a session
+    /// it kept itself. Allowed as [`SAY`] is.
+    pub const SESSION_RENAME: &str = "sessions.rename";
+    /// Console → daemon request. Params
+    /// [`SessionDelete`](super::SessionDelete), result `{}`. An operator
+    /// sets a session aside: it leaves the list, and everything said in it
+    /// stays in her journal, which keeps every word. A line said there
+    /// afterwards, or a new name, brings it back. One that is not listed
+    /// is refused with [`NO_SUCH_SESSION`](super::code::NO_SUCH_SESSION).
+    /// Allowed as [`SAY`] is.
+    pub const SESSION_DELETE: &str = "sessions.delete";
+
     /// Console → daemon request. No params. Result
     /// [`BrainList`](super::BrainList): the brains the daemon is configured
     /// with, which of them she thinks and ticks with, and whether it takes
@@ -254,6 +284,9 @@ pub mod code {
     /// She keeps no file by that name in her `media/`: there is none, or
     /// the name is not a bare name of one.
     pub const NO_SUCH_MEDIA: i64 = -32012;
+    /// There is no session by that id in the list: none, or it was set
+    /// aside.
+    pub const NO_SUCH_SESSION: i64 = -32013;
 }
 
 /// One JSON-RPC message: a request, a notification, or a response.
@@ -789,6 +822,50 @@ pub struct ConsoleSaid {
     /// [`method::JOURNAL_PLACE`].
     pub place: String,
     /// The message's id.
+    pub id: String,
+}
+
+/// A conversation on the [`CONSOLE`] channel, as [`method::SESSIONS`]
+/// lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    /// Its place on the console channel, as [`ConsoleSay::place`] takes it.
+    pub id: String,
+    /// What it is called: the name an operator gave it, or else its first
+    /// line, cut short. Empty when it has neither.
+    #[serde(default)]
+    pub title: String,
+    /// When it began, RFC 3339.
+    pub started: String,
+    /// When anything was last said in it, either way, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<String>,
+}
+
+/// Params of [`method::SESSION_NEW`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionNew {
+    /// The id the console would like it to have.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// A name to begin it with. Left out, it goes by its first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Params of [`method::SESSION_RENAME`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRename {
+    /// The session, by [`Session::id`].
+    pub id: String,
+    /// What to call it: one line, not empty.
+    pub title: String,
+}
+
+/// Params of [`method::SESSION_DELETE`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDelete {
+    /// The session, by [`Session::id`].
     pub id: String,
 }
 
@@ -1436,6 +1513,28 @@ pub struct BrainModels {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_reads_with_only_its_id_and_when_it_began() {
+        let bare: Session =
+            serde_json::from_str(r#"{"id":"s1","started":"2026-11-19T09:00:00Z"}"#).unwrap();
+        assert_eq!((bare.title.as_str(), bare.last), ("", None));
+        let full = Session {
+            id: "s1".into(),
+            title: "Free some disk".into(),
+            started: "2026-11-19T09:00:00Z".into(),
+            last: Some("2026-11-19T09:05:00Z".into()),
+        };
+        let back: Session = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
+        assert_eq!(back, full);
+        // A new session may be asked for with nothing at all.
+        let new: SessionNew = serde_json::from_str("{}").unwrap();
+        assert_eq!(new, SessionNew::default());
+        let rename: SessionRename = serde_json::from_str(r#"{"id":"s1","title":"Disk"}"#).unwrap();
+        assert_eq!(rename.title, "Disk");
+        let delete: SessionDelete = serde_json::from_str(r#"{"id":"s1"}"#).unwrap();
+        assert_eq!(delete.id, "s1");
+    }
 
     #[test]
     fn a_brain_list_reads_with_only_what_a_daemon_sends_and_never_carries_a_key() {

@@ -1,7 +1,9 @@
 //! What the desk remembers between runs: where the solver's daemon is, who
-//! you are to it, the sessions you have opened with it, the other daemons
-//! you connect to, and which of what waits on you you have seen. A small
-//! JSON file in your home directory.
+//! you are to it, which of your sessions with it was on screen, the other
+//! daemons you connect to, and which of what waits on you you have seen. A
+//! small JSON file in your home directory. The sessions themselves are the
+//! solver's core's to keep; a file from before it kept them still has them
+//! here, until they are handed over to it (see `sessions.rs`).
 //!
 //! No token is ever written here. The solver's comes from `GHOSTD_TOKEN`,
 //! and a connection names the variable its token is in, read when the desk
@@ -17,58 +19,14 @@ use std::{collections::BTreeSet, net::IpAddr, path::PathBuf};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
+use crate::sessions::Session;
+
 /// The port the solver's deployment listens on, apart from characters'.
 pub const SOLVER_URL: &str = "ws://127.0.0.1:7438";
 
 /// What the desk calls the daemon it runs itself, the first group down the
 /// left. No connection may take the name.
 pub const THIS_MACHINE: &str = "This machine";
-
-/// One conversation with the solver: a place of its own on the console
-/// channel, so that its thread is its own in her journal. Sessions from
-/// before the desk spoke through the console were places on the `desk`
-/// channel with the same id, and their threads go on where they were.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Session {
-    pub id: String,
-    pub title: String,
-    pub at: DateTime<Utc>,
-}
-
-impl Session {
-    pub fn new() -> Self {
-        let now = Utc::now();
-        Self {
-            id: format!("s{}", now.timestamp_millis()),
-            title: String::new(),
-            at: now,
-        }
-    }
-
-    /// What the list calls it: its first line, or nothing yet.
-    pub fn label(&self) -> String {
-        if self.title.is_empty() {
-            "Untitled".to_owned()
-        } else {
-            self.title.clone()
-        }
-    }
-}
-
-/// The sessions a search finds, by their place in the list: those whose
-/// name has every word typed, in any case. An empty search finds all.
-pub fn matching(sessions: &[Session], query: &str) -> Vec<usize> {
-    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-    sessions
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| {
-            let label = s.label().to_lowercase();
-            words.iter().all(|w| label.contains(w.as_str()))
-        })
-        .map(|(i, _)| i)
-        .collect()
-}
 
 /// A daemon somewhere else that the desk connects to. It only connects:
 /// whoever runs that daemon starts and stops it.
@@ -178,8 +136,14 @@ fn is_variable(name: &str) -> bool {
 pub struct Settings {
     pub who: String,
     pub solver_url: String,
-    /// Newest first.
-    pub sessions: Vec<Session>,
+    /// The session on screen when the desk last showed one, by id.
+    pub open: Option<String>,
+    /// The sessions a file from before the core kept them still has,
+    /// newest first, until they are handed over to it.
+    pub kept: Option<Vec<Session>>,
+    /// When their handover began: a session the core began after it is
+    /// not one deleted here.
+    pub since: Option<DateTime<Utc>>,
     /// The daemons it connects to besides its own, in the order added.
     pub connections: Vec<Connection>,
     /// What you have marked seen in Attention, by its key there.
@@ -194,7 +158,9 @@ impl Default for Settings {
                 .ok()
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| SOLVER_URL.to_owned()),
-            sessions: Vec::new(),
+            open: None,
+            kept: None,
+            since: None,
             connections: Vec::new(),
             seen: BTreeSet::new(),
         }
@@ -247,7 +213,9 @@ impl Settings {
                 .unwrap_or_default()
         };
         let default = Self::default();
-        let sessions = list("sessions")
+        // An empty list is nothing to hand over: it is not taken as every
+        // session the core has having been deleted here.
+        let kept: Vec<Session> = list("sessions")
             .iter()
             .filter_map(|x| {
                 Some(Session {
@@ -275,7 +243,9 @@ impl Settings {
         Self {
             who: s(v, "who").unwrap_or(default.who),
             solver_url: s(v, "solver_url").unwrap_or(default.solver_url),
-            sessions,
+            open: s(v, "open").filter(|o| !o.is_empty()),
+            since: s(v, "sessions_since").and_then(|t| t.parse().ok()),
+            kept: (!kept.is_empty()).then_some(kept),
             connections,
             seen,
         }
@@ -284,12 +254,9 @@ impl Settings {
     /// What is written to the file: everything but a token, which is never
     /// the desk's to keep.
     fn written(&self) -> Value {
-        json!({
+        let mut v = json!({
             "who": self.who,
             "solver_url": self.solver_url,
-            "sessions": self.sessions.iter().map(|x| json!({
-                "id": x.id, "title": x.title, "at": x.at.to_rfc3339(),
-            })).collect::<Vec<_>>(),
             "connections": self.connections.iter().map(|c| {
                 let mut v = json!({"name": c.name, "url": c.url});
                 if let Some(var) = &c.token_env {
@@ -298,7 +265,23 @@ impl Settings {
                 v
             }).collect::<Vec<_>>(),
             "seen": self.seen,
-        })
+        });
+        if let Some(open) = &self.open {
+            v["open"] = json!(open);
+        }
+        if let Some(kept) = &self.kept {
+            v["sessions"] = json!(
+                kept.iter()
+                    .map(|x| json!({
+                        "id": x.id, "title": x.title, "at": x.at.to_rfc3339(),
+                    }))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if let Some(since) = &self.since {
+            v["sessions_since"] = json!(since.to_rfc3339());
+        }
+        v
     }
 }
 
@@ -314,26 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn a_search_finds_sessions_by_every_word_of_their_name_in_any_case() {
-        let sessions = [
-            named("Free some disk space"),
-            named("Summarise the commits"),
-            named(""),
-            named("Clear the Disk cache"),
-        ];
-        assert_eq!(matching(&sessions, "disk"), [0, 3]);
-        assert_eq!(matching(&sessions, "DISK clear"), [3]);
-        assert_eq!(matching(&sessions, "nothing like it"), Vec::<usize>::new());
-        assert_eq!(matching(&sessions, "  "), [0, 1, 2, 3]);
-        assert_eq!(
-            matching(&sessions, "untitled"),
-            [2],
-            "an untitled session goes by its label"
-        );
-    }
-
-    #[test]
-    fn a_file_from_before_connections_reads_with_none_and_keeps_its_sessions() {
+    fn a_file_from_before_connections_reads_with_none_and_keeps_its_sessions_to_hand_over() {
         let old = json!({
             "who": "fox",
             "solver_url": "ws://127.0.0.1:7438",
@@ -341,10 +305,31 @@ mod tests {
         });
         let read = Settings::read(&old);
         assert_eq!(read.who, "fox");
-        assert_eq!(read.sessions.len(), 1);
-        assert_eq!(read.sessions[0].title, "Free some disk");
+        let kept = read.kept.as_deref().unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].title, "Free some disk");
+        assert_eq!(read.since, None, "the handover has not begun");
         assert!(read.connections.is_empty());
         assert!(read.seen.is_empty(), "nothing was seen before Attention");
+        // Kept until they are handed over, with when that began.
+        let mut handing = read.clone();
+        handing.since = Some("2026-11-19T09:00:00Z".parse().unwrap());
+        assert_eq!(Settings::read(&handing.written()), handing);
+    }
+
+    #[test]
+    fn once_the_core_keeps_the_sessions_the_file_keeps_only_which_was_open() {
+        let settings = Settings {
+            open: Some("s1".to_owned()),
+            ..Settings::read(&json!({"who": "fox"}))
+        };
+        let written = settings.written();
+        assert!(written.get("sessions").is_none() && written.get("sessions_since").is_none());
+        assert_eq!(written["open"], "s1");
+        assert_eq!(Settings::read(&written), settings);
+        // An empty list is nothing to hand over.
+        let empty = Settings::read(&json!({"who": "fox", "sessions": []}));
+        assert_eq!(empty.kept, None);
     }
 
     #[test]
@@ -352,7 +337,9 @@ mod tests {
         let settings = Settings {
             who: "fox".to_owned(),
             solver_url: SOLVER_URL.to_owned(),
-            sessions: Vec::new(),
+            open: None,
+            kept: None,
+            since: None,
             connections: Vec::new(),
             seen: [
                 "group:machine/solver/asked-12",
@@ -371,7 +358,9 @@ mod tests {
         let settings = Settings {
             who: "fox".to_owned(),
             solver_url: SOLVER_URL.to_owned(),
-            sessions: vec![named("one")],
+            open: None,
+            kept: Some(vec![named("one")]),
+            since: None,
             connections: vec![
                 Connection {
                     name: "studio".to_owned(),

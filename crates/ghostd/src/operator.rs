@@ -265,7 +265,7 @@ pub(crate) async fn work(
 /// The name of whoever is at a console that `owner` says is the owner's and
 /// whose hello named them `at_console`, or why not, as an error code and
 /// its message: only an operator acts on her, and says who they are.
-fn operator(owner: bool, at_console: Option<&str>) -> Result<&str, (i64, &'static str)> {
+pub(crate) fn operator(owner: bool, at_console: Option<&str>) -> Result<&str, (i64, &'static str)> {
     if !owner {
         return Err((
             code::UNAUTHORIZED,

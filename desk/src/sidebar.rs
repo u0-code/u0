@@ -25,7 +25,7 @@ use crate::{
     desk::{At, Desk, LEFT, Menu, Popup, TOPBAR, draggable},
     fonts::Faces,
     model::LinkState,
-    settings::{self, Session},
+    sessions::{self, Session},
     solver::Provider,
     theme,
     thread::{self, State, Task},
@@ -335,10 +335,11 @@ impl Desk {
         faces: &Faces,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let all = self.sessions.all();
         let found = if self.searching {
-            settings::matching(&self.settings.sessions, &self.search.read(cx).text())
+            sessions::matching(&all, &self.search.read(cx).text())
         } else {
-            (0..self.settings.sessions.len()).collect()
+            (0..all.len()).collect()
         };
         if found.is_empty() {
             list = list.child(
@@ -350,13 +351,13 @@ impl Desk {
             );
         }
         for i in found {
-            let session = &self.settings.sessions[i];
+            let session = &all[i];
             let tasks = thread::session_tasks(&self.solver.journal, &session.id);
-            list = list.child(self.session_row(faces, i, session, &tasks, cx));
+            list = list.child(self.session_row(faces, session, &tasks, cx));
             let parts = thread::open_parts(&tasks);
             let count = parts.len();
             for (n, part) in parts.into_iter().enumerate() {
-                list = list.child(part_row(faces, i, part, n + 1 == count, cx));
+                list = list.child(part_row(faces, &session.id, part, n + 1 == count, cx));
             }
         }
         list
@@ -370,12 +371,11 @@ impl Desk {
     fn session_row(
         &self,
         faces: &Faces,
-        index: usize,
         s: &Session,
         tasks: &[Task<'_>],
         cx: &mut Context<Self>,
     ) -> Div {
-        let on = index == self.current && self.open.is_none() && !self.attending();
+        let on = s.id == self.sessions.current_id() && self.open.is_none() && !self.attending();
         let label_color = if s.title.is_empty() {
             theme::muted()
         } else {
@@ -413,7 +413,7 @@ impl Desk {
         // The `…` is there on the row that is open or has the menu, and
         // comes up on any other as the pointer reaches it.
         let shown = on || menu_open;
-        let (for_more, for_right, for_click) = (id.clone(), id.clone(), index);
+        let (for_more, for_right, for_click) = (id.clone(), id.clone(), id.clone());
         let more = div()
             .id(SharedString::from(format!("session-{id}:more")))
             .flex()
@@ -458,7 +458,7 @@ impl Desk {
                 })
             }))
             .when(!renaming, |d| d.child(more))
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(for_click, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.choose(&for_click, cx)))
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, _, _, cx| {
@@ -589,11 +589,12 @@ impl Desk {
 /// its brief. Clicking it opens the session it belongs to.
 fn part_row(
     faces: &Faces,
-    session: usize,
+    session: &str,
     part: &Task<'_>,
     last: bool,
     cx: &mut Context<Desk>,
 ) -> Stateful<Div> {
+    let session = session.to_owned();
     div()
         .id(SharedString::from(format!("part-{session}-{}", part.id)))
         .flex()
@@ -612,7 +613,7 @@ fn part_row(
                 .text_size(px(13.))
                 .text_color(theme::muted()),
         ))
-        .on_click(cx.listener(move |this, _, _, cx| this.choose(session, cx)))
+        .on_click(cx.listener(move |this, _, _, cx| this.choose(&session, cx)))
 }
 
 impl Desk {

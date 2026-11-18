@@ -47,7 +47,7 @@ use tracing::{Instrument as _, debug, info, info_span, warn};
 use crate::{
     brains::served::{self, Held},
     cast::{Cast, Character},
-    operator, wire,
+    operator, sessions, wire,
 };
 
 /// How long a client has to say hello.
@@ -614,6 +614,18 @@ async fn watch<S>(
             }
             Some(method::REWIND) => {
                 let reply = operator::rewind(id, &frame, at.owner, at.who.as_deref(), who).await;
+                if out.send(reply).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            Some(
+                method::SESSIONS
+                | method::SESSION_NEW
+                | method::SESSION_RENAME
+                | method::SESSION_DELETE,
+            ) => {
+                let reply = sessions::answer(id, &frame, at.owner, at.who.as_deref(), who).await;
                 if out.send(reply).await.is_err() {
                     break;
                 }

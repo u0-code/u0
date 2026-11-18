@@ -294,6 +294,8 @@ pub enum Update {
     Roster(Vec<Listed>),
     /// The work she has in hand and what ended lately, as `work.list` says.
     Work(Vec<Work>),
+    /// Her sessions at a console, newest first, as `sessions.list` says.
+    Sessions(Vec<ghost_link::protocol::Session>),
     /// What one of the daemon's characters, by her id, is waiting on you
     /// for, as `attention.list` says.
     Attention {
