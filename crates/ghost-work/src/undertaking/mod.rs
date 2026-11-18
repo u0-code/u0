@@ -163,9 +163,11 @@ impl Undertaking {
                     .unwrap_or(0)
             };
             let id = format!("{prefix}{}", last + 1);
+            // A part is done where the work it is part of is done.
             let state = State {
                 brief: brief.to_owned(),
                 parent: Some(self.id.clone()),
+                dir: load(&tx, &self.id).map_err(other)?.and_then(|s| s.dir),
                 ..State::default()
             };
             store(&tx, &id, &state).map_err(other)?;

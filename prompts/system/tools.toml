@@ -138,6 +138,7 @@ description = """\
 [undertake.parameters]
 brief = "A complete instruction to yourself, with everything needed to do it without this conversation in front of you."
 for = "Who it is for. Leave out when it is for yourself."
+dir = "The folder on this computer the work is to be done in, as a path: only when whoever asked wants the work done there, as when they ask for a change to a project of theirs. A folder they only want looked at, counted or read is not it: say it in the brief and leave this out. Left out, the work gets a folder of its own, where what it makes is kept together and can be found again."
 
 # Offered only where the place can take a file.
 [send_file]

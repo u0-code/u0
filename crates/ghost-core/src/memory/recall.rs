@@ -528,6 +528,7 @@ mod tests {
                 asked_by: Some("console:fox".into()),
                 place: Some("console:fox".into()),
                 directed: true,
+                dir: None,
             },
             Event::Stopped {
                 place: "console:fox".into(),

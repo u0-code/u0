@@ -19,6 +19,7 @@ fn took_on(rig: &mut Rig, at: DateTime<Utc>, id: &str, asked_by: Option<&str>, d
             asked_by: asked_by.map(Into::into),
             place: None,
             directed,
+            dir: None,
         },
     );
 }

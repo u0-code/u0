@@ -102,6 +102,10 @@ pub struct Workshop {
     /// Agents installed on her machine (Claude Code, Codex) that her work
     /// can hand a part to.
     pub agents: Vec<ghost_work::agents::Agent>,
+    /// Where each piece of work gets a folder of its own, by the day it
+    /// was taken on, when her machine is this computer. `None` is every
+    /// piece in her machine's own directory.
+    pub folders: Option<std::path::PathBuf>,
 }
 
 /// Something an observer can ask a running mind.

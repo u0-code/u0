@@ -206,6 +206,11 @@ pub enum Event {
         /// she means to do because of it does not wait on her day.
         #[serde(default, skip_serializing_if = "is_false")]
         directed: bool,
+        /// The folder it is done in on this computer: the one whoever asked
+        /// named, or else a folder of its own. None where her machine is not
+        /// this computer's, or for work from before work had folders.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dir: Option<String>,
     },
     /// One sitting of work on an undertaking.
     Worked {

@@ -201,6 +201,12 @@ pub struct State {
     /// them. Only ever appended to.
     #[serde(default)]
     pub told: Vec<Told>,
+    /// The folder it is done in, on the machine's own computer: its own,
+    /// or one whoever asked named. A part is done where its parent is.
+    /// None where there is no such folder: its machine's own directory
+    /// is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
     /// The undertaking this is a part of, for a part handed out by a
     /// worker. Helpers from before parts ran on their own have none, and
     /// are not counted as parts: each of them ended in the step that
