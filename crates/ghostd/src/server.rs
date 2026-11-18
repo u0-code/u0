@@ -178,6 +178,9 @@ pub struct Shared {
     pub token: Option<String>,
     /// Web origins allowed to connect, beyond this machine's own.
     pub origins: Vec<String>,
+    /// Where it runs, as every character's status says: the daemon's, not
+    /// anything she lived.
+    pub core: ghost_protocol::CoreInfo,
 }
 
 impl Shared {
@@ -694,10 +697,16 @@ async fn watch<S>(
             }
         };
         let steps = matches!(question, Question::WorkSteps { .. });
+        let status = matches!(question, Question::Status);
         let reply = match who.mind().ask(question).await {
             // Her mind has no work by that id.
             Ok(serde_json::Value::Null) if steps => {
                 Frame::err(id, code::NO_SUCH_WORK, "she has no work by that id")
+            }
+            // Where she runs is the daemon's to say, beside what she is.
+            Ok(mut value) if status && value.is_object() => {
+                value["core"] = serde_json::json!(shared.core);
+                Frame::ok(id, &value)
             }
             Ok(value) => Frame::ok(id, &value),
             Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),

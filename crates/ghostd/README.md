@@ -42,6 +42,7 @@ desktop app runs its core this way.
   ghostd.toml       its configuration: written once, then yours
   .env              its keys, if any (mode 600 when ghostd writes it)
   ghosts/solver/    Ghost, the mascot; any other ghost put in ghosts/ runs too
+  core-id           which core this is: made at random the first time it runs
 ```
 
 `ghostd run --home <home>` makes the home ready, loads its `.env` under
@@ -60,6 +61,15 @@ desk's persona and being, from
 in place of a character's: they follow the binary, and `prompts` under
 `[mind]` lays a directory of your own over them, as in any deployment.
 Relative paths in a home's `ghostd.toml` are read from the home.
+
+Every character's `ghost.status` says where her daemon runs, under
+`core`: its id, the full path of the `core-id` it keeps it in, and the
+name of the computer. The paths she gives (her machine's directory, her
+work's folders, the files it hands over) are on that computer, and a
+console can open them only there: it knows it is there when it reads the
+same id at that path, which a host name could not tell it. A daemon run
+without a home keeps `core-id` beside the `ghostd.toml` it read, or in its
+first character's directory when it read none.
 
 A daemon running a home changes its own brains when an operator asks,
 over the Ghost Protocol (`brains.save`, `brains.remove`, `brains.use`; the

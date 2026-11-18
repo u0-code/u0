@@ -92,7 +92,7 @@ impl Mind {
         let machine = machine.map(|spec| {
             let spec = spec.trim();
             let kind = spec.split_once(':').map_or(spec, |(kind, _)| kind);
-            json!({"kind": kind, "spec": spec})
+            json!({"kind": kind, "spec": spec, "dir": self.workshop.local})
         });
         let agents: Vec<&str> = self
             .workshop

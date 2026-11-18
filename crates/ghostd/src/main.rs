@@ -12,6 +12,7 @@ mod config;
 mod console;
 mod directory;
 mod home;
+mod host;
 mod operator;
 mod prompts;
 mod run;

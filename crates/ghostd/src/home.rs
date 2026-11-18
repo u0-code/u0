@@ -7,6 +7,7 @@
 //!   ghostd.toml       its configuration: written once, then yours
 //!   .env              its keys, if any: never in the configuration
 //!   ghosts/solver/    Ghost, the mascot; any other ghost put in ghosts/ runs too
+//!   core-id           which core this is, made the first time it runs (`host`)
 //! ```
 //!
 //! ghostd makes a home ready by itself ([`ready`]): what is missing is
