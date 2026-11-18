@@ -451,14 +451,9 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
                     base.color,
                     None,
                 ),
-                // In her prose a name in code sits on a light shade of its
-                // own, in the text's colour; in the small print of a step,
-                // where there are many, it is only set in mono.
-                Mark::Code if base.face == faces.ui => (
-                    face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
-                    base.strong,
-                    None,
-                ),
+                // A name in code sits on the bubble's shade, in the text's
+                // colour, wherever it is written: in her prose and in what
+                // she says between steps alike.
                 Mark::Code => (
                     face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
                     theme::text(),

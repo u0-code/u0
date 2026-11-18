@@ -31,16 +31,6 @@ pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
-/// A small mono label in capitals, spaced out: the head of a section.
-pub fn eyebrow(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    let text: SharedString = text.into();
-    div()
-        .font_family(faces.mono.clone())
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(SharedString::from(text.to_uppercase()))
-}
-
 /// Body text in the interface face.
 pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
     div()

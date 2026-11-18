@@ -24,10 +24,10 @@ use gpui::{
 use super::{
     State, calls, drawn, kinds,
     style::{
-        BOX_RADIUS, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL, SMALL_LINE, WELL_RADIUS,
-        meta,
+        BOX_RADIUS, CARD_RADIUS, META, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL,
+        WELL_RADIUS, meta,
     },
-    task_first::{breathing, secondary},
+    task_first::breathing,
 };
 use crate::{desk::Desk, follow, fonts::Faces, theme, ui};
 
@@ -76,7 +76,8 @@ pub(super) fn look(
         calls::worked(secs, rows.len(), true)
     } else {
         let said: Vec<calls::Said> = rows.iter().map(|c| calls::say(&c.name, &c.args)).collect();
-        calls::summary(&said, secs)
+        let failed = rows.iter().filter(|c| c.failed).count();
+        calls::summary(&said, failed, secs)
     };
     let toggle = key.clone();
     let header = div()
@@ -165,8 +166,19 @@ fn call_row(
 ) -> Stateful<Div> {
     let said = calls::say(&call.name, &call.args);
     let open = expanded.contains(key);
+    // A failed call says so where its time is, in the colour of trouble;
+    // nothing else on the row changes.
     let right = if call.failed {
-        meta(faces, "failed").text_color(theme::coral().opacity(0.85))
+        let took = calls::took(call.ms);
+        meta(
+            faces,
+            if took.is_empty() {
+                "failed".to_owned()
+            } else {
+                format!("failed · {took}")
+            },
+        )
+        .text_color(theme::coral())
     } else {
         meta(faces, calls::took(call.ms))
     };
@@ -176,16 +188,18 @@ fn call_row(
         .flatten();
     let counts = changed.as_deref().map(kinds::counted);
     let toggle = key.to_owned();
+    let group = SharedString::from(format!("{key}-group"));
     let head = div()
         .id(SharedString::from(format!("{key}-row")))
+        .group(group.clone())
         .flex()
         .items_center()
-        .gap(px(S2))
+        .gap(px(6.))
         .h(px(30.))
         .px(px(10.))
         .rounded(px(8.))
         .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
+        .hover(|s| s.bg(theme::border()))
         .child(
             ui::text(faces, said.verb.clone())
                 .flex_none()
@@ -193,30 +207,31 @@ fn call_row(
                 .text_color(theme::muted()),
         )
         .child(
-            ui::mono(faces, calls::fit(&said.what, ROW_COLS))
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(MONO + 0.5))
-                .text_color(theme::text()),
+            object(faces, &call.name, &said.what)
+                .flex_shrink()
+                .min_w(px(0.)),
         )
         .when_some(counts, |d, (gone, added)| {
             d.when(added > 0, |d| {
                 d.child(
-                    meta(faces, format!("+{added}"))
+                    ui::text(faces, format!("+{added}"))
                         .flex_none()
+                        .text_size(px(SMALL))
                         .text_color(theme::code_argument()),
                 )
             })
             .when(gone > 0, |d| {
                 d.child(
-                    meta(faces, format!("−{gone}"))
+                    ui::text(faces, format!("−{gone}"))
                         .flex_none()
+                        .text_size(px(SMALL))
                         .text_color(theme::coral()),
                 )
             })
         })
-        .child(right.flex_none())
+        // The chevron follows what the row is about, and shows only on the
+        // row opened or the one under the pointer: a column of them would
+        // be a column of noise.
         .child(
             ui::icon(
                 if open {
@@ -224,11 +239,18 @@ fn call_row(
                 } else {
                     "chevron-right"
                 },
-                11.,
+                14.,
             )
             .flex_none()
-            .text_color(theme::faint()),
+            .text_color(if open {
+                theme::muted()
+            } else {
+                gpui::transparent_black()
+            })
+            .group_hover(group, |s| s.text_color(theme::muted())),
         )
+        .child(div().flex_1())
+        .child(right.flex_none().pl(px(S4)))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
     let mut row = div()
         .id(SharedString::from(key.to_owned()))
@@ -237,28 +259,23 @@ fn call_row(
         .w_full()
         .child(head);
     if open {
-        // Opened, a call is a box: what it was in a word, the command in a
-        // well under it, and what came back, all in hairline frames on the
-        // thread's ground.
+        // Opened, a call is a box under its row, its edge under the row's
+        // words: what it was in a line, the command in a well, and what came
+        // back, all in hairline frames on the thread's ground.
         let mut body = div()
             .flex()
             .flex_col()
-            .w_full()
             .gap(px(S3))
-            .mt(px(S1))
-            .mb(px(S2))
+            .mt(px(S3))
+            .mb(px(S3))
+            .mx(px(10.))
             .px(px(S3))
             .pt(px(14.))
             .pb(px(S4))
             .rounded(px(BOX_RADIUS))
             .border_1()
             .border_color(theme::border())
-            .child(
-                ui::text(faces, label(&call.name, &said.verb))
-                    .px(px(10.))
-                    .text_size(px(ROW - 1.))
-                    .text_color(theme::muted()),
-            );
+            .child(box_label(faces, call, &said, counts));
         if let Some(command) = calls::command_of(&call.name, &call.args) {
             body = body.child(command_well(faces, key, &command, cx));
         }
@@ -334,7 +351,7 @@ fn call_row(
 
 /// How many lines of what came back show before the rest is folded: a
 /// file read shows its first twelve; anything else, if longer than eight,
-/// its first three and its last.
+/// its first two and its last.
 fn folded_at(name: &str) -> usize {
     if name == "read" { 12 } else { 8 }
 }
@@ -357,8 +374,8 @@ fn printed(faces: &Faces, text: &str, all: bool) -> Div {
     if all || lines.len() <= folded_at("") {
         return mono().child(text.to_owned());
     }
-    let head = lines[..3].join("\n");
-    let gone = lines.len() - 4;
+    let head = lines[..2].join("\n");
+    let gone = lines.len() - 3;
     div()
         .flex()
         .flex_col()
@@ -366,7 +383,7 @@ fn printed(faces: &Faces, text: &str, all: bool) -> Div {
         .child(mono().child(head))
         .child(
             mono()
-                .text_color(theme::ghost_line())
+                .text_color(theme::quiet())
                 .child(format!("… {gone} lines")),
         )
         .child(mono().child(lines[lines.len() - 1].to_owned()))
@@ -382,7 +399,7 @@ fn read_well(faces: &Faces, text: &str, lang: &str, all: bool) -> Div {
         .w(px(40.))
         .pr(px(14.))
         .items_end()
-        .text_color(theme::ghost_line());
+        .text_color(theme::quiet());
     let mut code = div()
         .flex()
         .flex_col()
@@ -432,14 +449,89 @@ fn read_well(faces: &Faces, text: &str, lang: &str, all: bool) -> Div {
 /// How many columns of mono a step's row has for what it was about.
 const ROW_COLS: usize = 60;
 
-/// What an opened call's box is headed with: the shell for a command, as a
-/// terminal is named, and otherwise what was done.
-fn label(name: &str, verb: &str) -> String {
-    if name == "shell" {
-        "Shell".to_owned()
+/// What a row is about: a command or a path in mono, as it would be
+/// typed; anything else, a query, a page, a name, in words.
+fn object(faces: &Faces, name: &str, what: &str) -> Div {
+    let typed = matches!(name, "shell" | "read" | "write" | "edit");
+    let text = calls::fit(what, ROW_COLS);
+    if typed {
+        ui::mono(faces, text)
+            .truncate()
+            .text_size(px(MONO + 0.5))
+            .text_color(theme::text())
     } else {
-        verb.to_owned()
+        ui::text(faces, text)
+            .truncate()
+            .text_size(px(ROW))
+            .text_color(theme::text())
     }
+}
+
+/// What an opened call's box is headed with: the shell for a command, as
+/// a terminal is named; otherwise what was done and to what, a path in
+/// mono, and how much, quiet, after it.
+fn box_label(
+    faces: &Faces,
+    call: &ToolCall,
+    said: &calls::Said,
+    counts: Option<(usize, usize)>,
+) -> Div {
+    let line = div()
+        .flex()
+        .items_center()
+        .gap(px(S2))
+        .px(px(10.))
+        .min_w(px(0.))
+        .text_size(px(ROW - 1.))
+        .line_height(px(20.));
+    if call.name == "shell" && calls::command_of(&call.name, &call.args).is_some() {
+        return line.child(ui::text(faces, "Bash").text_color(theme::muted()));
+    }
+    let typed = matches!(call.name.as_str(), "read" | "write" | "edit");
+    let what = calls::fit(&said.what, ROW_COLS);
+    let found = (call.name == "search" && !call.failed)
+        .then(|| kinds::hits(&call.out).len())
+        .filter(|n| *n > 0);
+    line.child(
+        ui::text(faces, said.verb.clone())
+            .flex_none()
+            .text_color(theme::muted()),
+    )
+    .when(!what.is_empty(), |d| {
+        d.child(if typed {
+            ui::mono(faces, what)
+                .truncate()
+                .min_w(px(0.))
+                .text_size(px(MONO))
+                .text_color(theme::text())
+        } else {
+            ui::text(faces, what)
+                .truncate()
+                .min_w(px(0.))
+                .text_color(theme::text())
+        })
+    })
+    .when_some(counts, |d, (gone, added)| {
+        d.when(added > 0, |d| {
+            d.child(
+                ui::text(faces, format!("+{added}"))
+                    .flex_none()
+                    .text_size(px(SMALL))
+                    .text_color(theme::code_argument()),
+            )
+        })
+        .when(gone > 0, |d| {
+            d.child(
+                ui::text(faces, format!("−{gone}"))
+                    .flex_none()
+                    .text_size(px(SMALL))
+                    .text_color(theme::coral()),
+            )
+        })
+    })
+    .when_some(found, |d, n| {
+        d.child(meta(faces, calls::plural(n, "result")).flex_none())
+    })
 }
 
 /// A command in full, in a well: a prompt before it, its words coloured
@@ -451,8 +543,8 @@ fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>)
         .relative()
         .flex()
         .w_full()
-        .gap(px(10.))
-        .px(px(14.))
+        .pl(px(14.))
+        .pr(px(44.))
         .py(px(10.))
         .rounded(px(WELL_RADIUS))
         .border_1()
@@ -460,14 +552,7 @@ fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>)
         .font_family(faces.mono.clone())
         .text_size(px(MONO))
         .line_height(px(MONO_LINE))
-        .child(div().flex_none().text_color(theme::muted()).child("$"))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .pr(px(22.))
-                .child(shell(faces, command)),
-        )
+        .child(div().flex_1().min_w(px(0.)).child(shell(faces, command)))
         .child(
             div()
                 .id(SharedString::from(format!("{key}-copy")))
@@ -487,19 +572,24 @@ fn command_well(faces: &Faces, key: &str, command: &str, cx: &mut Context<Desk>)
         )
 }
 
-/// A command with its words coloured: the program at the head of each
-/// command in blue, the joints between commands (`&&`, `|`, `;`) and a
+/// A command with its words coloured, after a quiet `$ `: the program at
+/// the head of each command in blue, the joints between commands (`&&`, `|`, `;`) and a
 /// comment faint, and everything else, arguments and quoted strings, in
 /// green.
 fn shell(faces: &Faces, command: &str) -> StyledText {
-    let runs = calls::shell_words(command)
-        .into_iter()
+    let runs = std::iter::once((2, None))
+        .chain(
+            calls::shell_words(command)
+                .into_iter()
+                .map(|(len, word)| (len, Some(word))),
+        )
         .map(|(len, word)| {
             let color = match word {
-                calls::Word::Program => theme::code_program(),
-                calls::Word::Joint | calls::Word::Comment => theme::faint(),
-                calls::Word::Space => theme::text2(),
-                calls::Word::Argument => theme::code_argument(),
+                None => theme::muted(),
+                Some(calls::Word::Program) => theme::code_program(),
+                Some(calls::Word::Joint | calls::Word::Comment) => theme::faint(),
+                Some(calls::Word::Space) => theme::text2(),
+                Some(calls::Word::Argument) => theme::code_argument(),
             };
             TextRun {
                 len,
@@ -517,7 +607,7 @@ fn shell(faces: &Faces, command: &str) -> StyledText {
             }
         })
         .collect();
-    StyledText::new(SharedString::from(command.to_owned())).with_runs(runs)
+    StyledText::new(SharedString::from(format!("$ {command}"))).with_runs(runs)
 }
 
 /// One step of a piece of work: what the model said then, if anything,
@@ -658,31 +748,56 @@ pub(super) fn part(
     let open = expanded.contains(&key);
     let n = id.rsplit('/').next().unwrap_or_default().to_owned();
     let toggle = key.clone();
+    // Under the title, what it is doing now or did last; a part that stands
+    // still for a reason says the reason's word in that colour.
+    let standing = matches!(state, State::Waiting | State::Blocked | State::Dropped);
+    let under = match last.filter(|l| !l.is_empty()) {
+        Some(last) if standing => format!("{} · {last}", capitalised(state.word())),
+        Some(last) => last,
+        None => capitalised(state.word()),
+    };
+    let words = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .overflow_hidden()
+        .gap(px(2.))
+        .child(
+            ui::one_line(ui::text(
+                faces,
+                calls::fit(&format!("Part {n} · {brief}"), 72),
+            ))
+            .whitespace_nowrap()
+            .text_size(px(13.5))
+            .line_height(px(19.))
+            .text_color(theme::text()),
+        )
+        .child(
+            ui::one_line(ui::text(faces, calls::fit(&under, 80)))
+                .whitespace_nowrap()
+                .text_size(px(META))
+                .line_height(px(17.))
+                .text_color(if standing {
+                    state.color()
+                } else {
+                    theme::muted()
+                }),
+        );
     let head = div()
         .id(SharedString::from(format!("{key}-head")))
         .flex()
         .items_center()
-        .gap(px(S2))
-        .min_h(px(28.))
-        .px(px(6.))
-        .rounded(px(6.))
+        .gap(px(S3))
+        .px(px(14.))
+        .py(px(S2))
         .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(crate::aside::glyph(state))
-        .child(meta(faces, format!("#{n}")).flex_none())
-        .child(
-            ui::text(faces, brief.to_owned())
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(SMALL))
-                .text_color(theme::text()),
-        )
-        .child(
-            meta(faces, state.word())
-                .flex_none()
-                .text_color(state.color()),
-        )
+        .child(if state == State::Running {
+            breathing(crate::aside::glyph(state))
+        } else {
+            crate::aside::glyph(state)
+        })
+        .child(words)
         .child(
             ui::icon(
                 if open {
@@ -690,42 +805,47 @@ pub(super) fn part(
                 } else {
                     "chevron-right"
                 },
-                12.,
+                14.,
             )
             .flex_none()
-            .text_color(theme::faint()),
+            .text_color(theme::muted()),
         )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
     let mut card = div()
         .flex()
         .flex_col()
-        .rounded(px(10.))
+        .rounded(px(CARD_RADIUS))
         .border_1()
         .border_color(theme::border())
-        .p(px(2.))
         .child(head);
-    if !open && let Some(last) = last.filter(|l| !l.is_empty()) {
-        card = card.child(
-            secondary(faces, last)
-                .truncate()
-                .pl(px(S3 + 13.))
-                .pr(px(6.))
-                .pb(px(S1))
-                .line_height(px(SMALL_LINE)),
-        );
-    }
     if open {
         let running = state == State::Running;
-        card = card.child(div().px(px(S1)).pb(px(S1)).child(work_steps(
-            faces,
-            id,
-            following.works.get(id),
-            running,
-            expanded,
-            cx,
-        )));
+        card = card.child(
+            div()
+                .px(px(S1))
+                .pb(px(S2))
+                .border_t_1()
+                .border_color(theme::border())
+                .child(work_steps(
+                    faces,
+                    id,
+                    following.works.get(id),
+                    running,
+                    expanded,
+                    cx,
+                )),
+        );
     }
     card
+}
+
+/// A state's word as the head of a line.
+fn capitalised(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

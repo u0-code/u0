@@ -27,10 +27,10 @@ pub fn diff(faces: &Faces, lines: &[Line]) -> Div {
         .font_family(faces.mono.clone())
         .text_size(px(MONO))
         .line_height(px(MONO_LINE))
-        .text_color(theme::text());
+        .text_color(theme::code_text());
     for line in lines {
         let (sign, words, ground, mark) = match line {
-            Line::Same(w) => (" ", w.clone(), None, theme::faint()),
+            Line::Same(w) => (" ", w.clone(), None, theme::quiet()),
             Line::Gone(w) => (
                 "−",
                 w.clone(),
@@ -52,7 +52,7 @@ pub fn diff(faces: &Faces, lines: &[Line]) -> Div {
                 .w_full()
                 .px(px(14.))
                 .when_some(ground, Styled::bg)
-                .child(div().flex_none().w(px(18.)).text_color(mark).child(sign))
+                .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
                 .child(
                     div()
                         .flex_1()
@@ -109,10 +109,10 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
         .flex_col()
         .w_full()
         .gap(px(S1))
-        .child(meta(faces, format!("Plan · {done} of {}", steps.len())).mb(px(S1)));
+        .child(meta(faces, format!("Plan · {done} of {}", steps.len())).mb(px(6.)));
     for (status, text) in steps {
         let mark = match status {
-            Status::Done => ui::icon("check", 14.)
+            Status::Done => ui::icon("check", 16.)
                 .text_color(theme::muted())
                 .into_any_element(),
             Status::Doing => breathing(ui::dot(theme::accent()).size(px(7.))).into_any_element(),
@@ -122,13 +122,13 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
             Status::Dropped => div()
                 .w(px(9.))
                 .h(px(1.5))
-                .bg(theme::ghost_line())
+                .bg(theme::quiet())
                 .into_any_element(),
             Status::Todo => div()
-                .size(px(9.))
+                .size(px(10.))
                 .rounded_full()
                 .border_1()
-                .border_color(theme::ghost_line())
+                .border_color(theme::quiet())
                 .into_any_element(),
         };
         let quiet = matches!(status, Status::Done | Status::Dropped);
@@ -156,7 +156,7 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
                         .text_color(match status {
                             Status::Doing => theme::text(),
                             _ if quiet => theme::faint(),
-                            _ => theme::text2(),
+                            _ => theme::muted(),
                         })
                         .when(quiet, Styled::line_through),
                 ),
