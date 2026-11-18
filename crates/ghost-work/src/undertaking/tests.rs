@@ -552,3 +552,16 @@ fn a_database_from_a_newer_version_is_not_written_to() {
         .unwrap();
     assert!(Undertaking::open(&db(&dir), "u1", Some("anything")).is_err());
 }
+
+#[test]
+fn a_part_is_done_in_the_folder_its_work_is_done_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join(WORK_DB);
+    let work = Undertaking::open(&db, "w", Some("count the lines")).unwrap();
+    work.update(|s| s.dir = Some("/home/her/Ghost/2026-11-18/count-w".into()));
+    let part = work.open_part("count ghost-core").unwrap();
+    assert_eq!(
+        part.state().dir.as_deref(),
+        Some("/home/her/Ghost/2026-11-18/count-w")
+    );
+}

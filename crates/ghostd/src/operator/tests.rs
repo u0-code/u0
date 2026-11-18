@@ -236,6 +236,7 @@ fn waiting_on_an_answer(dir: &std::path::Path) {
             asked_by: None,
             place: None,
             directed: false,
+            dir: None,
         })
         .unwrap();
     ghost
@@ -513,6 +514,7 @@ fn directed_from_the_console(dir: &std::path::Path) {
             asked_by: Some("console:fox".into()),
             place: Some("console:fox".into()),
             directed: true,
+            dir: None,
         })
         .unwrap();
 }

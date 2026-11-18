@@ -132,9 +132,14 @@ impl Mind {
                         })?;
                     }
                 },
-                Action::Undertake { brief, for_whom } => {
+                Action::Undertake {
+                    brief,
+                    for_whom,
+                    dir,
+                } => {
                     let asker = self.resolve(place, for_whom.as_deref())?;
-                    match self.undertake(&brief, asker.as_ref(), Some(place), now)? {
+                    let dir = dir.as_deref();
+                    match self.undertake(&brief, asker.as_ref(), Some(place), dir, now)? {
                         None => did.push("took something on".to_owned()),
                         Some(why) => {
                             self.record(Event::Decided {

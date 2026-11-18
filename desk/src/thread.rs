@@ -295,6 +295,8 @@ pub struct Task<'a> {
     pub events: Vec<&'a Entry>,
     /// Its parts, each a task of its own: `<id>/<n>`.
     pub parts: Vec<Task<'a>>,
+    /// The folder it is done in, when it has one.
+    pub dir: Option<String>,
 }
 
 impl Task<'_> {
@@ -389,6 +391,7 @@ pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
                     started: e.at,
                     events: Vec::new(),
                     parts: Vec::new(),
+                    dir: e.data.get("dir").and_then(Value::as_str).map(str::to_owned),
                 });
             }
             "worked" | "reported" | "asked" | "added" | "concluded" => {

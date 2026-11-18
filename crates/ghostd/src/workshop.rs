@@ -60,7 +60,19 @@ pub(crate) fn workshop(
             .collect(),
         None => Vec::new(),
     };
+    // Each piece of work done on this computer gets a folder of its own,
+    // under one of hers, beside what else a person keeps.
+    let folders = local.as_ref().and_then(|_| {
+        let root = match cfg.folders.as_deref().map(str::trim) {
+            Some(root) if !root.is_empty() => expand_home(root)?,
+            _ => std::path::PathBuf::from(std::env::var_os("HOME")?)
+                .join("Documents")
+                .join("Ghost"),
+        };
+        Some(root.join(ghost_dir.file_name()?))
+    });
     Ok(ghost_mind::Workshop {
+        folders,
         machine,
         web: if cfg.web {
             WebConfig::from_env()
@@ -94,4 +106,12 @@ fn servers(
         dir,
         hers.mcp.clone(),
     )))
+}
+
+/// A path as written in config, `~/` read as the home directory.
+fn expand_home(path: &str) -> Option<std::path::PathBuf> {
+    match path.strip_prefix("~/") {
+        Some(rest) => Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join(rest)),
+        None => Some(std::path::PathBuf::from(path)),
+    }
 }

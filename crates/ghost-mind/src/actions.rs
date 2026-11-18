@@ -128,6 +128,9 @@ pub enum Action {
         /// Who it is for. Absent when it is for herself.
         #[serde(default, rename = "for")]
         for_whom: Option<String>,
+        /// The folder it is to be done in, when whoever asked named one.
+        #[serde(default)]
+        dir: Option<String>,
     },
     /// Pass something on to work she has under way. `work` is the number
     /// she knows it by.
@@ -257,7 +260,10 @@ fn shape(name: &str) -> Option<Shape> {
             &["note"],
         ),
         "let_go" => (&[("thing", "integer")], &["thing"]),
-        "undertake" => (&[("brief", "string"), ("for", "string")], &["brief"]),
+        "undertake" => (
+            &[("brief", "string"), ("for", "string"), ("dir", "string")],
+            &["brief"],
+        ),
         "steer" => (
             &[("work", "integer"), ("text", "string")],
             &["work", "text"],

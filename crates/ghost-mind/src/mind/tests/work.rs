@@ -386,7 +386,7 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     // An image a tool showed her at work, kept beside her work database.
     let file = ghost_core::media::store(rig.mind.ghost.dir(), PIXEL, "image/png").unwrap();
     rig.mind
-        .undertake("Find a good picture of a heron.", None, None, t0)
+        .undertake("Find a good picture of a heron.", None, None, None, t0)
         .unwrap();
     // The first sitting keeps it and runs out of steps; the second finishes.
     rig.think.then_call(
@@ -488,4 +488,89 @@ async fn work_that_stops_getting_anywhere_comes_back_unfinished_after_one_sittin
         meant.contains(rig.mind.prompts.text("unfinished_next").trim()),
         "{meant}"
     );
+}
+
+#[tokio::test]
+async fn work_is_done_in_a_folder_of_its_own_made_for_it_unless_one_was_named() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think
+        .hands
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let computer = tempfile::tempdir().unwrap();
+    let hers = computer.path().join("Ghost").join("solver");
+    rig.mind.workshop.folders = Some(hers.clone());
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(computer.path())));
+    let theirs = computer.path().join("their-project");
+    std::fs::create_dir(&theirs).unwrap();
+
+    rig.mind
+        .undertake(
+            "Count the lines of every crate.\nThen make a table.",
+            None,
+            None,
+            None,
+            t0,
+        )
+        .unwrap();
+    let dir_of = |rig: &Rig, start: &str| {
+        rig.mind
+            .ghost
+            .memory()
+            .undertakings(false, 5)
+            .unwrap()
+            .into_iter()
+            .find(|u| u.brief.starts_with(start))
+            .and_then(|u| u.dir)
+            .unwrap()
+    };
+    // Its own, by the day it was taken on and what it is.
+    let own = std::path::PathBuf::from(dir_of(&rig, "Count"));
+    assert_eq!(
+        own.parent().unwrap(),
+        hers.join(t0.format("%Y-%m-%d").to_string())
+    );
+    let name = own.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("count-the-lines-of-every"), "{name}");
+
+    // It is made before the first step, as a repository, and the work's
+    // commands run in it.
+    rig.think
+        .then_call("shell", serde_json::json!({"command": "pwd > where.txt"}));
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "counted"}),
+    );
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+    assert!(own.join(".git").is_dir(), "made as a repository");
+    let ran_in = std::fs::read_to_string(own.join("where.txt")).unwrap();
+    assert_eq!(
+        std::path::Path::new(ran_in.trim()).canonicalize().unwrap(),
+        own.canonicalize().unwrap()
+    );
+
+    // Work whose asker named a folder is done there.
+    rig.mind
+        .undertake(
+            "Tidy their project.",
+            None,
+            None,
+            Some(&theirs.display().to_string()),
+            t0,
+        )
+        .unwrap();
+    assert_eq!(dir_of(&rig, "Tidy"), theirs.display().to_string());
+}
+
+#[test]
+fn a_work_folder_is_named_from_the_first_line_of_its_brief_in_any_script() {
+    assert_eq!(
+        super::super::work::folder_name("Count the lines: of every crate!\nmore"),
+        "count-the-lines-of-every-crat"
+    );
+    assert_eq!(
+        super::super::work::folder_name("统计 crates 的行数"),
+        "统计-crates-的行数"
+    );
+    assert_eq!(super::super::work::folder_name("  \n/// ?"), "work");
 }

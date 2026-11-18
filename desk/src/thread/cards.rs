@@ -269,6 +269,7 @@ pub(super) fn task(
                 .pb(px(S4))
                 .border_t_1()
                 .border_color(theme::border())
+                .children(t.dir.as_deref().map(|dir| folder(faces, &t.id, dir, cx)))
                 .when(!plan.is_empty(), |d| {
                     d.child(drawn::plan(faces, &plan).px(px(10.))).child(
                         div()
@@ -634,6 +635,40 @@ fn parts(
         ));
     }
     Some(column)
+}
+
+/// Where a piece of work is done: its folder, short, in a line at the top
+/// of it opened, which shows the folder in Finder on a click.
+fn folder(faces: &Faces, id: &str, dir: &str, cx: &mut Context<Desk>) -> Stateful<Div> {
+    let path = std::path::PathBuf::from(dir);
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let shown = ui::short_path(&path, home.as_deref());
+    div()
+        .id(SharedString::from(format!("folder:{id}")))
+        .flex()
+        .items_center()
+        .gap(px(S2))
+        .h(px(26.))
+        .px(px(10.))
+        .mb(px(S1))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(
+            ui::icon("folder", 13.)
+                .flex_none()
+                .text_color(theme::muted()),
+        )
+        .child(
+            ui::mono(faces, shown)
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .text_size(px(MONO))
+                .text_color(theme::muted()),
+        )
+        .tooltip(ui::tip("Show in Finder"))
+        .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx)))
 }
 
 #[cfg(test)]

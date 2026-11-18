@@ -116,6 +116,7 @@ impl Mind {
         brief: &str,
         asked_by: Option<&Person>,
         place: Option<&PlaceState>,
+        dir: Option<&str>,
         now: DateTime<Utc>,
     ) -> Result<Option<String>> {
         let brief = brief.trim();
@@ -195,6 +196,7 @@ impl Mind {
             }
         }
         let id = format!("{}-{:04x}", now.format("%Y%m%d-%H%M%S"), self.rng.u16(..));
+        let dir = self.work_folder(&id, brief, dir, now);
         // Her own account of what is wanted, and under it what they said.
         let brief = format!(
             "{brief}{}",
@@ -209,9 +211,41 @@ impl Mind {
             asked_by: asked_by.map(|p| p.key.clone()),
             place: place.map(|p| p.key.clone()),
             directed: terminal,
+            dir,
         })?;
         self.work_at(now);
         Ok(None)
+    }
+
+    /// The folder the work `id` is done in: the one whoever asked named,
+    /// or else a folder of its own under her folders, by the day it was
+    /// taken on and what it is, `2026-11-18/count-the-lines-d2a4`. None
+    /// where her machine is not this computer.
+    fn work_folder(
+        &self,
+        id: &str,
+        brief: &str,
+        named: Option<&str>,
+        now: DateTime<Utc>,
+    ) -> Option<String> {
+        let root = self.workshop.folders.as_ref()?;
+        if let Some(named) = named.map(str::trim).filter(|d| !d.is_empty()) {
+            return Some(match named.strip_prefix("~/") {
+                Some(rest) => std::env::var_os("HOME").map_or_else(
+                    || named.to_owned(),
+                    |h| std::path::Path::new(&h).join(rest).display().to_string(),
+                ),
+                None => named.to_owned(),
+            });
+        }
+        let tail = id.rsplit('-').next().unwrap_or(id);
+        let name = format!("{}-{tail}", folder_name(brief));
+        Some(
+            root.join(now.format("%Y-%m-%d").to_string())
+                .join(name)
+                .display()
+                .to_string(),
+        )
     }
 
     /// Time to look at her work: glance at every sitting in progress, and
@@ -348,8 +382,16 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<()> {
         let before = undertaking.state().steps;
+        // Done in its own folder, where her machine can be given one: the
+        // record keeps where, for every sitting and every part of it.
+        let folder = next.dir.clone().filter(|_| self.workshop.folders.is_some());
+        if let Some(dir) = &folder {
+            undertaking.update(|state| {
+                state.dir.get_or_insert_with(|| dir.clone());
+            });
+        }
         let place = match &self.workshop.machine {
-            Some(machine) => machine.describe(),
+            Some(machine) => in_folder(machine, &undertaking).describe(),
             None => self.prompts.text("no_machine").to_owned(),
         };
         // What the work is told comes from the same files as what she is
@@ -367,7 +409,9 @@ impl Mind {
             let words = shared.clone();
             Arc::new(move |undertaking| {
                 let tools = match &machine {
-                    Some(machine) => tools::standard(machine.clone(), undertaking, &words),
+                    Some(machine) => {
+                        tools::standard(in_folder(machine, undertaking), undertaking, &words)
+                    }
                     None => tools::desk(undertaking, &words),
                 };
                 let tools = tools::with_web(tools, &web);
@@ -438,6 +482,17 @@ impl Mind {
             agents: self.workshop.agents.clone(),
         };
         self.jobs.spawn(async move {
+            // Its folder is made before its first step, out of her way.
+            if let Some(dir) = folder {
+                let path = std::path::PathBuf::from(&dir);
+                match tokio::task::spawn_blocking(move || ghost_work::folder::prepare(&path)).await
+                {
+                    Ok(Ok(true)) => info!("made {dir} for the work"),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => warn!("could not make {dir}: {e}"),
+                    Err(e) => warn!("could not make {dir}: {e}"),
+                }
+            }
             let report = worker.run().await;
             Outcome::Worked {
                 id,
@@ -923,4 +978,47 @@ impl Mind {
         self.resting.insert(id.to_owned(), until);
         self.work_at(until);
     }
+}
+
+/// A folder's name from a brief: its first line, in at most 24 letters or
+/// figures of any script, the rest made single dashes; `work` if nothing
+/// is left.
+pub(super) fn folder_name(brief: &str) -> String {
+    let line = brief
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default();
+    let mut name = String::new();
+    let mut letters = 0;
+    for c in line.chars() {
+        if letters == 24 {
+            break;
+        }
+        if c.is_alphanumeric() {
+            name.extend(c.to_lowercase());
+            letters += 1;
+        } else if !name.is_empty() && !name.ends_with('-') {
+            name.push('-');
+        }
+    }
+    let name = name.trim_end_matches('-');
+    if name.is_empty() {
+        "work".to_owned()
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Her machine as a piece of work has it: in the work's own folder, when
+/// it has one the machine can be given.
+fn in_folder(
+    machine: &Arc<dyn ghost_work::Machine>,
+    undertaking: &Undertaking,
+) -> Arc<dyn ghost_work::Machine> {
+    undertaking
+        .state()
+        .dir
+        .and_then(|dir| machine.at(std::path::Path::new(&dir)))
+        .unwrap_or_else(|| machine.clone())
 }

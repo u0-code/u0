@@ -141,6 +141,11 @@ pub struct WorkConfig {
     pub machine: Option<String>,
     /// The directory she starts in inside a container.
     pub workdir: Option<String>,
+    /// Where each piece of work done on this computer gets a folder of its
+    /// own, under a folder of hers. Left out, `~/Documents/Ghost`, beside
+    /// what else a person keeps; work whose asker names a folder is done
+    /// there instead.
+    pub folders: Option<String>,
     /// Let her search and read the web while working.
     pub web: bool,
     /// Pieces of work that may have a sitting running at once. Another
@@ -231,6 +236,7 @@ impl Default for WorkConfig {
         Self {
             enabled: true,
             machine: None,
+            folders: None,
             workdir: None,
             web: true,
             at_once: 2,

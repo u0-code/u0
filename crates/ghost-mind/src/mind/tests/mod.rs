@@ -846,7 +846,7 @@ fn at_work_for_wen(rig: &mut Rig, brief: &str, now: DateTime<Utc>) -> i64 {
     let place = memory.place("t:wen").unwrap().unwrap();
     assert_eq!(
         rig.mind
-            .undertake(brief, Some(&wen), Some(&place), now)
+            .undertake(brief, Some(&wen), Some(&place), None, now)
             .unwrap(),
         None
     );

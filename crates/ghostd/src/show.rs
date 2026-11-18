@@ -117,7 +117,10 @@ fn describe(event: &Event, tz: Tz) -> String {
         Event::Settled { intention, outcome } => format!("#{intention}: {}", flat(outcome)),
         Event::Left { person, why } => format!("{person}: {}", flat(why)),
         Event::Canon { fact, source } => format!("{} [{source}]", flat(fact)),
-        Event::Undertook { id, brief, .. } => format!("[{id}] {}", flat(brief)),
+        Event::Undertook { id, brief, dir, .. } => match dir {
+            Some(dir) => format!("[{id}] in {dir}: {}", flat(brief)),
+            None => format!("[{id}] {}", flat(brief)),
+        },
         Event::Asked { id, question } => format!("[{id}] {}", flat(question)),
         Event::Added { id, text, by } => match by {
             Some(by) => format!("[{id}] from {by}: {}", flat(text)),

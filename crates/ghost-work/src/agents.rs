@@ -17,7 +17,7 @@
 //! asked for, as her own shell on this machine does.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -293,7 +293,7 @@ fn added(part: &Undertaking) -> Option<String> {
 }
 
 /// The command that runs `agent` once on `prompt`, resuming `session`.
-fn command(agent: &Agent, prompt: &str, session: Option<&str>) -> Command {
+fn command(agent: &Agent, dir: &Path, prompt: &str, session: Option<&str>) -> Command {
     let cli = &agent.cli;
     let mut command = Command::new(&cli.program);
     match cli.kind {
@@ -315,7 +315,7 @@ fn command(agent: &Agent, prompt: &str, session: Option<&str>) -> Command {
             command
                 .args(["exec", "--json", "--skip-git-repo-check"])
                 .arg("-C")
-                .arg(&agent.dir)
+                .arg(dir)
                 .arg("--dangerously-bypass-approvals-and-sandbox");
             if let Some(model) = &cli.model {
                 command.args(["-m", model]);
@@ -332,7 +332,7 @@ fn command(agent: &Agent, prompt: &str, session: Option<&str>) -> Command {
         command.env_remove(name);
     }
     command
-        .current_dir(&agent.dir)
+        .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -473,8 +473,12 @@ async fn once(
     deadline: Instant,
 ) -> Run {
     let started = Instant::now();
-    let session = part.state().session;
-    let mut child = match command(agent, prompt, session.as_deref()).spawn() {
+    let state = part.state();
+    // In the folder the work is done in, when it has one.
+    let dir = state
+        .dir
+        .map_or_else(|| agent.dir.clone(), |d| agent.dir.join(d));
+    let mut child = match command(agent, &dir, prompt, state.session.as_deref()).spawn() {
         Ok(child) => child,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Run::Unusable(agent.unusable(Cause::Missing));

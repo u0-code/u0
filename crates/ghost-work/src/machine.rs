@@ -9,7 +9,14 @@
 //! which is where a ghost's shell belongs on a server: what she breaks in
 //! there stays in there.
 
-use std::{collections::VecDeque, io, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    collections::VecDeque,
+    io,
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use tokio::{
@@ -51,6 +58,13 @@ pub trait Machine: Send + Sync {
 
     /// A line or two for the worker about where it is.
     fn describe(&self) -> String;
+
+    /// The same machine, working in the folder `dir` on it instead: where
+    /// one piece of work is done. `None` for a machine that cannot be
+    /// given a folder of its own this way, which works where it is.
+    fn at(&self, _dir: &Path) -> Option<Arc<dyn Machine>> {
+        None
+    }
 
     /// The bytes of a file on the machine, for handing it to someone. A
     /// file larger than `limit` is refused rather than cut.
@@ -198,6 +212,10 @@ impl Machine for Local {
         run(command, stdin, timeout).await
     }
 
+    fn at(&self, dir: &Path) -> Option<Arc<dyn Machine>> {
+        Some(Arc::new(Local::new(self.root.join(dir))))
+    }
+
     async fn read(&self, path: &str, limit: u64) -> io::Result<Vec<u8>> {
         let full = self.root.join(path);
         if tokio::fs::metadata(&full).await?.len() > limit {
@@ -209,9 +227,11 @@ impl Machine for Local {
     fn describe(&self) -> String {
         format!(
             "You are on a {} machine, in the directory {}. The machine is someone else's, and that \
-             directory is the part of it you were given. Do your work inside it. The programs installed \
-             on the machine are yours to run, but do not search, read or change files anywhere else \
-             on it unless the task names a path there.",
+             directory is the part of it you were given: what you make goes there, unless the task \
+             says where to put it, so that it is all in one place and can be found again. The programs \
+             installed on the machine are yours to run. A path the task names elsewhere on it is yours \
+             to read, and to change only if the task asks for that change there; do not search, read \
+             or change anything else outside your directory.",
             std::env::consts::OS,
             self.root.display()
         )
@@ -406,5 +426,27 @@ mod tests {
         assert!(out.timed_out);
         assert!(out.text.contains("before") && !out.text.contains("after"));
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_local_machine_given_a_folder_runs_there_and_a_container_stays_where_it_is() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("work")).unwrap();
+        let machine = Local::new(root.path());
+        let there = machine.at(Path::new("work")).unwrap();
+        let out = there
+            .exec("pwd", None, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert_eq!(
+            Path::new(out.text.trim()).canonicalize().unwrap(),
+            root.path().join("work").canonicalize().unwrap()
+        );
+        assert!(Docker::new("c").at(Path::new("/w")).is_none());
     }
 }

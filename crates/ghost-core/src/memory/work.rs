@@ -38,6 +38,8 @@ pub struct Undertaking {
     pub asked_at: Option<DateTime<Utc>>,
     /// An operator directed it.
     pub directed: bool,
+    /// The folder it is done in, when it has one.
+    pub dir: Option<String>,
 }
 
 /// Something a piece of work told her while it was under way.
@@ -55,7 +57,7 @@ CREATE TABLE IF NOT EXISTS undertakings (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, brief TEXT NOT NULL,
     asked_by TEXT, place TEXT, outcome TEXT, summary TEXT,
     sittings INTEGER NOT NULL DEFAULT 0, last_at TEXT NOT NULL,
-    waiting TEXT, asked_at TEXT, directed INTEGER NOT NULL DEFAULT 0
+    waiting TEXT, asked_at TEXT, directed INTEGER NOT NULL DEFAULT 0, dir TEXT
 );
 CREATE TABLE IF NOT EXISTS reports (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL,
@@ -73,11 +75,12 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             asked_by,
             place,
             directed,
+            dir,
         } => {
             tx.execute(
-                "INSERT OR IGNORE INTO undertakings (id, seq, at, brief, asked_by, place, last_at, directed)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, ?7)",
-                params![id, entry.seq, at, brief, asked_by, place, directed],
+                "INSERT OR IGNORE INTO undertakings (id, seq, at, brief, asked_by, place, last_at, directed, dir)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, ?7, ?8)",
+                params![id, entry.seq, at, brief, asked_by, place, directed, dir],
             )?;
         }
         Event::Worked { id, summary, .. } => {
@@ -201,7 +204,7 @@ impl Memory {
     }
 }
 
-const UNDERTAKING_COLUMNS: &str = "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at, waiting, asked_at, directed";
+const UNDERTAKING_COLUMNS: &str = "id, seq, at, brief, asked_by, place, outcome, summary, sittings, last_at, waiting, asked_at, directed, dir";
 
 fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
     Ok(Undertaking {
@@ -218,6 +221,7 @@ fn row_to_undertaking(r: &rusqlite::Row<'_>) -> rusqlite::Result<Undertaking> {
         waiting: r.get(10)?,
         asked_at: opt_time_at(r, 11)?,
         directed: r.get(12)?,
+        dir: r.get(13)?,
     })
 }
 
@@ -235,6 +239,7 @@ mod tests {
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
                 directed: false,
+                dir: Some("/home/her/Ghost/2026-11-18/tea-house-00ab".into()),
             },
             Event::Worked {
                 id: "u1".into(),
@@ -248,6 +253,11 @@ mod tests {
             (open[0].sittings, open[0].summary.as_deref()),
             (1, Some("two sources so far"))
         );
+        assert_eq!(
+            open[0].dir.as_deref(),
+            Some("/home/her/Ghost/2026-11-18/tea-house-00ab"),
+            "where it is done is remembered"
+        );
 
         let (_, m) = fold(vec![
             Event::Undertook {
@@ -256,6 +266,7 @@ mod tests {
                 asked_by: None,
                 place: None,
                 directed: false,
+                dir: None,
             },
             Event::Concluded {
                 id: "u1".into(),
@@ -283,6 +294,7 @@ mod tests {
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
                 directed: false,
+                dir: None,
             },
             report("the park page says nine", &[]),
             report("the city listing agrees", &[]),
@@ -314,6 +326,7 @@ mod tests {
                 asked_by: Some("t:a".into()),
                 place: Some("t:a".into()),
                 directed: false,
+                dir: None,
             },
             Event::Undertook {
                 id: "u2".into(),
@@ -321,6 +334,7 @@ mod tests {
                 asked_by: None,
                 place: None,
                 directed: false,
+                dir: None,
             },
             Event::Concluded {
                 id: "u1".into(),
