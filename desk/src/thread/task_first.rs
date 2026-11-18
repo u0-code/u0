@@ -51,7 +51,14 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     } else {
         directed(view.journal)
     };
-    let mut column = div().flex().flex_col().w_full().max_w(px(COLUMN)).mx_auto();
+    // The reading column: the pane's width up to 680, centred, never
+    // shrunk to the window's height (it is what scrolls).
+    let mut column = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .w_full()
+        .max_w(px(COLUMN));
 
     // What you said last, and when: a failure offers to take it back.
     let mut last_yours: Option<DateTime<Utc>> = None;
@@ -135,7 +142,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
             Before::Look => S6,
             Before::Other => TURN,
         };
-        column = column.child(div().mt(px(gap)).child(el));
+        column = column.child(slot(gap).child(el));
         before = now;
     }
 
@@ -152,10 +159,10 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
             .or_else(|| look_started(look, heard))
             .unwrap_or_else(Utc::now);
         let el = steps::look(faces, look, from, Utc::now(), view.expanded, cx);
-        column = column.child(div().mt(px(gap_after(before))).child(el));
+        column = column.child(slot(gap_after(before)).child(el));
     } else if let Some(since) = waiting {
         let el = working(faces, view, since).into_any_element();
-        column = column.child(div().mt(px(gap_after(before))).child(el));
+        column = column.child(slot(gap_after(before)).child(el));
     }
 
     div()
@@ -167,8 +174,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .px(px(32.))
         .pt(px(28.))
         .pb(px(S6))
-        // Not a flex column: in one, the column would be shrunk to the
-        // window, and the thread would end where the window does.
+        // A flex column, so the reading column has a width of its own to
+        // lay what is in it against; the column itself does not shrink,
+        // or the thread would end where the window does.
+        .flex()
+        .flex_col()
+        .items_center()
         .child(column)
         .into_any_element()
 }
@@ -177,6 +188,16 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
 /// rest is folded.
 const BUBBLE_WIDTH: f32 = 520.;
 const BUBBLE_LINES: usize = 8;
+
+/// Where one thing in the thread sits: the column's whole width, never
+/// more, `gap` below what came before. A flex column, so what is in it is
+/// stretched to that width: your bubble then has an edge to sit against
+/// at the right, and a card whose title does not wrap is held to the
+/// column rather than pushing past it. A plain block here takes the width
+/// of what it holds, and in a wide window that shows.
+fn slot(gap: f32) -> Div {
+    div().flex().flex_col().w_full().min_w(px(0.)).mt(px(gap))
+}
 
 /// The space above what she is doing now, after what came last.
 fn gap_after(before: Before) -> f32 {
