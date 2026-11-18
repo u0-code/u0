@@ -600,15 +600,20 @@ fn parts(
         .get(&t.id)
         .map(|w| w.parts.as_slice())
         .unwrap_or_default();
-    let known: Vec<(String, String, State)> = if listed.is_empty() {
+    // What runs a part is known only from its daemon's list, not from her
+    // journal.
+    let known: Vec<(String, String, State, Option<&str>)> = if listed.is_empty() {
         t.parts
             .iter()
-            .map(|p| (p.id.clone(), p.brief.clone(), p.state()))
+            .map(|p| (p.id.clone(), p.brief.clone(), p.state(), None))
             .collect()
     } else {
         listed
             .iter()
-            .map(|p| (p.id.clone(), p.brief.clone(), aside::state_of(p.state)))
+            .map(|p| {
+                let state = aside::state_of(p.state);
+                (p.id.clone(), p.brief.clone(), state, p.brain.as_deref())
+            })
             .collect()
     };
     if known.is_empty() {
@@ -622,10 +627,10 @@ fn parts(
         .my(px(6.))
         .pl(px(10. + S4))
         .pr(px(10.));
-    for (id, brief, state) in known {
+    for (id, brief, state, brain) in known {
         let last = t.parts.iter().find(|p| p.id == id).map(Task::last_line);
         column = column.child(steps::part(
-            faces, &id, &brief, state, last, following, expanded, cx,
+            faces, &id, &brief, state, brain, last, following, expanded, cx,
         ));
     }
     Some(column)

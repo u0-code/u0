@@ -505,6 +505,7 @@ mod tests {
                 id: "w1/1".into(),
                 brief: "images".into(),
                 state: WorkState::Running,
+                brain: None,
             }],
             more: false,
             context: None,

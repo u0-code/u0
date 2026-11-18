@@ -287,6 +287,8 @@ impl Worker {
         if let Some(finish) = self.undertaking.state().finish {
             return self.report(finish.outcome.into());
         }
+        let label = self.brain.label();
+        self.undertaking.update(|state| state.brain = Some(label));
         let started = Instant::now();
         let parts = self
             .helpers

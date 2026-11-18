@@ -55,6 +55,11 @@ pub fn border() -> Hsla {
 pub fn border2() -> Hsla {
     c(0x3838_38)
 }
+/// The frame of a small tag, such as the brain a part runs on: a shade
+/// stronger than a card's, so that it reads inside one.
+pub fn tag_line() -> Hsla {
+    c(0x2E2E_2E)
+}
 /// A hover, on the ground or on the rail.
 pub fn hover() -> Hsla {
     c(0x2A2A_2A)

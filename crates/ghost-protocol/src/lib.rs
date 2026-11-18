@@ -791,6 +791,12 @@ pub struct Work {
     /// The parts it handed out, by number. A part hands out none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Work>,
+    /// What steps it: the installed agent it was handed to, by the name it
+    /// is configured as (`claude-code`, `codex`), or the label of the model
+    /// that stepped it last (`openai/deepseek-chat`). None before it has
+    /// begun, or from a daemon from before it was told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain: Option<String>,
 }
 
 /// What answering a piece of work's question takes.
@@ -954,6 +960,9 @@ pub struct WorkPart {
     pub id: String,
     pub brief: String,
     pub state: WorkState,
+    /// What steps it, as [`Work::brain`] has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain: Option<String>,
 }
 
 /// Params of [`method::LOOK_STEPS`].
