@@ -376,12 +376,18 @@ fn no_such(name: &str) -> Refusal {
     (code::NO_SUCH_BRAIN, format!("no brain is saved as {name}"))
 }
 
-#[allow(clippy::needless_pass_by_value, reason = "it is what map_err is handed")]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "it is what map_err is handed"
+)]
 fn invalid(e: anyhow::Error) -> Refusal {
     (code::INVALID_PARAMS, format!("{e:#}"))
 }
 
-#[allow(clippy::needless_pass_by_value, reason = "it is what map_err is handed")]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "it is what map_err is handed"
+)]
 fn internal(e: anyhow::Error) -> Refusal {
     (code::INTERNAL, format!("{e:#}"))
 }
