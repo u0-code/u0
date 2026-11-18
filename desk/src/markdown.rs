@@ -583,7 +583,7 @@ pub fn render_as(
     let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
     let blocks = parse(text);
-    // Blocks stand apart by 14, a list's items by 6; a heading has 24
+    // Blocks stand apart by 10, a list's items by 4; a heading has 24
     // above it (20 for the third level) and 14 under it.
     for (i, block) in blocks.iter().enumerate() {
         let gap = match (before, block) {
@@ -600,9 +600,11 @@ pub fn render_as(
     column
 }
 
-/// The space between blocks of a message, and between the items of a list.
-const BLOCK_GAP: f32 = 14.;
-const ITEM_GAP: f32 = 6.;
+/// The space between blocks of a message, and between the items of a list:
+/// half a line, and a fifth of one, as Claude's app has them (63 px from a
+/// paragraph's last line to the next one's, 49 between items, 42 a line).
+const BLOCK_GAP: f32 = 10.;
+const ITEM_GAP: f32 = 4.;
 /// How far a list's words stand in from its marker's edge, at each level.
 const LIST_INDENT: f32 = 22.;
 
