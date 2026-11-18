@@ -85,12 +85,11 @@ pub fn repository(dir: &Path) -> Option<PathBuf> {
 /// The repository at `top` as its files are now, every one not ignored,
 /// as a commit on top of what is checked out, without touching its index.
 fn snapshot(top: &Path, message: &str) -> io::Result<String> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let index = std::env::temp_dir().join(format!(
         "ghost-index-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos())
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let env = [("GIT_INDEX_FILE", index.as_os_str())];
     let made = (|| {
