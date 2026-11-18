@@ -5,12 +5,23 @@
 #   desk/bundle.sh            # -> desk/target/release/Ghost.app
 #   open desk/target/release/Ghost.app
 #
-# Needs rsvg-convert (brew install librsvg) to draw the icon, and iconutil,
-# which macOS has.
+# Needs rsvg-convert (brew install librsvg) to draw the icon, and iconutil
+# and codesign, which macOS has.
+#
+# The app carries the ghostd it was built with, in release, and runs that
+# one for its core: not whichever build of the checkout is newest.
+#
+# It is signed with GHOST_SIGN_IDENTITY if that is set ("-" for ad hoc),
+# else with a code-signing certificate called "Ghost Dev" in your keychain
+# if there is one, else ad hoc. Signed with the same identity, a rebuilt app
+# is the same app to macOS and keeps what it was allowed, such as the
+# Desktop folder a checkout is in; signed ad hoc, every build is a new app,
+# and is asked again. desk/README.md says how to make the certificate.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 cargo build --release
+cargo build --release --manifest-path ../Cargo.toml -p ghostd
 
 app=target/release/Ghost.app
 iconset=target/release/Ghost.iconset
@@ -28,6 +39,7 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/Ghost.icns"
 rm -rf "$iconset"
 
 cp target/release/ghost-desk "$app/Contents/MacOS/ghost-desk"
+cp ../target/release/ghostd "$app/Contents/MacOS/ghostd"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,8 +56,25 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key><string>${version}</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSDesktopFolderUsageDescription</key><string>Ghost runs its core from the checkout, which is in your Desktop folder.</string>
 </dict>
 </plist>
 EOF
 
+identity="${GHOST_SIGN_IDENTITY:-}"
+if [ -z "$identity" ]; then
+    # Without -v, which lists only identities the system trusts: a
+    # self-signed certificate is not, and signs all the same.
+    identity=$(security find-identity -p codesigning 2>/dev/null | awk '/"Ghost Dev"/ { print $2; exit }')
+fi
+identity="${identity:--}"
+# What is inside the bundle is signed before the bundle that seals it.
+codesign --force --sign "$identity" --identifier local.ghost.ghostd "$app/Contents/MacOS/ghostd"
+codesign --force --sign "$identity" "$app"
+
 echo "built $app"
+if [ "$identity" = "-" ]; then
+    echo "signed ad hoc: macOS will ask again for what it allowed the last build (see desk/README.md)"
+else
+    echo "signed with $identity"
+fi

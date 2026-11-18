@@ -96,6 +96,10 @@ impl Desk {
     /// runs it and it cannot be reached; then try it at once. Something
     /// else listening where it would is said, not fought.
     pub(crate) fn start_core(&mut self, cx: &mut Context<Self>) {
+        // The desk is still starting it as it opens.
+        if !self.core_ready {
+            return;
+        }
         let url = self.settings.solver_url.clone();
         let started = if self.deployment.owns_running() {
             self.deployment.restart()

@@ -48,6 +48,40 @@ To have it as an app, with the ghost in Finder, Launchpad and the Dock:
 desk/bundle.sh                          # -> desk/target/release/Ghost.app
 ```
 
+The app carries the `ghostd` it was built with: `bundle.sh` builds it in
+release and puts it beside the desk in `Ghost.app/Contents/MacOS`, and the
+app starts its core with that one. A `cargo run` of the desk has none
+beside it, and takes the checkout's `target/release/ghostd`, then
+`target/debug/ghostd`, then `ghostd` on PATH. `GHOSTD_BIN` names another.
+
+### Signing it once, for good
+
+The core lives in the checkout, and a checkout under `~/Desktop` (or
+`~/Documents`) is in a folder macOS asks about before an app may read it.
+It remembers the answer for the app's signature. Signed ad hoc, as
+`bundle.sh` does when it has nothing better, every build has a signature
+of its own, so every build is asked again. Signed with one certificate,
+every build is the same app and is asked once.
+
+A self-signed certificate is enough, made once in Keychain Access:
+
+1. Keychain Access → Certificate Assistant → Create a Certificate….
+2. Name: `Ghost Dev`. Identity Type: Self Signed Root. Certificate Type:
+   Code Signing. Create, and keep it in the login keychain.
+3. `security find-identity -p codesigning` lists it, marked not trusted:
+   that is expected, and signing with it works all the same.
+
+From then on `bundle.sh` finds it and signs with it. The first time,
+macOS asks whether `codesign` may use its key: Always Allow. Open the app
+once, allow the Desktop folder, and builds after it keep that. To sign
+with another identity, set `GHOST_SIGN_IDENTITY` to its name or hash;
+`GHOST_SIGN_IDENTITY=-` signs ad hoc.
+
+The desk itself reads nothing from the checkout as it opens: its faces
+and icons are built into it, and the core is started off the main thread
+once the window is up, so that a question from macOS, while it waits,
+holds up the core and not the window.
+
 ## Other daemons
 
 The desk runs one ghost core of its own, the first group down the left,
@@ -226,10 +260,10 @@ None of the grounds is black: the sidebar sits a shade lighter than the
 thread and the right column, the way a coding agent's app sets its panes
 apart, and all three are easy on the eyes for a day's use. Three faces: a
 sans for the interface, a mono for times and names, a serif for the one
-line on an empty page. The design is set in IBM Plex Sans, IBM
-Plex Mono and Instrument Serif; drop their `.ttf` or `.otf` files into
-`assets/fonts/` and they are used, otherwise the system's own faces stand
-in. None of them has Chinese, so each falls back to PingFang SC for it,
+line on an empty page: Inter, JetBrains Mono and Source Serif 4, the
+open fonts in `assets/fonts/`, built into the binary (a face added there
+is listed in `src/fonts.rs`, and a test says so if it is not). None of
+them has Chinese, so each falls back to PingFang SC for it,
 rather than to whatever the system's cascade finds first. The thread is
 set from a few sizes kept in `src/thread/style.rs`: body text at 14 px on
 22.5 px lines, secondary text at 12.5, commands and output in mono at 12,

@@ -147,6 +147,9 @@ pub struct Desk {
     /// The form for adding a connection.
     pub(crate) form: Form,
     pub(crate) deployment: Deployment,
+    /// Whether the deployment has been looked after as the desk opened:
+    /// started if it was to be, and its brains and abilities read.
+    core_ready: bool,
     /// The brains the deployment names, and which one it thinks with.
     pub(crate) providers: Vec<Provider>,
     pub(crate) brain: Option<String>,
@@ -195,6 +198,16 @@ pub struct Desk {
     /// back and forward.
     back: Vec<String>,
     forward: Vec<String>,
+}
+
+/// The core on this machine, as it was looked after off the main thread
+/// while the desk opened.
+struct Core {
+    deployment: Deployment,
+    started: anyhow::Result<()>,
+    providers: Vec<Provider>,
+    brain: Option<String>,
+    abilities: Abilities,
 }
 
 /// What the line you type into says while it is empty, with the little
@@ -269,18 +282,38 @@ impl Desk {
         // nothing runs it, the desk starts it. Whoever sits here is its
         // operator by holding its daemon's token, or by being on this
         // machine when it has none, so nobody is listed for it.
-        let mut deployment = Deployment::find();
-        let mut notice = None;
-        if settings.solver_url == SOLVER_URL
-            && !listening(&settings.solver_url)
-            && let Err(e) = deployment.start()
-        {
-            warn!("could not start Ghost: {e:#}");
-            notice = Some(Notice::trouble(format!("Could not start Ghost: {e:#}")));
-        }
-        let providers = deployment.providers();
-        let brain = deployment.brain();
-        let abilities = deployment.abilities();
+        //
+        // That is done off the main thread, once the window is up. The
+        // core is in the checkout, and when the checkout is under the
+        // Desktop, the first read there waits for as long as macOS takes
+        // asking whether the app may: the window must not wait with it.
+        // Until it is done, the deployment the desk holds is one with
+        // nothing started and nothing read.
+        let deployment = Deployment::find();
+        let root = deployment.root.clone();
+        let start = settings.solver_url == SOLVER_URL;
+        let url = settings.solver_url.clone();
+        let core = link::runtime().spawn_blocking(move || {
+            let mut deployment = Deployment::at(root);
+            let started = if start && !listening(&url) {
+                deployment.start()
+            } else {
+                Ok(())
+            };
+            Core {
+                started,
+                providers: deployment.providers(),
+                brain: deployment.brain(),
+                abilities: deployment.abilities(),
+                deployment,
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(core) = core.await {
+                let _ = this.update(cx, |this, cx| this.take_core(core, cx));
+            }
+        })
+        .detach();
 
         let solver = Watched::start(
             link::Config {
@@ -332,9 +365,10 @@ impl Desk {
                 refused: None,
             },
             deployment,
-            providers,
-            brain,
-            abilities,
+            core_ready: false,
+            providers: Vec::new(),
+            brain: None,
+            abilities: Abilities::default(),
             current: 0,
             input,
             search,
@@ -352,7 +386,7 @@ impl Desk {
             collapsed: HashSet::new(),
             replies: Replies::new(),
             page: Page::Thread,
-            notice,
+            notice: None,
             last_tick: Instant::now(),
             steps: OnScreen {
                 asked: Instant::now(),
@@ -378,9 +412,29 @@ impl Desk {
             desk.new_session(cx);
             desk.say(task.trim().to_owned(), cx);
         }
-        // The brains' models, so that the picker has them when opened.
-        desk.warm_models(cx);
         desk
+    }
+
+    /// Take in the core as it was looked after off the main thread.
+    fn take_core(&mut self, core: Core, cx: &mut Context<Self>) {
+        if let Err(e) = core.started {
+            warn!("could not start Ghost: {e:#}");
+            self.notice = Some(Notice::trouble(format!("Could not start Ghost: {e:#}")));
+        }
+        self.deployment = core.deployment;
+        self.providers = core.providers;
+        self.brain = core.brain;
+        self.abilities = core.abilities;
+        self.core_ready = true;
+        // The brains' models, so that the picker has them when opened.
+        self.warm_models(cx);
+        cx.notify();
+    }
+
+    /// Whether the core on this machine is still coming up: being looked
+    /// after as the desk opens, or started and not yet listening.
+    pub(crate) fn core_starting(&self) -> bool {
+        !self.core_ready || self.deployment.starting()
     }
 
     /// Take in everything the links have learned since last time, and tick
