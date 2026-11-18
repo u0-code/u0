@@ -408,7 +408,7 @@ impl Desk {
             .trim_end_matches('/')
             .to_owned();
         let (link, reach) = (&watched.link, &watched.reach);
-        let starting = whose == Whose::Solver && self.deployment.starting();
+        let starting = whose == Whose::Solver && self.core_starting();
         let (word, color, up) = standing(link, reach, starting);
         let card = row_with(
             Some(row_icon("server")),

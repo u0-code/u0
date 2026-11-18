@@ -7,6 +7,7 @@
 //! way a person would, keeping every comment.
 
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
@@ -186,7 +187,10 @@ const STARTUP: u64 = 20;
 impl Deployment {
     /// Find the checkout: `GHOST_ROOT`, else the first directory upward
     /// from the current one that has `desk/core/ghostd.example.toml`, else the
-    /// one this crate was built in.
+    /// one this crate was built in. The last is worked out from the path
+    /// alone, without asking the file system: opened from the Finder, the
+    /// current directory is `/`, and a checkout under the Desktop could not
+    /// be looked at before macOS has asked whether it may.
     pub fn find() -> Self {
         let root = std::env::var_os("GHOST_ROOT")
             .map(PathBuf::from)
@@ -203,11 +207,15 @@ impl Deployment {
                 }
             })
             .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("..")
-                    .canonicalize()
-                    .unwrap_or_else(|_| PathBuf::from("."))
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
             });
+        Self::at(root)
+    }
+
+    /// The deployment in the checkout at `root`, with nothing started.
+    pub fn at(root: PathBuf) -> Self {
         Self {
             root,
             child: None,
@@ -304,18 +312,12 @@ impl Deployment {
         Some(self.root.join(example))
     }
 
-    /// The daemon binary: `GHOSTD_BIN`, else the newer of the checkout's
-    /// release and debug builds, else `ghostd` on PATH.
+    /// The daemon binary. See [`pick_ghostd`].
     pub fn ghostd(&self) -> PathBuf {
-        if let Some(bin) = std::env::var_os("GHOSTD_BIN") {
-            return PathBuf::from(bin);
-        }
-        ["target/release/ghostd", "target/debug/ghostd"]
-            .iter()
-            .map(|p| self.root.join(p))
-            .filter_map(|p| Some((p.metadata().ok()?.modified().ok()?, p)))
-            .max_by_key(|(when, _)| *when)
-            .map_or_else(|| PathBuf::from("ghostd"), |(_, p)| p)
+        let beside = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.join("ghostd")));
+        pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.root)
     }
 
     /// Every brain the deployment names, with whether it can run here.
@@ -699,6 +701,24 @@ pub fn drop_provider(doc: &mut DocumentMut, name: &str) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow!("no brain is saved as {name}"))
 }
 
+/// Which `ghostd` runs the core: `named` (`GHOSTD_BIN`) if set; else the
+/// one `beside` the desk's own binary, which is where `bundle.sh` puts the
+/// release build it makes with the app, so that Ghost.app runs the daemon
+/// it was built with; else, for a `cargo run` of the desk, the checkout's
+/// release build, then its debug build; else `ghostd` on PATH. A release
+/// build is taken over a newer debug one: a debug build is what running
+/// the tests leaves behind, not a daemon anyone chose to live on.
+fn pick_ghostd(named: Option<OsString>, beside: Option<PathBuf>, root: &Path) -> PathBuf {
+    if let Some(bin) = named {
+        return PathBuf::from(bin);
+    }
+    beside
+        .into_iter()
+        .chain(["target/release/ghostd", "target/debug/ghostd"].map(|p| root.join(p)))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("ghostd"))
+}
+
 /// The process's environment.
 pub fn env(var: &str) -> Option<String> {
     std::env::var(var).ok()
@@ -756,6 +776,51 @@ mod tests {
             child: None,
             started_at: None,
         }
+    }
+
+    #[test]
+    fn the_ghostd_beside_the_app_runs_before_any_in_the_checkout() {
+        let d = checkout("ghostd-beside");
+        let bundle = d.root.join("Ghost.app/Contents/MacOS");
+        for dir in [bundle.clone(), d.root.join("target/release")] {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("ghostd"), "").unwrap();
+        }
+        let beside = Some(bundle.join("ghostd"));
+        assert_eq!(
+            pick_ghostd(None, beside.clone(), &d.root),
+            bundle.join("ghostd")
+        );
+        assert_eq!(
+            pick_ghostd(Some("/opt/ghostd".into()), beside, &d.root),
+            PathBuf::from("/opt/ghostd"),
+            "GHOSTD_BIN is the one asked for"
+        );
+    }
+
+    #[test]
+    fn a_cargo_run_desk_takes_the_release_ghostd_over_a_newer_debug_one() {
+        let d = checkout("ghostd-release");
+        let beside = Some(d.root.join("desk/target/debug/ghostd"));
+        assert_eq!(
+            pick_ghostd(None, beside.clone(), &d.root),
+            PathBuf::from("ghostd"),
+            "with none built, the one on PATH"
+        );
+        for build in ["release", "debug"] {
+            let dir = d.root.join("target").join(build);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("ghostd"), "").unwrap();
+        }
+        assert_eq!(
+            pick_ghostd(None, beside.clone(), &d.root),
+            d.root.join("target/release/ghostd")
+        );
+        std::fs::remove_file(d.root.join("target/release/ghostd")).unwrap();
+        assert_eq!(
+            pick_ghostd(None, beside, &d.root),
+            d.root.join("target/debug/ghostd")
+        );
     }
 
     #[test]
