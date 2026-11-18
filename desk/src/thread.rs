@@ -20,6 +20,7 @@ mod kinds;
 mod live;
 mod output;
 mod outputs;
+mod platform;
 mod steps;
 pub mod style;
 mod task_first;
@@ -495,6 +496,10 @@ enum Item<'a> {
     Failed(String),
     /// A stop was asked for from the desk; whether anything was stopped.
     Stopped(bool),
+    /// Something she did: out there, shown in a console; or here, an
+    /// image she sent, a quiet row for something she did inside, a send
+    /// the platform refused.
+    Did(platform::Did),
 }
 
 /// The thread of `view.place` as text: who said what, with the time,
@@ -503,6 +508,20 @@ pub fn transcript(view: &View<'_>) -> (String, usize) {
     let mut out = String::new();
     let mut lines = 0;
     for (at, _, item) in items(view) {
+        // An image she sent here is a line of hers, by its name.
+        if let Item::Did(platform::Did {
+            here: true,
+            what: platform::What::Image { file, .. },
+        }) = &item
+        {
+            let _ = writeln!(
+                out,
+                "{} · {}\n[image: {file}]\n",
+                view.name,
+                clock(at, view.tz)
+            );
+            lines += 1;
+        }
         let Item::Said { m, from, mine, .. } = item else {
             continue;
         };
@@ -564,6 +583,10 @@ pub struct View<'a> {
     /// ellipsis on one line is cut to it, since GPUI's own ellipsis is not
     /// to be trusted with Chinese.
     pub column: f32,
+    /// Her `media/` directory, when it is on this machine: the solver's.
+    /// A character's is where her daemon runs, and her images are not
+    /// shown, only named.
+    pub media: Option<std::path::PathBuf>,
 }
 
 /// Everything in one place, in order of time: what was said, what was
@@ -577,13 +600,17 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     let mut heard: Option<DateTime<Utc>> = None;
     let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
     let gone = taken_back(view.journal, &thread);
+    let known = platform::Known::of(view.journal);
     for e in view.journal {
         // What was taken back is out of the thread, as it is out of the
         // conversation in front of her.
         if gone.iter().any(|(from, to)| (*from..*to).contains(&e.seq)) {
             continue;
         }
-        if let Some(said) = said(e) {
+        if let Some(did) = platform::did(e, &thread, &known) {
+            items.push((e.at, e.seq, Item::Did(did)));
+        }
+        if let Some(mut said) = said(e) {
             if thread_key(&said.key()) == thread {
                 if !said.message.hers {
                     heard = Some(e.at);
@@ -592,6 +619,15 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
                 // words are drawn the same way, under their own name.
                 let mine = from_desk(&said.channel)
                     && said.from.as_ref().is_some_and(|(id, _)| *id == you);
+                // A line that carried an image of hers has the image drawn
+                // above it; what is left is her words, if any.
+                if e.data.get("file").is_some() {
+                    let words = platform::words(&said.message.text).to_owned();
+                    said.message.text = words;
+                    if said.message.text.is_empty() {
+                        continue;
+                    }
+                }
                 let item = Item::Said {
                     m: said.message,
                     seq: Some(e.seq),
@@ -804,6 +840,7 @@ fn waiting_since(items: &[(DateTime<Utc>, i64, Item<'_>)]) -> Option<DateTime<Ut
             // others speak, and she need not answer them.
             Item::Said { m, mine: true, .. } if !m.hers => since = Some(m.at),
             Item::Said { m, .. } if m.hers => since = None,
+            Item::Did(did) if did.answers() => since = None,
             // A look that ended is her done with it, whether or not she
             // said anything.
             Item::Task(_) | Item::Look { .. } | Item::Failed(_) | Item::Stopped(_) => {

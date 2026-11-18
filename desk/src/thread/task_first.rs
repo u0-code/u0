@@ -35,6 +35,8 @@ enum Before {
     /// Someone else's line, after one of theirs: close under it.
     Theirs,
     Look,
+    /// Something she did, drawn by `platform.rs`: a quiet row when true.
+    Did(bool),
     Other,
 }
 
@@ -66,7 +68,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     let mut before = Before::Nothing;
     // Who said the last line, when it was someone else's.
     let mut speaker: Option<String> = None;
-    for (at, _, item) in items {
+    for (at, seq, item) in items {
+        // What she did stacks close under what she did just before.
+        let stacked = match (&item, before) {
+            (Item::Did(did), Before::Did(row)) => Some(if row && did.is_row() { 2. } else { S2 }),
+            _ => None,
+        };
         if !matches!(&item, Item::Said { m, mine: false, .. } if !m.hers) {
             speaker = None;
         }
@@ -132,14 +139,20 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 let el = note(faces, stopped, clock(at, view.tz));
                 (el.into_any_element(), Before::Other)
             }
+            Item::Did(did) => {
+                let el = super::platform::render(faces, &did, seq, at, view, cx);
+                (el, Before::Did(did.is_row()))
+            }
         };
         let gap = match before {
             Before::Nothing => 0.,
             Before::Yours => S4,
             Before::Theirs => S1,
             Before::Look => S6,
+            Before::Did(_) => S4,
             Before::Other => TURN,
         };
+        let gap = stacked.unwrap_or(gap);
         column = column.child(slot(gap).child(el));
         before = now;
     }
