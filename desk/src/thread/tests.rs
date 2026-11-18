@@ -815,3 +815,39 @@ fn her_note_of_an_earlier_conversation_is_in_that_thread_and_no_other() {
     assert_eq!(folded(&place_key("s1")), ["Fox said hello."]);
     assert!(folded(&place_key("s2")).is_empty());
 }
+
+/// Something she said in a QQ group, `m` minutes into the last hour.
+fn out_there(seq: i64, m: i64, text: &str) -> Entry {
+    Entry {
+        at: Utc::now() - chrono::Duration::minutes(60 - m),
+        ..entry(
+            seq,
+            "said",
+            json!({"channel": "qq", "place": "group:g7", "text": text}),
+        )
+    }
+}
+
+#[test]
+fn a_console_session_shows_what_she_did_out_there_only_while_it_went_on() {
+    let expanded = HashSet::new();
+    let place = place_key("s1");
+    let journal = vec![
+        out_there(1, 1, "before the session"),
+        console(2, 10, "heard", "tidy up"),
+        out_there(3, 12, "during it"),
+        console(4, 20, "said", "done"),
+        out_there(5, 40, "after it"),
+    ];
+    let shown: Vec<String> = items(&view(&journal, &[], &place, &expanded))
+        .into_iter()
+        .filter_map(|(_, _, i)| match i {
+            Item::Did(platform::Did {
+                what: platform::What::Said { text, .. },
+                ..
+            }) => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shown, ["during it"]);
+}
