@@ -408,13 +408,55 @@ impl Setting {
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
 fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
-    styled_from(faces, &inline(line), base)
+    styled_from(faces, &padded(inline(line)), base)
+}
+
+/// What stands either side of inline code, inside its shade: a thin space
+/// in the line's own face, for the little room the design gives a name in
+/// code before its shade ends. A run of text can be shaded but not padded.
+const PAD: char = '\u{2009}';
+
+/// `line` with a thin space put either side of each stretch of code, and
+/// every stretch after it moved along to match.
+fn padded(line: Inline) -> Inline {
+    if line.code.is_empty() {
+        return line;
+    }
+    let w = PAD.len_utf8();
+    // Bold, italic and links never overlap code, so a boundary of theirs
+    // moves by two pads for each stretch of code that ends before it.
+    let shift = |at: usize| 2 * w * line.code.iter().filter(|c| c.end <= at).count();
+    let moved = |r: &Range<usize>| (r.start + shift(r.start))..(r.end + shift(r.end));
+    let mut text = String::with_capacity(line.text.len() + line.code.len() * 2 * w);
+    let mut at = 0;
+    let mut code = Vec::with_capacity(line.code.len());
+    for c in &line.code {
+        text.push_str(&line.text[at..c.start]);
+        let start = text.len();
+        text.push(PAD);
+        text.push_str(&line.text[c.clone()]);
+        text.push(PAD);
+        code.push(start..text.len());
+        at = c.end;
+    }
+    text.push_str(&line.text[at..]);
+    Inline {
+        text,
+        code,
+        bold: line.bold.iter().map(moved).collect(),
+        italic: line.italic.iter().map(moved).collect(),
+        links: line
+            .links
+            .iter()
+            .map(|(r, a)| (moved(r), a.clone()))
+            .collect(),
+    }
 }
 
 /// A line whose links open in the browser when clicked; one without links
 /// is plain styled text.
 fn linked(faces: &Faces, id: String, line: &str, base: &Base) -> AnyElement {
-    let parsed = inline(line);
+    let parsed = padded(inline(line));
     let text = styled_from(faces, &parsed, base);
     if parsed.links.is_empty() {
         return text.into_any_element();
@@ -442,9 +484,22 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
         weight,
         style,
     };
-    let runs = spans(parsed)
-        .into_iter()
-        .map(|(r, mark)| {
+    // Inline code is three runs: its thin spaces in the line's face, its
+    // words in mono between them, all on the one shade.
+    let pieces = spans(parsed).into_iter().flat_map(|(r, mark)| {
+        let w = PAD.len_utf8();
+        if mark == Mark::Code && r.len() > 2 * w {
+            vec![
+                (r.start..r.start + w, Mark::Plain, true),
+                (r.start + w..r.end - w, Mark::Code, true),
+                (r.end - w..r.end, Mark::Plain, true),
+            ]
+        } else {
+            vec![(r, mark, false)]
+        }
+    });
+    let runs = pieces
+        .map(|(r, mark, shaded)| {
             let (font, color, background) = match mark {
                 Mark::Plain => (
                     face(&base.face, base.weight, FontStyle::Normal),
@@ -456,7 +511,7 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
                 // she says between steps alike.
                 Mark::Code => (
                     face(&faces.mono, FontWeight::NORMAL, FontStyle::Normal),
-                    theme::text(),
+                    theme::code_text(),
                     Some(theme::bubble()),
                 ),
                 Mark::Bold => (
@@ -483,7 +538,11 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
                 len: r.len(),
                 font,
                 color,
-                background_color: background,
+                background_color: if shaded {
+                    Some(theme::bubble())
+                } else {
+                    background
+                },
                 // A link is underlined a shade darker than its words.
                 underline: (mark == Mark::Link).then(|| gpui::UnderlineStyle {
                     thickness: px(1.),
@@ -877,6 +936,14 @@ mod tests {
         let total: usize = spans.iter().map(|(r, _)| r.len()).sum();
         assert_eq!(total, line.text.len());
         assert!(super::spans(&inline("")).is_empty());
+    }
+
+    #[test]
+    fn inline_code_is_padded_inside_its_shade_and_what_follows_moves_along() {
+        let line = padded(inline("a `ls` then **b** [c](https://x.y)"));
+        assert_eq!(&line.text[line.code[0].clone()], "\u{2009}ls\u{2009}");
+        assert_eq!(&line.text[line.bold[0].clone()], "b");
+        assert_eq!(&line.text[line.links[0].0.clone()], "c");
     }
 
     #[test]
