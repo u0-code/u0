@@ -128,14 +128,10 @@ impl Desk {
             cx.notify();
             return;
         }
-        let Some(session) = self.settings.sessions.get_mut(self.current) else {
-            return;
-        };
-        let place = session.id.clone();
-        if session.title.is_empty() {
-            session.title = text.chars().take(48).collect();
-            self.settings.save();
-        }
+        // The core keeps the session from its first line, and names it by
+        // it; the list shows it so at once.
+        let place = self.session().id;
+        self.sessions.said(&text);
         self.solver.say(place, text, mode);
         // What you send is where you read on from.
         self.thread_scroll.scroll_to_bottom();

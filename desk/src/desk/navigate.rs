@@ -7,9 +7,8 @@ use gpui::{ClipboardItem, Context, Focusable as _, Window};
 use super::{Desk, Notice, Open, Page, Popup, Watched};
 use crate::{
     daemons::Host,
-    link,
-    settings::{self, Session},
-    thread,
+    link::{self, Order},
+    sessions, thread,
 };
 
 impl Desk {
@@ -48,8 +47,9 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(&i) = settings::matching(&self.settings.sessions, query).first() {
-            self.choose(i, cx);
+        let all = self.sessions.all();
+        if let Some(&i) = sessions::matching(&all, query).first() {
+            self.choose(&all[i].id, cx);
         }
         self.close_search(window, cx);
     }
@@ -59,28 +59,17 @@ impl Desk {
         self.page = Page::Thread;
         let was = self.session().id;
         // An untouched new session is reused rather than stacked.
-        if let Some(i) = self
-            .settings
-            .sessions
-            .iter()
-            .position(|s| s.title.is_empty())
-        {
-            self.current = i;
-        } else {
-            self.settings.sessions.insert(0, Session::new());
-            self.current = 0;
-            self.settings.save();
-        }
+        self.sessions.begin();
         self.visited(was);
         self.follow();
         cx.notify();
     }
 
-    pub fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub fn choose(&mut self, id: &str, cx: &mut Context<Self>) {
         self.close_character(cx);
         self.page = Page::Thread;
         let was = self.session().id;
-        self.current = index.min(self.settings.sessions.len().saturating_sub(1));
+        self.sessions.choose(id);
         self.visited(was);
         self.follow();
         cx.notify();
@@ -108,10 +97,10 @@ impl Desk {
 
     /// Turn a session's row into a field with its name in it, selected.
     pub(crate) fn start_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(session) = self.settings.sessions.iter().find(|s| s.id == id) else {
+        let Some(session) = self.sessions.all().into_iter().find(|s| s.id == id) else {
             return;
         };
-        let title = session.title.clone();
+        let title = session.title;
         self.popup = Popup::Closed;
         self.renaming = Some(id.to_owned());
         self.rename.update(cx, |field, cx| {
@@ -130,13 +119,12 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let name = name.trim();
+        // The name goes to the core, which keeps it for every desk; the
+        // list shows it at once.
         if let Some(id) = self.renaming.take()
-            && !name.is_empty()
-            && let Some(session) = self.settings.sessions.iter_mut().find(|s| s.id == id)
+            && let Some(title) = self.sessions.rename(&id, name)
         {
-            session.title = name.chars().take(80).collect();
-            self.settings.save();
+            self.solver.order(Order::Rename { place: id, title });
         }
         self.input.focus_handle(cx).focus(window);
         cx.notify();
@@ -187,36 +175,44 @@ impl Desk {
         cx.notify();
     }
 
-    /// Take a session off the desk's list. What was said in it stays in
-    /// Ghost's journal, which keeps everything; only the desk's way to it
-    /// goes.
+    /// Take a session off the list: its core sets it aside, for every
+    /// desk. What was said in it stays in Ghost's journal, which keeps
+    /// everything; only the way to it goes.
     pub(crate) fn delete_session(&mut self, id: &str, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
-        let Some(i) = self.index_of(id) else { return };
-        self.settings.sessions.remove(i);
-        if self.settings.sessions.is_empty() {
-            self.settings.sessions.push(Session::new());
+        let was = self.session().id;
+        if self.sessions.remove(id) {
+            self.solver.order(Order::SetAside {
+                place: id.to_owned(),
+            });
         }
-        if i < self.current || self.current >= self.settings.sessions.len() {
-            self.current = self.current.saturating_sub(1);
+        if self.session().id != was {
+            self.remember_open();
+            self.follow();
         }
-        self.settings.save();
         cx.notify();
     }
 
-    /// Remember the session just left, if it was left, for back.
+    /// Remember the session just left, if it was left, for back; and the
+    /// one on screen, for next time.
     fn visited(&mut self, was: String) {
         if was != self.session().id {
             self.back.push(was);
             self.forward.clear();
+            self.remember_open();
         }
         // Another thread opens at its end, where its latest words are.
         self.thread_scroll.scroll_to_bottom();
     }
 
-    /// Where a session id is now.
-    fn index_of(&self, id: &str) -> Option<usize> {
-        self.settings.sessions.iter().position(|s| s.id == id)
+    /// Keep which session is on screen in `desk.json`, to open on it
+    /// next time.
+    fn remember_open(&mut self) {
+        let id = self.session().id;
+        if self.settings.open.as_deref() != Some(id.as_str()) {
+            self.settings.open = Some(id);
+            self.settings.save();
+        }
     }
 
     /// Back to the session before, skipping any that are gone. From a
@@ -232,9 +228,11 @@ impl Desk {
             return;
         }
         while let Some(id) = self.back.pop() {
-            if let Some(i) = self.index_of(&id) {
-                self.forward.push(self.session().id);
-                self.current = i;
+            let here = self.session().id;
+            if self.sessions.choose(&id) {
+                self.forward.push(here);
+                self.remember_open();
+                self.follow();
                 cx.notify();
                 return;
             }
@@ -245,9 +243,11 @@ impl Desk {
     pub fn go_forward(&mut self, cx: &mut Context<Self>) {
         self.close_character(cx);
         while let Some(id) = self.forward.pop() {
-            if let Some(i) = self.index_of(&id) {
-                self.back.push(self.session().id);
-                self.current = i;
+            let here = self.session().id;
+            if self.sessions.choose(&id) {
+                self.back.push(here);
+                self.remember_open();
+                self.follow();
                 cx.notify();
                 return;
             }
@@ -294,6 +294,7 @@ impl Desk {
                 token,
                 ghost: Some(id.to_owned()),
                 who: self.settings.who.clone(),
+                sessions: false,
             },
             &name,
         );

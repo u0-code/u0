@@ -194,9 +194,9 @@ impl Desk {
             let session = place
                 .map(|p| thread::thread_key(&p))
                 .and_then(|p| p.split_once(':').map(|(_, id)| id.to_owned()))
-                .and_then(|id| self.settings.sessions.iter().position(|s| s.id == id));
+                .filter(|id| self.sessions.has(id));
             match session {
-                Some(i) => self.choose(i, cx),
+                Some(id) => self.choose(&id, cx),
                 None => self.close_character(cx),
             }
             cx.notify();

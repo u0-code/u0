@@ -8,7 +8,10 @@
 //! her work did (`look.steps`, `work.steps`), and the entries of a place
 //! older than what the desk holds (`journal.place`). Each session with the
 //! solver is a place of its own on the console channel, so her journal
-//! keeps the threads apart. What it reads of her journal is added to what
+//! keeps the threads apart, and her core keeps the list of them: the
+//! solver's link asks for it (`sessions.list`) with everything else, again
+//! whenever her journal says a session was begun, named or set aside, and
+//! carries a new name or a deletion (`sessions.rename`, `sessions.delete`). What it reads of her journal is added to what
 //! the desk holds, never put in its place: the tail once, then the stream,
 //! and after a daemon was out of reach what was written meanwhile. A [`Listing`] asks a daemon who it runs, now
 //! and then, and what each of them is waiting on you for, so that the desk
@@ -93,6 +96,9 @@ pub struct Config {
     /// Who you are to her: the console says so in its hello, and she knows
     /// what it says as yours, an operator's.
     pub who: String,
+    /// Whether to follow her sessions: the solver's are the desk's down
+    /// the left; a character's are not shown.
+    pub sessions: bool,
 }
 
 /// Something whoever sits at the desk does to her, as an operator of hers.
@@ -115,6 +121,11 @@ pub enum Order {
     /// place `place` on the console channel, and everything said there
     /// after it, to put it another way.
     Rewind { place: String, to: i64 },
+    /// Call the session `place`, by its id, `title`.
+    Rename { place: String, title: String },
+    /// Set the session `place`, by its id, aside: off the list, with
+    /// everything said in it still in her journal.
+    SetAside { place: String },
 }
 
 impl Order {
@@ -126,6 +137,17 @@ impl Order {
             Self::Stop { .. } => "stop that work",
             Self::StopPlace { .. } => "stop her",
             Self::Rewind { .. } => "take that back",
+            Self::Rename { .. } => "rename that session",
+            Self::SetAside { .. } => "delete that session",
+        }
+    }
+
+    /// The session it was about, by id, if it was about one's name or
+    /// its place on the list.
+    pub fn session(&self) -> Option<&str> {
+        match self {
+            Self::Rename { place, .. } | Self::SetAside { place } => Some(place),
+            _ => None,
         }
     }
 }
@@ -143,6 +165,8 @@ async fn carry_out(console: &mut Console, order: &Order) -> anyhow::Result<bool>
         Order::Rewind { place, to } => {
             console.rewind_place(Some(place.clone()), *to).await?;
         }
+        Order::Rename { place, title } => console.rename_session(place, title).await?,
+        Order::SetAside { place } => console.delete_session(place).await?,
     }
     Ok(true)
 }
@@ -531,6 +555,9 @@ async fn session(
     // read brings as well is held once.
     stream.subscribe().await?;
     ask_all(&mut asker, up).await?;
+    if cfg.sessions {
+        ask_sessions(&mut asker, up).await;
+    }
     let stretch = since(&mut asker, *newest).await?;
     if let Some(last) = stretch.last() {
         *newest = last.seq.max(*newest);
@@ -546,7 +573,13 @@ async fn session(
                     Some(v) => {
                         if let Some(entry) = Entry::from_value(&v) {
                             *newest = entry.seq.max(*newest);
+                            let listed = cfg.sessions && changes_sessions(&entry);
                             let _ = up.send(Update::Entry(entry));
+                            // Begun, named or set aside, by this desk or
+                            // another: what the list is now.
+                            if listed {
+                                ask_sessions(&mut asker, up).await;
+                            }
                         }
                     }
                     None => return Ok(()),
@@ -558,10 +591,14 @@ async fn session(
                     // What became of her work shows at once, not at the
                     // next refresh.
                     Ok(stopped) => {
+                        let listed = cfg.sessions && order.session().is_some();
                         if let Order::StopPlace { place } = order {
                             let _ = up.send(Update::Stopped { place, stopped });
                         }
                         ask_all(&mut asker, up).await?;
+                        if listed {
+                            ask_sessions(&mut asker, up).await;
+                        }
                     }
 
                     Err(e) => {
@@ -573,6 +610,9 @@ async fn session(
             Some(read) = reads.recv() => read_steps(&mut asker, read, up).await,
             _ = refresh.tick() => {
                 ask_all(&mut asker, up).await?;
+                if cfg.sessions {
+                    ask_sessions(&mut asker, up).await;
+                }
             }
         }
     }
@@ -590,6 +630,27 @@ async fn since(asker: &mut Console, newest: i64) -> anyhow::Result<Vec<Entry>> {
         }
     }
     Ok(sorted(&asker.journal(-i64::from(TAIL), TAIL).await?))
+}
+
+/// Whether `entry` may change the list of her sessions: one begun by its
+/// first line, named or set aside.
+fn changes_sessions(entry: &Entry) -> bool {
+    match entry.kind.as_str() {
+        "session_named" | "session_set_aside" => true,
+        "heard" => entry.data["channel"] == ghost_link::protocol::CONSOLE,
+        _ => false,
+    }
+}
+
+/// Her sessions, as her core lists them. A core from before it kept them
+/// has no answer, and the desk keeps what it has.
+async fn ask_sessions(asker: &mut Console, up: &mpsc::Sender<Update>) {
+    match asker.sessions().await {
+        Ok(sessions) => {
+            let _ = up.send(Update::Sessions(sessions));
+        }
+        Err(e) => debug!("her core lists no sessions: {e:#}"),
+    }
 }
 
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {

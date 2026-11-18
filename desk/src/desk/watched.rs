@@ -43,6 +43,12 @@ pub struct Watched {
     pub pending: Vec<Message>,
     /// Her work and what ended lately, as the daemon keeps it.
     pub work: Vec<Work>,
+    /// Her sessions as her core last listed them, until the desk takes
+    /// them in.
+    pub sessions: Option<Vec<ghost_link::protocol::Session>>,
+    /// The sessions, by id, whose rename or deletion her core did not
+    /// carry out, until the desk takes them in.
+    pub unsessioned: Vec<String>,
     /// Why the last thing you did to her could not be done, until the desk
     /// has said so.
     pub refused: Option<String>,
@@ -109,6 +115,8 @@ impl Watched {
             read_places: HashSet::new(),
             pending: Vec::new(),
             work: kept.work,
+            sessions: None,
+            unsessioned: Vec::new(),
             refused: None,
             stops: Vec::new(),
             following: Following::default(),
@@ -257,6 +265,9 @@ impl Watched {
                 self.hold(&new);
             }
             Update::Refused { order, why } => {
+                if let Some(id) = order.session() {
+                    self.unsessioned.push(id.to_owned());
+                }
                 // A line that was not said is not left waiting for her.
                 if let Order::Say { place, text, .. } = order
                     && let Some(i) = self
@@ -277,6 +288,7 @@ impl Watched {
                 self.work = work;
                 self.keeper.changed();
             }
+            Update::Sessions(sessions) => self.sessions = Some(sessions),
             Update::Roster(_) | Update::Attention { .. } | Update::Ordered { .. } => {}
         }
     }

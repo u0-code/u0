@@ -30,7 +30,10 @@ operator; nobody is listed in its configuration for it. Every session is
 a place of its own on the console channel, so the journal keeps the
 threads apart; what was said in a session before the desk spoke through
 the console, on the `desk` channel it used to register, is in the same
-thread. It holds no key.
+thread. The list of sessions is the core's too (`sessions.list`,
+`sessions.rename`, `sessions.delete`): what each is called, and which were
+deleted, are in her journal, so a second desk on the same core, or this
+one after its settings are lost, lists the same ones. It holds no key.
 
 ## Running it
 
@@ -47,7 +50,12 @@ at once, and replaced by the daemon's own answer within a few seconds
 of connecting. A task given on the command line opens a new session
 with it. The desk reaches the solver at `ws://127.0.0.1:7438`, or at `GHOSTD_URL` on a first
 run; a token comes from `GHOSTD_TOKEN` in the environment or `.env`. Your
-sessions are kept in `~/.config/ghost-desk/desk.json`.
+sessions are kept by the solver's core; of them `~/.config/ghost-desk/desk.json`
+keeps only which one was open. A `desk.json` from before the core kept
+them hands its sessions over once, the first time the core lists its own:
+each is named on the core as the desk listed it, any the core has that
+were deleted here are set aside there, and the file lets them go once
+the core lists them so.
 
 To have it as an app, with the ghost in Finder, Launchpad and the Dock:
 
@@ -208,9 +216,10 @@ first, and a session shows a dot only while its work runs (amber) or
 waits on you (purple), with the parts of open work under it. Hover a
 session for its `…`, or right-click it: Rename turns the row into a
 field (Return keeps the name, Escape leaves it); Copy puts the thread on
-the clipboard as text, who said what and when; Delete takes the session
-off the desk's list, and no more: what was said in it stays in Ghost's
-journal, which keeps everything. Down the right: Environment (the machine its work runs
+the clipboard as text, who said what and when; Delete sets the session
+aside on its core, off every desk's list, and no more: what was said in
+it stays in Ghost's journal, which keeps everything. A new session is
+named by its first line, by the core, the same on every desk. Down the right: Environment (the machine its work runs
 on, which Open shows in Finder when its core is on this computer; the
 daemon and its link; the brain),
 Context (what fills the context window of each brain at work here, the
