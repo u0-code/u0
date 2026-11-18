@@ -75,6 +75,11 @@ pub fn muted() -> Hsla {
 pub fn faint() -> Hsla {
     c(0x7575_75)
 }
+/// Below faint, for what is there only to be skipped: line numbers, the
+/// "… n lines" of a fold, a plan's struck and empty marks, work dropped.
+pub fn quiet() -> Hsla {
+    c(0x5E5E_5E)
+}
 /// A disabled or empty mark.
 pub fn ghost_line() -> Hsla {
     c(0x4A4A_4A)
@@ -98,6 +103,11 @@ pub fn purple() -> Hsla {
 /// Her persona being revised; a removal in a diff.
 pub fn coral() -> Hsla {
     c(0xD98C_7A)
+}
+/// The words of code in a diff, a shade under text so the signs and
+/// grounds around them carry the change.
+pub fn code_text() -> Hsla {
+    c(0xE6E6_E6)
 }
 /// The program at the head of a command, and a keyword in code.
 pub fn code_program() -> Hsla {

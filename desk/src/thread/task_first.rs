@@ -18,8 +18,8 @@ use super::{
     cards::{task, tool},
     clock, could_not, directed, items, look_started, span, steps,
     style::{
-        BODY, BODY_LINE, BUBBLE_RADIUS, COLUMN, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL,
-        SMALL_LINE, TURN, meta,
+        BODY, BODY_LINE, BUBBLE_RADIUS, COLUMN, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN,
+        meta,
     },
     thread_key, waiting_since,
 };
@@ -596,14 +596,6 @@ fn hers(
                 )
                 .child(meta(faces, line).ml(px(4.))),
         )
-}
-
-/// A line of secondary text that may wrap: a step's words, a summary.
-pub(super) fn secondary(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::text(faces, text)
-        .text_size(px(SMALL))
-        .line_height(px(SMALL_LINE))
-        .text_color(theme::muted())
 }
 
 #[cfg(test)]

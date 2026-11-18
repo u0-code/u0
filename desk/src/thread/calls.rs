@@ -313,7 +313,7 @@ fn first_of(args: &Value, keys: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-fn plural(n: usize, word: &str) -> String {
+pub(super) fn plural(n: usize, word: &str) -> String {
     if n == 1 {
         format!("1 {word}")
     } else {
@@ -401,23 +401,40 @@ fn grouped(n: u64) -> String {
     out
 }
 
-/// How long a call took, briefly: "41ms", "1.2s", "2m 5s"; nothing for a
-/// time not kept.
+/// How long a call took, as a step row says it: "0.1s", "2.1s", "34s",
+/// "1m 08s"; nothing for a time not kept.
 pub fn took(ms: u64) -> String {
     match ms {
         0 => String::new(),
-        ms if ms < 1000 => format!("{ms}ms"),
         ms if ms < 10_000 => format!("{:.1}s", ms as f64 / 1000.),
-        ms => super::span(i64::try_from(ms / 1000).unwrap_or(i64::MAX)),
+        ms if ms < 60_000 => format!("{}s", ms / 1000),
+        ms => {
+            let secs = ms / 1000;
+            format!("{}m {:02}s", secs / 60, secs % 60)
+        }
     }
 }
 
-/// The head of a group of steps: "Worked for 12s · 3 steps", or while it
-/// goes on, "Working for 12s · 3 steps".
-/// What a look's calls came to, in a line: `Ran 4 commands, read 2 files,
-/// searched twice`, by the verbs the rows say, in the order they first
-/// came, with how long it all took after.
-pub fn summary(said: &[Said], secs: i64) -> String {
+/// What a look's calls came to, in a line: `Ran 4 commands, read 2 files
+/// · 20s`. Only the two weightiest kinds are named, edits first, then
+/// commands, reads, searches, pages, memories, the rest; what is left
+/// out is in the time. A call that failed is counted after.
+pub fn summary(said: &[Said], failed: usize, secs: i64) -> String {
+    format!("{} · {}", tally(said, failed), super::span(secs))
+}
+
+/// The weight of a verb in a summary: what changed things first.
+fn rank(verb: &str) -> usize {
+    [
+        "Edited", "Wrote", "Ran", "Started", "Read", "Searched", "Opened", "Recalled",
+    ]
+    .iter()
+    .position(|v| *v == verb)
+    .unwrap_or(8)
+}
+
+/// A summary without its time: `Ran 4 commands, read 2 files · 1 failed`.
+pub fn tally(said: &[Said], failed: usize) -> String {
     let mut counts: Vec<(String, usize)> = Vec::new();
     for s in said {
         match counts.iter_mut().find(|(v, _)| *v == s.verb) {
@@ -425,11 +442,13 @@ pub fn summary(said: &[Said], secs: i64) -> String {
             None => counts.push((s.verb.clone(), 1)),
         }
     }
+    counts.sort_by_key(|(v, _)| rank(v));
     let part = |verb: &str, n: usize| -> String {
         let noun = match verb {
             "Ran" | "Started" => Some("command"),
             "Read" | "Wrote" | "Edited" => Some("file"),
             "Opened" => Some("page"),
+            "Recalled" => Some("memory"),
             "Searched" => Some("search"),
             _ => None,
         };
@@ -439,6 +458,14 @@ pub fn summary(said: &[Said], secs: i64) -> String {
                 2 => "searched twice".to_owned(),
                 n => format!("searched {n} times"),
             },
+            Some("memory") => format!(
+                "recalled {}",
+                if n == 1 {
+                    "1 memory".to_owned()
+                } else {
+                    format!("{n} memories")
+                }
+            ),
             Some(noun) => format!("{} {}", verb.to_lowercase(), plural(n, noun)),
             None => match n {
                 1 => verb.to_lowercase(),
@@ -446,15 +473,22 @@ pub fn summary(said: &[Said], secs: i64) -> String {
             },
         }
     };
-    let mut parts: Vec<String> = counts.iter().map(|(v, n)| part(v, *n)).collect();
+    let mut parts: Vec<String> = counts.iter().take(2).map(|(v, n)| part(v, *n)).collect();
     if let Some(first) = parts.first_mut()
         && let Some(c) = first.get_mut(0..1)
     {
         c.make_ascii_uppercase();
     }
-    format!("{} · {}", parts.join(", "), super::span(secs))
+    let line = parts.join(", ");
+    if failed > 0 {
+        format!("{line} · {failed} failed")
+    } else {
+        line
+    }
 }
 
+/// The head of a group of steps while it goes on: "Working for 12s · 3
+/// steps".
 pub fn worked(secs: i64, steps: usize, running: bool) -> String {
     let verb = if running { "Working" } else { "Worked" };
     format!(
@@ -633,9 +667,10 @@ mod tests {
     #[test]
     fn times_are_said_briefly_and_a_group_says_how_long_and_how_many() {
         assert_eq!(took(0), "");
-        assert_eq!(took(41), "41ms");
+        assert_eq!(took(41), "0.0s");
         assert_eq!(took(1240), "1.2s");
-        assert_eq!(took(125_000), "2m 5s");
+        assert_eq!(took(34_400), "34s");
+        assert_eq!(took(68_000), "1m 08s");
         assert_eq!(worked(12, 3, false), "Worked for 12s · 3 steps");
         let said = |v: &str| Said {
             verb: v.into(),
@@ -648,15 +683,16 @@ mod tests {
                     said("Read"),
                     said("Ran"),
                     said("Searched"),
-                    said("Opened")
+                    said("Edited")
                 ],
+                0,
                 12
             ),
-            "Ran 2 commands, read 1 file, searched once, opened 1 page · 12s"
+            "Edited 1 file, ran 2 commands · 12s"
         );
         assert_eq!(
-            summary(&[said("Used playwright · navigate")], 3),
-            "Used playwright · navigate · 3s"
+            summary(&[said("Used playwright · navigate")], 1, 3),
+            "Used playwright · navigate · 1 failed · 3s"
         );
         assert_eq!(worked(75, 1, true), "Working for 1m 15s · 1 step");
     }

@@ -274,18 +274,36 @@ pub(crate) fn ended_row(
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
 }
 
-/// Where a piece of work stands, as a glyph: a ring while it is open, a
-/// dot once it has ended, each in its state's colour.
+/// Where a piece of work stands, as a mark in a 16 square: a dot while it
+/// runs and a ring while it waits, both amber, the only places amber is
+/// used; a grey tick once it is done, a coral ring with a bar when it is
+/// blocked, a dash when it was dropped.
 pub(crate) fn glyph(state: State) -> Div {
-    match state {
-        State::Running | State::Waiting => div()
-            .flex_none()
+    let mark = match state {
+        State::Running => ui::dot(theme::accent()).size(px(7.)).into_any_element(),
+        State::Waiting => div()
             .size(px(9.))
             .rounded_full()
-            .border_2()
-            .border_color(state.color()),
-        _ => ui::dot(state.color()).size(px(7.)).m(px(1.)),
-    }
+            .border_1()
+            .border_color(theme::accent())
+            .into_any_element(),
+        State::Finished => ui::icon("check", 16.)
+            .text_color(theme::muted())
+            .into_any_element(),
+        State::Blocked => ui::icon("alert", 14.)
+            .text_color(theme::coral())
+            .into_any_element(),
+        State::Dropped => ui::icon("minus", 14.)
+            .text_color(theme::quiet())
+            .into_any_element(),
+    };
+    div()
+        .flex()
+        .flex_none()
+        .size(px(16.))
+        .items_center()
+        .justify_center()
+        .child(mark)
 }
 
 /// Where a piece of work her daemon keeps stands, in the desk's colours: a

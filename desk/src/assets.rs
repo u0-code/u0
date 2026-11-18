@@ -38,6 +38,8 @@ const FILES: &[(&str, &[u8])] = icons![
     "server",
     "plug",
     "file",
+    "alert",
+    "minus",
     "check",
     "pencil",
     "x",

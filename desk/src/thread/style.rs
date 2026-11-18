@@ -31,7 +31,6 @@ pub const ROW: f32 = 15.;
 pub const ROW_LINE: f32 = 22.;
 /// Secondary text: a card's summary, what she said between steps.
 pub const SMALL: f32 = 13.;
-pub const SMALL_LINE: f32 = 19.;
 /// Commands, paths and what they printed.
 pub const MONO: f32 = 13.;
 pub const MONO_LINE: f32 = 19.;

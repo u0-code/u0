@@ -14,8 +14,7 @@ use serde_json::Value;
 use super::{
     State, Task, calls, clock, drawn, kinds, s, span, steps,
     style::{
-        BODY, BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta,
-        well,
+        BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta, well,
     },
     task_first::breathing,
 };
@@ -119,23 +118,33 @@ pub(super) fn task(
     let open = expanded.contains(&key);
     let state = t.state();
     let read = following.works.get(&t.id).filter(|r| r.read());
-    let done = summary_of(t, read.map(|r| r.steps.as_slice()));
+    // What it handed over: the files it reported, its parts' too.
+    let files: Vec<String> = t
+        .events
+        .iter()
+        .chain(t.parts.iter().flat_map(|p| p.events.iter()))
+        .filter(|e| e.kind == "reported")
+        .filter_map(|e| e.data.get("files").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    let done = summary_of(t, read.map(|r| r.steps.as_slice()), files.len());
 
-    let glyph = div()
-        .flex()
-        .flex_none()
-        .size(px(MARK))
-        .items_center()
-        .justify_center()
-        .child(if state == State::Running {
-            breathing(aside::glyph(state))
-        } else {
-            aside::glyph(state)
-        });
-    // What it has done so far, or, when it stands still for a reason, the
-    // reason's word first, in that state's colour.
-    let standing = !matches!(state, State::Finished | State::Running);
-    let said_already = done.to_lowercase().starts_with(state.word());
+    let glyph = if state == State::Running {
+        breathing(aside::glyph(state))
+    } else {
+        aside::glyph(state)
+    };
+    // The title in text, the line under it muted; a state that stands
+    // still for a reason colours that line, and a dropped work fades whole.
+    let dropped = state == State::Dropped;
+    let under = match state {
+        State::Waiting => theme::accent(),
+        State::Blocked => theme::coral(),
+        State::Dropped => theme::quiet(),
+        _ => theme::muted(),
+    };
     // Held to the card's width, so that a long title ends in an ellipsis
     // rather than running past the frame.
     let words = div()
@@ -148,31 +157,50 @@ pub(super) fn task(
         .child(
             ui::one_line(ui::text(faces, calls::fit(t.title(), 76)))
                 .whitespace_nowrap()
-                .text_size(px(BODY - 1.))
+                .text_size(px(14.))
                 .line_height(px(20.))
-                .text_color(theme::text()),
+                .text_color(if dropped {
+                    theme::faint()
+                } else {
+                    theme::text()
+                }),
         )
         .child(
-            ui::one_line(ui::text(
-                faces,
-                calls::fit(
-                    &if standing && !said_already {
-                        format!("{} · {done}", state.word())
-                    } else {
-                        done
-                    },
-                    84,
-                ),
-            ))
-            .whitespace_nowrap()
-            .text_size(px(SMALL))
-            .line_height(px(18.))
-            .text_color(if standing {
-                state.color()
-            } else {
-                theme::muted()
-            }),
+            ui::one_line(ui::text(faces, calls::fit(&done, 84)))
+                .whitespace_nowrap()
+                .text_size(px(SMALL))
+                .line_height(px(18.))
+                .text_color(under),
         );
+    // While it runs, an opened card can be stopped from its head.
+    let stop = (open && state == State::Running)
+        .then(|| asks.map(|(w, whom)| (w.id.clone(), whom.clone())))
+        .flatten()
+        .map(|(work, whom)| {
+            div()
+                .id(SharedString::from(format!("{key}:stop")))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .h(px(26.))
+                .px(px(10.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(theme::border2())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::bubble()))
+                .child(div().size(px(8.)).rounded(px(2.)).bg(theme::muted()))
+                .child(
+                    ui::text(faces, "Stop")
+                        .text_size(px(SMALL))
+                        .text_color(theme::muted()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.order(&whom, Order::Stop { work: work.clone() }, cx);
+                }))
+        });
     let toggle = key.clone();
     let head = div()
         .id(SharedString::from(key))
@@ -184,6 +212,7 @@ pub(super) fn task(
         .cursor_pointer()
         .child(glyph)
         .child(words)
+        .children(stop)
         .child(
             ui::icon(
                 if open {
@@ -191,10 +220,14 @@ pub(super) fn task(
                 } else {
                     "chevron-right"
                 },
-                14.,
+                16.,
             )
             .flex_none()
-            .text_color(theme::muted()),
+            .text_color(if dropped {
+                theme::quiet()
+            } else {
+                theme::muted()
+            }),
         )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
 
@@ -254,16 +287,6 @@ pub(super) fn task(
     }
     // What it handed over, as small cards under it, once it is done: each
     // opens where it is on the machine.
-    let files: Vec<String> = t
-        .events
-        .iter()
-        .chain(t.parts.iter().flat_map(|p| p.events.iter()))
-        .filter(|e| e.kind == "reported")
-        .filter_map(|e| e.data.get("files").and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect();
     if state != State::Finished || files.is_empty() {
         return whole;
     }
@@ -382,34 +405,62 @@ fn asking(faces: &Faces, w: &Work, question: &str, whom: &Whom, cx: &mut Context
 /// How much of what a milestone says shows: a few lines' worth.
 const SAID_SHORT: usize = 240;
 
-/// The room a work's mark takes before its words.
-const MARK: f32 = 16.;
-
 /// What a piece of work has done, in a line: `Ran 7 commands · 42s` once
 /// it is over, `Working for 13s · 6 steps` while it goes on, and before its
 /// steps are read, where it stands and for how long.
-fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>) -> String {
+fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>, outputs: usize) -> String {
     let state = t.state();
-    let secs = (t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds();
-    let said: Vec<calls::Said> = steps
+    let time = span((t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds());
+    let calls: Vec<&ghost_link::protocol::ToolCall> = steps
         .unwrap_or_default()
         .iter()
         .flat_map(|s| s.calls.iter())
         .filter(|c| calls::shown(&c.name) && c.name != "done")
-        .map(|c| calls::say(&c.name, &c.args))
         .collect();
+    let parts = (!t.parts.is_empty()).then(|| calls::plural(t.parts.len(), "part"));
+    let line = |words: Vec<String>| {
+        words
+            .into_iter()
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
     match state {
-        State::Running => calls::worked(secs, steps.map_or(0, <[LoggedStep]>::len), true),
-        State::Waiting => format!("Waiting on you · {}", span(secs)),
-        _ if !said.is_empty() => calls::summary(&said, secs),
-        _ => {
-            let word = state.word();
-            let mut w = word.to_owned();
-            if let Some(c) = w.get_mut(0..1) {
-                c.make_ascii_uppercase();
-            }
-            format!("{w} in {}", span(secs))
+        // While it runs: what it is doing now, its parts, how long so far.
+        State::Running => {
+            let now = calls.last().map_or_else(
+                || "Starting".to_owned(),
+                |c| {
+                    let said = calls::say(&c.name, &c.args);
+                    format!("{} {}", said.verb, said.what).trim().to_owned()
+                },
+            );
+            line(vec![now, parts.unwrap_or_default(), time])
         }
+        State::Waiting => line(vec!["Waiting on you".to_owned(), t.last_line()]),
+        // Done: what it changed, what it handed over, how long it took.
+        State::Finished => {
+            let said: Vec<calls::Said> =
+                calls.iter().map(|c| calls::say(&c.name, &c.args)).collect();
+            let failed = calls.iter().filter(|c| c.failed).count();
+            let mut did = calls::tally(&said, failed);
+            if let Some(c) = did.get_mut(0..1) {
+                c.make_ascii_lowercase();
+            }
+            line(vec![
+                "Done".to_owned(),
+                did,
+                parts.unwrap_or_default(),
+                if outputs > 0 {
+                    calls::plural(outputs, "output")
+                } else {
+                    String::new()
+                },
+                time,
+            ])
+        }
+        State::Blocked => line(vec!["Blocked".to_owned(), t.last_line()]),
+        State::Dropped => line(vec!["Dropped".to_owned(), t.last_line()]),
     }
 }
 
@@ -550,12 +601,14 @@ fn parts(
     if known.is_empty() {
         return None;
     }
+    // Under the steps, 16 in from their words, each part a smaller card.
     let mut column = div()
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .pt(px(S1))
-        .child(ui::eyebrow(faces, "parts").text_size(px(10.5)).px(px(6.)));
+        .gap(px(S2))
+        .my(px(6.))
+        .pl(px(10. + S4))
+        .pr(px(10.));
     for (id, brief, state) in known {
         let last = t.parts.iter().find(|p| p.id == id).map(Task::last_line);
         column = column.child(steps::part(
@@ -606,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn a_works_line_says_what_it_did_and_how_long_or_where_it_stands_before_its_steps_are_read() {
+    fn a_works_line_says_what_it_is_doing_or_what_it_did_and_how_long() {
         let t0 = Utc::now() - Duration::minutes(5);
         let open = vec![entry(1, t0, "undertook", json!({"id": "w", "brief": "b"}))];
         let mut done = open.clone();
@@ -619,14 +672,16 @@ mod tests {
         let steps = [step(1, &["shell", "shell"]), step(2, &["shell", "done"])];
 
         let running = &tasks(&open)[0];
-        assert!(summary_of(running, Some(&steps)).starts_with("Working for "));
-        assert!(summary_of(running, Some(&steps)).ends_with("· 2 steps"));
+        assert!(
+            summary_of(running, Some(&steps), 0).starts_with("Ran ls · "),
+            "what it is doing now"
+        );
         let finished = &tasks(&done)[0];
         assert_eq!(
-            summary_of(finished, Some(&steps)),
-            "Ran 3 commands · 42s",
+            summary_of(finished, Some(&steps), 2),
+            "Done · ran 3 commands · 2 outputs · 42s",
             "the call that ends the work is not counted as something it did"
         );
-        assert_eq!(summary_of(finished, None), "Finished in 42s");
+        assert_eq!(summary_of(finished, None, 0), "Done · 42s");
     }
 }

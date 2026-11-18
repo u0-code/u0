@@ -86,7 +86,7 @@ pub fn span(secs: i64) -> String {
     let secs = secs.max(0);
     match secs {
         s if s < 60 => format!("{s}s"),
-        s if s < 3600 => format!("{}m {}s", s / 60, s % 60),
+        s if s < 3600 => format!("{}m {:02}s", s / 60, s % 60),
         s => format!("{}h {}m", s / 3600, (s % 3600) / 60),
     }
 }
