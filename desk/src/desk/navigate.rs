@@ -175,7 +175,7 @@ impl Desk {
             scroll: None,
             rendering: thread::Rendering::Task,
             column: thread::COLUMN,
-            media: None,
+            media: self.solver.media(),
             status: self.solver.status.as_ref(),
         };
         let (text, lines) = thread::transcript(&view);

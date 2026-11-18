@@ -31,8 +31,8 @@ use ghost_link::socket::{recv, send};
 use ghost_mind::{Act, Acted, Body, ChannelFacts, MindHandle, Question};
 use ghost_protocol::{
     Action, Actor, Allows, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead,
-    ListGhosts, LookRead, PROTOCOL, PlaceRead, PresenceHello, Role, StepsRead, Typing, Welcome,
-    code, method,
+    ListGhosts, LookRead, MediaFile, MediaRead, PROTOCOL, PlaceRead, PresenceHello, Role,
+    StepsRead, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -60,6 +60,10 @@ const STEPS_ASKED: usize = 100;
 /// The largest picture handed out as her avatar. Platforms take far
 /// smaller ones; anything this big is a mistake in her directory.
 const AVATAR_MOST: u64 = 8 << 20;
+/// The largest file of hers handed out from `media/`: as large as any
+/// image she takes in from a platform, and in base64 still well inside
+/// the 16 MB a WebSocket frame may carry.
+const MEDIA_MOST: u64 = 8 << 20;
 
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Frame>>>>;
 
@@ -582,6 +586,18 @@ async fn watch<S>(
                 }
                 continue;
             }
+            // So are the files she keeps: the journal names them, and a
+            // console anywhere shows them by that name.
+            Some(method::MEDIA) => {
+                let reply = match frame.params::<MediaRead>() {
+                    Ok(read) => media(id, &who.dir, &read.name).await,
+                    Err(e) => Frame::err(id, e.code, e.message),
+                };
+                if out.send(reply).await.is_err() {
+                    break;
+                }
+                continue;
+            }
             Some(method::SAY) => {
                 let reply = operator::say(id, &frame, at.owner, at.who.as_deref(), who).await;
                 if out.send(reply).await.is_err() {
@@ -729,21 +745,12 @@ async fn avatar(id: u64, dir: &Path) -> Frame {
         Some("gif") => "image/gif",
         _ => "image/jpeg",
     };
-    let read = async {
-        let size = tokio::fs::metadata(&path).await?.len();
-        if size > AVATAR_MOST {
-            return Err(std::io::Error::other(format!(
-                "it is {size} bytes, more than the {AVATAR_MOST} handed out"
-            )));
-        }
-        tokio::fs::read(&path).await
-    };
-    match read.await {
-        Ok(bytes) => Frame::ok(
+    match read_at_most(&path, AVATAR_MOST).await {
+        Ok(data) => Frame::ok(
             id,
             &Avatar {
                 mime: mime.to_owned(),
-                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                data,
             },
         ),
         Err(e) => {
@@ -755,6 +762,45 @@ async fn avatar(id: u64, dir: &Path) -> Frame {
             )
         }
     }
+}
+
+/// The answer to request `id` for the file `name` in the `media/` of the
+/// ghost directory `dir`. Only a bare name of a plain file there is looked
+/// for, as `ghost_core::media::path` finds one: a path, a hidden name or a
+/// link out of `media/` is no file she keeps.
+async fn media(id: u64, dir: &Path, name: &str) -> Frame {
+    let Some(path) = ghost_core::media::path(dir, name) else {
+        return Frame::err(
+            id,
+            code::NO_SUCH_MEDIA,
+            format!("she keeps no file called {name:?}"),
+        );
+    };
+    match read_at_most(&path, MEDIA_MOST).await {
+        Ok(data) => Frame::ok(
+            id,
+            &MediaFile {
+                mime: ghost_core::media::mime(name).to_owned(),
+                data,
+            },
+        ),
+        Err(e) => {
+            warn!("{} cannot be handed out: {e}", path.display());
+            Frame::err(id, code::INTERNAL, format!("{name} cannot be read: {e}"))
+        }
+    }
+}
+
+/// The file at `path` in base64, unless it is larger than `most` bytes.
+async fn read_at_most(path: &Path, most: u64) -> std::io::Result<String> {
+    let size = tokio::fs::metadata(path).await?.len();
+    if size > most {
+        return Err(std::io::Error::other(format!(
+            "it is {size} bytes, more than the {most} handed out"
+        )));
+    }
+    let bytes = tokio::fs::read(path).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 #[cfg(test)]

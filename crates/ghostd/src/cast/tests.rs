@@ -561,6 +561,43 @@ async fn each_character_hands_out_her_own_avatar_and_one_without_hands_out_none(
     assert_eq!(avatar("mei").await, None);
 }
 
+#[tokio::test]
+async fn a_console_reads_her_kept_files_by_name_and_nothing_outside_media() {
+    let rig = Rig::run(vec![Spec::new("lin"), Spec::new("mei")]).await;
+    let dir = &rig.cast[0].dir;
+    let picture = b"\x89PNG\r\n\x1a\nnot much of one";
+    let name = ghost_core::media::store(dir, picture, "image/png").unwrap();
+    std::fs::write(dir.join("media/.half.png.partial"), b"half").unwrap();
+
+    let (mut lin, _) = ghost_link::Console::connect(&rig.url, None, Some("lin".into()))
+        .await
+        .unwrap();
+    let (mime, bytes) = lin.media(&name).await.unwrap();
+    assert_eq!(mime, "image/png");
+    assert_eq!(bytes, picture);
+
+    let refused = |e: anyhow::Error| e.downcast::<RpcError>().unwrap().code;
+    for outside in [
+        "../journal.db",
+        "../ghost.toml",
+        "media/../../journal.db",
+        "/etc/passwd",
+        ".half.png.partial",
+        "",
+        "..",
+        "0000.png",
+    ] {
+        let e = lin.media(outside).await.unwrap_err();
+        assert_eq!(refused(e), code::NO_SUCH_MEDIA, "{outside:?}");
+    }
+    // Another character's files are hers alone.
+    let (mut mei, _) = ghost_link::Console::connect(&rig.url, None, Some("mei".into()))
+        .await
+        .unwrap();
+    let e = mei.media(&name).await.unwrap_err();
+    assert_eq!(refused(e), code::NO_SUCH_MEDIA);
+}
+
 type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 

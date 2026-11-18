@@ -6,7 +6,8 @@
 //! what the desk had seen of it.
 //!
 //! One file per daemon and character, under `~/.config/ghost-desk/cache/`,
-//! written at most once a second while new entries arrive.
+//! written at most once a second while new entries arrive. The images her
+//! core hands out are kept beside them, under `media/`: see `media.rs`.
 
 use std::{
     path::PathBuf,
@@ -29,26 +30,34 @@ pub struct Cached {
     /// said it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    /// Her core's id, so that the images kept from it show before her
+    /// daemon has said it again, or while it cannot be reached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core: Option<String>,
 }
 
 /// How long new entries may wait before the file is written again.
 const SETTLE: Duration = Duration::from_secs(1);
 
-/// The file one daemon's copy is kept in: by its address and, when it
-/// runs several, the character.
-fn path(url: &str, ghost: Option<&str>) -> Option<PathBuf> {
+/// Where the desk keeps its copies: `~/.config/ghost-desk/cache/`.
+pub fn dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    let key: String = format!("{url}#{}", ghost.unwrap_or_default())
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
     Some(
         PathBuf::from(home)
             .join(".config")
             .join("ghost-desk")
-            .join("cache")
-            .join(format!("{key}.json")),
+            .join("cache"),
     )
+}
+
+/// The file one daemon's copy is kept in: by its address and, when it
+/// runs several, the character.
+fn path(url: &str, ghost: Option<&str>) -> Option<PathBuf> {
+    let key: String = format!("{url}#{}", ghost.unwrap_or_default())
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    Some(dir()?.join(format!("{key}.json")))
 }
 
 /// What was kept of the daemon at `url`, if anything.

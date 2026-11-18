@@ -595,10 +595,9 @@ pub struct View<'a> {
     /// ellipsis on one line is cut to it, since GPUI's own ellipsis is not
     /// to be trusted with Chinese.
     pub column: f32,
-    /// Her `media/` directory, when it is on this machine: the solver's.
-    /// A character's is where her daemon runs, and her images are not
-    /// shown, only named.
-    pub media: Option<std::path::PathBuf>,
+    /// Where her images are asked for, her core, or why they cannot be
+    /// yet, in a line to show where each would be.
+    pub media: Result<crate::media::Source, &'static str>,
     /// What her daemon last said of her: for an empty thread, whether her
     /// day has her awake and what it has her doing.
     pub status: Option<&'a crate::model::Status>,

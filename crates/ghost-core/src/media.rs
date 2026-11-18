@@ -119,6 +119,22 @@ pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     }
 }
 
+/// The type of a file kept under `name`, as its extension says: the
+/// reverse of what [`name`] gives it, and `application/octet-stream` for
+/// one kept as `bin`.
+pub fn mime(name: &str) -> &'static str {
+    match Path::new(name).extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("heic") => "image/heic",
+        Some("avif") => "image/avif",
+        _ => "application/octet-stream",
+    }
+}
+
 /// The extension for an image type, `bin` for one not known.
 fn extension(mime: &str) -> &'static str {
     let mime = mime.split(';').next().unwrap_or_default().trim();
@@ -183,6 +199,23 @@ mod tests {
             .unwrap();
             assert_eq!(path(dir.path(), "link.png"), None);
         }
+    }
+
+    #[test]
+    fn a_kept_files_type_is_read_back_from_its_name() {
+        for kind in [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "image/bmp",
+            "image/heic",
+            "image/avif",
+        ] {
+            assert_eq!(mime(&name(b"x", kind)), kind);
+        }
+        assert_eq!(mime(&name(b"x", "image/jpg")), "image/jpeg");
+        assert_eq!(mime(&name(b"x", "text/plain")), "application/octet-stream");
     }
 
     #[test]
