@@ -65,7 +65,7 @@ pub use self::{
     db::WORK_DB,
     inbox::{Mail, MailKind},
     look::{Glance, Logged, Look, Step, StepContext, StepUsage, glance, look, steps},
-    state::{AskKind, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
+    state::{AskKind, Checkout, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
     transcript::placeholder,
 };
 
@@ -123,6 +123,11 @@ impl Undertaking {
             conn: Mutex::new(conn),
             state: Mutex::new(state),
         })
+    }
+
+    /// The directory its database is in: the ghost's own.
+    pub fn home(&self) -> &Path {
+        self.db.parent().unwrap_or_else(|| Path::new("."))
     }
 
     /// Start a new undertaking that is part of this one, as `<id>/<n>`,

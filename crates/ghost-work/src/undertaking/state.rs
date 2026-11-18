@@ -146,6 +146,21 @@ pub struct Told {
     pub at: DateTime<Utc>,
 }
 
+/// Where a part's own checkout is, and what it was made from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checkout {
+    /// The folder of the work it is part of, which it does not write in.
+    pub of: String,
+    /// The top of the repository that folder is in.
+    pub repo: String,
+    /// Where the checkout is.
+    pub at: String,
+    /// The branch its changes are committed to.
+    pub branch: String,
+    /// The commit it was made from: the work's folder as it was then.
+    pub base: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
     /// What was asked, as it was asked.
@@ -207,6 +222,10 @@ pub struct State {
     /// is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
+    /// A part's own checkout of its work's folder, when that folder is in
+    /// a git repository: `dir` is then inside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout: Option<Checkout>,
     /// The undertaking this is a part of, for a part handed out by a
     /// worker. Helpers from before parts ran on their own have none, and
     /// are not counted as parts: each of them ended in the step that

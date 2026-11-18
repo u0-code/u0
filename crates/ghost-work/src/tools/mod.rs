@@ -34,6 +34,9 @@ use crate::{
 /// file tools too.
 pub struct Desk {
     pub machine: Arc<dyn Machine>,
+    /// For a part in a checkout of its own: the work's folder, which it
+    /// does not write in, and its own checkout, where it does.
+    fence: Option<(std::path::PathBuf, std::path::PathBuf)>,
     cwd: Mutex<Option<String>>,
     jobs: AtomicU32,
     /// Sets this desk's files in `/tmp` apart from every other desk's.
@@ -44,6 +47,7 @@ impl Desk {
     pub fn new(machine: Arc<dyn Machine>) -> Arc<Self> {
         Arc::new(Self {
             machine,
+            fence: None,
             cwd: Mutex::new(None),
             jobs: AtomicU32::new(0),
             tag: format!(
@@ -53,6 +57,22 @@ impl Desk {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.subsec_nanos())
             ),
+        })
+    }
+
+    /// Why `path` is not to be written here, if it is not: it is in the
+    /// work's folder, and this desk is a part's, in a checkout of its own.
+    pub(crate) fn fenced(&self, path: &str) -> Option<String> {
+        let (of, own) = self.fence.as_ref()?;
+        let path = std::path::Path::new(path);
+        (path.is_absolute() && path.starts_with(of) && !path.starts_with(own)).then(|| {
+            format!(
+                "{} is in the work's folder, where other workers are. This part works in its own \
+                 checkout, {}: make the change there, and it is brought back into the work's \
+                 folder when you finish.",
+                path.display(),
+                own.display()
+            )
         })
     }
 
@@ -143,7 +163,13 @@ pub fn standard(
     undertaking: &Arc<Undertaking>,
     words: &Shared,
 ) -> Toolbox {
-    let desk = Desk::new(machine);
+    let mut desk = Desk::new(machine);
+    let state = undertaking.state();
+    if let (Some(checkout), Some(own)) = (state.checkout, state.dir)
+        && let Some(d) = Arc::get_mut(&mut desk)
+    {
+        d.fence = Some((checkout.of.into(), own.into()));
+    }
     let tools = Toolbox::new()
         .with(Shell::new(desk.clone()))
         .with(Read::new(desk.clone()))

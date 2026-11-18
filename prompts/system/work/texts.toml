@@ -218,6 +218,13 @@ part_told = "A message from part {{part}}, which goes on working:\n\n{{text}}{{f
 part_told_files = "\n\nFiles it made: {{files}}"
 part_asked = "A question from part {{part}}, which has stopped until you answer it with `steer`:\n\n{{text}}"
 part_ended = "Part {{part}} {{how}} after {{steps}} steps. Its report:\n\n{{report}}"
+# A part of work whose folder is in a git repository works in a checkout of
+# its own, so that two workers never write over each other. What it is
+# told of it, after where it is; and what its report says of its changes.
+part_checkout = "You work in a checkout of your own of the work's folder, at {{dir}}, made from it as it was when you began: what others change meanwhile does not get in your way, and what you change does not get in theirs. Make every change here, not in {{of}}. When you finish, what you changed is brought back into the work's folder."
+part_applied = "\n\nWhat it changed is now in your folder: {{files}}."
+part_clashed = "\n\nWhat it changed could not be brought into your folder, because the same places changed there meanwhile: {{files}}. It is on the branch {{branch}} of {{repo}}: merge it with git, or do it again."
+part_kept = "\n\nIt did not finish, so what it changed was not brought into your folder: {{files}}. It is on the branch {{branch}} of {{repo}}."
 part_finished = "finished"
 part_blocked = "could not go on"
 part_gave_up = "gave up"

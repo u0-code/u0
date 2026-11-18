@@ -42,6 +42,7 @@ use serde_json::{Value, json};
 
 use crate::{
     agents::{self, Agent, Unusable},
+    checkout,
     prompts::{self, Loop, Shared, Store},
     tool::{self, Tool, Toolbox},
     tools::{self, clip, list, outcome_of, step_number},
@@ -185,6 +186,7 @@ impl Parts {
     /// One part's run, from where it stands until it ends or the sitting
     /// does.
     async fn sit(self: Arc<Self>, n: u64, part: Arc<Undertaking>) {
+        self.isolate(n, &part).await;
         let before = part.state();
         let left = u64::from(self.limits.part_steps).saturating_sub(before.steps);
         let ended = if left == 0 {
@@ -238,7 +240,7 @@ impl Parts {
                     ..self.limits.clone()
                 },
                 who: self.text("part_who"),
-                machine: self.machine.clone(),
+                machine: self.place(&part),
                 pause: self.halt.clone(),
                 helpers: None,
                 prompts: self.prompts.clone(),
@@ -250,7 +252,8 @@ impl Parts {
         let after = part.state();
         self.parent
             .update(|state| state.usage.add(spent(before.usage, after.usage)));
-        if let Some(report) = self.ending(n, &part, &ended)
+        let back = self.bring_back(n, &part, &ended).await;
+        if let Some(report) = self.ending(n, &part, &ended).map(|r| r + &back)
             && let Err(e) = self.parent.post(MailKind::Ended, &report)
         {
             tracing::warn!("part {n} could not report to {}: {e}", self.parent.id());
@@ -260,6 +263,116 @@ impl Parts {
         let mut running = self.running();
         running.remove(&n);
         self.start(&mut running);
+    }
+
+    /// Give part `n` a checkout of its own of its work's folder, when that
+    /// folder is in a git repository and it has none yet. Where it is not,
+    /// or the checkout cannot be made, it works in the folder itself.
+    async fn isolate(&self, n: u64, part: &Undertaking) {
+        let state = part.state();
+        if state.checkout.is_some() || state.finish.is_some() {
+            return;
+        }
+        let Some(of) = self.parent.state().dir else {
+            return;
+        };
+        let id = self.parent.id().replace('/', "-");
+        let at = self
+            .parent
+            .home()
+            .join("worktrees")
+            .join(format!("{id}-{n}"));
+        let branch = format!("ghost/{id}/part-{n}");
+        let made = tokio::task::spawn_blocking(move || {
+            checkout::make(std::path::Path::new(&of), &at, &branch)
+        })
+        .await;
+        match made {
+            Ok(Ok(Some((checkout, dir)))) => {
+                tracing::info!("part {n} works in {}", checkout.at);
+                part.update(|state| {
+                    state.dir = Some(dir.display().to_string());
+                    state.checkout = Some(checkout);
+                });
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => tracing::warn!("part {n} works in its work's folder: {e}"),
+            Err(e) => tracing::warn!("part {n} works in its work's folder: {e}"),
+        }
+    }
+
+    /// Where a part is, as its worker is told: where its work is, and for
+    /// one in a checkout of its own, that it is to work there.
+    fn place(&self, part: &Undertaking) -> String {
+        let state = part.state();
+        match (state.checkout, state.dir) {
+            (Some(checkout), Some(dir)) => format!(
+                "{}\n\n{}",
+                self.machine,
+                self.fill("part_checkout", &[("dir", dir), ("of", checkout.of)])
+            ),
+            _ => self.machine.clone(),
+        }
+    }
+
+    /// Once part `n` has ended, what it changed in a checkout of its own:
+    /// brought into its work's folder if it finished, kept on its branch if
+    /// it did not or if it no longer fits. What its report says of that.
+    async fn bring_back(&self, n: u64, part: &Undertaking, ended: &Ended) -> String {
+        if matches!(ended, Ended::Paused | Ended::OutOfTime | Ended::Waiting) {
+            return String::new();
+        }
+        let state = part.state();
+        let Some(checkout) = state.checkout.clone() else {
+            return String::new();
+        };
+        let finished = matches!(ended, Ended::Finished)
+            && state.finish.as_ref().map(|f| f.outcome) == Some(Outcome::Finished);
+        let message = format!(
+            "Part {n}: {}",
+            preview(state.brief.lines().next().unwrap_or_default(), 72)
+        );
+        let kept = checkout.clone();
+        let back =
+            tokio::task::spawn_blocking(move || checkout::bring_back(&kept, &message, finished))
+                .await;
+        let files = |files: &[String]| {
+            let mut shown = files
+                .iter()
+                .take(12)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            if files.len() > 12 {
+                shown.push_str(&format!(" and {} more", files.len() - 12));
+            }
+            shown
+        };
+        let at = [
+            ("branch", checkout.branch.clone()),
+            ("repo", checkout.repo.clone()),
+        ];
+        match back {
+            Ok(Ok(checkout::Back::Unchanged)) => String::new(),
+            Ok(Ok(checkout::Back::Applied { files: f })) => {
+                tracing::info!("part {n}'s changes are in {}", checkout.of);
+                self.fill("part_applied", &[("files", files(&f))])
+            }
+            Ok(Ok(checkout::Back::Kept { files: f, clashed })) => {
+                let key = if clashed { "part_clashed" } else { "part_kept" };
+                let mut pairs = vec![("files", files(&f))];
+                pairs.extend(at.iter().cloned());
+                self.fill(key, &pairs)
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("part {n}'s changes were left in {}: {e}", checkout.at);
+                String::new()
+            }
+            Err(e) => {
+                tracing::warn!("part {n}'s changes were left in {}: {e}", checkout.at);
+                String::new()
+            }
+        }
     }
 
     /// What a part that ended reports to its parent, if it ended. A part
