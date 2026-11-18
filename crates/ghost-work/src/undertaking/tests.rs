@@ -60,6 +60,29 @@ fn work_under_way_can_be_looked_at_from_outside_without_writing() {
 }
 
 #[test]
+fn a_step_logged_before_steps_kept_their_context_still_says_what_it_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = Undertaking::open(&db(&dir), "w", Some("Count the files.")).unwrap();
+    work.log(&json!({"at": "2026-11-17T16:50:43+00:00", "said": "", "calls": [], "read": 15_068, "cached": 14_464, "wrote": 370}));
+    let mut call = crate::steps::call("read", &json!({"path": "a"}), "x", false, 0, 1);
+    call["via"] = json!("mcp");
+    work.log(&call);
+    let logged = steps(&db(&dir), "w", 0, 10).unwrap().unwrap();
+    let context = logged.context.expect("what the step read");
+    assert_eq!(context.n, 1);
+    assert_eq!(
+        (
+            context.usage.input,
+            context.usage.cached,
+            context.usage.output
+        ),
+        (15_068, 14_464, 370)
+    );
+    assert!(context.parts.is_empty());
+    assert_eq!((context.window, context.folds_at), (None, None));
+}
+
+#[test]
 fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let first = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();

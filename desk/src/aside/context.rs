@@ -282,8 +282,10 @@ fn role(
     Ok((Filled::new(usage.input, sizes, window, None), ago(at)))
 }
 
-/// What the worker's newest step was given.
-fn worker(context: &WorkContext) -> Option<(Filled, String)> {
+/// What the worker's newest step was given. A step that did not keep its
+/// window is measured against `window`, the one her brain has: all of it
+/// is an estimate, from what the provider counted and the sizes kept.
+fn worker(context: &WorkContext, window: Option<u64>) -> Option<(Filled, String)> {
     let usage = context.usage?;
     let sizes = ordered(&context.parts, &WORKER_ORDER, worker_part);
     let at = context
@@ -292,7 +294,12 @@ fn worker(context: &WorkContext) -> Option<(Filled, String)> {
         .and_then(|t| t.parse::<DateTime<Utc>>().ok());
     let when = format!("step {} · {}", context.n, ago(at));
     Some((
-        Filled::new(usage.input, sizes, context.window, context.folds_at),
+        Filled::new(
+            usage.input,
+            sizes,
+            context.window.or(window),
+            context.folds_at,
+        ),
         when,
     ))
 }
@@ -351,7 +358,10 @@ impl Desk {
             Err(why) => quiet_block(faces, "Role", why),
         });
         if let Some((work, _)) = context_work(&watched.journal, place) {
-            let shown = watched.following.work_context(&work).and_then(worker);
+            let shown = watched
+                .following
+                .work_context(&work)
+                .and_then(|c| worker(c, window));
             body = body.child(match shown {
                 Some((filled, when)) => block(faces, "worker", "Worker", &when, &filled),
                 None => quiet_block(faces, "Worker", "No step taken yet."),
@@ -537,6 +547,33 @@ mod tests {
 
     fn sized(parts: &[(&str, u64)]) -> Vec<(Part, u64)> {
         parts.iter().map(|(k, n)| (worker_part(k), *n)).collect()
+    }
+
+    #[test]
+    fn a_step_that_kept_no_window_is_measured_against_her_brains_window() {
+        let step = WorkContext {
+            n: 6,
+            at: None,
+            usage: serde_json::from_value(
+                serde_json::json!({"input": 15_068, "cached": 14_464, "output": 370}),
+            )
+            .ok(),
+            parts: std::collections::BTreeMap::new(),
+            window: None,
+            folds_at: None,
+        };
+        let (filled, when) = worker(&step, Some(1_000_000)).expect("what it read");
+        assert_eq!((filled.used, filled.window), (15_068, Some(1_000_000)));
+        assert!(filled.parts.is_empty());
+        assert!(when.starts_with("step 6"));
+        let kept = WorkContext {
+            window: Some(128_000),
+            ..step
+        };
+        assert_eq!(
+            worker(&kept, Some(1_000_000)).unwrap().0.window,
+            Some(128_000)
+        );
     }
 
     #[test]
