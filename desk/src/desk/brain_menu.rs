@@ -4,15 +4,18 @@
 //! the one looked at on the right; a model is chosen in one click, brain
 //! and all.
 //!
-//! Whether a brain can run here is asked when it is chosen, not shown in
-//! advance: it is asked to think once, as little as there is, the way the
-//! daemon would ask it (a CLI that answers for its version may still be
-//! signed out). If it cannot, the desk says why and goes on with the brain
-//! it had.
+//! The brains are the core's: which there are, which models an API offers
+//! and whether one can think are asked of it (`link::brains`), and a brain
+//! chosen is chosen by it. Whether a brain can run is asked when it is
+//! chosen, not shown in advance: the core asks it to think once, as little
+//! as there is, the way her mind would (a CLI that answers for its version
+//! may still be signed out), and only then has her think with it, starting
+//! her mind again on it. If it cannot, the desk says why and goes on with
+//! the brain it had.
 
 use std::{
     collections::{HashMap, HashSet},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use gpui::{
@@ -20,13 +23,16 @@ use gpui::{
     prelude::*, px,
 };
 
+use ghost_link::protocol::{BrainAsk, BrainList};
+use tracing::debug;
+
 use super::{Desk, composer::Notice};
 use crate::{
-    brains::{self, Endpoint, Wire},
+    brains,
     fonts::Faces,
-    link,
+    link::{self, BrainAnswer, BrainCall, Refused},
     models::{self, Choice},
-    solver::{self, Provider},
+    solver::Provider,
     theme, ui,
 };
 
@@ -98,8 +104,9 @@ impl Desk {
         self.menu_at = at;
         self.menu_focus.focus(window);
         if self.menu == Menu::Brains {
-            self.providers = self.deployment.providers();
-            self.brain = self.deployment.brain();
+            // What the desk holds shows at once; the core's answer, when
+            // it comes, takes its place.
+            self.refresh_brains(1, cx);
             let look = self
                 .brain
                 .clone()
@@ -264,45 +271,94 @@ impl Desk {
             self.picker.refreshed.insert(name.to_owned());
             return;
         }
-        let (network, end) = match self.endpoint(&p, &p.model) {
-            Ok(found) => found,
-            Err(why) => {
-                if !self.has_listed(name) {
-                    self.picker
-                        .models
-                        .insert(name.to_owned(), Models::Unlisted(why));
-                }
-                return;
-            }
-        };
+        // The core asks the API, with the key it holds.
         self.picker.refreshed.insert(name.to_owned());
         if !self.has_listed(name) {
             self.picker.models.insert(name.to_owned(), Models::Asking);
         }
-        let task = link::runtime().spawn(async move { brains::models(&network, &end).await });
+        let ask = BrainAsk {
+            name: Some(name.to_owned()),
+            ..BrainAsk::default()
+        };
         let name = name.to_owned();
-        cx.spawn(async move |this, cx| {
-            let answer = task.await;
-            let _ = this.update(cx, |this, cx| {
-                let models = match answer {
-                    Ok(Ok(ids)) if !ids.is_empty() => {
-                        models::remember(&key, &ids);
-                        Some(Models::Listed(models::of_api(&p.model, ids)))
-                    }
-                    Ok(Ok(_)) => Some(Models::Unlisted("it lists no models".to_owned())),
-                    Ok(Err(why)) => Some(Models::Unlisted(why.line())),
-                    Err(e) => Some(Models::Unlisted(e.to_string())),
-                };
-                // A listing that failed does not take a kept one's place.
-                if let Some(models) = models
-                    && (matches!(models, Models::Listed(_)) || !this.has_listed(&name))
-                {
-                    this.picker.models.insert(name, models);
+        self.ask_brains(BrainCall::Models(ask), cx, move |this, answer, _| {
+            let models = match answer {
+                Ok(BrainAnswer::Models(ids)) if !ids.is_empty() => {
+                    models::remember(&key, &ids);
+                    Models::Listed(models::of_api(&p.model, ids))
                 }
+                Ok(_) => Models::Unlisted("it lists no models".to_owned()),
+                Err(refused) => Models::Unlisted(refused.why),
+            };
+            // A listing that failed does not take a kept one's place.
+            if matches!(models, Models::Listed(_)) || !this.has_listed(&name) {
+                this.picker.models.insert(name, models);
+            }
+        });
+    }
+
+    /// Where the core on this machine listens, and its token.
+    pub(crate) fn core_address(&self) -> (String, Option<String>) {
+        (self.settings.solver_url.clone(), super::token())
+    }
+
+    /// Ask the core on this machine `call` about its brains, on a
+    /// connection of its own, and hand what it answered to `done`.
+    pub(crate) fn ask_brains(
+        &mut self,
+        call: BrainCall,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, Result<BrainAnswer, Refused>, &mut Context<Self>) + 'static,
+    ) {
+        let (url, token) = self.core_address();
+        let task = link::runtime().spawn(link::brains(url, token, call));
+        cx.spawn(async move |this, cx| {
+            let answer = task.await.unwrap_or_else(|e| {
+                Err(Refused {
+                    code: None,
+                    why: e.to_string(),
+                })
+            });
+            let _ = this.update(cx, |this, cx| {
+                done(this, answer, cx);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Ask the core which brains it has and which one she thinks with; if
+    /// it cannot be reached, as while it comes up, ask again every half
+    /// second, `tries` times in all.
+    pub(crate) fn refresh_brains(&mut self, tries: u32, cx: &mut Context<Self>) {
+        let first = self.providers.is_empty();
+        self.ask_brains(BrainCall::List, cx, move |this, answer, cx| match answer {
+            Ok(BrainAnswer::List(list)) => {
+                this.take_brains(list);
+                // The brains' models, so that the picker has them when
+                // opened.
+                if first {
+                    this.warm_models(cx);
+                }
+            }
+            Ok(_) => {}
+            Err(refused) if tries > 1 && refused.code.is_none() => {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(500))
+                        .await;
+                    let _ = this.update(cx, |this, cx| this.refresh_brains(tries - 1, cx));
+                })
+                .detach();
+            }
+            Err(refused) => debug!("the core did not say which brains it has: {}", refused.why),
+        });
+    }
+
+    /// Hold the brains as the core said they are.
+    pub(crate) fn take_brains(&mut self, list: BrainList) {
+        self.providers = list.brains.into_iter().map(Provider::from).collect();
+        self.brain = list.think;
     }
 
     /// Whether the picker already has a listing for the brain `name`.
@@ -310,38 +366,10 @@ impl Desk {
         matches!(self.picker.models.get(name), Some(Models::Listed(_)))
     }
 
-    /// How to reach the API `p` with `model`: the network the daemon would
-    /// use, and its address and key; or why it cannot be reached.
-    fn endpoint(
-        &self,
-        p: &Provider,
-        model: &str,
-    ) -> Result<(ghost_net::Network, Endpoint), String> {
-        let dotenv = self.deployment.dotenv();
-        let key = p
-            .key_env
-            .as_deref()
-            .and_then(|var| brains::key_value(var, &solver::env, dotenv.as_deref()));
-        if let (Some(var), None) = (&p.key_env, &key) {
-            return Err(format!("{var} is not set"));
-        }
-        let network = self.deployment.network()?;
-        let end = Endpoint {
-            wire: Wire::of(&p.kind),
-            base_url: p
-                .base_url
-                .clone()
-                .or_else(|| p.preset().map(|x| x.base_url.to_owned()))
-                .unwrap_or_default(),
-            key,
-            model: model.to_owned(),
-        };
-        Ok((network, end))
-    }
-
     /// Think with `model` on the brain `name` from now on, once it is clear
-    /// this machine can run it: it answers one small request, within a
-    /// minute. If it cannot, say why, and keep the brain there was.
+    /// the core can run it: the core has it answer one small request, and
+    /// only then starts her mind again on it. If it cannot, say why, and
+    /// keep the brain there was.
     pub(crate) fn use_model(&mut self, name: &str, model: &str, cx: &mut Context<Self>) {
         self.menu = Menu::Closed;
         let Some(p) = self.providers.iter().find(|p| p.name == name).cloned() else {
@@ -353,84 +381,58 @@ impl Desk {
         }
         self.picker.checking = Some(name.to_owned());
         self.notice = Some(Notice::said(format!("Checking {}…", p.title())));
-        // One real, small request, as the daemon would make it: a CLI that
-        // answers for its version may still be signed out.
-        let blocker = p.blocker.clone();
-        let api = match &p.program {
-            Some(_) => None,
-            None => Some(self.endpoint(&p, model)),
-        };
-        let (kind, program, asked) = (p.kind.clone(), p.program.clone(), model.to_owned());
-        let task = link::runtime().spawn(async move {
-            if let Some(why) = blocker {
-                return Err(why);
-            }
-            match (program, api) {
-                (Some(program), _) => brains::cli_probe(&kind, &program, &asked).await,
-                (None, Some(Ok((network, end)))) => {
-                    let deadline = std::time::Duration::from_secs(60);
-                    match tokio::time::timeout(deadline, brains::probe(&network, &end)).await {
-                        Ok(probed) => probed.map(drop),
-                        Err(_) => Err("it did not answer in 60s".to_owned()),
-                    }
-                }
-                (None, Some(Err(why))) => Err(why),
-                (None, None) => Ok(()),
-            }
-        });
-        let (name, model) = (name.to_owned(), model.to_owned());
-        cx.spawn(async move |this, cx| {
-            let answer = task.await.unwrap_or_else(|e| Err(e.to_string()));
-            let _ = this.update(cx, |this, cx| {
-                this.picker.checking = None;
-                match answer {
-                    Ok(()) => this.switch(&p, &name, &model, cx),
-                    Err(why) => {
-                        let still = this
-                            .current_provider()
-                            .map_or_else(|| "no brain".to_owned(), Provider::label);
-                        // A CLI that is signed out says how to sign it in,
-                        // which stands on its own; any other reason is cut
-                        // to its gist. Either way the whole of what was
-                        // said is kept under Details.
-                        let title = p.title();
-                        let told = match &p.program {
-                            Some(_) => brains::cli_failure(&p.kind, &why),
-                            None => why.clone(),
-                        };
-                        let line = if told.starts_with(&title) {
-                            told
-                        } else {
-                            format!("{title} can't think here: {}", brains::gist(&told))
-                        };
-                        this.notice = Some(
-                            Notice::trouble(format!("{line}. Still thinking with {still}."))
-                                .with_detail(why),
-                        );
-                        cx.notify();
-                    }
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// Write the choice into the deployment and start the solver again.
-    fn switch(&mut self, p: &Provider, name: &str, model: &str, cx: &mut Context<Self>) {
-        let written = if p.model == model {
-            Ok(())
-        } else {
-            self.deployment.set_model(name, model)
-        }
-        .and_then(|()| self.deployment.choose(name));
-        if let Err(e) = written {
-            self.notice = Some(Notice::trouble(format!("{e:#}")));
+        if let Some(why) = p.blocker.clone() {
+            self.picker.checking = None;
+            self.cannot_think(&p, &why);
             cx.notify();
             return;
         }
-        self.brain = Some(name.to_owned());
-        self.providers = self.deployment.providers();
-        self.restart(cx);
+        let call = BrainCall::Use {
+            name: name.to_owned(),
+            model: Some(model.to_owned()),
+        };
+        self.ask_brains(call, cx, move |this, answer, _| {
+            this.picker.checking = None;
+            match answer {
+                Ok(BrainAnswer::List(list)) => {
+                    this.take_brains(list);
+                    let now = this
+                        .current_provider()
+                        .map_or_else(|| p.label(), Provider::label);
+                    this.notice = Some(Notice::said(format!(
+                        "{} thinks with {now} now.",
+                        this.solver.name()
+                    )));
+                }
+                Ok(_) => {}
+                Err(refused) => this.cannot_think(&p, &refused.why),
+            }
+        });
+        cx.notify();
+    }
+
+    /// Say that the brain `p` cannot think, and why, and what she still
+    /// thinks with. A CLI that is signed out says how to sign it in, which
+    /// stands on its own; any other reason is cut to its gist. Either way
+    /// the whole of what was said is kept under Details.
+    fn cannot_think(&mut self, p: &Provider, why: &str) {
+        let still = self
+            .current_provider()
+            .map_or_else(|| "no brain".to_owned(), Provider::label);
+        let title = p.title();
+        let told = match &p.program {
+            Some(_) => brains::cli_failure(&p.kind, why),
+            None => why.to_owned(),
+        };
+        let line = if told.starts_with(&title) {
+            told
+        } else {
+            format!("{title} can't think here: {}", brains::gist(&told))
+        };
+        self.notice = Some(
+            Notice::trouble(format!("{line}. Still thinking with {still}."))
+                .with_detail(why.to_owned()),
+        );
     }
 
     /// How the brain in use is named on the composer's chip: the brain and

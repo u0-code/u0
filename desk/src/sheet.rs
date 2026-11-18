@@ -3,24 +3,26 @@
 //! Adding goes in two steps. First a preset, from a grid of the providers
 //! the desk knows (`brains::PRESETS`); then its few fields: the model,
 //! offered from the provider's own list once its key is there; the
-//! variable the key is in, with whether it is set; and, folded away, the
-//! base URL and the name it is saved under. Test makes one real request.
+//! variable the key is in, with whether the core has it; and, folded away,
+//! the base URL and the name it is saved under. Test asks it to think once.
 //! Editing a brain opens the sheet at its fields, with a way to remove it.
-//! Everything shown is checked for real; the key itself is never shown or
-//! written.
+//! Everything shown is the core's answer: it holds the keys, asks the
+//! provider and writes the brain into its own configuration (`link::brains`).
+//! The key itself is never shown, and never read by the desk.
 
+use ghost_link::protocol::{BrainAsk, BrainSave, code};
 use gpui::{
     AnyElement, Context, Div, Entity, FocusHandle, Focusable as _, FontWeight, Hsla, SharedString,
     Stateful, Window, actions, deferred, div, prelude::*, px,
 };
 
 use crate::{
-    brains::{self, Draft, Endpoint, KeyStatus, Mark, PRESETS, Preset, Probed, Wire},
+    brains::{self, Draft, Mark, PRESETS, Preset, Wire},
     desk::Desk,
     fonts::Faces,
     input::{Cancelled, Changed, Submitted, TextInput},
-    link,
-    solver::{self, Provider},
+    link::{BrainAnswer, BrainCall, Refused},
+    solver::Provider,
     theme, ui,
 };
 
@@ -44,9 +46,36 @@ pub(crate) enum Probe {
     Idle,
     Running,
     Passed(String),
-    /// It went through, with something to look at.
-    Warned(String),
     Failed(String),
+}
+
+/// Whether the core has a key in the variable the fields name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KeyStatus {
+    /// Not known yet: the core is being asked.
+    Unknown,
+    Found,
+    NotSet,
+}
+
+impl KeyStatus {
+    /// What asking the core for a brain's models says of its key: a key
+    /// that is not set is refused before anything is sent; anything the
+    /// provider answers, even a refusal, means one was there to send.
+    pub(crate) fn from_models(answer: &Result<BrainAnswer, Refused>) -> Self {
+        match answer {
+            Ok(_) => Self::Found,
+            Err(Refused {
+                code: Some(code::NO_KEY),
+                ..
+            }) => Self::NotSet,
+            Err(Refused {
+                code: Some(code::BRAIN_FAILED),
+                ..
+            }) => Self::Found,
+            Err(_) => Self::Unknown,
+        }
+    }
 }
 
 // The few plain states of a small form read better as fields than folded
@@ -95,9 +124,10 @@ impl Sheet {
         cx.subscribe(&key, |this, _, _: &Changed, cx| this.refresh_key(cx))
             .detach();
         cx.subscribe(&base, |this, _, _: &Changed, cx| {
+            this.sheet.generation += 1;
             this.sheet.models = Models::Unasked;
             this.sheet.listing = false;
-            this.refresh_key(cx);
+            cx.notify();
         })
         .detach();
         Self {
@@ -109,7 +139,7 @@ impl Sheet {
             base,
             name,
             advanced: false,
-            key_status: KeyStatus::NotSet,
+            key_status: KeyStatus::Unknown,
             models: Models::Unasked,
             listing: false,
             probe: Probe::Idle,
@@ -137,7 +167,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.providers = self.deployment.providers();
+        self.refresh_brains(1, cx);
         self.sheet.reset();
         self.sheet.open = true;
         self.sheet.preset = None;
@@ -250,12 +280,10 @@ impl Desk {
                 cx,
             );
         });
-        self.refresh_key(cx);
         self.sheet.model.focus_handle(cx).focus(window);
-        // The list is asked for at once where it can be had.
-        if !preset.cli() && (preset.keyless() || self.sheet.key_status.found()) {
-            self.fetch_models(cx);
-        }
+        // What the core said of a brain saved is known at once; anything
+        // else is asked, with its model list, which says it too.
+        self.refresh_key(cx);
         cx.notify();
     }
 
@@ -282,59 +310,94 @@ impl Desk {
         }
     }
 
-    /// Look again for the key: in the environment, then the core's `.env`.
+    /// Learn again whether the core has the key the fields name: from what
+    /// it said of the brain being edited, if the variable is the one it
+    /// reads; otherwise by asking it for the models, which it answers only
+    /// with a key.
     fn refresh_key(&mut self, cx: &mut Context<Self>) {
+        let Some(preset) = self.sheet.preset else {
+            return;
+        };
         let var = self.key_var(cx);
-        let dotenv = self.deployment.dotenv();
-        self.sheet.key_status = brains::key_status(&var, &solver::env, dotenv.as_deref());
+        let saved = self
+            .sheet
+            .editing
+            .as_deref()
+            .and_then(|name| self.providers.iter().find(|p| p.name == name))
+            .filter(|p| p.key_env.as_deref() == Some(var.as_str()));
+        self.sheet.key_status = match saved {
+            Some(p) if p.key_set => KeyStatus::Found,
+            Some(_) => KeyStatus::NotSet,
+            None => KeyStatus::Unknown,
+        };
+        if !preset.cli() {
+            self.fetch_models(cx);
+        }
         cx.notify();
     }
 
-    /// Where the fields say the brain is, with its key, for a request.
-    fn sheet_endpoint(&self, cx: &Context<Self>) -> Option<Endpoint> {
+    /// The brain as the fields describe it, for the core: what a new one
+    /// would be written with, or, for one being edited, the fields laid
+    /// over what is saved.
+    fn sheet_ask(&self, model: Option<String>, cx: &Context<Self>) -> Option<BrainAsk> {
         let preset = self.sheet.preset?;
-        let dotenv = self.deployment.dotenv();
-        let key = if preset.keyless() {
-            Some(brains::NO_KEY.to_owned())
-        } else {
-            brains::key_value(&self.key_var(cx), &solver::env, dotenv.as_deref())
-        };
-        Some(Endpoint {
-            wire: preset.wire(),
-            base_url: self.sheet.base.read(cx).text(),
-            key,
+        let draft = Draft {
             model: self.sheet.model.read(cx).text(),
+            key_env: self.sheet.key.read(cx).text(),
+            base_url: self.sheet.base.read(cx).text(),
+        };
+        Some(BrainAsk {
+            name: self.sheet.editing.clone(),
+            provider: Some(
+                preset
+                    .fields(&draft)
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v))
+                    .collect(),
+            ),
+            model,
         })
     }
 
-    /// Why a request cannot be made from what the fields say, if it cannot.
-    fn cannot_ask(&self, end: &Endpoint, cx: &Context<Self>) -> Option<String> {
-        if end.base_url.is_empty() {
-            Some("no base URL".to_owned())
-        } else if end.key.is_none() {
-            Some(format!("{} is not set", self.key_var(cx)))
-        } else {
-            None
-        }
-    }
-
-    /// Run `work` on the desk's runtime and hand its answer to `done`,
+    /// Ask the core `call` for the sheet, and hand its answer to `done`,
     /// unless the sheet has moved on in the meantime.
-    fn on_answer<T: Send + 'static>(
+    fn sheet_call(
         &mut self,
-        work: impl Future<Output = T> + Send + 'static,
+        call: BrainCall,
         cx: &mut Context<Self>,
-        done: impl FnOnce(&mut Self, T) + 'static,
+        done: impl FnOnce(&mut Self, Result<BrainAnswer, Refused>) + 'static,
     ) {
         let generation = self.sheet.generation;
-        let task = link::runtime().spawn(work);
-        cx.spawn(async move |this, cx| {
-            let Ok(answer) = task.await else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
+        self.ask_brains(call, cx, move |this, answer, _| {
+            if this.sheet.open && this.sheet.generation == generation {
+                done(this, answer);
+            }
+        });
+    }
+
+    /// The same, for an answer that closes the sheet, which needs the
+    /// window to give the keyboard back.
+    fn sheet_call_in(
+        &mut self,
+        call: BrainCall,
+        window: &Window,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, Result<BrainAnswer, Refused>, &mut Window, &mut Context<Self>)
+        + 'static,
+    ) {
+        let generation = self.sheet.generation;
+        let (url, token) = self.core_address();
+        let task = crate::link::runtime().spawn(crate::link::brains(url, token, call));
+        cx.spawn_in(window, async move |this, cx| {
+            let answer = task.await.unwrap_or_else(|e| {
+                Err(Refused {
+                    code: None,
+                    why: e.to_string(),
+                })
+            });
+            let _ = this.update_in(cx, |this, window, cx| {
                 if this.sheet.open && this.sheet.generation == generation {
-                    done(this, answer);
+                    done(this, answer, window, cx);
                     cx.notify();
                 }
             });
@@ -342,34 +405,25 @@ impl Desk {
         .detach();
     }
 
-    /// Ask the provider for its models.
+    /// Ask the core for the provider's models, which says too whether it
+    /// has the key.
     fn fetch_models(&mut self, cx: &mut Context<Self>) {
-        let Some(end) = self.sheet_endpoint(cx) else {
+        let Some(ask) = self.sheet_ask(None, cx) else {
             return;
         };
-        if let Some(why) = self.cannot_ask(&end, cx) {
-            self.sheet.models = Models::Failed(why);
-            return;
-        }
-        let network = match self.deployment.network() {
-            Ok(n) => n,
-            Err(why) => {
-                self.sheet.models = Models::Failed(why);
-                return;
-            }
-        };
+        self.sheet.generation += 1;
         self.sheet.models = Models::Asking;
-        self.on_answer(
-            async move { brains::models(&network, &end).await },
-            cx,
-            |this, answer| {
-                this.sheet.models = match answer {
-                    Ok(ids) if ids.is_empty() => Models::Failed("no models listed".to_owned()),
-                    Ok(ids) => Models::Listed(ids),
-                    Err(why) => Models::Failed(why.line()),
-                };
-            },
-        );
+        self.sheet_call(BrainCall::Models(ask), cx, |this, answer| {
+            let keyed = this.sheet.preset.is_some_and(|p| p.key_env.is_some());
+            if keyed {
+                this.sheet.key_status = KeyStatus::from_models(&answer);
+            }
+            this.sheet.models = match answer {
+                Ok(BrainAnswer::Models(ids)) if !ids.is_empty() => Models::Listed(ids),
+                Ok(_) => Models::Failed("no models listed".to_owned()),
+                Err(refused) => Models::Failed(refused.why),
+            };
+        });
     }
 
     /// Unfold the model list, asking for it first if it is not there.
@@ -381,76 +435,34 @@ impl Desk {
         cx.notify();
     }
 
-    /// One real request: a CLI's version, or the API's model list, or a
-    /// one-token answer where it lists none.
+    /// One real request, made by the core: the brain the fields describe
+    /// is asked to think once, as her mind would ask it.
     fn test_brain(&mut self, cx: &mut Context<Self>) {
         let Some(preset) = self.sheet.preset else {
             return;
         };
+        let model = self.sheet.model.read(cx).text();
+        let Some(ask) = self.sheet_ask(Some(model), cx) else {
+            return;
+        };
         self.sheet.generation += 1;
         self.sheet.refused = None;
-        if let Some(program) = preset.program {
-            self.sheet.probe = Probe::Running;
-            self.on_answer(
-                async move {
-                    tokio::task::spawn_blocking(move || brains::cli_version(program))
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                },
-                cx,
-                |this, answer| {
-                    this.sheet.probe = match answer {
-                        Ok(version) => Probe::Passed(format!("ok · {version}")),
-                        Err(why) => Probe::Failed(why),
-                    };
-                },
-            );
-            cx.notify();
-            return;
-        }
-        let Some(end) = self.sheet_endpoint(cx) else {
-            return;
-        };
-        if let Some(why) = self.cannot_ask(&end, cx) {
-            self.sheet.probe = Probe::Failed(why);
-            cx.notify();
-            return;
-        }
-        let network = match self.deployment.network() {
-            Ok(n) => n,
-            Err(why) => {
-                self.sheet.probe = Probe::Failed(why);
-                cx.notify();
-                return;
-            }
-        };
         self.sheet.probe = Probe::Running;
-        let model = end.model.clone();
-        self.on_answer(
-            async move { brains::probe(&network, &end).await },
-            cx,
-            move |this, answer| {
-                this.sheet.probe = match answer {
-                    Ok(Probed::Listed(ids)) => {
-                        let probe = if model.is_empty() || ids.contains(&model) {
-                            Probe::Passed(format!("ok · {} models", ids.len()))
-                        } else {
-                            Probe::Warned(format!("key works · {model} is not listed"))
-                        };
-                        if !ids.is_empty() {
-                            this.sheet.models = Models::Listed(ids);
-                        }
-                        probe
-                    }
-                    Ok(Probed::Answered) => Probe::Passed("ok · it answered".to_owned()),
-                    Err(why) => Probe::Failed(why),
-                };
-            },
-        );
+        self.sheet_call(BrainCall::Check(ask), cx, move |this, answer| {
+            this.sheet.probe = match answer {
+                Ok(_) => Probe::Passed("ok · it answered".to_owned()),
+                Err(refused) if preset.cli() => {
+                    Probe::Failed(brains::cli_failure(preset.kind, &refused.why))
+                }
+                Err(refused) => Probe::Failed(refused.why),
+            };
+        });
         cx.notify();
     }
 
-    /// Write the brain into the deployment, and think with it if `use_it`.
+    /// Have the core write the brain into its configuration, and think with
+    /// it if `use_it`. A change to the brain in use the core takes up by
+    /// itself.
     fn save_brain(&mut self, use_it: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(preset) = self.sheet.preset else {
             return;
@@ -476,64 +488,49 @@ impl Desk {
             cx.notify();
             return;
         }
-        let editing = self.sheet.editing.clone();
-        let (set, clear): (Vec<_>, Vec<_>) = if editing.is_some() {
-            // An edit touches only the fields the sheet shows.
-            let fields: Vec<(&str, &str)> = draft
-                .managed()
-                .into_iter()
-                .filter(|(k, _)| preset.uses(k))
-                .collect();
-            (
-                fields
-                    .iter()
-                    .filter(|(_, v)| !v.is_empty())
-                    .map(|(k, v)| (*k, toml_edit::Value::from(*v)))
-                    .collect(),
-                fields
-                    .iter()
-                    .filter(|(_, v)| v.is_empty())
-                    .map(|(k, _)| *k)
-                    .collect(),
-            )
-        } else {
-            (preset.fields(&draft), Vec::new())
-        };
-        if let Err(e) = self
-            .deployment
-            .save_provider(editing.as_deref(), &name, &set, &clear)
-        {
-            self.sheet.refused = Some(format!("{e:#}"));
-            cx.notify();
-            return;
-        }
-        let was = self.sheet.editing.clone();
-        self.providers = self.deployment.providers();
-        self.brain = self.deployment.brain();
-        self.close_sheet(window, cx);
-        if use_it {
-            self.use_brain(&name, cx);
-        } else if was.is_some() && self.brain.as_deref() == Some(name.as_str()) {
-            // The brain in use changed under the daemon.
-            self.restart(cx);
-        }
+        let save = save_of(preset, self.sheet.editing.clone(), &name, &draft);
+        self.sheet.generation += 1;
+        self.sheet.refused = None;
+        self.sheet_call_in(
+            BrainCall::Save(save),
+            window,
+            cx,
+            move |this, answer, window, cx| match answer {
+                Ok(BrainAnswer::List(list)) => {
+                    this.take_brains(list);
+                    this.close_sheet(window, cx);
+                    if use_it {
+                        this.use_brain(&name, cx);
+                    }
+                }
+                Ok(_) => {}
+                Err(refused) => this.sheet.refused = Some(refused.why),
+            },
+        );
+        cx.notify();
     }
 
-    /// Take the brain being edited out of the deployment.
+    /// Have the core take the brain being edited out.
     fn remove_brain(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(name) = self.sheet.editing.clone() else {
             return;
         };
-        match self.deployment.remove_provider(&name) {
-            Ok(()) => {
-                self.providers = self.deployment.providers();
-                self.close_sheet(window, cx);
-            }
-            Err(e) => {
-                self.sheet.refused = Some(format!("{e:#}"));
-                cx.notify();
-            }
-        }
+        self.sheet.generation += 1;
+        self.sheet.refused = None;
+        self.sheet_call_in(
+            BrainCall::Remove(name),
+            window,
+            cx,
+            |this, answer, window, cx| match answer {
+                Ok(BrainAnswer::List(list)) => {
+                    this.take_brains(list);
+                    this.close_sheet(window, cx);
+                }
+                Ok(_) => {}
+                Err(refused) => this.sheet.refused = Some(refused.why),
+            },
+        );
+        cx.notify();
     }
 
     /// The sheet over a dimmed window, if it is open.
@@ -703,9 +700,13 @@ impl Desk {
         // The key's variable, and whether it holds a key here.
         if preset.key_env.is_some() {
             let (word, color, tip) = match self.sheet.key_status {
-                KeyStatus::Env => ("found", theme::green(), "in the environment"),
-                KeyStatus::DotEnv => ("found", theme::green(), "in the core's .env"),
-                KeyStatus::NotSet => ("not set", theme::accent(), "not in the environment or .env"),
+                KeyStatus::Found => ("found", theme::green(), "the core has it"),
+                KeyStatus::NotSet => (
+                    "not set",
+                    theme::accent(),
+                    "not in the core's environment or its .env",
+                ),
+                KeyStatus::Unknown => ("…", theme::muted(), "asking the core"),
             };
             let var = self.key_var(cx);
             body = body.child(field_row(
@@ -779,7 +780,6 @@ impl Desk {
             (Some(why), _) => Some((why.clone(), theme::coral())),
             (None, Probe::Running) => Some(("testing…".to_owned(), theme::muted())),
             (None, Probe::Passed(s)) => Some((s.clone(), theme::green())),
-            (None, Probe::Warned(s)) => Some((s.clone(), theme::accent())),
             (None, Probe::Failed(s)) => Some((s.clone(), theme::coral())),
             (None, Probe::Idle) => preset.key_env.is_some().then(|| {
                 (
@@ -964,4 +964,124 @@ fn button(faces: &Faces, id: &'static str, label: &'static str, primary: bool) -
         ui::Weight::Secondary
     };
     ui::button(faces, id, label, weight)
+}
+
+/// What saving a brain from `preset` with the fields `draft` asks the core
+/// to write: every field for a new one; for one saved as `editing`, only
+/// the fields the sheet shows, an emptied one taken out. No key is among
+/// them: the sheet names the variable, and the core holds the key.
+pub(crate) fn save_of(
+    preset: &Preset,
+    editing: Option<String>,
+    name: &str,
+    draft: &Draft,
+) -> BrainSave {
+    let (set, clear) = if editing.is_some() {
+        let shown: Vec<(&str, &str)> = draft
+            .managed()
+            .into_iter()
+            .filter(|(k, _)| preset.uses(k))
+            .collect();
+        (
+            shown
+                .iter()
+                .filter(|(_, v)| !v.is_empty())
+                .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+                .collect(),
+            shown
+                .iter()
+                .filter(|(_, v)| v.is_empty())
+                .map(|(k, _)| (*k).to_owned())
+                .collect(),
+        )
+    } else {
+        (
+            preset
+                .fields(draft)
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v))
+                .collect(),
+            Vec::new(),
+        )
+    };
+    BrainSave {
+        was: editing,
+        name: name.to_owned(),
+        set,
+        clear,
+        key: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn draft(preset: &Preset) -> Draft {
+        Draft {
+            model: preset.model.to_owned(),
+            key_env: preset.key_env.unwrap_or_default().to_owned(),
+            base_url: preset.base_url.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_new_brain_asks_the_core_for_its_whole_table_and_an_edit_for_what_the_sheet_shows() {
+        let deepseek = Preset::by_id("deepseek").unwrap();
+        let new = save_of(deepseek, None, "deepseek", &draft(deepseek));
+        assert_eq!(new.was, None);
+        assert_eq!(
+            serde_json::Value::Object(new.set.clone()),
+            serde_json::json!({
+                "kind": "openai", "model": "deepseek-flash",
+                "base_url": "https://api.deepseek.com", "api_key_env": "DEEPSEEK_API_KEY",
+                "json_mode": true
+            })
+        );
+        assert!(new.clear.is_empty() && new.key.is_none());
+
+        let mut changed = draft(deepseek);
+        changed.model = "deepseek-v4-pro".into();
+        changed.base_url = String::new();
+        let edit = save_of(deepseek, Some("main".into()), "main", &changed);
+        assert_eq!(edit.was.as_deref(), Some("main"));
+        assert_eq!(
+            serde_json::Value::Object(edit.set),
+            serde_json::json!({"model": "deepseek-v4-pro", "api_key_env": "DEEPSEEK_API_KEY"}),
+            "what the preset always adds is not written again"
+        );
+        assert_eq!(edit.clear, ["base_url"], "an emptied field is taken out");
+        // A CLI has no address or key to clear.
+        let codex = Preset::by_id("codex").unwrap();
+        let edit = save_of(codex, Some("codex".into()), "codex", &draft(codex));
+        assert_eq!(edit.clear, ["model"], "its own default");
+    }
+
+    #[test]
+    fn what_the_core_answers_for_the_models_says_whether_it_has_the_key() {
+        let refused = |code| {
+            Err(Refused {
+                code,
+                why: "…".into(),
+            })
+        };
+        assert_eq!(
+            KeyStatus::from_models(&Ok(BrainAnswer::Models(vec!["m".into()]))),
+            KeyStatus::Found
+        );
+        assert_eq!(
+            KeyStatus::from_models(&refused(Some(code::NO_KEY))),
+            KeyStatus::NotSet
+        );
+        assert_eq!(
+            KeyStatus::from_models(&refused(Some(code::BRAIN_FAILED))),
+            KeyStatus::Found,
+            "the provider refused it, so there was one to send"
+        );
+        assert_eq!(
+            KeyStatus::from_models(&refused(None)),
+            KeyStatus::Unknown,
+            "the core could not be reached"
+        );
+    }
 }

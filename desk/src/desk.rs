@@ -150,7 +150,8 @@ pub struct Desk {
     /// Whether the deployment has been looked after as the desk opened:
     /// started if it was to be, and its brains and abilities read.
     core_ready: bool,
-    /// The brains the deployment names, and which one it thinks with.
+    /// The brains the core has, as it last said, and which one it thinks
+    /// with.
     pub(crate) providers: Vec<Provider>,
     pub(crate) brain: Option<String>,
     /// What the deployment lets the solver do besides talk.
@@ -205,8 +206,6 @@ pub struct Desk {
 struct Core {
     deployment: Deployment,
     started: anyhow::Result<()>,
-    providers: Vec<Provider>,
-    brain: Option<String>,
     abilities: Abilities,
 }
 
@@ -216,7 +215,7 @@ const ASK: &str = "Ask Ghost for anything on this machine";
 
 /// The daemon's token, from the environment or `.env`: never from a file
 /// of the desk's own.
-fn token() -> Option<String> {
+pub(crate) fn token() -> Option<String> {
     std::env::var("GHOSTD_TOKEN").ok().filter(|t| !t.is_empty())
 }
 
@@ -302,8 +301,6 @@ impl Desk {
             };
             Core {
                 started,
-                providers: deployment.providers(),
-                brain: deployment.brain(),
                 abilities: deployment.abilities(),
                 deployment,
             }
@@ -422,12 +419,11 @@ impl Desk {
             self.notice = Some(Notice::trouble(format!("Could not start Ghost: {e:#}")));
         }
         self.deployment = core.deployment;
-        self.providers = core.providers;
-        self.brain = core.brain;
         self.abilities = core.abilities;
         self.core_ready = true;
-        // The brains' models, so that the picker has them when opened.
-        self.warm_models(cx);
+        // Its brains are asked of it once it listens, which a core just
+        // started does within a few seconds; their models after them.
+        self.refresh_brains(40, cx);
         cx.notify();
     }
 
