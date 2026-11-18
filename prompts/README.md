@@ -22,9 +22,10 @@ character/              how a character's own ghost.toml is turned into prose
 
 **System** is how Ghost works, and every character a deployment runs is
 told the same. The desk's Ghost, the mascot, is part of it: what the desktop app runs
-is a deployment like any other, kept with the desk in `desk/core/`, and
+is a deployment like any other, a `ghostd` with a home of its own, and
 `system/desk/` holds the two files it replaces, laid out as any
-deployment's directory is.
+deployment's directory is. `ghostd` builds them in, and gives them to the
+ghosts of a home in place of the built-in ones.
 
 **Character** is the arrangement and nothing else. Her name, temperament,
 voice, examples, story, values and past are in her `ghost.toml`, which is

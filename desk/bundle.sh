@@ -15,8 +15,9 @@
 # else with a code-signing certificate called "Ghost Dev" in your keychain
 # if there is one, else ad hoc. Signed with the same identity, a rebuilt app
 # is the same app to macOS and keeps what it was allowed, such as the
-# Desktop folder a checkout is in; signed ad hoc, every build is a new app,
-# and is asked again. desk/README.md says how to make the certificate.
+# Desktop folder a checkout is in, which is read once to take in a core
+# kept there; signed ad hoc, every build is a new app, and is asked again.
+# desk/README.md says how to make the certificate.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -56,7 +57,7 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key><string>${version}</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSDesktopFolderUsageDescription</key><string>Ghost runs its core from the checkout, which is in your Desktop folder.</string>
+    <key>NSDesktopFolderUsageDescription</key><string>Ghost takes in, once, the core an earlier version kept in a checkout in your Desktop folder.</string>
 </dict>
 </plist>
 EOF

@@ -4,15 +4,11 @@
 *.db-shm
 /ghosts/*
 !/ghosts/_template
-# The desk's core as you run it: the desk adds you as its operator and
-# records the brain you pick in its ghostd.toml, and the solver is born
-# beside its template. The example and the template are what is published.
-/desk/core/ghostd.toml
-/desk/core/ghostd.toml.moving
-/desk/core/ghosts/*
-!/desk/core/ghosts/_solver
-# Where the core was kept before it moved under the desk: a checkout that
-# ran the desk then may still have its configuration or its solver here.
+# Where the desk's core was kept before it had a home of its own: a
+# checkout that ran the desk then still has its configuration and its
+# solver here, which a home takes in once and leaves where they are.
+/desk/core/
+# And before that.
 /solver/ghostd.toml
 /derived
 .env

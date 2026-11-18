@@ -283,18 +283,18 @@ impl Desk {
         // operator by holding its daemon's token, or by being on this
         // machine when it has none, so nobody is listed for it.
         //
-        // That is done off the main thread, once the window is up. The
-        // core is in the checkout, and when the checkout is under the
-        // Desktop, the first read there waits for as long as macOS takes
-        // asking whether the app may: the window must not wait with it.
-        // Until it is done, the deployment the desk holds is one with
-        // nothing started and nothing read.
+        // That is done off the main thread, once the window is up: the
+        // core makes its home ready before it runs, which the first time
+        // means a birth, or taking in an old core from a checkout under
+        // the Desktop, which waits for as long as macOS takes asking
+        // whether the app may. The window must not wait with it. Until it
+        // is done, the deployment the desk holds is one with nothing
+        // started and nothing read.
         let deployment = Deployment::find();
-        let root = deployment.root.clone();
         let start = settings.solver_url == SOLVER_URL;
         let url = settings.solver_url.clone();
         let core = link::runtime().spawn_blocking(move || {
-            let mut deployment = Deployment::at(root);
+            let mut deployment = Deployment::find();
             let started = if start && !listening(&url) {
                 deployment.start()
             } else {

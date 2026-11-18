@@ -8,7 +8,7 @@
 //! speaks the `OpenAI`-compatible protocol, which is what `kind = "openai"`
 //! in `ghostd.toml` means. A key is never written anywhere: only the name
 //! of the variable that holds it, read from the environment or from the
-//! checkout's `.env` when it is needed, and never shown.
+//! core's `.env` when it is needed, and never shown.
 //!
 //! The requests go out through `ghost_net`, the way every HTTP request a
 //! Ghost program makes does, so the one proxy setting holds here too.
@@ -397,7 +397,7 @@ impl Mark {
 pub enum KeyStatus {
     /// In the desk's own environment.
     Env,
-    /// In the checkout's `.env`, which the daemon loads.
+    /// In the core's `.env`, which the daemon loads.
     DotEnv,
     NotSet,
 }
@@ -409,7 +409,7 @@ impl KeyStatus {
 }
 
 /// Where the key in `var` is: the environment `env` reads, else the
-/// checkout's `.env` as written. An empty value is no key.
+/// core's `.env` as written. An empty value is no key.
 pub fn key_status(
     var: &str,
     env: &dyn Fn(&str) -> Option<String>,
@@ -1045,7 +1045,7 @@ mod tests {
     }
 
     #[test]
-    fn a_key_is_found_in_the_environment_or_the_checkouts_env_file() {
+    fn a_key_is_found_in_the_environment_or_the_cores_env_file() {
         let env = |k: &str| (k == "SET_KEY").then(|| "sk-env".to_owned());
         let dotenv = "# keys\nDOTENV_KEY=sk-file\nEMPTY_KEY=\nQUOTED_KEY=\"sk q\"\n";
         assert_eq!(key_status("SET_KEY", &env, Some(dotenv)), KeyStatus::Env);
