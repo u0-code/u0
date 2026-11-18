@@ -9,13 +9,20 @@ agent's app is; in the middle, the session's thread and the line you type
 into, with the brain it thinks with under your hand; down the right, the
 solver's environment, its context and its work.
 
-Ghost the mascot (the solver, in the code) is run by its own daemon
-from the desk's core in `core/` (see [core/README.md](core/README.md)): the same
-runtime every character lives on, with prompts that replace a character's
-persona and being with its own. The desk looks after that deployment: it
-copies its configuration on first run, gives birth to Ghost if
-it has not been born, and starts and restarts its daemon. Otherwise the desk is a
-client like any other: a console that asks and watches, and through which
+Ghost the mascot (the solver, in the code) is run by the desk's own
+core: a `ghostd` that keeps everything in a home of its own,
+`~/Library/Application Support/Ghost` (or `GHOST_HOME`), and makes it
+ready by itself. It is the same runtime every character lives on, with
+the desk's prompts, built into `ghostd`, in place of a character's
+persona and being. The desk only names the home: it has `ghostd init`
+make it ready, then starts the core as
+
+```bash
+ghostd run --home ~/Library/Application\ Support/Ghost --listen 127.0.0.1:7438 --with-parent
+```
+
+and restarts it when asked. See [ghostd's README](../crates/ghostd/README.md#a-home)
+for what is in a home. Otherwise the desk is a client like any other: a console that asks and watches, and through which
 you speak to her, answer and stop her work, as one of the people who run
 her (`console.say`, `work.answer`, `work.stop`). Holding the daemon's
 token, or being on this machine when it has none, is what makes you her
@@ -54,11 +61,24 @@ app starts its core with that one. A `cargo run` of the desk has none
 beside it, and takes the checkout's `target/release/ghostd`, then
 `target/debug/ghostd`, then `ghostd` on PATH. `GHOSTD_BIN` names another.
 
+### A core kept in a checkout
+
+Before the core had a home, the desk kept it in the checkout: its
+configuration in `desk/core/ghostd.toml` (or `solver/ghostd.toml`), the
+solver born in `desk/core/ghosts/solver` (or `ghosts/solver`). The first
+time a home has no ghost, the desk passes the checkout it was built in
+(or `GHOST_ROOT`) to `ghostd init --adopt`, and the core takes that one
+in: her journal and her work copied whole through SQLite, the rest of her
+directory but `derived/`, which is rebuilt, the brains and operators of
+the old configuration, and the checkout's `.env` if the home has none.
+The checkout is left as it was. From then on the home has a ghost and
+the checkout is never read again: the desk runs without it.
+
 ### Signing it once, for good
 
-The core lives in the checkout, and a checkout under `~/Desktop` (or
-`~/Documents`) is in a folder macOS asks about before an app may read it.
-It remembers the answer for the app's signature. Signed ad hoc, as
+Taking in an old core reads the checkout once, and a checkout under
+`~/Desktop` (or `~/Documents`) is in a folder macOS asks about before an
+app may read it. It remembers the answer for the app's signature. Signed ad hoc, as
 `bundle.sh` does when it has nothing better, every build has a signature
 of its own, so every build is asked again. Signed with one certificate,
 every build is the same app and is asked once.
@@ -78,9 +98,16 @@ with another identity, set `GHOST_SIGN_IDENTITY` to its name or hash;
 `GHOST_SIGN_IDENTITY=-` signs ad hoc.
 
 The desk itself reads nothing from the checkout as it opens: its faces
-and icons are built into it, and the core is started off the main thread
-once the window is up, so that a question from macOS, while it waits,
-holds up the core and not the window.
+and icons are built into it, and the core is made ready and started off
+the main thread once the window is up, so that a birth, or a question
+from macOS while an old core is taken in, holds up the core and not the
+window.
+
+What the desk still reads in the core's home, rather than asking the
+core, is the brains and abilities in its `ghostd.toml` (which the brain
+picker also writes), the keys in its `.env`, and its ghost's media and
+machine directory. Those move behind the Ghost Protocol next, after which
+the desk reads none of the core's files.
 
 ## Other daemons
 
@@ -251,8 +278,8 @@ to start from; the model field offers the provider's own list once the key
 is there. Test makes one real request (the model list, or a one-token
 answer; a CLI's version), through the same proxy setting as the daemon.
 The pencil on a row of the picker opens that brain in the sheet, where it
-can also be removed. Only the name of the variable is written to
-`core/ghostd.toml`, never the key.
+can also be removed. Only the name of the variable is written to the
+core's `ghostd.toml`, never the key.
 
 ## The look
 

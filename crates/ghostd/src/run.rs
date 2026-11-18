@@ -22,11 +22,26 @@ use crate::{
     workshop::workshop,
 };
 
-pub(crate) async fn run(
-    paths: &[PathBuf],
-    config: Option<&Path>,
-    with_parent: bool,
-) -> anyhow::Result<()> {
+/// How the characters are run, besides which they are.
+pub(crate) struct How<'a> {
+    /// Path to ghostd.toml, if not where it is looked for.
+    pub config: Option<&'a Path>,
+    /// Live only as long as whoever started this.
+    pub with_parent: bool,
+    /// Where to listen, in place of what ghostd.toml says.
+    pub listen: Option<String>,
+    /// Prompts built in for them in place of the binary's own, by their
+    /// file in the tree: a home's are the desk's.
+    pub prompts: &'static [(&'static str, &'static str)],
+}
+
+pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
+    let How {
+        config,
+        with_parent,
+        listen,
+        prompts: over,
+    } = how;
     let loaded = if Config::exists(config) {
         Some(Config::load(config)?)
     } else {
@@ -39,7 +54,7 @@ pub(crate) async fn run(
             .map(|(cfg, _)| cfg.network.clone())
             .unwrap_or_default(),
     )?;
-    let (cfg, cfg_path) = if let Some(loaded) = loaded {
+    let (mut cfg, cfg_path) = if let Some(loaded) = loaded {
         loaded
     } else {
         // Nothing was written down for this machine. Use what is on it.
@@ -47,6 +62,9 @@ pub(crate) async fn run(
         info!("no ghostd.toml: {what}");
         (cfg, PathBuf::from("(none)"))
     };
+    if let Some(addr) = listen {
+        cfg.listen.addr = addr;
+    }
     let token = cfg.listen.token()?;
     info!("config {}", cfg_path.display());
     let found = cast::find(paths)?;
@@ -64,9 +82,16 @@ pub(crate) async fn run(
     if let Some(said) = deployment.as_deref().and_then(retired) {
         warn!("{said}");
     }
-    let prompts = Prompts::load(deployment.as_deref());
+    let prompts = Prompts::load_over(deployment.as_deref(), over);
+    if !over.is_empty() {
+        let files: Vec<&str> = over.iter().map(|(file, _)| *file).collect();
+        info!(
+            "built in for them in place of a character's: {}",
+            files.join(", ")
+        );
+    }
     say_overrides(&prompts);
-    say_stale(&prompts);
+    say_stale(&prompts, over);
 
     // Each is made in full before anyone is listened to: one that cannot
     // be started stops the daemon here, as a single ghost always has.
@@ -78,8 +103,16 @@ pub(crate) async fn run(
         let span = info_span!("ghost", id = %id);
         let hers = Arc::new(hers);
         let body = Arc::new(Presences::default());
-        let (life, card) =
-            span.in_scope(|| begin(&cfg, &hers, &dir, deployment.as_deref(), &body, &agents))?;
+        let (life, card) = span.in_scope(|| {
+            begin(
+                &cfg,
+                &hers,
+                &dir,
+                (deployment.as_deref(), over),
+                &body,
+                &agents,
+            )
+        })?;
         let make: Maker = {
             let (cfg, hers, dir, deployment, body, agents) = (
                 cfg.clone(),
@@ -90,8 +123,15 @@ pub(crate) async fn run(
                 agents.clone(),
             );
             Box::new(move || {
-                begin(&cfg, &hers, &dir, deployment.as_deref(), &body, &agents)
-                    .map(|(life, _)| life)
+                begin(
+                    &cfg,
+                    &hers,
+                    &dir,
+                    (deployment.as_deref(), over),
+                    &body,
+                    &agents,
+                )
+                .map(|(life, _)| life)
             })
         };
         let who = Arc::new(Character::new(id, dir, card, body, life.handle.clone()));
@@ -143,14 +183,16 @@ pub(crate) async fn run(
 }
 
 /// Open her directory and make her mind from it, living as `hers` says,
-/// with `body` as her body. Says what she runs on. Done once at start and
+/// with `body` as her body and her prompts from `prompts`: the
+/// deployment's directory, over what is built in for her over the
+/// binary's own. Says what she runs on. Done once at start and
 /// again each time her mind is started after it failed, so that all that
 /// carries over is what is on disk.
 fn begin(
     cfg: &Config,
     hers: &Hers,
     dir: &Path,
-    deployment: Option<&Path>,
+    (deployment, over): (Option<&Path>, &[(&str, &'static str)]),
     body: &Arc<Presences>,
     agents: &[(String, ghost_brain::CliAgent)],
 ) -> anyhow::Result<(Life, GhostCard)> {
@@ -214,7 +256,7 @@ fn begin(
         tick,
         body: body.clone(),
         senses,
-        prompts: prompts_for(dir, deployment),
+        prompts: prompts_for(dir, deployment, over),
         config: mind,
         workshop,
     });

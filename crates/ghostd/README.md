@@ -13,6 +13,8 @@ ghostd; you talk to her, wherever she lives.
 ```
 ghostd birth <dir>     write her birth and her persona into a new journal
 ghostd run <dir>...    live: each directory a ghost's, or one holding them
+ghostd init [<home>]   make a home ready: its configuration, the mascot born
+ghostd run --home      live on a home, made ready first
 ghostd status <dir>    who she is, what she is doing, what is     (reads the directory)
                        unread, and her open work
 ghostd journal <dir>   tail of her journal                        (reads the directory)
@@ -28,6 +30,47 @@ ghostd agenda          what she will do unasked, and when         (connects to a
 ```
 
 The commands that read the directory are safe while a daemon is running her.
+
+## A home
+
+A home is one directory that holds everything a machine's own core keeps,
+so that whatever starts it needs to know nothing but where it is. The
+desktop app runs its core this way.
+
+```
+<home>/
+  ghostd.toml       its configuration: written once, then yours
+  .env              its keys, if any (mode 600 when ghostd writes it)
+  ghosts/solver/    Ghost, the mascot; any other ghost put in ghosts/ runs too
+```
+
+`ghostd run --home <home>` makes the home ready, loads its `.env` under
+the environment, and runs every ghost in its `ghosts/` with its
+`ghostd.toml`; `--listen` puts it on another address. Without a directory
+it is `GHOST_HOME`, or the platform's place for an app's data:
+`~/Library/Application Support/Ghost` on macOS, `$XDG_DATA_HOME/ghost` (or
+`~/.local/share/ghost`) elsewhere. `ghostd init` makes it ready and stops.
+
+Ready means: a home with no `ghostd.toml` gets one (the files in
+[`home/`](home), built into the binary), and one in which no ghost has
+been born gets the mascot, born from `home/ghosts/solver/ghost.toml`.
+Nothing already there is changed. Every ghost of a home is given the
+desk's persona and being, from
+[`prompts/system/desk`](../../prompts/system/desk), built in as well,
+in place of a character's: they follow the binary, and `prompts` under
+`[mind]` lays a directory of your own over them, as in any deployment.
+Relative paths in a home's `ghostd.toml` are read from the home.
+
+`--adopt <checkout>` takes in the core a checkout kept before there were
+homes, once, when no ghost of the home has been born: the solver in
+`desk/core/ghosts/solver` or `ghosts/solver`, her `journal.db` and
+`work.db` copied through SQLite's backup, whole even while a daemon
+writes to them, and the rest of her directory but `derived/`, which is
+rebuilt from the journal; `[brain]`, `[providers]` and `[operators]` of
+`desk/core/ghostd.toml` or `solver/ghostd.toml`; and the checkout's
+`.env`, if the home has none. The copy is put together beside the home's
+`ghosts/` and checked, and only then moved in. Nothing in the checkout is
+changed, and a home that has a ghost never reads it.
 
 ## Several characters
 

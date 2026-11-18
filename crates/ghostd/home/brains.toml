@@ -1,0 +1,24 @@
+# The brains it can think with. The desk picks among these, and adds to
+# them, from the line you type into; a key is never written here, only the
+# variable it is read from.
+[brain]
+think = "main"
+tick = "main"
+
+[providers.main]
+kind = "openai"
+model = "deepseek-chat"
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"
+json_mode = true
+
+# The Claude Code CLI you are signed in to.
+[providers.claude-code]
+kind = "claude-code"
+model = "sonnet"
+timeout_secs = 120
+
+# The Codex CLI you are signed in to.
+[providers.codex]
+kind = "codex"
+timeout_secs = 120

@@ -1,10 +1,10 @@
-//! The solver's deployment, as the desk looks after it: the desk's own core
-//! in `desk/core/`, with its `ghostd.toml`, the ghost born from
-//! `desk/core/ghosts/_solver`, and the daemon that runs it. The desk can read which brains the
-//! deployment knows, pick one, and start or restart the daemon as a child
-//! of its own. It never edits a ghost's own files; the deployment's
-//! configuration is what a person would edit by hand, and it is edited the
-//! way a person would, keeping every comment.
+//! The solver's deployment, as the desk looks after it: the desk's own
+//! core, which keeps everything in a home of its own (`ghost_link::home()`)
+//! and makes it ready itself, and the daemon that runs it. The desk can
+//! read which brains the core knows, pick one, and start or restart the
+//! daemon as a child of its own. It never edits a ghost's own files; the
+//! core's configuration is what a person would edit by hand, and it is
+//! edited the way a person would, keeping every comment.
 
 use std::{
     ffi::OsString,
@@ -65,7 +65,7 @@ impl Provider {
     }
 
     /// Find out whether this machine can run it, for real: the key is in
-    /// `env` or the checkout's `.env`, the CLI is installed, or something
+    /// `env` or the core's `.env`, the CLI is installed, or something
     /// answers at the address of an API on this machine.
     fn check(mut self, env: &dyn Fn(&str) -> Option<String>, dotenv: Option<&str>) -> Self {
         self.blocker = if let Some(program) = &self.program {
@@ -154,26 +154,29 @@ impl Abilities {
     }
 }
 
-/// The published example of the core's configuration, under the checkout.
-const EXAMPLE: &str = "desk/core/ghostd.example.toml";
-/// The configuration as you run it, copied from the example; not published.
-const CONFIG: &str = "desk/core/ghostd.toml";
-/// What a copy is written to before it takes the configuration's name, so
-/// that a copy cut short is never read as the configuration.
-const CONFIG_PART: &str = "desk/core/ghostd.toml.moving";
-/// The template the solver is born from.
-const TEMPLATE: &str = "desk/core/ghosts/_solver";
-/// Where the solver is born; not published.
-const GHOST: &str = "desk/core/ghosts/solver";
-/// Where a checkout from before the core moved under the desk kept its
-/// configuration and its born solver.
-const OLD_CONFIG: &str = "solver/ghostd.toml";
-const OLD_GHOST: &str = "ghosts/solver";
+/// Where the desk's core listens, which is what [`crate::settings::SOLVER_URL`]
+/// reaches.
+const LISTEN: &str = "127.0.0.1:7438";
+/// The core's configuration, in its home.
+const CONFIG: &str = "ghostd.toml";
+/// The mascot, in its home.
+const GHOST: &str = "ghosts/solver";
 
-/// Where the deployment is, and the daemon if the desk started it.
+/// The desk's core, and the daemon if the desk started it.
+///
+/// The core keeps everything in a home of its own, which `ghostd` makes
+/// ready by itself: the desk only names it. What the desk still reads and
+/// writes there (the brains in its configuration, what it may do, the keys
+/// in its `.env`, the media and the machine directory of its ghost) are
+/// the next steps' to move behind the Ghost Protocol, after which the desk
+/// will read none of its files.
 pub struct Deployment {
-    /// The checkout: `desk/core/`, `prompts/` and `target/` are under it.
-    pub root: PathBuf,
+    /// The core's home: `ghost_link::home()`.
+    pub core: PathBuf,
+    /// The checkout the desk was built in, which it never reads but for a
+    /// `ghostd` built there and, once, an old core kept there to be taken
+    /// into the home.
+    checkout: PathBuf,
     child: Option<Child>,
     /// When the desk last started it, for saying "starting" rather than
     /// "down" while it comes up.
@@ -185,131 +188,40 @@ pub struct Deployment {
 const STARTUP: u64 = 20;
 
 impl Deployment {
-    /// Find the checkout: `GHOST_ROOT`, else the first directory upward
-    /// from the current one that has `desk/core/ghostd.example.toml`, else the
-    /// one this crate was built in. The last is worked out from the path
-    /// alone, without asking the file system: opened from the Finder, the
-    /// current directory is `/`, and a checkout under the Desktop could not
-    /// be looked at before macOS has asked whether it may.
+    /// The core in its home, and the checkout: `GHOST_ROOT`, else the one
+    /// this crate was built in. The checkout is worked out from the path
+    /// alone, without asking the file system: one under the Desktop could
+    /// not be looked at before macOS has asked whether it may.
     pub fn find() -> Self {
-        let root = std::env::var_os("GHOST_ROOT")
-            .map(PathBuf::from)
-            .filter(|p| p.join(EXAMPLE).is_file())
-            .or_else(|| {
-                let mut dir = std::env::current_dir().ok()?;
-                loop {
-                    if dir.join(EXAMPLE).is_file() {
-                        return Some(dir);
-                    }
-                    if !dir.pop() {
-                        return None;
-                    }
-                }
-            })
-            .unwrap_or_else(|| {
+        let checkout = std::env::var_os("GHOST_ROOT").map_or_else(
+            || {
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .parent()
                     .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-            });
-        Self::at(root)
+            },
+            PathBuf::from,
+        );
+        Self::at(ghost_link::home(), checkout)
     }
 
-    /// The deployment in the checkout at `root`, with nothing started.
-    pub fn at(root: PathBuf) -> Self {
+    /// The core at `core`, with nothing started.
+    pub fn at(core: PathBuf, checkout: PathBuf) -> Self {
         Self {
-            root,
+            core,
+            checkout,
             child: None,
             started_at: None,
         }
     }
 
-    /// The configuration the daemon runs with: `desk/core/ghostd.toml`,
-    /// copied from the published example the first time it is wanted. It
-    /// is not published itself, since it names you and your choices. One
-    /// an earlier checkout kept as `solver/ghostd.toml` is moved here
-    /// instead, so the brains you added and the one you chose are kept.
+    /// The configuration the daemon runs with, in its home.
     pub fn config(&self) -> PathBuf {
-        let path = self.root.join(CONFIG);
-        if path.is_file() {
-            return path;
-        }
-        let old = self.root.join(OLD_CONFIG);
-        if !old.is_file() {
-            if let Err(e) = self.copy_into_place(&self.root.join(EXAMPLE)) {
-                warn!("could not copy {EXAMPLE}: {e:#}");
-            }
-            return path;
-        }
-        if let Err(e) = self.copy_into_place(&old) {
-            warn!("could not move {OLD_CONFIG} to {CONFIG}: {e:#}");
-            return path;
-        }
-        // Only once the copy is in place is the old one let go.
-        if let Err(e) = std::fs::remove_file(&old) {
-            warn!("copied {OLD_CONFIG} to {CONFIG} but could not remove it: {e}");
-            return path;
-        }
-        info!("the solver's configuration moved from {OLD_CONFIG} to {CONFIG}");
-        // Nothing else of yours was kept in `solver/`: if it is empty now,
-        // it goes too.
-        if let Some(dir) = old.parent() {
-            let _ = std::fs::remove_dir(dir);
-        }
-        path
+        self.core.join(CONFIG)
     }
 
-    /// Copy `from` to the configuration's place: written beside it first,
-    /// then renamed, so the configuration is either whole or not there.
-    fn copy_into_place(&self, from: &Path) -> anyhow::Result<()> {
-        let part = self.root.join(CONFIG_PART);
-        std::fs::copy(from, &part).with_context(|| format!("copy to {}", part.display()))?;
-        std::fs::rename(&part, self.root.join(CONFIG))
-            .with_context(|| format!("rename {}", part.display()))
-    }
-
-    /// Where the solver lives: `desk/core/ghosts/solver`, unless one was
-    /// born in `ghosts/solver` before the core moved under the desk and
-    /// none has been born here since. That one is used where it is and
-    /// never moved: her journal is kept for good, and nothing the move
-    /// would gain is worth putting it at risk.
+    /// Where the solver lives.
     pub fn ghost_dir(&self) -> PathBuf {
-        let dir = self.root.join(GHOST);
-        let old = self.root.join(OLD_GHOST);
-        if !dir.join("journal.db").is_file() && old.join("journal.db").is_file() {
-            return old;
-        }
-        dir
-    }
-
-    /// The solver's prompts, wherever `[mind] prompts` in its configuration
-    /// says, relative to the checkout as the daemon runs there. They belong
-    /// to the checkout, not to the copy the desk made of its configuration,
-    /// so when the directory that copy names has gone (they were in
-    /// `solver/prompts` before every prompt moved to `prompts/`), the
-    /// example's is written in its place.
-    pub fn prompts(&self) -> Option<PathBuf> {
-        let named = |path: &Path| -> Option<String> {
-            let text = std::fs::read_to_string(path).ok()?;
-            let doc = text.parse::<toml_edit::DocumentMut>().ok()?;
-            doc.get("mind")?.get("prompts")?.as_str().map(str::to_owned)
-        };
-        let path = self.config();
-        let mine = named(&path)?;
-        if self.root.join(&mine).is_dir() {
-            return Some(self.root.join(mine));
-        }
-        let example = named(&self.root.join(EXAMPLE))?;
-        if example == mine || !self.root.join(&example).is_dir() {
-            return None;
-        }
-        let text = std::fs::read_to_string(&path).ok()?;
-        let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
-        doc["mind"]["prompts"] = toml_edit::value(example.as_str());
-        match std::fs::write(&path, doc.to_string()) {
-            Ok(()) => info!("the solver's prompts are now read from {example}, not {mine}"),
-            Err(e) => warn!("could not write {}: {e}", path.display()),
-        }
-        Some(self.root.join(example))
+        self.core.join(GHOST)
     }
 
     /// The daemon binary. See [`pick_ghostd`].
@@ -317,7 +229,7 @@ impl Deployment {
         let beside = std::env::current_exe()
             .ok()
             .and_then(|exe| Some(exe.parent()?.join("ghostd")));
-        pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.root)
+        pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.checkout)
     }
 
     /// Every brain the deployment names, with whether it can run here.
@@ -338,10 +250,10 @@ impl Deployment {
             .collect()
     }
 
-    /// The checkout's `.env` as written, which the daemon it starts there
-    /// loads. Read for whether a key is in it, never shown.
+    /// The core's `.env` as written, which its daemon loads. Read for
+    /// whether a key is in it, never shown.
     pub fn dotenv(&self) -> Option<String> {
-        std::fs::read_to_string(self.root.join(".env")).ok()
+        std::fs::read_to_string(self.core.join(".env")).ok()
     }
 
     /// How a request the desk makes leaves the machine: `[network]` in the
@@ -525,54 +437,41 @@ impl Deployment {
         }
     }
 
-    /// Give birth to the solver if it has not been born: a copy of the
-    /// template, then `ghostd birth`. Happens once.
-    pub fn ensure_born(&self) -> anyhow::Result<()> {
-        let dir = self.ghost_dir();
-        if dir.join("journal.db").is_file() {
-            return Ok(());
-        }
-        if !dir.join("ghost.toml").is_file() {
-            copy_dir(&self.root.join(TEMPLATE), &dir)?;
-        }
+    /// Have `ghostd` make the core's home ready, and wait for it: what the
+    /// desk reads there must be there before it is read. A home already
+    /// set up is left as it is; one with no ghost yet takes in the core a
+    /// checkout kept before there were homes, if there is one.
+    pub fn ready(&self) -> anyhow::Result<()> {
         let out = Command::new(self.ghostd())
-            .arg("birth")
-            .arg(&dir)
-            .current_dir(&self.root)
+            .arg("init")
+            .arg(&self.core)
+            .arg("--adopt")
+            .arg(&self.checkout)
             .output()
-            .context("run ghostd birth")?;
+            .context("run ghostd init")?;
         if !out.status.success() {
             return Err(anyhow!(
-                "ghostd birth: {}",
+                "ghostd init: {}",
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
-        info!("the solver is born in {}", dir.display());
         Ok(())
     }
 
-    /// Start the daemon as a child of the desk, with the deployment's
-    /// configuration. Its output goes to the desk's stderr.
+    /// Start the daemon as a child of the desk, on its home. Its output
+    /// goes to the desk's stderr.
     pub fn start(&mut self) -> anyhow::Result<()> {
         if self.owns_running() {
             return Ok(());
         }
-        self.ensure_born()?;
-        if self.prompts().is_none() {
-            warn!(
-                "the solver's configuration names no prompts that are there: it runs on the built-in ones, as a character would"
-            );
-        }
+        self.ready()?;
         let child = Command::new(self.ghostd())
-            .arg("run")
-            .arg(self.ghost_dir())
-            .arg("--config")
-            .arg(self.config())
+            .args(run_args(&self.core))
             // Her lifeline: the desk holds this pipe open, and when the
             // desk goes, however it goes, the system closes it and she
             // stops in order. The desk's own ghost never outlives it.
             .arg("--with-parent")
-            .current_dir(&self.root)
+            .current_dir(&self.core)
             .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -743,56 +642,52 @@ pub fn answers(authority: &str) -> bool {
     })
 }
 
-fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from).with_context(|| format!("read {}", from.display()))? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
+/// What `ghostd` is told to run the core in its home `core` with.
+fn run_args(core: &Path) -> Vec<OsString> {
+    vec![
+        "run".into(),
+        "--home".into(),
+        core.into(),
+        "--listen".into(),
+        LISTEN.into(),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A checkout with only the published example in it.
+    /// A core's home with only its configuration in it, and a checkout
+    /// with nothing in it, each its own directory under one for the test.
     fn checkout(name: &str) -> Deployment {
         let root = std::env::temp_dir().join(format!("ghost-desk-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("desk/core")).unwrap();
+        let (core, checkout) = (root.join("core"), root.join("checkout"));
+        std::fs::create_dir_all(&core).unwrap();
+        std::fs::create_dir_all(&checkout).unwrap();
         std::fs::write(
-            root.join(EXAMPLE),
+            core.join(CONFIG),
             "# how it thinks\n[brain]\nthink = \"main\"\ntick = \"main\"\n\n[mind.work]\nenabled = true\nmachine = \"local:\"\nweb = true\n\n[operators]\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"m\"\napi_key_env = \"NO_SUCH_KEY_FOR_A_TEST\"\n",
         )
         .unwrap();
-        Deployment {
-            root,
-            child: None,
-            started_at: None,
-        }
+        Deployment::at(core, checkout)
     }
 
     #[test]
     fn the_ghostd_beside_the_app_runs_before_any_in_the_checkout() {
         let d = checkout("ghostd-beside");
-        let bundle = d.root.join("Ghost.app/Contents/MacOS");
-        for dir in [bundle.clone(), d.root.join("target/release")] {
+        let bundle = d.checkout.join("Ghost.app/Contents/MacOS");
+        for dir in [bundle.clone(), d.checkout.join("target/release")] {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("ghostd"), "").unwrap();
         }
         let beside = Some(bundle.join("ghostd"));
         assert_eq!(
-            pick_ghostd(None, beside.clone(), &d.root),
+            pick_ghostd(None, beside.clone(), &d.checkout),
             bundle.join("ghostd")
         );
         assert_eq!(
-            pick_ghostd(Some("/opt/ghostd".into()), beside, &d.root),
+            pick_ghostd(Some("/opt/ghostd".into()), beside, &d.checkout),
             PathBuf::from("/opt/ghostd"),
             "GHOSTD_BIN is the one asked for"
         );
@@ -801,25 +696,25 @@ mod tests {
     #[test]
     fn a_cargo_run_desk_takes_the_release_ghostd_over_a_newer_debug_one() {
         let d = checkout("ghostd-release");
-        let beside = Some(d.root.join("desk/target/debug/ghostd"));
+        let beside = Some(d.checkout.join("desk/target/debug/ghostd"));
         assert_eq!(
-            pick_ghostd(None, beside.clone(), &d.root),
+            pick_ghostd(None, beside.clone(), &d.checkout),
             PathBuf::from("ghostd"),
             "with none built, the one on PATH"
         );
         for build in ["release", "debug"] {
-            let dir = d.root.join("target").join(build);
+            let dir = d.checkout.join("target").join(build);
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("ghostd"), "").unwrap();
         }
         assert_eq!(
-            pick_ghostd(None, beside.clone(), &d.root),
-            d.root.join("target/release/ghostd")
+            pick_ghostd(None, beside.clone(), &d.checkout),
+            d.checkout.join("target/release/ghostd")
         );
-        std::fs::remove_file(d.root.join("target/release/ghostd")).unwrap();
+        std::fs::remove_file(d.checkout.join("target/release/ghostd")).unwrap();
         assert_eq!(
-            pick_ghostd(None, beside, &d.root),
-            d.root.join("target/debug/ghostd")
+            pick_ghostd(None, beside, &d.checkout),
+            d.checkout.join("target/debug/ghostd")
         );
     }
 
@@ -835,91 +730,36 @@ mod tests {
     }
 
     #[test]
-    fn the_first_use_copies_the_example_and_leaves_it_alone() {
-        let d = checkout("copy");
-        let config = d.config();
-        assert!(config.is_file());
-        assert!(d.root.join(EXAMPLE).is_file());
+    fn what_the_desk_reads_of_its_core_is_in_the_cores_home_and_never_in_the_checkout() {
+        let d = checkout("home");
+        assert_eq!(d.config(), d.core.join("ghostd.toml"));
         assert_eq!(d.brain().as_deref(), Some("main"));
+        assert_eq!(d.ghost_dir(), d.core.join("ghosts/solver"));
+        assert_eq!(d.home(), d.core.join("ghosts/solver/home"));
+        std::fs::write(d.checkout.join(".env"), "A_KEY=checkout\n").unwrap();
+        assert_eq!(d.dotenv(), None, "a key in the checkout is not the core's");
+        std::fs::write(d.core.join(".env"), "A_KEY=core\n").unwrap();
+        assert_eq!(d.dotenv().as_deref(), Some("A_KEY=core\n"));
     }
 
     #[test]
-    fn a_configuration_kept_in_solver_is_moved_to_the_core_and_nothing_in_it_is_lost() {
-        let d = checkout("old-config");
-        std::fs::create_dir_all(d.root.join("solver")).unwrap();
-        let mine = "# mine\n[brain]\nthink = \"codex\"\ntick = \"codex\"\n\n[providers.codex]\nkind = \"codex\"\n";
-        std::fs::write(d.root.join(OLD_CONFIG), mine).unwrap();
-        assert_eq!(d.config(), d.root.join(CONFIG));
-        assert_eq!(std::fs::read_to_string(d.root.join(CONFIG)).unwrap(), mine);
-        assert_eq!(d.brain().as_deref(), Some("codex"));
-        assert!(!d.root.join(OLD_CONFIG).exists(), "the old one is let go");
-        assert!(!d.root.join("solver").exists(), "and its empty directory");
-        assert!(!d.root.join(CONFIG_PART).exists());
-        // Once moved, a file at the old place again is left alone.
-        std::fs::create_dir_all(d.root.join("solver")).unwrap();
-        std::fs::write(d.root.join(OLD_CONFIG), "[brain]\n").unwrap();
-        assert_eq!(d.brain().as_deref(), Some("codex"));
-        assert!(d.root.join(OLD_CONFIG).is_file());
-    }
-
-    #[test]
-    fn a_solver_born_in_ghosts_is_used_where_it_is_until_one_is_born_in_the_core() {
-        let d = checkout("old-ghost");
+    fn the_core_is_run_from_its_home_where_the_desk_reaches_it() {
+        let d = checkout("run");
+        let args = run_args(&d.core);
         assert_eq!(
-            d.ghost_dir(),
-            d.root.join(GHOST),
-            "a new one is born in the core"
+            args[..3],
+            [
+                "run".into(),
+                "--home".into(),
+                d.core.clone().into_os_string()
+            ]
         );
-        std::fs::create_dir_all(d.root.join(OLD_GHOST)).unwrap();
-        std::fs::write(d.root.join(OLD_GHOST).join("journal.db"), "hers").unwrap();
-        assert_eq!(d.ghost_dir(), d.root.join(OLD_GHOST));
-        assert_eq!(d.home(), d.root.join(OLD_GHOST).join("home"));
-        std::fs::create_dir_all(d.root.join(GHOST)).unwrap();
-        std::fs::write(d.root.join(GHOST).join("journal.db"), "hers").unwrap();
-        assert_eq!(d.ghost_dir(), d.root.join(GHOST));
-        assert!(
-            d.root.join(OLD_GHOST).join("journal.db").is_file(),
-            "never touched"
+        assert_eq!(
+            crate::settings::SOLVER_URL,
+            format!("ws://{LISTEN}"),
+            "it listens where the desk looks for it"
         );
-    }
-
-    #[test]
-    fn the_published_core_is_where_the_desk_looks_and_names_prompts_that_are_there() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        assert!(root.join(TEMPLATE).join("ghost.toml").is_file());
-        let text = std::fs::read_to_string(root.join(EXAMPLE)).unwrap();
-        let doc: DocumentMut = text.parse().unwrap();
-        let prompts = doc["mind"]["prompts"].as_str().unwrap();
-        assert!(
-            root.join(prompts).join("character/persona.md").is_file(),
-            "{prompts}"
-        );
-    }
-
-    #[test]
-    fn the_solvers_prompts_follow_the_example_when_the_directory_its_copy_names_has_gone() {
-        let d = checkout("prompts");
-        std::fs::create_dir_all(d.root.join("prompts/system/desk")).unwrap();
-        std::fs::write(
-            d.root.join(EXAMPLE),
-            "[mind]\nprompts = \"prompts/system/desk\"\n",
-        )
-        .unwrap();
-        // A copy made when the prompts were in solver/prompts.
-        std::fs::write(
-            d.root.join(CONFIG),
-            "# mine\n[mind]\nprompts = \"solver/prompts\"\ntempo = 0.05\n",
-        )
-        .unwrap();
-        assert_eq!(d.prompts(), Some(d.root.join("prompts/system/desk")));
-        let text = std::fs::read_to_string(d.config()).unwrap();
-        assert!(text.contains("prompts = \"prompts/system/desk\""), "{text}");
-        assert!(
-            text.contains("# mine") && text.contains("tempo = 0.05"),
-            "{text}"
-        );
-        // Where it is, it is left as it is.
-        assert_eq!(d.prompts(), Some(d.root.join("prompts/system/desk")));
+        assert!(args.contains(&OsString::from(LISTEN)));
     }
 
     /// What a new brain from `preset` writes, as the sheet would save it.
@@ -1102,6 +942,6 @@ mod tests {
         assert_eq!(k.key_env.as_deref(), Some("ANTHROPIC_API_KEY"));
         assert!(k.clone().check(&|_| None, None).blocker.is_some());
         let k = k.check(&|_| None, Some("ANTHROPIC_API_KEY=sk-file\n"));
-        assert_eq!(k.blocker, None, "a key in the checkout's .env is a key");
+        assert_eq!(k.blocker, None, "a key in the core's .env is a key");
     }
 }

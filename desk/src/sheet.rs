@@ -282,7 +282,7 @@ impl Desk {
         }
     }
 
-    /// Look again for the key: in the environment, then the checkout's `.env`.
+    /// Look again for the key: in the environment, then the core's `.env`.
     fn refresh_key(&mut self, cx: &mut Context<Self>) {
         let var = self.key_var(cx);
         let dotenv = self.deployment.dotenv();
@@ -704,7 +704,7 @@ impl Desk {
         if preset.key_env.is_some() {
             let (word, color, tip) = match self.sheet.key_status {
                 KeyStatus::Env => ("found", theme::green(), "in the environment"),
-                KeyStatus::DotEnv => ("found", theme::green(), "in the checkout's .env"),
+                KeyStatus::DotEnv => ("found", theme::green(), "in the core's .env"),
                 KeyStatus::NotSet => ("not set", theme::accent(), "not in the environment or .env"),
             };
             let var = self.key_var(cx);

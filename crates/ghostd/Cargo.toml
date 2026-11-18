@@ -35,6 +35,8 @@ toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 dotenvy = "0.15"
+# To take in an old core's journal and work whole, even while it runs.
+rusqlite = { version = "0.42.0", features = ["bundled", "backup"] }
 
 [lints]
 workspace = true
