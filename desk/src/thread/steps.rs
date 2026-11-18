@@ -22,7 +22,7 @@ use gpui::{
 };
 
 use super::{
-    State, calls, drawn, kinds, live,
+    State, calls, drawn, kinds, live, output,
     style::{
         BOX_RADIUS, CARD_RADIUS, META, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL,
         WELL_RADIUS, meta,
@@ -298,6 +298,7 @@ fn call_row(
         let out = calls::output(&call.out, call.cut, call.chars, call.pictures);
         let all_key = format!("{key}:all");
         let all = expanded.contains(&all_key);
+        let binary = output::binary(&out.text);
         body = if out.text.is_empty() && out.more.is_none() {
             body.child(
                 ui::mono(faces, "(no output)")
@@ -306,6 +307,11 @@ fn call_row(
                     .line_height(px(MONO_LINE))
                     .text_color(theme::quiet()),
             )
+        } else if binary {
+            body.child(output::not_text(
+                faces,
+                call.chars.max(out.text.chars().count() as u64),
+            ))
         } else if call.name == "fetch" && !call.failed {
             // A page opened: what it says, in words, a few lines of it.
             body.child(
@@ -324,20 +330,20 @@ fn call_row(
             )
         } else if call.name == "read" && !call.failed {
             let path = call.args.get("path").and_then(|p| p.as_str()).unwrap_or("");
-            body.child(read_well(
+            body.child(output::read_well(
                 faces,
                 &out.text,
                 crate::syntax::by_path(path),
                 all,
             ))
         } else {
-            body.child(printed(faces, &out.text, all))
+            body.child(output::printed(faces, key, &out.text, all))
         };
-        let lines = out.text.lines().count();
+        let lines = output::count(&out.text);
         let long = if call.name == "fetch" {
             out.text.chars().count() > PAGE_CHARS
         } else {
-            lines > folded_at(&call.name)
+            output::folds(&call.name, &out.text)
         };
         if !all && long {
             let toggle = all_key.clone();
@@ -362,109 +368,12 @@ fn call_row(
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
             );
         }
-        if let Some(more) = out.more {
+        if let Some(more) = out.more.filter(|_| !binary) {
             body = body.child(meta(faces, more).px(px(10.)));
         }
         row = row.child(body);
     }
     row
-}
-
-/// How many lines of what came back show before the rest is folded: a
-/// file read shows its first twelve; anything else, if longer than eight,
-/// its first two and its last.
-fn folded_at(name: &str) -> usize {
-    if name == "read" { 12 } else { 8 }
-}
-
-/// What a command printed, in mono, quiet: whole when it is short or
-/// asked for, else its head, how much was left out, and its last line.
-fn printed(faces: &Faces, text: &str, all: bool) -> Div {
-    let lines: Vec<&str> = text.lines().collect();
-    let mono = || {
-        div()
-            .w_full()
-            .px(px(10.))
-            .font_family(faces.mono.clone())
-            .text_size(px(MONO))
-            .line_height(px(MONO_LINE))
-            .text_color(theme::muted())
-            .whitespace_nowrap()
-            .overflow_hidden()
-    };
-    if all || lines.len() <= folded_at("") {
-        return mono().child(drawn::marked(text.to_owned()));
-    }
-    let head = lines[..2].join("\n");
-    let gone = lines.len() - 3;
-    div()
-        .flex()
-        .flex_col()
-        .w_full()
-        .child(mono().child(drawn::marked(head)))
-        .child(
-            mono()
-                .text_color(theme::quiet())
-                .child(format!("… {gone} lines")),
-        )
-        .child(mono().child(drawn::marked(lines[lines.len() - 1].to_owned())))
-}
-
-/// A file read: its line numbers in a quiet gutter, its lines coloured by
-/// the kind of file it is, the first twelve unless all are asked for.
-fn read_well(faces: &Faces, text: &str, lang: &str, all: bool) -> Div {
-    let mut gutter = div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .w(px(40.))
-        .pr(px(14.))
-        .items_end()
-        .text_color(theme::quiet());
-    let mut code = div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w(px(0.))
-        .overflow_hidden();
-    let mut tail: Option<String> = None;
-    for (i, line) in text.lines().enumerate() {
-        if !all && i >= folded_at("read") {
-            break;
-        }
-        let trimmed = line.trim_start();
-        let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
-        if digits > 0 && trimmed[digits..].starts_with("  ") {
-            gutter = gutter.child(trimmed[..digits].to_owned());
-            let words = &trimmed[digits + 2..];
-            code = code.child(div().whitespace_nowrap().child(crate::syntax::styled(
-                faces,
-                if words.is_empty() { " " } else { words },
-                lang,
-            )));
-        } else {
-            tail = Some(line.to_owned());
-        }
-    }
-    let well = div()
-        .flex()
-        .w_full()
-        .py(px(S2))
-        .rounded(px(WELL_RADIUS))
-        .border_1()
-        .border_color(theme::border())
-        .font_family(faces.mono.clone())
-        .text_size(px(MONO))
-        .line_height(px(MONO_LINE))
-        .child(gutter)
-        .child(code);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(S2))
-        .w_full()
-        .child(well)
-        .when_some(tail, |d, t| d.child(meta(faces, t).px(px(10.))))
 }
 
 /// How much of a page opened shows in its box: about three lines.
@@ -655,8 +564,8 @@ pub(super) fn step(
         // What she said at a step is written as she writes to anyone:
         // drawn the same way, small and quiet.
         let key = format!("said:{work}:{}", step.n);
-        // A flex column, as her prose sits in: a table's columns are shares
-        // of the width, and a plain block here leaves them nothing to share.
+        // A flex column, as her prose sits in: a wide table scrolls inside
+        // the width it is given, and a plain block here gives it none.
         block = block.child(
             div()
                 .flex()
@@ -670,6 +579,8 @@ pub(super) fn step(
                     &key,
                     said,
                     crate::markdown::Setting::Small,
+                    expanded,
+                    cx,
                 )),
         );
     }

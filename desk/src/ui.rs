@@ -202,6 +202,17 @@ pub fn one_line(d: Div) -> Div {
     d.w_full().overflow_hidden().text_ellipsis()
 }
 
+/// A box that scrolls sideways, for what is wider than the column it sits
+/// in and must keep its lines whole: a table, a long line of output. It
+/// takes only a sideways wheel: left to itself GPUI turns a wheel turned
+/// down into a scroll sideways as well, and the thread under the pointer
+/// would move both ways at once.
+pub fn sideways(d: gpui::Stateful<Div>) -> gpui::Stateful<Div> {
+    let mut d = d.overflow_x_scroll();
+    d.style().restrict_scroll_to_axis = Some(true);
+    d
+}
+
 /// A path as a person writes it: your home as `~`, and when it is long,
 /// only its first and last two directories, so that the end, which says
 /// what it is, survives a narrow column.

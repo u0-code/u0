@@ -7,16 +7,18 @@
 //! It is set in the thread's type (`thread/style.rs`): body text with room
 //! between its lines, blocks a step apart and the items of a list closer,
 //! inline code in mono on a faint ground, and a code block in a well that
-//! scrolls sideways rather than wrapping a command.
+//! scrolls sideways rather than wrapping a command, as a table wider than
+//! the column does rather than widening it.
 
-use std::ops::Range;
+use std::{collections::HashSet, ops::Range};
 
 use gpui::{
-    AnyElement, Div, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StyledText,
-    TextRun, div, prelude::*, px, relative,
+    AnyElement, Context, Div, FontStyle, FontWeight, Hsla, InteractiveText, SharedString,
+    StyledText, TextRun, div, prelude::*, px,
 };
 
 use crate::{
+    desk::Desk,
     fonts::{self, Faces},
     theme,
     thread::style::{
@@ -556,14 +558,28 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
     StyledText::new(SharedString::from(parsed.text.clone())).with_runs(runs)
 }
 
-/// A message, drawn in her prose. `key` tells its code blocks apart from
-/// every other message's, for their scrolling.
-pub fn render(faces: &Faces, key: &str, text: &str) -> Div {
-    render_as(faces, key, text, Setting::Prose)
+/// A message, drawn in her prose. `key` tells its code blocks and tables
+/// apart from every other message's, for their scrolling and for what of
+/// them is opened, which `expanded` holds.
+pub fn render(
+    faces: &Faces,
+    key: &str,
+    text: &str,
+    expanded: &HashSet<String>,
+    cx: &mut Context<Desk>,
+) -> Div {
+    render_as(faces, key, text, Setting::Prose, expanded, cx)
 }
 
 /// A message, drawn in the setting given.
-pub fn render_as(faces: &Faces, key: &str, text: &str, set: Setting) -> Div {
+pub fn render_as(
+    faces: &Faces,
+    key: &str,
+    text: &str,
+    set: Setting,
+    expanded: &HashSet<String>,
+    cx: &mut Context<Desk>,
+) -> Div {
     let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
     let blocks = parse(text);
@@ -577,7 +593,7 @@ pub fn render_as(faces: &Faces, key: &str, text: &str, set: Setting) -> Div {
             (Some(_), Block::Heading(..)) => 20.,
             _ => BLOCK_GAP,
         };
-        let el = block_element(faces, &format!("{key}-{i}"), block, set);
+        let el = block_element(faces, &format!("{key}-{i}"), block, set, expanded, cx);
         column = column.child(el.mt(px(gap)));
         before = Some(block);
     }
@@ -608,7 +624,14 @@ fn sized(set: Setting) -> Div {
     div().text_size(px(size)).line_height(px(line))
 }
 
-fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
+fn block_element(
+    faces: &Faces,
+    key: &str,
+    block: &Block,
+    set: Setting,
+    expanded: &HashSet<String>,
+    cx: &mut Context<Desk>,
+) -> Div {
     match block {
         Block::Paragraph(text) => {
             sized(set).child(linked(faces, key.to_owned(), text, &body(faces, set)))
@@ -667,7 +690,14 @@ fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
             },
         )),
         Block::Code { lang, text } => code(faces, key, lang, text),
-        Block::Table { head, right, rows } => table(faces, head, right, rows, set),
+        Block::Table { head, right, rows } => table(
+            faces,
+            key,
+            &Table { head, right, rows },
+            set,
+            expanded.contains(&format!("{key}:rows")),
+            cx,
+        ),
     }
 }
 
@@ -677,73 +707,123 @@ pub fn width(text: &str) -> usize {
     text.chars().map(|c| if unspaced(c) { 2 } else { 1 }).sum()
 }
 
-/// Each column's share of a table's width, by the widest thing in it, so
-/// that a column of short numbers stays narrow and one of words gets room.
-pub fn shares(head: &[String], rows: &[Vec<String>]) -> Vec<f32> {
-    let widths: Vec<usize> = (0..head.len())
-        .map(|i| {
-            std::iter::once(&head[i])
-                .chain(rows.iter().filter_map(|r| r.get(i)))
-                .map(|c| width(&inline(c).text))
-                .max()
-                .unwrap_or(0)
-                .clamp(4, 48)
-        })
-        .collect();
-    let total: usize = widths.iter().sum::<usize>().max(1);
-    widths.iter().map(|w| *w as f32 / total as f32).collect()
+/// How many rows of a table show before the rest are folded under a
+/// line that opens them.
+const TABLE_ROWS: usize = 20;
+/// The room between a table's columns, and above and below a cell's line.
+const COLUMN_GAP: f32 = 20.;
+const CELL_PAD: f32 = 9.;
+
+/// The rows a table shows, and how many it folds away.
+fn table_rows(rows: &[Vec<String>], all: bool) -> (&[Vec<String>], usize) {
+    let shown = if all {
+        rows.len()
+    } else {
+        rows.len().min(TABLE_ROWS)
+    };
+    (&rows[..shown], rows.len() - shown)
+}
+
+/// What a table is made of, as it was parsed.
+struct Table<'a> {
+    head: &'a [String],
+    right: &'a [bool],
+    rows: &'a [Vec<String>],
 }
 
 /// A table, set the way a careful page sets one: the head in the bold of
 /// the text over a rule, a hairline between rows and none around, each
-/// column as wide as it needs to be in the whole width.
+/// column as wide as its widest cell and no cell wrapped, so a number is
+/// never broken. A table wider than the column scrolls sideways in its
+/// own box; the column never widens. Past twenty rows the rest wait under
+/// a line that shows them.
+///
+/// It is laid out by columns, each a stack of its cells, so a column takes
+/// the width of its widest cell without anything being measured here;
+/// every cell of a row is given the same height in points, so the rows
+/// line up across the columns.
 fn table(
     faces: &Faces,
-    head: &[String],
-    right: &[bool],
-    rows: &[Vec<String>],
+    key: &str,
+    t: &Table,
     set: Setting,
+    all: bool,
+    cx: &mut Context<Desk>,
 ) -> Div {
-    let shares = shares(head, rows);
-    let row = |cells: &[String], strong: bool| {
-        let base = if strong {
-            Base {
-                weight: strong_weight(faces, &set.face(faces)),
-                color: body(faces, set).strong,
-                ..body(faces, set)
-            }
-        } else {
-            body(faces, set)
+    let (_, line) = set.size();
+    let (shown, folded) = table_rows(t.rows, all);
+    let strong = Base {
+        weight: strong_weight(faces, &set.face(faces)),
+        color: body(faces, set).strong,
+        ..body(faces, set)
+    };
+    let plain = body(faces, set);
+    let mut grid = div().flex().flex_none();
+    for (i, title) in t.head.iter().enumerate() {
+        let gap = i + 1 < t.head.len();
+        let right = t.right.get(i).copied().unwrap_or(false);
+        let cell = || {
+            sized(set)
+                .flex()
+                .flex_none()
+                .whitespace_nowrap()
+                .when(gap, |d| d.pr(px(COLUMN_GAP)))
+                .when(right, gpui::Styled::justify_end)
         };
-        let mut line = div().flex().w_full().items_start();
-        for (i, cell) in cells.iter().enumerate() {
-            let last = i + 1 == cells.len();
-            line = line.child(
-                sized(set)
-                    .w(relative(shares.get(i).copied().unwrap_or(0.)))
-                    .flex_none()
-                    .min_w(px(0.))
-                    .py(px(S2 + 1.))
-                    .when(!last, |d| d.pr(px(S4)))
-                    .when(right.get(i).copied().unwrap_or(false), |d| {
-                        d.flex().justify_end()
-                    })
-                    .child(styled(faces, cell, &base)),
+        // A hairline takes a point of its cell's height: a height here
+        // holds the border as well as the padding.
+        let mut column = div().flex().flex_col().flex_none().child(
+            cell()
+                .h(px(line + CELL_PAD + 1.))
+                .pb(px(CELL_PAD))
+                .border_b_1()
+                .border_color(theme::rule())
+                .child(styled(faces, title, &strong)),
+        );
+        for (r, cells) in shown.iter().enumerate() {
+            let ruled = r + 1 < shown.len();
+            let text = cells.get(i).map_or("", String::as_str);
+            column = column.child(
+                cell()
+                    .h(px(line + 2. * CELL_PAD + if ruled { 1. } else { 0. }))
+                    .py(px(CELL_PAD))
+                    .when(ruled, |d| d.border_b_1().border_color(theme::panel()))
+                    .child(styled(faces, text, &plain)),
             );
         }
-        line
-    };
-    let mut column = div()
+        grid = grid.child(column);
+    }
+    let toggle = format!("{key}:rows");
+    div()
         .flex()
         .flex_col()
+        .gap(px(S2))
         .w_full()
-        .child(row(head, true).border_b_1().border_color(theme::rule()));
-    for (i, cells) in rows.iter().enumerate() {
-        let last = i + 1 == rows.len();
-        column = column
-            .child(row(cells, false).when(!last, |d| d.border_b_1().border_color(theme::panel())));
-    }
-    column
+        .min_w(px(0.))
+        .child(
+            ui::sideways(
+                div()
+                    .id(SharedString::from(format!("{key}-table")))
+                    .flex()
+                    .w_full(),
+            )
+            .child(grid),
+        )
+        .when(folded > 0, |d| {
+            let rows = if folded == 1 { "row" } else { "rows" };
+            d.child(
+                div()
+                    .id(SharedString::from(toggle.clone()))
+                    .cursor_pointer()
+                    .child(
+                        ui::text(faces, format!("Show {folded} more {rows}"))
+                            .text_size(px(SMALL))
+                            .text_color(theme::muted())
+                            .hover(|s| s.text_color(theme::text())),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
+            )
+        })
 }
 
 /// A fenced block, drawn as a command is when opened: a box with its
@@ -876,15 +956,15 @@ mod tests {
     }
 
     #[test]
-    fn a_column_of_short_numbers_gets_less_of_a_table_than_one_of_words() {
-        let head = vec!["crate".to_owned(), "行数".to_owned()];
-        let rows = vec![vec![
-            "ghost-protocol 和它的说明".to_owned(),
-            "1,339".to_owned(),
-        ]];
-        let shares = shares(&head, &rows);
-        assert!(shares[0] > shares[1], "{shares:?}");
-        assert!((shares.iter().sum::<f32>() - 1.).abs() < 1e-4);
+    fn a_table_past_twenty_rows_shows_twenty_until_all_are_asked_for() {
+        let rows: Vec<Vec<String>> = (0..68).map(|i| vec![i.to_string()]).collect();
+        let (shown, folded) = table_rows(&rows, false);
+        assert_eq!((shown.len(), folded), (20, 48));
+        assert_eq!(shown[19], vec!["19".to_owned()]);
+        let (shown, folded) = table_rows(&rows, true);
+        assert_eq!((shown.len(), folded), (68, 0));
+        let few = &rows[..20];
+        assert_eq!(table_rows(few, false), (few, 0));
     }
 
     #[test]

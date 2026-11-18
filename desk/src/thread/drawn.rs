@@ -3,10 +3,10 @@
 //! holds is read in `kinds.rs`; here it is only drawn, in the thread's
 //! hairline frames, on its ground.
 
-use gpui::{Context, Div, HighlightStyle, SharedString, StyledText, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{
-    kinds::{self, Hit, Line, Memory, Status},
+    kinds::{Hit, Line, Memory, Status},
     style::{MONO, MONO_LINE, S1, S2, SMALL, WELL_RADIUS, meta},
     task_first::breathing,
 };
@@ -99,19 +99,6 @@ pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> 
         );
     }
     list
-}
-
-/// What a command printed, with the words in it that say something went
-/// wrong (`FAILED`, `error`) in coral, and nothing else changed: no
-/// ground, no mark beside it. A failure is told calmly, by its words.
-pub fn marked(text: impl Into<SharedString>) -> StyledText {
-    let text: SharedString = text.into();
-    let alarm = HighlightStyle {
-        color: Some(theme::coral()),
-        ..HighlightStyle::default()
-    };
-    let ranges = kinds::alarms(&text);
-    StyledText::new(text).with_highlights(ranges.into_iter().map(|r| (r, alarm)))
 }
 
 /// What a recall found: each memory's number, small and quiet in mono,
