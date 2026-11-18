@@ -19,7 +19,7 @@ use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px
 use super::{
     Item, View, ago,
     cards::{task, tool},
-    clock, could_not, directed, items, look_started, span, steps,
+    clock, could_not, directed, items, look_started, sent_while_working, span, steps,
     style::{BODY, BODY_LINE, BUBBLE_RADIUS, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN, meta},
     thread_key, waiting_since,
 };
@@ -46,6 +46,19 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         return empty(view, faces);
     }
     let waiting = waiting_since(&items);
+    // What she is doing about it now: the look going on, step by step, or
+    // until she has called anything, a line saying she is thinking.
+    let live = view
+        .following
+        .places
+        .get(&thread_key(view.place))
+        .and_then(crate::follow::PlaceLooks::running)
+        .filter(|l| steps::look_calls(l).next().is_some());
+    // Your lines sent while she was at something, and not yet taken up.
+    let looking = live
+        .and_then(|l| l.rounds.first())
+        .and_then(|r| r.at.parse().ok());
+    let steering = sent_while_working(&items, looking);
     // At a console every line of yours is an operator's, so none is marked
     // as one; on a platform the marked lines are worth telling apart.
     let marks = if thread_key(view.place).starts_with("console:") {
@@ -68,7 +81,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     let mut before = Before::Nothing;
     // Who said the last line, when it was someone else's.
     let mut speaker: Option<String> = None;
-    for (at, seq, item) in items {
+    for (i, (at, seq, item)) in items.into_iter().enumerate() {
         // What she did stacks close under what she did just before.
         let stacked = match (&item, before) {
             (Item::Did(did), Before::Did(row)) => Some(if row && did.is_row() { 2. } else { S2 }),
@@ -99,6 +112,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     seq,
                     directed,
                     mine,
+                    steer: steering.contains(&i),
                 };
                 if mine {
                     let el =
@@ -143,6 +157,14 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 let el = super::platform::render(faces, &did, seq, at, view, cx);
                 (el, Before::Did(did.is_row()))
             }
+            Item::Folded { seq, text } => {
+                let el = folded(faces, seq, text, view.expanded, cx);
+                (el.into_any_element(), Before::Other)
+            }
+            Item::Brain { think, was } => {
+                let el = rebrained(faces, &think, &was, &clock(at, view.tz));
+                (el.into_any_element(), Before::Other)
+            }
         };
         let gap = match before {
             Before::Nothing => 0.,
@@ -157,14 +179,6 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         before = now;
     }
 
-    // What she is doing about it now: the look going on, step by step, or
-    // until she has called anything, a line saying she is thinking.
-    let live = view
-        .following
-        .places
-        .get(&thread_key(view.place))
-        .and_then(crate::follow::PlaceLooks::running)
-        .filter(|l| steps::look_calls(l).next().is_some());
     if let Some(look) = live {
         let from = waiting
             .or_else(|| look_started(look, heard))
@@ -385,14 +399,150 @@ fn working(faces: &Faces, view: &View<'_>, since: DateTime<Utc>) -> Div {
         .child(meta(faces, since))
 }
 
-/// A session with nothing in it yet: one line that says what she is. Nothing to click: what she does here is whatever you
-/// say, and the line you type into is right below.
-fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
-    let line = if view.abilities.is_some() {
-        format!("{} lives on this machine.", view.name)
-    } else {
-        format!("Nothing is said here in {}'s journal yet.", view.name)
+/// What the footnote under a line of yours says while it waits for her.
+const STEER: &str = "Sent while she worked · she’ll take it at the next step";
+
+/// One quiet line between turns: 14 sans, grey, at the column's edge, with
+/// no rule and nothing to set it apart but its colour.
+fn quiet_row(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(S2))
+        .min_h(px(28.))
+        .child(
+            ui::text(faces, text)
+                .text_size(px(ROW - 1.))
+                .line_height(px(ROW_LINE))
+                .text_color(theme::muted()),
+        )
+}
+
+/// Where she folded the earlier part of this conversation into a note: a
+/// line saying so, which opens on the note, since from then on that note
+/// is what she sees of it.
+fn folded(
+    faces: &Faces,
+    seq: i64,
+    text: String,
+    expanded: &std::collections::HashSet<String>,
+    cx: &mut Context<Desk>,
+) -> Div {
+    let key = format!("folded-{seq}");
+    let open = expanded.contains(&key);
+    let toggle = key.clone();
+    let row = quiet_row(faces, "Earlier conversation folded into a summary")
+        .id(SharedString::from(key))
+        .cursor_pointer()
+        .hover(|s| s.text_color(theme::text()))
+        .child(
+            ui::icon(
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                14.,
+            )
+            .text_color(theme::muted()),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
+    div().flex().flex_col().child(row).when(open, |d| {
+        d.child(
+            ui::text(faces, text)
+                .mt(px(S1))
+                .text_size(px(ROW - 1.))
+                .line_height(px(BODY_LINE))
+                .text_color(theme::text2()),
+        )
+    })
+}
+
+/// The turn where her brain changed: the one she thinks with now, the
+/// one before, and when.
+fn rebrained(faces: &Faces, think: &str, was: &str, at: &str) -> Div {
+    quiet_row(faces, "Now thinking with")
+        .child(
+            ui::text(faces, model_name(think).to_owned())
+                .text_size(px(ROW - 1.))
+                .text_color(theme::text()),
+        )
+        .child(meta(faces, format!("· was {} · {at}", model_name(was))))
+}
+
+/// A brain as a person names it: the model, without the kind of API it
+/// is reached through (`openai/deepseek-v4` is deepseek-v4), unless the
+/// model is the program's own default, when the program is the name.
+fn model_name(label: &str) -> &str {
+    match label.split_once('/') {
+        Some((program, "default" | "")) => program,
+        Some((_, model)) => model,
+        None => label,
+    }
+}
+
+/// What the line under an empty thread says she is doing now: the work
+/// she is at, or else what her day has her doing; and when she last said
+/// anything anywhere. Empty when none of it is known.
+fn doing_now(view: &View<'_>) -> String {
+    let work = view
+        .work
+        .iter()
+        .find(|w| w.state == ghost_link::protocol::WorkState::Running)
+        .and_then(|w| w.brief.lines().map(str::trim).find(|l| !l.is_empty()));
+    let doing = match work {
+        Some(title) => Some(format!("She is at work on “{title}”")),
+        None => view
+            .status
+            .filter(|s| s.awake != Some(false))
+            .and_then(|s| s.doing.as_deref())
+            .map(|what| format!("In her day now: {what}")),
     };
+    let said = view
+        .journal
+        .iter()
+        .rev()
+        .find(|e| e.kind == "said")
+        .map(|e| match ago(e.at, view.tz) {
+            when if when.contains("ago") || when == "just now" => {
+                format!("last said something {when}")
+            }
+            when => format!("last said something on {when}"),
+        });
+    let line = [doing, said]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let mut chars = line.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+/// Who she is and how she is, for an empty thread: her name and her
+/// state.
+fn her_state(view: &View<'_>) -> String {
+    let name = &view.name;
+    if !view.connected {
+        return format!("{name} is out of reach");
+    }
+    match view.status.and_then(|s| s.awake) {
+        // The solver keeps no day: she is there whenever her daemon is.
+        _ if view.abilities.is_some() => format!("{name} is here"),
+        Some(false) => format!("{name} is asleep"),
+        Some(true) => format!("{name} is awake"),
+        None => format!("{name} is here"),
+    }
+}
+
+/// A place with nothing in it yet: her name and how she is, and under it
+/// what she is doing now. No example questions: what she does here is
+/// whatever you say, and the line you type into is right below.
+fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
+    let line = her_state(view);
+    let now = doing_now(view);
     div()
         .id("thread")
         .flex()
@@ -410,12 +560,22 @@ fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
                 .items_center()
                 .w_full()
                 .max_w(px(520.))
+                .gap(px(10.))
                 .child(
                     ui::serif(faces, line)
                         .text_size(px(22.))
                         .line_height(px(30.))
                         .text_center(),
-                ),
+                )
+                .when(!now.is_empty(), |d| {
+                    d.child(
+                        ui::text(faces, now)
+                            .text_size(px(SMALL))
+                            .line_height(px(18.))
+                            .text_color(theme::faint())
+                            .text_center(),
+                    )
+                }),
         )
         .into_any_element()
 }
@@ -431,6 +591,9 @@ struct Whose {
     directed: Option<i64>,
     /// It came from you at the desk.
     mine: bool,
+    /// It was sent while she was at something, and she has not taken it
+    /// up yet.
+    steer: bool,
 }
 
 /// Someone else's line in a place on a platform: their name and when, and
@@ -511,6 +674,7 @@ fn yours(
         seq,
         directed,
         mine,
+        steer,
     } = whose;
     let stamp = m.at.timestamp_millis();
     let mut line = ago(m.at, tz);
@@ -557,11 +721,22 @@ fn yours(
             .tooltip(ui::tip("Copy"))
             .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
     );
-    // What is under the bubble shows when the pointer is over it.
+    // What is under the bubble shows when the pointer is over it; while
+    // the line waits for her to take it up, what is under it says so,
+    // and stays.
     let group = SharedString::from(format!("yours-{stamp}"));
-    let foot = foot
-        .opacity(0.)
-        .group_hover(group.clone(), |s| s.opacity(1.));
+    let foot = if steer {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .mr(px(2.))
+            .child(ui::icon("arrow-right", 12.).text_color(theme::faint()))
+            .child(meta(faces, STEER))
+    } else {
+        foot.opacity(0.)
+            .group_hover(group.clone(), |s| s.opacity(1.))
+    };
     div()
         .group(group)
         .flex()
@@ -671,5 +846,12 @@ mod tests {
         assert!((at(900) - 0.35).abs() < 1e-4, "at half a breath");
         assert!((at(1800) - 1.).abs() < 1e-4, "and again");
         assert!(at(450) > 0.35 && at(450) < 1.);
+    }
+
+    #[test]
+    fn a_brain_is_named_by_its_model_or_by_its_program_when_on_its_default() {
+        assert_eq!(model_name("openai/deepseek-v4"), "deepseek-v4");
+        assert_eq!(model_name("claude-code/default"), "claude-code");
+        assert_eq!(model_name("script"), "script");
     }
 }

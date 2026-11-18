@@ -284,6 +284,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         rendering: Rendering::Task,
         column: COLUMN,
         media: None,
+        status: None,
     };
     let said: Vec<(String, bool)> = items(&view)
         .into_iter()
@@ -372,6 +373,7 @@ fn view<'a>(
         rendering: Rendering::Task,
         column: COLUMN,
         media: None,
+        status: None,
     }
 }
 
@@ -684,6 +686,7 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         rendering: Rendering::Task,
         column: COLUMN,
         media: None,
+        status: None,
     };
     let texts: Vec<String> = items(&view)
         .into_iter()
@@ -712,4 +715,103 @@ fn a_works_brief_shows_without_the_words_it_was_handed_and_its_title_is_its_firs
         json!({"id": "w", "brief": "  tidy up  "}),
     )];
     assert_eq!(tasks(&plain)[0].brief_shown(), "tidy up");
+}
+
+/// Something heard from you, or said by her, on the console in `s1`, `m`
+/// minutes into the last hour.
+fn console(seq: i64, m: i64, kind: &str, text: &str) -> Entry {
+    let data = if kind == "heard" {
+        json!({"channel": "console", "place": {"id": "s1", "kind": "direct"},
+        "from": {"id": "fox", "name": "Fox"}, "text": text})
+    } else {
+        json!({"channel": "console", "place": "s1", "text": text})
+    };
+    Entry {
+        at: Utc::now() - chrono::Duration::minutes(60 - m),
+        ..entry(seq, kind, data)
+    }
+}
+
+#[test]
+fn a_line_sent_while_she_works_waits_to_be_taken_until_what_she_was_at_ends() {
+    let expanded = HashSet::new();
+    let place = place_key("s1");
+    let mut journal = vec![
+        console(1, 1, "heard", "tidy up"),
+        console(2, 2, "heard", "and the caches"),
+    ];
+    let waiting = |journal: &[Entry]| {
+        let items = items(&view(journal, &[], &place, &expanded));
+        sent_while_working(&items, None)
+            .into_iter()
+            .filter_map(|i| match &items[i].2 {
+                Item::Said { m, .. } => Some(m.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // The first line is what she is at; the second came while she was.
+    assert_eq!(waiting(&journal), ["and the caches"]);
+    // Once she has answered the first, she takes the second up.
+    journal.push(console(3, 3, "said", "done"));
+    assert!(waiting(&journal).is_empty());
+    // A line of yours with nothing going on is only a line.
+    journal.push(console(4, 4, "heard", "thanks"));
+    assert!(waiting(&journal).is_empty());
+    // One sent after a look she is in the middle of began waits for it.
+    let items = items(&view(&journal, &[], &place, &expanded));
+    let began = Utc::now() - chrono::Duration::minutes(57);
+    assert_eq!(sent_while_working(&items, Some(began)), [items.len() - 1]);
+}
+
+#[test]
+fn a_change_of_brain_shows_once_between_turns_from_the_first_brain_to_the_last() {
+    let expanded = HashSet::new();
+    let place = place_key("s1");
+    let brain = |seq, m: i64, data: Value| Entry {
+        at: Utc::now() - chrono::Duration::minutes(60 - m),
+        ..entry(seq, "brain_changed", data)
+    };
+    let journal = vec![
+        // The brain she was first started on is no change.
+        brain(1, 0, json!({"think": "openai/deepseek-v4"})),
+        // Nor is one before anything was said in this thread.
+        brain(2, 0, json!({"think": "a/one", "was": "openai/deepseek-v4"})),
+        console(3, 1, "heard", "hello"),
+        brain(4, 2, json!({"think": "a/two", "was": "a/one"})),
+        brain(5, 3, json!({"think": "a/three", "was": "a/two"})),
+        console(6, 4, "said", "hi"),
+    ];
+    let brains: Vec<(String, String)> = items(&view(&journal, &[], &place, &expanded))
+        .into_iter()
+        .filter_map(|(_, _, item)| match item {
+            Item::Brain { think, was } => Some((think, was)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(brains, [("a/three".to_owned(), "a/one".to_owned())]);
+}
+
+#[test]
+fn her_note_of_an_earlier_conversation_is_in_that_thread_and_no_other() {
+    let expanded = HashSet::new();
+    let journal = vec![
+        console(1, 1, "heard", "hello"),
+        entry(
+            2,
+            "digested",
+            json!({"place": "console:s1", "upto": 1, "text": "Fox said hello."}),
+        ),
+    ];
+    let folded = |place: &str| {
+        items(&view(&journal, &[], place, &expanded))
+            .into_iter()
+            .filter_map(|(_, _, item)| match item {
+                Item::Folded { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(folded(&place_key("s1")), ["Fox said hello."]);
+    assert!(folded(&place_key("s2")).is_empty());
 }

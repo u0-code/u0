@@ -500,6 +500,19 @@ enum Item<'a> {
     /// image she sent, a quiet row for something she did inside, a send
     /// the platform refused.
     Did(platform::Did),
+    /// She folded the earlier part of the conversation here into a note,
+    /// which is what she sees of it from then on: the note, and the seq
+    /// of the entry it is in.
+    Folded {
+        seq: i64,
+        text: String,
+    },
+    /// Her body started her on another brain: the one she thinks with
+    /// from here on, and the one before, as each names itself.
+    Brain {
+        think: String,
+        was: String,
+    },
 }
 
 /// The thread of `view.place` as text: who said what, with the time,
@@ -587,6 +600,9 @@ pub struct View<'a> {
     /// A character's is where her daemon runs, and her images are not
     /// shown, only named.
     pub media: Option<std::path::PathBuf>,
+    /// What her daemon last said of her: for an empty thread, whether her
+    /// day has her awake and what it has her doing.
+    pub status: Option<&'a crate::model::Status>,
 }
 
 /// Everything in one place, in order of time: what was said, what was
@@ -602,6 +618,12 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     let gone = taken_back(view.journal, &thread);
     let known = platform::Known::of(view.journal);
     for e in view.journal {
+        // A change of brain is hers, not the thread's: what was taken
+        // back does not take it with it.
+        if let Some(item) = brain_change(e) {
+            items.push((e.at, e.seq, item));
+            continue;
+        }
         // What was taken back is out of the thread, as it is out of the
         // conversation in front of her.
         if gone.iter().any(|(from, to)| (*from..*to).contains(&e.seq)) {
@@ -609,6 +631,11 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
         }
         if let Some(did) = platform::did(e, &thread, &known) {
             items.push((e.at, e.seq, Item::Did(did)));
+        }
+        if e.kind == "digested" && thread_key(s(&e.data, "place")) == thread {
+            let text = s(&e.data, "text").trim().to_owned();
+            items.push((e.at, e.seq, Item::Folded { seq: e.seq, text }));
+            continue;
         }
         if let Some(mut said) = said(e) {
             if thread_key(&said.key()) == thread {
@@ -703,7 +730,96 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
         !matches!(item, Item::Tool(_)) || !spans.iter().any(|(from, to)| from <= at && at <= to)
     });
     items.sort_by_key(|(at, seq, _)| (*at, *seq));
-    items
+    between_turns(items)
+}
+
+/// A change of brain, if `e` is one with a brain before it. The first
+/// such entry in a journal names only the brain she was started on, and is
+/// no change.
+fn brain_change(e: &Entry) -> Option<Item<'static>> {
+    if e.kind != "brain_changed" {
+        return None;
+    }
+    let was = e.data.get("was")?.as_str()?.to_owned();
+    let think = s(&e.data, "think").to_owned();
+    (!think.is_empty() && think != was).then_some(Item::Brain { think, was })
+}
+
+/// The changes of brain in a thread, each where it falls between turns:
+/// one before anything was said here is no turn's, and one straight after
+/// another is a single change, from the first brain to the last.
+fn between_turns<'a>(
+    items: Vec<(DateTime<Utc>, i64, Item<'a>)>,
+) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
+    let mut out: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::with_capacity(items.len());
+    let mut said = false;
+    for (at, seq, item) in items {
+        if let Item::Brain { think, was } = item {
+            if !said {
+                continue;
+            }
+            match out.last_mut() {
+                Some((
+                    last_at,
+                    last_seq,
+                    Item::Brain {
+                        think: last,
+                        was: first,
+                    },
+                )) => {
+                    *last = think;
+                    (*last_at, *last_seq) = (at, seq);
+                    if last == first {
+                        out.pop();
+                    }
+                }
+                _ => out.push((at, seq, Item::Brain { think, was })),
+            }
+            continue;
+        }
+        said |= matches!(item, Item::Said { .. });
+        out.push((at, seq, item));
+    }
+    out
+}
+
+/// Which of your lines, by their place in `items`, were sent while she was
+/// still at what came before and have not been taken up yet: sent after a
+/// line of yours she has not yet answered, or after the look `looking`
+/// still going on began. She takes them up when what she is at ends, at
+/// her next look; from then on they are lines like any other.
+fn sent_while_working(
+    items: &[(DateTime<Utc>, i64, Item<'_>)],
+    looking: Option<DateTime<Utc>>,
+) -> Vec<usize> {
+    let mut busy = false;
+    let mut waiting = Vec::new();
+    for (i, (at, _, item)) in items.iter().enumerate() {
+        match item {
+            Item::Said { m, mine: true, .. } if !m.hers => {
+                if busy || looking.is_some_and(|since| since < *at) {
+                    waiting.push(i);
+                }
+                busy = true;
+            }
+            // Whatever ends her wait on your last line, as
+            // `waiting_since` reckons it, ends what she was at.
+            Item::Said { m, .. } if m.hers => {
+                busy = false;
+                waiting.clear();
+            }
+            Item::Did(did) if did.answers() => {
+                busy = false;
+                waiting.clear();
+            }
+            Item::Task(_) | Item::Look { .. } | Item::Failed(_) | Item::Stopped(_) => {
+                busy = false;
+                waiting.clear();
+            }
+            _ => {}
+        }
+    }
+    waiting
 }
 
 /// The place a journal entry ends a look in, if it can end one: what she

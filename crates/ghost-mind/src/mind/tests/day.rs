@@ -215,3 +215,51 @@ async fn she_looks_back_on_her_own_day_and_on_each_platform_apart() {
     );
     assert!(!words.contains("noodle"), "{words}");
 }
+
+/// A brain that only has a name: enough to start her on.
+struct Named(&'static str);
+
+#[async_trait]
+impl Brain for Named {
+    fn label(&self) -> String {
+        self.0.to_owned()
+    }
+
+    async fn complete(&self, _: &Completion) -> ghost_brain::Result<Reply> {
+        Ok(Reply::default())
+    }
+}
+
+#[tokio::test]
+async fn a_change_of_brain_is_written_down_once_with_the_brain_before() {
+    let t0 = at(9, 0);
+    let rig = Rig::quiet(t0);
+    let changes = |rig: &Rig| -> Vec<(String, Option<String>)> {
+        rig.mind
+            .ghost
+            .journal()
+            .read(1, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                Event::BrainChanged { think, was } => Some((think, was)),
+                _ => None,
+            })
+            .collect()
+    };
+    // Her first start says which brain she was started on, and nothing
+    // was before it.
+    assert_eq!(changes(&rig), [("script".to_owned(), None)]);
+
+    // Started again on the same brain, there is nothing to say.
+    let mut rig = rig.restart(at(9, 5));
+    assert_eq!(changes(&rig).len(), 1);
+
+    // On another, the change and the brain it replaced.
+    rig.mind.think = Arc::new(Named("openai/deepseek-v4"));
+    rig.mind.begin(at(9, 10)).unwrap();
+    assert_eq!(
+        changes(&rig)[1..],
+        [("openai/deepseek-v4".to_owned(), Some("script".to_owned()))]
+    );
+}

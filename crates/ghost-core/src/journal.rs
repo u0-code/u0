@@ -524,6 +524,17 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         unsaid: Vec<String>,
     },
+    /// Her body started her with a brain to think with other than the one
+    /// she last thought with: `think` from here on, as the brain names
+    /// itself (`openai/deepseek-v4`), so that whoever reads her
+    /// conversations can tell which brain an answer came from. `was` is
+    /// the one before, as the last of these named it; the first of these
+    /// in a journal has none, and says only which brain she was started on.
+    BrainChanged {
+        think: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        was: Option<String>,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -648,6 +659,7 @@ kinds! {
     SkillUninstalled => "skill_uninstalled",
     Stopped => "stopped",
     Rewound => "rewound",
+    BrainChanged => "brain_changed",
 }
 
 /// One line of her journal.

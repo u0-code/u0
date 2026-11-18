@@ -48,12 +48,28 @@ pub struct Status {
     /// The context window of the brain she looks with, in tokens, where
     /// her daemon knows it.
     pub think_window: Option<u64>,
+    /// Whether her day has her awake now, when her daemon says.
+    pub awake: Option<bool>,
+    /// What her day has her doing now, in her plan's words, when it says.
+    pub doing: Option<String>,
 }
 
 impl Status {
     pub fn from_value(v: &Value) -> Self {
         let tz: Tz = s(v, "timezone").parse().unwrap_or(chrono_tz::UTC);
+        let moment = v.get("moment");
         Self {
+            awake: moment
+                .and_then(|m| m.get("phase"))
+                .and_then(Value::as_str)
+                .map(|phase| phase == "awake"),
+            doing: moment
+                .and_then(|m| m.get("doing"))
+                .and_then(|d| d.get("what"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned),
             name: s(v, "name"),
             city: s(v, "city"),
             tz,
@@ -298,6 +314,20 @@ mod tests {
         assert_eq!(Status::from_value(&said).think_window, Some(1_048_576));
         let older = serde_json::json!({"brains": {"think": "main"}});
         assert_eq!(Status::from_value(&older).think_window, None);
+    }
+
+    #[test]
+    fn her_moment_says_whether_she_is_awake_and_what_her_day_has_her_doing() {
+        let said = serde_json::json!({
+            "moment": {"phase": "awake", "doing": {"what": "reading the QQ group"}},
+        });
+        let status = Status::from_value(&said);
+        assert_eq!(status.awake, Some(true));
+        assert_eq!(status.doing.as_deref(), Some("reading the QQ group"));
+        let asleep = Status::from_value(&serde_json::json!({"moment": {"phase": "asleep"}}));
+        assert_eq!((asleep.awake, asleep.doing), (Some(false), None));
+        let older = Status::from_value(&serde_json::json!({}));
+        assert_eq!((older.awake, older.doing), (None, None));
     }
 
     #[test]

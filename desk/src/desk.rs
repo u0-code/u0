@@ -633,6 +633,7 @@ fn thread_view<'a>(
         rendering: thread::Rendering::Task,
         column: thread::COLUMN,
         media: None,
+        status: ghost.status.as_ref(),
     }
 }
 

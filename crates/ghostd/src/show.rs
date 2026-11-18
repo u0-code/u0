@@ -254,6 +254,10 @@ fn describe(event: &Event, tz: Tz) -> String {
             }
             format!("[{place}] by {by}: {}", what.join("; "))
         }
+        Event::BrainChanged { think, was } => match was {
+            Some(was) => format!("{think}, was {was}"),
+            None => think.clone(),
+        },
     }
 }
 

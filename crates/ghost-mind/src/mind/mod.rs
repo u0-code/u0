@@ -637,6 +637,24 @@ impl Mind {
         Ok(())
     }
 
+    /// Write down the brain she thinks with, if it is not the one her
+    /// journal last named: her body is started with a brain and keeps it,
+    /// so a change of brain happens here and nowhere else.
+    fn note_brain(&mut self) -> Result<()> {
+        let think = self.think.label();
+        let was = match self.ghost.journal().last_of(&["brain_changed"])? {
+            Some(last) => match last.event {
+                Event::BrainChanged { think, .. } => Some(think),
+                _ => None,
+            },
+            None => None,
+        };
+        if was.as_deref() != Some(think.as_str()) {
+            self.record(Event::BrainChanged { think, was })?;
+        }
+        Ok(())
+    }
+
     /// Pick her life back up: note any gap, then rebuild the agenda from what
     /// the journal says is unread and undone.
     fn begin(&mut self, now: DateTime<Utc>) -> Result<()> {
@@ -647,6 +665,7 @@ impl Mind {
         {
             self.record(Event::Dormant { since: last.at })?;
         }
+        self.note_brain()?;
         // Settle whether she is awake before anything else can happen.
         self.live(now)?;
         // Whatever servers of tools she installed are still hers. None is
