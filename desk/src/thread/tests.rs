@@ -282,7 +282,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         scroll: None,
         rendering: Rendering::Task,
         column: COLUMN,
-        media: None,
+        media: Err("her images are not asked for in a test"),
         status: None,
     };
     let said: Vec<(String, bool)> = items(&view)
@@ -370,7 +370,7 @@ fn view<'a>(
         scroll: None,
         rendering: Rendering::Task,
         column: COLUMN,
-        media: None,
+        media: Err("her images are not asked for in a test"),
         status: None,
     }
 }
@@ -682,7 +682,7 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         scroll: None,
         rendering: Rendering::Task,
         column: COLUMN,
-        media: None,
+        media: Err("her images are not asked for in a test"),
         status: None,
     };
     let texts: Vec<String> = items(&view)

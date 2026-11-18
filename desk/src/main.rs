@@ -27,6 +27,7 @@ mod icon;
 mod input;
 mod link;
 mod markdown;
+mod media;
 mod model;
 mod models;
 mod path;

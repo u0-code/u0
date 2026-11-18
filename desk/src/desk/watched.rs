@@ -15,6 +15,7 @@ use crate::{
     follow::{Following, Read},
     held::Held,
     link::{self, Link, Order},
+    media,
     model::{Entry, LinkState, Message, Reach, Status, Stop, Update},
     thread,
 };
@@ -55,6 +56,31 @@ pub struct Watched {
     keeper: cache::Keeper,
     /// Her clock's zone as it was kept, until her daemon says.
     kept_tz: Option<Tz>,
+    /// Her core's id as it was kept, until her daemon says.
+    kept_core: Option<String>,
+    /// How her files are asked of her core, but for its id.
+    media: media::Source,
+}
+
+/// What a thread draws of her images with while her core has not said
+/// which core it is.
+const NO_CORE_YET: &str = "Waiting for her core";
+/// What it draws when her core never will: one from before it said.
+const OLD_CORE: &str = "Her core is older than this desk and does not hand out her images";
+
+/// Her core's id, which her images are kept here by: as her daemon said
+/// it in `status`, or, until it has, as it was `kept` last time. Without
+/// one, why her images cannot be shown, in a line.
+fn core_id<'a>(status: Option<&'a Status>, kept: Option<&'a str>) -> Result<&'a str, &'static str> {
+    let id = match status {
+        Some(status) => status.core.as_ref().map(|c| c.id.as_str()),
+        None => kept,
+    };
+    match id.filter(|id| !id.is_empty()) {
+        Some(id) => Ok(id),
+        None if status.is_some() => Err(OLD_CORE),
+        None => Err(NO_CORE_YET),
+    }
 }
 
 impl Watched {
@@ -64,7 +90,15 @@ impl Watched {
         let kept = cache::load(&cfg.url, cfg.ghost.as_deref());
         let keeper = cache::Keeper::new(&cfg.url, cfg.ghost.as_deref());
         let journal = Held::kept(kept.journal);
+        let media = media::Source {
+            core: String::new(),
+            url: cfg.url.clone(),
+            token: cfg.token.clone(),
+            ghost: cfg.ghost.clone(),
+        };
         Self {
+            kept_core: kept.core,
+            media,
             conn: Link::watch(cfg, journal.newest()),
             fallback: fallback.to_owned(),
             link: LinkState::Connecting,
@@ -99,12 +133,24 @@ impl Watched {
             changed = true;
         }
         let (journal, work, status) = (&self.journal, &self.work, &self.status);
+        let kept_core = self.kept_core.as_deref();
         self.keeper.settle(|| cache::Cached {
             journal: journal.tail().to_vec(),
             work: work.clone(),
             timezone: status.as_ref().map(|s| s.tz.name().to_owned()),
+            core: core_id(status.as_ref(), kept_core).ok().map(str::to_owned),
         });
         changed
+    }
+
+    /// Where her images are asked for, or, as a thread says it, why they
+    /// cannot be yet.
+    pub fn media(&self) -> Result<media::Source, &'static str> {
+        let id = core_id(self.status.as_ref(), self.kept_core.as_deref())?;
+        Ok(media::Source {
+            core: id.to_owned(),
+            ..self.media.clone()
+        })
     }
 
     /// Say `text` to her, as `mode` has it, in the place `place` on the
@@ -306,4 +352,25 @@ impl Open {
 /// named after you, as the daemon names it when no place is given.
 pub fn yours(who: &str) -> String {
     thread::place_key(&who.to_lowercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn her_images_are_kept_by_the_core_id_her_daemon_says_or_the_one_kept_until_it_does() {
+        let said = Status::from_value(&serde_json::json!({
+            "core": {"id": "5f0c", "id_file": "/srv/ghost/core-id"},
+        }));
+        assert_eq!(core_id(Some(&said), Some("77aa")), Ok("5f0c"));
+        assert_eq!(core_id(None, Some("77aa")), Ok("77aa"), "before it says");
+        assert_eq!(core_id(None, None), Err(NO_CORE_YET));
+        let older = Status::from_value(&serde_json::json!({"brains": {"think": "main"}}));
+        assert_eq!(
+            core_id(Some(&older), Some("77aa")),
+            Err(OLD_CORE),
+            "a daemon that answered without one never will"
+        );
+    }
 }

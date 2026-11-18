@@ -108,10 +108,14 @@ there are and changes them over the Ghost Protocol (`brains.*`), and
 reads neither its `ghostd.toml` nor its `.env` for them. What its ghost
 can do besides talk (work, the machine it runs on, the web, the agents
 installed there) the core says in `ghost.status`, under `abilities`, with
-the directory her machine works in. What the desk still reads in the
-core's home, rather than asking the core, is its ghost's media. That
-moves behind the Ghost Protocol next, after which the desk reads none of
-the core's files.
+the directory her machine works in. Her images (what she saw, sent and
+opened, and what her work kept) the desk asks of the core by name
+(`media.get`) the first time it shows one, off the main thread, and keeps
+under `~/.config/ghost-desk/cache/media/<core id>/`; a name is the hash of
+the bytes, so a copy is good for ever, and shows while the core is out of
+reach. It is the same for its own core and for every connection, and a
+kept file opens in its viewer from that copy. The desk reads none of a
+core's files.
 
 ### On this computer, or not
 

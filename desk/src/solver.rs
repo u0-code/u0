@@ -113,17 +113,14 @@ impl Provider {
 /// Where the desk's core listens, which is what [`crate::settings::SOLVER_URL`]
 /// reaches.
 const LISTEN: &str = "127.0.0.1:7438";
-/// The mascot, in its home.
-const GHOST: &str = "ghosts/solver";
 
 /// The desk's core, and the daemon if the desk started it.
 ///
 /// The core keeps everything in a home of its own, which `ghostd` makes
 /// ready by itself: the desk only names it. Its brains and their keys,
-/// what its ghost can do besides talk, where it runs and the directory her
-/// machine works in are behind the Ghost Protocol. What the desk still
-/// reads there itself, its ghost's media, is the next step's to move
-/// behind it, after which the desk will read none of its files.
+/// what its ghost can do besides talk, where it runs, the directory her
+/// machine works in and her images are behind the Ghost Protocol: the
+/// desk reads none of its files.
 pub struct Deployment {
     /// The core's home: `ghost_link::home()`.
     pub core: PathBuf,
@@ -168,12 +165,6 @@ impl Deployment {
         }
     }
 
-    /// Where the solver lives, for its media, which is still read here
-    /// rather than asked of the core.
-    pub fn ghost_dir(&self) -> PathBuf {
-        self.core.join(GHOST)
-    }
-
     /// The daemon binary. See [`pick_ghostd`].
     pub fn ghostd(&self) -> PathBuf {
         let beside = std::env::current_exe()
@@ -213,8 +204,8 @@ impl Deployment {
         }
     }
 
-    /// Have `ghostd` make the core's home ready, and wait for it: what the
-    /// desk reads there must be there before it is read. A home already
+    /// Have `ghostd` make the core's home ready, and wait for it: the core
+    /// it starts there must have a ghost to run. A home already
     /// set up is left as it is; one with no ghost yet takes in the core a
     /// checkout kept before there were homes, if there is one.
     pub fn ready(&self) -> anyhow::Result<()> {
@@ -378,12 +369,6 @@ mod tests {
             pick_ghostd(None, beside, &d.checkout),
             d.checkout.join("target/debug/ghostd")
         );
-    }
-
-    #[test]
-    fn what_the_desk_reads_of_its_core_is_in_the_cores_home_and_never_in_the_checkout() {
-        let d = checkout("home");
-        assert_eq!(d.ghost_dir(), d.core.join("ghosts/solver"));
     }
 
     #[test]

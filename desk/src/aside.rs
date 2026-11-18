@@ -25,6 +25,7 @@ use crate::{
     brains::Mark,
     desk::{At, Desk, Menu, Open, RIGHT, Watched},
     fonts::Faces,
+    media::{self, Shown},
     model::{LinkState, Reach, reason},
     settings::Session,
     theme,
@@ -851,47 +852,57 @@ impl Desk {
         list
     }
 
-    /// The files this session's work handed over: each shows in Finder
-    /// when its core is on this computer, and otherwise says where it is
-    /// on the core's.
+    /// The files this session's work handed over. A report names a path
+    /// on its core's computer (relative ones are under its machine's
+    /// directory, as the core says it): it shows in Finder when that is
+    /// this computer, and otherwise says where it is. A kept file is asked
+    /// of the core like any image of hers, and opens from the copy kept
+    /// here.
     fn outputs(&self, faces: &Faces, outputs: &[Output], cx: &mut Context<Self>) -> Div {
-        let here = self.solver.status.as_ref().is_some_and(|s| s.here);
+        let status = self.solver.status.as_ref();
+        let here = status.is_some_and(|s| s.here);
         let mut list = div().flex().flex_col();
         for (i, o) in outputs.iter().enumerate() {
-            let path = self.output_path(o);
-            let line = (
+            // What a click does with it, in Finder or in its viewer, or
+            // what is said under it instead. A kept file on its way from
+            // the core is a plain row until it is here.
+            let (click, note) = match o.source {
+                Source::Report => match status.and_then(|s| s.locate(&o.file, None)) {
+                    Some(path) if here => (Some((path, true)), None),
+                    Some(path) => (None, Some(path.display().to_string())),
+                    None => (None, None),
+                },
+                Source::Kept => match self.solver.media().map(|m| media::shown(&m, &o.file)) {
+                    Ok(Shown::Here(path)) => (Some((path, false)), None),
+                    Ok(Shown::Loading) => (None, None),
+                    Ok(Shown::Failed(why)) => (None, Some(why)),
+                    Err(why) => (None, Some(why.to_owned())),
+                },
+            };
+            let (icon, name, kind) = (
                 Some(row_icon("file")),
                 label(faces, o.name().to_owned()),
                 Some(value(faces, o.kind(), theme::faint())),
             );
-            list = list.child(match path {
-                Some(path) if here => row(line.0, line.1, line.2)
+            list = list.child(match (click, note) {
+                (Some((path, in_finder)), _) => row(icon, name, kind)
                     .id(("output", i))
                     .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if in_finder {
+                            this.reveal(&path, cx);
+                        } else {
+                            cx.open_with_system(&path);
+                        }
+                    }))
                     .into_any_element(),
-                Some(path) => row_with(
-                    line.0,
-                    line.1,
-                    line.2,
-                    under(faces, path.display().to_string()),
-                )
-                .into_any_element(),
-                None => row(line.0, line.1, line.2).into_any_element(),
+                (None, Some(note)) => {
+                    row_with(icon, name, kind, under(faces, note)).into_any_element()
+                }
+                (None, None) => row(icon, name, kind).into_any_element(),
             });
         }
         list
-    }
-
-    /// Where a handed-over file is on the solver's core: a report names a
-    /// path on its machine (relative ones are under its machine's
-    /// directory, as the core says it), and a kept file is in the ghost's
-    /// `media/`.
-    fn output_path(&self, o: &Output) -> Option<PathBuf> {
-        match o.source {
-            Source::Report => self.solver.status.as_ref()?.locate(&o.file, None),
-            Source::Kept => Some(self.deployment.ghost_dir().join("media").join(&o.file)),
-        }
     }
 }
 

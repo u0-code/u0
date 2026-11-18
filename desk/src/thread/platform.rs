@@ -13,8 +13,9 @@
 //! there is drawn as itself; and where the platform would not take what
 //! she sent, a calm line says so, with the reason it gave.
 //!
-//! Everything is read from entries as the journal has them; nothing here
-//! is asked of her daemon.
+//! Everything is read from entries as the journal has them. The one thing
+//! asked of her daemon is an image itself, by the name the journal gives
+//! it: see `media.rs`.
 
 use std::{
     collections::HashMap,
@@ -36,7 +37,13 @@ use super::{
     style::{BOX_RADIUS, CARD_RADIUS, META, PROSE, PROSE_LINE, ROW, S2, S3, S4, meta},
     thread_key,
 };
-use crate::{desk::Desk, fonts::Faces, model::Entry, theme, ui};
+use crate::{
+    desk::Desk,
+    fonts::Faces,
+    media::{self, Shown, Source},
+    model::Entry,
+    theme, ui,
+};
 
 /// One thing she did, as a row or a box in a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -601,31 +608,15 @@ fn size_of(path: &Path) -> Option<(u32, u32)> {
     size
 }
 
-/// Where an image she sent is on this machine, or why it cannot be shown.
-fn located(file: &str, media: Option<&Path>) -> Result<PathBuf, String> {
-    // Only a bare name in `media/` is looked for, as her body does.
-    let bare = !file.is_empty() && !file.contains(['/', '\\']) && !file.starts_with('.');
-    let Some(media) = media.filter(|_| bare) else {
-        return Err(format!(
-            "{file} is kept where her daemon runs, not on this machine"
-        ));
-    };
-    let path = media.join(file);
-    if path.is_file() {
-        Ok(path)
-    } else {
-        Err(format!("{file} is no longer in media/"))
-    }
-}
-
 /// An image she sent, at most `wide` by `tall` in its own shape, in a
-/// hairline of `edge`; where it cannot be shown, a dashed frame of the
-/// width it would have had, saying why. A click opens the file.
+/// hairline of `edge`, as her core hands it out: while it is on its way, a
+/// quiet frame of the width it will have; where it cannot be shown, a
+/// dashed one, saying why. A click opens the copy kept here.
 fn picture(
     faces: &Faces,
     id: String,
     file: &str,
-    media: Option<&Path>,
+    media: Result<&Source, &str>,
     (wide, tall): (f32, f32),
     edge: Hsla,
     cx: &mut Context<Desk>,
@@ -657,9 +648,19 @@ fn picture(
             )
             .into_any_element()
     };
-    let path = match located(file, media) {
-        Ok(path) => path,
-        Err(why) => return gone(why),
+    let path = match media.map(|source| media::shown(source, file)) {
+        Ok(Shown::Here(path)) => path,
+        Ok(Shown::Loading) => {
+            return div()
+                .w(px(wide))
+                .h(px(GONE_TALL.min(tall)))
+                .rounded(px(CARD_RADIUS))
+                .border_1()
+                .border_color(edge)
+                .into_any_element();
+        }
+        Ok(Shown::Failed(why)) => return gone(why),
+        Err(why) => return gone(why.to_owned()),
     };
     let (w, h) = size_of(&path).map_or((wide, tall.min(wide)), |size| fitted(size, wide, tall));
     let unread = format!("{file} could not be read as an image");
@@ -709,7 +710,7 @@ pub(super) fn render(
     cx: &mut Context<Desk>,
 ) -> AnyElement {
     let when = stamp(at, view.tz);
-    let media = view.media.as_deref();
+    let media = view.media.as_ref().map_err(|why| *why);
     // Room for words in a label or a row: the column less its insets, the
     // verb before them and the time after.
     let cols = |less: f32| ((view.column - less).max(60.) / POINTS_PER_COL) as usize;
@@ -1240,24 +1241,5 @@ mod tests {
         assert_eq!(dimensions(&mut Cursor::new(webp)), Some((320, 240)));
 
         assert_eq!(dimensions(&mut Cursor::new(b"not an image".to_vec())), None);
-    }
-
-    #[test]
-    fn an_image_not_on_this_machine_says_why_it_cannot_be_seen() {
-        let none = located("a.jpg", None).unwrap_err();
-        assert!(none.contains("where her daemon runs"), "{none}");
-        let dir = std::env::temp_dir().join(format!("ghost-desk-media-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(
-            located("gone.jpg", Some(&dir)).unwrap_err(),
-            "gone.jpg is no longer in media/"
-        );
-        std::fs::write(dir.join("here.jpg"), b"x").unwrap();
-        assert_eq!(located("here.jpg", Some(&dir)), Ok(dir.join("here.jpg")));
-        assert!(
-            located("../journal.db", Some(&dir)).is_err(),
-            "never out of media/"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

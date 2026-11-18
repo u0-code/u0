@@ -430,7 +430,7 @@ impl Desk {
     /// Take in everything the links have learned since last time, and tick
     /// once a second so that what is running shows its time.
     fn pump(&mut self, cx: &mut Context<Self>) {
-        let mut changed = self.solver.pump();
+        let mut changed = self.solver.pump() | crate::media::arrived();
         let mut forgot = false;
         for daemon in &mut self.daemons {
             changed |= daemon.pump();
@@ -619,7 +619,7 @@ fn thread_view<'a>(
         scroll: Some(scroll),
         rendering: thread::Rendering::Task,
         column: thread::COLUMN,
-        media: None,
+        media: ghost.media(),
         status: ghost.status.as_ref(),
     }
 }
@@ -663,10 +663,6 @@ impl Render for Desk {
                 - if self.panes.left { LEFT } else { 0. }
                 - if self.panes.right { RIGHT } else { 0. };
             view.column = (pane - 64.).clamp(240., thread::COLUMN);
-            // Only the solver's directory is on this machine for certain.
-            if self.open.is_none() {
-                view.media = Some(self.deployment.ghost_dir().join("media"));
-            }
             // Only a place on the console channel is yours to stop her in.
             let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
                 && thread::busy(&view);
