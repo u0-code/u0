@@ -961,3 +961,84 @@ async fn an_agent_that_is_not_logged_in_is_reported_with_the_fix_and_handed_noth
     assert!(again.contains("Claude Code is not logged in"), "{again}");
     assert!(Undertaking::open(&state_db(dir.path()), "main/2", None).is_err());
 }
+
+#[tokio::test]
+async fn a_part_of_work_in_a_repository_works_in_a_checkout_of_its_own_brought_back_when_it_finishes()
+ {
+    let dir = tempfile::tempdir().unwrap();
+    // The work's folder: a repository, with a file not committed yet.
+    let folder = dir.path().join("folder");
+    std::fs::create_dir(&folder).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&folder)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(folder.join("notes.txt"), "from the work\n").unwrap();
+    let stray = folder.join("stray.txt").display().to_string();
+    let script = vec![
+        calls("delegate", json!({"task": "write the summary"})),
+        calls("wait", json!({"seconds": 10})),
+        calls(
+            "done",
+            json!({"outcome": "finished", "summary": "summarised"}),
+        ),
+    ];
+    let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+    worker
+        .undertaking
+        .update(|s| s.dir = Some(folder.display().to_string()));
+    brain.part(
+        "write the summary",
+        vec![
+            // Into the work's folder: refused.
+            calls("write", json!({"path": stray, "content": "x"})),
+            // Where it is: its own checkout, which has the work's file.
+            calls("shell", json!({"command": "cat notes.txt"})),
+            calls(
+                "write",
+                json!({"path": "summary.md", "content": "# Summary\n"}),
+            ),
+            calls(
+                "done",
+                json!({"outcome": "finished", "summary": "wrote summary.md"}),
+            ),
+        ],
+    );
+    // Each worker's machine is in its own folder, as her mind gives it.
+    let (root, words) = (dir.path().to_path_buf(), worker.prompts.clone());
+    worker.helpers = Some(Arc::new(move |undertaking: &Arc<Undertaking>| {
+        let base = Local::new(&root);
+        let machine: Arc<dyn crate::Machine> = match undertaking.state().dir {
+            Some(d) => crate::Machine::at(&base, std::path::Path::new(&d)).unwrap(),
+            None => Arc::new(base),
+        };
+        tools::standard(machine, undertaking, &words)
+    }));
+    let report = worker.run().await;
+    assert_eq!(report.ended, Ended::Finished);
+
+    let part = brain.turns_of("write the summary");
+    assert!(
+        result_of(&part[1], "write").contains("is in the work's folder"),
+        "{}",
+        result_of(&part[1], "write")
+    );
+    assert!(result_of(&part[2], "shell").contains("\nfrom the work\n"));
+    // What it made is in the work's folder, and nothing else of it is.
+    assert_eq!(
+        std::fs::read_to_string(folder.join("summary.md")).unwrap(),
+        "# Summary\n"
+    );
+    assert!(!folder.join("stray.txt").exists());
+    assert!(!dir.path().join("worktrees").join("main-1").exists());
+    let told = brain.turns_of(PARENT);
+    let said = told.last().unwrap().items.iter().any(|item| {
+        matches!(item, Item::User { text }
+            if text.contains("What it changed is now in your folder: summary.md."))
+    });
+    assert!(said, "its report says what came back");
+}

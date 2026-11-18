@@ -46,6 +46,9 @@ async fn slurp(desk: &Desk, path: &str, limit: Option<usize>) -> Result<String, 
 }
 
 async fn store(desk: &Desk, path: &str, content: &str) -> Result<(), Outcome> {
+    if let Some(why) = desk.fenced(path) {
+        return Err(Outcome::fail(why));
+    }
     let q = quote(path);
     let script = format!("mkdir -p -- \"$(dirname -- {q})\" && cat > {q}");
     let out = desk

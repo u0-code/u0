@@ -12,6 +12,7 @@
 
 pub mod agents;
 pub mod catalog;
+pub mod checkout;
 pub mod folder;
 pub mod looks;
 pub mod machine;
