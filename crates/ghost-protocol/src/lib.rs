@@ -154,6 +154,45 @@ pub mod method {
     /// whoever runs her. Read-only; which of it a client has shown is the
     /// client's to remember, by each item's id.
     pub const ATTENTION: &str = "attention.list";
+
+    /// Console → daemon request. No params. Result
+    /// [`BrainList`](super::BrainList): the brains the daemon is configured
+    /// with, which of them she thinks and ticks with, and whether it takes
+    /// changes to them. The brains are the daemon's, shared by every
+    /// character it runs; a key is never in the answer, only whether one
+    /// is set.
+    pub const BRAINS: &str = "brains.list";
+    /// Console → daemon request. Params [`BrainSave`](super::BrainSave),
+    /// result [`BrainList`](super::BrainList). An operator adds a brain or
+    /// changes one, and may give the key it reads, which the daemon keeps
+    /// in its home's `.env` and never in its configuration. A change to a
+    /// brain in use takes effect at once. Refused with
+    /// [`UNCHANGEABLE`](super::code::UNCHANGEABLE) by a daemon that runs
+    /// no home.
+    pub const BRAIN_SAVE: &str = "brains.save";
+    /// Console → daemon request. Params [`BrainRemove`](super::BrainRemove),
+    /// result [`BrainList`](super::BrainList). An operator takes a brain
+    /// out; the one in use stays. Refused as [`BRAIN_SAVE`] is.
+    pub const BRAIN_REMOVE: &str = "brains.remove";
+    /// Console → daemon request. Params [`BrainUse`](super::BrainUse),
+    /// result [`BrainList`](super::BrainList). An operator has her think
+    /// and tick with a brain, on a model of its own: the daemon first asks
+    /// it to think once, refuses with
+    /// [`BRAIN_FAILED`](super::code::BRAIN_FAILED) and why if it cannot,
+    /// and otherwise starts every mind it runs again on it. Refused as
+    /// [`BRAIN_SAVE`] is.
+    pub const BRAIN_USE: &str = "brains.use";
+    /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
+    /// result [`BrainModels`](super::BrainModels): the models an API's own
+    /// listing offers, asked by the daemon, with the key it holds. Only an
+    /// operator may ask, since it spends the key.
+    pub const BRAIN_MODELS: &str = "brains.models";
+    /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
+    /// result `{}`: the brain was asked to think once, as little as there
+    /// is, the way her mind would ask it, and answered. If it did not, the
+    /// request is refused with [`BRAIN_FAILED`](super::code::BRAIN_FAILED)
+    /// and what it said. Only an operator may ask.
+    pub const BRAIN_CHECK: &str = "brains.check";
 }
 
 /// The channel a console speaks to her on. It is the daemon's own: no
@@ -185,6 +224,17 @@ pub mod code {
     /// The line named is not one the operator said in that place: there
     /// is no such entry, it is hers, or it was said elsewhere.
     pub const NO_SUCH_LINE: i64 = -32006;
+    /// The daemon does not change its brains when asked: it runs no home,
+    /// so its configuration is a file it was given rather than its own.
+    pub const UNCHANGEABLE: i64 = -32007;
+    /// There is no brain by that name.
+    pub const NO_SUCH_BRAIN: i64 = -32008;
+    /// The brain's key is not set: neither in the daemon's environment nor
+    /// in its home's `.env`.
+    pub const NO_KEY: i64 = -32009;
+    /// The brain was asked, and could not answer: the message says what it
+    /// said.
+    pub const BRAIN_FAILED: i64 = -32011;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
 }
@@ -1142,9 +1192,191 @@ pub struct WorkStep {
     pub part: Option<u64>,
 }
 
+/// The result of [`method::BRAINS`], and of every request that changes
+/// the brains: what they are once it has.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainList {
+    /// In the order the daemon's configuration has them.
+    pub brains: Vec<BrainInfo>,
+    /// The brain she thinks with, by name: in conversation and reflection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub think: Option<String>,
+    /// The brain she ticks with: the routine of her day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tick: Option<String>,
+    /// Whether the daemon changes its brains when asked. A daemon that runs
+    /// no home says no: its configuration is a file it was given.
+    #[serde(default)]
+    pub changeable: bool,
+}
+
+/// One brain a daemon is configured with, in a [`BrainList`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainInfo {
+    /// What it is saved as: `[providers.<name>]`.
+    pub name: String,
+    /// `openai`, `anthropic`, `claude-code` or `codex`.
+    pub kind: String,
+    /// The model it is set to; empty for a command-line agent left to its
+    /// own default.
+    #[serde(default)]
+    pub model: String,
+    /// Where its API is, when its configuration says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The environment variable its key is read from, the kind's default
+    /// where its configuration names none. None for a command-line agent,
+    /// and for an API given a key in its configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_env: Option<String>,
+    /// Whether it has a key to send: the variable is set, or its
+    /// configuration gives one. False for a command-line agent.
+    #[serde(default)]
+    pub key_set: bool,
+    /// The program, for a command-line agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Why the daemon's machine cannot run it, if it cannot: its key is not
+    /// set, its program is not installed, nothing answers where its API is
+    /// on that machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+}
+
+/// Params of [`method::BRAIN_SAVE`].
+///
+/// Its `Debug` leaves the key out, so that logging a request cannot log one.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainSave {
+    /// The brain changed, by the name it is saved as; left out, a new one.
+    /// With another `name`, it is renamed, and [`BrainList::think`] and
+    /// [`BrainList::tick`] follow it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub was: Option<String>,
+    /// What it is saved as: letters, digits, `-` and `_`.
+    pub name: String,
+    /// Keys of `[providers.<name>]` to set, as `ghostd.toml` has them
+    /// (`kind`, `model`, `base_url`, `api_key_env`, `json_mode`, …). A key
+    /// is not one of them: it goes in `key`.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub set: serde_json::Map<String, Value>,
+    /// Keys of `[providers.<name>]` to take out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clear: Vec<String>,
+    /// The key itself, if one is given: kept in the home's `.env` under the
+    /// variable the brain reads, never in the configuration, and never said
+    /// back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+impl std::fmt::Debug for BrainSave {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrainSave")
+            .field("was", &self.was)
+            .field("name", &self.name)
+            .field("set", &self.set)
+            .field("clear", &self.clear)
+            .field("key", &self.key.as_ref().map(|_| "…"))
+            .finish()
+    }
+}
+
+/// Params of [`method::BRAIN_REMOVE`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainRemove {
+    pub name: String,
+}
+
+/// Params of [`method::BRAIN_USE`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainUse {
+    /// The brain she is to think and tick with.
+    pub name: String,
+    /// The model it is to think with: left out, the one it is set to;
+    /// empty, none named, for a command-line agent's own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Params of [`method::BRAIN_MODELS`] and [`method::BRAIN_CHECK`]: a brain
+/// saved, by its name, or one being written, by what its
+/// `[providers.<name>]` would say; with both, what is written is laid over
+/// what is saved.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainAsk {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Keys of a `[providers.<name>]` table, as [`BrainSave::set`] has them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<serde_json::Map<String, Value>>,
+    /// For a check, the model to think with in place of its own; empty, a
+    /// command-line agent's own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// The result of [`method::BRAIN_MODELS`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainModels {
+    /// By id, as the API lists them.
+    pub models: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_brain_list_reads_with_only_what_a_daemon_sends_and_never_carries_a_key() {
+        let list: BrainList = serde_json::from_str(
+            r#"{"brains":[{"name":"main","kind":"openai","model":"m","key_env":"K","key_set":true},
+                {"name":"cc","kind":"claude-code","program":"claude","blocker":"`claude` was not found"}],
+                "think":"main","tick":"main","changeable":true}"#,
+        )
+        .unwrap();
+        assert_eq!(list.think.as_deref(), Some("main"));
+        assert!(list.brains[0].key_set && !list.brains[1].key_set);
+        assert_eq!(list.brains[1].model, "");
+        let back: BrainList = serde_json::from_str(&serde_json::to_string(&list).unwrap()).unwrap();
+        assert_eq!(back, list);
+        // A daemon that says nothing of changing them does not take changes.
+        let old: BrainList = serde_json::from_str(r#"{"brains":[]}"#).unwrap();
+        assert!(!old.changeable && old.think.is_none());
+    }
+
+    #[test]
+    fn a_saved_brain_carries_its_key_on_the_wire_and_never_in_its_debug() {
+        let mut set = serde_json::Map::new();
+        set.insert("kind".into(), Value::from("openai"));
+        set.insert("json_mode".into(), Value::from(true));
+        let save = BrainSave {
+            was: None,
+            name: "deepseek".into(),
+            set,
+            clear: Vec::new(),
+            key: Some("sk-secret".into()),
+        };
+        let sent = serde_json::to_string(&Frame::request(9, method::BRAIN_SAVE, &save)).unwrap();
+        assert_eq!(
+            sent,
+            r#"{"jsonrpc":"2.0","id":9,"method":"brains.save","params":{"key":"sk-secret","name":"deepseek","set":{"json_mode":true,"kind":"openai"}}}"#
+        );
+        let read: Frame = serde_json::from_str(&sent).unwrap();
+        assert_eq!(read.params::<BrainSave>().unwrap(), save);
+        assert!(!format!("{save:?}").contains("sk-secret"), "{save:?}");
+        // Asked by name alone, nothing else rides along.
+        let ask = BrainAsk {
+            name: Some("main".into()),
+            ..BrainAsk::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&ask).unwrap(),
+            serde_json::json!({"name": "main"})
+        );
+        let used: BrainUse = serde_json::from_str(r#"{"name":"main"}"#).unwrap();
+        assert_eq!(used.model, None, "left out, the model it is set to");
+    }
 
     #[test]
     fn a_response_whose_result_is_null_is_still_a_response() {

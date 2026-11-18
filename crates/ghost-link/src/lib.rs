@@ -22,9 +22,10 @@ pub mod text;
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
-    ConsoleRewind, ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame,
-    Hello, JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead,
-    Welcome, WorkAnswer, WorkLog, WorkStop, method,
+    BrainAsk, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, ConsoleRewind,
+    ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello,
+    JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead, Welcome,
+    WorkAnswer, WorkLog, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -326,6 +327,51 @@ impl Console {
             work: work.to_owned(),
         };
         self.conn.call::<Value>(method::WORK_STOP, &params).await?;
+        Ok(())
+    }
+
+    /// The brains the daemon is configured with, and which she thinks with.
+    pub async fn brains(&mut self) -> anyhow::Result<BrainList> {
+        self.conn.call(method::BRAINS, &()).await
+    }
+
+    /// Add a brain or change one, as an operator, giving its key if `save`
+    /// carries one; what the brains are afterwards.
+    pub async fn save_brain(&mut self, save: &BrainSave) -> anyhow::Result<BrainList> {
+        self.conn.call(method::BRAIN_SAVE, save).await
+    }
+
+    /// Take the brain `name` out, as an operator.
+    pub async fn remove_brain(&mut self, name: &str) -> anyhow::Result<BrainList> {
+        let params = BrainRemove {
+            name: name.to_owned(),
+        };
+        self.conn.call(method::BRAIN_REMOVE, &params).await
+    }
+
+    /// Have her think with the brain `name`, on `model` if given, as an
+    /// operator, once it has shown it can.
+    pub async fn use_brain(
+        &mut self,
+        name: &str,
+        model: Option<String>,
+    ) -> anyhow::Result<BrainList> {
+        let params = BrainUse {
+            name: name.to_owned(),
+            model,
+        };
+        self.conn.call(method::BRAIN_USE, &params).await
+    }
+
+    /// The models the brain `ask` names offers, as its API lists them.
+    pub async fn brain_models(&mut self, ask: &BrainAsk) -> anyhow::Result<Vec<String>> {
+        let listed: BrainModels = self.conn.call(method::BRAIN_MODELS, ask).await?;
+        Ok(listed.models)
+    }
+
+    /// Ask the brain `ask` names to think once; an error says why it could not.
+    pub async fn check_brain(&mut self, ask: &BrainAsk) -> anyhow::Result<()> {
+        self.conn.call::<Value>(method::BRAIN_CHECK, ask).await?;
         Ok(())
     }
 
