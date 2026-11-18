@@ -574,3 +574,46 @@ fn a_work_folder_is_named_from_the_first_line_of_its_brief_in_any_script() {
     );
     assert_eq!(super::super::work::folder_name("  \n/// ?"), "work");
 }
+
+#[test]
+fn her_status_says_what_she_can_do_as_her_daemon_runs_her() {
+    use ghost_protocol::{Abilities, MachineInfo};
+    let t0 = at(14, 0);
+    let abilities = |rig: &Rig| -> Abilities {
+        let status = rig.mind.answer(&Question::Status, t0).unwrap();
+        serde_json::from_value(status["abilities"].clone()).unwrap()
+    };
+
+    // A brain that cannot run tools takes nothing on, whatever is set.
+    let rig = Rig::quiet(t0);
+    assert_eq!(
+        abilities(&rig),
+        Abilities {
+            work: false,
+            web: true,
+            ..Abilities::default()
+        }
+    );
+
+    // With one, and a shell on this computer, she works here.
+    let mut rig = Rig::with_tools(t0);
+    assert!(abilities(&rig).work && abilities(&rig).machine.is_none());
+    let desk = tempfile::tempdir().unwrap();
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(desk.path())));
+    rig.mind.cfg.work.machine = Some(" local: ".into());
+    let said = abilities(&rig);
+    assert_eq!(
+        said.machine,
+        Some(MachineInfo {
+            kind: "local".into(),
+            spec: "local:".into(),
+        })
+    );
+    assert!(said.local());
+
+    // Turned off, nothing is offered, though the machine is still there.
+    rig.mind.cfg.work.enabled = false;
+    rig.mind.cfg.work.web = false;
+    let off = abilities(&rig);
+    assert!(!off.work && !off.web && !off.local());
+}

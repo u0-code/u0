@@ -78,7 +78,34 @@ impl Mind {
             // console shows how full her looks keep it against this.
             "windows": {"think": self.think.window(), "tick": self.tick.window()},
             "calls_this_hour": self.budget.spent.len(),
+            "abilities": self.abilities(),
         }))
+    }
+
+    /// What she can do besides talk, in the shape of the protocol's
+    /// `Abilities`: a console offers that, and nothing it would have to
+    /// read her daemon's configuration to know.
+    fn abilities(&self) -> Value {
+        let work = &self.cfg.work;
+        // Only a machine that was made counts, by the kind its spec names.
+        let machine = self.workshop.machine.as_ref().and(work.machine.as_deref());
+        let machine = machine.map(|spec| {
+            let spec = spec.trim();
+            let kind = spec.split_once(':').map_or(spec, |(kind, _)| kind);
+            json!({"kind": kind, "spec": spec})
+        });
+        let agents: Vec<&str> = self
+            .workshop
+            .agents
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
+        json!({
+            "work": self.can_work(),
+            "machine": machine,
+            "web": work.web,
+            "agents": agents,
+        })
     }
 
     fn agenda_view(&self) -> Value {
