@@ -2,8 +2,9 @@
 //!
 //! Everything in here is a view. It can be deleted at any time and the
 //! journal will rebuild it: places and what is unread in them, the people she
-//! knows, notes, intentions, the canon of her own life, and a full-text index
-//! for remembering things that are no longer in front of her.
+//! knows, notes, intentions, the canon of her own life, the sessions a console
+//! lists, and a full-text index for remembering things that are no longer in
+//! front of her.
 //!
 //! It is one database, `derived/memory.db`, and each thing she can recall is
 //! kept by a file of its own here: its rows, its tables, how journal events
@@ -41,6 +42,7 @@ mod people;
 mod places;
 mod public;
 mod recall;
+mod sessions;
 mod skills;
 mod threads;
 mod work;
@@ -58,6 +60,7 @@ pub use people::{Feeling, Person};
 pub use places::{Elsewhere, PlaceState, Talked};
 pub use public::Standing;
 pub use recall::Hit;
+pub use sessions::{Session, TITLE_CHARS};
 pub use skills::Skill;
 pub use work::{Undertaking, WorkReport};
 
@@ -68,7 +71,7 @@ pub const MEMORY_FILE: &str = "derived/memory.db";
 const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 23;
+const SCHEMA_VERSION: i64 = 24;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -143,6 +146,7 @@ impl Memory {
             installed::SCHEMA,
             skills::SCHEMA,
             threads::SCHEMA,
+            sessions::SCHEMA,
             recall::SCHEMA,
         ] {
             conn.execute_batch(tables)?;
@@ -213,6 +217,7 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     belongings::fold(tx, entry, at)?;
     installed::fold(tx, entry, at)?;
     skills::fold(tx, entry, at)?;
+    sessions::fold(tx, entry, at)?;
     // After the people, so that a note about someone finds their place.
     threads::fold(tx, entry, at)?;
     recall::fold(tx, entry, at)

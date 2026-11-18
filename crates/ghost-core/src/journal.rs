@@ -540,6 +540,27 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         was: Option<String>,
     },
+    /// Someone who runs her body gave a conversation of theirs with her
+    /// on a console a name: a session, as a console lists them. A session
+    /// with no name goes by its first line. Named again, it goes by the
+    /// newer name; named after it was set aside, it is back.
+    SessionNamed {
+        /// The place, as a place key (`console:s1763452800000`).
+        place: String,
+        /// Who named it, as a person key.
+        by: String,
+        title: String,
+    },
+    /// Someone who runs her body set a session aside, from a console: it
+    /// leaves the list of sessions a console shows. Nothing said in it
+    /// goes anywhere; the journal keeps every word, and a line said there
+    /// afterwards, or a new name, brings it back.
+    SessionSetAside {
+        /// The place, as a place key.
+        place: String,
+        /// Who set it aside, as a person key.
+        by: String,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -665,6 +686,8 @@ kinds! {
     Stopped => "stopped",
     Rewound => "rewound",
     BrainChanged => "brain_changed",
+    SessionNamed => "session_named",
+    SessionSetAside => "session_set_aside",
 }
 
 /// One line of her journal.

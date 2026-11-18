@@ -79,3 +79,5 @@
 {"kind":"rewound","data":{"place":"console:fox","by":"console:fox","to":41,"looking":true,"unsaid":["half past nine, I think"]}}
 {"kind":"brain_changed","data":{"think":"openai/deepseek-v4"}}
 {"kind":"brain_changed","data":{"think":"anthropic/claude-opus-5-5","was":"openai/deepseek-v4"}}
+{"kind":"session_named","data":{"place":"console:s1763452800000","by":"console:fox","title":"Free some disk space"}}
+{"kind":"session_set_aside","data":{"place":"console:s1763452800000","by":"console:fox"}}
