@@ -113,6 +113,8 @@ pub(super) fn task(
     cx: &mut Context<Desk>,
 ) -> Div {
     let (tz, expanded, following, column) = (view.tz, view.expanded, view.following, view.column);
+    // Whether the paths it gives can be opened: only on its core's computer.
+    let here = view.status.is_some_and(|s| s.here);
     let key = format!("task:{}", t.id);
     // How many columns of words the head has room for: the column less
     // the card's margins, its mark, its chevron and the gaps between,
@@ -269,7 +271,11 @@ pub(super) fn task(
                 .pb(px(S4))
                 .border_t_1()
                 .border_color(theme::border())
-                .children(t.dir.as_deref().map(|dir| folder(faces, &t.id, dir, cx)))
+                .children(
+                    t.dir
+                        .as_deref()
+                        .map(|dir| folder(faces, &t.id, dir, here, cx)),
+                )
                 .when(!plan.is_empty(), |d| {
                     d.child(drawn::plan(faces, &plan).px(px(10.))).child(
                         div()
@@ -292,50 +298,56 @@ pub(super) fn task(
         );
     }
     // What it handed over, as small cards under it, once it is done: each
-    // opens where it is on the machine.
+    // opens where it is on the machine when that is this computer, and
+    // otherwise says where it is on the core's.
     if state != State::Finished || files.is_empty() {
         return whole;
     }
     let mut chips = div().flex().flex_wrap().gap(px(S2));
     for (i, file) in files.into_iter().enumerate() {
+        let path = view.status.and_then(|s| s.locate(&file, t.dir.as_deref()));
         let out = super::Output {
-            file: file.clone(),
+            file,
             source: super::Source::Report,
         };
-        chips = chips.child(
-            div()
-                .id(SharedString::from(format!("out:{}:{i}", t.id)))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .pl(px(10.))
-                .pr(px(14.))
-                .py(px(S2))
-                .rounded(px(CARD_RADIUS))
-                .border_1()
-                .border_color(theme::border())
+        let second = match (&path, here) {
+            (Some(path), false) => calls::fit(&path.display().to_string(), 48),
+            _ => out.kind(),
+        };
+        let chip = div()
+            .id(SharedString::from(format!("out:{}:{i}", t.id)))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .pl(px(10.))
+            .pr(px(14.))
+            .py(px(S2))
+            .rounded(px(CARD_RADIUS))
+            .border_1()
+            .border_color(theme::border())
+            .child(ui::icon("file", 18.).text_color(theme::muted()))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        ui::text(faces, calls::fit(out.name(), 40))
+                            .text_size(px(13.5))
+                            .text_color(theme::text()),
+                    )
+                    .child(
+                        ui::text(faces, second)
+                            .text_size(px(12.))
+                            .text_color(theme::muted()),
+                    ),
+            );
+        chips = chips.child(match path {
+            Some(path) if here => chip
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::bubble()))
-                .child(ui::icon("file", 18.).text_color(theme::muted()))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            ui::text(faces, calls::fit(out.name(), 40))
-                                .text_size(px(13.5))
-                                .text_color(theme::text()),
-                        )
-                        .child(
-                            ui::text(faces, out.kind())
-                                .text_size(px(12.))
-                                .text_color(theme::muted()),
-                        ),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.reveal(std::path::Path::new(&file), cx);
-                })),
-        );
+                .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx))),
+            _ => chip,
+        });
     }
     div()
         .flex()
@@ -637,13 +649,19 @@ fn parts(
     Some(column)
 }
 
-/// Where a piece of work is done: its folder, short, in a line at the top
-/// of it opened, which shows the folder in Finder on a click.
-fn folder(faces: &Faces, id: &str, dir: &str, cx: &mut Context<Desk>) -> Stateful<Div> {
+/// Where a piece of work is done: its folder, in a line at the top of it
+/// opened. When its core is on this computer (`here`), shortened as your
+/// own paths are, and shown in Finder on a click; otherwise as the core's
+/// computer has it, and nothing more.
+fn folder(faces: &Faces, id: &str, dir: &str, here: bool, cx: &mut Context<Desk>) -> Stateful<Div> {
     let path = std::path::PathBuf::from(dir);
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let shown = ui::short_path(&path, home.as_deref());
-    div()
+    let shown = if here {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        ui::short_path(&path, home.as_deref())
+    } else {
+        dir.to_owned()
+    };
+    let line = div()
         .id(SharedString::from(format!("folder:{id}")))
         .flex()
         .items_center()
@@ -652,8 +670,6 @@ fn folder(faces: &Faces, id: &str, dir: &str, cx: &mut Context<Desk>) -> Statefu
         .px(px(10.))
         .mb(px(S1))
         .rounded(px(6.))
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
         .child(
             ui::icon("folder", 13.)
                 .flex_none()
@@ -666,7 +682,12 @@ fn folder(faces: &Faces, id: &str, dir: &str, cx: &mut Context<Desk>) -> Statefu
                 .truncate()
                 .text_size(px(MONO))
                 .text_color(theme::muted()),
-        )
+        );
+    if !here {
+        return line;
+    }
+    line.cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
         .tooltip(ui::tip("Show in Finder"))
         .on_click(cx.listener(move |this, _, _, cx| this.reveal(&path, cx)))
 }

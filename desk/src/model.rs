@@ -4,10 +4,12 @@
 //! depend on `ghost-core`: it is a client like any presence, and knows her
 //! journal only as the daemon serves it.
 
+use std::path::{Path, PathBuf};
+
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use ghost_link::protocol::{
-    Abilities, Attention, GhostCard, Listed, Look, Work, WorkContext, WorkLog,
+    Abilities, Attention, CoreInfo, GhostCard, Listed, Look, Work, WorkContext, WorkLog,
 };
 use serde_json::Value;
 
@@ -57,9 +59,60 @@ pub struct Status {
     /// What she can do besides talk, as her daemon runs her; `None` from a
     /// daemon from before it said so.
     pub abilities: Option<Abilities>,
+    /// Where her daemon runs, as it says; `None` from one from before it
+    /// said so.
+    pub core: Option<CoreInfo>,
+    /// Whether her daemon runs on this computer, so that the paths she
+    /// gives can be opened here: see [`on_this_computer`]. Worked out off
+    /// the main thread, as the status is read.
+    pub here: bool,
+}
+
+/// Whether the daemon that says `core` runs on this computer: the file it
+/// says it keeps its id in is here, and holds that id. Finding it is
+/// finding the daemon's own file system, which is what opening the paths
+/// it gives needs. Two daemons on this computer each find their own; one
+/// elsewhere, even under the same host name or with a home at the same
+/// path, finds nothing, or another id. A host name is never asked: two
+/// computers can share one.
+pub fn on_this_computer(core: &CoreInfo) -> bool {
+    !core.id.is_empty()
+        && std::path::Path::new(&core.id_file).is_absolute()
+        && std::fs::read_to_string(&core.id_file).is_ok_and(|kept| kept.trim() == core.id)
 }
 
 impl Status {
+    /// Her status as her daemon gave it, with whether it runs here looked
+    /// up: this reads one small file, so it is not for the main thread.
+    pub fn read(v: &Value) -> Self {
+        let mut status = Self::from_value(v);
+        status.here = status.core.as_ref().is_some_and(on_this_computer);
+        status
+    }
+
+    /// The directory her machine works in, on her daemon's computer, when
+    /// it says.
+    pub fn machine_dir(&self) -> Option<PathBuf> {
+        let machine = self.abilities.as_ref()?.machine.as_ref()?;
+        machine.dir.as_deref().map(PathBuf::from)
+    }
+
+    /// Where a file she named is on her daemon's computer: as named, if
+    /// that is a full path; else under `within` (the folder of the work
+    /// that named it), else under her machine's directory. `None` when
+    /// there is nothing to put it under.
+    pub fn locate(&self, file: &str, within: Option<&str>) -> Option<PathBuf> {
+        let named = Path::new(file);
+        if named.is_absolute() {
+            return Some(named.to_path_buf());
+        }
+        within
+            .map(PathBuf::from)
+            .or_else(|| self.machine_dir())
+            .map(|dir| dir.join(named))
+    }
+
+    /// Her status as her daemon gave it, read as it is: nothing looked up.
     pub fn from_value(v: &Value) -> Self {
         let tz: Tz = s(v, "timezone").parse().unwrap_or(chrono_tz::UTC);
         let moment = v.get("moment");
@@ -87,6 +140,10 @@ impl Status {
             abilities: v
                 .get("abilities")
                 .and_then(|a| serde_json::from_value(a.clone()).ok()),
+            core: v
+                .get("core")
+                .and_then(|c| serde_json::from_value(c.clone()).ok()),
+            here: false,
         }
     }
 
@@ -334,6 +391,66 @@ mod tests {
         assert!(abilities.agents.is_empty());
         let older = serde_json::json!({"brains": {"think": "main"}});
         assert_eq!(Status::from_value(&older).abilities, None);
+    }
+
+    /// A status from a daemon that keeps its id in `id_file`, as `id`.
+    fn from_core(id: &str, id_file: &std::path::Path) -> Status {
+        Status::read(&serde_json::json!({
+            "abilities": {"work": true, "machine": {"kind": "local", "spec": "local:",
+                "dir": "/srv/ghost/ghosts/solver/home"}},
+            "core": {"id": id, "id_file": id_file, "host": "studio"},
+        }))
+    }
+
+    #[test]
+    fn a_core_is_on_this_computer_only_when_its_own_id_is_found_where_it_says() {
+        let dir = std::env::temp_dir().join(format!("ghost-desk-here-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        let file = dir.join("core-id");
+        std::fs::write(&file, "aaaa\n").unwrap();
+        std::fs::write(dir.join("other/core-id"), "bbbb\n").unwrap();
+
+        assert!(from_core("aaaa", &file).here, "the core that wrote it");
+        assert!(
+            from_core("bbbb", &dir.join("other/core-id")).here,
+            "a second core on this computer is here too, by its own"
+        );
+        assert!(
+            !from_core("cccc", &file).here,
+            "a core elsewhere whose home is at the same path is not"
+        );
+        assert!(
+            !from_core("aaaa", &dir.join("gone/core-id")).here,
+            "nor one whose file is not on this computer at all"
+        );
+        assert!(
+            !from_core("aaaa", std::path::Path::new("core-id")).here,
+            "a path that is not a full one is nobody's"
+        );
+        let older = Status::read(&serde_json::json!({"name": "Ghost"}));
+        assert!(older.core.is_none() && !older.here, "it never said");
+    }
+
+    #[test]
+    fn a_file_she_names_is_found_under_her_works_folder_else_her_machine() {
+        let status = from_core("aaaa", std::path::Path::new("/nowhere/core-id"));
+        assert_eq!(
+            status.locate("/tmp/report.md", Some("/w")),
+            Some(PathBuf::from("/tmp/report.md"))
+        );
+        assert_eq!(
+            status.locate("report.md", Some("/Users/me/Documents/Ghost/solver/w1")),
+            Some(PathBuf::from(
+                "/Users/me/Documents/Ghost/solver/w1/report.md"
+            ))
+        );
+        assert_eq!(
+            status.locate("out/report.md", None),
+            Some(PathBuf::from("/srv/ghost/ghosts/solver/home/out/report.md"))
+        );
+        let older = Status::from_value(&serde_json::json!({}));
+        assert_eq!(older.locate("report.md", None), None, "nowhere to put it");
     }
 
     #[test]

@@ -107,10 +107,25 @@ The core's brains, and their keys, are its own: the desk asks it which
 there are and changes them over the Ghost Protocol (`brains.*`), and
 reads neither its `ghostd.toml` nor its `.env` for them. What its ghost
 can do besides talk (work, the machine it runs on, the web, the agents
-installed there) the core says in `ghost.status`, under `abilities`. What
-the desk still reads in the core's home, rather than asking the core, is
-its ghost's media and machine directory. Those move behind the Ghost
-Protocol next, after which the desk reads none of the core's files.
+installed there) the core says in `ghost.status`, under `abilities`, with
+the directory her machine works in. What the desk still reads in the
+core's home, rather than asking the core, is its ghost's media. That
+moves behind the Ghost Protocol next, after which the desk reads none of
+the core's files.
+
+### On this computer, or not
+
+What a core gives as a path (her machine's directory, a work's folder, a
+file it handed over) is a path on the core's computer. The desk offers to
+show it in Finder only when that is this computer, for every core it
+follows, its own and each connection alike; otherwise it shows the path as
+text, and the machine row names the core's host. It knows by the core's
+`ghost.status`, under `core`: an id the core made once, and the full path
+of the `core-id` file it keeps it in. When that file is here and holds
+that id, the core is on this computer. Two cores on this computer each
+find their own; one elsewhere finds nothing, or another id, even under
+the same host name or with a home at the same path. A core from before it
+said so is taken to be elsewhere.
 
 ## Other daemons
 
@@ -192,7 +207,8 @@ field (Return keeps the name, Escape leaves it); Copy puts the thread on
 the clipboard as text, who said what and when; Delete takes the session
 off the desk's list, and no more: what was said in it stays in Ghost's
 journal, which keeps everything. Down the right: Environment (the machine its work runs
-on, which Open shows in Finder; the daemon and its link; the brain),
+on, which Open shows in Finder when its core is on this computer; the
+daemon and its link; the brain),
 Context (what fills the context window of each brain at work here, the
 way a coding agent's context panel shows its own: Role, its brain the
 last time it looked at this conversation, as its daemon's record of the
