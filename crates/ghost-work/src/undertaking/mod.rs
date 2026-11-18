@@ -125,6 +125,27 @@ impl Undertaking {
         })
     }
 
+    /// What whoever asked for it wrote, word for word: the lines its task
+    /// quotes, and for a part, its work's too.
+    pub fn their_words(&self) -> String {
+        let quoted = |state: &State| {
+            state
+                .task_text()
+                .lines()
+                .filter(|l| l.trim_start().starts_with('>'))
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let state = self.state();
+        let mut lines = quoted(&state);
+        if let Some(parent) = &state.parent
+            && let Ok(Some(of)) = load(&self.conn(), parent)
+        {
+            lines.extend(quoted(&of));
+        }
+        lines.join("\n")
+    }
+
     /// The directory its database is in: the ghost's own.
     pub fn home(&self) -> &Path {
         self.db.parent().unwrap_or_else(|| Path::new("."))

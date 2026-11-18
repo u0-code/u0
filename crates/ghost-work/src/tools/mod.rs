@@ -5,6 +5,7 @@
 //! shell is where models lose the most time; `plan`, `note` and `done` are
 //! how work is carried across context windows and brought to an end.
 
+mod fence;
 mod files;
 mod record;
 mod servers;
@@ -34,9 +35,8 @@ use crate::{
 /// file tools too.
 pub struct Desk {
     pub machine: Arc<dyn Machine>,
-    /// For a part in a checkout of its own: the work's folder, which it
-    /// does not write in, and its own checkout, where it does.
-    fence: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    /// Where `write` and `edit` may write, for work with a folder.
+    fence: Option<fence::Fence>,
     cwd: Mutex<Option<String>>,
     jobs: AtomicU32,
     /// Sets this desk's files in `/tmp` apart from every other desk's.
@@ -60,20 +60,9 @@ impl Desk {
         })
     }
 
-    /// Why `path` is not to be written here, if it is not: it is in the
-    /// work's folder, and this desk is a part's, in a checkout of its own.
+    /// Why `path` is not to be written here, if it is not: see `fence`.
     pub(crate) fn fenced(&self, path: &str) -> Option<String> {
-        let (of, own) = self.fence.as_ref()?;
-        let path = std::path::Path::new(path);
-        (path.is_absolute() && path.starts_with(of) && !path.starts_with(own)).then(|| {
-            format!(
-                "{} is in the work's folder, where other workers are. This part works in its own \
-                 checkout, {}: make the change there, and it is brought back into the work's \
-                 folder when you finish.",
-                path.display(),
-                own.display()
-            )
-        })
+        self.fence.as_ref()?.refuses(path, self.cwd().as_deref())
     }
 
     fn cwd(&self) -> Option<String> {
@@ -165,10 +154,15 @@ pub fn standard(
 ) -> Toolbox {
     let mut desk = Desk::new(machine);
     let state = undertaking.state();
-    if let (Some(checkout), Some(own)) = (state.checkout, state.dir)
+    if let Some(own) = state.dir
         && let Some(d) = Arc::get_mut(&mut desk)
     {
-        d.fence = Some((checkout.of.into(), own.into()));
+        let own = std::path::PathBuf::from(own);
+        d.fence = Some(fence::Fence {
+            named: fence::named_files(&undertaking.their_words(), &own),
+            of: state.checkout.map(|c| c.of.into()),
+            own,
+        });
     }
     let tools = Toolbox::new()
         .with(Shell::new(desk.clone()))

@@ -382,3 +382,54 @@ async fn work_stopped_from_outside_ends_as_dropped_after_its_step_and_keeps_what
     assert_eq!(worker.run().await.ended, Ended::Dropped);
     assert!(!worker.undertaking.stop(), "it had already ended");
 }
+
+#[tokio::test]
+async fn work_with_a_folder_writes_there_and_elsewhere_only_in_a_file_whoever_asked_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("folder");
+    let repo = dir.path().join("their-repo");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
+    let named = repo.join("notes").join("wanted.md");
+    let script = vec![
+        // Beside what it was asked to look at: refused.
+        calls(
+            "write",
+            json!({"path": repo.join("counts.md").display().to_string(), "content": "x"}),
+        ),
+        // The file they named: written.
+        calls(
+            "write",
+            json!({"path": named.display().to_string(), "content": "wanted\n"}),
+        ),
+        // In its folder: written.
+        calls(
+            "write",
+            json!({"path": "counts.md", "content": "| a | 1 |\n"}),
+        ),
+        calls("done", json!({"outcome": "finished", "summary": "counted"})),
+    ];
+    let (mut worker, brain) = worker(dir.path(), script, Limits::default());
+    worker
+        .undertaking
+        .update(|s| s.dir = Some(folder.display().to_string()));
+    let asked = format!(
+        "Count the files.\n\nWhat Fox wrote, word for word:\n> count the files in {} and put the note in {}",
+        repo.display(),
+        named.display()
+    );
+    worker.undertaking.update(|s| s.additions.push(asked));
+    let machine: Arc<dyn crate::Machine> =
+        crate::Machine::at(&Local::new(dir.path()), &folder).unwrap();
+    worker.tools = tools::standard(machine, &worker.undertaking, &worker.prompts);
+    assert_eq!(worker.run().await.ended, Ended::Finished);
+
+    let turns = brain.turns_of(PARENT);
+    assert!(result_of(&turns[1], "write").contains("outside the work's folder"));
+    assert!(!repo.join("counts.md").exists());
+    assert_eq!(std::fs::read_to_string(&named).unwrap(), "wanted\n");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("counts.md")).unwrap(),
+        "| a | 1 |\n"
+    );
+}
