@@ -22,7 +22,7 @@ use gpui::{
 };
 
 use super::{
-    State, calls, drawn, kinds,
+    State, calls, drawn, kinds, live,
     style::{
         BOX_RADIUS, CARD_RADIUS, META, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL,
         WELL_RADIUS, meta,
@@ -112,7 +112,11 @@ pub(super) fn look(
             list = list.child(call_row(faces, &format!("{key}:{i}"), call, expanded, cx));
         }
         if look.running {
-            list = list.child(live_row(faces, "Thinking"));
+            list = list.child(live::row(
+                faces,
+                "Thinking",
+                Some(live::look_since(look, from)),
+            ));
         }
         group = group.child(list);
     }
@@ -131,24 +135,6 @@ pub(super) fn panel() -> Div {
         .pl(px(S4 - 10.))
 }
 
-/// The last row of something still going on: an amber dot breathing, and
-/// a word.
-pub(super) fn live_row(faces: &Faces, word: &'static str) -> Div {
-    let ring = ui::dot(theme::accent()).flex_none().size(px(7.));
-    div()
-        .flex()
-        .items_center()
-        .gap(px(S2))
-        .h(px(30.))
-        .px(px(10.))
-        .child(breathing(ring))
-        .child(
-            ui::text(faces, word)
-                .text_size(px(ROW - 1.))
-                .text_color(theme::muted()),
-        )
-}
-
 /// One call: its verb, what it was about, how long it took, and a chevron;
 /// opened, a command in full in a well of its own, with a prompt before
 /// it, its words coloured and a way to copy it, and under the well what
@@ -162,16 +148,17 @@ fn call_row(
 ) -> Stateful<Div> {
     let said = calls::say(&call.name, &call.args);
     let open = expanded.contains(key);
-    // A failed call says so where its time is, in the colour of trouble;
-    // nothing else on the row changes.
+    // A failed call says so where its time is, in the colour of trouble,
+    // with its exit code when it left one; nothing else on the row changes.
     let right = if call.failed {
         let took = calls::took(call.ms);
+        let why = kinds::exit(&call.out).unwrap_or_else(|| "failed".to_owned());
         meta(
             faces,
             if took.is_empty() {
-                "failed".to_owned()
+                why
             } else {
-                format!("failed · {took}")
+                format!("{why} · {took}")
             },
         )
         .text_color(theme::coral())
@@ -299,6 +286,15 @@ fn call_row(
             row = row.child(body.child(drawn::plan(faces, &plan).px(px(10.))));
             return row;
         }
+        let remembered = if call.name == "recall" && !call.failed {
+            kinds::memories(&call.out)
+        } else {
+            Vec::new()
+        };
+        if !remembered.is_empty() {
+            row = row.child(body.child(drawn::memories(faces, &remembered)));
+            return row;
+        }
         let out = calls::output(&call.out, call.cut, call.chars, call.pictures);
         let all_key = format!("{key}:all");
         let all = expanded.contains(&all_key);
@@ -397,7 +393,7 @@ fn printed(faces: &Faces, text: &str, all: bool) -> Div {
             .overflow_hidden()
     };
     if all || lines.len() <= folded_at("") {
-        return mono().child(text.to_owned());
+        return mono().child(drawn::marked(text.to_owned()));
     }
     let head = lines[..2].join("\n");
     let gone = lines.len() - 3;
@@ -405,13 +401,13 @@ fn printed(faces: &Faces, text: &str, all: bool) -> Div {
         .flex()
         .flex_col()
         .w_full()
-        .child(mono().child(head))
+        .child(mono().child(drawn::marked(head)))
         .child(
             mono()
                 .text_color(theme::quiet())
                 .child(format!("… {gone} lines")),
         )
-        .child(mono().child(lines[lines.len() - 1].to_owned()))
+        .child(mono().child(drawn::marked(lines[lines.len() - 1].to_owned())))
 }
 
 /// A file read: its line numbers in a quiet gutter, its lines coloured by
@@ -560,6 +556,12 @@ fn box_label(
     .when_some(found, |d, n| {
         d.child(meta(faces, calls::plural(n, "result")).flex_none())
     })
+    .when_some(
+        (!call.failed)
+            .then(|| kinds::noted(&call.name, &call.out, call.cut))
+            .flatten(),
+        |d, note| d.child(meta(faces, note).flex_none()),
+    )
 }
 
 /// A command in full, in a well: a prompt before it, its words coloured
@@ -710,7 +712,7 @@ pub(super) fn work_steps(
         list = list.child(quiet(faces, "No steps on record."));
     }
     if running {
-        list = list.child(live_row(faces, "Working"));
+        list = list.child(live::row(faces, "Working", live::work_since(&read.steps)));
     }
     list
 }

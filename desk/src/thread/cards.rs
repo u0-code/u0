@@ -12,7 +12,7 @@ use gpui::{Context, Div, SharedString, Stateful, div, prelude::*, px};
 use serde_json::Value;
 
 use super::{
-    State, Task, calls, clock, drawn, kinds, s, span, steps,
+    State, Task, calls, clock, drawn, kinds, live, s, span, steps,
     style::{
         BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta, well,
     },
@@ -531,7 +531,8 @@ fn along_the_way(
     if read.is_none() {
         rows.push(steps::quiet(faces, "Reading its steps…"));
     } else if t.state() == State::Running {
-        rows.push(steps::live_row(faces, "Working"));
+        let since = live::work_since(held).unwrap_or(t.started);
+        rows.push(live::row(faces, "Working", Some(since)));
     }
     rows
 }

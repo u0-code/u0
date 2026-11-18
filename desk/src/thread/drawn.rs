@@ -1,11 +1,12 @@
 //! An opened call drawn as what it is: an edit as a diff, a search as its
-//! results, a plan as a checklist. What each holds is read in `kinds.rs`;
-//! here it is only drawn, in the thread's hairline frames, on its ground.
+//! results, a plan as a checklist, a recall as its memories. What each
+//! holds is read in `kinds.rs`; here it is only drawn, in the thread's
+//! hairline frames, on its ground.
 
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, HighlightStyle, SharedString, StyledText, div, prelude::*, px};
 
 use super::{
-    kinds::{Hit, Line, Status},
+    kinds::{self, Hit, Line, Memory, Status},
     style::{MONO, MONO_LINE, S1, S2, SMALL, WELL_RADIUS, meta},
     task_first::breathing,
 };
@@ -95,6 +96,51 @@ pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> 
                 )
                 .child(meta(faces, hit.host().to_owned()))
                 .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
+        );
+    }
+    list
+}
+
+/// What a command printed, with the words in it that say something went
+/// wrong (`FAILED`, `error`) in coral, and nothing else changed: no
+/// ground, no mark beside it. A failure is told calmly, by its words.
+pub fn marked(text: impl Into<SharedString>) -> StyledText {
+    let text: SharedString = text.into();
+    let alarm = HighlightStyle {
+        color: Some(theme::coral()),
+        ..HighlightStyle::default()
+    };
+    let ranges = kinds::alarms(&text);
+    StyledText::new(text).with_highlights(ranges.into_iter().map(|r| (r, alarm)))
+}
+
+/// What a recall found: each memory's number, small and quiet in mono,
+/// and what it says beside it, so that a memory can be told by its number
+/// in her memory and read by its words.
+pub fn memories(faces: &Faces, found: &[Memory]) -> Div {
+    let mut list = div().flex().flex_col().w_full().gap(px(S2)).px(px(10.));
+    for memory in found {
+        list = list.child(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(10.))
+                .w_full()
+                .child(
+                    ui::mono(faces, format!("#{}", memory.n))
+                        .flex_none()
+                        .text_size(px(12.))
+                        .line_height(px(21.))
+                        .text_color(theme::faint()),
+                )
+                .child(
+                    ui::text(faces, memory.text.clone())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .text_size(px(14.))
+                        .line_height(px(21.))
+                        .text_color(theme::text2()),
+                ),
         );
     }
     list
