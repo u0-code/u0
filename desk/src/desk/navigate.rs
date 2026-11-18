@@ -176,6 +176,7 @@ impl Desk {
             scroll: None,
             rendering: thread::Rendering::Task,
             column: thread::COLUMN,
+            media: None,
         };
         let (text, lines) = thread::transcript(&view);
         if lines == 0 {

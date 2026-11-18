@@ -56,7 +56,9 @@ pub fn border2() -> Hsla {
     c(0x3838_38)
 }
 /// The frame of a small tag, such as the brain a part runs on: a shade
-/// stronger than a card's, so that it reads inside one.
+/// stronger than a card's, so that it reads inside one. Something she
+/// sent is framed in it too: a thumbnail's edge, and the dashed one where
+/// an image would be.
 pub fn tag_line() -> Hsla {
     c(0x2E2E_2E)
 }

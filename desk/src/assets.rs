@@ -51,6 +51,7 @@ const FILES: &[(&str, &[u8])] = icons![
     "user",
     "panel-right",
     "copy",
+    "image-off",
 ];
 
 impl AssetSource for Assets {

@@ -632,6 +632,7 @@ fn thread_view<'a>(
         scroll: Some(scroll),
         rendering: thread::Rendering::Task,
         column: thread::COLUMN,
+        media: None,
     }
 }
 
@@ -679,6 +680,10 @@ impl Render for Desk {
                 - if self.panes.left { LEFT } else { 0. }
                 - if self.panes.right { RIGHT } else { 0. };
             view.column = (pane - 64.).clamp(240., thread::COLUMN);
+            // Only the solver's directory is on this machine for certain.
+            if self.open.is_none() {
+                view.media = Some(self.deployment.ghost_dir().join("media"));
+            }
             // Only a place on the console channel is yours to stop her in.
             let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
                 && thread::busy(&view);
