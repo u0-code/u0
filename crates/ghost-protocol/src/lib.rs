@@ -1347,13 +1347,13 @@ mod tests {
 
     #[test]
     fn a_saved_brain_carries_its_key_on_the_wire_and_never_in_its_debug() {
-        let mut set = serde_json::Map::new();
-        set.insert("kind".into(), Value::from("openai"));
-        set.insert("json_mode".into(), Value::from(true));
+        let mut fields = serde_json::Map::new();
+        fields.insert("json_mode".into(), Value::from(true));
+        fields.insert("kind".into(), Value::from("openai"));
         let save = BrainSave {
             was: None,
             name: "deepseek".into(),
-            set,
+            set: fields,
             clear: Vec::new(),
             key: Some("sk-secret".into()),
         };
