@@ -1,11 +1,8 @@
 # Ghost: Ghost's mascot, the ghost that lives on this machine with whoever
 # runs the desk and helps with whatever they bring.
-# Birth a copy of this, as with any character, and run it with
-# desk/core/ghostd.toml, whose prompts give it the desk's persona and being.
-#
-#   cp -r desk/core/ghosts/_solver desk/core/ghosts/solver
-#   ghostd birth desk/core/ghosts/solver
-#   ghostd run desk/core/ghosts/solver --config desk/core/ghostd.toml
+# ghostd builds this in, and gives birth to it in a home that has no ghost
+# yet (`ghostd init`, or `ghostd run --home`), as ghosts/solver. Its
+# persona and being are the desk's, built in beside it: prompts/system/desk.
 
 name = "Ghost"
 pronouns = "it/its"

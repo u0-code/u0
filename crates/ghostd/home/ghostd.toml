@@ -1,0 +1,32 @@
+# The core this machine runs for itself: Ghost, the project's mascot (the
+# solver, in the code), and any other ghost put in ghosts/ beside this file.
+# ghostd wrote this when it first made the home, and it is yours to change.
+# Keys go in .env beside it, never here.
+#
+#   ghostd run --home <this directory>
+#
+# Its persona and being are the desk's, built into ghostd from
+# prompts/system/desk; `prompts` under [mind] lays a directory of your own
+# over them, and is read relative to this directory.
+
+[listen]
+addr = "127.0.0.1:7438"
+
+[mind]
+# No day of its own and no weather: it waits for tasks.
+live = false
+weather = false
+# Enough turns to look things up before answering.
+talk_steps = 12
+
+[mind.work]
+enabled = true
+# The machine is this one, as you: a directory under its own. Not a sandbox.
+machine = "local:"
+web = true
+
+# Whoever sits at the desk is its operator without being listed here: the
+# desk speaks to it through a console holding this daemon's token, or from
+# this machine when it has none. An operator has the machine in a private
+# conversation, which is what the solver is for.
+

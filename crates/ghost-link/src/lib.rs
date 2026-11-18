@@ -9,6 +9,8 @@
 //! - [`Console`] is a small client for tools that watch her, and for whoever
 //!   runs her to speak to her from.
 //! - [`list`] asks a daemon who it runs, before saying hello to any of them.
+//! - [`home`] is where the core this machine runs for itself keeps
+//!   everything, for whatever starts it.
 //!
 //! Adapters depend on this crate and nothing else from Ghost. They never see
 //! her journal, her memory, or a brain.
@@ -34,6 +36,30 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// The `ws://` URL of a daemon on this machine at the default port.
 pub fn default_url() -> String {
     format!("ws://{}", ghost_protocol::DEFAULT_ADDR)
+}
+
+/// Where the core this machine runs for itself keeps everything: its
+/// configuration, its keys, its ghosts. `GHOST_HOME` if it is set; else
+/// `~/Library/Application Support/Ghost` on macOS, and elsewhere
+/// `$XDG_DATA_HOME/ghost`, or `~/.local/share/ghost`.
+pub fn home() -> std::path::PathBuf {
+    home_from(&|var| std::env::var_os(var), cfg!(target_os = "macos"))
+}
+
+/// [`home`], with the environment read through `var`.
+fn home_from(var: &dyn Fn(&str) -> Option<std::ffi::OsString>, macos: bool) -> std::path::PathBuf {
+    use std::path::PathBuf;
+    let set = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(home) = set("GHOST_HOME") {
+        return home;
+    }
+    let user = set("HOME").unwrap_or_else(|| PathBuf::from("."));
+    if macos {
+        return user.join("Library/Application Support/Ghost");
+    }
+    set("XDG_DATA_HOME")
+        .unwrap_or_else(|| user.join(".local/share"))
+        .join("ghost")
 }
 
 /// Who the daemon at `url` runs, asked on a connection of its own before
@@ -321,5 +347,42 @@ impl Console {
                 return Ok(Some(frame.params.unwrap_or(Value::Null)));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod home_tests {
+    use std::{ffi::OsString, path::PathBuf};
+
+    use super::home_from;
+
+    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        move |var| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == var)
+                .map(|(_, v)| OsString::from(v))
+        }
+    }
+
+    #[test]
+    fn the_home_is_ghost_home_when_it_is_set_and_the_platforms_place_for_an_apps_data_otherwise() {
+        let set = env(&[("GHOST_HOME", "/tmp/g"), ("HOME", "/Users/a")]);
+        assert_eq!(home_from(&set, true), PathBuf::from("/tmp/g"));
+        let unset = env(&[("GHOST_HOME", ""), ("HOME", "/Users/a")]);
+        assert_eq!(
+            home_from(&unset, true),
+            PathBuf::from("/Users/a/Library/Application Support/Ghost")
+        );
+        assert_eq!(
+            home_from(&unset, false),
+            PathBuf::from("/Users/a/.local/share/ghost")
+        );
+        let xdg = env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]);
+        assert_eq!(home_from(&xdg, false), PathBuf::from("/data/ghost"));
     }
 }

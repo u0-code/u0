@@ -932,6 +932,7 @@ dependencies = [
  "ghost-net",
  "ghost-protocol",
  "ghost-work",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

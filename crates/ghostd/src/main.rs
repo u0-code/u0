@@ -11,6 +11,7 @@ mod cast;
 mod config;
 mod console;
 mod directory;
+mod home;
 mod operator;
 mod prompts;
 mod run;
@@ -39,17 +40,42 @@ struct Cli {
 enum Cmd {
     /// Give birth to the ghost described by DIR/ghost.toml. Happens once.
     Birth { dir: PathBuf },
+    /// Make a home ready to run: write its ghostd.toml and give birth to
+    /// the mascot, if no ghost there has been born. A home already set up
+    /// is left as it is.
+    Init {
+        /// The home. Without it, `GHOST_HOME`, or the platform's place for
+        /// an app's data (`~/Library/Application Support/Ghost` on macOS).
+        dir: Option<PathBuf>,
+        #[command(flatten)]
+        adopt: Adopt,
+    },
     /// Run them: for each, verify her journal, record any revision of
     /// ghost.toml and start her mind; then listen for presences.
     Run {
         /// Ghost directories, or directories of them: every directory in one
         /// that has a ghost.toml, except `_template`. Each character is
         /// known by her directory's name.
-        #[arg(required = true, num_args = 1..)]
+        #[arg(required_unless_present = "home", num_args = 1..)]
         dirs: Vec<PathBuf>,
         /// Path to ghostd.toml.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "home")]
         config: Option<PathBuf>,
+        /// Run a home instead: every ghost in its `ghosts/`, with its
+        /// `ghostd.toml` and the keys in its `.env`, made ready first as
+        /// `init` does. Without a directory, the one `init` takes.
+        #[arg(long, value_name = "DIR", conflicts_with = "dirs")]
+        #[allow(
+            clippy::option_option,
+            reason = "absent, present on its own, or naming a directory"
+        )]
+        home: Option<Option<PathBuf>>,
+        #[command(flatten)]
+        adopt: Adopt,
+        /// Listen here rather than where ghostd.toml says, such as
+        /// `127.0.0.1:7438`.
+        #[arg(long, value_name = "ADDR")]
+        listen: Option<String>,
         /// Live only as long as whoever started this: read standard input,
         /// and stop in order when it closes. The desktop app starts its own
         /// ghost this way, so she never outlives it, not even when the app
@@ -147,6 +173,16 @@ enum PromptsCmd {
     },
 }
 
+/// An old core to take in.
+#[derive(clap::Args)]
+struct Adopt {
+    /// A checkout that ran the desk before there were homes. A home with
+    /// no ghost born takes in the core kept there, once, and leaves the
+    /// checkout as it was: see `ghostd init`.
+    #[arg(long, value_name = "CHECKOUT")]
+    adopt: Option<PathBuf>,
+}
+
 /// Where the deployment's prompts are.
 #[derive(clap::Args)]
 struct PromptsDir {
@@ -215,11 +251,49 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().cmd {
         Cmd::Birth { dir } => directory::birth(&dir),
+        Cmd::Init { dir, adopt } => {
+            let dir = dir.unwrap_or_else(ghost_link::home);
+            let made = home::ready(&dir, adopt.adopt.as_deref())?;
+            home::say(&dir, &made);
+            println!("{}", dir.display());
+            Ok(())
+        }
+        Cmd::Run {
+            home: Some(dir),
+            adopt,
+            listen,
+            with_parent,
+            ..
+        } => {
+            let dir = std::path::absolute(dir.unwrap_or_else(ghost_link::home))?;
+            let made = home::ready(&dir, adopt.adopt.as_deref())?;
+            home::say(&dir, &made);
+            home::load_env(&dir);
+            // What its configuration names by a relative path is in it.
+            std::env::set_current_dir(&dir).with_context(|| format!("enter {}", dir.display()))?;
+            let how = run::How {
+                config: Some(&dir.join(home::CONFIG)),
+                with_parent,
+                listen,
+                prompts: home::PROMPTS,
+            };
+            run::run(&[dir.join(home::GHOSTS)], how).await
+        }
         Cmd::Run {
             dirs,
             config,
             with_parent,
-        } => run::run(&dirs, config.as_deref(), with_parent).await,
+            listen,
+            ..
+        } => {
+            let how = run::How {
+                config: config.as_deref(),
+                with_parent,
+                listen,
+                prompts: &[],
+            };
+            run::run(&dirs, how).await
+        }
         Cmd::Status { dir } => directory::status(&dir),
         Cmd::Journal { dir, last } => directory::journal(&dir, last),
         Cmd::Verify { dir } => directory::verify(&dir),

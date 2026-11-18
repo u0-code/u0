@@ -244,6 +244,20 @@ pub fn all_files() -> Vec<File> {
         .collect()
 }
 
+/// [`all_files`], with `over` built in in place of what this binary would
+/// otherwise have for the same file: the way a binary that runs a ghost of
+/// its own, as the core of a machine does, gives her its own persona and
+/// being while still reading a deployment's directory over them.
+pub fn files_over(over: &[(&str, &'static str)]) -> Vec<File> {
+    let mut files = all_files();
+    for file in &mut files {
+        if let Some((_, text)) = over.iter().find(|(path, _)| *path == file.path) {
+            file.built_in = text;
+        }
+    }
+    files
+}
+
 /// The mind's templates as they are, each by its file (those named by
 /// their name alone are in `system/logic/`), and the rest of what it reads.
 #[derive(Debug, Clone)]
@@ -302,7 +316,12 @@ impl Prompts {
     /// then built in. Nothing here fails: a file that cannot be used is
     /// warned about and passed over.
     pub fn load(dir: Option<&Path>) -> Self {
-        Self::from_store(Store::load(&all_files(), dir))
+        Self::load_over(dir, &[])
+    }
+
+    /// [`Prompts::load`], with `over` built in: see [`files_over`].
+    pub fn load_over(dir: Option<&Path>, over: &[(&str, &'static str)]) -> Self {
+        Self::from_store(Store::load(&files_over(over), dir))
     }
 
     fn from_store(store: Store) -> Self {
@@ -478,6 +497,24 @@ mod tests {
         );
         // A channel with no page of its own reads the chat page.
         assert_eq!(shipped.page("term"), shipped.page("chat"));
+    }
+
+    #[test]
+    fn what_is_laid_over_the_built_ins_is_built_in_and_a_deployments_copy_still_wins() {
+        let over = [("system/being.md", "a hand on this machine")];
+        let theirs = Prompts::load_over(None, &over);
+        assert_eq!(theirs.being, "a hand on this machine");
+        assert_eq!(
+            theirs.persona,
+            Prompts::shipped().persona,
+            "only what is laid over"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        write_at(&dir.path().join("system/being.md"), "the deployment's", 1);
+        assert_eq!(
+            Prompts::load_over(Some(dir.path()), &over).being,
+            "the deployment's"
+        );
     }
 
     #[test]

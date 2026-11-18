@@ -13,14 +13,18 @@ use ghost_mind::{Prompts, prompts::Origin};
 use tracing::{info, warn};
 
 /// The prompts for the ghost in `ghost_dir`, from the deployment's
-/// directory `deployment` if there is one: her own copy, which her mind
-/// takes changes into by itself. Prompts in her own directory are warned
-/// about and not used.
-pub(crate) fn prompts_for(ghost_dir: &Path, deployment: Option<&Path>) -> Prompts {
+/// directory `deployment` if there is one, then `over`, then built in: her
+/// own copy, which her mind takes changes into by itself. Prompts in her
+/// own directory are warned about and not used.
+pub(crate) fn prompts_for(
+    ghost_dir: &Path,
+    deployment: Option<&Path>,
+    over: &[(&str, &'static str)],
+) -> Prompts {
     if let Some(said) = misplaced(ghost_dir, deployment) {
         warn!("{said}");
     }
-    Prompts::load(deployment)
+    Prompts::load_over(deployment, over)
 }
 
 /// What there is to say about prompts in the ghost directory `ghost_dir`,
@@ -89,9 +93,10 @@ pub(crate) fn say_overrides(prompts: &Prompts) {
 }
 
 /// Warn about each copy of a prompt that may hide something newer in this
-/// build, and say once per directory what to do about it.
-pub(crate) fn say_stale(prompts: &Prompts) {
-    let files = ghost_mind::prompts::all_files();
+/// build, and say once per directory what to do about it. `over` is what
+/// is built in for them in place of the binary's own.
+pub(crate) fn say_stale(prompts: &Prompts, over: &[(&str, &'static str)]) {
+    let files = ghost_mind::prompts::files_over(over);
     for (_, dir) in prompts.store().layers() {
         let stale = exported::stale(&files, dir);
         if stale.is_empty() {
@@ -275,11 +280,11 @@ mod tests {
         );
         // Not read, with or without a deployment's directory.
         assert_eq!(
-            prompts_for(ghost.path(), None).plan,
+            prompts_for(ghost.path(), None, &[]).plan,
             Prompts::shipped().plan
         );
         assert_eq!(
-            prompts_for(ghost.path(), None).persona,
+            prompts_for(ghost.path(), None, &[]).persona,
             Prompts::shipped().persona
         );
         fs::create_dir_all(deployment.path().join("system/logic")).unwrap();
@@ -289,7 +294,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            prompts_for(ghost.path(), Some(deployment.path())).plan,
+            prompts_for(ghost.path(), Some(deployment.path()), &[]).plan,
             "the deployment's"
         );
         // A ghost with no prompts of her own is not warned about.
