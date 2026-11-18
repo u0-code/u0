@@ -60,6 +60,13 @@ pub struct Config {
     /// What differs for one character, by the name of her directory.
     #[serde(default)]
     ghosts: BTreeMap<String, toml::Table>,
+    /// Keys an operator gave through the Ghost Protocol while the daemon
+    /// runs, by the variable each is kept under in the home's `.env`. The
+    /// environment was read when the daemon started, so a key written to
+    /// `.env` since would otherwise not reach a brain until it starts again;
+    /// and being newer than anything it started with, it wins.
+    #[serde(skip)]
+    pub(crate) keys: BTreeMap<String, String>,
 }
 
 /// How one character lives: the deployment's settings with hers laid over
@@ -289,12 +296,18 @@ impl Config {
         let text =
             std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         let cfg = Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
-        for tier in [&cfg.brain.think, &cfg.brain.tick] {
-            if !cfg.providers.contains_key(tier) {
+        cfg.tiers_named()?;
+        Ok((cfg, path))
+    }
+
+    /// Refuse a `[brain]` that names a brain the providers do not have.
+    pub fn tiers_named(&self) -> anyhow::Result<()> {
+        for tier in [&self.brain.think, &self.brain.tick] {
+            if !self.providers.contains_key(tier) {
                 bail!("brain tier refers to unknown provider {tier:?}");
             }
         }
-        Ok((cfg, path))
+        Ok(())
     }
 
     pub fn brain(&self, name: &str) -> anyhow::Result<Arc<dyn Brain>> {
@@ -302,7 +315,32 @@ impl Config {
             .providers
             .get(name)
             .with_context(|| format!("no provider named {name:?}"))?;
-        cfg.build().with_context(|| format!("provider {name:?}"))
+        self.keyed(cfg)
+            .build()
+            .with_context(|| format!("provider {name:?}"))
+    }
+
+    /// `provider` with the key an operator gave since the daemon started,
+    /// if they gave one for the variable it reads. Nothing is written: the
+    /// key stays in memory and in `.env`.
+    pub(crate) fn keyed(&self, provider: &ProviderConfig) -> ProviderConfig {
+        let mut provider = provider.clone();
+        if let ProviderConfig::Anthropic {
+            api_key,
+            api_key_env,
+            ..
+        }
+        | ProviderConfig::Openai {
+            api_key,
+            api_key_env,
+            ..
+        } = &mut provider
+            && api_key.is_none()
+            && let Some(given) = self.keys.get(api_key_env.as_str())
+        {
+            *api_key = Some(given.clone());
+        }
+        provider
     }
 
     /// The command-line agents among the providers, by provider name:
@@ -326,7 +364,7 @@ impl Config {
 
 /// Lay `over` onto `base`: a table into a table a key at a time, anything
 /// else in place of what was there.
-fn lay_over(base: &mut toml::Table, over: &toml::Table) {
+pub(crate) fn lay_over(base: &mut toml::Table, over: &toml::Table) {
     for (key, value) in over {
         match (base.get_mut(key), value) {
             (Some(toml::Value::Table(below)), toml::Value::Table(above)) => lay_over(below, above),

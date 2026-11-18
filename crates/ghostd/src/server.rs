@@ -45,6 +45,7 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{Instrument as _, debug, info, info_span, warn};
 
 use crate::{
+    brains::served::{self, Held},
     cast::{Cast, Character},
     operator, wire,
 };
@@ -172,6 +173,8 @@ impl Body for Presences {
 /// What every connection needs.
 pub struct Shared {
     pub cast: Cast,
+    /// The brains its minds are made with, which an operator may change.
+    pub brains: Arc<Held>,
     pub token: Option<String>,
     /// Web origins allowed to connect, beyond this machine's own.
     pub origins: Vec<String>,
@@ -333,7 +336,7 @@ async fn connection(
                 owner: operator::owns(shared.token.as_deref(), peer),
                 who: hello.who,
             };
-            watch(out, &mut stream, &who, &shared.cast, &at)
+            watch(out, &mut stream, &who, &shared, &at)
                 .instrument(span)
                 .await;
         }
@@ -516,12 +519,12 @@ struct Console {
 
 /// A console: answer its questions, take what its operator says to her,
 /// and, if asked, stream her journal. It is for her, but may still ask who
-/// else the daemon runs.
+/// else the daemon runs, and about the brains, which are the daemon's.
 async fn watch<S>(
     out: mpsc::Sender<Frame>,
     stream: &mut S,
     who: &Character,
-    cast: &Cast,
+    shared: &Shared,
     at: &Console,
 ) where
     S: StreamExt<
@@ -544,7 +547,26 @@ async fn watch<S>(
             Some(method::WORK) => Question::Work,
             Some(method::ATTENTION) => Question::Waiting,
             Some(method::LIST) => {
-                if out.send(Frame::ok(id, &cast.roster().await)).await.is_err() {
+                if out
+                    .send(Frame::ok(id, &shared.cast.roster().await))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+            Some(
+                method::BRAINS
+                | method::BRAIN_SAVE
+                | method::BRAIN_REMOVE
+                | method::BRAIN_USE
+                | method::BRAIN_MODELS
+                | method::BRAIN_CHECK,
+            ) => {
+                let reply =
+                    served::answer(id, &frame, at.owner, &shared.brains, &shared.cast).await;
+                if out.send(reply).await.is_err() {
                     break;
                 }
                 continue;

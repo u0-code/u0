@@ -276,6 +276,7 @@ async fn main() -> anyhow::Result<()> {
                 with_parent,
                 listen,
                 prompts: home::PROMPTS,
+                home: Some(&dir),
             };
             run::run(&[dir.join(home::GHOSTS)], how).await
         }
@@ -291,6 +292,7 @@ async fn main() -> anyhow::Result<()> {
                 with_parent,
                 listen,
                 prompts: &[],
+                home: None,
             };
             run::run(&dirs, how).await
         }

@@ -25,8 +25,8 @@ use anyhow::{Context, bail};
 use ghost_mind::{Incoming, MindHandle, Question};
 use ghost_protocol::{GhostCard, Listed, PROTOCOL, Roster};
 use serde_json::Value;
-use tokio::sync::watch;
-use tracing::{Instrument as _, Span, error, warn};
+use tokio::sync::{Notify, watch};
+use tracing::{Instrument as _, Span, error, info, warn};
 
 use crate::server::Presences;
 
@@ -54,6 +54,9 @@ pub struct Character {
     /// Her mind as it is running now. It is replaced when her mind is
     /// started again.
     mind: watch::Sender<MindHandle>,
+    /// Rung to have her keeper stop her mind in order and make it again
+    /// from what is on disk and in the daemon's configuration now.
+    again: Notify,
 }
 
 impl Character {
@@ -70,7 +73,16 @@ impl Character {
             card,
             body,
             mind: watch::Sender::new(mind),
+            again: Notify::new(),
         }
+    }
+
+    /// Have her mind stopped in order and made again, at once: how a
+    /// change to the brains she runs on takes effect. Her presences stay
+    /// connected, and a message that arrives in between waits for the new
+    /// mind, as after a failure.
+    pub fn start_again(&self) {
+        self.again.notify_one();
     }
 
     /// Her mind as it is running now.
@@ -111,6 +123,14 @@ impl Character {
 pub struct Cast(pub Vec<Arc<Character>>);
 
 impl Cast {
+    /// Have every mind stopped in order and made again: see
+    /// [`Character::start_again`].
+    pub fn start_again(&self) {
+        for who in &self.0 {
+            who.start_again();
+        }
+    }
+
     /// The character a client says it is for. Naming nobody is enough when
     /// there is only one.
     pub fn pick(&self, named: Option<&str>) -> Result<&Arc<Character>, String> {
@@ -293,6 +313,16 @@ pub async fn keep(
             () = told(&mut stop) => {
                 life.handle.stop().await;
                 living.await
+            }
+            () = who.again.notified() => {
+                life.handle.stop().await;
+                let _ = living.await;
+                if *stop.borrow() {
+                    return;
+                }
+                info!("her mind is started again on the brains the daemon has now");
+                pause = pauses.first;
+                continue;
             }
         };
         if *stop.borrow() {

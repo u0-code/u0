@@ -1,5 +1,6 @@
 //! `ghostd brains`: the brains a deployment is configured with, or the ones
-//! this machine could think with.
+//! this machine could think with. What a running daemon answers about its
+//! brains, and how an operator changes them, is in [`served`].
 
 use std::{path::Path, time::Instant};
 
@@ -8,6 +9,9 @@ use ghost_work::agents::Readiness;
 use tracing::{info, warn};
 
 use crate::{config::Config, run::network};
+
+pub(crate) mod file;
+pub(crate) mod served;
 
 /// Say what this machine could think with, as configuration to paste.
 pub(crate) async fn discover() -> anyhow::Result<()> {

@@ -14,6 +14,7 @@ use tokio::{net::TcpListener, sync::watch, task::JoinSet};
 use tracing::{Instrument as _, info, info_span, warn};
 
 use crate::{
+    brains::served::Held,
     cast::{self, Cast, Character, Life, Maker, Pauses},
     config::{Config, Hers},
     prompts::{prompts_for, retired, say_overrides, say_stale},
@@ -33,6 +34,9 @@ pub(crate) struct How<'a> {
     /// Prompts built in for them in place of the binary's own, by their
     /// file in the tree: a home's are the desk's.
     pub prompts: &'static [(&'static str, &'static str)],
+    /// The home it runs, whose brains and keys an operator may change
+    /// through the protocol.
+    pub home: Option<&'a Path>,
 }
 
 pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
@@ -41,6 +45,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         with_parent,
         listen,
         prompts: over,
+        home,
     } = how;
     let loaded = if Config::exists(config) {
         Some(Config::load(config)?)
@@ -54,6 +59,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
             .map(|(cfg, _)| cfg.network.clone())
             .unwrap_or_default(),
     )?;
+    let from_file = loaded.is_some();
     let (mut cfg, cfg_path) = if let Some(loaded) = loaded {
         loaded
     } else {
@@ -96,7 +102,15 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
     // Each is made in full before anyone is listened to: one that cannot
     // be started stops the daemon here, as a single ghost always has.
     let agents = Arc::new(crate::brains::ready_agents(&cfg).await);
-    let cfg = Arc::new(cfg);
+    // What each mind is made with is asked of this each time one is made,
+    // so that a change an operator makes to the brains reaches the minds
+    // started again after it.
+    let held = Arc::new(Held::new(
+        Arc::new(cfg),
+        from_file.then(|| cfg_path.clone()),
+        home.map(Path::to_path_buf),
+    ));
+    let cfg = held.now();
     let mut cast = Vec::new();
     let mut lives = Vec::new();
     for ((id, dir), hers) in found.into_iter().zip(hers) {
@@ -114,8 +128,8 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
             )
         })?;
         let make: Maker = {
-            let (cfg, hers, dir, deployment, body, agents) = (
-                cfg.clone(),
+            let (held, hers, dir, deployment, body, agents) = (
+                held.clone(),
                 hers.clone(),
                 dir.clone(),
                 deployment.clone(),
@@ -124,7 +138,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
             );
             Box::new(move || {
                 begin(
-                    &cfg,
+                    &held.now(),
                     &hers,
                     &dir,
                     (deployment.as_deref(), over),
@@ -158,6 +172,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         listener,
         Arc::new(Shared {
             cast: Cast(cast),
+            brains: held,
             token,
             origins: cfg.listen.origins.clone(),
         }),
@@ -185,9 +200,10 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
 /// Open her directory and make her mind from it, living as `hers` says,
 /// with `body` as her body and her prompts from `prompts`: the
 /// deployment's directory, over what is built in for her over the
-/// binary's own. Says what she runs on. Done once at start and
-/// again each time her mind is started after it failed, so that all that
-/// carries over is what is on disk.
+/// binary's own. Says what she runs on. Done once at start and again each
+/// time her mind is started after it failed or after her brains were
+/// changed, so that all that carries over is what is on disk and the
+/// brains the daemon holds now.
 fn begin(
     cfg: &Config,
     hers: &Hers,

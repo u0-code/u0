@@ -42,7 +42,7 @@ pub const GHOSTS: &str = "ghosts";
 /// The mascot's directory under [`GHOSTS`].
 pub const SOLVER: &str = "solver";
 /// Its keys.
-const ENV: &str = ".env";
+pub(crate) const ENV: &str = ".env";
 /// Where a ghost taken in is put together, outside [`GHOSTS`], so that one
 /// cut short is never run.
 const ADOPTING: &str = ".adopting";
@@ -329,7 +329,7 @@ fn copy_tree(from: &Path, to: &Path) -> anyhow::Result<()> {
 
 /// Write `text` to `path` whole: beside it first, then renamed, so that a
 /// write cut short never leaves half a file under its name.
-fn write_whole(path: &Path, text: &str) -> anyhow::Result<()> {
+pub(crate) fn write_whole(path: &Path, text: &str) -> anyhow::Result<()> {
     let part = path.with_extension("part");
     fs::write(&part, text).with_context(|| format!("write {}", part.display()))?;
     fs::rename(&part, path).with_context(|| format!("write {}", path.display()))
