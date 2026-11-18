@@ -1,6 +1,8 @@
-# The brains it can think with. The desk picks among these, and adds to
-# them, from the line you type into; a key is never written here, only the
-# variable it is read from.
+# The brains it can think with. Whoever runs it picks among these and adds
+# to them over the Ghost Protocol (the desk does, from the line you type
+# into), and ghostd edits this file for them, keeping your comments. A key
+# is never written here, only the variable it is read from: given with a
+# brain, it goes into .env.
 [brain]
 think = "main"
 tick = "main"

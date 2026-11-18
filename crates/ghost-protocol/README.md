@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop`, `brains.list`, `brains.save`, `brains.remove`, `brains.use`, `brains.models`, `brains.check` | answers, then `journal.entry` notifications |
 
 A presence's hello says what its platform can do (`can`) and what it allows
 her (`allows`): how long after a message she can still answer it, in a
@@ -289,5 +289,75 @@ the same each time an item is listed and never another item's.
 | `report` | what she said when she told an operator about her day, and where (`place`) | the `intended` entry that meant it | three days |
 
 A client reads a `kind` it does not know as `other`.
+
+## Her brains
+
+The brains are the daemon's: the `[providers.<name>]` of its `ghostd.toml`,
+shared by every character it runs, and `[brain]`, which of them she thinks
+and ticks with. A console reads them, and an operator changes them, with
+`brains.*`; a client that does so never reads or writes the daemon's files,
+and is never sent a key.
+
+```json
+{"jsonrpc":"2.0","id":8,"method":"brains.list"}
+
+{"jsonrpc":"2.0","id":8,"result":{"think":"main","tick":"main","changeable":true,"brains":[
+  {"name":"main","kind":"openai","model":"deepseek-chat","base_url":"https://api.deepseek.com/v1",
+   "key_env":"DEEPSEEK_API_KEY","key_set":true},
+  {"name":"codex","kind":"codex","model":"","key_set":false,"program":"codex",
+   "blocker":"`codex` was not found on this machine"}]}}
+```
+
+- `key_env` is the variable an API's key is read from, the kind's default
+  where the table names none; `key_set` whether it holds a key. A
+  command-line agent has neither: it is signed in to.
+- `blocker` says why the daemon's machine cannot run it: its key is not
+  set, its program is not installed, nothing answers where its API is on
+  that machine.
+- `changeable` is false on a daemon that runs no home (`ghostd run
+  --config`): its file is whoever wrote it's, and every change below is
+  refused with `-32007`.
+
+Any console may list them. Everything else is an operator's, as
+`console.say` is (`-32001` otherwise), and needs no `who`:
+
+| method | params | result |
+|---|---|---|
+| `brains.save` | `{"was"?, "name", "set"?, "clear"?, "key"?}` | the list, changed |
+| `brains.remove` | `{"name"}` | the list, changed |
+| `brains.use` | `{"name", "model"?}` | the list, changed |
+| `brains.models` | `{"name"?, "provider"?}` | `{"models":[…]}` |
+| `brains.check` | `{"name"?, "provider"?, "model"?}` | `{}` |
+
+- `brains.save` writes `[providers.<name>]`: `set` the keys to set, as
+  `ghostd.toml` has them, `clear` those to take out. With `was`, the brain
+  saved under that name is changed in place, and renamed if `name` is
+  another, `[brain]` following it; without, it is a new one, and the name
+  may not be taken. Every comment and everything else in the file stays as
+  it was. `key` is the key itself: written to the home's `.env` under the
+  variable the brain reads, which only its owner may read, and never to
+  `ghostd.toml`; `api_key` in `set` is refused, but for the stand-in a
+  server on the daemon's own machine is given. What would not run is
+  refused with `-32602`, and nothing is written.
+- `brains.remove` takes one out. The brain in use is refused: choose
+  another first.
+- `brains.use` has her think and tick with `name`, on `model` if given
+  (empty for a command-line agent's own default). It is first asked to
+  think once, as her mind would ask it; if it cannot, the request is
+  refused with `-32011` and what it said, or `-32009` when its key is not
+  set, and nothing changes.
+- `brains.models` lists what an API offers, asked by the daemon with the
+  key it holds; `brains.check` asks a brain to think once. Each takes a
+  brain saved, by `name`; one being written, by `provider`, the keys of its
+  table; or both, `provider` laid over what is saved, to try a change
+  before it is saved.
+
+A change to the brain in use takes effect at once: every mind the daemon
+runs is stopped in order and made again with it, her presences connected
+throughout, and what they hear in between held for the new mind. A brain
+not in use changes nothing that runs. A key given with `brains.save` wins
+for the rest of the run; at the daemon's next start, a variable already
+set in the environment it is started with wins over `.env`, as always.
+An unknown name is refused with `-32008`.
 
 The console payloads mirror the core's serialized types and are not frozen yet.
