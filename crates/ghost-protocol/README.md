@@ -15,7 +15,7 @@ desk.
 | role | sends | receives |
 |---|---|---|
 | `presence` | `presence.inbound`, `presence.typing` notifications | `presence.act` requests, answered with what the platform said |
-| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop`, `brains.list`, `brains.save`, `brains.remove`, `brains.use`, `brains.models`, `brains.check` | answers, then `journal.entry` notifications |
+| `console` | `ghost.status`, `mind.agenda`, `ghost.identity`, `ghost.avatar`, `media.get`, `memory.people`, `memory.places`, `memory.canon`, `work.list`, `work.steps`, `look.steps`, `attention.list`, `journal.read`, `journal.place`, `journal.subscribe`, `console.say`, `console.stop`, `work.answer`, `work.stop`, `brains.list`, `brains.save`, `brains.remove`, `brains.use`, `brains.models`, `brains.check` | answers, then `journal.entry` notifications |
 
 A presence's hello says what its platform can do (`can`) and what it allows
 her (`allows`): how long after a message she can still answer it, in a
@@ -51,6 +51,21 @@ computers can share one.
 ```json
 "abilities": {"work": true, "machine": {"kind": "local", "spec": "local:", "dir": "/Users/me/Library/Application Support/Ghost/ghosts/solver/home"}, "web": true, "agents": ["claude-code"]},
 "core": {"id": "5f0c3a9e1b7d4e2a8c6f0b1d3e5a7c9f", "id_file": "/Users/me/Library/Application Support/Ghost/core-id", "host": "studio.local"}
+```
+
+The images she sees, sends, opens and keeps are kept in her `media/`, each
+named by the BLAKE3 hash of its bytes, and her journal and her work name
+them so. `media.get` hands one to any console of hers, by that name, in
+base64 with its type, up to 8 MB. A name she keeps no file by, or one that
+is not a bare name in `media/` (a path, `..`, a hidden name, a link out),
+is refused with `-32012`; nothing else in her directory is ever handed
+out. A name means the same bytes forever, so a console may keep what it
+was given, by the core's id and the name.
+
+```json
+{"jsonrpc":"2.0","id":6,"method":"media.get","params":{"name":"9f2c…e1.png"}}
+
+{"jsonrpc":"2.0","id":6,"result":{"mime":"image/png","data":"iVBORw0KGgo…"}}
 ```
 
 A browser may connect only from a page served on the same machine or from

@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 async-trait = "0.1.92"
+base64 = "0.23.1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 ghost-protocol = { path = "../ghost-protocol" }
 serde = { version = "1.0.229", features = ["derive"] }

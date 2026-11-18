@@ -193,6 +193,25 @@ impl Console {
         self.conn.call(method::AVATAR, &()).await
     }
 
+    /// A file she keeps in her `media/`, by the name her journal gives it:
+    /// its type, and its bytes.
+    pub async fn media(&mut self, name: &str) -> anyhow::Result<(String, Vec<u8>)> {
+        use base64::Engine as _;
+        let file: ghost_protocol::MediaFile = self
+            .conn
+            .call(
+                method::MEDIA,
+                &ghost_protocol::MediaRead {
+                    name: name.to_owned(),
+                },
+            )
+            .await?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(file.data)
+            .with_context(|| format!("{name} did not come as base64"))?;
+        Ok((file.mime, bytes))
+    }
+
     /// What is true about her life, oldest first.
     pub async fn canon(&mut self) -> anyhow::Result<Value> {
         self.conn.call(method::CANON, &()).await

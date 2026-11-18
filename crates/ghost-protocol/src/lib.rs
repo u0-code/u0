@@ -81,6 +81,16 @@ pub mod method {
     /// and only a client that shows it or sets a platform's profile picture
     /// needs it.
     pub const AVATAR: &str = "ghost.avatar";
+    /// Console → daemon request. Params [`MediaRead`](super::MediaRead),
+    /// result [`MediaFile`](super::MediaFile): a file she keeps in her
+    /// `media/`, by the name her journal and her work give it, which is
+    /// the hash of its bytes. It is how a console shows her images
+    /// wherever her daemon runs: what she saw, sent, opened and kept. A
+    /// name that is not one she keeps a file by, or not a bare name at
+    /// all, is refused with [`NO_SUCH_MEDIA`](super::code::NO_SUCH_MEDIA);
+    /// nothing outside `media/` is ever handed out. Any console of hers
+    /// may ask, as any may read the journal that names them.
+    pub const MEDIA: &str = "media.get";
     /// Console → daemon request. No params. What is true about her life.
     pub const CANON: &str = "memory.canon";
     /// Console → daemon request. No params. Every place she is in.
@@ -241,6 +251,9 @@ pub mod code {
     pub const BRAIN_FAILED: i64 = -32011;
     /// The presence could not carry out an action.
     pub const ACT_FAILED: i64 = -32010;
+    /// She keeps no file by that name in her `media/`: there is none, or
+    /// the name is not a bare name of one.
+    pub const NO_SUCH_MEDIA: i64 = -32012;
 }
 
 /// One JSON-RPC message: a request, a notification, or a response.
@@ -504,6 +517,23 @@ pub struct Listed {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Avatar {
     /// Its type, such as `image/png`.
+    pub mime: String,
+    /// The file's bytes, base64.
+    pub data: String,
+}
+
+/// The params of [`method::MEDIA`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaRead {
+    /// The file's name in her `media/`, as her journal gives it: the
+    /// BLAKE3 hash of its bytes, and an extension for its type.
+    pub name: String,
+}
+
+/// A file she keeps, the result of [`method::MEDIA`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaFile {
+    /// Its type, such as `image/png`, as its name says it.
     pub mime: String,
     /// The file's bytes, base64.
     pub data: String,
@@ -1539,6 +1569,36 @@ mod tests {
             serde_json::json!({"id": "a", "id_file": "/srv/ghost/core-id"}),
             "a host it does not know is not written"
         );
+    }
+
+    #[test]
+    fn a_media_file_is_asked_for_by_its_name_and_comes_back_as_base64() {
+        let ask = Frame::request(
+            4,
+            method::MEDIA,
+            &MediaRead {
+                name: "ab12.png".into(),
+            },
+        );
+        let sent = serde_json::to_string(&ask).unwrap();
+        assert_eq!(
+            sent,
+            r#"{"jsonrpc":"2.0","id":4,"method":"media.get","params":{"name":"ab12.png"}}"#
+        );
+        let read: Frame = serde_json::from_str(&sent).unwrap();
+        assert_eq!(read.params::<MediaRead>().unwrap().name, "ab12.png");
+        let file = MediaFile {
+            mime: "image/png".into(),
+            data: "aGVy".into(),
+        };
+        let sent = serde_json::to_string(&Frame::ok(4, &file)).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&sent).unwrap(),
+            serde_json::json!({"jsonrpc": "2.0", "id": 4,
+                "result": {"mime": "image/png", "data": "aGVy"}})
+        );
+        let back: Frame = serde_json::from_str(&sent).unwrap();
+        assert_eq!(back.into_result::<MediaFile>().unwrap(), file);
     }
 
     #[test]
