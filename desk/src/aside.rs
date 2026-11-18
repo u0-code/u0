@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use ghost_link::protocol::{Work, WorkState};
+use ghost_link::protocol::{Abilities, Work, WorkState};
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, div, prelude::*, px,
 };
@@ -661,13 +661,24 @@ impl Desk {
             .child(self.brain_row(faces, cx))
     }
 
-    /// The machine Ghost's work runs on. On this one, its home, which
-    /// Open shows in Finder; anywhere else, what the deployment names.
+    /// The machine Ghost's work runs on, as its core says. On this one,
+    /// its home, which Open shows in Finder; anywhere else, what the core
+    /// names; before the core has said, a dash.
     fn machine_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        if !self.abilities.local() {
-            let what = match (&self.abilities.machine, self.abilities.work) {
-                (Some(m), true) => m.clone(),
-                _ => "none".to_owned(),
+        let abilities = self
+            .solver
+            .status
+            .as_ref()
+            .and_then(|s| s.abilities.as_ref());
+        if !abilities.is_some_and(Abilities::local) {
+            let what = match abilities {
+                None => "—".to_owned(),
+                Some(Abilities {
+                    work: true,
+                    machine: Some(m),
+                    ..
+                }) => m.spec.clone(),
+                Some(_) => "none".to_owned(),
             };
             return row(
                 Some(row_icon("laptop")),

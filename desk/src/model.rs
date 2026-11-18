@@ -6,7 +6,9 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{Attention, GhostCard, Listed, Look, Work, WorkContext, WorkLog};
+use ghost_link::protocol::{
+    Abilities, Attention, GhostCard, Listed, Look, Work, WorkContext, WorkLog,
+};
 use serde_json::Value;
 
 /// One line of her journal.
@@ -52,6 +54,9 @@ pub struct Status {
     pub awake: Option<bool>,
     /// What her day has her doing now, in her plan's words, when it says.
     pub doing: Option<String>,
+    /// What she can do besides talk, as her daemon runs her; `None` from a
+    /// daemon from before it said so.
+    pub abilities: Option<Abilities>,
 }
 
 impl Status {
@@ -79,6 +84,9 @@ impl Status {
                 .get("windows")
                 .and_then(|w| w.get("think"))
                 .and_then(Value::as_u64),
+            abilities: v
+                .get("abilities")
+                .and_then(|a| serde_json::from_value(a.clone()).ok()),
         }
     }
 
@@ -314,6 +322,18 @@ mod tests {
         assert_eq!(Status::from_value(&said).think_window, Some(1_048_576));
         let older = serde_json::json!({"brains": {"think": "main"}});
         assert_eq!(Status::from_value(&older).think_window, None);
+    }
+
+    #[test]
+    fn what_she_can_do_is_what_her_daemon_says_and_unknown_from_one_that_does_not() {
+        let said = serde_json::json!({
+            "abilities": {"work": true, "machine": {"kind": "local", "spec": "local:"}, "web": true},
+        });
+        let abilities = Status::from_value(&said).abilities.unwrap();
+        assert!(abilities.local() && abilities.web);
+        assert!(abilities.agents.is_empty());
+        let older = serde_json::json!({"brains": {"think": "main"}});
+        assert_eq!(Status::from_value(&older).abilities, None);
     }
 
     #[test]

@@ -47,7 +47,6 @@ use crate::{
     follow::{Following, PlaceLooks},
     fonts::Faces,
     model::{Entry, Message},
-    solver::Abilities,
     theme,
 };
 
@@ -580,9 +579,6 @@ pub struct View<'a> {
     pub tz: Tz,
     /// Whether the daemon is there to hear what you send.
     pub connected: bool,
-    /// What the solver can do, for its empty page. A character's empty
-    /// place has none to offer.
-    pub abilities: Option<&'a Abilities>,
     pub expanded: &'a HashSet<String>,
     /// What has been read of her steps on this ghost.
     pub following: &'a Following,

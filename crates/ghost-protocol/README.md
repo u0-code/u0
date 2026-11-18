@@ -33,6 +33,18 @@ against its replacement.
 
 There is no method that edits her identity or removes a journal entry.
 
+`ghost.status` says, under `abilities`, what she can do besides talk, as
+her daemon runs her: whether she takes things on as work, the machine it
+runs on (`local`, her daemon's own computer, or `docker`, with the spec her
+configuration writes), whether she may use the web, and the agents
+installed there that she can hand a part to. A console offers that, and
+reads nothing of her daemon's configuration to know it. A daemon from
+before it said so leaves it out.
+
+```json
+"abilities": {"work": true, "machine": {"kind": "local", "spec": "local:"}, "web": true, "agents": ["claude-code"]}
+```
+
 A browser may connect only from a page served on the same machine or from
 an origin the daemon lists. Native clients send no
 origin and are not asked.

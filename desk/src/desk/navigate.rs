@@ -168,7 +168,6 @@ impl Desk {
             who: self.settings.who.clone(),
             tz: self.solver.tz(),
             connected: true,
-            abilities: None,
             expanded: &self.expanded,
             following: &self.solver.following,
             work: &self.solver.work,
