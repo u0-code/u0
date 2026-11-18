@@ -56,6 +56,7 @@ async fn every_console_lists_the_sessions_she_keeps_by_the_names_an_operator_giv
         .await
         .unwrap();
     assert_eq!(imported.id, "s0");
+    assert_eq!(imported.title, "Summarise the commits");
     let fresh = fox.new_session(Some("s1".into()), None).await.unwrap();
     assert!(fresh.id != "s1" && fresh.id.starts_with('s'), "{fresh:?}");
     let ids: Vec<String> = other

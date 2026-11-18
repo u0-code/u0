@@ -118,15 +118,25 @@ async fn begin(
         .map(|s| s.id)
         .collect();
     let id = fresh(asked.id.as_deref(), &taken, now_millis());
-    if let Some(title) = &title {
-        name(her, &id, title.clone(), by).await?;
-    }
-    let session = Session {
+    // Named, it is kept, and is answered with as it is listed.
+    let kept = match title {
+        Some(title) => {
+            name(her, &id, title, by).await?;
+            all(her)
+                .await
+                .map_err(|why| (code::INTERNAL, why))?
+                .into_iter()
+                .find(|s| s.id == id)
+                .map(wire)
+        }
+        None => None,
+    };
+    let session = kept.unwrap_or_else(|| Session {
         id,
-        title: title.unwrap_or_default(),
+        title: String::new(),
         started: Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true),
         last: None,
-    };
+    });
     Ok(serde_json::to_value(session).unwrap_or_default())
 }
 
