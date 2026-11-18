@@ -83,6 +83,13 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         warn!("{said}");
     }
     let prompts = Prompts::load_over(deployment.as_deref(), over);
+    if !over.is_empty() {
+        let files: Vec<&str> = over.iter().map(|(file, _)| *file).collect();
+        info!(
+            "built in for them in place of a character's: {}",
+            files.join(", ")
+        );
+    }
     say_overrides(&prompts);
     say_stale(&prompts, over);
 
