@@ -18,6 +18,7 @@ mod cards;
 mod drawn;
 mod kinds;
 mod live;
+mod output;
 mod outputs;
 mod steps;
 pub mod style;

@@ -8,7 +8,10 @@
 //! Everything of hers starts at the column's edge, as in Claude's app: her
 //! words are told from yours by their face and their side, not by a mark.
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use chrono::{DateTime, Utc};
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
@@ -74,7 +77,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 let took = last_yours
                     .filter(|y| *y <= m.at && before != Before::Look)
                     .map(|y| span((m.at - y).num_seconds()));
-                let el = hers(faces, &m, view.tz, took, cx).into_any_element();
+                let el = hers(faces, &m, view.tz, took, view.expanded, cx).into_any_element();
                 (el, Before::Other)
             }
             Item::Said { m, seq, from, mine } => {
@@ -613,6 +616,7 @@ fn hers(
     m: &Message,
     tz: chrono_tz::Tz,
     took: Option<String>,
+    expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
     let stamp = m.at.timestamp_millis();
@@ -627,7 +631,7 @@ fn hers(
         .flex_col()
         .w_full()
         .gap(px(S3))
-        .child(markdown::render(faces, &key, &m.text))
+        .child(markdown::render(faces, &key, &m.text, expanded, cx))
         .child(
             div()
                 .flex()
