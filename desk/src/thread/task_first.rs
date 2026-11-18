@@ -124,7 +124,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                     .iter()
                     .find(|w| w.id == t.id)
                     .map(|w| (w, &view.whom));
-                let el = task(faces, &t, view.tz, view.expanded, view.following, asks, cx);
+                let el = task(faces, &t, view, asks, cx);
                 (el.into_any_element(), Before::Other)
             }
             Item::Failed(why) => {
@@ -191,6 +191,8 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
 /// rest is folded.
 const BUBBLE_WIDTH: f32 = 520.;
 const BUBBLE_LINES: usize = 8;
+/// About how many columns of your words a bubble's line holds.
+const BUBBLE_COLS: usize = 65;
 
 /// Where one thing in the thread sits: the column's whole width, never
 /// more, `gap` below what came before. A flex column, so what is in it is
@@ -290,7 +292,7 @@ fn failed(
     again: Option<(String, i64)>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    let button = |id: String, text: &'static str| {
+    let button = |id: String, text: &'static str, color: gpui::Hsla| {
         div()
             .id(SharedString::from(id))
             .flex()
@@ -303,36 +305,41 @@ fn failed(
             .border_color(theme::border2())
             .cursor_pointer()
             .hover(|s| s.bg(theme::bubble()))
-            .child(
-                ui::text(faces, text)
-                    .text_size(px(SMALL))
-                    .text_color(theme::text()),
-            )
+            .child(ui::text(faces, text).text_size(px(SMALL)).text_color(color))
     };
     let stamp = at.timestamp_millis();
     let mut buttons = div().flex().gap(px(S2));
     if let Some((text, seq)) = again {
-        buttons = buttons.child(button(format!("again-{stamp}"), "Try again").on_click(
-            cx.listener(move |this, _, window, cx| {
-                this.take_back(&text, seq, window, cx);
-            }),
-        ));
+        buttons = buttons.child(
+            button(format!("again-{stamp}"), "Try again", theme::text()).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    this.take_back(&text, seq, window, cx);
+                },
+            )),
+        );
     }
-    buttons = buttons.child(button(format!("brain-{stamp}"), "Switch brain").on_click(
-        cx.listener(|this, _, window, cx| {
-            this.open_menu(
-                crate::desk::Menu::Brains,
-                crate::desk::At::Composer,
-                window,
-                cx,
-            );
-        }),
-    ));
+    buttons = buttons.child(
+        button(format!("brain-{stamp}"), "Switch brain", theme::muted()).on_click(cx.listener(
+            |this, _, window, cx| {
+                this.open_menu(
+                    crate::desk::Menu::Brains,
+                    crate::desk::At::Composer,
+                    window,
+                    cx,
+                );
+            },
+        )),
+    );
     div()
         .flex()
         .items_start()
         .gap(px(10.))
-        .child(div().pt(px(8.)).child(ui::dot(theme::coral()).size(px(6.))))
+        .child(
+            div()
+                .pt(px(2.5))
+                .flex_none()
+                .child(ui::icon("alert", 16.).text_color(theme::coral())),
+        )
         .child(
             div()
                 .flex()
@@ -512,16 +519,18 @@ fn yours(
         line = format!("{line} · directed · #{seq}");
     }
     let (again, copy) = (m.text.clone(), m.text.clone());
-    // A long line of yours shows its first eight lines until it is opened.
+    // A long line of yours shows its first eight lines until it is opened,
+    // the last of them fading into the bubble's shade. How many lines it
+    // takes is reckoned from its width: about 65 columns to a line.
     let fold_key = format!("bubble-{stamp}");
     let all = expanded.contains(&fold_key);
     let lines = m.text.lines().count();
-    let shown_text = if lines > BUBBLE_LINES && !all {
-        let head: Vec<&str> = m.text.lines().take(BUBBLE_LINES).collect();
-        format!("{}…", head.join("\n"))
-    } else {
-        m.text.clone()
-    };
+    let drawn: usize = m
+        .text
+        .lines()
+        .map(|l| crate::markdown::width(l).div_ceil(BUBBLE_COLS).max(1))
+        .sum();
+    let folded = drawn > BUBBLE_LINES && !all;
     let mut foot = div()
         .flex()
         .items_center()
@@ -546,13 +555,20 @@ fn yours(
             .tooltip(ui::tip("Copy"))
             .on_click(cx.listener(move |_, _, _, cx| Desk::copy_text(&copy, cx))),
     );
+    // What is under the bubble shows when the pointer is over it.
+    let group = SharedString::from(format!("yours-{stamp}"));
+    let foot = foot
+        .opacity(0.)
+        .group_hover(group.clone(), |s| s.opacity(1.));
     div()
+        .group(group)
         .flex()
         .flex_col()
         .items_end()
         .gap(px(S2))
         .child(
             div()
+                .relative()
                 .max_w(px(BUBBLE_WIDTH))
                 .px(px(S4))
                 .py(px(S3))
@@ -561,13 +577,32 @@ fn yours(
                 .when(directed.is_some(), |d| {
                     d.border_1().border_color(theme::purple().opacity(0.4))
                 })
+                .when(folded, |d| {
+                    d.max_h(px(BUBBLE_LINES as f32 * BODY_LINE + 2. * S3))
+                        .overflow_hidden()
+                })
                 .child(
-                    ui::text(faces, shown_text)
+                    ui::text(faces, m.text.clone())
                         .text_size(px(BODY))
                         .line_height(px(BODY_LINE)),
-                ),
+                )
+                .when(folded, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .h(px(56.))
+                            .bg(gpui::linear_gradient(
+                                180.,
+                                gpui::linear_color_stop(theme::bubble().opacity(0.), 0.),
+                                gpui::linear_color_stop(theme::bubble(), 1.),
+                            )),
+                    )
+                }),
         )
-        .when(lines > BUBBLE_LINES && !all, |d| {
+        .when(folded, |d| {
             let toggle = fold_key.clone();
             d.child(
                 div()

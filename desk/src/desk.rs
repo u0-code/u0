@@ -577,6 +577,7 @@ fn thread_view<'a>(
         whom,
         scroll: Some(scroll),
         rendering: thread::Rendering::Task,
+        column: thread::COLUMN,
     }
 }
 
@@ -609,7 +610,7 @@ impl Render for Desk {
             } else {
                 Whom::Solver
             };
-            let view = thread_view(
+            let mut view = thread_view(
                 ghost,
                 &place,
                 self.who(),
@@ -618,6 +619,12 @@ impl Render for Desk {
                 &self.expanded,
                 &self.thread_scroll,
             );
+            // The pane is the window less the panes beside it; the column
+            // is that less the thread's margins, up to its full width.
+            let pane = f32::from(window.viewport_size().width)
+                - if self.panes.left { LEFT } else { 0. }
+                - if self.panes.right { RIGHT } else { 0. };
+            view.column = (pane - 64.).clamp(240., thread::COLUMN);
             // Only a place on the console channel is yours to stop her in.
             let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
                 && thread::busy(&view);

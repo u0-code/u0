@@ -282,6 +282,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
         whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
+        column: COLUMN,
     };
     let said: Vec<(String, bool)> = items(&view)
         .into_iter()
@@ -368,6 +369,7 @@ fn view<'a>(
         whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
+        column: COLUMN,
     }
 }
 
@@ -678,6 +680,7 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
         whom: crate::answer::Whom::Solver,
         scroll: None,
         rendering: Rendering::Task,
+        column: COLUMN,
     };
     let texts: Vec<String> = items(&view)
         .into_iter()

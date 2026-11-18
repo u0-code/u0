@@ -108,13 +108,18 @@ pub(super) fn tool(
 pub(super) fn task(
     faces: &Faces,
     t: &Task<'_>,
-    tz: Tz,
-    expanded: &HashSet<String>,
-    following: &Following,
+    view: &super::View<'_>,
     asks: Option<(&Work, &Whom)>,
     cx: &mut Context<Desk>,
 ) -> Div {
+    let (tz, expanded, following, column) = (view.tz, view.expanded, view.following, view.column);
     let key = format!("task:{}", t.id);
+    // How many columns of words the head has room for: the column less
+    // the card's margins, its mark, its chevron and the gaps between,
+    // at about 7 points a column for the title and 6.6 for the line
+    // under it (a Chinese character takes two).
+    let room = (column - 92.).max(80.);
+    let (title_cols, under_cols) = ((room / 7.0) as usize, (room / 6.6) as usize);
     let open = expanded.contains(&key);
     let state = t.state();
     let read = following.works.get(&t.id).filter(|r| r.read());
@@ -155,7 +160,7 @@ pub(super) fn task(
         .overflow_hidden()
         .gap(px(2.))
         .child(
-            ui::one_line(ui::text(faces, calls::fit(t.title(), 76)))
+            ui::one_line(ui::text(faces, calls::fit(t.title(), title_cols)))
                 .whitespace_nowrap()
                 .text_size(px(14.))
                 .line_height(px(20.))
@@ -166,7 +171,7 @@ pub(super) fn task(
                 }),
         )
         .child(
-            ui::one_line(ui::text(faces, calls::fit(&done, 84)))
+            ui::one_line(ui::text(faces, calls::fit(&done, under_cols)))
                 .whitespace_nowrap()
                 .text_size(px(SMALL))
                 .line_height(px(18.))

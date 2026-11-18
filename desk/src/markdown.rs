@@ -673,7 +673,7 @@ fn block_element(faces: &Faces, key: &str, block: &Block, set: Setting) -> Div {
 
 /// How wide a cell's text is, in columns: a Chinese or Japanese character
 /// takes two.
-fn width(text: &str) -> usize {
+pub fn width(text: &str) -> usize {
     text.chars().map(|c| if unspaced(c) { 2 } else { 1 }).sum()
 }
 
