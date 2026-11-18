@@ -185,7 +185,10 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         | Event::Challenged { .. }
         | Event::Linked { .. }
         | Event::Profiled { .. }
-        | Event::Digested { .. } => return None,
+        | Event::Digested { .. }
+        // Which brain she thinks with is her body's, not something she
+        // lived.
+        | Event::BrainChanged { .. } => return None,
     })
 }
 

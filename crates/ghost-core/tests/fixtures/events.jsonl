@@ -77,3 +77,5 @@
 {"kind":"added","data":{"id":"20261112-150000-00cd","text":"Weekdays.","by":"console:fox"}}
 {"kind":"stopped","data":{"place":"console:fox","by":"console:fox","looking":true,"unsaid":["half past nine, I think"],"works":["20261112-150000-00cd"]}}
 {"kind":"rewound","data":{"place":"console:fox","by":"console:fox","to":41,"looking":true,"unsaid":["half past nine, I think"]}}
+{"kind":"brain_changed","data":{"think":"openai/deepseek-v4"}}
+{"kind":"brain_changed","data":{"think":"anthropic/claude-opus-5-5","was":"openai/deepseek-v4"}}
