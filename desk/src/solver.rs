@@ -1,10 +1,10 @@
 //! The solver's deployment, as the desk looks after it: the desk's own
 //! core, which keeps everything in a home of its own (`ghost_link::home()`)
-//! and makes it ready itself, and the daemon that runs it. The desk can
-//! read which brains the core knows, pick one, and start or restart the
-//! daemon as a child of its own. It never edits a ghost's own files; the
-//! core's configuration is what a person would edit by hand, and it is
-//! edited the way a person would, keeping every comment.
+//! and makes it ready itself, and the daemon that runs it, which the desk
+//! starts as a child of its own. The core's brains are its own: the desk
+//! asks it which there are and changes them over the Ghost Protocol
+//! (`link::brains`), and reads none of its files for them. A [`Provider`]
+//! is one of them as the core describes it.
 
 use std::{
     ffi::OsString,
@@ -13,13 +13,14 @@ use std::{
 };
 
 use anyhow::{Context as _, anyhow};
-use toml_edit::{DocumentMut, Item, Table, Value};
+use ghost_link::protocol::BrainInfo;
 use tracing::{info, warn};
 
-use crate::brains::{self, Mark, Preset, Wire};
+use crate::brains::{self, Mark, Preset};
 
-/// One brain the deployment could run on: a `[providers.<name>]` table.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One brain the core could run on, as it describes it: a
+/// `[providers.<name>]` of its configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Provider {
     pub name: String,
     /// `openai`, `anthropic`, `claude-code` or `codex`.
@@ -29,58 +30,32 @@ pub struct Provider {
     /// daemon's default where the table names none; `None` for a CLI, or
     /// an API given a placeholder key because it needs none.
     pub key_env: Option<String>,
+    /// Whether the core has a key for it.
+    pub key_set: bool,
     pub base_url: Option<String>,
     /// The program, for a CLI.
     pub program: Option<String>,
-    /// Why this machine cannot run it, if it cannot: its key is not set,
-    /// its CLI is not installed, nothing answers where it runs.
+    /// Why the core's machine cannot run it, if it cannot: its key is not
+    /// set, its CLI is not installed, nothing answers where it runs.
     pub blocker: Option<String>,
 }
 
-impl Provider {
-    /// Read `[providers.<name>]`. Whether it can run here is left for
-    /// [`Provider::check`].
-    fn read(name: &str, table: &Item) -> Self {
-        let s = |k: &str| table.get(k).and_then(Item::as_str).map(str::to_owned);
-        let kind = s("kind").unwrap_or_default();
-        let key_env = match Wire::of(&kind) {
-            Wire::Cli => None,
-            _ if table.get("api_key").is_some() => None,
-            Wire::Anthropic => Some(s("api_key_env").unwrap_or_else(|| "ANTHROPIC_API_KEY".into())),
-            Wire::OpenAi => Some(s("api_key_env").unwrap_or_else(|| "OPENAI_API_KEY".into())),
-        };
-        let program = (Wire::of(&kind) == Wire::Cli).then(|| {
-            s("program")
-                .unwrap_or_else(|| if kind == "codex" { "codex" } else { "claude" }.to_owned())
-        });
+impl From<BrainInfo> for Provider {
+    fn from(b: BrainInfo) -> Self {
         Self {
-            name: name.to_owned(),
-            model: s("model").unwrap_or_default(),
-            key_env,
-            base_url: s("base_url"),
-            program,
-            kind,
-            blocker: None,
+            name: b.name,
+            kind: b.kind,
+            model: b.model,
+            key_env: b.key_env,
+            key_set: b.key_set,
+            base_url: b.base_url,
+            program: b.program,
+            blocker: b.blocker,
         }
     }
+}
 
-    /// Find out whether this machine can run it, for real: the key is in
-    /// `env` or the core's `.env`, the CLI is installed, or something
-    /// answers at the address of an API on this machine.
-    fn check(mut self, env: &dyn Fn(&str) -> Option<String>, dotenv: Option<&str>) -> Self {
-        self.blocker = if let Some(program) = &self.program {
-            (!on_path(program)).then(|| format!("`{program}` was not found on this machine"))
-        } else if let Some(var) = &self.key_env {
-            (!brains::key_status(var, env, dotenv).found()).then(|| format!("{var} is not set"))
-        } else {
-            let base = self.base_url.clone().unwrap_or_default();
-            let (authority, host) = brains::authority(&base);
-            let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]");
-            (local && !answers(&authority)).then(|| format!("nothing answers at {authority}"))
-        };
-        self
-    }
-
+impl Provider {
     /// The preset it is, if the desk has one for it.
     pub fn preset(&self) -> Option<&'static Preset> {
         Preset::of(&self.kind, self.base_url.as_deref())
@@ -165,11 +140,11 @@ const GHOST: &str = "ghosts/solver";
 /// The desk's core, and the daemon if the desk started it.
 ///
 /// The core keeps everything in a home of its own, which `ghostd` makes
-/// ready by itself: the desk only names it. What the desk still reads and
-/// writes there (the brains in its configuration, what it may do, the keys
-/// in its `.env`, the media and the machine directory of its ghost) are
-/// the next steps' to move behind the Ghost Protocol, after which the desk
-/// will read none of its files.
+/// ready by itself: the desk only names it. Its brains and their keys are
+/// behind the Ghost Protocol. What the desk still reads there itself (what
+/// it may do, from `[mind.work]` in its configuration; the media and the
+/// machine directory of its ghost) are the next steps' to move behind it,
+/// after which the desk will read none of its files.
 pub struct Deployment {
     /// The core's home: `ghost_link::home()`.
     pub core: PathBuf,
@@ -232,59 +207,6 @@ impl Deployment {
         pick_ghostd(std::env::var_os("GHOSTD_BIN"), beside, &self.checkout)
     }
 
-    /// Every brain the deployment names, with whether it can run here.
-    pub fn providers(&self) -> Vec<Provider> {
-        let Ok(text) = std::fs::read_to_string(self.config()) else {
-            return Vec::new();
-        };
-        let Ok(doc) = text.parse::<toml_edit::DocumentMut>() else {
-            return Vec::new();
-        };
-        let Some(table) = doc.get("providers").and_then(|p| p.as_table()) else {
-            return Vec::new();
-        };
-        let dotenv = self.dotenv();
-        table
-            .iter()
-            .map(|(name, p)| Provider::read(name, p).check(&env, dotenv.as_deref()))
-            .collect()
-    }
-
-    /// The core's `.env` as written, which its daemon loads. Read for
-    /// whether a key is in it, never shown.
-    pub fn dotenv(&self) -> Option<String> {
-        std::fs::read_to_string(self.core.join(".env")).ok()
-    }
-
-    /// How a request the desk makes leaves the machine: `[network]` in the
-    /// deployment, under the environment's `GHOST_PROXY` and
-    /// `GHOST_DIRECT`, exactly as the daemon would send it.
-    pub fn network(&self) -> Result<ghost_net::Network, String> {
-        let doc = std::fs::read_to_string(self.config())
-            .ok()
-            .and_then(|t| t.parse::<DocumentMut>().ok());
-        let network = doc.as_ref().and_then(|d| d.get("network"));
-        let setting = ghost_net::Setting {
-            proxy: network
-                .and_then(|n| n.get("proxy"))
-                .and_then(Item::as_str)
-                .map(str::to_owned),
-            direct: network
-                .and_then(|n| n.get("direct"))
-                .and_then(Item::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect()
-                }),
-        };
-        let dotenv = self.dotenv();
-        ghost_net::Network::new(&setting, |var| {
-            env(var).or_else(|| brains::key_value(var, &|_| None, dotenv.as_deref()))
-        })
-        .map_err(|e| e.to_string())
-    }
-
     /// What `[mind.work]` lets it do. Work is on unless it says otherwise.
     pub fn abilities(&self) -> Abilities {
         let Some(doc) = std::fs::read_to_string(self.config())
@@ -313,97 +235,6 @@ impl Deployment {
     /// you, under the ghost's own `home`.
     pub fn home(&self) -> PathBuf {
         self.ghost_dir().join("home")
-    }
-
-    /// Which brain `[brain] think` names.
-    pub fn brain(&self) -> Option<String> {
-        let text = std::fs::read_to_string(self.config()).ok()?;
-        let doc = text.parse::<toml_edit::DocumentMut>().ok()?;
-        doc.get("brain")?.get("think")?.as_str().map(str::to_owned)
-    }
-
-    /// Make `name` the brain it thinks and ticks with, in the file, keeping
-    /// everything else as it is.
-    pub fn choose(&self, name: &str) -> anyhow::Result<()> {
-        let path = self.config();
-        let text =
-            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let mut doc = text
-            .parse::<toml_edit::DocumentMut>()
-            .with_context(|| format!("parse {}", path.display()))?;
-        if !doc.contains_key("brain") {
-            doc["brain"] = toml_edit::table();
-        }
-        doc["brain"]["think"] = toml_edit::value(name);
-        doc["brain"]["tick"] = toml_edit::value(name);
-        std::fs::write(&path, doc.to_string())
-            .with_context(|| format!("write {}", path.display()))?;
-        info!("the solver thinks with {name} from its next start");
-        Ok(())
-    }
-
-    /// Think with `model` on the brain `name` from its next start. An empty
-    /// model names none, for a CLI to use its own default.
-    pub fn set_model(&self, name: &str, model: &str) -> anyhow::Result<()> {
-        self.edit(|doc| {
-            let table = doc
-                .get_mut("providers")
-                .and_then(|p| p.get_mut(name))
-                .and_then(toml_edit::Item::as_table_like_mut)
-                .ok_or_else(|| anyhow!("no brain called {name}"))?;
-            if model.is_empty() {
-                table.remove("model");
-            } else {
-                table.insert("model", toml_edit::value(model));
-            }
-            Ok(())
-        })?;
-        info!(
-            "{name} thinks with {} from its next start",
-            if model.is_empty() {
-                "its default"
-            } else {
-                model
-            }
-        );
-        Ok(())
-    }
-
-    /// Change the deployment's file with `edit`, keeping every comment and
-    /// everything `edit` does not touch.
-    fn edit(
-        &self,
-        edit: impl FnOnce(&mut DocumentMut) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        let path = self.config();
-        let text =
-            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let mut doc = text
-            .parse::<DocumentMut>()
-            .with_context(|| format!("parse {}", path.display()))?;
-        edit(&mut doc)?;
-        std::fs::write(&path, doc.to_string()).with_context(|| format!("write {}", path.display()))
-    }
-
-    /// Write a brain as `[providers.<name>]`: a new one, or the one saved
-    /// as `old`, renamed if `name` is another. See [`write_provider`].
-    pub fn save_provider(
-        &self,
-        old: Option<&str>,
-        name: &str,
-        set: &[(&str, Value)],
-        clear: &[&str],
-    ) -> anyhow::Result<()> {
-        self.edit(|doc| write_provider(doc, old, name, set, clear))?;
-        info!("the solver can think with {name}");
-        Ok(())
-    }
-
-    /// Take the brain `name` out of the deployment. See [`drop_provider`].
-    pub fn remove_provider(&self, name: &str) -> anyhow::Result<()> {
-        self.edit(|doc| drop_provider(doc, name))?;
-        info!("the solver no longer knows {name}");
-        Ok(())
     }
 
     /// Whether the desk started a daemon it has not yet seen stop. Unlike
@@ -515,91 +346,6 @@ impl Drop for Deployment {
     }
 }
 
-/// Write a brain as `[providers.<name>]`, setting the keys in `set` and
-/// taking out those in `clear`. With `old`, the table saved under that name
-/// is changed in place, every other key and comment in it kept, and moved
-/// to `name` if that is another, with `[brain]` following it. A new brain
-/// may not take a name already used. A key is never among what is set:
-/// only the name of the variable it is in.
-pub fn write_provider(
-    doc: &mut DocumentMut,
-    old: Option<&str>,
-    name: &str,
-    set: &[(&str, Value)],
-    clear: &[&str],
-) -> anyhow::Result<()> {
-    let name = name.trim();
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(anyhow!("a brain's name is letters, digits, - and _"));
-    }
-    if !doc.contains_key("providers") {
-        let mut providers = Table::new();
-        providers.set_implicit(true);
-        doc["providers"] = Item::Table(providers);
-    }
-    let providers = doc["providers"]
-        .as_table_mut()
-        .ok_or_else(|| anyhow!("[providers] is not a table"))?;
-    if old != Some(name) && providers.contains_key(name) {
-        return Err(anyhow!("{name} is taken"));
-    }
-    let mut table = match old {
-        Some(old) => match providers.remove(old) {
-            Some(Item::Table(t)) => t,
-            _ => return Err(anyhow!("no brain is saved as {old}")),
-        },
-        None => Table::new(),
-    };
-    for (k, v) in set {
-        match table.get_mut(k).and_then(Item::as_value_mut) {
-            // Keep the comment beside a value that is changed.
-            Some(was) => {
-                let decor = was.decor().clone();
-                *was = v.clone();
-                *was.decor_mut() = decor;
-            }
-            None => table[k] = Item::Value(v.clone()),
-        }
-    }
-    for k in clear {
-        table.remove(k);
-    }
-    providers.insert(name, Item::Table(table));
-    if let Some(old) = old.filter(|o| *o != name)
-        && let Some(brain) = doc.get_mut("brain").and_then(Item::as_table_like_mut)
-    {
-        for role in ["think", "tick"] {
-            if brain.get(role).and_then(Item::as_str) == Some(old) {
-                brain.insert(role, toml_edit::value(name));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Take `[providers.<name>]` out. The brain `[brain]` thinks or ticks with
-/// stays: without it the daemon would not start.
-pub fn drop_provider(doc: &mut DocumentMut, name: &str) -> anyhow::Result<()> {
-    let used = ["think", "tick"].iter().any(|role| {
-        doc.get("brain")
-            .and_then(|b| b.get(role))
-            .and_then(Item::as_str)
-            == Some(name)
-    });
-    if used {
-        return Err(anyhow!("in use: choose another brain first"));
-    }
-    doc.get_mut("providers")
-        .and_then(Item::as_table_like_mut)
-        .and_then(|p| p.remove(name))
-        .map(|_| ())
-        .ok_or_else(|| anyhow!("no brain is saved as {name}"))
-}
-
 /// Which `ghostd` runs the core: `named` (`GHOSTD_BIN`) if set; else the
 /// one `beside` the desk's own binary, which is where `bundle.sh` puts the
 /// release build it makes with the app, so that Ghost.app runs the daemon
@@ -616,30 +362,6 @@ fn pick_ghostd(named: Option<OsString>, beside: Option<PathBuf>, root: &Path) ->
         .chain(["target/release/ghostd", "target/debug/ghostd"].map(|p| root.join(p)))
         .find(|p| p.is_file())
         .unwrap_or_else(|| PathBuf::from("ghostd"))
-}
-
-/// The process's environment.
-pub fn env(var: &str) -> Option<String> {
-    std::env::var(var).ok()
-}
-
-/// Whether a program is installed: a path to it, or its name on PATH.
-pub fn on_path(name: &str) -> bool {
-    if name.contains('/') {
-        return Path::new(name).is_file();
-    }
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
-}
-
-/// Whether something listens at `host:port` on this machine, asked quickly.
-pub fn answers(authority: &str) -> bool {
-    use std::net::ToSocketAddrs as _;
-    authority.to_socket_addrs().is_ok_and(|mut addrs| {
-        addrs.any(|a| {
-            std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(250)).is_ok()
-        })
-    })
 }
 
 /// What `ghostd` is told to run the core in its home `core` with.
@@ -733,13 +455,8 @@ mod tests {
     fn what_the_desk_reads_of_its_core_is_in_the_cores_home_and_never_in_the_checkout() {
         let d = checkout("home");
         assert_eq!(d.config(), d.core.join("ghostd.toml"));
-        assert_eq!(d.brain().as_deref(), Some("main"));
         assert_eq!(d.ghost_dir(), d.core.join("ghosts/solver"));
         assert_eq!(d.home(), d.core.join("ghosts/solver/home"));
-        std::fs::write(d.checkout.join(".env"), "A_KEY=checkout\n").unwrap();
-        assert_eq!(d.dotenv(), None, "a key in the checkout is not the core's");
-        std::fs::write(d.core.join(".env"), "A_KEY=core\n").unwrap();
-        assert_eq!(d.dotenv().as_deref(), Some("A_KEY=core\n"));
     }
 
     #[test]
@@ -762,186 +479,58 @@ mod tests {
         assert!(args.contains(&OsString::from(LISTEN)));
     }
 
-    /// What a new brain from `preset` writes, as the sheet would save it.
-    fn fields(id: &str) -> Vec<(&'static str, Value)> {
-        let p = Preset::by_id(id).unwrap();
-        p.fields(&brains::Draft {
-            model: p.model.to_owned(),
-            key_env: p.key_env.unwrap_or_default().to_owned(),
-            base_url: p.base_url.to_owned(),
-        })
+    /// One brain as a core describes it, read the way the desk reads it.
+    fn described(json: &str) -> Provider {
+        Provider::from(serde_json::from_str::<BrainInfo>(json).unwrap())
     }
 
     #[test]
-    fn a_brain_added_and_chosen_keeps_the_rest_of_the_file() {
-        let d = checkout("brain");
-        d.save_provider(None, "claude-code", &fields("claude-code"), &[])
-            .unwrap();
-        d.choose("claude-code").unwrap();
-        let text = std::fs::read_to_string(d.config()).unwrap();
-        assert!(
-            text.contains("# how it thinks") && text.contains("# the API"),
-            "{text}"
+    fn a_brain_the_core_describes_is_named_and_marked_as_its_preset() {
+        let deepseek = described(
+            r#"{"name":"main","kind":"openai","model":"deepseek-flash",
+                "base_url":"https://api.deepseek.com/v1","key_env":"DEEPSEEK_API_KEY","key_set":true}"#,
         );
-        assert!(
-            text.contains("[providers.claude-code]\nkind = \"claude-code\"\nmodel = \"sonnet\"\ntimeout_secs = 120\n"),
-            "{text}"
+        assert_eq!(deepseek.preset().map(|p| p.id), Some("deepseek"));
+        assert_eq!(deepseek.mark(), Mark::Icon("deepseek"));
+        assert_eq!(deepseek.title(), "main", "saved under a name of its own");
+        assert_eq!(deepseek.about(), "api.deepseek.com");
+        assert_eq!(deepseek.label(), "deepseek-flash");
+        assert!(deepseek.key_set);
+
+        let claude = described(
+            r#"{"name":"claude-code","kind":"claude-code","model":"sonnet","program":"claude"}"#,
         );
-        assert_eq!(d.brain().as_deref(), Some("claude-code"));
-        let providers = d.providers();
-        let main = providers.iter().find(|p| p.name == "main").unwrap();
-        assert_eq!(
-            main.blocker.as_deref(),
-            Some("NO_SUCH_KEY_FOR_A_TEST is not set"),
-            "an API whose key is not set cannot run"
-        );
-        assert_eq!(main.mark(), Mark::Icon("openai"));
-        let claude = providers.iter().find(|p| p.name == "claude-code").unwrap();
         assert_eq!(
             (
                 claude.mark(),
                 claude.title().as_str(),
-                claude.label().as_str()
+                claude.label().as_str(),
+                claude.about().as_str()
             ),
-            (Mark::Icon("claude"), "Claude Code", "Claude Code · sonnet")
+            (
+                Mark::Icon("claude"),
+                "Claude Code",
+                "Claude Code · sonnet",
+                "runs claude here"
+            )
         );
+        let codex = described(r#"{"name":"codex","kind":"codex","program":"codex"}"#);
+        assert_eq!(codex.label(), "Codex", "no model is its own default");
     }
 
     #[test]
-    fn every_preset_round_trips_through_the_file() {
-        let mut doc: DocumentMut = "# mine\n[brain]\nthink = \"main\"\n".parse().unwrap();
-        for p in brains::PRESETS.iter().filter(|p| p.id != "custom") {
-            write_provider(&mut doc, None, p.id, &fields(p.id), &[]).unwrap();
-        }
-        let doc: DocumentMut = doc.to_string().parse().unwrap();
-        let text = doc.to_string();
-        assert!(text.starts_with("# mine\n"), "{text}");
-        assert!(!text.contains("[providers]\n"), "{text}");
-        let providers = doc["providers"].as_table().unwrap();
-        for p in brains::PRESETS.iter().filter(|p| p.id != "custom") {
-            let read = Provider::read(p.id, &providers[p.id]);
-            assert_eq!(read.kind, p.kind, "{}", p.id);
-            assert_eq!(read.model, p.model, "{}", p.id);
-            assert_eq!(read.preset().map(|q| q.id), Some(p.id), "{}", p.id);
-            assert_eq!(read.title(), p.name);
-            if p.cli() {
-                assert_eq!(read.program.as_deref(), p.program);
-                assert_eq!(read.key_env, None);
-            } else {
-                assert_eq!(read.base_url.as_deref(), Some(p.base_url), "{}", p.id);
-                assert_eq!(read.key_env.as_deref(), p.key_env, "{}", p.id);
-            }
-        }
-        let gemini = Provider::read("gemini", &providers["gemini"]);
-        let key = |var: &str| (var == "GEMINI_API_KEY").then(|| "sk-test".to_owned());
-        assert_eq!(gemini.clone().check(&key, None).blocker, None);
-        assert_eq!(
-            gemini.check(&|_| None, None).blocker.as_deref(),
-            Some("GEMINI_API_KEY is not set")
+    fn a_brain_the_core_cannot_run_says_why_in_place_of_what_it_is() {
+        let blocked = described(
+            r#"{"name":"main","kind":"openai","model":"m","key_env":"K","key_set":false,
+                "blocker":"K is not set"}"#,
         );
-        let ollama = Provider::read("ollama", &providers["ollama"]);
-        assert_eq!(ollama.key_env, None, "a local API needs no key");
-        assert!(
-            !text.contains("_API_KEY = \"sk"),
-            "no key is written: {text}"
+        assert_eq!(blocked.about(), "K is not set");
+        let unknown = described(
+            r#"{"name":"local-llama","kind":"openai","model":"m",
+                "base_url":"http://localhost:8000/v1"}"#,
         );
-    }
-
-    #[test]
-    fn a_brain_edited_in_place_keeps_its_comments_and_other_keys() {
-        let mut doc: DocumentMut = "[brain]\nthink = \"main\"\ntick = \"main\"\n\n# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"deepseek-chat\" # fast\nbase_url = \"https://api.deepseek.com/v1\"\napi_key_env = \"DEEPSEEK_API_KEY\"\njson_mode = true\n\n[providers.codex]\nkind = \"codex\"\n"
-            .parse()
-            .unwrap();
-        write_provider(
-            &mut doc,
-            Some("main"),
-            "main",
-            &[("model", "deepseek-flash".into())],
-            &["base_url"],
-        )
-        .unwrap();
-        let text = doc.to_string();
-        assert!(
-            text.contains("# the API\n[providers.main]\nkind = \"openai\"\nmodel = \"deepseek-flash\" # fast\napi_key_env = \"DEEPSEEK_API_KEY\"\njson_mode = true\n"),
-            "{text}"
-        );
-        assert!(
-            text.find("[providers.main]") < text.find("[providers.codex]"),
-            "it stays where it was: {text}"
-        );
-        // Renamed, [brain] follows it.
-        write_provider(&mut doc, Some("main"), "deepseek", &[], &[]).unwrap();
-        let text = doc.to_string();
-        assert!(
-            text.contains("think = \"deepseek\"\ntick = \"deepseek\""),
-            "{text}"
-        );
-        assert!(
-            text.contains("[providers.deepseek]\nkind = \"openai\""),
-            "{text}"
-        );
-        assert!(!text.contains("[providers.main]"), "{text}");
-        // A new one may not take a name in use, nor a name TOML would split.
-        assert!(write_provider(&mut doc, None, "codex", &[], &[]).is_err());
-        assert!(write_provider(&mut doc, None, "a.b", &[], &[]).is_err());
-        assert!(write_provider(&mut doc, Some("gone"), "x", &[], &[]).is_err());
-    }
-
-    #[test]
-    fn a_brain_is_removed_unless_it_is_the_one_in_use() {
-        let mut doc: DocumentMut =
-            "[brain]\nthink = \"main\"\ntick = \"main\"\n\n[providers.main]\nkind = \"openai\"\n\n# signed in\n[providers.codex]\nkind = \"codex\"\n"
-                .parse()
-                .unwrap();
-        assert!(
-            drop_provider(&mut doc, "main").is_err(),
-            "the brain in use stays"
-        );
-        drop_provider(&mut doc, "codex").unwrap();
-        let text = doc.to_string();
-        assert!(!text.contains("codex"), "{text}");
-        assert!(
-            text.contains("[providers.main]\nkind = \"openai\"\n"),
-            "{text}"
-        );
-        assert!(drop_provider(&mut doc, "codex").is_err());
-        let again: DocumentMut = text.parse().unwrap();
-        assert_eq!(again.to_string(), text);
-    }
-
-    #[test]
-    fn a_brain_that_cannot_run_here_says_why() {
-        // A port nothing listens on: bound, then let go.
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let doc: DocumentMut = format!(
-            "[p]\nkind = \"openai\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\napi_key = \"ollama\"\n"
-        )
-        .parse()
-        .unwrap();
-        let p = Provider::read("p", &doc["p"]).check(&|_| None, None);
-        assert_eq!(
-            p.blocker,
-            Some(format!("nothing answers at 127.0.0.1:{port}"))
-        );
-        let cli: DocumentMut = "[c]\nkind = \"codex\"\nprogram = \"/no/such/codex\"\n"
-            .parse()
-            .unwrap();
-        let c = Provider::read("c", &cli["c"]).check(&|_| None, None);
-        assert_eq!(
-            c.blocker.as_deref(),
-            Some("`/no/such/codex` was not found on this machine")
-        );
-        let key: DocumentMut = "[k]\nkind = \"anthropic\"\nmodel = \"m\"\n"
-            .parse()
-            .unwrap();
-        let k = Provider::read("k", &key["k"]);
-        assert_eq!(k.key_env.as_deref(), Some("ANTHROPIC_API_KEY"));
-        assert!(k.clone().check(&|_| None, None).blocker.is_some());
-        let k = k.check(&|_| None, Some("ANTHROPIC_API_KEY=sk-file\n"));
-        assert_eq!(k.blocker, None, "a key in the core's .env is a key");
+        assert_eq!(unknown.preset(), None);
+        assert_eq!(unknown.mark(), Mark::Letter('L'));
+        assert_eq!(unknown.about(), "localhost");
     }
 }

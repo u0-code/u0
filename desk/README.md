@@ -103,11 +103,13 @@ the main thread once the window is up, so that a birth, or a question
 from macOS while an old core is taken in, holds up the core and not the
 window.
 
-What the desk still reads in the core's home, rather than asking the
-core, is the brains and abilities in its `ghostd.toml` (which the brain
-picker also writes), the keys in its `.env`, and its ghost's media and
-machine directory. Those move behind the Ghost Protocol next, after which
-the desk reads none of the core's files.
+The core's brains, and their keys, are its own: the desk asks it which
+there are and changes them over the Ghost Protocol (`brains.*`), and
+reads neither its `ghostd.toml` nor its `.env` for them. What the desk
+still reads in the core's home, rather than asking the core, is what
+`[mind.work]` lets it do, and its ghost's media and machine directory.
+Those move behind the Ghost Protocol next, after which the desk reads
+none of the core's files.
 
 ## Other daemons
 
@@ -251,22 +253,21 @@ lists it; the count beside Attention is what you have not seen.
 ## Brains
 
 The brain chip beside the line, and the solver's row at the foot of the
-sidebar, open a small picker: every `[providers]` table of the deployment,
+sidebar, open a small picker: every brain the core says it has (`brains.list`),
 with its mark and its name, and the models of the one looked at, with a
 check on the one in use. The models come from the brain itself, none
 from a list in the desk: Claude Code's are read out of the build
 installed on this machine, once per build, under the names Claude Code
 gives them (Opus 4.5, Sonnet 4.5); Codex's are what its own cache lists
-for your account; an API's are what its `/models` says, asked for when
-the desk starts and again after a day, and kept in
-`~/.config/ghost-desk/models.json` so that the picker has them at once,
-with or without the network. Picking a model first asks the brain to think
-once, as little as there is, the way the daemon would: Claude Code with
-`claude -p` and one turn, Codex with `codex exec`, an API with its model
-list or a one-token answer, each within a minute. If it cannot (a CLI
-signed out answers for its version but not for this), the desk says why
-in plain words and keeps the brain it had; otherwise it writes `[brain]`
-and restarts the daemon the desk runs.
+for your account; an API's are what its `/models` says, asked by the core
+with the key it holds (`brains.models`) when the desk starts and again
+after a day, and kept in `~/.config/ghost-desk/models.json` so that the
+picker has them at once, with or without the network. Picking a model
+asks the core to have her think with it (`brains.use`): it first asks the
+brain to think once, as little as there is, the way her mind would. If it
+cannot (a CLI signed out answers for its version but not for this), the
+desk says why in plain words and keeps the brain it had; otherwise the
+core writes `[brain]` and starts her mind again on it, by itself.
 
 
 **Add brain…** opens a sheet with a tile for each provider the desk knows:
@@ -275,11 +276,12 @@ Mistral, Groq, Ollama on this machine, the Claude Code and Codex CLIs you
 are signed in to, and any other OpenAI-compatible API. A tile fills in the
 provider's base URL, the variable its key is conventionally in, and a model
 to start from; the model field offers the provider's own list once the key
-is there. Test makes one real request (the model list, or a one-token
-answer; a CLI's version), through the same proxy setting as the daemon.
-The pencil on a row of the picker opens that brain in the sheet, where it
-can also be removed. Only the name of the variable is written to the
-core's `ghostd.toml`, never the key.
+is there, and the key's variable says whether the core has it. Test has
+the core ask the brain to think once (`brains.check`). Save hands the
+fields to the core (`brains.save`), which writes them into its
+`ghostd.toml`, keeping your comments; the pencil on a row of the picker
+opens that brain in the sheet, where it can also be removed. The desk
+sends only the name of the variable, never a key.
 
 ## The look
 

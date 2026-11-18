@@ -19,6 +19,10 @@
 //! All of it runs on one small tokio runtime and hands what it learns to
 //! the UI as [`Update`]s over a plain channel; the UI drains it on its own
 //! clock. Dropping either stops it. Nothing here touches a ghost's files.
+//!
+//! The brains of the core the desk runs are asked about and changed with
+//! [`brains`], on a short connection of its own each time: they are the
+//! core's, and the desk reads none of its files for them.
 
 use std::{
     sync::{
@@ -29,7 +33,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ghost_link::{Console, protocol::SayMode};
+use ghost_link::{
+    Console,
+    protocol::{BrainAsk, BrainList, BrainSave, SayMode},
+};
 use tokio::{runtime::Runtime, task::JoinHandle};
 use tracing::{debug, info};
 
@@ -183,6 +190,82 @@ async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>
         },
     };
     let _ = up.send(update);
+}
+
+/// Something asked of a core about its brains, which are its own: the desk
+/// reads and changes them only this way, never in the core's files.
+#[derive(Debug, Clone)]
+pub enum BrainCall {
+    List,
+    Save(BrainSave),
+    Remove(String),
+    /// Think with the brain `name`, on `model` if given.
+    Use {
+        name: String,
+        model: Option<String>,
+    },
+    Models(BrainAsk),
+    Check(BrainAsk),
+}
+
+/// What the core answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrainAnswer {
+    /// The brains, as they are now.
+    List(BrainList),
+    Models(Vec<String>),
+    /// It thought, when asked to.
+    Checked,
+}
+
+/// Why the core did not do what it was asked: what it said, and its error
+/// code when the core answered at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused {
+    pub code: Option<i64>,
+    pub why: String,
+}
+
+impl Refused {
+    /// The core's own words for why, or the desk's when it could not be
+    /// reached.
+    fn from(e: &anyhow::Error) -> Self {
+        match e.downcast_ref::<ghost_link::protocol::RpcError>() {
+            Some(rpc) => Self {
+                code: Some(rpc.code),
+                why: rpc.message.clone(),
+            },
+            None => Self {
+                code: None,
+                why: format!("{e:#}"),
+            },
+        }
+    }
+}
+
+/// Ask the core at `url` about its brains, on a connection of its own.
+pub async fn brains(
+    url: String,
+    token: Option<String>,
+    call: BrainCall,
+) -> Result<BrainAnswer, Refused> {
+    let asked = async {
+        let (mut console, _) = Console::connect(&url, token, None).await?;
+        anyhow::Ok(match call {
+            BrainCall::List => BrainAnswer::List(console.brains().await?),
+            BrainCall::Save(save) => BrainAnswer::List(console.save_brain(&save).await?),
+            BrainCall::Remove(name) => BrainAnswer::List(console.remove_brain(&name).await?),
+            BrainCall::Use { name, model } => {
+                BrainAnswer::List(console.use_brain(&name, model).await?)
+            }
+            BrainCall::Models(ask) => BrainAnswer::Models(console.brain_models(&ask).await?),
+            BrainCall::Check(ask) => {
+                console.check_brain(&ask).await?;
+                BrainAnswer::Checked
+            }
+        })
+    };
+    asked.await.map_err(|e| Refused::from(&e))
 }
 
 /// Entries as the daemon serves them, oldest first.

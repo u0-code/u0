@@ -61,6 +61,18 @@ in place of a character's: they follow the binary, and `prompts` under
 `[mind]` lays a directory of your own over them, as in any deployment.
 Relative paths in a home's `ghostd.toml` are read from the home.
 
+A daemon running a home changes its own brains when an operator asks,
+over the Ghost Protocol (`brains.save`, `brains.remove`, `brains.use`; the
+protocol's README has the wire): `[providers]` and `[brain]` are edited in
+`ghostd.toml` as a person would edit them, every comment kept, and a key
+given with a brain goes into `.env`, never into `ghostd.toml`. A change to
+the brain in use starts every mind again on it at once, as after a
+failure: her presences stay connected and what they hear meanwhile is held.
+A brain's model list and a check that it thinks are asked of the daemon
+too, with the keys it holds. A daemon run with `--config` lists its brains
+and refuses to change them: that file is whoever wrote it's. Command-line
+agents her work hands parts to are still found once, at start.
+
 `--adopt <checkout>` takes in the core a checkout kept before there were
 homes, once, when no ghost of the home has been born: the solver in
 `desk/core/ghosts/solver` or `ghosts/solver`, her `journal.db` and

@@ -27,7 +27,10 @@ use ghost_protocol::{
 use tokio::{net::TcpListener, sync::mpsc};
 
 use super::*;
-use crate::server::{self, Presences, Shared};
+use crate::{
+    brains::served::Held,
+    server::{self, Presences, Shared},
+};
 
 /// A brain that always says one thing, and counts how often it is asked.
 pub(crate) struct Says {
@@ -118,7 +121,7 @@ pub(crate) struct Rig {
     pub(crate) url: String,
     pub(crate) cast: Vec<Arc<Character>>,
     /// How many times each one's mind has been made.
-    made: Vec<Arc<AtomicUsize>>,
+    pub(crate) made: Vec<Arc<AtomicUsize>>,
     stop: watch::Sender<bool>,
     _root: tempfile::TempDir,
 }
@@ -130,6 +133,18 @@ impl Rig {
 
     /// The same, admitting only clients that give `token`.
     pub(crate) async fn guarded(specs: Vec<Spec>, token: Option<&str>) -> Self {
+        let cfg = crate::config::Config::parse(
+            "[brain]\nthink = \"a\"\ntick = \"a\"\n[providers.a]\nkind = \"codex\"\n",
+        )
+        .unwrap();
+        let held = Held::new(Arc::new(cfg), None, None);
+        Self::holding(specs, token, held).await
+    }
+
+    /// The same, with `held` as the brains the daemon answers for. The
+    /// minds think with their scripted brains whatever it holds; a change
+    /// to the brain in use still starts them again.
+    pub(crate) async fn holding(specs: Vec<Spec>, token: Option<&str>, held: Held) -> Self {
         let root = tempfile::tempdir().unwrap();
         let (stop, stopping) = watch::channel(false);
         let pauses = Pauses {
@@ -179,6 +194,7 @@ impl Rig {
             listener,
             Arc::new(Shared {
                 cast: Cast(cast.clone()),
+                brains: Arc::new(held),
                 token: token.map(str::to_owned),
                 origins: Vec::new(),
             }),

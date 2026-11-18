@@ -14,9 +14,6 @@ publish = false
 [dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
 ghost-link = { path = "../crates/ghost-link" }
-# Every HTTP request a Ghost program makes leaves through it: the desk asks
-# a brain's API which models it has, and tests a key, the same way.
-ghost-net = { path = "../crates/ghost-net" }
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }

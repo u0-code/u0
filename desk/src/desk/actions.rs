@@ -116,21 +116,4 @@ impl Desk {
             .map(|e| Notice::trouble(format!("Could not start the core: {e:#}")));
         self.retry_solver(cx);
     }
-
-    pub(crate) fn restart(&mut self, cx: &mut Context<Self>) {
-        let name = self.solver.name();
-        self.notice = if self.deployment.owns_running() {
-            match self.deployment.restart() {
-                Ok(()) => Some(Notice::said(format!(
-                    "Restarting {name} with the new brain."
-                ))),
-                Err(e) => Some(Notice::trouble(format!("Could not restart {name}: {e:#}"))),
-            }
-        } else {
-            Some(Notice::said(format!(
-                "Saved. {name}'s daemon was started elsewhere: restart it to use this brain."
-            )))
-        };
-        cx.notify();
-    }
 }
