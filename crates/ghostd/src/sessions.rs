@@ -5,7 +5,7 @@
 //!
 //! Any console may read the list. Beginning a session with a name,
 //! renaming one and setting one aside are an operator's, as speaking to
-//! her is ([`operator`](crate::operator)), and go to her mind, which
+//! her is ([`crate::operator`]), and go to her mind, which
 //! writes them in her journal: it is the one writer.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -200,10 +200,12 @@ fn fresh(proposed: Option<&str>, taken: &[String], millis: u128) -> String {
     {
         return id.to_owned();
     }
-    (millis..)
+    // One more than are taken is always enough to find one free.
+    let most = millis + taken.len() as u128;
+    (millis..=most)
         .map(|n| format!("s{n}"))
         .find(|id| !taken.contains(id))
-        .unwrap_or_default()
+        .unwrap_or_else(|| format!("s{most}"))
 }
 
 fn now_millis() -> u128 {
