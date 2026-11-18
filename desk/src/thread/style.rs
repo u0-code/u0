@@ -14,20 +14,22 @@ use crate::{fonts::Faces, theme, ui};
 /// The reading column, and the composer under it.
 pub const COLUMN: f32 = 680.;
 
-// The sizes are measured from a 2x capture of Claude's desktop app, the
-// standard the desk is held to: her prose's glyphs stand 30 px there, a
-// line of code takes 38, "3 minutes ago" 24.
+// The sizes are measured from 2x captures of Claude's desktop app, the
+// standard the desk is held to. Its prose sets a Chinese character 28 px
+// wide on lines 42 px apart: 14 on 21, a line and a half, which is what
+// makes it read open. At 15 on the same 21 the desk read cramped beside
+// it. A line of code takes 38 px there, "3 minutes ago" 24.
 
 /// Body text: what you said, and what is said about things.
-pub const BODY: f32 = 15.;
+pub const BODY: f32 = 14.;
 pub const BODY_LINE: f32 = 21.;
 /// Her words, set in the serif, the same size as yours.
-pub const PROSE: f32 = 15.;
+pub const PROSE: f32 = 14.;
 pub const PROSE_LINE: f32 = 21.;
 /// A step: "Ran python3…", and the line a look folds into. As large as
 /// the body: the verb is grey and the thing is white, and that is enough
 /// to set it apart.
-pub const ROW: f32 = 15.;
+pub const ROW: f32 = 14.;
 pub const ROW_LINE: f32 = 22.;
 /// Secondary text: a card's summary, what she said between steps.
 pub const SMALL: f32 = 13.;
