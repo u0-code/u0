@@ -16,6 +16,7 @@ use std::{
 
 use anyhow::Context as _;
 use ghost_protocol::CoreInfo;
+use tracing::warn;
 
 /// The file the id is kept in.
 pub const FILE: &str = "core-id";
@@ -38,26 +39,39 @@ pub(crate) fn keeps_in(home: Option<&Path>, config: Option<&Path>, first: &Path)
 
 /// This daemon as it says where it runs: its id, read from `dir` or made
 /// and written there the first time, the full path of the file it is in,
-/// and this computer's name.
-pub(crate) fn core(dir: &Path) -> anyhow::Result<CoreInfo> {
+/// and this computer's name. Where it cannot be kept, the daemon still
+/// runs, with an id of this run's that no console will find: its paths
+/// are then text everywhere, which is less than it could offer and never
+/// wrong.
+pub(crate) fn core(dir: &Path) -> CoreInfo {
+    let (id, id_file) = kept(dir).unwrap_or_else(|e| {
+        warn!("{e:#}: no console will open the paths she gives");
+        (fresh(), dir.join(FILE).to_string_lossy().into_owned())
+    });
+    CoreInfo {
+        id,
+        id_file,
+        host: host_name(),
+    }
+}
+
+/// The id kept in `dir`, made and written there if there is none, and the
+/// full path of the file.
+fn kept(dir: &Path) -> anyhow::Result<(String, String)> {
     let file = dir.join(FILE);
     let id = match fs::read_to_string(&file) {
         Ok(kept) if is_id(kept.trim()) => kept.trim().to_owned(),
         _ => {
             let id = fresh();
             fs::write(&file, format!("{id}\n"))
-                .with_context(|| format!("write {}", file.display()))?;
+                .with_context(|| format!("keep this core's id in {}", file.display()))?;
             id
         }
     };
     let file = file
         .canonicalize()
         .with_context(|| format!("find {}", file.display()))?;
-    Ok(CoreInfo {
-        id,
-        id_file: file.to_string_lossy().into_owned(),
-        host: host_name(),
-    })
+    Ok((id, file.to_string_lossy().into_owned()))
 }
 
 /// 32 hexadecimal digits.
@@ -105,22 +119,33 @@ mod tests {
     #[test]
     fn a_daemon_keeps_the_id_it_made_and_another_makes_its_own() {
         let one = tempfile::tempdir().unwrap();
-        let first = core(one.path()).unwrap();
+        let first = core(one.path());
         assert!(is_id(&first.id), "{}", first.id);
         assert_eq!(
             Path::new(&first.id_file),
             one.path().join(FILE).canonicalize().unwrap()
         );
         assert_eq!(fs::read_to_string(&first.id_file).unwrap().trim(), first.id);
-        assert_eq!(core(one.path()).unwrap().id, first.id, "started again");
+        assert_eq!(core(one.path()).id, first.id, "started again");
 
         let two = tempfile::tempdir().unwrap();
-        assert_ne!(core(two.path()).unwrap().id, first.id);
+        assert_ne!(core(two.path()).id, first.id);
 
         // A file that holds no id is made again, not believed.
         fs::write(one.path().join(FILE), "not an id\n").unwrap();
-        let remade = core(one.path()).unwrap();
+        let remade = core(one.path());
         assert!(is_id(&remade.id) && remade.id != first.id);
+    }
+
+    #[test]
+    fn a_daemon_that_cannot_keep_its_id_still_runs_and_is_found_by_nobody() {
+        let nowhere = tempfile::tempdir().unwrap().path().join("gone");
+        let core = core(&nowhere);
+        assert!(is_id(&core.id));
+        assert!(
+            fs::read_to_string(&core.id_file).is_err(),
+            "no console finds it, so none offers to open her paths"
+        );
     }
 
     #[test]

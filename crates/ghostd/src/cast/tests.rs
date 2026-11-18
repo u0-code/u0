@@ -197,7 +197,7 @@ impl Rig {
                 brains: Arc::new(held),
                 token: token.map(str::to_owned),
                 origins: Vec::new(),
-                core: crate::host::core(root.path()).unwrap(),
+                core: crate::host::core(root.path()),
             }),
         ));
         for (who, life, make) in lives {

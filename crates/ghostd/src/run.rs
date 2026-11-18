@@ -159,7 +159,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         home,
         from_file.then_some(cfg_path.as_path()),
         &first,
-    ))?;
+    ));
     info!(
         "core {} on {}",
         core.id,
