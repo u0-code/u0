@@ -17,10 +17,7 @@ use super::{
     Item, View, ago,
     cards::{task, tool},
     clock, could_not, directed, items, look_started, span, steps,
-    style::{
-        BODY, BODY_LINE, BUBBLE_RADIUS, COLUMN, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN,
-        meta,
-    },
+    style::{BODY, BODY_LINE, BUBBLE_RADIUS, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN, meta},
     thread_key, waiting_since,
 };
 use crate::{desk::Desk, fonts::Faces, markdown, model::Message, theme, ui};
@@ -51,15 +48,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     } else {
         directed(view.journal)
     };
-    // The reading column: the pane's width up to 680, centred by its
-    // margins, never shrunk to the window's height (it is what scrolls).
-    let mut column = div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .w_full()
-        .max_w(px(COLUMN))
-        .mx_auto();
+    // The reading column, as wide as the view says it is drawn (the pane
+    // less its margins, up to 680) and centred. Its width is given in
+    // points, not found from the scroller: a flex scroller sizes it from
+    // its content before its width is known, measuring her words a
+    // character to a line, and the thread comes out many times too tall.
+    let mut column = div().flex().flex_col().w(px(view.column)).mx_auto();
 
     // What you said last, and when: a failure offers to take it back.
     let mut last_yours: Option<DateTime<Utc>> = None;
@@ -175,14 +169,6 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .px(px(32.))
         .pt(px(28.))
         .pb(px(S6))
-        // A flex column, so the reading column has a width of its own to
-        // lay what is in it against; the column itself does not shrink,
-        // or the thread would end where the window does. Not centred by
-        // the scroller: an item centred there is measured first with no
-        // width, its text as one long line, and the thread comes out
-        // shorter than it is, so its end cannot be scrolled to.
-        .flex()
-        .flex_col()
         .child(column)
         .into_any_element()
 }
