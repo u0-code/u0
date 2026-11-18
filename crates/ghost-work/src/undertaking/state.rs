@@ -172,6 +172,12 @@ pub struct State {
     /// not done by a worker of ours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// The brain that stepped it at its latest sitting, by its label, such
+    /// as `openai/deepseek-chat`: kept so that whoever watches can be told,
+    /// though the brain her loop works with may be another by then. Work
+    /// done by an agent is in `agent` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain: Option<String>,
     /// A question the worker put to whoever the work is for. The work
     /// waits here until something is added to the task from outside.
     #[serde(default)]

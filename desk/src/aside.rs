@@ -162,6 +162,32 @@ pub(crate) fn part_standing(part: &Work, now: DateTime<Utc>) -> String {
     }
 }
 
+/// The word a brain is shown by in a tag: the name of its model, or of the
+/// agent it is, up to the first dash, so that `openai/deepseek-chat` reads
+/// `deepseek` and an agent configured as `claude-code` reads `claude`. A
+/// tag has the room of a word, and the first one says whose it is.
+pub(crate) fn brain_word(brain: &str) -> &str {
+    let name = brain.rsplit('/').next().unwrap_or(brain);
+    name.split('-')
+        .next()
+        .filter(|word| !word.is_empty())
+        .unwrap_or(name)
+}
+
+/// What a part runs on, at the right of its row or its card: a word in a
+/// thin frame.
+pub(crate) fn brain_tag(faces: &Faces, brain: &str) -> Div {
+    ui::mono(faces, brain_word(brain).to_owned())
+        .flex_none()
+        .px(px(6.))
+        .py(px(1.))
+        .rounded(px(5.))
+        .border_1()
+        .border_color(theme::tag_line())
+        .text_size(px(11.5))
+        .text_color(theme::faint())
+}
+
 /// One part a task handed out, under the task's row and set in by the room
 /// of its icon, smaller than the task: its glyph, its brief, and how it
 /// stands. A coding agent's panel shows the sub-agents of a task this way.
@@ -195,6 +221,7 @@ pub(crate) fn part_row(
                 .text_size(px(12.5))
                 .text_color(theme::text2()),
         ))
+        .children(part.brain.as_deref().map(|brain| brain_tag(faces, brain)))
         .child(
             ui::mono(faces, part_standing(part, now))
                 .text_size(px(11.5))
@@ -889,6 +916,20 @@ mod tests {
             "started": started,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_brain_is_tagged_by_the_first_word_of_its_model_or_agent() {
+        assert_eq!(brain_word("openai/deepseek-chat"), "deepseek");
+        assert_eq!(brain_word("anthropic/claude-sonnet-5"), "claude");
+        assert_eq!(brain_word("claude-code"), "claude");
+        assert_eq!(brain_word("codex"), "codex");
+        assert_eq!(brain_word("ollama/qwen3:8b"), "qwen3:8b");
+        assert_eq!(
+            brain_word("-odd"),
+            "-odd",
+            "a name with no first word is kept whole"
+        );
     }
 
     #[test]

@@ -114,6 +114,9 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
     assert_eq!((part.steps, part.seq), (0, None));
     assert!(part.started.is_none(), "it is still in its first step");
     assert!(part.parts.is_empty());
+    // Both are stepped by the brain her loop works with, and say so.
+    assert_eq!(work.brain.as_deref(), Some("script"));
+    assert_eq!(part.brain.as_deref(), Some("script"));
 
     // Whichever of them comes to it first ends the work as blocked.
     for _ in 0..2 {

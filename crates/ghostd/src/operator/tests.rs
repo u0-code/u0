@@ -334,7 +334,10 @@ fn worked_and_looked(dir: &std::path::Path) {
     line["via"] = json!("mcp");
     work.log(&line);
     let part = work.open_part("Check the weekend.").unwrap();
+    part.update(|state| state.brain = Some("openai/deepseek-chat".into()));
     part.log(&json!({"said": "looking at the weekend", "calls": []}));
+    let handed = work.open_part("Check the holidays.").unwrap();
+    handed.update(|state| state.agent = Some("codex".into()));
 
     let looks = ghost_work::looks::Looks::open(&db).unwrap();
     let look = looks.begin("t:wen", chrono::Utc::now()).unwrap();
@@ -373,7 +376,7 @@ async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
     assert_eq!(agent.said, "");
     assert_eq!(agent.calls[0].args["path"], "rota.md");
     assert_eq!(agent.calls[0].out, "mon: wen");
-    assert_eq!(all.parts.len(), 1);
+    assert_eq!(all.parts.len(), 2);
     assert_eq!(all.parts[0].id, "w1/1");
     assert_eq!(all.parts[0].brief, "Check the weekend.");
     assert_eq!(all.parts[0].state, ghost_protocol::WorkState::Open);
@@ -405,6 +408,30 @@ async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
 
     let e = watcher.work_steps("w9", None, None).await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::NO_SUCH_WORK));
+}
+
+#[tokio::test]
+async fn a_console_is_told_which_brain_or_agent_steps_each_part() {
+    let mut spec = Spec::new("lin");
+    spec.before = Some(worked_and_looked);
+    let rig = Rig::run(vec![spec]).await;
+    let (mut watcher, _) = Console::connect(&rig.url, None, None).await.unwrap();
+
+    let all = watcher.work_steps("w1", None, None).await.unwrap();
+    let brains: Vec<(&str, Option<&str>)> = all
+        .parts
+        .iter()
+        .map(|p| (p.id.as_str(), p.brain.as_deref()))
+        .collect();
+    // The first was stepped by her own model, the second handed to an
+    // agent installed beside her.
+    assert_eq!(
+        brains,
+        [
+            ("w1/1", Some("openai/deepseek-chat")),
+            ("w1/2", Some("codex"))
+        ]
+    );
 }
 
 #[tokio::test]

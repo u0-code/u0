@@ -680,6 +680,7 @@ pub(super) fn part(
     id: &str,
     brief: &str,
     state: State,
+    brain: Option<&str>,
     last: Option<String>,
     following: &follow::Following,
     expanded: &HashSet<String>,
@@ -739,6 +740,7 @@ pub(super) fn part(
             crate::aside::glyph(state)
         })
         .child(words)
+        .children(brain.map(|brain| crate::aside::brain_tag(faces, brain)))
         .child(
             ui::icon(
                 if open {

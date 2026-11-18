@@ -202,6 +202,7 @@ impl Mind {
                             "id": part.id,
                             "brief": part.state.brief,
                             "state": state_of(part, running),
+                            "brain": brain_of(part),
                         })
                     })
                     .collect()
@@ -274,6 +275,7 @@ impl Mind {
             let seen = seen(look);
             work["steps"] = seen["steps"].clone();
             work["plan"] = seen["plan"].clone();
+            work["brain"] = seen["brain"].clone();
             work["parts"] = json!(parts);
             if u.waiting.is_none() {
                 work["question"] = seen["question"].clone();
@@ -340,5 +342,12 @@ fn seen(look: &Look) -> Value {
         "options": state.waiting_options,
         "summary": state.finish.as_ref().map(|f| &f.summary),
         "plan": plan,
+        "brain": brain_of(look),
     })
+}
+
+/// What steps a piece of work or a part: the agent it was handed to, or
+/// else the brain that stepped it last.
+fn brain_of(look: &Look) -> Option<&str> {
+    look.state.agent.as_deref().or(look.state.brain.as_deref())
 }
