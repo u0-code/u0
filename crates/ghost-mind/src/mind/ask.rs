@@ -34,6 +34,7 @@ impl Mind {
             Question::WorkSteps { work, after, limit } => self.steps_view(work, *after, *limit),
             Question::LookSteps { place, after } => self.looks_view(place, *after),
             Question::Waiting => self.waiting_view(now)?,
+            Question::Sessions => json!(self.ghost.memory().sessions(crate::CONSOLE)?),
             Question::Thread { place, limit } => self.thread_view(place, *limit)?,
             Question::Journal { from, limit } => {
                 let journal = self.ghost.journal();

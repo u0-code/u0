@@ -11,7 +11,7 @@
 
 use chrono::{DateTime, Utc};
 use rusqlite::{Transaction, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Memory, channel_of, opt_time_at, time_at};
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
 pub const TITLE_CHARS: usize = 48;
 
 /// One conversation, as a console lists it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// Its place key, `channel:id`.
     pub key: String,

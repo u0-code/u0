@@ -19,7 +19,9 @@ pub mod senses;
 
 pub use body::{Act, Acted, Body, Can, ChannelFacts, Feed, Incoming, Measure};
 pub use config::{CONSOLE, ChannelConfig, MindConfig, Operators, PlaceConfig, WorkConfig};
-pub use mind::{Mind, MindHandle, Operator, Order, Parts, Question, Refused, Workshop};
+pub use mind::{
+    Mind, MindHandle, Operator, Order, Parts, Question, Refused, SessionChange, Workshop,
+};
 pub use prompts::Prompts;
 pub use senses::{Numb, OpenMeteo, Senses};
 

@@ -24,8 +24,9 @@ pub use ghost_protocol as protocol;
 use ghost_protocol::{
     BrainAsk, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, ConsoleRewind,
     ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello,
-    JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, StepsRead, Welcome,
-    WorkAnswer, WorkLog, WorkStop, method,
+    JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, Session,
+    SessionDelete, SessionNew, SessionRename, StepsRead, Welcome, WorkAnswer, WorkLog, WorkStop,
+    method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -346,6 +347,47 @@ impl Console {
             work: work.to_owned(),
         };
         self.conn.call::<Value>(method::WORK_STOP, &params).await?;
+        Ok(())
+    }
+
+    /// Her sessions at a console, newest first: her conversations on the
+    /// console channel, as every console lists them.
+    pub async fn sessions(&mut self) -> anyhow::Result<Vec<Session>> {
+        self.conn.call(method::SESSIONS, &()).await
+    }
+
+    /// Begin a session, as an operator: by the id `id` if it is free,
+    /// called `title` if one is given. Returns it as the daemon made it.
+    pub async fn new_session(
+        &mut self,
+        id: Option<String>,
+        title: Option<String>,
+    ) -> anyhow::Result<Session> {
+        self.conn
+            .call(method::SESSION_NEW, &SessionNew { id, title })
+            .await
+    }
+
+    /// Call the session `id` `title`, as an operator: every console lists
+    /// it so from now on.
+    pub async fn rename_session(&mut self, id: &str, title: &str) -> anyhow::Result<()> {
+        let params = SessionRename {
+            id: id.to_owned(),
+            title: title.to_owned(),
+        };
+        self.conn
+            .call::<Value>(method::SESSION_RENAME, &params)
+            .await?;
+        Ok(())
+    }
+
+    /// Set the session `id` aside, as an operator: it leaves the list,
+    /// and what was said in it stays in her journal.
+    pub async fn delete_session(&mut self, id: &str) -> anyhow::Result<()> {
+        let params = SessionDelete { id: id.to_owned() };
+        self.conn
+            .call::<Value>(method::SESSION_DELETE, &params)
+            .await?;
         Ok(())
     }
 

@@ -23,6 +23,7 @@ mod pursuit;
 mod reach;
 mod report;
 mod reread;
+mod sessions;
 mod sides;
 mod speak;
 #[cfg(test)]
@@ -151,6 +152,9 @@ pub enum Question {
     /// waiting on an answer, work that ended blocked or given up lately,
     /// what work done for them told her lately, and her reports to them.
     Waiting,
+    /// Her conversations on the console channel, the sessions a console
+    /// lists, newest first, those set aside among them and marked so.
+    Sessions,
 }
 
 /// Someone who runs her body, acting on her from a console.
@@ -172,6 +176,17 @@ pub enum Order {
     Answer { work: String, text: String },
     /// Stop the work `work`, as she stops work.
     Stop { work: String },
+}
+
+/// What an operator does to a session, a conversation of theirs with her
+/// on the console channel, by its place key. It changes what a console
+/// lists, and nothing of what was said there or of what she is doing.
+#[derive(Debug, Clone)]
+pub enum SessionChange {
+    /// Call it `title` from now on.
+    Name { place: String, title: String },
+    /// Take it off the list.
+    SetAside { place: String },
 }
 
 /// Why an [`Order`] was not carried out.
@@ -228,6 +243,11 @@ enum Signal {
         to: i64,
         by: Operator,
         answer: oneshot::Sender<Option<i64>>,
+    },
+    Session {
+        change: SessionChange,
+        by: Operator,
+        answer: oneshot::Sender<bool>,
     },
     Stop,
 }
@@ -329,6 +349,15 @@ impl MindHandle {
             answer,
         })
         .await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// An operator, `by`, names a session or sets it aside, from a
+    /// console. Answers whether it was done: a session is set aside only
+    /// if it is listed.
+    pub async fn session(&self, change: SessionChange, by: Operator) -> Result<bool> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Session { change, by, answer }).await?;
         rx.await.map_err(|_| Error::Stopped)
     }
 
@@ -772,6 +801,9 @@ impl Mind {
                 answer,
             } => {
                 let _ = answer.send(self.rewind(&place, to, &by, now)?);
+            }
+            Signal::Session { change, by, answer } => {
+                let _ = answer.send(self.on_session(change, &by)?);
             }
             Signal::Stop => {}
         }

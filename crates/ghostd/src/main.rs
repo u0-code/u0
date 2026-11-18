@@ -17,6 +17,7 @@ mod operator;
 mod prompts;
 mod run;
 mod server;
+mod sessions;
 mod show;
 mod stop;
 mod wire;
