@@ -131,14 +131,10 @@ pub(super) fn panel() -> Div {
         .pl(px(S4 - 10.))
 }
 
-/// The last row of something still going on: a ring breathing, and a word.
+/// The last row of something still going on: an amber dot breathing, and
+/// a word.
 pub(super) fn live_row(faces: &Faces, word: &'static str) -> Div {
-    let ring = div()
-        .flex_none()
-        .size(px(8.))
-        .rounded_full()
-        .border_1()
-        .border_color(theme::accent());
+    let ring = ui::dot(theme::accent()).flex_none().size(px(7.));
     div()
         .flex()
         .items_center()
@@ -308,10 +304,27 @@ fn call_row(
         let all = expanded.contains(&all_key);
         body = if out.text.is_empty() && out.more.is_none() {
             body.child(
-                ui::text(faces, "Nothing came back.")
+                ui::mono(faces, "(no output)")
                     .px(px(10.))
-                    .text_size(px(SMALL))
-                    .text_color(theme::faint()),
+                    .text_size(px(MONO))
+                    .line_height(px(MONO_LINE))
+                    .text_color(theme::quiet()),
+            )
+        } else if call.name == "fetch" && !call.failed {
+            // A page opened: what it says, in words, a few lines of it.
+            body.child(
+                ui::text(
+                    faces,
+                    if all {
+                        out.text.clone()
+                    } else {
+                        calls::one_line(&out.text, PAGE_CHARS)
+                    },
+                )
+                .px(px(10.))
+                .text_size(px(ROW - 1.))
+                .line_height(px(21.))
+                .text_color(theme::text2()),
             )
         } else if call.name == "read" && !call.failed {
             let path = call.args.get("path").and_then(|p| p.as_str()).unwrap_or("");
@@ -325,7 +338,12 @@ fn call_row(
             body.child(printed(faces, &out.text, all))
         };
         let lines = out.text.lines().count();
-        if !all && lines > folded_at(&call.name) {
+        let long = if call.name == "fetch" {
+            out.text.chars().count() > PAGE_CHARS
+        } else {
+            lines > folded_at(&call.name)
+        };
+        if !all && long {
             let toggle = all_key.clone();
             body = body.child(
                 div()
@@ -333,10 +351,17 @@ fn call_row(
                     .px(px(10.))
                     .cursor_pointer()
                     .child(
-                        ui::text(faces, format!("Show all {lines} lines"))
-                            .text_size(px(SMALL))
-                            .text_color(theme::muted())
-                            .hover(|s| s.text_color(theme::text())),
+                        ui::text(
+                            faces,
+                            if call.name == "fetch" {
+                                "Show the whole page".to_owned()
+                            } else {
+                                format!("Show all {lines} lines")
+                            },
+                        )
+                        .text_size(px(SMALL))
+                        .text_color(theme::muted())
+                        .hover(|s| s.text_color(theme::text())),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
             );
@@ -445,6 +470,9 @@ fn read_well(faces: &Faces, text: &str, lang: &str, all: bool) -> Div {
         .child(well)
         .when_some(tail, |d, t| d.child(meta(faces, t).px(px(10.))))
 }
+
+/// How much of a page opened shows in its box: about three lines.
+const PAGE_CHARS: usize = 220;
 
 /// How many columns of mono a step's row has for what it was about.
 const ROW_COLS: usize = 60;

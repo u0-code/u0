@@ -175,6 +175,7 @@ impl Desk {
             whom: crate::answer::Whom::Solver,
             scroll: None,
             rendering: thread::Rendering::Task,
+            column: thread::COLUMN,
         };
         let (text, lines) = thread::transcript(&view);
         if lines == 0 {

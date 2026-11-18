@@ -557,6 +557,11 @@ pub struct View<'a> {
     /// Where the thread is scrolled to, when it is drawn on screen.
     pub scroll: Option<&'a gpui::ScrollHandle>,
     pub rendering: Rendering,
+    /// How wide the reading column is drawn, in points: 680 where the
+    /// pane has room, less in a narrow window. What must end in an
+    /// ellipsis on one line is cut to it, since GPUI's own ellipsis is not
+    /// to be trusted with Chinese.
+    pub column: f32,
 }
 
 /// Everything in one place, in order of time: what was said, what was
