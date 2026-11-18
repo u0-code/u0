@@ -51,14 +51,15 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     } else {
         directed(view.journal)
     };
-    // The reading column: the pane's width up to 680, centred, never
-    // shrunk to the window's height (it is what scrolls).
+    // The reading column: the pane's width up to 680, centred by its
+    // margins, never shrunk to the window's height (it is what scrolls).
     let mut column = div()
         .flex()
         .flex_col()
         .flex_none()
         .w_full()
-        .max_w(px(COLUMN));
+        .max_w(px(COLUMN))
+        .mx_auto();
 
     // What you said last, and when: a failure offers to take it back.
     let mut last_yours: Option<DateTime<Utc>> = None;
@@ -176,10 +177,12 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
         .pb(px(S6))
         // A flex column, so the reading column has a width of its own to
         // lay what is in it against; the column itself does not shrink,
-        // or the thread would end where the window does.
+        // or the thread would end where the window does. Not centred by
+        // the scroller: an item centred there is measured first with no
+        // width, its text as one long line, and the thread comes out
+        // shorter than it is, so its end cannot be scrolled to.
         .flex()
         .flex_col()
-        .items_center()
         .child(column)
         .into_any_element()
 }

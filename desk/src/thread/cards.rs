@@ -509,7 +509,15 @@ fn along_the_way(
     if let Some(earlier) = earlier {
         rows.push(div().child(earlier));
     }
-    for item in along(t.started, &t.events, &held[held.len() - shown..]) {
+    // How it ended is in its head and said again in her answer after the
+    // card; inside, only what happened on the way.
+    let on_the_way: Vec<&Entry> = t
+        .events
+        .iter()
+        .copied()
+        .filter(|e| e.kind != "concluded")
+        .collect();
+    for item in along(t.started, &on_the_way, &held[held.len() - shown..]) {
         rows.push(match item {
             Along::Step(step) => steps::step(faces, &t.id, step, expanded, cx),
             Along::Event(e) => milestone(faces, e, tz),
@@ -523,10 +531,9 @@ fn along_the_way(
     rows
 }
 
-/// Something a piece of work's journal says of it: a sitting's summary,
-/// what it told or asked, how it ended. A line saying which, in the colour
-/// of its kind, with when at the right; under it what was said, quietly,
-/// a few lines at most, since how it ended is said again in her answer.
+/// Something a piece of work's journal says of it on the way: a sitting's
+/// summary, what it told or asked. A line saying which and when, and under
+/// it what was said, quietly, a few lines at most.
 fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
     let (tag, text) = match e.kind.as_str() {
         "worked" => (
