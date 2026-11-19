@@ -35,7 +35,6 @@ use serde_json::Value;
 use super::{
     View, calls, from_desk, s,
     style::{BOX_RADIUS, CARD_RADIUS, META, PROSE, PROSE_LINE, ROW, S2, S3, S4, meta},
-    thread_key,
 };
 use crate::{
     desk::Desk,
@@ -154,7 +153,7 @@ fn platform(channel: &str) -> String {
         "telegram" => "Telegram".to_owned(),
         "discord" => "Discord".to_owned(),
         "term" => "Terminal".to_owned(),
-        "console" | "desk" => "Console".to_owned(),
+        "console" => "Console".to_owned(),
         other => other.to_owned(),
     }
 }
@@ -359,7 +358,7 @@ pub(super) fn did(e: &Entry, thread: &str, known: &Known<'_>) -> Option<Did> {
     let console = thread.starts_with("console:");
     let d = &e.data;
     let here_or_out = |channel: &str, id: &str| -> Option<bool> {
-        let here = thread_key(&format!("{channel}:{id}")) == thread;
+        let here = format!("{channel}:{id}") == thread;
         (here || (console && !from_desk(channel))).then_some(here)
     };
     let what = match e.kind.as_str() {
@@ -423,7 +422,7 @@ pub(super) fn did(e: &Entry, thread: &str, known: &Known<'_>) -> Option<Did> {
         "woke" | "slept" if console => inner(e, known)?,
         kind if INNER.contains(&kind) => {
             let home = known.home(e)?;
-            if thread_key(&home) != thread {
+            if home != thread {
                 return None;
             }
             return Some(Did {
@@ -1070,18 +1069,11 @@ mod tests {
 
     #[test]
     fn what_she_said_on_the_console_is_not_shown_again_as_done_out_there() {
-        let j = vec![
-            entry(
-                1,
-                "said",
-                json!({"channel": "console", "place": "ann", "text": "hi"}),
-            ),
-            entry(
-                2,
-                "said",
-                json!({"channel": "desk", "place": "ann", "text": "hi"}),
-            ),
-        ];
+        let j = vec![entry(
+            1,
+            "said",
+            json!({"channel": "console", "place": "ann", "text": "hi"}),
+        )];
         let known = Known::of(&j);
         assert!(j.iter().all(|e| did(e, "console:fox", &known).is_none()));
     }

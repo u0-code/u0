@@ -334,7 +334,7 @@ impl Open {
             .clone()
             .or_else(|| {
                 let work = self.focus.as_deref()?;
-                thread::task_place(&self.her.journal, work).map(|p| thread::thread_key(&p))
+                thread::task_place(&self.her.journal, work)
             })
             .or_else(|| {
                 thread::places(&self.her.journal)

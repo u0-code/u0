@@ -21,7 +21,7 @@ use super::{
     cards::{task, tool},
     clock, could_not, directed, items, look_started, sent_while_working, span, steps,
     style::{BODY, BODY_LINE, BUBBLE_RADIUS, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN, meta},
-    thread_key, waiting_since,
+    waiting_since,
 };
 use crate::{desk::Desk, fonts::Faces, markdown, model::Message, theme, ui};
 
@@ -51,7 +51,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     let live = view
         .following
         .places
-        .get(&thread_key(view.place))
+        .get(view.place)
         .and_then(crate::follow::PlaceLooks::running)
         .filter(|l| steps::look_calls(l).next().is_some());
     // Your lines sent while she was at something, and not yet taken up.
@@ -61,7 +61,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
     let steering = sent_while_working(&items, looking);
     // At a console every line of yours is an operator's, so none is marked
     // as one; on a platform the marked lines are worth telling apart.
-    let marks = if thread_key(view.place).starts_with("console:") {
+    let marks = if view.place.starts_with("console:") {
         HashMap::new()
     } else {
         directed(view.journal)
