@@ -156,24 +156,6 @@ pub enum Loop {
     Work,
 }
 
-/// Where a prompt came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
-    /// The deployment's directory of prompts, named in configuration.
-    Deployment,
-    /// This binary.
-    BuiltIn,
-}
-
-impl fmt::Display for Origin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad(match self {
-            Self::Deployment => "deployment",
-            Self::BuiltIn => "built-in",
-        })
-    }
-}
-
 /// One template, text or tool, and where what is in use came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listed {
@@ -183,8 +165,8 @@ pub struct Listed {
     pub layer: Layer,
     /// The text or tool in that file, for a file of texts or tools.
     pub key: Option<String>,
-    pub origin: Origin,
-    /// The file it came from, unless it is built in.
+    /// The file in the deployment's directory it came from; `None` when
+    /// it is built in.
     pub path: Option<PathBuf>,
     /// Whether what is in use is not what is built in.
     pub differs: bool,
@@ -315,10 +297,10 @@ pub struct Store {
     /// The texts in use, by table.
     texts: HashMap<&'static str, Texts>,
     tools: Tools,
-    /// The directories looked in, the first that has a file winning.
-    layers: Vec<(Origin, PathBuf)>,
-    /// What each file in them was when last read.
-    held: HashMap<PathBuf, Held>,
+    /// The deployment's directory of prompts, if there is one.
+    dir: Option<PathBuf>,
+    /// What each file in it was when last read.
+    held: HashMap<&'static str, Held>,
     /// When the files were last looked at.
     checked: Option<DateTime<Utc>>,
 }
@@ -362,7 +344,7 @@ impl Store {
             tools: shipped_tools.clone(),
             shipped_tools,
             whole,
-            layers: Vec::new(),
+            dir: None,
             held: HashMap::new(),
             checked: None,
         }
@@ -372,35 +354,24 @@ impl Store {
     /// is one, then built in. Nothing here fails: a file that cannot be
     /// used is warned about and passed over.
     pub fn load(files: &[File], dir: Option<&Path>) -> Self {
-        let layers: Vec<(Origin, PathBuf)> = dir
-            .map(|dir| (Origin::Deployment, dir.to_owned()))
-            .into_iter()
-            .collect();
-        Self::layered(files, &layers)
-    }
-
-    /// `files` as they are in `layers`, the first that has a file winning,
-    /// then built in.
-    pub fn layered(files: &[File], layers: &[(Origin, PathBuf)]) -> Self {
         let mut store = Self::shipped(files);
-        store.layers = layers.to_vec();
+        store.dir = dir.map(Path::to_owned);
         store.scan(false);
         store
     }
 
-    /// The directories looked in, first to last.
-    pub fn layers(&self) -> &[(Origin, PathBuf)] {
-        &self.layers
+    /// The deployment's directory of prompts this store reads, if any.
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
     }
 
     /// Take in any file that changed, if the files have not been looked at
     /// in the last couple of seconds. Cheap enough to call on every wake.
     /// Returns whether anything in use changed.
     pub fn refresh(&mut self, now: DateTime<Utc>) -> bool {
-        if self.layers.is_empty()
-            || self
-                .checked
-                .is_some_and(|at| now >= at && now - at < CHECK_EVERY)
+        if self
+            .checked
+            .is_some_and(|at| now >= at && now - at < CHECK_EVERY)
         {
             return false;
         }
@@ -411,7 +382,7 @@ impl Store {
     /// Take in any file that changed, however recently the files were
     /// looked at. Returns whether anything in use changed.
     pub fn refresh_now(&mut self) -> bool {
-        !self.layers.is_empty() && self.scan(true)
+        self.scan(true)
     }
 
     /// The template at `path` in the tree, as it is.
@@ -465,19 +436,18 @@ impl Store {
     pub fn listing(&self) -> Vec<Listed> {
         let mut out = Vec::new();
         for file in &self.files {
-            let listed = |key: Option<String>, origin, path, differs| Listed {
+            let listed = |key: Option<String>, path, differs| Listed {
                 file: file.path,
                 layer: file.layer,
                 key,
-                origin,
                 path,
                 differs,
             };
             match file.kind {
                 Kind::Whole => {
-                    let (origin, path) = self.provider(*file, |_| true);
+                    let path = self.provider(*file, |_| true);
                     let differs = self.whole(file.path) != file.built_in;
-                    out.push(listed(None, origin, path, differs));
+                    out.push(listed(None, path, differs));
                 }
                 Kind::Texts(table) => {
                     let mut keys: Vec<String> = texts(file.built_in)
@@ -486,21 +456,21 @@ impl Store {
                         .collect();
                     keys.sort();
                     for key in keys {
-                        let (origin, path) = self.provider(*file, |text| {
+                        let path = self.provider(*file, |text| {
                             texts(text).is_ok_and(|t| t.contains_key(&key))
                         });
                         let differs =
                             self.texts[table].get(&key) != self.shipped_texts[table].get(&key);
-                        out.push(listed(Some(key), origin, path, differs));
+                        out.push(listed(Some(key), path, differs));
                     }
                 }
                 Kind::Tools => {
                     for name in tools(file.built_in).unwrap_or_default().into_keys() {
-                        let (origin, path) = self.provider(*file, |text| {
+                        let path = self.provider(*file, |text| {
                             tools(text).is_ok_and(|t| t.contains_key(&name))
                         });
                         let differs = self.tools.get(&name) != self.shipped_tools.get(&name);
-                        out.push(listed(Some(name), origin, path, differs));
+                        out.push(listed(Some(name), path, differs));
                     }
                 }
             }
@@ -532,12 +502,13 @@ impl Store {
         Ok(done)
     }
 
-    /// The text held under `name` in `dir`, if there is a usable one.
-    fn held_text(&self, dir: &Path, name: &str) -> Option<&str> {
-        self.held.get(&dir.join(name))?.text.as_deref()
+    /// The text held for the file `name` of the tree, if there is a usable
+    /// one in the directory.
+    fn held_text(&self, name: &str) -> Option<&str> {
+        self.held.get(name)?.text.as_deref()
     }
 
-    /// The files in a directory that stand for what `file` holds, in the
+    /// The files in the directory that stand for what `file` holds, in the
     /// order they win in: for a template, itself; for texts, every file of
     /// its table; for tools, every file of tools.
     fn standing_for(&self, file: File) -> impl Iterator<Item = &File> {
@@ -547,39 +518,36 @@ impl Store {
         })
     }
 
-    /// The first directory, and the file in it, that says something `has`
-    /// looks for among what stands for `file`.
-    fn provider(&self, file: File, has: impl Fn(&str) -> bool) -> (Origin, Option<PathBuf>) {
-        for (origin, dir) in &self.layers {
-            for source in self.standing_for(file) {
-                if self.held_text(dir, source.path).is_some_and(&has) {
-                    return (*origin, Some(dir.join(source.path)));
-                }
-            }
-        }
-        (Origin::BuiltIn, None)
+    /// The file in the directory that says something `has` looks for among
+    /// what stands for `file`; `None` when it is built in.
+    fn provider(&self, file: File, has: impl Fn(&str) -> bool) -> Option<PathBuf> {
+        let dir = self.dir.as_ref()?;
+        self.standing_for(file)
+            .find(|source| self.held_text(source.path).is_some_and(&has))
+            .map(|source| dir.join(source.path))
     }
 
     /// Look at every file, read again the ones that changed, and if any
     /// did, work out again what is in use. `loud` says each change.
     fn scan(&mut self, loud: bool) -> bool {
+        let Some(dir) = self.dir.clone() else {
+            return false;
+        };
+        // A directory that is not there is one look, not forty.
+        let there = match fs::metadata(&dir) {
+            Ok(_) => Some(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        };
         let mut changed = false;
-        for (_, dir) in self.layers.clone() {
-            // A directory that is not there is one look, not forty.
-            let there = match fs::metadata(&dir) {
-                Ok(_) => Some(true),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Some(false),
-                Err(_) => None,
+        for source in self.files.clone() {
+            let path = dir.join(source.path);
+            let stamp = match there {
+                Some(true) => stamp(&path),
+                Some(false) => Stamp::Missing,
+                None => Stamp::Unreadable,
             };
-            for source in self.files.clone() {
-                let path = dir.join(source.path);
-                let stamp = match there {
-                    Some(true) => stamp(&path),
-                    Some(false) => Stamp::Missing,
-                    None => Stamp::Unreadable,
-                };
-                changed |= self.take(path, source, stamp, loud);
-            }
+            changed |= self.take(&path, source, stamp, loud);
         }
         if changed {
             self.settle();
@@ -588,30 +556,27 @@ impl Store {
     }
 
     /// One file, as it is now. Returns whether what it says changed.
-    fn take(&mut self, path: PathBuf, source: File, stamp: Stamp, loud: bool) -> bool {
+    fn take(&mut self, path: &Path, source: File, stamp: Stamp, loud: bool) -> bool {
         let name = source.path;
         let before = self
             .held
-            .get(&path)
+            .get(name)
             .map_or(Stamp::Missing, |h| h.stamp.clone());
         if before == stamp {
             return false;
         }
         match stamp {
             Stamp::Missing => {
-                let had = self.held.remove(&path).is_some_and(|h| h.text.is_some());
+                let had = self.held.remove(name).is_some_and(|h| h.text.is_some());
                 if loud && had {
-                    info!(
-                        "{} is gone: {name} comes from the next place that has it",
-                        path.display()
-                    );
+                    info!("{} is gone: {name} is built in again", path.display());
                 }
                 had
             }
             Stamp::Unreadable => {
                 warn!("cannot look at {}: the {name} in use stays", path.display());
                 self.held
-                    .entry(path)
+                    .entry(name)
                     .or_insert(Held {
                         stamp: Stamp::Missing,
                         text: None,
@@ -619,7 +584,7 @@ impl Store {
                     .stamp = Stamp::Unreadable;
                 false
             }
-            Stamp::At(..) => match self.read(&path, source) {
+            Stamp::At(..) => match self.read(path, source) {
                 Ok(text) => {
                     if loud {
                         info!("read {} again", path.display());
@@ -629,8 +594,8 @@ impl Store {
                         text: Some(text),
                     };
                     let same =
-                        self.held.get(&path).and_then(|h| h.text.as_ref()) == held.text.as_ref();
-                    self.held.insert(path, held);
+                        self.held.get(name).and_then(|h| h.text.as_ref()) == held.text.as_ref();
+                    self.held.insert(name, held);
                     !same
                 }
                 Err(why) => {
@@ -638,7 +603,7 @@ impl Store {
                     // Remembered as looked at, so that it is not warned
                     // about again until it changes.
                     self.held
-                        .entry(path)
+                        .entry(name)
                         .or_insert(Held {
                             stamp: Stamp::Missing,
                             text: None,
@@ -652,6 +617,8 @@ impl Store {
 
     /// Work out what is in use from what was read.
     fn settle(&mut self) {
+        // Only for saying where a file is: nothing is held without one.
+        let dir = self.dir.clone().unwrap_or_default();
         let mut tools_now = self.shipped_tools.clone();
         let mut texts_now = self.shipped_texts.clone();
         let mut settled: Vec<Kind> = Vec::new();
@@ -664,63 +631,48 @@ impl Store {
                 }
                 settled.push(file.kind);
             }
-            // What each directory holds for it, the farthest directory
-            // first, and in each what wins first.
-            let found: Vec<(PathBuf, Vec<(File, String)>)> = self
-                .layers
-                .iter()
-                .rev()
-                .map(|(_, dir)| {
-                    let here = self
-                        .standing_for(file)
-                        .filter_map(|f| Some((*f, self.held_text(dir, f.path)?.to_owned())))
-                        .collect();
-                    (dir.clone(), here)
-                })
+            // What the directory holds for it, what wins first.
+            let here: Vec<(File, String)> = self
+                .standing_for(file)
+                .filter_map(|f| Some((*f, self.held_text(f.path)?.to_owned())))
                 .collect();
             match file.kind {
                 Kind::Whole => {
-                    let text = found
-                        .iter()
-                        .rev()
-                        .find_map(|(_, here)| here.first())
+                    let text = here
+                        .first()
                         .map_or(file.built_in, |(_, text)| text.as_str());
                     self.whole.insert(file.path, text.to_owned());
                 }
                 Kind::Texts(table) => {
                     let merged = texts_now.entry(table).or_default();
-                    for (dir, here) in found {
-                        // A key is taken from the first file of this
-                        // directory that has it. Two files with the same
-                        // key are a mistake a person should hear about.
-                        let mut from: HashMap<String, &str> = HashMap::new();
-                        for (source, text) in here {
-                            for (key, value) in texts(&text).unwrap_or_default() {
-                                let Some(slot) = merged.get_mut(&key) else {
-                                    continue;
-                                };
-                                if let Some(first) = from.get(&key) {
-                                    warn!(
-                                        "{} and {} both have {key}, which belongs in one file of the {table} texts: the one in {first} is used",
-                                        dir.join(first).display(),
-                                        dir.join(source.path).display(),
-                                    );
-                                    continue;
-                                }
-                                from.insert(key, source.path);
-                                *slot = value;
+                    // A key is taken from the first file that has it. Two
+                    // files with the same key are a mistake a person should
+                    // hear about.
+                    let mut from: HashMap<String, &str> = HashMap::new();
+                    for (source, text) in here {
+                        for (key, value) in texts(&text).unwrap_or_default() {
+                            let Some(slot) = merged.get_mut(&key) else {
+                                continue;
+                            };
+                            if let Some(first) = from.get(&key) {
+                                warn!(
+                                    "{} and {} both have {key}, which belongs in one file of the {table} texts: the one in {first} is used",
+                                    dir.join(first).display(),
+                                    dir.join(source.path).display(),
+                                );
+                                continue;
                             }
+                            from.insert(key, source.path);
+                            *slot = value;
                         }
                     }
                 }
                 Kind::Tools => {
                     // Laid on one after another, so what wins goes last.
-                    for (_, here) in found {
-                        for (_, text) in here.into_iter().rev() {
-                            for (name, words) in tools(&text).unwrap_or_default() {
-                                if let Some(slot) = tools_now.get_mut(&name) {
-                                    slot.take(words);
-                                }
+                    for (_, text) in here.into_iter().rev() {
+                        for (name, words) in tools(&text).unwrap_or_default() {
+                            if let Some(slot) = tools_now.get_mut(&name) {
+                                slot.take(words);
                             }
                         }
                     }

@@ -34,7 +34,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Origin};
+pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop};
 use ghost_core::{prompt, prompts::Store};
 
 /// The mind's table of texts: `system/logic/texts/` and
@@ -367,9 +367,11 @@ impl Prompts {
         &self.store
     }
 
-    /// The words of the work loop, from the same places as these.
+    /// The words of the work loop, from the same directory as these. A
+    /// store of its own: the work runs apart from the mind and looks at
+    /// its files again before each step, as the mind does when it wakes.
     pub fn for_work(&self) -> ghost_work::Prompts {
-        ghost_work::Prompts::layered(self.store.layers())
+        ghost_work::Prompts::load(self.store.dir())
     }
 
     /// Every template, text and tool, with where what is in use came from.
@@ -774,28 +776,21 @@ mod tests {",
         assert_eq!(p.text("not_sent"), Prompts::shipped().text("not_sent"));
 
         let listed = p.listing();
+        // Whether it comes from the deployment's directory, and whether it
+        // is not what is built in.
         let origin = |file: &str, key: Option<&str>| {
             listed
                 .iter()
                 .find(|l| l.file == file && l.key.as_deref() == key)
-                .map(|l| (l.origin, l.differs))
+                .map(|l| (l.path.is_some(), l.differs))
                 .unwrap()
         };
-        assert_eq!(
-            origin("system/logic/gate.md", None),
-            (Origin::Deployment, true)
-        );
-        assert_eq!(
-            origin("character/persona.md", None),
-            (Origin::Deployment, true)
-        );
-        assert_eq!(
-            origin("system/channels/chat.md", None),
-            (Origin::BuiltIn, false)
-        );
-        assert_eq!(origin(LOOK, Some("last_turn")), (Origin::Deployment, true));
-        assert_eq!(origin(LOOK, Some("not_sent")), (Origin::BuiltIn, false));
-        assert_eq!(origin(TOOLS, Some("say")), (Origin::BuiltIn, false));
+        assert_eq!(origin("system/logic/gate.md", None), (true, true));
+        assert_eq!(origin("character/persona.md", None), (true, true));
+        assert_eq!(origin("system/channels/chat.md", None), (false, false));
+        assert_eq!(origin(LOOK, Some("last_turn")), (true, true));
+        assert_eq!(origin(LOOK, Some("not_sent")), (false, false));
+        assert_eq!(origin(TOOLS, Some("say")), (false, false));
     }
 
     #[test]
@@ -821,7 +816,7 @@ mod tests {",
         let replaced: Vec<&str> = p
             .listing()
             .into_iter()
-            .filter(|l| l.origin == Origin::Deployment)
+            .filter(|l| l.path.is_some())
             .map(|l| l.file)
             .collect();
         assert_eq!(replaced, ["character/persona.md", "system/being.md"]);
@@ -945,28 +940,23 @@ mod tests {",
             1,
         );
         let listed = Prompts::load(Some(dir)).listing();
+        // As `origin` above.
         let find = |file: &str, key: Option<&str>| {
             listed
                 .iter()
                 .find(|l| l.file == file && l.key.as_deref() == key)
-                .map(|l| (l.origin, l.differs))
+                .map(|l| (l.path.is_some(), l.differs))
         };
-        assert_eq!(
-            find("system/work/work.md", None),
-            Some((Origin::Deployment, false))
-        );
+        assert_eq!(find("system/work/work.md", None), Some((true, false)));
         assert_eq!(
             find("system/work/texts/sitting.toml", Some("no_call")),
-            Some((Origin::Deployment, true))
+            Some((true, true))
         );
         assert_eq!(
             find("system/work/texts/sitting.toml", Some("audit")),
-            Some((Origin::BuiltIn, false))
+            Some((false, false))
         );
-        assert_eq!(
-            find(TOOLS, Some("delegate")),
-            Some((Origin::Deployment, true))
-        );
+        assert_eq!(find(TOOLS, Some("delegate")), Some((true, true)));
         // A tool of the conversation and one of work, in the one file.
         assert!(find(TOOLS, Some("say")).is_some());
         assert!(find(TOOLS, Some("shell")).is_some());
@@ -1001,7 +991,7 @@ mod tests {",
             Prompts::load(Some(dir))
                 .listing()
                 .iter()
-                .all(|l| l.origin == Origin::Deployment && !l.differs)
+                .all(|l| l.path.is_some() && !l.differs)
         );
 
         write_at(&dir.join(PLAN), "mine", 1);

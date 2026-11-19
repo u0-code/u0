@@ -15,14 +15,13 @@
 //! for a text by its name and fills in its values.
 
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use chrono::{DateTime, Utc};
 use ghost_brain::ToolSpec;
 use ghost_core::prompt;
-pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Origin, Store};
+pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Store};
 use serde_json::{Value, json};
 
 /// The work loop's table of texts, `system/work/texts/`: what a worker is
@@ -123,11 +122,6 @@ impl Prompts {
         Arc::new(Mutex::new(self))
     }
 
-    /// Take in any file that changed. Returns whether anything did.
-    pub fn refresh(&mut self, now: DateTime<Utc>) -> bool {
-        self.store.refresh(now)
-    }
-
     /// Take in any file that changed, however recently they were looked
     /// at. A worker does this before each step: a step takes seconds, and
     /// a few files are cheap to look at.
@@ -149,31 +143,10 @@ impl Prompts {
     pub fn fill(&self, key: &str, pairs: &[(&str, String)]) -> String {
         self.store.fill(TEXTS, key, pairs)
     }
-
-    /// Every template, text and tool, with where what is in use came from.
-    pub fn listing(&self) -> Vec<Listed> {
-        self.store.listing()
-    }
-
-    /// The store underneath, for a reader that keeps more files beside
-    /// these.
-    pub fn store(&self) -> &Store {
-        &self.store
-    }
-
-    /// The directories looked in, first to last.
-    pub fn layers(&self) -> Vec<(Origin, PathBuf)> {
-        self.store.layers().to_vec()
-    }
-
-    /// The words kept in `layers`, first to last.
-    pub fn layered(layers: &[(Origin, PathBuf)]) -> Self {
-        Self {
-            store: Store::layered(FILES, layers),
-        }
-    }
 }
 
+/// Everything else a reader asks of the store, as of any store: its tools,
+/// its listing, its directory.
 impl std::ops::Deref for Prompts {
     type Target = Store;
 
