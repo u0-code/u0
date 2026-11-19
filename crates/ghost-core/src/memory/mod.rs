@@ -68,7 +68,7 @@ pub use work::{Undertaking, WorkReport};
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 
 /// How far the journal has been folded in.
 const META: &str =
@@ -249,6 +249,9 @@ fn discard(dir: &Path) -> Result<()> {
 
 /// Every feature's fold of one entry. `at` is the entry's time as it is kept.
 fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
+    // First, so that it reads a line, and what was said in a place, as they
+    // were before this entry changes them.
+    recall::fold(tx, entry, at)?;
     places::fold(tx, entry, at)?;
     messages::fold(tx, entry, at)?;
     people::fold(tx, entry, at)?;
@@ -265,8 +268,7 @@ fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     skills::fold(tx, entry, at)?;
     sessions::fold(tx, entry, at)?;
     // After the people, so that a note about someone finds their place.
-    threads::fold(tx, entry, at)?;
-    recall::fold(tx, entry, at)
+    threads::fold(tx, entry, at)
 }
 
 /// The platform a `channel:id` key belongs to.
