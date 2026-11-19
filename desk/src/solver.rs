@@ -110,9 +110,13 @@ impl Provider {
     }
 }
 
-/// Where the desk's core listens, which is what [`crate::settings::SOLVER_URL`]
-/// reaches.
+/// Where the desk's core listens.
 const LISTEN: &str = "127.0.0.1:7438";
+
+/// Where the desk reaches its core.
+pub fn url() -> String {
+    format!("ws://{LISTEN}")
+}
 
 /// The desk's core, and the daemon if the desk started it.
 ///
@@ -375,11 +379,6 @@ mod tests {
                 "--home".into(),
                 d.core.clone().into_os_string()
             ]
-        );
-        assert_eq!(
-            crate::settings::SOLVER_URL,
-            format!("ws://{LISTEN}"),
-            "it listens where the desk looks for it"
         );
         assert!(args.contains(&OsString::from(LISTEN)));
     }

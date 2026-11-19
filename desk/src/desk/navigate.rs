@@ -161,7 +161,6 @@ impl Desk {
             work: &self.solver.work,
             whom: crate::answer::Whom::Solver,
             scroll: None,
-            rendering: thread::Rendering::Task,
             column: thread::COLUMN,
             media: self.solver.media(),
             status: self.solver.status.as_ref(),

@@ -22,11 +22,9 @@ pub struct Entry {
     pub data: Value,
 }
 
-fn s(v: &Value, key: &str) -> String {
-    v.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
+/// The string at `key` of a JSON object, or nothing.
+pub(crate) fn s<'a>(v: &'a Value, key: &str) -> &'a str {
+    v.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
 impl Entry {
@@ -35,7 +33,7 @@ impl Entry {
         Some(Self {
             seq: v.get("seq")?.as_i64()?,
             at: v.get("at")?.as_str()?.parse().ok()?,
-            kind: s(event, "kind"),
+            kind: s(event, "kind").to_owned(),
             data: event.get("data").cloned().unwrap_or(Value::Null),
         })
     }
@@ -128,11 +126,14 @@ impl Status {
                 .map(str::trim)
                 .filter(|w| !w.is_empty())
                 .map(str::to_owned),
-            name: s(v, "name"),
-            city: s(v, "city"),
+            name: s(v, "name").to_owned(),
+            city: s(v, "city").to_owned(),
             tz,
-            local_time: s(v, "local_time"),
-            think: v.get("brains").map(|b| s(b, "think")).unwrap_or_default(),
+            local_time: s(v, "local_time").to_owned(),
+            think: v
+                .get("brains")
+                .map(|b| s(b, "think").to_owned())
+                .unwrap_or_default(),
             think_window: v
                 .get("windows")
                 .and_then(|w| w.get("think"))
