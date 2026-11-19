@@ -35,7 +35,8 @@ fn work_under_way_can_be_looked_at_from_outside_without_writing() {
         s.steps = 7;
         s.sittings = 2;
         s.waiting = Some("which colour?".into());
-    });
+    })
+    .unwrap();
     work.log(&serde_json::json!({"at": "2026-11-15T08:30:00+00:00", "step": 7}));
     let part = work.open_part("one half").unwrap();
     drop(part);
@@ -86,17 +87,19 @@ fn a_step_logged_before_steps_kept_their_context_still_says_what_it_read() {
 fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let first = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
-    first.update(|s| {
-        s.plan.push(PlanStep {
-            text: "look around".into(),
-            status: Progress::Done,
-            ..PlanStep::default()
-        });
-        s.notes.push(Note {
-            at: Utc::now(),
-            text: "python is 3.12".into(),
-        });
-    });
+    first
+        .update(|s| {
+            s.plan.push(PlanStep {
+                text: "look around".into(),
+                status: Progress::Done,
+                ..PlanStep::default()
+            });
+            s.notes.push(Note {
+                at: Utc::now(),
+                text: "python is 3.12".into(),
+            });
+        })
+        .unwrap();
     first.save_transcript(&[Item::user("build the thing")]);
     first.remember(&[Item::user("build the thing"), Item::user("and test it")]);
     first.log(&serde_json::json!({"step": 1}));
@@ -318,7 +321,7 @@ fn two_undertakings_in_one_database_do_not_see_each_others_state() {
     let dir = tempfile::tempdir().unwrap();
     let a = Undertaking::open(&db(&dir), "a", Some("paint the fence")).unwrap();
     let b = Undertaking::open(&db(&dir), "b", Some("mend the gate")).unwrap();
-    a.update(|s| s.steps = 7);
+    a.update(|s| s.steps = 7).unwrap();
     a.save_transcript(&[Item::user("fence")]);
     a.remember(&[Item::user("fence")]);
     a.log(&serde_json::json!({"step": 1}));
@@ -343,7 +346,7 @@ fn changes_made_through_different_handles_at_once_are_all_kept() {
             std::thread::spawn(move || {
                 let u = Undertaking::open(&path, "u1", None).unwrap();
                 for _ in 0..25 {
-                    u.update(|s| s.steps += 1);
+                    u.update(|s| s.steps += 1).unwrap();
                 }
             })
         })
@@ -508,15 +511,17 @@ fn the_parts_of_a_work_are_listed_by_number_and_end_when_it_is_stopped() {
     let parent = Undertaking::open(&db(&dir), "main", Some("the whole")).unwrap();
     let first = parent.open_part("first").unwrap();
     let second = parent.open_part("second").unwrap();
-    second.update(|s| {
-        s.finish = Some(Finish {
-            outcome: Outcome::Finished,
-            summary: "done".into(),
-            files: vec![],
-            lesson: None,
-            at: Utc::now(),
-        });
-    });
+    second
+        .update(|s| {
+            s.finish = Some(Finish {
+                outcome: Outcome::Finished,
+                summary: "done".into(),
+                files: vec![],
+                lesson: None,
+                at: Utc::now(),
+            });
+        })
+        .unwrap();
     // A helper from before parts ran on their own is not one of them.
     Undertaking::open(&db(&dir), "main/3", Some("an old helper")).unwrap();
     let listed: Vec<(u64, String)> = parent
@@ -528,7 +533,7 @@ fn the_parts_of_a_work_are_listed_by_number_and_end_when_it_is_stopped() {
     assert_eq!(parent.part(2).unwrap().number(), Some(2));
     assert!(parent.part(3).is_err());
 
-    assert!(parent.stop());
+    assert!(parent.stop().unwrap());
     assert_eq!(first.state().finish.unwrap().outcome, Outcome::Dropped);
     assert_eq!(
         second.state().finish.unwrap().outcome,
@@ -558,10 +563,67 @@ fn a_part_is_done_in_the_folder_its_work_is_done_in() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join(WORK_DB);
     let work = Undertaking::open(&db, "w", Some("count the lines")).unwrap();
-    work.update(|s| s.dir = Some("/home/her/Ghost/2026-11-18/count-w".into()));
+    work.update(|s| s.dir = Some("/home/her/Ghost/2026-11-18/count-w".into()))
+        .unwrap();
     let part = work.open_part("count ghost-core").unwrap();
     assert_eq!(
         part.state().dir.as_deref(),
         Some("/home/her/Ghost/2026-11-18/count-w")
     );
+}
+
+#[test]
+fn a_change_that_could_not_be_written_is_not_kept_and_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
+    work.update(|s| s.steps = 1).unwrap();
+    // Something on disk refuses every change to the record from here on.
+    Connection::open(db(&dir))
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER no_more BEFORE UPDATE ON undertakings
+             BEGIN SELECT RAISE(ABORT, 'the disk is full'); END;",
+        )
+        .unwrap();
+
+    let written = work.update(|s| s.steps = 2);
+    assert!(
+        written
+            .unwrap_err()
+            .to_string()
+            .contains("the disk is full"),
+        "the error is handed back"
+    );
+    assert_eq!(work.state().steps, 1, "the handle shows what is on disk");
+    assert!(work.stop().is_err(), "nor is an end taken as written");
+    assert!(work.state().finish.is_none());
+}
+
+#[test]
+fn work_on_record_is_opened_and_looked_at_while_a_worker_holds_the_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
+    work.update(|s| s.steps = 3).unwrap();
+    let records = Records::open(&db(&dir)).unwrap();
+    // A worker in the middle of a write.
+    let worker = Connection::open(db(&dir)).unwrap();
+    worker.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+    let started = std::time::Instant::now();
+    let again = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    assert_eq!(again.state().steps, 3);
+    let seen = records.look(&["u1".into(), "u2".into()]).unwrap();
+    assert_eq!(
+        seen.len(),
+        1,
+        "work with no record is not looked into being"
+    );
+    assert_eq!(seen[0].state.steps, 3);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "nothing waited for the lock"
+    );
+    worker.execute_batch("COMMIT").unwrap();
+    assert!(records.look(&["u2".into()]).unwrap().is_empty());
+    assert_eq!(glance(&db(&dir)).unwrap().len(), 1);
 }

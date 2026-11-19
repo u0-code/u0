@@ -368,7 +368,7 @@ async fn work_stopped_from_outside_ends_as_dropped_after_its_step_and_keeps_what
         .tools
         .with(tools::Keep::new(worker.undertaking.clone()))
         .with(while_it_runs(dir.path(), |outside| {
-            assert!(outside.stop(), "it was still going");
+            assert!(outside.stop().unwrap(), "it was still going");
         }));
     let report = worker.run().await;
     assert_eq!(report.ended, Ended::Dropped);
@@ -380,7 +380,7 @@ async fn work_stopped_from_outside_ends_as_dropped_after_its_step_and_keeps_what
     assert_eq!(state.kept.len(), 1, "what it kept is still on record");
     // Picked up again, it does not start over.
     assert_eq!(worker.run().await.ended, Ended::Dropped);
-    assert!(!worker.undertaking.stop(), "it had already ended");
+    assert!(!worker.undertaking.stop().unwrap(), "it had already ended");
 }
 
 #[tokio::test]
@@ -412,13 +412,17 @@ async fn work_with_a_folder_writes_there_and_elsewhere_only_in_a_file_whoever_as
     let (mut worker, brain) = worker(dir.path(), script, Limits::default());
     worker
         .undertaking
-        .update(|s| s.dir = Some(folder.display().to_string()));
+        .update(|s| s.dir = Some(folder.display().to_string()))
+        .unwrap();
     let asked = format!(
         "Count the files.\n\nWhat Fox wrote, word for word:\n> count the files in {} and put the note in {}",
         repo.display(),
         named.display()
     );
-    worker.undertaking.update(|s| s.additions.push(asked));
+    worker
+        .undertaking
+        .update(|s| s.additions.push(asked))
+        .unwrap();
     let machine: Arc<dyn crate::Machine> =
         crate::Machine::at(&Local::new(dir.path()), &folder).unwrap();
     worker.tools = tools::standard(machine, &worker.undertaking, &worker.prompts);

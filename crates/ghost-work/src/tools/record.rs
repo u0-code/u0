@@ -29,6 +29,15 @@ impl Plan {
     }
 }
 
+/// What a tool says when its change to the record could not be written:
+/// nothing was changed, and the worker is told so rather than left to go
+/// on from a record it does not have.
+fn unwritten(e: &std::io::Error) -> Outcome {
+    Outcome::fail(format!(
+        "the work's record could not be written, so nothing was changed: {e}"
+    ))
+}
+
 /// Models name the same states many ways.
 fn progress(word: &str) -> Progress {
     match word.trim().to_lowercase().as_str() {
@@ -236,8 +245,9 @@ impl Tool for Plan {
             }
         });
         match said {
-            Ok(shown) => Outcome::ok(shown),
-            Err(why) => Outcome::fail(why),
+            Ok(Ok(shown)) => Outcome::ok(shown),
+            Ok(Err(why)) => Outcome::fail(why),
+            Err(e) => unwritten(&e),
         }
     }
 }
@@ -283,7 +293,10 @@ impl Tool for Note {
             });
             state.notes.len()
         });
-        Outcome::ok(format!("noted ({count} so far)"))
+        match count {
+            Ok(count) => Outcome::ok(format!("noted ({count} so far)")),
+            Err(e) => unwritten(&e),
+        }
     }
 }
 
@@ -322,9 +335,13 @@ impl Tool for Handoff {
         if words.is_empty() {
             return Outcome::fail("the handoff is empty");
         }
-        self.undertaking
-            .update(|state| state.handoff = Some(words.to_owned()));
-        Outcome::ok("kept")
+        match self
+            .undertaking
+            .update(|state| state.handoff = Some(words.to_owned()))
+        {
+            Ok(()) => Outcome::ok("kept"),
+            Err(e) => unwritten(&e),
+        }
     }
 }
 
@@ -398,11 +415,15 @@ impl Tool for Ask {
         if kind != Some(AskKind::Choose) && !options.is_empty() {
             return Outcome::fail("`options` are only for a question of kind choose");
         }
-        self.undertaking
-            .update(|state| state.ask(question, kind, options));
-        Outcome::ok(
-            "Asked. The work stops here until they answer; their answer will be added to the task.",
-        )
+        match self
+            .undertaking
+            .update(|state| state.ask(question, kind, options))
+        {
+            Ok(()) => Outcome::ok(
+                "Asked. The work stops here until they answer; their answer will be added to the task.",
+            ),
+            Err(e) => unwritten(&e),
+        }
     }
 }
 
@@ -465,7 +486,10 @@ impl Tool for Keep {
             });
             state.kept.len()
         });
-        Outcome::ok(format!("kept ({count} so far)"))
+        match count {
+            Ok(count) => Outcome::ok(format!("kept ({count} so far)")),
+            Err(e) => unwritten(&e),
+        }
     }
 }
 
@@ -520,14 +544,16 @@ impl Tool for Tell {
                     .collect()
             })
             .unwrap_or_default();
-        self.undertaking.update(|state| {
+        match self.undertaking.update(|state| {
             state.told.push(undertaking::Told {
                 text: words.to_owned(),
                 files,
                 at: Utc::now(),
             });
-        });
-        Outcome::ok("Told. Go on with the work.")
+        }) {
+            Ok(()) => Outcome::ok("Told. Go on with the work."),
+            Err(e) => unwritten(&e),
+        }
     }
 }
 
@@ -621,8 +647,9 @@ impl Tool for Done {
             None
         });
         match refused {
-            Some(open) => Outcome::fail(open),
-            None => Outcome::ok("recorded"),
+            Ok(Some(open)) => Outcome::fail(open),
+            Ok(None) => Outcome::ok("recorded"),
+            Err(e) => unwritten(&e),
         }
     }
 }

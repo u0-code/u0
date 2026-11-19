@@ -221,6 +221,13 @@ fn mend(items: &mut Vec<Item>, words: &Prompts) {
     items.splice(after..after, missing);
 }
 
+/// How a sitting ends when its record cannot be written: it goes no
+/// further than what is on disk.
+fn unwritten(e: &std::io::Error) -> Ended {
+    tracing::warn!("the work's record could not be written: {e}");
+    Ended::Failed(format!("its record could not be written: {e}"))
+}
+
 fn too_long(error: &ghost_brain::Error) -> bool {
     matches!(error, ghost_brain::Error::TooLong { .. })
 }
@@ -288,7 +295,9 @@ impl Worker {
             return self.report(finish.outcome.into());
         }
         let label = self.brain.label();
-        self.undertaking.update(|state| state.brain = Some(label));
+        if let Err(e) = self.undertaking.update(|state| state.brain = Some(label)) {
+            return self.report(unwritten(&e));
+        }
         let started = Instant::now();
         let parts = self
             .helpers
@@ -361,9 +370,10 @@ impl Worker {
             // goes on.
             let mail = self.undertaking.take_inbox();
             let answered = mail.iter().any(|m| m.kind == MailKind::Added);
-            if answered {
-                // Whatever it was waiting to hear, this is the answer.
-                self.undertaking.update(State::answered);
+            // Whatever it was waiting to hear, this is the answer.
+            if answered && let Err(e) = self.undertaking.update(State::answered) {
+                self.save(&items, &mut recorded);
+                return unwritten(&e);
             }
             // What it is told, as the files say it now.
             if let (words, true) = self.words() {
@@ -453,10 +463,12 @@ impl Worker {
                     tracing::warn!(
                         "the model refused a context of about {refused} tokens; folding under that"
                     );
-                    self.undertaking.update(|state| {
+                    if let Err(e) = self.undertaking.update(|state| {
                         state.refused_at =
                             Some(state.refused_at.map_or(refused, |was| was.min(refused)));
-                    });
+                    }) {
+                        tracing::warn!("the size the model refused is not kept: {e}");
+                    }
                     let ceiling = self.budget();
                     let (_, began) = self
                         .fold(
@@ -540,12 +552,18 @@ impl Worker {
                 }
             }
 
-            let finish = self.undertaking.update(|state| {
+            let finish = match self.undertaking.update(|state| {
                 state.steps += 1;
                 state.usage.add(usage);
                 state.seconds += asked.elapsed().as_secs_f64();
                 state.finish.clone()
-            });
+            }) {
+                Ok(finish) => finish,
+                Err(e) => {
+                    self.save(&items, &mut recorded);
+                    return unwritten(&e);
+                }
+            };
             self.undertaking.log(&json!({
                 "at": chrono::Utc::now().to_rfc3339(),
                 "step": n,

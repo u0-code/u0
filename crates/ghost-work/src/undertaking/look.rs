@@ -1,5 +1,7 @@
 //! Looking at work from outside while it goes on. The database is opened
-//! read-only, so that looking can never get in the way of the work.
+//! read-only, so that looking can never get in the way of the work, and
+//! never makes or changes a record: a look at work that has no record
+//! finds none.
 
 use std::{collections::BTreeMap, io, path::Path};
 
@@ -27,12 +29,47 @@ pub struct Glance {
     pub parts_open: usize,
 }
 
+/// A work database opened to read and never to write, for whoever looks
+/// at work from outside while it goes on and looks often: one connection,
+/// held as long as they like, that takes no lock a writer waits on.
+pub struct Records {
+    conn: Connection,
+}
+
+impl Records {
+    /// The work database at `db`, read-only. It has to be there: a reader
+    /// does not make one.
+    pub fn open(db: &Path) -> io::Result<Self> {
+        Ok(Self {
+            conn: read_only(db)?,
+        })
+    }
+
+    /// See [`glance`].
+    pub fn glance(&self) -> io::Result<Vec<Glance>> {
+        glance_in(&self.conn)
+    }
+
+    /// See [`look`].
+    pub fn look(&self, ids: &[String]) -> io::Result<Vec<Look>> {
+        look_in(&self.conn, ids)
+    }
+
+    /// See [`steps`].
+    pub fn steps(&self, id: &str, after: u64, limit: usize) -> io::Result<Option<Logged>> {
+        steps_in(&self.conn, id, after, limit)
+    }
+}
+
 /// How each undertaking in the database at `db` stands, for a person
 /// looking from outside while the work goes on. The database is opened
 /// read-only, so that looking can never get in the way of the work.
 /// Parts are counted under the undertaking they belong to.
 pub fn glance(db: &Path) -> io::Result<Vec<Glance>> {
-    let conn = read_only(db)?;
+    Records::open(db)?.glance()
+}
+
+fn glance_in(conn: &Connection) -> io::Result<Vec<Glance>> {
     let rows: Vec<(String, String)> = conn
         .prepare("SELECT id, state FROM undertakings ORDER BY rowid")
         .and_then(|mut stmt| {
@@ -50,7 +87,7 @@ pub fn glance(db: &Path) -> io::Result<Vec<Glance>> {
             id: id.clone(),
             steps: state.steps,
             sittings: state.sittings,
-            last_step: step_at(&conn, id, Which::Last)?,
+            last_step: step_at(conn, id, Which::Last)?,
             waiting: state.waiting.clone(),
             parts_open: states
                 .iter()
@@ -80,19 +117,22 @@ pub struct Look {
 /// the order asked for. An id the database does not have is left out. The
 /// database is opened read-only, as [`glance`] opens it.
 pub fn look(db: &Path, ids: &[String]) -> io::Result<Vec<Look>> {
-    let conn = read_only(db)?;
+    Records::open(db)?.look(ids)
+}
+
+fn look_in(conn: &Connection, ids: &[String]) -> io::Result<Vec<Look>> {
     let one = |id: &str, state: State| -> io::Result<Look> {
         Ok(Look {
             id: id.to_owned(),
-            first_step: step_at(&conn, id, Which::First)?,
-            last_step: step_at(&conn, id, Which::Last)?,
+            first_step: step_at(conn, id, Which::First)?,
+            last_step: step_at(conn, id, Which::Last)?,
             state,
             parts: Vec::new(),
         })
     };
     let mut seen = Vec::new();
     for id in ids {
-        let Some(state) = load(&conn, id).map_err(other)? else {
+        let Some(state) = load(conn, id).map_err(other)? else {
             continue;
         };
         let mut work = one(id, state)?;
@@ -190,8 +230,11 @@ const CONTEXT_LOOKED: i64 = 50;
 /// wrote is one call a command-line agent made, and is shown as a step of
 /// its own with that one call.
 pub fn steps(db: &Path, id: &str, after: u64, limit: usize) -> io::Result<Option<Logged>> {
-    let conn = read_only(db)?;
-    if load(&conn, id).map_err(other)?.is_none() {
+    Records::open(db)?.steps(id, after, limit)
+}
+
+fn steps_in(conn: &Connection, id: &str, after: u64, limit: usize) -> io::Result<Option<Logged>> {
+    if load(conn, id).map_err(other)?.is_none() {
         return Ok(None);
     }
     let after = i64::try_from(after).unwrap_or(i64::MAX);
@@ -225,7 +268,7 @@ pub fn steps(db: &Path, id: &str, after: u64, limit: usize) -> io::Result<Option
             }
         })
         .collect();
-    let context = newest_context(&conn, id)?;
+    let context = newest_context(conn, id)?;
     Ok(Some(Logged {
         steps,
         more,

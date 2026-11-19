@@ -32,7 +32,7 @@ use tokio::{
 };
 
 use crate::{
-    undertaking::{Finish, MailKind, Outcome, Undertaking},
+    undertaking::{MailKind, Outcome, Undertaking},
     worker::{Ended, preview},
 };
 
@@ -252,17 +252,9 @@ pub(crate) async fn run(
                     prompt = more;
                     continue;
                 }
-                part.update(|state| {
-                    if state.finish.is_none() {
-                        state.finish = Some(Finish {
-                            outcome: Outcome::Finished,
-                            summary: answer.trim().to_owned(),
-                            files: Vec::new(),
-                            lesson: None,
-                            at: Utc::now(),
-                        });
-                    }
-                });
+                if let Err(e) = part.end(Outcome::Finished, answer.trim()) {
+                    tracing::warn!("{} could not be ended on its record: {e}", part.id());
+                }
                 return Ok(part
                     .state()
                     .finish
@@ -521,8 +513,10 @@ async fn once(
             CliKind::Claude => claude_line(&event),
             CliKind::Codex => codex_line(&event, &mut last_said),
         };
-        if let Some(session) = heard.session {
-            part.update(|state| state.session = Some(session));
+        if let Some(session) = heard.session
+            && let Err(e) = part.update(|state| state.session = Some(session))
+        {
+            tracing::warn!("the session of {} is not kept: {e}", part.id());
         }
         if let Some((said, calls)) = heard.step {
             steps += 1;
@@ -554,11 +548,13 @@ async fn once(
         Some(task) => task.await.unwrap_or_default(),
         None => String::new(),
     };
-    part.update(|state| {
+    if let Err(e) = part.update(|state| {
         state.steps += steps;
         state.usage.add(usage);
         state.seconds += started.elapsed().as_secs_f64();
-    });
+    }) {
+        tracing::warn!("what {} spent is not counted: {e}", part.id());
+    }
     if let Some(ended) = ended {
         return ended;
     }

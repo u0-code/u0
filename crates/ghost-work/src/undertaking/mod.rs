@@ -37,6 +37,18 @@
 //! names them and does not hold them, and the saved transcript holds the
 //! name of each one still in front of the model, to be read back from there.
 //!
+//! The record is the doing, not the account of it. Whoever the work is for
+//! keeps their own account (a ghost keeps hers in her journal: that it was
+//! taken on, for whom, and that it ended and how) and goes by it where the
+//! two differ. What only the record has is the plan, the notes, the
+//! transcript, the history, the step log, the inbox, the running totals,
+//! and `finish`: the worker's own word on how it ended, or the word of
+//! whoever ended it from outside, which their account then copies. So it
+//! is written to before their account is, and is never behind it. Looking
+//! at it from outside goes through [`Records`], which reads, and never
+//! makes or changes a record. A change that cannot be written is not kept
+//! anywhere: [`Undertaking::update`] returns the error.
+//!
 //! What the record is made of is in [`State`]; the schema, and the queries
 //! everything else is built on, in `db`; the transcript, the history and
 //! the step log in `transcript`; the inbox in `inbox`; and what someone
@@ -64,7 +76,7 @@ use self::db::{load, other, store};
 pub use self::{
     db::WORK_DB,
     inbox::{Mail, MailKind},
-    look::{Glance, Logged, Look, Step, StepContext, StepUsage, glance, look, steps},
+    look::{Glance, Logged, Look, Records, Step, StepContext, StepUsage, glance, look, steps},
     state::{AskKind, Checkout, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
     transcript::placeholder,
 };
@@ -91,7 +103,12 @@ impl Undertaking {
     /// asked does not change.
     pub fn open(db: &Path, id: &str, brief: Option<&str>) -> io::Result<Self> {
         let mut conn = db::open(db)?;
-        let state = {
+        // Work already on record is picked up with a read: only making a
+        // record takes the lock a worker writes under.
+        let found = load(&conn, id).map_err(other)?;
+        let state = if let Some(state) = found {
+            state
+        } else {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(other)?;
@@ -290,70 +307,66 @@ impl Undertaking {
 
     /// Change the state and write it down, in one transaction, so that a
     /// change made meanwhile through another handle is built on and not
-    /// lost. A failed write is logged, not fatal: the work in hand matters
-    /// more than the record of it.
-    pub fn update<T>(&self, change: impl FnOnce(&mut State) -> T) -> T {
+    /// lost.
+    ///
+    /// A change that could not be written is not kept, here or anywhere:
+    /// the error is returned, and this handle goes on showing what is on
+    /// disk. Work that goes on believing a record it does not have would
+    /// part from it without anyone knowing.
+    pub fn update<T>(&self, change: impl FnOnce(&mut State) -> T) -> io::Result<T> {
         let mut conn = self.conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate);
-        let base = match &tx {
-            Ok(tx) => load(tx, &self.id),
-            Err(_) => Ok(None),
-        };
-        let readable = base.is_ok();
-        let mut state = match base {
-            Ok(Some(state)) => state,
-            Ok(None) => self.cached().clone(),
-            Err(e) => {
-                tracing::warn!("could not read the undertaking {}: {e}", self.id);
-                self.cached().clone()
-            }
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(other)?;
+        let mut state = match load(&tx, &self.id).map_err(other)? {
+            Some(state) => state,
+            None => self.cached().clone(),
         };
         let out = change(&mut state);
-        let saved = match tx {
-            // What could not be read is not written over.
-            Ok(tx) if readable => store(&tx, &self.id, &state).and_then(|()| tx.commit()),
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        };
-        if let Err(e) = saved {
-            tracing::warn!("could not save the undertaking {}: {e}", self.id);
-        }
+        store(&tx, &self.id, &state)
+            .and_then(|()| tx.commit())
+            .map_err(other)?;
         *self.cached() = state;
-        out
+        Ok(out)
     }
 
     /// End the work from outside, as `dropped`, unless it has already
     /// ended. A worker stepping it sees this before its next step, and a
     /// tool server refuses every call after it. Its parts end with it.
     /// Returns whether it was still going.
-    pub fn stop(&self) -> bool {
-        let stopped = self.update(|state| {
+    pub fn stop(&self) -> io::Result<bool> {
+        self.end(Outcome::Dropped, "")
+    }
+
+    /// End the work from outside with `outcome`, unless it has already
+    /// ended, and its parts with it, as `dropped`. Returns whether it was
+    /// still going. How it ended first is how it ended: an end already on
+    /// record is not written over.
+    pub fn end(&self, outcome: Outcome, summary: &str) -> io::Result<bool> {
+        let ended = self.update(|state| {
             if state.finish.is_some() {
                 return false;
             }
             state.finish = Some(Finish {
-                outcome: Outcome::Dropped,
-                summary: String::new(),
+                outcome,
+                summary: summary.to_owned(),
                 files: Vec::new(),
                 lesson: None,
                 at: Utc::now(),
             });
             true
-        });
+        })?;
         self.stop_parts();
-        stopped
+        Ok(ended)
     }
 
     /// End every part that has not ended, as `dropped`.
     pub fn stop_parts(&self) {
         for (n, state) in self.parts() {
-            if state.finish.is_none() {
-                match self.part(n) {
-                    Ok(part) => {
-                        part.stop();
-                    }
-                    Err(e) => tracing::warn!("could not stop part {n} of {}: {e}", self.id),
-                }
+            if state.finish.is_none()
+                && let Err(e) = self.part(n).and_then(|part| part.stop())
+            {
+                tracing::warn!("could not stop part {n} of {}: {e}", self.id);
             }
         }
     }

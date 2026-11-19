@@ -109,6 +109,25 @@ pub enum Outcome {
     Dropped,
 }
 
+impl Outcome {
+    /// The word for it, as her journal writes how a piece of work ended.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Finished => "finished",
+            Self::Blocked => "blocked",
+            Self::GaveUp => "gave_up",
+            Self::Dropped => "dropped",
+        }
+    }
+
+    /// The outcome her journal means by `word`.
+    pub fn from_word(word: &str) -> Option<Self> {
+        [Self::Finished, Self::Blocked, Self::GaveUp, Self::Dropped]
+            .into_iter()
+            .find(|o| o.word() == word)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finish {
     pub outcome: Outcome,
