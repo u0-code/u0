@@ -39,12 +39,12 @@ impl Tool for FindSkills {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let query = match text(args, "query") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let query = match text(words, args, "query") {
             Ok(q) => q,
             Err(refusal) => return refusal,
         };
-        match self.0.find(query).await {
+        match self.0.find(words, query).await {
             Ok(found) => Outcome::ok(found),
             Err(why) => Outcome::fail(why),
         }
@@ -76,14 +76,18 @@ impl Tool for InstallSkill {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let id = match text(args, "id") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let id = match text(words, args, "id") {
             Ok(id) => id,
             Err(refusal) => return refusal,
         };
-        match self.0.install(id).await {
+        match self.0.install(words, id).await {
             Ok(said) => Outcome::ok(said),
-            Err(why) => Outcome::fail(format!("{id} was not installed: {why}")),
+            Err(why) => Outcome::fail(words.fill(
+                TEXTS,
+                "not_installed",
+                &[("name", id.to_owned()), ("why", why)],
+            )),
         }
     }
 }
@@ -113,12 +117,12 @@ impl Tool for UninstallSkill {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (name, why) = match (text(args, "name"), text(args, "why")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (name, why) = match (text(words, args, "name"), text(words, args, "why")) {
             (Ok(n), Ok(w)) => (n, w),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
-        match self.0.uninstall(name, why) {
+        match self.0.uninstall(words, name, why) {
             Ok(said) => Outcome::ok(said),
             Err(why) => Outcome::fail(why),
         }
@@ -167,12 +171,12 @@ impl Tool for UseSkill {
         spec
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let name = match text(args, "name") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let name = match text(words, args, "name") {
             Ok(n) => n,
             Err(refusal) => return refusal,
         };
-        match self.0.read(name, args["file"].as_str()) {
+        match self.0.read(words, name, args["file"].as_str()) {
             Ok((said, origin)) => Outcome::ok(said).from(origin),
             Err(why) => Outcome::fail(why),
         }

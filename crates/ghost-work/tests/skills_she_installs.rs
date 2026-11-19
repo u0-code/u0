@@ -251,7 +251,9 @@ fn call(name: &str, args: Value) -> Call {
 }
 
 async fn run(tools: &Toolbox, name: &str, args: Value) -> ghost_work::Outcome {
-    tools.run(&call(name, args)).await
+    tools
+        .run(&call(name, args), &ghost_work::Prompts::shipped())
+        .await
 }
 
 #[tokio::test]
@@ -462,7 +464,7 @@ async fn use_skill_returns_the_body_inside_the_outside_wrapper_naming_the_source
     );
     let words = Prompts::shipped();
     let used = call("use_skill", json!({"name": "pdf"}));
-    let outcome = tools.run(&used).await;
+    let outcome = tools.run(&used, &ghost_work::Prompts::shipped()).await;
     assert!(!outcome.failed, "{}", outcome.output);
     let shown = ghost_work::outside::mark(
         &words,
@@ -497,7 +499,7 @@ async fn use_skill_returns_the_body_inside_the_outside_wrapper_naming_the_source
         "use_skill",
         json!({"name": "pdf", "file": "references/forms.md"}),
     );
-    let outcome = tools.run(&forms).await;
+    let outcome = tools.run(&forms, &ghost_work::Prompts::shipped()).await;
     assert_eq!(outcome.output, "Fields go top to bottom.");
     let from = ghost_work::outside::source(&words, &forms, outcome.origin.as_deref()).unwrap();
     assert!(
@@ -520,7 +522,7 @@ async fn use_skill_returns_the_body_inside_the_outside_wrapper_naming_the_source
 
     // A skill she does not have is her body saying so, not outside.
     let missing = call("use_skill", json!({"name": "slides"}));
-    let outcome = tools.run(&missing).await;
+    let outcome = tools.run(&missing, &ghost_work::Prompts::shipped()).await;
     assert!(outcome.failed);
     assert!(ghost_work::outside::source(&words, &missing, outcome.origin.as_deref()).is_none());
 }
@@ -591,7 +593,7 @@ async fn drift_on_disk_puts_a_skill_aside_after_a_memory_rebuild() {
 
     // Unchanged, she still has it.
     let later = rig.skills();
-    later.know(memory.skills().unwrap());
+    later.know(&ghost_work::Prompts::shipped(), memory.skills().unwrap());
     assert!(later.any());
     assert!(later.take_changes().is_empty());
 
@@ -602,7 +604,7 @@ async fn drift_on_disk_puts_a_skill_aside_after_a_memory_rebuild() {
     )
     .unwrap();
     let after = rig.skills();
-    after.know(memory.skills().unwrap());
+    after.know(&ghost_work::Prompts::shipped(), memory.skills().unwrap());
     assert!(!after.any(), "it is no longer hers to use");
     let changes = after.take_changes();
     let [Event::SkillUninstalled { name, why }] = changes.as_slice() else {

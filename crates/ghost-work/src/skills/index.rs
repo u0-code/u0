@@ -14,6 +14,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::read;
+use crate::prompts::{Store, TEXTS};
 
 /// The most bytes of an answer from the index that are read.
 const ANSWER: usize = 1024 * 1024;
@@ -74,7 +75,8 @@ impl Index {
     /// Every skill the index lists for `query`, as it lists them. A hit
     /// whose id is not `owner/repo/skill` is kept, with no source, so that
     /// she is told it cannot be installed rather than not shown it.
-    pub async fn search(&self, query: &str) -> Result<Vec<Hit>, String> {
+    /// Why there are none is said in `words`.
+    pub async fn search(&self, words: &Store, query: &str) -> Result<Vec<Hit>, String> {
         let answer = self
             .http
             .get(&self.search)
@@ -82,13 +84,10 @@ impl Index {
             .send()
             .await
             .and_then(reqwest::Response::error_for_status)
-            .map_err(|e| {
-                format!("the index of skills could not be reached ({e}). Try again later.")
-            })?;
-        let bytes = read(answer, ANSWER).await?;
-        let value: Value = serde_json::from_slice(&bytes).map_err(|e| {
-            format!("the index of skills answered with something unreadable ({e}).")
-        })?;
+            .map_err(|e| words.fill(TEXTS, "index_unreached", &[("why", e.to_string())]))?;
+        let bytes = read(words, answer, ANSWER).await?;
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|e| words.fill(TEXTS, "index_unreadable", &[("why", e.to_string())]))?;
         Ok(value["skills"]
             .as_array()
             .map(|hits| hits.iter().filter_map(hit).collect())
@@ -97,7 +96,7 @@ impl Index {
 
     /// What the auditors say of `skill` in `source`. `None` when nobody
     /// has said anything: the audit could not be had, or held no verdict.
-    pub async fn audit(&self, source: &str, skill: &str) -> Option<Vec<Verdict>> {
+    pub async fn audit(&self, words: &Store, source: &str, skill: &str) -> Option<Vec<Verdict>> {
         let answer = self
             .http
             .get(&self.audit)
@@ -106,7 +105,7 @@ impl Index {
             .await
             .and_then(reqwest::Response::error_for_status)
             .ok()?;
-        let value: Value = serde_json::from_slice(&read(answer, ANSWER).await.ok()?).ok()?;
+        let value: Value = serde_json::from_slice(&read(words, answer, ANSWER).await.ok()?).ok()?;
         let verdicts: Vec<Verdict> = value
             .as_object()?
             .iter()

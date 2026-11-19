@@ -2,7 +2,7 @@
 //!
 //! A tool is a name, a description for the model, a schema for its arguments
 //! and something to run. Tools never fail the loop: whatever goes wrong comes
-//! back as text the model can read and act on.
+//! back as text the model can read and act on, in the words it is given.
 
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use ghost_brain::{Call, Picture, ToolSpec};
 use serde_json::{Value, json};
 
-use crate::prompts::{Loop, Store};
+use crate::prompts::{Loop, Store, TEXTS};
 
 /// What running a tool produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +69,9 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     /// What the model is told about it in `lp`, in the words of `words`.
     fn spec(&self, words: &Store, lp: Loop) -> ToolSpec;
-    async fn call(&self, args: &Value) -> Outcome;
+    /// Run it with `args`. What it says back, it says in the words of
+    /// `words`, as its spec does.
+    async fn call(&self, args: &Value, words: &Store) -> Outcome;
     /// Tools this one has made usable, offered right after it. A tool that
     /// loads others, such as `load_tools`, brings them; the rest bring
     /// none. Asked each time the tools are listed, so what is brought can
@@ -94,11 +96,12 @@ pub fn spec(name: &str, description: &str, properties: Value, required: &[&str])
     }
 }
 
-/// A required string argument, or a sentence saying it is missing.
-pub fn text<'a>(args: &'a Value, key: &str) -> Result<&'a str, Outcome> {
-    args[key]
-        .as_str()
-        .ok_or_else(|| Outcome::fail(format!("missing argument `{key}` (a string)")))
+/// A required string argument, or a sentence in `words` saying it is
+/// missing.
+pub fn text<'a>(words: &Store, args: &'a Value, key: &str) -> Result<&'a str, Outcome> {
+    args[key].as_str().ok_or_else(|| {
+        Outcome::fail(words.fill(TEXTS, "missing_argument", &[("argument", key.to_owned())]))
+    })
 }
 
 #[derive(Clone, Default)]
@@ -170,21 +173,21 @@ impl Toolbox {
         }
     }
 
-    pub async fn run(&self, call: &Call) -> Outcome {
+    /// Run `call`, saying what went wrong with it in `words`.
+    pub async fn run(&self, call: &Call, words: &Store) -> Outcome {
         let Some(tool) = self.all().into_iter().find(|t| t.name() == call.name) else {
-            let known = self.names();
-            return Outcome::fail(format!(
-                "there is no tool called `{}`. The tools are: {}.",
-                call.name,
-                known.join(", ")
+            return Outcome::fail(words.fill(
+                TEXTS,
+                "no_tool",
+                &[
+                    ("tool", call.name.clone()),
+                    ("tools", self.names().join(", ")),
+                ],
             ));
         };
         if !call.args.is_object() {
-            return Outcome::fail(
-                "the arguments were not a valid JSON object. Call the tool again with well-formed JSON; \
-                 for long or awkward content, write it in smaller pieces.",
-            );
+            return Outcome::fail(words.text(TEXTS, "not_json"));
         }
-        tool.call(&call.args).await
+        tool.call(&call.args, words).await
     }
 }

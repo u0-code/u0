@@ -172,11 +172,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let u = Arc::new(Undertaking::open(&dir.path().join("w.db"), "main", Some("x")).unwrap());
         let carried = tools::with_web(
-            tools::standard(
-                Arc::new(Local::new(dir.path())),
-                &u,
-                &words.clone().shared(),
-            ),
+            tools::standard(Arc::new(Local::new(dir.path())), &u),
             &tools::WebConfig {
                 search: Some(tools::Source::Searxng { url: "x".into() }),
                 reader_key: None,

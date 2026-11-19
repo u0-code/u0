@@ -1,0 +1,66 @@
+# The record of the work: what `note`, `handoff`, `ask`, `keep`, `tell`
+# and `done` say back, and how what is kept in it is put in a line or two
+# for whoever reads it next, a later sitting or whoever the work is for.
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# When a tool's change to the record could not be written. Saying that
+# nothing was changed keeps the worker from going on from a record it does
+# not have. {{why}} is the error.
+unwritten = "the work's record could not be written, so nothing was changed: {{why}}"
+
+# What `note` says: refused empty, or kept, with how many there are now,
+# so that the worker sees its notes add up.
+note_empty = "the note is empty"
+noted = "noted ({{count}} so far)"
+
+# What `handoff` says.
+handoff_empty = "the handoff is empty"
+handoff_kept = "kept"
+
+# What `ask` says. A question has a kind, and only a choice has options;
+# each refusal names what to give instead, so that the next try is right.
+# {{kind}} is the kind asked for, quoted.
+question_empty = "the question is empty"
+no_such_kind = "there is no kind {{kind}}: it is answer, file, act or choose"
+too_few_options = "a choice needs at least two `options` to choose from"
+options_not_asked_for = "`options` are only for a question of kind choose"
+# Said once it is asked: the work stops, and the worker should know why it
+# will not be asked for another step.
+asked = "Asked. The work stops here until they answer; their answer will be added to the task."
+
+# What `keep` says. An image is named as a result named it, so the refusal
+# shows how that looks.
+keep_no_note = "the note is empty: say what it is and when you would want it"
+no_such_image = "there is no image called `{{file}}` among those you were shown. Use the name a result gave it, as in `[image: <name>]`."
+kept = "kept ({{count}} so far)"
+
+# What `tell` says. It is not the end of anything, so it says to go on.
+nothing_to_tell = "there is nothing to tell"
+told = "Told. Go on with the work."
+
+# What `done` says. {{outcome}} is the word it was given.
+not_an_outcome = "`{{outcome}}` is not an outcome. Use finished, blocked or gave_up."
+recorded = "recorded"
+
+# The task as it now stands: what was asked, then each thing added to it
+# since, after a blank line.
+added_later = "\n\nAdded later: {{added}}"
+
+# Where the work stands, in a sentence or two, for whoever asks how it is
+# going between sittings: how far the plan is, the step it is on, and its
+# latest note, each only when it has one. A part's line in `parts` is this
+# when it has said nothing else.
+progress_steps = "{{done}} of {{steps}} steps done"
+progress_next = "; next: {{step}}"
+progress_note = "Latest note: {{note}}"
+# When it has no plan and no notes yet.
+progress_none = "Started; nothing written down yet."
+
+# Its notes, as a later sitting is shown them: the newest that fit, oldest
+# first, a line each.
+no_notes = "(no notes yet)"
+notes_hidden = "({{count}} older notes are not shown)"

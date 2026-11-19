@@ -11,8 +11,8 @@
 //! the text has something that would read as the tag, its `<` is swapped
 //! for a `‹`. What she is told the tag means is in `system/being.md` and
 //! `system/work/work.md`; what each `from` says is in
-//! `system/work/texts.toml`. The tag
-//! itself is structure, like `[image: …]`, and is here.
+//! `system/work/texts/outside.toml`. The tag itself is structure, like
+//! `[image: …]`, and is here.
 //!
 //! What is outside is decided by the tool, not by what came back: the
 //! tools of hers that read the world are, and so is any tool the catalog

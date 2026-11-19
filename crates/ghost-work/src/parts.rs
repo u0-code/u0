@@ -43,7 +43,7 @@ use serde_json::{Value, json};
 use crate::{
     agents::{self, Agent, Unusable},
     checkout,
-    prompts::{self, Loop, Shared, Store},
+    prompts::{self, Loop, Shared, Store, TEXTS},
     tool::{self, Tool, Toolbox},
     tools::{self, clip, list, outcome_of, step_number},
     undertaking::{MailKind, Outcome, Progress, Undertaking},
@@ -195,10 +195,19 @@ impl Parts {
             // Handed to an agent installed here, which steps it itself.
             match self.agents.iter().find(|a| a.name == name) {
                 Some(agent) => {
-                    let task = self.fill("agent_task", &[("task", before.task_text())]);
-                    let go_on = self.text("agent_go_on");
-                    match agents::run(agent, &part, &task, &go_on, &self.halt, self.deadline).await
-                    {
+                    let words = prompts::hold(&self.prompts).clone();
+                    let task = words.fill("agent_task", &[("task", before.task_text(&words))]);
+                    let go_on = words.text("agent_go_on");
+                    let ran = agents::run(
+                        agent,
+                        &part,
+                        &task,
+                        go_on,
+                        &words,
+                        &self.halt,
+                        self.deadline,
+                    );
+                    match ran.await {
                         Ok(ended) => ended,
                         Err(unusable) => {
                             let said = self.unusable_said(&name, &unusable);
@@ -223,13 +232,11 @@ impl Parts {
                     tell: tools::Tell::new(part.clone()),
                     part: n,
                     parent: self.parent.clone(),
-                    prompts: self.prompts.clone(),
                 })
                 .with(Asks {
                     ask: tools::Ask::new(part.clone()),
                     part: n,
                     parent: self.parent.clone(),
-                    prompts: self.prompts.clone(),
                 });
             let worker = Worker {
                 brain: self.brain.clone(),
@@ -350,7 +357,9 @@ impl Parts {
                 .collect::<Vec<_>>()
                 .join(", ");
             if files.len() > 12 {
-                shown.push_str(&format!(" and {} more", files.len() - 12));
+                shown.push_str(
+                    &self.fill("more_files", &[("count", (files.len() - 12).to_string())]),
+                );
             }
             shown
         };
@@ -412,7 +421,8 @@ impl Parts {
             }
         };
         let state = part.state();
-        let latest = state.latest();
+        let words = prompts::hold(&self.prompts).clone();
+        let latest = state.latest(&words);
         let finished = state.finish.as_ref().map(|f| f.outcome) == Some(Outcome::Finished);
         let result = self.fill(
             "part_result",
@@ -434,7 +444,7 @@ impl Parts {
                 ("part", n.to_string()),
                 ("how", how),
                 ("steps", state.steps.to_string()),
-                ("report", clip(&latest, REPORT / 2, REPORT / 2)),
+                ("report", clip(&words, &latest, REPORT / 2, REPORT / 2)),
             ],
         );
         for step in self.mark(n, finished, &result) {
@@ -529,7 +539,7 @@ impl Parts {
                 .ok(),
             _ => None,
         }
-        .ok_or_else(|| tool::Outcome::fail("missing argument `part` (a number)"))?;
+        .ok_or_else(|| tool::Outcome::fail(self.text("missing_part")))?;
         let part = self
             .parent
             .part(n)
@@ -573,23 +583,24 @@ impl Tool for Delegate {
         prompts::spec(words, lp, "delegate", arguments, &["task"])
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
-        let task = match tool::text(args, "task") {
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
+        let task = match tool::text(words, args, "task") {
             Ok(task) => task.trim(),
             Err(refusal) => return refusal,
         };
         if task.is_empty() {
-            return tool::Outcome::fail("the task is empty");
+            return tool::Outcome::fail(words.text(TEXTS, "task_empty"));
         }
         let step = args.get("step").filter(|s| !s.is_null()).map(step_number);
         let step = match step {
             None => None,
             Some(Some(step)) => Some(step),
             Some(None) => {
-                return tool::Outcome::fail(
-                    self.0
-                        .fill("no_step", &[("step", args["step"].to_string())]),
-                );
+                return tool::Outcome::fail(words.fill(
+                    TEXTS,
+                    "no_step",
+                    &[("step", args["step"].to_string())],
+                ));
             }
         };
         if let Some(why) = step.and_then(|step| self.0.unready(step)) {
@@ -612,21 +623,28 @@ impl Tool for Delegate {
             None | Some("") => None,
             Some(name) if self.0.agents.iter().any(|a| a.name == name) => Some(name.to_owned()),
             Some(name) => {
-                return tool::Outcome::fail(self.0.fill("no_agent", &[("agent", name.to_owned())]));
+                return tool::Outcome::fail(words.fill(
+                    TEXTS,
+                    "no_agent",
+                    &[("agent", name.to_owned())],
+                ));
             }
         };
         // Kept beside the work it is part of, under an id that says so.
+        let unmade = |e: std::io::Error| {
+            tool::Outcome::fail(words.fill(TEXTS, "part_unmade", &[("why", e.to_string())]))
+        };
         let part = match self.0.parent.open_part(task) {
             Ok(part) => part,
-            Err(e) => return tool::Outcome::fail(format!("no part could be set up: {e}")),
+            Err(e) => return unmade(e),
         };
         let Some(n) = part.number() else {
-            return tool::Outcome::fail("no part could be set up");
+            return tool::Outcome::fail(words.text(TEXTS, "part_not_made"));
         };
         if agent.is_some()
             && let Err(e) = part.update(|state| state.agent.clone_from(&agent))
         {
-            return tool::Outcome::fail(format!("no part could be set up: {e}"));
+            return unmade(e);
         }
         if let Some(step) = step
             && let Err(e) = self.0.parent.update(|state| {
@@ -642,15 +660,16 @@ impl Tool for Delegate {
         self.0.pump();
         let number = ("part", n.to_string());
         let mut said = if self.0.running().contains_key(&n) {
-            self.0.fill("part_started", &[number])
+            words.fill(TEXTS, "part_started", &[number])
         } else {
-            self.0.fill(
+            words.fill(
+                TEXTS,
                 "part_queued",
                 &[number, ("running", self.0.limits.parts.max(1).to_string())],
             )
         };
         if let Some(step) = step {
-            said.push_str(&self.0.fill("part_on_step", &[("step", step.to_string())]));
+            said.push_str(&words.fill(TEXTS, "part_on_step", &[("step", step.to_string())]));
         }
         tool::Outcome::ok(said)
     }
@@ -675,24 +694,28 @@ impl Tool for Steer {
         )
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
-        let text = match tool::text(args, "text") {
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
+        let text = match tool::text(words, args, "text") {
             Ok(text) => text.trim(),
             Err(refusal) => return refusal,
         };
         if text.is_empty() {
-            return tool::Outcome::fail("there is nothing to pass on");
+            return tool::Outcome::fail(words.text(TEXTS, "nothing_to_pass_on"));
         }
         let (n, part) = match self.0.named(args) {
             Ok(named) => named,
             Err(refusal) => return refusal,
         };
         if let Err(e) = part.add(text) {
-            return tool::Outcome::fail(format!("it could not be passed on: {e}"));
+            return tool::Outcome::fail(words.fill(
+                TEXTS,
+                "not_passed_on",
+                &[("why", e.to_string())],
+            ));
         }
         // A part that stopped to ask goes on now that it has its answer.
         self.0.pump();
-        tool::Outcome::ok(self.0.fill("steered", &[("part", n.to_string())]))
+        tool::Outcome::ok(words.fill(TEXTS, "steered", &[("part", n.to_string())]))
     }
 }
 
@@ -715,16 +738,20 @@ impl Tool for Stop {
         )
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
         let (n, part) = match self.0.named(args) {
             Ok(named) => named,
             Err(refusal) => return refusal,
         };
-        let number = [("part", n.to_string())];
+        let number = ("part", n.to_string());
         match part.stop() {
-            Ok(true) => tool::Outcome::ok(self.0.fill("part_stopped", &number)),
-            Ok(false) => tool::Outcome::fail(self.0.fill("part_over", &number)),
-            Err(e) => tool::Outcome::fail(format!("part {n} could not be stopped: {e}")),
+            Ok(true) => tool::Outcome::ok(words.fill(TEXTS, "part_stopped", &[number])),
+            Ok(false) => tool::Outcome::fail(words.fill(TEXTS, "part_over", &[number])),
+            Err(e) => tool::Outcome::fail(words.fill(
+                TEXTS,
+                "part_not_stopped",
+                &[number, ("why", e.to_string())],
+            )),
         }
     }
 }
@@ -750,7 +777,7 @@ impl Tool for Wait {
         )
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
         let parts = &self.0;
         let seconds = args["seconds"]
             .as_f64()
@@ -760,15 +787,17 @@ impl Tool for Wait {
         let until = (Instant::now() + Duration::from_secs_f64(seconds)).min(parts.deadline);
         loop {
             if parts.parent.pending() > 0 {
-                return tool::Outcome::ok(parts.text("wait_arrived"));
+                return tool::Outcome::ok(words.text(TEXTS, "wait_arrived"));
             }
             if !parts.busy() {
-                return tool::Outcome::ok(parts.text("wait_idle"));
+                return tool::Outcome::ok(words.text(TEXTS, "wait_idle"));
             }
             if parts.pause.load(Ordering::Relaxed) || Instant::now() >= until {
-                return tool::Outcome::ok(
-                    parts.fill("wait_timed_out", &[("seconds", seconds.to_string())]),
-                );
+                return tool::Outcome::ok(words.fill(
+                    TEXTS,
+                    "wait_timed_out",
+                    &[("seconds", seconds.to_string())],
+                ));
             }
             tokio::time::sleep(POLL).await;
         }
@@ -788,7 +817,7 @@ impl Tool for List {
         prompts::spec(words, lp, "parts", json!({}), &[])
     }
 
-    async fn call(&self, _: &Value) -> tool::Outcome {
+    async fn call(&self, _: &Value, words: &Store) -> tool::Outcome {
         let parts = &self.0;
         let running: Vec<u64> = parts.running().keys().copied().collect();
         let lines: Vec<String> = parts
@@ -805,20 +834,21 @@ impl Tool for List {
                     None if state.waiting.is_some() => "status_asking",
                     None => "status_queued",
                 };
-                parts.fill(
+                words.fill(
+                    TEXTS,
                     "parts_line",
                     &[
                         ("part", n.to_string()),
-                        ("status", parts.text(status)),
+                        ("status", words.text(TEXTS, status).to_owned()),
                         ("steps", state.steps.to_string()),
                         ("task", preview(&state.brief, 120)),
-                        ("latest", preview(&state.latest(), 200)),
+                        ("latest", preview(&state.latest(words), 200)),
                     ],
                 )
             })
             .collect();
         if lines.is_empty() {
-            tool::Outcome::ok(parts.text("parts_none"))
+            tool::Outcome::ok(words.text(TEXTS, "parts_none"))
         } else {
             tool::Outcome::ok(lines.join("\n"))
         }
@@ -843,7 +873,7 @@ impl Tool for Finishing {
         self.done.spec(words, lp)
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
         if args["outcome"].as_str().and_then(outcome_of) == Some(Outcome::Finished) {
             let open: Vec<String> = self
                 .parts
@@ -854,12 +884,14 @@ impl Tool for Finishing {
                 .map(|(n, _)| n.to_string())
                 .collect();
             if !open.is_empty() {
-                return tool::Outcome::fail(
-                    self.parts.fill("parts_open", &[("parts", open.join(", "))]),
-                );
+                return tool::Outcome::fail(words.fill(
+                    TEXTS,
+                    "parts_open",
+                    &[("parts", open.join(", "))],
+                ));
             }
         }
-        self.done.call(args).await
+        self.done.call(args, words).await
     }
 }
 
@@ -868,7 +900,6 @@ struct Told {
     tell: tools::Tell,
     part: u64,
     parent: Arc<Undertaking>,
-    prompts: Shared,
 }
 
 #[async_trait]
@@ -881,8 +912,8 @@ impl Tool for Told {
         self.tell.spec(words, lp)
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
-        let out = self.tell.call(args).await;
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
+        let out = self.tell.call(args, words).await;
         if out.failed {
             return out;
         }
@@ -896,25 +927,23 @@ impl Tool for Told {
                     .collect()
             })
             .unwrap_or_default();
-        let message = {
-            let words = prompts::hold(&self.prompts);
-            let files = if files.is_empty() {
-                String::new()
-            } else {
-                words.fill("part_told_files", &[("files", files.join(", "))])
-            };
-            words.fill(
-                "part_told",
-                &[
-                    ("part", self.part.to_string()),
-                    (
-                        "text",
-                        args["text"].as_str().unwrap_or_default().trim().to_owned(),
-                    ),
-                    ("files", files),
-                ],
-            )
+        let files = if files.is_empty() {
+            String::new()
+        } else {
+            words.fill(TEXTS, "part_told_files", &[("files", files.join(", "))])
         };
+        let message = words.fill(
+            TEXTS,
+            "part_told",
+            &[
+                ("part", self.part.to_string()),
+                (
+                    "text",
+                    args["text"].as_str().unwrap_or_default().trim().to_owned(),
+                ),
+                ("files", files),
+            ],
+        );
         if let Err(e) = self.parent.post(MailKind::Told, &message) {
             tracing::warn!(
                 "part {} could not tell {}: {e}",
@@ -931,7 +960,6 @@ struct Asks {
     ask: tools::Ask,
     part: u64,
     parent: Arc<Undertaking>,
-    prompts: Shared,
 }
 
 #[async_trait]
@@ -944,12 +972,13 @@ impl Tool for Asks {
         self.ask.spec(words, lp)
     }
 
-    async fn call(&self, args: &Value) -> tool::Outcome {
-        let out = self.ask.call(args).await;
+    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
+        let out = self.ask.call(args, words).await;
         if out.failed {
             return out;
         }
-        let message = prompts::hold(&self.prompts).fill(
+        let message = words.fill(
+            TEXTS,
             "part_asked",
             &[
                 ("part", self.part.to_string()),

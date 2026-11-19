@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use crate::prompts::{Store, TEXTS};
 use async_trait::async_trait;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
@@ -56,8 +57,8 @@ pub trait Machine: Send + Sync {
         timeout: Duration,
     ) -> io::Result<Output>;
 
-    /// A line or two for the worker about where it is.
-    fn describe(&self) -> String;
+    /// A line or two for the worker about where it is, in `words`.
+    fn describe(&self, words: &Store) -> String;
 
     /// The same machine, working in the folder `dir` on it instead: where
     /// one piece of work is done. `None` for a machine that cannot be
@@ -224,16 +225,14 @@ impl Machine for Local {
         tokio::fs::read(full).await
     }
 
-    fn describe(&self) -> String {
-        format!(
-            "You are on a {} machine, in the directory {}. The machine is someone else's, and that \
-             directory is the part of it you were given: what you make goes there, unless the task \
-             says where to put it, so that it is all in one place and can be found again. The programs \
-             installed on the machine are yours to run. A path the task names elsewhere on it is yours \
-             to read, and to change only if the task asks for that change there; do not search, read \
-             or change anything else outside your directory.",
-            std::env::consts::OS,
-            self.root.display()
+    fn describe(&self, words: &Store) -> String {
+        words.fill(
+            TEXTS,
+            "machine_local",
+            &[
+                ("os", std::env::consts::OS.to_owned()),
+                ("dir", self.root.display().to_string()),
+            ],
         )
     }
 }
@@ -340,14 +339,11 @@ impl Machine for Docker {
         Ok(out.stdout)
     }
 
-    fn describe(&self) -> String {
-        format!(
-            "You are inside a Linux container{}.",
-            self.workdir
-                .as_ref()
-                .map(|d| format!(", starting in {d}"))
-                .unwrap_or_default()
-        )
+    fn describe(&self, words: &Store) -> String {
+        match &self.workdir {
+            Some(dir) => words.fill(TEXTS, "machine_container_in", &[("dir", dir.clone())]),
+            None => words.text(TEXTS, "machine_container").to_owned(),
+        }
     }
 }
 

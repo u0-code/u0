@@ -1,0 +1,54 @@
+# What is said of a call itself, whatever the tool: one the toolbox
+# could not run, one the work was interrupted in, and what is cut out of a
+# result to save room.
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# The result of a call the work was interrupted in. Calls run one after
+# another, so of those left without a result only the first can have begun.
+interrupted = """\
+    This did not finish: the work was interrupted while it ran, and what it did is unknown. \
+    It may have partly happened. If it only reads, or doing it twice does no harm, run it again; \
+    otherwise look at the current state first."""
+not_started = """\
+    This was not run: the work was interrupted before it began. \
+    Run it again if it is still needed."""
+
+# Put after a result whose images were taken out of the transcript.
+no_longer_shown_one = "[This image is no longer shown, to save room. Ask for it again if you need to see it.]"
+no_longer_shown_many = "[These images are no longer shown, to save room. Ask for them again if you need to see them.]"
+# Put after a result picked up again whose image is gone from disk.
+image_gone = "\n[The image {{file}} is no longer on disk, so it cannot be shown.]"
+# Put after a result whose image could not be kept on disk as the
+# transcript was saved.
+image_unkept = "\n[An image could not be kept on disk, and was dropped.]"
+
+# A call the toolbox could not hand to a tool. {{tool}} is the name it was
+# called by, {{tools}} the names it could have used, so that a model that
+# guessed a name sees the right one at once.
+no_tool = "there is no tool called `{{tool}}`. The tools are: {{tools}}."
+# A call whose arguments did not parse: most often a long piece of content
+# badly escaped, hence the advice to write it in pieces.
+not_json = "the arguments were not a valid JSON object. Call the tool again with well-formed JSON; for long or awkward content, write it in smaller pieces."
+# A call that left out an argument it needs. {{argument}} is its name.
+missing_argument = "missing argument `{{argument}}` (a string)"
+# A call run beside others that ended without a result.
+tool_fell_over = "the tool fell over"
+# A call from an agent stepping the work through its tools (`ghost-work
+# --serve-mcp`) after the work has ended: nothing it does now counts.
+work_ended = "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here."
+
+# Long output keeps its beginning and its end, with this between them, so
+# that the worker knows something is missing, and how much.
+cut = "{{head}}\n[... {{count}} characters cut from the middle ...]\n{{tail}}"
+
+# What is left of old things in a transcript made to fit its context: a
+# long argument of an old call (file contents, mostly), and the output of
+# an old result, which can be had again by running it again. {{kept}} is
+# the beginning that is kept; {{ended}} closes what came from outside, when
+# it did.
+dropped_argument = "{{kept}}\n[... the rest was dropped to save context ...]"
+dropped_output = "{{kept}}\n[... the rest of this output was dropped to save context; run it again if you need it ...]{{ended}}"

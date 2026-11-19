@@ -1,0 +1,100 @@
+# Skills: what `find_skills`, `install_skill`, `uninstall_skill` and
+# `use_skill` say, and why a skill is refused or put aside. Nobody approves
+# what she installs, so each refusal says plainly what is wrong with the
+# skill as it stands; most of them finish what `not_installed` begins.
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# One line of `use_skill`, for each skill she has.
+skill_line = "- {{skill}}: {{description}}"
+
+# Where a skill came from, as what she reads of it is marked and as
+# `install_skill` says it: a repository and the commit it was taken at.
+skill_origin = "{{repository}} at {{commit}}"
+
+# What `find_skills` shows: a hit each, numbered, most installed first,
+# with what it says it is for ({{about}}, only when it says), what its
+# auditors say, and whether it can be installed here (`installs_yes`, or
+# `installs_no` with why), so that she picks one that can.
+find_skills_short = "say at least two letters of what to look for."
+no_skills_found = "The index of skills has nothing for \"{{query}}\". Try another word for the job, in English."
+skill_found = "{{n}}. {{id}}: {{installs}} installs{{about}}\n   audit: {{audit}}\n   installs here: {{here}}"
+skill_about = "\n   {{description}}"
+audit_none = "none found"
+verdict = "{{auditor}} {{risk}}"
+verdict_scored = "{{auditor}} {{risk}}, score {{score}}"
+skill_id_not_github = "its id is not a repository on GitHub and a skill in it."
+skill_source_differs = "the index names another repository as its source than its id does."
+skill_rated = "{{auditor}} rates it {{risk}} risk."
+skills_full_here = "you have {{count}} skills, the most you can have; uninstall one first."
+skill_unaudited = "only if it has no scripts, since nobody has audited it"
+skill_had = " (you have a skill of this name; installing takes its latest commit)"
+more_skills_found = "({{count}} more, installed less; a narrower word finds fewer.)"
+index_unreached = "the index of skills could not be reached ({{why}}). Try again later."
+index_unreadable = "the index of skills answered with something unreadable ({{why}})."
+
+# What `install_skill` says. A skill is instructions, and is read as
+# someone else's words; before that it is a skill the index lists, taken at
+# a commit, with bounded files and nothing outside its folder, and one
+# with scripts only once an auditor has looked at it.
+skill_installed = "Installed the skill {{name}} from {{origin}}. It says it is for: {{description}} Read it with `use_skill` when a piece of work or a conversation calls for it."
+skill_has_scripts = " It has scripts: they are someone else's code, and nothing runs them for you."
+skill_bad_id = "{{id}} is not a skill's id as the index gives one, owner/repo/skill. Use the id `find_skills` showed."
+skills_full = "you already have {{count}} skills, the most you can have. Uninstall one you use least first."
+skill_unlisted = "the index of skills does not list {{id}}. Use the exact id `find_skills` showed."
+skill_refused = "{{auditor}} rates it {{risk}} risk, and a skill rated high or critical is not installed."
+too_many_files = "it has {{count}} files, more than the {{most}} a skill may have."
+too_many_bytes = "its files come to {{bytes}} bytes, more than the {{most}} a skill may have."
+asset_too_large = "{{path}} is {{bytes}} bytes, more than the {{most}} one asset may be."
+unaudited_scripts = "nobody has audited it, and it has scripts; a skill with scripts is only installed once an auditor has looked at it."
+not_text = "{{path}} is not text, and outside assets/ a skill may only have text."
+skill_unwritten = "it could not be written to disk ({{why}})."
+# Its SKILL.md, in the open format of skills: frontmatter that names it,
+# the same as its folder, and says what it is for, within bounds.
+no_frontmatter = "its SKILL.md does not begin with frontmatter between --- lines."
+frontmatter_unclosed = "its SKILL.md never closes its frontmatter with a --- line."
+no_skill_name = "its SKILL.md gives no name."
+skill_name_unplain = "its name, {{name}}, is not a skill's name: 1 to 64 lowercase letters, digits and single hyphens, not at either end."
+skill_name_not_folder = "its SKILL.md calls it {{name}} but its folder is {{folder}}, and the two must be the same."
+no_skill_description = "its SKILL.md says nothing of what it is for."
+skill_description_long = "its description is longer than the {{most}} characters a skill may have."
+skill_compatibility_long = "what it says it is compatible with is longer than the {{most}} characters a skill may have."
+# Its folder on GitHub, taken at the commit the default branch points at.
+github_unreached = "GitHub could not be asked ({{why}}). Try again later."
+github_unreadable = "GitHub answered with something unreadable ({{why}})."
+branch_unplain = "GitHub named {{branch}} as the default branch, which is not a plain name."
+commit_unplain = "GitHub named {{sha}} as the commit, which is not one."
+repository_too_large = "{{repository}} is too large to look through, and no folder called {{skill}} with a SKILL.md was found in what could be."
+no_skill_folder = "{{repository}} has no folder called {{skill}} with a SKILL.md in it."
+has_a_link = "it has a link, {{path}}, and a skill may only have files of its own."
+has_a_repository = "it has another repository inside it, {{path}}, and a skill may only have files of its own."
+path_leads_out = "it has a path, {{path}}, that leads out of its folder."
+raw_address_wrong = "the address of GitHub's files is wrong ({{why}})."
+raw_address_no_path = "the address of GitHub's files is wrong."
+unfetched = "{{path}} could not be fetched ({{why}})."
+# An answer from the index or GitHub that runs on too long, or breaks off.
+answer_too_long = "{{url}} sent more than the {{most}} bytes that are read from it."
+answer_broken_off = "{{url}} could not be read to the end ({{why}})."
+
+# What `uninstall_skill` says.
+skill_uninstalled = "Uninstalled the skill {{name}}."
+no_skills_yet = "you have no skill called {{name}}, and no skills at all yet."
+no_skill_but = "you have no skill called {{name}}. You have: {{skills}}."
+
+# What `use_skill` says around a skill's body or one of its files. A skill
+# is meant to be short; what is past the most she is given is better asked
+# for than read whole.
+skill_unreadable = "the skill {{name}} could not be read ({{why}})."
+skill_files = "\n\n[files of this skill: {{files}}]"
+skill_cut = "\n[cut here: {{count}} more characters. What it leaves out may be in its other files.]"
+no_skill_file = "the skill {{name}} has no file {{file}}. Its files are: {{files}}."
+skill_file_not_text = "[{{file}} is not text: {{bytes}} bytes. It is a file for the skill to use, not to read.]"
+
+# Why a skill she had is put aside as her body starts, as her journal
+# keeps it: something other than the install wrote to its folder, and
+# what it says now is nobody's she chose.
+skill_changed = "its files changed on disk after you installed it, so it is put aside until you install it again and see what it says now."
+skill_folder_gone = "its folder is gone, or holds something other than files, so it is put aside until you install it again."

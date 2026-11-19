@@ -161,7 +161,7 @@ fn worker(dir: &std::path::Path, script: Vec<Step>, limits: Limits) -> (Worker, 
     let prompts = Prompts::shipped().shared();
     let worker = Worker {
         brain: brain.clone(),
-        tools: tools::standard(machine, &undertaking, &prompts),
+        tools: tools::standard(machine, &undertaking),
         undertaking,
         limits,
         who: String::new(),
@@ -222,7 +222,7 @@ impl Tool for Hold {
     fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
         tool::spec("hold", "Wait to be let go.", json!({}), &[])
     }
-    async fn call(&self, _: &Value) -> tool::Outcome {
+    async fn call(&self, _: &Value, _: &crate::prompts::Store) -> tool::Outcome {
         while !self.0.load(Ordering::Relaxed) {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
@@ -242,7 +242,7 @@ impl Tool for Release {
     fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
         tool::spec("release", "Let them go.", json!({}), &[])
     }
-    async fn call(&self, _: &Value) -> tool::Outcome {
+    async fn call(&self, _: &Value, _: &crate::prompts::Store) -> tool::Outcome {
         (self.1)();
         self.0.store(true, Ordering::Relaxed);
         tool::Outcome::ok("released")
@@ -259,9 +259,9 @@ fn with_parts(
     check: Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Arc<AtomicBool> {
     let gate = Arc::new(AtomicBool::new(false));
-    let (root, held, words) = (dir.to_path_buf(), gate.clone(), worker.prompts.clone());
+    let (root, held) = (dir.to_path_buf(), gate.clone());
     worker.helpers = Some(Arc::new(move |undertaking| {
-        tools::standard(Arc::new(Local::new(&root)), undertaking, &words).with(Hold(held.clone()))
+        tools::standard(Arc::new(Local::new(&root)), undertaking).with(Hold(held.clone()))
     }));
     if let Some(check) = check {
         worker.tools = worker.tools.clone().with(Release(gate.clone(), check));

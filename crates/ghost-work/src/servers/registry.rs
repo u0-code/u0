@@ -17,6 +17,7 @@ use ghost_core::journal::Launch;
 use serde::Deserialize;
 
 use super::guard;
+use crate::prompts::{Store, TEXTS};
 
 /// How many listings one search asks for.
 const PAGE: usize = 30;
@@ -145,8 +146,9 @@ impl Registry {
 
     /// The current listings whose names have `query` in them. Superseded
     /// versions and listings that are not active are left out: what is
-    /// installed is only ever what the registry says is current.
-    pub async fn search(&self, query: &str) -> Result<Vec<Listing>, String> {
+    /// installed is only ever what the registry says is current. Why there
+    /// are none, in `words`.
+    pub async fn search(&self, words: &Store, query: &str) -> Result<Vec<Listing>, String> {
         #[derive(Deserialize)]
         struct Page {
             #[serde(default)]
@@ -163,19 +165,19 @@ impl Registry {
             .send()
             .await
             .and_then(reqwest::Response::error_for_status)
-            .map_err(|e| format!("the registry could not be reached ({e}). Try again later."))?
+            .map_err(|e| words.fill(TEXTS, "registry_unreached", &[("why", e.to_string())]))?
             .json()
             .await
-            .map_err(|e| format!("the registry answered with something unreadable ({e})."))?;
+            .map_err(|e| words.fill(TEXTS, "registry_unreadable", &[("why", e.to_string())]))?;
         Ok(page.servers.into_iter().filter(Listing::current).collect())
     }
 
     /// The current listing called exactly `name`. Should the registry
     /// ever list two, the one published first is taken: a later one of
     /// the same name is more likely a copy than the original.
-    pub async fn named(&self, name: &str) -> Result<Option<Listing>, String> {
+    pub async fn named(&self, words: &Store, name: &str) -> Result<Option<Listing>, String> {
         let mut found: Vec<Listing> = self
-            .search(name)
+            .search(words, name)
             .await?
             .into_iter()
             .filter(|l| l.server.name == name)
@@ -200,9 +202,9 @@ pub struct Plan {
     pub given: Vec<String>,
 }
 
-/// What a listing needs from whoever runs her body, as she is shown it:
-/// each variable it requires, with the secret ones marked.
-pub fn needs(server: &Server) -> Vec<String> {
+/// What a listing needs from whoever runs her body, as she is shown it in
+/// `words`: each variable it requires, with the secret ones marked.
+pub fn needs(words: &Store, server: &Server) -> Vec<String> {
     let chosen = server
         .packages
         .iter()
@@ -215,7 +217,7 @@ pub fn needs(server: &Server) -> Vec<String> {
         .filter(|v| v.is_required && (v.is_secret || v.default.is_none()))
         .map(|v| {
             if v.is_secret {
-                format!("{} (secret)", v.name)
+                words.fill(TEXTS, "secret", &[("name", v.name.clone())])
             } else {
                 v.name.clone()
             }
@@ -234,20 +236,21 @@ fn runner(package: &Package) -> Option<&'static str> {
 }
 
 /// What is run for `listing`, if it can be installed here as it stands,
-/// or why not. `given` says whether a variable of its environment has
-/// been given to it by whoever runs her body.
-pub fn plan(listing: &Listing, given: &dyn Fn(&str) -> bool) -> Result<Plan, String> {
+/// or why not, in `words`. `given` says whether a variable of its
+/// environment has been given to it by whoever runs her body.
+pub fn plan(
+    words: &Store,
+    listing: &Listing,
+    given: &dyn Fn(&str) -> bool,
+) -> Result<Plan, String> {
     let server = &listing.server;
     if !listing.current() {
-        return Err(format!(
-            "the registry does not list {} as active and current.",
-            server.name
-        ));
+        return Err(words.fill(TEXTS, "not_current", &[("name", server.name.clone())]));
     }
-    let owner = owner(server)?;
+    let owner = owner(words, server)?;
     let mut why = Vec::new();
     for package in &server.packages {
-        match from_package(package, given) {
+        match from_package(words, package, given) {
             Ok((source, launch, passed)) => {
                 return Ok(Plan {
                     name: server.name.clone(),
@@ -263,7 +266,7 @@ pub fn plan(listing: &Listing, given: &dyn Fn(&str) -> bool) -> Result<Plan, Str
         }
     }
     for remote in &server.remotes {
-        match from_remote(remote) {
+        match from_remote(words, remote) {
             Ok(launch) => {
                 return Ok(Plan {
                     name: server.name.clone(),
@@ -280,7 +283,7 @@ pub fn plan(listing: &Listing, given: &dyn Fn(&str) -> bool) -> Result<Plan, Str
     }
     Err(match why.into_iter().next() {
         Some(first) => first,
-        None => "it lists no package and no remote to run.".to_owned(),
+        None => words.text(TEXTS, "nothing_to_run").to_owned(),
     })
 }
 
@@ -290,11 +293,12 @@ pub fn plan(listing: &Listing, given: &dyn Fn(&str) -> bool) -> Result<Plan, Str
 /// someone else's code under a name of its own is how a copy passes for
 /// the original. Any other namespace is a reversed domain, which is
 /// recorded as it is.
-fn owner(server: &Server) -> Result<Option<String>, String> {
+fn owner(words: &Store, server: &Server) -> Result<Option<String>, String> {
     let (namespace, _) = server.name.split_once('/').ok_or_else(|| {
-        format!(
-            "{} is not a registry name of the form namespace/name.",
-            server.name
+        words.fill(
+            TEXTS,
+            "not_a_registry_name",
+            &[("name", server.name.clone())],
         )
     })?;
     if let Some(account) = namespace.strip_prefix("io.github.") {
@@ -304,13 +308,18 @@ fn owner(server: &Server) -> Result<Option<String>, String> {
             .and_then(|rest| rest.split('/').next())
             .is_some_and(|owner| owner.eq_ignore_ascii_case(account));
         if !theirs {
-            return Err(format!(
-                "the registry's repository ({}) does not belong to the namespace's owner, {account}.",
-                if repository.is_empty() {
-                    "none given"
-                } else {
-                    repository
-                }
+            let repository = if repository.is_empty() {
+                words.text(TEXTS, "no_repository")
+            } else {
+                repository
+            };
+            return Err(words.fill(
+                TEXTS,
+                "not_the_owners",
+                &[
+                    ("repository", repository.to_owned()),
+                    ("account", account.to_owned()),
+                ],
             ));
         }
         return Ok(Some(format!("github.com/{account}")));
@@ -322,46 +331,43 @@ fn owner(server: &Server) -> Result<Option<String>, String> {
 /// How a package runs: the command, with every version pinned, and the
 /// variables it may be given.
 fn from_package(
+    words: &Store,
     package: &Package,
     given: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Launch, Vec<String>), String> {
+    let said = |key: &str, what: &str| words.fill(TEXTS, key, &[("what", what.to_owned())]);
     let Some(kind) = runner(package) else {
-        return Err(format!(
-            "its package is a {} package, which is not run here: only npm and PyPI packages are.",
-            package.registry_type
-        ));
+        return Err(said("package_not_run", &package.registry_type));
     };
     if package.transport.kind != "stdio" && !package.transport.kind.is_empty() {
-        return Err(format!(
-            "its package serves over {}, and only packages that talk over stdio are run here.",
-            package.transport.kind
-        ));
+        return Err(said("package_not_stdio", &package.transport.kind));
     }
     if !guard::package_name(&package.identifier) {
-        return Err(format!(
-            "its package name, {:?}, is not a plain package name.",
-            package.identifier
+        return Err(said(
+            "package_name_unplain",
+            &format!("{:?}", package.identifier),
         ));
     }
     if !guard::exact_version(&package.version) {
-        return Err(format!(
-            "its package version, {:?}, is not one exact version.",
-            package.version
+        return Err(said(
+            "package_version_unpinned",
+            &format!("{:?}", package.version),
         ));
     }
     let mut args = Vec::new();
     for argument in &package.package_arguments {
         let value = argument.value.as_ref().or(argument.default.as_ref());
         let usable = value.filter(|v| !v.contains('{'));
-        let label = argument.name.as_deref().unwrap_or("an argument");
+        let label = argument
+            .name
+            .as_deref()
+            .unwrap_or_else(|| words.text(TEXTS, "an_argument"));
         match (usable, argument.is_required) {
             (None, true) if argument.is_secret => {
-                return Err(format!("it needs {label}, which nobody has given you."));
+                return Err(said("needs_ungiven", label));
             }
             (None, true) => {
-                return Err(format!(
-                    "it needs {label} to be chosen when it is run, and gives no value for it."
-                ));
+                return Err(said("needs_choosing", label));
             }
             (None, false) => {}
             (Some(value), _) => {
@@ -390,10 +396,7 @@ fn from_package(
                 launch.set.push(format!("{}={default}", variable.name));
             }
             _ => {
-                return Err(format!(
-                    "it needs {}, which nobody has given you.",
-                    variable.name
-                ));
+                return Err(said("needs_ungiven", &variable.name));
             }
         }
     }
@@ -436,20 +439,18 @@ fn from_package(
 }
 
 /// A remote, if it is one that can be reached as it stands.
-fn from_remote(remote: &Remote) -> Result<Launch, String> {
+fn from_remote(words: &Store, remote: &Remote) -> Result<Launch, String> {
     if remote.kind != "streamable-http" {
-        return Err(format!(
-            "it is reached over {}, and only streamable HTTP is spoken here.",
-            remote.kind
+        return Err(words.fill(
+            TEXTS,
+            "remote_not_streamable",
+            &[("what", remote.kind.clone())],
         ));
     }
     if let Some(header) = remote.headers.iter().find(|h| h.is_required) {
-        return Err(format!(
-            "it needs the header {}, which nobody has given you.",
-            header.name
-        ));
+        return Err(words.fill(TEXTS, "needs_header", &[("what", header.name.clone())]));
     }
-    guard::plain_remote(&remote.url)?;
+    guard::plain_remote(words, &remote.url)?;
     Ok(Launch {
         url: Some(remote.url.clone()),
         ..Launch::default()
@@ -481,7 +482,7 @@ mod tests {
             },
             "_meta": current(),
         }));
-        let why = plan(&copy, &|_| false).unwrap_err();
+        let why = plan(&crate::Prompts::shipped(), &copy, &|_| false).unwrap_err();
         assert!(
             why.contains("does not belong to the namespace's owner"),
             "{why}"
@@ -506,11 +507,17 @@ mod tests {
                 "_meta": current(),
             }))
         };
-        let why = plan(&server(true), &|_| false).unwrap_err();
+        let why = plan(&crate::Prompts::shipped(), &server(true), &|_| false).unwrap_err();
         assert_eq!(why, "it needs SLACK_TOKEN, which nobody has given you.");
-        assert_eq!(needs(&server(true).server), ["SLACK_TOKEN (secret)"]);
+        assert_eq!(
+            needs(&crate::Prompts::shipped(), &server(true).server),
+            ["SLACK_TOKEN (secret)"]
+        );
 
-        let planned = plan(&server(true), &|name| name == "SLACK_TOKEN").unwrap();
+        let planned = plan(&crate::Prompts::shipped(), &server(true), &|name| {
+            name == "SLACK_TOKEN"
+        })
+        .unwrap();
         assert_eq!(
             planned.launch.command,
             [
@@ -537,13 +544,44 @@ mod tests {
             }))
         };
         let npm = |version: &str| json!({"registryType": "npm", "identifier": "x", "version": version, "transport": {"type": "stdio"}});
-        assert!(plan(&with(npm("^1.0.0"), current()), &|_| false).is_err());
-        assert!(plan(&with(npm("latest"), current()), &|_| false).is_err());
+        assert!(
+            plan(
+                &crate::Prompts::shipped(),
+                &with(npm("^1.0.0"), current()),
+                &|_| false
+            )
+            .is_err()
+        );
+        assert!(
+            plan(
+                &crate::Prompts::shipped(),
+                &with(npm("latest"), current()),
+                &|_| false
+            )
+            .is_err()
+        );
         let oci = json!({"registryType": "oci", "identifier": "x", "version": "1", "transport": {"type": "stdio"}});
-        assert!(plan(&with(oci, current()), &|_| false).is_err());
+        assert!(
+            plan(&crate::Prompts::shipped(), &with(oci, current()), &|_| {
+                false
+            })
+            .is_err()
+        );
         let old = json!({OFFICIAL: {"status": "active", "isLatest": false}});
-        assert!(plan(&with(npm("1.0.0"), old), &|_| false).is_err());
-        let planned = plan(&with(npm("1.0.0"), current()), &|_| false).unwrap();
+        assert!(
+            plan(
+                &crate::Prompts::shipped(),
+                &with(npm("1.0.0"), old),
+                &|_| false
+            )
+            .is_err()
+        );
+        let planned = plan(
+            &crate::Prompts::shipped(),
+            &with(npm("1.0.0"), current()),
+            &|_| false,
+        )
+        .unwrap();
         assert_eq!(planned.owner.as_deref(), Some("example.com"));
     }
 }

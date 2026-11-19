@@ -17,6 +17,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::prompts::{Store, TEXTS};
+
 /// Where one worker may write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Fence {
@@ -29,8 +31,9 @@ pub(crate) struct Fence {
 }
 
 impl Fence {
-    /// Why `path`, written from `cwd`, is not to be written, if it is not.
-    pub(crate) fn refuses(&self, path: &str, cwd: Option<&str>) -> Option<String> {
+    /// Why `path`, written from `cwd`, is not to be written, if it is not,
+    /// in `words`.
+    pub(crate) fn refuses(&self, words: &Store, path: &str, cwd: Option<&str>) -> Option<String> {
         let at = real(&resolve(path, cwd.map_or(&self.own, Path::new)));
         if at.starts_with(real(&self.own)) || self.named.iter().any(|n| real(n) == at) {
             return None;
@@ -39,24 +42,19 @@ impl Fence {
         if !in_theirs && scratch(&at) {
             return None;
         }
-        Some(if in_theirs {
-            format!(
-                "{} is in the work's folder, where other workers are. This part works in its own \
-                 checkout, {}: make the change there, and it is brought back into the work's \
-                 folder when you finish.",
-                at.display(),
-                self.own.display()
-            )
+        let key = if in_theirs {
+            "in_their_folder"
         } else {
-            format!(
-                "{} is outside the work's folder, {}. What the work makes goes in its folder, unless \
-                 whoever asked named that file in their own words, and they did not: a place the task \
-                 gives that their words do not was a guess. Write it in the folder, do not put it there \
-                 another way (a shell command, a copy), and say where it is: they will be told.",
-                at.display(),
-                self.own.display()
-            )
-        })
+            "outside_the_folder"
+        };
+        Some(words.fill(
+            TEXTS,
+            key,
+            &[
+                ("path", at.display().to_string()),
+                ("folder", self.own.display().to_string()),
+            ],
+        ))
     }
 }
 
@@ -218,33 +216,50 @@ mod tests {
 
     #[test]
     fn the_work_writes_in_its_folder_in_scratch_and_in_files_named_for_it_only() {
+        let words = crate::Prompts::shipped();
         let f = fence("/home/her/Ghost/2026-11-18/count-d2a4");
-        assert!(f.refuses("counts.md", None).is_none(), "in its folder");
         assert!(
-            f.refuses("/home/her/Ghost/2026-11-18/count-d2a4/a/b.txt", None)
-                .is_none()
+            f.refuses(&words, "counts.md", None).is_none(),
+            "in its folder"
         );
-        assert!(f.refuses("/tmp/scratch.txt", None).is_none());
-        assert!(f.refuses("/srv/notes/summary.md", None).is_none(), "named");
-        let why = f.refuses("/home/me/repo/prompts/counts.md", None).unwrap();
+        assert!(
+            f.refuses(
+                &words,
+                "/home/her/Ghost/2026-11-18/count-d2a4/a/b.txt",
+                None
+            )
+            .is_none()
+        );
+        assert!(f.refuses(&words, "/tmp/scratch.txt", None).is_none());
+        assert!(
+            f.refuses(&words, "/srv/notes/summary.md", None).is_none(),
+            "named"
+        );
+        let why = f
+            .refuses(&words, "/home/me/repo/prompts/counts.md", None)
+            .unwrap();
         assert!(why.contains("outside the work's folder"), "{why}");
         // Having moved elsewhere, a relative path is read from there.
-        assert!(f.refuses("core.md", Some("/home/me/repo")).is_some());
         assert!(
-            f.refuses("../../../../me/x.md", None).is_some(),
+            f.refuses(&words, "core.md", Some("/home/me/repo"))
+                .is_some()
+        );
+        assert!(
+            f.refuses(&words, "../../../../me/x.md", None).is_some(),
             "no way out by .."
         );
     }
 
     #[test]
     fn a_part_in_its_own_checkout_is_told_to_write_there_and_not_in_its_works_folder() {
+        let words = crate::Prompts::shipped();
         let f = Fence {
             own: PathBuf::from("/home/her/ghost/worktrees/w-1"),
             of: Some(PathBuf::from("/home/her/Ghost/w")),
             named: Vec::new(),
         };
-        assert!(f.refuses("b.txt", None).is_none());
-        let why = f.refuses("/home/her/Ghost/w/b.txt", None).unwrap();
+        assert!(f.refuses(&words, "b.txt", None).is_none());
+        let why = f.refuses(&words, "/home/her/Ghost/w/b.txt", None).unwrap();
         assert!(why.contains("its own checkout"), "{why}");
     }
 

@@ -12,6 +12,8 @@
 
 use std::path::{Component, Path};
 
+use crate::prompts::{Store, TEXTS};
+
 /// The most files one skill may have.
 pub const MAX_FILES: usize = 100;
 /// The most bytes all of a skill's files may come to.
@@ -52,7 +54,7 @@ pub fn name_ok(name: &str) -> bool {
 /// as the format says: frontmatter first, a `name` that is a valid name and
 /// the folder's, a `description` that says something and not too much.
 /// Anything else in the frontmatter is passed over.
-pub fn front(text: &str, folder: &str) -> Result<Front, String> {
+pub fn front(words: &Store, text: &str, folder: &str) -> Result<Front, String> {
     let text = text.trim_start_matches('\u{feff}');
     let mut lines = text.lines();
     if lines
@@ -61,7 +63,7 @@ pub fn front(text: &str, folder: &str) -> Result<Front, String> {
         .map(str::trim_end)
         != Some("---")
     {
-        return Err("its SKILL.md does not begin with frontmatter between --- lines.".to_owned());
+        return Err(words.text(TEXTS, "no_frontmatter").to_owned());
     }
     let mut head = Vec::new();
     let mut closed = false;
@@ -73,7 +75,7 @@ pub fn front(text: &str, folder: &str) -> Result<Front, String> {
         head.push(line);
     }
     if !closed {
-        return Err("its SKILL.md never closes its frontmatter with a --- line.".to_owned());
+        return Err(words.text(TEXTS, "frontmatter_unclosed").to_owned());
     }
     let body = lines.collect::<Vec<_>>().join("\n").trim().to_owned();
     let fields = fields(&head);
@@ -85,25 +87,31 @@ pub fn front(text: &str, folder: &str) -> Result<Front, String> {
     };
     let name = get("name").unwrap_or_default();
     if name.is_empty() {
-        return Err("its SKILL.md gives no name.".to_owned());
+        return Err(words.text(TEXTS, "no_skill_name").to_owned());
     }
     if !name_ok(&name) {
-        return Err(format!(
-            "its name, {name:?}, is not a skill's name: 1 to 64 lowercase letters, digits and single hyphens, not at either end."
+        return Err(words.fill(
+            TEXTS,
+            "skill_name_unplain",
+            &[("name", format!("{name:?}"))],
         ));
     }
     if name != folder {
-        return Err(format!(
-            "its SKILL.md calls it {name} but its folder is {folder}, and the two must be the same."
+        return Err(words.fill(
+            TEXTS,
+            "skill_name_not_folder",
+            &[("name", name), ("folder", folder.to_owned())],
         ));
     }
     let description = get("description").unwrap_or_default();
     if description.is_empty() {
-        return Err("its SKILL.md says nothing of what it is for.".to_owned());
+        return Err(words.text(TEXTS, "no_skill_description").to_owned());
     }
     if description.chars().count() > DESCRIPTION {
-        return Err(format!(
-            "its description is longer than the {DESCRIPTION} characters a skill may have."
+        return Err(words.fill(
+            TEXTS,
+            "skill_description_long",
+            &[("most", DESCRIPTION.to_string())],
         ));
     }
     let compatibility = get("compatibility").filter(|c| !c.is_empty());
@@ -111,8 +119,10 @@ pub fn front(text: &str, folder: &str) -> Result<Front, String> {
         .as_ref()
         .is_some_and(|c| c.chars().count() > COMPATIBILITY)
     {
-        return Err(format!(
-            "what it says it is compatible with is longer than the {COMPATIBILITY} characters a skill may have."
+        return Err(words.fill(
+            TEXTS,
+            "skill_compatibility_long",
+            &[("most", COMPATIBILITY.to_string())],
         ));
     }
     Ok(Front {
@@ -285,6 +295,7 @@ mod tests {
     #[test]
     fn frontmatter_is_read_however_its_values_are_written() {
         let plain = front(
+            &crate::Prompts::shipped(),
             "---\nname: pdf\ndescription: Work with PDFs. Use when a PDF is involved. # aside\nlicense: Apache-2.0\nmetadata:\n  author: someone\n  version: \"1.0\"\nallowed-tools: Bash(python:*)\n---\n\n# PDF\n\nDo this.\n",
             "pdf",
         )
@@ -297,18 +308,21 @@ mod tests {
         assert_eq!(plain.body, "# PDF\n\nDo this.");
 
         let folded = front(
+            &crate::Prompts::shipped(),
             "---\nname: pdf\ndescription: >\n  Work with PDFs,\n  and forms.\n---\nbody",
             "pdf",
         )
         .unwrap();
         assert_eq!(folded.description, "Work with PDFs, and forms.");
         let quoted = front(
+            &crate::Prompts::shipped(),
             "---\nname: 'pdf'\ndescription: \"Say \\\"hi\\\": it's: fine\"\n---\nbody",
             "pdf",
         )
         .unwrap();
         assert_eq!(quoted.description, "Say \"hi\": it's: fine");
         let multi = front(
+            &crate::Prompts::shipped(),
             "---\nname: pdf\ndescription: Work with PDFs\n  across lines.\n---\n",
             "pdf",
         )
@@ -318,7 +332,8 @@ mod tests {
 
     #[test]
     fn frontmatter_that_breaks_the_format_is_refused_with_why() {
-        let refused = |text: &str, folder: &str| front(text, folder).unwrap_err();
+        let refused =
+            |text: &str, folder: &str| front(&crate::Prompts::shipped(), text, folder).unwrap_err();
         assert!(refused("# no frontmatter", "pdf").contains("does not begin"));
         assert!(refused("---\nname: pdf\ndescription: x\n", "pdf").contains("never closes"));
         assert!(refused("---\ndescription: x\n---\n", "pdf").contains("no name"));

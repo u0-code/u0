@@ -389,7 +389,7 @@ all = "Replace every occurrence instead of requiring exactly one."
 # they belong to work; loading what she has belongs to both loops.
 #
 # `{{servers}}` in `load_tools` is one `server_line`, in
-# system/work/texts.toml, for each server she has.
+# system/work/texts/servers.toml, for each server she has.
 
 [find_tools]
 ability = "add new tools to yourself, made by others: a real browser, the tools of a site, makers of pictures or video. You do it by taking it on with `undertake`; the work searches a registry of tools and installs what fits, and from then on you have it. So when something calls for what you cannot do yet, the answer is to take that on, not that you cannot"
@@ -443,7 +443,7 @@ server = "The server, by the name before the colon in the list."
 # tokens and most moments need none of it.
 #
 # `{{skills}}` in `use_skill` is one `skill_line`, in
-# system/work/texts.toml, for each skill she has.
+# system/work/texts/skills.toml, for each skill she has.
 
 [find_skills]
 ability = "add skills to yourself: procedures others have written down for a kind of job, such as filling a PDF form, building a slide deck or a spreadsheet, testing a web app. You do it by taking it on with `undertake`; the work searches an index of skills and installs what fits. So when a job would go better done the way someone careful does it, you can go and get that"

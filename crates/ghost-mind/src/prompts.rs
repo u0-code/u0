@@ -684,7 +684,7 @@ mod tests {
             "system/being.md",
             LOOK,
             "system/work/work.md",
-            "system/work/texts.toml",
+            "system/work/texts/sitting.toml",
             TOOLS,
         ] {
             assert!(written.contains(&dir.join(path)), "{path} was not exported");
@@ -697,7 +697,7 @@ mod tests {
 
         // Changed where it was exported to, it is listed as the deployment's.
         write_at(
-            &dir.join("system/work/texts.toml"),
+            &dir.join("system/work/texts/sitting.toml"),
             "no_call = \"Call one.\"\n",
             1,
         );
@@ -718,11 +718,11 @@ mod tests {
             Some((Origin::Deployment, false))
         );
         assert_eq!(
-            find("system/work/texts.toml", Some("no_call")),
+            find("system/work/texts/sitting.toml", Some("no_call")),
             Some((Origin::Deployment, true))
         );
         assert_eq!(
-            find("system/work/texts.toml", Some("audit")),
+            find("system/work/texts/sitting.toml", Some("audit")),
             Some((Origin::BuiltIn, false))
         );
         assert_eq!(

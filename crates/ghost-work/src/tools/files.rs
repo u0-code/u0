@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::{Desk, MAX_PICTURE};
 use crate::{
     machine::quote,
-    prompts::{self, Loop, Store},
+    prompts::{self, Loop, Store, TEXTS},
     tool::{Outcome, Tool, text},
 };
 
@@ -19,49 +19,65 @@ const FETCH_BYTES: usize = 400_000;
 const DEFAULT_LINES: usize = 600;
 const MAX_CHARS: usize = 40_000;
 
-/// The whole file as text, or why it cannot be had.
-async fn slurp(desk: &Desk, path: &str, limit: Option<usize>) -> Result<String, Outcome> {
+/// What a directory read as a file exits with.
+const A_DIRECTORY: i32 = 21;
+
+/// The whole file as text, or why it cannot be had, in `words`.
+async fn slurp(
+    desk: &Desk,
+    words: &Store,
+    path: &str,
+    limit: Option<usize>,
+) -> Result<String, Outcome> {
     let q = quote(path);
     let fetch = limit.map_or_else(|| format!("cat -- {q}"), |n| format!("head -c {n} -- {q}"));
-    // `cat` reports a missing file or a directory in its own words.
-    let script = format!("if [ -d {q} ]; then echo {q} is a directory; exit 21; fi\n{fetch}");
+    // `cat` reports a missing file in its own words.
+    let script = format!("if [ -d {q} ]; then exit {A_DIRECTORY}; fi\n{fetch}");
+    let said = |key: &str, why: Option<String>| {
+        let mut pairs = vec![("path", path.to_owned())];
+        pairs.extend(why.map(|why| ("why", why)));
+        Outcome::fail(words.fill(TEXTS, key, &pairs))
+    };
     let out = desk
         .exec(&script, None, IO_TIMEOUT)
         .await
-        .map_err(|e| Outcome::fail(format!("could not read {path}: {e}")))?;
+        .map_err(|e| said("unreadable", Some(e.to_string())))?;
+    if out.code == Some(A_DIRECTORY) {
+        return Err(said("a_directory", None));
+    }
     if !out.ok() {
         return Err(Outcome::fail(out.text.trim().to_owned()));
     }
     if out.text.contains('\0') {
-        return Err(Outcome::fail(format!(
-            "{path} is a binary file. Inspect it with shell tools (file, xxd, strings)."
-        )));
+        return Err(said("a_binary_file", None));
     }
     if out.dropped > 0 && limit.is_none() {
-        return Err(Outcome::fail(format!(
-            "{path} is too large to handle whole. Work on it with shell tools (sed, awk, python)."
-        )));
+        return Err(said("too_large_whole", None));
     }
     Ok(out.text)
 }
 
-async fn store(desk: &Desk, path: &str, content: &str) -> Result<(), Outcome> {
-    if let Some(why) = desk.fenced(path) {
+async fn store(desk: &Desk, words: &Store, path: &str, content: &str) -> Result<(), Outcome> {
+    if let Some(why) = desk.fenced(words, path) {
         return Err(Outcome::fail(why));
     }
     let q = quote(path);
     let script = format!("mkdir -p -- \"$(dirname -- {q})\" && cat > {q}");
+    let unwritten = |why: String| {
+        Outcome::fail(words.fill(
+            TEXTS,
+            "unwritable",
+            &[("path", path.to_owned()), ("why", why)],
+        ))
+    };
     let out = desk
         .exec(&script, Some(content.as_bytes().to_vec()), IO_TIMEOUT)
         .await
-        .map_err(|e| Outcome::fail(format!("could not write {path}: {e}")))?;
+        .map_err(|e| unwritten(e.to_string()))?;
     if out.ok() {
         Ok(())
     } else {
-        Err(Outcome::fail(format!(
-            "could not write {path}: {}",
-            out.text.trim()
-        )))
+        Err(unwritten(out.text.trim().to_owned()))
     }
 }
 
@@ -76,7 +92,7 @@ impl Read {
 
     /// The file as a picture, if its name says it is an image and its
     /// bytes agree. `None` sends it on to be read as text.
-    async fn look(&self, path: &str) -> Option<Outcome> {
+    async fn look(&self, words: &Store, path: &str) -> Option<Outcome> {
         let named = path.rsplit_once('.').is_some_and(|(_, ext)| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
@@ -94,9 +110,13 @@ impl Read {
         let bytes = match self.desk.machine.read(&full, MAX_PICTURE as u64).await {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                return Some(Outcome::fail(format!(
-                    "{path} is an image larger than {} MB, too large to be shown. Make a smaller copy with shell tools and read that.",
-                    MAX_PICTURE / (1024 * 1024)
+                return Some(Outcome::fail(words.fill(
+                    TEXTS,
+                    "image_too_large",
+                    &[
+                        ("path", path.to_owned()),
+                        ("mb", (MAX_PICTURE / (1024 * 1024)).to_string()),
+                    ],
                 )));
             }
             // Machines that cannot hand files over, and missing files, are
@@ -105,7 +125,11 @@ impl Read {
         };
         let picture = super::picture(bytes)?;
         Some(Outcome::seen(
-            format!("{path}: an image ({})", super::about(&picture)),
+            words.fill(
+                TEXTS,
+                "an_image",
+                &[("path", path.to_owned()), ("about", super::about(&picture))],
+            ),
             picture,
         ))
     }
@@ -131,20 +155,20 @@ impl Tool for Read {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let path = match text(args, "path") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let path = match text(words, args, "path") {
             Ok(p) => p,
             Err(refusal) => return refusal,
         };
-        if let Some(seen) = self.look(path).await {
+        if let Some(seen) = self.look(words, path).await {
             return seen;
         }
-        let content = match slurp(&self.desk, path, Some(FETCH_BYTES)).await {
+        let content = match slurp(&self.desk, words, path, Some(FETCH_BYTES)).await {
             Ok(c) => c,
             Err(refusal) => return refusal,
         };
         if content.is_empty() {
-            return Outcome::ok("(the file is empty)");
+            return Outcome::ok(words.text(TEXTS, "file_empty"));
         }
         let from = usize::try_from(args["from"].as_u64().unwrap_or(1))
             .unwrap_or(1)
@@ -154,7 +178,11 @@ impl Tool for Read {
             .max(1);
         let total = content.lines().count();
         if from > total {
-            return Outcome::fail(format!("{path} has only {total} lines"));
+            return Outcome::fail(words.fill(
+                TEXTS,
+                "too_few_lines",
+                &[("path", path.to_owned()), ("lines", total.to_string())],
+            ));
         }
         let mut out = String::new();
         let mut last = from - 1;
@@ -167,11 +195,20 @@ impl Tool for Read {
         }
         let cut_short = content.len() >= FETCH_BYTES;
         if last < total || cut_short {
-            let _ = write!(
-                out,
-                "[lines {from}-{last} of {}{total}; pass `from` to read on]",
-                if cut_short { "at least " } else { "" }
-            );
+            let total = if cut_short {
+                words.fill(TEXTS, "at_least", &[("lines", total.to_string())])
+            } else {
+                total.to_string()
+            };
+            out.push_str(&words.fill(
+                TEXTS,
+                "lines_shown",
+                &[
+                    ("from", from.to_string()),
+                    ("last", last.to_string()),
+                    ("total", total),
+                ],
+            ));
         }
         Outcome::ok(out.trim_end().to_owned())
     }
@@ -203,16 +240,20 @@ impl Tool for Write {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (path, content) = match (text(args, "path"), text(args, "content")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (path, content) = match (text(words, args, "path"), text(words, args, "content")) {
             (Ok(p), Ok(c)) => (p, c),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
-        match store(&self.desk, path, content).await {
-            Ok(()) => Outcome::ok(format!(
-                "wrote {path} ({} lines, {} bytes)",
-                content.lines().count(),
-                content.len()
+        match store(&self.desk, words, path, content).await {
+            Ok(()) => Outcome::ok(words.fill(
+                TEXTS,
+                "wrote",
+                &[
+                    ("path", path.to_owned()),
+                    ("lines", content.lines().count().to_string()),
+                    ("bytes", content.len().to_string()),
+                ],
             )),
             Err(refusal) => refusal,
         }
@@ -250,25 +291,28 @@ impl Tool for Edit {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (path, old, new) = match (text(args, "path"), text(args, "old"), text(args, "new")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (path, old, new) = match (
+            text(words, args, "path"),
+            text(words, args, "old"),
+            text(words, args, "new"),
+        ) {
             (Ok(p), Ok(o), Ok(n)) => (p, o, n),
             (Err(refusal), _, _) | (_, Err(refusal), _) | (_, _, Err(refusal)) => return refusal,
         };
         if old.is_empty() {
-            return Outcome::fail("`old` is empty. To create a file use `write`.");
+            return Outcome::fail(words.text(TEXTS, "old_empty"));
         }
         if old == new {
-            return Outcome::fail("`old` and `new` are the same; nothing would change.");
+            return Outcome::fail(words.text(TEXTS, "old_is_new"));
         }
-        let content = match slurp(&self.desk, path, None).await {
+        let content = match slurp(&self.desk, words, path, None).await {
             Ok(c) => c,
             Err(refusal) => return refusal,
         };
+        let at = || ("path", path.to_owned());
         if content.contains('\u{fffd}') {
-            return Outcome::fail(format!(
-                "{path} is not valid UTF-8, so editing it here could corrupt it. Use shell tools."
-            ));
+            return Outcome::fail(words.fill(TEXTS, "not_utf8", &[at()]));
         }
         let found = content.matches(old).count();
         if found == 0
@@ -276,10 +320,8 @@ impl Tool for Edit {
         {
             // The text is there but for whitespace at the ends of lines,
             // which nobody can see. Take it.
-            return match store(&self.desk, path, &updated).await {
-                Ok(()) => Outcome::ok(format!(
-                    "edited {path} (1 replacement; trailing whitespace differed from `old`)"
-                )),
+            return match store(&self.desk, words, path, &updated).await {
+                Ok(()) => Outcome::ok(words.fill(TEXTS, "edited_loosely", &[at()])),
                 Err(refusal) => refusal,
             };
         }
@@ -287,28 +329,29 @@ impl Tool for Edit {
             // The commonest miss is indentation. Say so when that is all it is.
             let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
             let hint = if squash(&content).contains(&squash(old)) {
-                "The words are in the file but the whitespace differs. Read the lines again and copy them exactly."
+                "old_whitespace_differs"
             } else {
-                "Read the file again: it may have changed, or the text may differ from what you remember."
+                "old_read_again"
             };
-            return Outcome::fail(format!("`old` was not found in {path}. {hint}"));
+            return Outcome::fail(words.fill(
+                TEXTS,
+                "old_not_found",
+                &[at(), ("hint", words.text(TEXTS, hint).to_owned())],
+            ));
         }
         let every = args["all"].as_bool() == Some(true);
+        let count = ("count", found.to_string());
         if found > 1 && !every {
-            return Outcome::fail(format!(
-                "`old` matches {found} places in {path}. Include more of the surrounding lines so it matches one, or pass `all`: true."
-            ));
+            return Outcome::fail(words.fill(TEXTS, "old_ambiguous", &[at(), count]));
         }
         let updated = if every {
             content.replace(old, new)
         } else {
             content.replacen(old, new, 1)
         };
-        match store(&self.desk, path, &updated).await {
-            Ok(()) => Outcome::ok(format!(
-                "edited {path} ({found} replacement{})",
-                if found == 1 { "" } else { "s" }
-            )),
+        match store(&self.desk, words, path, &updated).await {
+            Ok(()) if found == 1 => Outcome::ok(words.fill(TEXTS, "edited_once", &[at()])),
+            Ok(()) => Outcome::ok(words.fill(TEXTS, "edited", &[at(), count])),
             Err(refusal) => refusal,
         }
     }
@@ -376,7 +419,10 @@ mod tests {
         let d = desk(dir.path());
         let content = "line 'one'\n\t$HOME \"two\"\nthree\\n\n";
         let wrote = Write::new(d.clone())
-            .call(&json!({"path": "deep/dir/f.txt", "content": content}))
+            .call(
+                &json!({"path": "deep/dir/f.txt", "content": content}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(!wrote.failed, "{}", wrote.output);
         assert_eq!(
@@ -385,7 +431,10 @@ mod tests {
         );
 
         let read = Read::new(d.clone())
-            .call(&json!({"path": "deep/dir/f.txt"}))
+            .call(
+                &json!({"path": "deep/dir/f.txt"}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert_eq!(
             read.output,
@@ -393,7 +442,10 @@ mod tests {
         );
 
         let part = Read::new(d)
-            .call(&json!({"path": "deep/dir/f.txt", "from": 2, "lines": 1}))
+            .call(
+                &json!({"path": "deep/dir/f.txt", "from": 2, "lines": 1}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(part.output.starts_with("    2  \t$HOME"), "{}", part.output);
         assert!(
@@ -415,7 +467,10 @@ mod tests {
         let edit = Edit::new(desk(dir.path()));
 
         let twice = edit
-            .call(&json!({"path": "a.py", "old": "    return 1", "new": "    return 2"}))
+            .call(
+                &json!({"path": "a.py", "old": "    return 1", "new": "    return 2"}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(
             twice.failed && twice.output.contains("matches 2 places"),
@@ -424,7 +479,10 @@ mod tests {
         );
 
         let spaced = edit
-            .call(&json!({"path": "a.py", "old": "def g():\n  return 1", "new": "x"}))
+            .call(
+                &json!({"path": "a.py", "old": "def g():\n  return 1", "new": "x"}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(
             spaced.output.contains("whitespace differs"),
@@ -433,7 +491,7 @@ mod tests {
         );
 
         let once = edit
-            .call(&json!({"path": "a.py", "old": "def g():\n    return 1", "new": "def g():\n    return 2"}))
+            .call(&json!({"path": "a.py", "old": "def g():\n    return 1", "new": "def g():\n    return 2"}), &crate::Prompts::shipped())
             .await;
         assert!(!once.failed, "{}", once.output);
         assert_eq!(
@@ -456,13 +514,17 @@ mod tests {
         d.moved_to(dir.path().join("pics").display().to_string());
         let read = Read::new(d.clone());
 
-        let seen = read.call(&json!({"path": "dot.png"})).await;
+        let seen = read
+            .call(&json!({"path": "dot.png"}), &crate::Prompts::shipped())
+            .await;
         assert!(!seen.failed, "{}", seen.output);
         assert_eq!(seen.pictures.len(), 1);
         assert_eq!(seen.pictures[0].bytes, crate::tools::testing::PIXEL);
         assert_eq!(seen.output, "dot.png: an image (image/png, 67 bytes, 1×1)");
         // A name is not enough: what is not an image is read as text.
-        let text = read.call(&json!({"path": "notes.png"})).await;
+        let text = read
+            .call(&json!({"path": "notes.png"}), &crate::Prompts::shipped())
+            .await;
         assert!(text.pictures.is_empty());
         assert_eq!(text.output, "    1  only text");
     }
@@ -471,7 +533,7 @@ mod tests {
     async fn a_missing_file_is_said_plainly() {
         let dir = tempfile::tempdir().unwrap();
         let read = Read::new(desk(dir.path()))
-            .call(&json!({"path": "nope.txt"}))
+            .call(&json!({"path": "nope.txt"}), &crate::Prompts::shipped())
             .await;
         assert!(read.failed);
         assert!(read.output.contains("No such file"), "{}", read.output);

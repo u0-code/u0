@@ -81,14 +81,14 @@ async fn a_tool_described_anew_in_tools_toml_reaches_work_already_running() {
 async fn what_a_worker_is_told_comes_from_the_files_beside_it() {
     let dir = tempfile::tempdir().unwrap();
     let prompts = dir.path().join("elsewhere");
-    std::fs::create_dir_all(prompts.join("system/work")).unwrap();
+    std::fs::create_dir_all(prompts.join("system/work/texts")).unwrap();
     std::fs::write(
         prompts.join("system/work/work.md"),
         "{{who}}Work here: {{machine}}. {{budget}}",
     )
     .unwrap();
     std::fs::write(
-        prompts.join("system/work/texts.toml"),
+        prompts.join("system/work/texts/sitting.toml"),
         "no_call = \"Call a tool.\"\nbudget = \"{{steps}} steps.\"\n",
     )
     .unwrap();

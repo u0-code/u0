@@ -77,7 +77,13 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
             });
         })
         .unwrap();
-    first.save(&[Item::user("build the thing")], 0).unwrap();
+    first
+        .save(
+            &crate::Prompts::shipped(),
+            &[Item::user("build the thing")],
+            0,
+        )
+        .unwrap();
     first.remember(&[Item::user("and test it")]);
     first.log(&serde_json::json!({"step": 1}));
     drop(first);
@@ -86,8 +92,14 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
     let state = again.state();
     assert_eq!(state.brief, "build the thing", "the brief does not change");
     assert_eq!(state.plan_text(&Prompts::shipped()), "[x] 1. look around");
-    assert_eq!(state.notes_text(1000), "- python is 3.12");
-    assert_eq!(again.transcript().unwrap().len(), 1);
+    assert_eq!(
+        state.notes_text(&crate::Prompts::shipped(), 1000),
+        "- python is 3.12"
+    );
+    assert_eq!(
+        again.transcript(&crate::Prompts::shipped()).unwrap().len(),
+        1
+    );
     assert_eq!(again.history().len(), 2);
     assert_eq!(again.logged(), [serde_json::json!({"step": 1})]);
 }
@@ -164,7 +176,7 @@ fn a_saved_transcript_points_into_the_history_and_is_written_again_only_where_it
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let items = vec![Item::user("task"), Item::user("a"), Item::user("b")];
-    u.save(&items, 0).unwrap();
+    u.save(&crate::Prompts::shipped(), &items, 0).unwrap();
     assert_eq!(
         transcript_rows(&dir),
         [(None, Some(1)), (None, Some(2)), (None, Some(3))],
@@ -175,7 +187,7 @@ fn a_saved_transcript_points_into_the_history_and_is_written_again_only_where_it
     let mut more = items.clone();
     more[1] = Item::user("a, shortened");
     more.push(Item::user("c"));
-    u.save(&more, 3).unwrap();
+    u.save(&crate::Prompts::shipped(), &more, 3).unwrap();
     let rows = transcript_rows(&dir);
     assert_eq!(rows[0], (None, Some(1)), "what did not change stays");
     assert!(rows[1].0.as_deref().unwrap().contains("a, shortened"));
@@ -183,12 +195,12 @@ fn a_saved_transcript_points_into_the_history_and_is_written_again_only_where_it
     assert_eq!(rows[3], (None, Some(4)));
     assert_eq!(u.history().len(), 4);
     let again = Undertaking::open(&db(&dir), "u1", None).unwrap();
-    assert_eq!(again.transcript().unwrap(), more);
+    assert_eq!(again.transcript(&crate::Prompts::shipped()).unwrap(), more);
 
     // Folded down, the rows past its end go.
     let folded = vec![Item::user("task, and where it got to")];
-    again.save(&folded, 1).unwrap();
-    assert_eq!(u.transcript().unwrap(), folded);
+    again.save(&crate::Prompts::shipped(), &folded, 1).unwrap();
+    assert_eq!(u.transcript(&crate::Prompts::shipped()).unwrap(), folded);
 }
 
 fn seen(bytes: &[u8]) -> Item {
@@ -222,7 +234,12 @@ fn a_saved_transcript_names_a_picture_by_its_file_and_holds_no_bytes() {
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let bytes = b"\x89PNG\r\n\x1a\n and the rest";
     // Never handed to `keep`: saving keeps it first.
-    u.save(&[Item::user("look"), seen(bytes)], 0).unwrap();
+    u.save(
+        &crate::Prompts::shipped(),
+        &[Item::user("look"), seen(bytes)],
+        0,
+    )
+    .unwrap();
     let file = media::name(bytes, "image/png");
     let row = saved_row(&dir, 2);
     let written: Value = serde_json::from_str(&row).unwrap();
@@ -233,7 +250,10 @@ fn a_saved_transcript_names_a_picture_by_its_file_and_holds_no_bytes() {
     assert!(!row.contains("\"data\""), "{row}");
     assert!(dir.path().join(media::MEDIA_DIR).join(&file).exists());
     // And it comes back whole.
-    assert_eq!(u.transcript().unwrap()[1], seen(bytes));
+    assert_eq!(
+        u.transcript(&crate::Prompts::shipped()).unwrap()[1],
+        seen(bytes)
+    );
 }
 
 #[test]
@@ -241,10 +261,13 @@ fn a_picture_whose_file_is_gone_comes_back_as_a_line_of_text() {
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let bytes = b"GIF89a gone";
-    u.save(&[seen(bytes)], 0).unwrap();
+    u.save(&crate::Prompts::shipped(), &[seen(bytes)], 0)
+        .unwrap();
     let file = media::name(bytes, "image/png");
     fs::remove_file(dir.path().join(media::MEDIA_DIR).join(&file)).unwrap();
-    let items = u.transcript().expect("the rest still loads");
+    let items = u
+        .transcript(&crate::Prompts::shipped())
+        .expect("the rest still loads");
     assert_eq!(
         items,
         [Item::result(
@@ -269,7 +292,7 @@ fn a_picture_named_by_a_path_is_not_followed() {
             [row],
         )
         .unwrap();
-    let items = u.transcript().unwrap();
+    let items = u.transcript(&crate::Prompts::shipped()).unwrap();
     assert!(matches!(&items[0], Item::Result { pictures, output, .. }
         if pictures.is_empty() && output.contains("no longer on disk")));
 }
@@ -330,13 +353,14 @@ fn two_undertakings_in_one_database_do_not_see_each_others_state() {
     let a = Undertaking::open(&db(&dir), "a", Some("paint the fence")).unwrap();
     let b = Undertaking::open(&db(&dir), "b", Some("mend the gate")).unwrap();
     a.update(|s| s.steps = 7).unwrap();
-    a.save(&[Item::user("fence")], 0).unwrap();
+    a.save(&crate::Prompts::shipped(), &[Item::user("fence")], 0)
+        .unwrap();
     a.log(&serde_json::json!({"step": 1}));
     a.add("white").unwrap();
 
     assert_eq!(b.state().brief, "mend the gate");
     assert_eq!(b.state().steps, 0);
-    assert!(b.transcript().is_none());
+    assert!(b.transcript(&crate::Prompts::shipped()).is_none());
     assert!(b.history().is_empty());
     assert!(b.logged().is_empty());
     assert!(b.taken().is_empty(), "what was added to a is not b's");
@@ -420,7 +444,7 @@ fn only_the_newest_notes_are_shown_when_there_are_many() {
             text: format!("fact number {i}"),
         });
     }
-    let shown = state.notes_text(40);
+    let shown = state.notes_text(&crate::Prompts::shipped(), 40);
     assert_eq!(
         shown,
         "(8 older notes are not shown)\n- fact number 8\n- fact number 9"
@@ -441,7 +465,7 @@ fn what_is_added_from_outside_becomes_part_of_the_task() {
     );
     assert!(worker.taken().is_empty(), "taken once");
     assert_eq!(
-        outside.state().task_text(),
+        outside.state().task_text(&crate::Prompts::shipped()),
         "find when it closes\n\nAdded later: weekends too\n\nAdded later: and whether it takes bookings"
     );
 }
@@ -704,13 +728,14 @@ fn work_that_has_ended_keeps_its_history_and_not_its_transcript() {
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let items = vec![Item::user("task"), Item::user("a"), Item::user("b")];
-    u.save(&items, 0).unwrap();
+    u.save(&crate::Prompts::shipped(), &items, 0).unwrap();
     assert_eq!(transcript_rows(&dir).len(), 3);
 
     // Ended by its own last step, which still adds to the history.
     let mut last = items.clone();
     last.push(Item::user("done"));
     u.step(
+        &crate::Prompts::shipped(),
         |s| {
             s.finish = Some(Finish {
                 outcome: Outcome::Finished,
@@ -728,9 +753,9 @@ fn work_that_has_ended_keeps_its_history_and_not_its_transcript() {
     assert!(transcript_rows(&dir).is_empty());
     assert_eq!(u.history(), last, "everything it held is in its history");
     // A sitting stopping after it saves nothing back.
-    u.save(&last, 4).unwrap();
+    u.save(&crate::Prompts::shipped(), &last, 4).unwrap();
     assert!(transcript_rows(&dir).is_empty());
-    assert!(u.transcript().is_none());
+    assert!(u.transcript(&crate::Prompts::shipped()).is_none());
     assert_eq!(u.history().len(), 4);
 }
 
@@ -738,7 +763,12 @@ fn work_that_has_ended_keeps_its_history_and_not_its_transcript() {
 fn work_ended_from_outside_lets_its_transcript_go() {
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
-    u.save(&[Item::user("task"), Item::user("a")], 0).unwrap();
+    u.save(
+        &crate::Prompts::shipped(),
+        &[Item::user("task"), Item::user("a")],
+        0,
+    )
+    .unwrap();
     let other = Undertaking::open(&db(&dir), "u1", None).unwrap();
     assert!(other.stop().unwrap());
     assert!(transcript_rows(&dir).is_empty());
@@ -763,7 +793,7 @@ fn room_freed_in_a_new_database_is_given_back_to_the_disk() {
     let long: Vec<Item> = (0..200)
         .map(|n| Item::user(format!("{n} {}", "x".repeat(2000))))
         .collect();
-    u.save(&long, 200).unwrap();
+    u.save(&crate::Prompts::shipped(), &long, 200).unwrap();
     let grown = pages(&dir).0;
     assert!(grown > before + 50, "{before} pages, then {grown}");
     u.stop().unwrap();

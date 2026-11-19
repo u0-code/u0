@@ -32,6 +32,7 @@ use tokio::{
 };
 
 use crate::{
+    prompts::{Store, TEXTS},
     undertaking::{MailKind, Outcome, Undertaking},
     worker::{Ended, preview},
 };
@@ -226,7 +227,8 @@ enum Run {
 
 /// Do `part` with `agent` until it ends, the sitting halts, or `deadline`.
 /// The first run is given `task`; a later one, what was passed on to the
-/// part since, or `go_on` if nothing was.
+/// part since, or `go_on` if nothing was. Why a run failed is said in
+/// `words`.
 ///
 /// An agent that cannot work here at all comes back as why and what fixes
 /// it, for the work to say to whoever runs her and not to try itself.
@@ -235,6 +237,7 @@ pub(crate) async fn run(
     part: &Undertaking,
     task: &str,
     go_on: &str,
+    words: &Store,
     halt: &AtomicBool,
     deadline: Instant,
 ) -> Result<Ended, Unusable> {
@@ -244,7 +247,7 @@ pub(crate) async fn run(
         added(part).unwrap_or_else(|| go_on.to_owned())
     };
     loop {
-        match once(agent, part, &prompt, halt, deadline).await {
+        match once(agent, part, words, &prompt, halt, deadline).await {
             Run::Answered(answer) => {
                 // What was passed on while it ran is given to it now, in the
                 // same session, before the part is called done.
@@ -438,10 +441,11 @@ fn codex_line(event: &Value, last_said: &mut String) -> Heard {
             heard.answer = Some(last_said.clone());
         }
         Some(kind @ ("turn.failed" | "error")) => {
+            // Empty when it gave no reason: see `once`.
             let said = event["error"]["message"]
                 .as_str()
                 .or_else(|| event["message"].as_str())
-                .unwrap_or("it reported an error")
+                .unwrap_or_default()
                 .to_owned();
             // A dropped stream it is reconnecting to is not the end of the
             // turn: kept, in case the turn never ends, but not a failure.
@@ -456,10 +460,12 @@ fn codex_line(event: &Value, last_said: &mut String) -> Heard {
     heard
 }
 
-/// Run the agent once on `prompt`, writing what it does to the part.
+/// Run the agent once on `prompt`, writing what it does to the part, and
+/// saying in `words` why it failed if it did.
 async fn once(
     agent: &Agent,
     part: &Undertaking,
+    words: &Store,
     prompt: &str,
     halt: &AtomicBool,
     deadline: Instant,
@@ -475,10 +481,19 @@ async fn once(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Run::Unusable(agent.unusable(Cause::Missing));
         }
-        Err(e) => return Run::Failed(format!("could not start {}: {e}", agent.cli.program)),
+        Err(e) => {
+            return Run::Failed(words.fill(
+                TEXTS,
+                "agent_not_started",
+                &[
+                    ("program", agent.cli.program.clone()),
+                    ("why", e.to_string()),
+                ],
+            ));
+        }
     };
     let Some(stdout) = child.stdout.take() else {
-        return Run::Failed("it gave no output to read".into());
+        return Run::Failed(words.text(TEXTS, "agent_no_output").to_owned());
     };
     let errors = child.stderr.take().map(|mut stderr| {
         tokio::spawn(async move {
@@ -559,9 +574,14 @@ async fn once(
         return ended;
     }
     let why = match (failed, answer) {
+        (Some(why), _) if why.is_empty() => words.text(TEXTS, "agent_error_unsaid").to_owned(),
         (Some(why), _) => why,
         (None, Some(answer)) => return Run::Answered(answer),
-        (None, None) => format!("ended without an answer. {noted} {}", complaint.trim()),
+        (None, None) => words.fill(
+            TEXTS,
+            "agent_no_answer",
+            &[("noted", noted), ("complaint", complaint.trim().to_owned())],
+        ),
     };
     // What it said, and what it complained of, can say what is wrong with
     // it rather than with the part.

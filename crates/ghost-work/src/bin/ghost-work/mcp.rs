@@ -96,12 +96,11 @@ pub async fn serve(
                 };
                 let ended = undertaking.state().finish.is_some();
                 let started = std::time::Instant::now();
+                let said_in = prompts::hold(&words).clone();
                 let mut outcome = if ended {
-                    ghost_work::tool::Outcome::fail(
-                        "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here.",
-                    )
+                    ghost_work::tool::Outcome::fail(said_in.text("work_ended"))
                 } else {
-                    tools.run(&call).await
+                    tools.run(&call, &said_in).await
                 };
                 // One line per call, with what it was asked and what came
                 // back as it came back. The agent's own words between
@@ -122,7 +121,7 @@ pub async fn serve(
                     // the worker's own loop: an agent that steps the work
                     // reads the same transcript.
                     outcome.output = outside::mark(
-                        &prompts::hold(&words),
+                        &said_in,
                         &call,
                         outcome.origin.as_deref(),
                         std::mem::take(&mut outcome.output),
@@ -138,7 +137,7 @@ pub async fn serve(
                 answer(
                     id,
                     json!({
-                        "content": [{"type": "text", "text": ghost_work::tools::clip(&said, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
+                        "content": [{"type": "text", "text": ghost_work::tools::clip(&said_in, &said, MAX_RESULT / 3, MAX_RESULT * 2 / 3)}],
                         "isError": outcome.failed,
                     }),
                 )
@@ -167,7 +166,7 @@ mod tests {
             .unwrap(),
         );
         let words = ghost_work::Prompts::shipped().shared();
-        let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking, &words);
+        let toolbox = tools::standard(Arc::new(Local::new(dir)), &undertaking);
         let input = requests
             .iter()
             .map(ToString::to_string)

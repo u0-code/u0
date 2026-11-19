@@ -72,7 +72,7 @@ pub fn opening_text(words: &Prompts, state: &State) -> String {
 /// stretch of the old transcript follows it word for word, and the worker
 /// is told to go on from there instead of finding its feet again.
 pub(super) fn opening_with(words: &Prompts, state: &State, tail: bool) -> String {
-    let task = words.fill("task", &[("task", state.task_text())]);
+    let task = words.fill("task", &[("task", state.task_text(words))]);
     if state.steps == 0 {
         return task;
     }
@@ -97,7 +97,7 @@ pub(super) fn opening_with(words: &Prompts, state: &State, tail: bool) -> String
             ("plan", state.plan_text(words)),
             ("handoff", handoff),
             ("touched", touched),
-            ("notes", state.notes_text(NOTES_SHOWN)),
+            ("notes", state.notes_text(words, NOTES_SHOWN)),
             ("after", words.text(after).to_owned()),
             ("audit", words.text("audit").to_owned()),
         ],

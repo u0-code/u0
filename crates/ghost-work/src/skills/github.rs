@@ -13,6 +13,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::{guard, read};
+use crate::prompts::{Store, TEXTS};
 
 /// How long one request to GitHub may take.
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -86,7 +87,11 @@ impl GitHub {
         }
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String> {
+    async fn json<T: serde::de::DeserializeOwned>(
+        &self,
+        words: &Store,
+        url: &str,
+    ) -> Result<T, String> {
         let answer = self
             .http
             .get(url)
@@ -94,37 +99,44 @@ impl GitHub {
             .send()
             .await
             .and_then(reqwest::Response::error_for_status)
-            .map_err(|e| format!("GitHub could not be asked ({e}). Try again later."))?;
-        serde_json::from_slice(&read(answer, ANSWER).await?)
-            .map_err(|e| format!("GitHub answered with something unreadable ({e})."))
+            .map_err(|e| words.fill(TEXTS, "github_unreached", &[("why", e.to_string())]))?;
+        serde_json::from_slice(&read(words, answer, ANSWER).await?)
+            .map_err(|e| words.fill(TEXTS, "github_unreadable", &[("why", e.to_string())]))
     }
 
     /// The folder called `skill` in `owner/repo`, at the commit its
     /// default branch points at now. The folder is the one of that name
-    /// with a `SKILL.md` in it; of several, the one nearest the root.
-    pub async fn folder(&self, owner: &str, repo: &str, skill: &str) -> Result<Folder, String> {
+    /// with a `SKILL.md` in it; of several, the one nearest the root. Why
+    /// it cannot be had, in `words`.
+    pub async fn folder(
+        &self,
+        words: &Store,
+        owner: &str,
+        repo: &str,
+        skill: &str,
+    ) -> Result<Folder, String> {
         let base = format!("{}/repos/{owner}/{repo}", self.api);
-        let branch = self.json::<Repo>(&base).await?.default_branch;
+        let branch = self.json::<Repo>(words, &base).await?.default_branch;
         if branch.is_empty()
             || !branch
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
         {
-            return Err(format!(
-                "GitHub named {branch:?} as the default branch, which is not a plain name."
+            return Err(words.fill(
+                TEXTS,
+                "branch_unplain",
+                &[("branch", format!("{branch:?}"))],
             ));
         }
         let sha = self
-            .json::<Commit>(&format!("{base}/commits/{branch}"))
+            .json::<Commit>(words, &format!("{base}/commits/{branch}"))
             .await?
             .sha;
         if sha.len() != 40 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(format!(
-                "GitHub named {sha:?} as the commit, which is not one."
-            ));
+            return Err(words.fill(TEXTS, "commit_unplain", &[("sha", format!("{sha:?}"))]));
         }
         let tree: Tree = self
-            .json(&format!("{base}/git/trees/{sha}?recursive=1"))
+            .json(words, &format!("{base}/git/trees/{sha}?recursive=1"))
             .await?;
         let mut found: Vec<&str> = tree
             .tree
@@ -135,58 +147,54 @@ impl GitHub {
             .collect();
         found.sort_by_key(|dir| (dir.matches('/').count(), dir.len()));
         let Some(path) = found.first().map(|p| (*p).to_owned()) else {
-            return Err(if tree.truncated {
-                format!(
-                    "{owner}/{repo} is too large to look through, and no folder called {skill} with a SKILL.md was found in what could be."
-                )
+            let key = if tree.truncated {
+                "repository_too_large"
             } else {
-                format!("{owner}/{repo} has no folder called {skill} with a SKILL.md in it.")
-            });
+                "no_skill_folder"
+            };
+            return Err(words.fill(
+                TEXTS,
+                key,
+                &[
+                    ("repository", format!("{owner}/{repo}")),
+                    ("skill", skill.to_owned()),
+                ],
+            ));
         };
         let prefix = format!("{path}/");
         let mut files = Vec::new();
         for node in tree.tree.iter().filter(|n| n.path.starts_with(&prefix)) {
             let relative = &node.path[prefix.len()..];
+            let refused = |key: &str| words.fill(TEXTS, key, &[("path", relative.to_owned())]);
             match (node.kind.as_str(), node.mode.as_str()) {
                 ("tree", _) => {}
-                (_, "120000") => {
-                    return Err(format!(
-                        "it has a link, {relative}, and a skill may only have files of its own."
-                    ));
-                }
-                ("commit", _) => {
-                    return Err(format!(
-                        "it has another repository inside it, {relative}, and a skill may only have files of its own."
-                    ));
-                }
+                (_, "120000") => return Err(refused("has_a_link")),
+                ("commit", _) => return Err(refused("has_a_repository")),
                 ("blob", _) if guard::inside(relative) => files.push(Listed {
                     path: relative.to_owned(),
                     size: node.size,
                 }),
-                _ => {
-                    return Err(format!(
-                        "it has a path, {relative}, that leads out of its folder."
-                    ));
-                }
+                _ => return Err(refused("path_leads_out")),
             }
         }
         Ok(Folder { sha, path, files })
     }
 
     /// The file at `path` in `owner/repo` at commit `sha`, at most `most`
-    /// bytes of it.
+    /// bytes of it, or why not, in `words`.
     pub async fn file(
         &self,
+        words: &Store,
         owner: &str,
         repo: &str,
         sha: &str,
         path: &str,
         most: usize,
     ) -> Result<Vec<u8>, String> {
-        let mut url = reqwest::Url::parse(&self.raw)
-            .map_err(|e| format!("the address of GitHub's files is wrong ({e})."))?;
+        let wrong = |why: String| words.fill(TEXTS, "raw_address_wrong", &[("why", why)]);
+        let mut url = reqwest::Url::parse(&self.raw).map_err(|e| wrong(e.to_string()))?;
         url.path_segments_mut()
-            .map_err(|()| "the address of GitHub's files is wrong.".to_owned())?
+            .map_err(|()| words.text(TEXTS, "raw_address_no_path").to_owned())?
             .pop_if_empty()
             .extend([owner, repo, sha])
             .extend(path.split('/'));
@@ -196,7 +204,13 @@ impl GitHub {
             .send()
             .await
             .and_then(reqwest::Response::error_for_status)
-            .map_err(|e| format!("{path} could not be fetched ({e})."))?;
-        read(answer, most).await
+            .map_err(|e| {
+                words.fill(
+                    TEXTS,
+                    "unfetched",
+                    &[("path", path.to_owned()), ("why", e.to_string())],
+                )
+            })?;
+        read(words, answer, most).await
     }
 }

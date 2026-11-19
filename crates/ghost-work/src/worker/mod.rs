@@ -56,7 +56,7 @@ use self::context::{Gauge, PICTURES_KEPT, chars, unsee};
 
 use crate::{
     parts::Parts,
-    prompts::{Prompts, Shared},
+    prompts::{self, Prompts, Shared},
     tool::Toolbox,
     tools::Handoff,
     undertaking::{MailKind, Outcome, State, Undertaking},
@@ -260,7 +260,10 @@ impl Worker {
     /// Save the transcript, and add whatever in it is new to the history,
     /// as a sitting stops.
     fn save(&self, items: &[Item], recorded: &mut usize) {
-        match self.undertaking.save(items, *recorded) {
+        let saved = self
+            .undertaking
+            .save(&prompts::hold(&self.prompts), items, *recorded);
+        match saved {
             Ok(()) => *recorded = items.len(),
             Err(e) => tracing::warn!("could not save the transcript: {e}"),
         }
@@ -328,7 +331,7 @@ impl Worker {
         };
         let (mut items, mut recorded) = match self
             .undertaking
-            .transcript()
+            .transcript(&shown.words)
             .filter(|items| !items.is_empty())
         {
             // What was on disk is in the history already; what mending
@@ -566,6 +569,7 @@ impl Worker {
             });
             // The step is written whole, or not at all.
             let finish = match self.undertaking.step(
+                &shown.words,
                 |state| {
                     state.steps += 1;
                     state.usage.add(usage);

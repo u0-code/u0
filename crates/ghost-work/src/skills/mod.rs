@@ -54,6 +54,7 @@ use self::{
     github::GitHub,
     index::{Hit, Index, Verdict},
 };
+use crate::prompts::{Store, TEXTS};
 
 /// How many skills `find_skills` shows.
 const SHOWN: usize = 10;
@@ -117,12 +118,16 @@ struct Had {
 }
 
 impl Had {
-    /// Where it came from, as the mark on what she reads of it says.
-    fn origin(&self) -> String {
-        format!(
-            "{} at {}",
-            self.source,
-            self.sha.chars().take(12).collect::<String>()
+    /// Where it came from, as the mark on what she reads of it says, in
+    /// `words`.
+    fn origin(&self, words: &Store) -> String {
+        words.fill(
+            TEXTS,
+            "skill_origin",
+            &[
+                ("repository", self.source.clone()),
+                ("commit", self.sha.chars().take(12).collect()),
+            ],
         )
     }
 }
@@ -166,20 +171,16 @@ impl Skills {
     /// to the byte, is moved aside under `.aside/` for whoever runs her
     /// body to look at, and is hers no longer until she installs it again:
     /// something other than the install wrote to it, and what it says now
-    /// is nobody's she chose.
-    pub fn know(&self, skills: Vec<memory::Skill>) {
+    /// is nobody's she chose. Her journal is told why in `words`.
+    pub fn know(&self, words: &Store, skills: Vec<memory::Skill>) {
         for skill in skills {
             if !guard::name_ok(&skill.name) {
                 continue;
             }
             let why = match guard::hash(&self.dir.join(&skill.name)) {
                 Ok(hash) if hash == skill.hash => None,
-                Ok(_) => Some(
-                    "its files changed on disk after you installed it, so it is put aside until you install it again and see what it says now.",
-                ),
-                Err(_) => Some(
-                    "its folder is gone, or holds something other than files, so it is put aside until you install it again.",
-                ),
+                Ok(_) => Some(words.text(TEXTS, "skill_changed")),
+                Err(_) => Some(words.text(TEXTS, "skill_folder_gone")),
             };
             match why {
                 None => {
@@ -244,15 +245,15 @@ impl Skills {
         !hold(&self.had).is_empty()
     }
 
-    /// What `find_skills` shows for `query`: what the index lists, most
-    /// installed first, each with what its auditors say and whether it can
-    /// be installed here.
-    pub async fn find(&self, query: &str) -> Result<String, String> {
+    /// What `find_skills` shows for `query`, in `words`: what the index
+    /// lists, most installed first, each with what its auditors say and
+    /// whether it can be installed here.
+    pub async fn find(&self, words: &Store, query: &str) -> Result<String, String> {
         let query = query.trim();
         if query.chars().count() < 2 {
-            return Err("say at least two letters of what to look for.".to_owned());
+            return Err(words.text(TEXTS, "find_skills_short").to_owned());
         }
-        let mut hits = self.index.search(query).await?;
+        let mut hits = self.index.search(words, query).await?;
         hits.sort_by(|a, b| b.installs.cmp(&a.installs));
         let mut seen = Vec::new();
         hits.retain(|h| {
@@ -261,38 +262,49 @@ impl Skills {
             new
         });
         if hits.is_empty() {
-            return Ok(format!(
-                "The index of skills has nothing for \"{query}\". Try another word for the job, in English."
-            ));
+            return Ok(words.fill(TEXTS, "no_skills_found", &[("query", query.to_owned())]));
         }
         let shown: Vec<Hit> = hits.iter().take(SHOWN).cloned().collect();
-        let audits = self.audits(&shown).await;
+        let audits = self.audits(words, &shown).await;
         let mut out = Vec::new();
         for (n, (hit, audit)) in shown.iter().zip(audits).enumerate() {
-            let mut lines = vec![format!("{}. {}: {} installs", n + 1, hit.id, hit.installs)];
-            if !hit.description.is_empty() {
-                lines.push(format!(
-                    "   {}",
-                    crate::servers::short(&hit.description, 200)
-                ));
-            }
-            lines.push(format!(
-                "   audit: {}",
-                audit.as_ref().map_or_else(
-                    || "none found".to_owned(),
-                    |verdicts| verdicts.iter().map(said).collect::<Vec<_>>().join("; ")
+            let about = if hit.description.is_empty() {
+                String::new()
+            } else {
+                words.fill(
+                    TEXTS,
+                    "skill_about",
+                    &[("description", crate::servers::short(&hit.description, 200))],
                 )
+            };
+            let audit_said = audit.as_ref().map_or_else(
+                || words.text(TEXTS, "audit_none").to_owned(),
+                |verdicts| {
+                    verdicts
+                        .iter()
+                        .map(|v| said(words, v))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                },
+            );
+            out.push(words.fill(
+                TEXTS,
+                "skill_found",
+                &[
+                    ("n", (n + 1).to_string()),
+                    ("id", hit.id.clone()),
+                    ("installs", hit.installs.to_string()),
+                    ("about", about),
+                    ("audit", audit_said),
+                    ("here", self.installable(words, hit, audit.as_deref())),
+                ],
             ));
-            lines.push(format!(
-                "   installs here: {}",
-                self.installable(hit, audit.as_deref())
-            ));
-            out.push(lines.join("\n"));
         }
         if hits.len() > SHOWN {
-            out.push(format!(
-                "({} more, installed less; a narrower word finds fewer.)",
-                hits.len() - SHOWN
+            out.push(words.fill(
+                TEXTS,
+                "more_skills_found",
+                &[("count", (hits.len() - SHOWN).to_string())],
             ));
         }
         Ok(out.join("\n"))
@@ -300,16 +312,21 @@ impl Skills {
 
     /// What the auditors say of each of `hits`, in their order, asked all
     /// at once.
-    async fn audits(&self, hits: &[Hit]) -> Vec<Option<Vec<Verdict>>> {
+    async fn audits(&self, words: &Store, hits: &[Hit]) -> Vec<Option<Vec<Verdict>>> {
+        let words = Arc::new(words.clone());
         let mut asked = tokio::task::JoinSet::new();
         for (at, hit) in hits.iter().enumerate() {
             if hit.source.is_empty() {
                 continue;
             }
-            let (index, source, skill) =
-                (self.index.clone(), hit.source.clone(), hit.skill.clone());
+            let (index, words, source, skill) = (
+                self.index.clone(),
+                words.clone(),
+                hit.source.clone(),
+                hit.skill.clone(),
+            );
             asked.spawn(tracing::Instrument::in_current_span(async move {
-                (at, index.audit(&source, &skill).await)
+                (at, index.audit(&words, &source, &skill).await)
             }));
         }
         let mut audits = vec![None; hits.len()];
@@ -319,32 +336,38 @@ impl Skills {
         audits
     }
 
-    /// Whether `hit` can be installed here, as `find_skills` says it.
-    fn installable(&self, hit: &Hit, audit: Option<&[Verdict]>) -> String {
+    /// Whether `hit` can be installed here, as `find_skills` says it in
+    /// `words`.
+    fn installable(&self, words: &Store, hit: &Hit, audit: Option<&[Verdict]>) -> String {
+        let no = |why: String| words.fill(TEXTS, "installs_no", &[("why", why)]);
         if index::split(&hit.id).is_none() {
-            return "no, its id is not a repository on GitHub and a skill in it.".to_owned();
+            return no(words.text(TEXTS, "skill_id_not_github").to_owned());
         }
         if hit.source.is_empty() {
-            return "no, the index names another repository as its source than its id does."
-                .to_owned();
+            return no(words.text(TEXTS, "skill_source_differs").to_owned());
         }
         if let Some(v) = audit.into_iter().flatten().find(|v| v.refuses()) {
-            return format!("no, {} rates it {} risk.", v.auditor, v.risk);
+            return no(words.fill(
+                TEXTS,
+                "skill_rated",
+                &[("auditor", v.auditor.clone()), ("risk", v.risk.clone())],
+            ));
         }
         let had = hold(&self.had);
         if !had.contains_key(&hit.skill) && had.len() >= self.cfg.max {
-            return format!(
-                "no, you have {} skills, the most you can have; uninstall one first.",
-                had.len()
-            );
+            return no(words.fill(
+                TEXTS,
+                "skills_full_here",
+                &[("count", had.len().to_string())],
+            ));
         }
         let mut yes = if audit.is_some() {
-            "yes".to_owned()
+            words.text(TEXTS, "installs_yes").to_owned()
         } else {
-            "only if it has no scripts, since nobody has audited it".to_owned()
+            words.text(TEXTS, "skill_unaudited").to_owned()
         };
         if had.contains_key(&hit.skill) {
-            yes.push_str(" (you have a skill of this name; installing takes its latest commit)");
+            yes.push_str(words.text(TEXTS, "skill_had"));
         }
         yes
     }
@@ -352,56 +375,57 @@ impl Skills {
     /// Install the skill the index lists as `id`: check it, take its
     /// folder at the commit its repository is at now, check every file of
     /// it, write it under her skills, and keep it. Returns what she has
-    /// now, in a sentence or two.
-    pub async fn install(&self, id: &str) -> Result<String, String> {
+    /// now, in a sentence or two in `words`.
+    pub async fn install(&self, words: &Store, id: &str) -> Result<String, String> {
         let id = id.trim();
         let Some((owner, repo, skill)) = index::split(id) else {
-            return Err(format!(
-                "{id} is not a skill's id as the index gives one, owner/repo/skill. Use the id `find_skills` showed."
-            ));
+            return Err(words.fill(TEXTS, "skill_bad_id", &[("id", id.to_owned())]));
         };
         let source = format!("{owner}/{repo}");
         {
             let had = hold(&self.had);
             if !had.contains_key(skill) && had.len() >= self.cfg.max {
-                return Err(format!(
-                    "you already have {} skills, the most you can have. Uninstall one you use least first.",
-                    had.len()
-                ));
+                return Err(words.fill(TEXTS, "skills_full", &[("count", had.len().to_string())]));
             }
         }
         // Only what the index lists, from the repository its id names.
         let listed = self
             .index
-            .search(skill)
+            .search(words, skill)
             .await?
             .into_iter()
             .any(|h| h.id == id && !h.source.is_empty());
         if !listed {
-            return Err(format!(
-                "the index of skills does not list {id}. Use the exact id `find_skills` showed."
-            ));
+            return Err(words.fill(TEXTS, "skill_unlisted", &[("id", id.to_owned())]));
         }
-        let audit = self.index.audit(&source, skill).await;
+        let audit = self.index.audit(words, &source, skill).await;
         if let Some(v) = audit.iter().flatten().find(|v| v.refuses()) {
-            return Err(format!(
-                "{} rates it {} risk, and a skill rated high or critical is not installed.",
-                v.auditor, v.risk
+            return Err(words.fill(
+                TEXTS,
+                "skill_refused",
+                &[("auditor", v.auditor.clone()), ("risk", v.risk.clone())],
             ));
         }
-        let folder = self.github.folder(owner, repo, skill).await?;
+        let folder = self.github.folder(words, owner, repo, skill).await?;
         if folder.files.len() > guard::MAX_FILES {
-            return Err(format!(
-                "it has {} files, more than the {} a skill may have.",
-                folder.files.len(),
-                guard::MAX_FILES
+            return Err(words.fill(
+                TEXTS,
+                "too_many_files",
+                &[
+                    ("count", folder.files.len().to_string()),
+                    ("most", guard::MAX_FILES.to_string()),
+                ],
             ));
         }
         let total: u64 = folder.files.iter().map(|f| f.size).sum();
         if total > guard::MAX_BYTES {
-            return Err(format!(
-                "its files come to {total} bytes, more than the {} a skill may have.",
-                guard::MAX_BYTES
+            return Err(words.fill(
+                TEXTS,
+                "too_many_bytes",
+                &[
+                    ("bytes", total.to_string()),
+                    ("most", guard::MAX_BYTES.to_string()),
+                ],
             ));
         }
         if let Some(big) = folder
@@ -409,19 +433,19 @@ impl Skills {
             .iter()
             .find(|f| guard::asset(&f.path) && f.size > guard::MAX_ASSET)
         {
-            return Err(format!(
-                "{} is {} bytes, more than the {} one asset may be.",
-                big.path,
-                big.size,
-                guard::MAX_ASSET
+            return Err(words.fill(
+                TEXTS,
+                "asset_too_large",
+                &[
+                    ("path", big.path.clone()),
+                    ("bytes", big.size.to_string()),
+                    ("most", guard::MAX_ASSET.to_string()),
+                ],
             ));
         }
         let scripts = folder.files.iter().any(|f| f.path.starts_with("scripts/"));
         if audit.is_none() && scripts {
-            return Err(
-                "nobody has audited it, and it has scripts; a skill with scripts is only installed once an auditor has looked at it."
-                    .to_owned(),
-            );
+            return Err(words.text(TEXTS, "unaudited_scripts").to_owned());
         }
         let mut fetched = Vec::new();
         for file in &folder.files {
@@ -433,13 +457,10 @@ impl Skills {
             let most = usize::try_from(file.size).unwrap_or(usize::MAX);
             let bytes = self
                 .github
-                .file(owner, repo, &folder.sha, &full, most)
+                .file(words, owner, repo, &folder.sha, &full, most)
                 .await?;
             if !guard::asset(&file.path) && !guard::text(&bytes) {
-                return Err(format!(
-                    "{} is not text, and outside assets/ a skill may only have text.",
-                    file.path
-                ));
+                return Err(words.fill(TEXTS, "not_text", &[("path", file.path.clone())]));
             }
             fetched.push((file.path.clone(), bytes));
         }
@@ -448,16 +469,16 @@ impl Skills {
             .find(|(path, _)| path == "SKILL.md")
             .and_then(|(_, bytes)| std::str::from_utf8(bytes).ok())
             .unwrap_or_default();
-        let front = guard::front(text, skill)?;
+        let front = guard::front(words, text, skill)?;
         let hash = self
             .write(&front.name, &fetched)
-            .map_err(|e| format!("it could not be written to disk ({e})."))?;
+            .map_err(|e| words.fill(TEXTS, "skill_unwritten", &[("why", e.to_string())]))?;
         let had = Had {
             source: source.clone(),
             sha: folder.sha.clone(),
             description: front.description.clone(),
         };
-        let origin = had.origin();
+        let origin = had.origin(words);
         hold(&self.had).insert(front.name.clone(), had);
         self.record(Event::SkillInstalled {
             name: front.name.clone(),
@@ -467,14 +488,17 @@ impl Skills {
             hash,
             description: front.description.clone(),
         });
-        let mut said = format!(
-            "Installed the skill {} from {origin}. It says it is for: {} Read it with `use_skill` when a piece of work or a conversation calls for it.",
-            front.name, front.description
+        let mut said = words.fill(
+            TEXTS,
+            "skill_installed",
+            &[
+                ("name", front.name),
+                ("origin", origin),
+                ("description", front.description),
+            ],
         );
         if scripts {
-            said.push_str(
-                " It has scripts: they are someone else's code, and nothing runs them for you.",
-            );
+            said.push_str(words.text(TEXTS, "skill_has_scripts"));
         }
         Ok(said)
     }
@@ -503,63 +527,84 @@ impl Skills {
         Ok(hash)
     }
 
-    /// Take out the skill she installed called `name`, for `why`.
-    pub fn uninstall(&self, name: &str, why: &str) -> Result<String, String> {
+    /// Take out the skill she installed called `name`, for `why`. What is
+    /// said of it is said in `words`.
+    pub fn uninstall(&self, words: &Store, name: &str, why: &str) -> Result<String, String> {
         let name = name.trim();
         if hold(&self.had).remove(name).is_none() {
-            return Err(self.none_called(name));
+            return Err(self.none_called(words, name));
         }
         let _ = std::fs::remove_dir_all(self.dir.join(name));
         self.record(Event::SkillUninstalled {
             name: name.to_owned(),
             why: why.to_owned(),
         });
-        Ok(format!("Uninstalled the skill {name}."))
+        Ok(words.fill(TEXTS, "skill_uninstalled", &[("name", name.to_owned())]))
     }
 
-    fn none_called(&self, name: &str) -> String {
+    fn none_called(&self, words: &Store, name: &str) -> String {
         let have: Vec<String> = hold(&self.had).keys().cloned().collect();
+        let named = ("name", name.to_owned());
         if have.is_empty() {
-            format!("you have no skill called {name}, and no skills at all yet.")
+            words.fill(TEXTS, "no_skills_yet", &[named])
         } else {
-            format!(
-                "you have no skill called {name}. You have: {}.",
-                have.join(", ")
-            )
+            words.fill(TEXTS, "no_skill_but", &[named, ("skills", have.join(", "))])
         }
     }
 
     /// What `use_skill` gives her: the body of skill `name`, or with `file`
-    /// that one of its files, and where the skill came from.
-    pub fn read(&self, name: &str, file: Option<&str>) -> Result<(String, String), String> {
+    /// that one of its files, and where the skill came from. What is said
+    /// around it is said in `words`.
+    pub fn read(
+        &self,
+        words: &Store,
+        name: &str,
+        file: Option<&str>,
+    ) -> Result<(String, String), String> {
         let name = name.trim();
         let Some(had) = hold(&self.had).get(name).cloned() else {
-            return Err(self.none_called(name));
+            return Err(self.none_called(words, name));
         };
         let dir = self.dir.join(name);
         let files = files(&dir);
         let Some(file) = file.map(str::trim).filter(|f| !f.is_empty()) else {
-            let text = std::fs::read_to_string(dir.join("SKILL.md"))
-                .map_err(|e| format!("the skill {name} could not be read ({e})."))?;
-            let front = guard::front(&text, name)?;
-            let mut out = head(&front.body, BODY);
+            let text = std::fs::read_to_string(dir.join("SKILL.md")).map_err(|e| {
+                words.fill(
+                    TEXTS,
+                    "skill_unreadable",
+                    &[("name", name.to_owned()), ("why", e.to_string())],
+                )
+            })?;
+            let front = guard::front(words, &text, name)?;
+            let mut out = head(words, &front.body, BODY);
             let others: Vec<&String> = files.iter().filter(|f| *f != "SKILL.md").collect();
             if !others.is_empty() {
-                out.push_str(&format!(
-                    "\n\n[files of this skill: {}]",
-                    others
-                        .iter()
-                        .map(|f| f.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
+                out.push_str(
+                    &words.fill(
+                        TEXTS,
+                        "skill_files",
+                        &[(
+                            "files",
+                            others
+                                .iter()
+                                .map(|f| f.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        )],
+                    ),
+                );
             }
-            return Ok((out, had.origin()));
+            return Ok((out, had.origin(words)));
         };
         let missing = || {
-            format!(
-                "the skill {name} has no file {file}. Its files are: {}.",
-                files.join(", ")
+            words.fill(
+                TEXTS,
+                "no_skill_file",
+                &[
+                    ("name", name.to_owned()),
+                    ("file", file.to_owned()),
+                    ("files", files.join(", ")),
+                ],
             )
         };
         if !guard::inside(file) || !files.iter().any(|f| f == file) {
@@ -576,14 +621,18 @@ impl Skills {
         }
         let bytes = std::fs::read(&path).map_err(|_| missing())?;
         let out = if guard::text(&bytes) {
-            head(&String::from_utf8_lossy(&bytes), FILE)
+            head(words, &String::from_utf8_lossy(&bytes), FILE)
         } else {
-            format!(
-                "[{file} is not text: {} bytes. It is a file for the skill to use, not to read.]",
-                bytes.len()
+            words.fill(
+                TEXTS,
+                "skill_file_not_text",
+                &[
+                    ("file", file.to_owned()),
+                    ("bytes", bytes.len().to_string()),
+                ],
             )
         };
-        Ok((out, had.origin()))
+        Ok((out, had.origin(words)))
     }
 }
 
@@ -621,42 +670,59 @@ fn files(dir: &Path) -> Vec<String> {
 }
 
 /// The first `most` characters of `text`, and if there was more, a note
-/// that says so: a skill is meant to be short, and the rest is better
-/// asked for than read whole.
-fn head(text: &str, most: usize) -> String {
+/// in `words` that says so: a skill is meant to be short, and the rest is
+/// better asked for than read whole.
+fn head(words: &Store, text: &str, most: usize) -> String {
     let total = text.chars().count();
     if total <= most {
         return text.to_owned();
     }
     let mut out: String = text.chars().take(most).collect();
-    out.push_str(&format!(
-        "\n[cut here: {} more characters. What it leaves out may be in its other files.]",
-        total - most
-    ));
+    out.push_str(&words.fill(TEXTS, "skill_cut", &[("count", (total - most).to_string())]));
     out
 }
 
-/// One auditor's verdict, as `find_skills` shows it.
-fn said(verdict: &Verdict) -> String {
+/// One auditor's verdict, as `find_skills` shows it in `words`.
+fn said(words: &Store, verdict: &Verdict) -> String {
+    let mut pairs = vec![
+        ("auditor", verdict.auditor.clone()),
+        ("risk", verdict.risk.clone()),
+    ];
     match verdict.score {
-        Some(score) => format!("{} {}, score {score}", verdict.auditor, verdict.risk),
-        None => format!("{} {}", verdict.auditor, verdict.risk),
+        Some(score) => {
+            pairs.push(("score", score.to_string()));
+            words.fill(TEXTS, "verdict_scored", &pairs)
+        }
+        None => words.fill(TEXTS, "verdict", &pairs),
     }
 }
 
-/// The body of a web answer, refused once it runs past `most` bytes.
-pub(crate) async fn read(mut answer: reqwest::Response, most: usize) -> Result<Vec<u8>, String> {
+/// The body of a web answer, refused once it runs past `most` bytes, and
+/// why in `words`.
+pub(crate) async fn read(
+    words: &Store,
+    mut answer: reqwest::Response,
+    most: usize,
+) -> Result<Vec<u8>, String> {
     let url = answer.url().clone();
-    let too_large = || format!("{url} sent more than the {most} bytes that are read from it.");
+    let too_large = || {
+        words.fill(
+            TEXTS,
+            "answer_too_long",
+            &[("url", url.to_string()), ("most", most.to_string())],
+        )
+    };
     if answer.content_length().is_some_and(|n| n > most as u64) {
         return Err(too_large());
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = answer
-        .chunk()
-        .await
-        .map_err(|e| format!("{url} could not be read to the end ({e})."))?
-    {
+    while let Some(chunk) = answer.chunk().await.map_err(|e| {
+        words.fill(
+            TEXTS,
+            "answer_broken_off",
+            &[("url", url.to_string()), ("why", e.to_string())],
+        )
+    })? {
         bytes.extend_from_slice(&chunk);
         if bytes.len() > most {
             return Err(too_large());

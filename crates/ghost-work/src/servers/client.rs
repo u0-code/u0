@@ -37,7 +37,10 @@ use rmcp::{
 use serde_json::{Map, Value};
 
 use super::guard::Listed;
-use crate::tool::Outcome;
+use crate::{
+    prompts::{Store, TEXTS},
+    tool::Outcome,
+};
 
 /// Hears the server say its tools changed.
 #[derive(Clone)]
@@ -79,23 +82,25 @@ fn lifecycle() -> ClientLifecycleMode {
 }
 
 /// Start `command` in `dir` with exactly `env`, and shake hands with it
-/// within `timeout`.
+/// within `timeout`. Why it could not be, in `words`.
 pub async fn local(
+    words: &Store,
     command: &[String],
     env: &[(String, String)],
     dir: &Path,
     timeout: Duration,
 ) -> Result<Connection, String> {
+    let why =
+        |key: &str, e: &dyn std::fmt::Display| words.fill(TEXTS, key, &[("why", e.to_string())]);
     let Some((program, args)) = command.split_first() else {
-        return Err("there is no command to run it with.".to_owned());
+        return Err(words.text(TEXTS, "no_command").to_owned());
     };
-    std::fs::create_dir_all(dir.join("tmp"))
-        .map_err(|e| format!("its folder could not be made ({e})."))?;
+    std::fs::create_dir_all(dir.join("tmp")).map_err(|e| why("no_folder", &e))?;
     let stderr = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(dir.join("stderr.log"))
-        .map_err(|e| format!("its log could not be opened ({e})."))?;
+        .map_err(|e| why("no_log", &e))?;
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .env_clear()
@@ -108,7 +113,13 @@ pub async fn local(
     let (transport, _) = TokioChildProcess::builder(wrapped)
         .stderr(Stdio::from(stderr))
         .spawn()
-        .map_err(|e| format!("{program} could not be started ({e})."))?;
+        .map_err(|e| {
+            words.fill(
+                TEXTS,
+                "program_not_started",
+                &[("program", program.clone()), ("why", e.to_string())],
+            )
+        })?;
     let group = transport.id();
     let changed = Arc::new(AtomicBool::new(false));
     let listener = Listener {
@@ -127,16 +138,21 @@ pub async fn local(
         }),
         Ok(Err(e)) => {
             kill_group(group);
-            Err(format!(
-                "it started but did not speak the protocol ({e}). What it printed is in {}.",
-                dir.join("stderr.log").display()
+            Err(words.fill(
+                TEXTS,
+                "started_unspoken",
+                &[
+                    ("why", e.to_string()),
+                    ("log", dir.join("stderr.log").display().to_string()),
+                ],
             ))
         }
         Err(_) => {
             kill_group(group);
-            Err(format!(
-                "it did not answer within {} seconds of starting.",
-                timeout.as_secs()
+            Err(words.fill(
+                TEXTS,
+                "unanswered_at_start",
+                &[("seconds", timeout.as_secs().to_string())],
             ))
         }
     }
@@ -146,6 +162,7 @@ pub async fn local(
 /// `addresses`, with no cookies and no redirects: a redirect could lead
 /// anywhere, past every check made of the address.
 pub async fn remote(
+    words: &Store,
     url: &str,
     host: &str,
     addresses: &[std::net::SocketAddr],
@@ -159,7 +176,7 @@ pub async fn remote(
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("ghost/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| format!("no connection could be made ({e})."))?;
+        .map_err(|e| words.fill(TEXTS, "no_connection", &[("why", e.to_string())]))?;
     let transport = StreamableHttpClientTransport::with_client(
         http,
         StreamableHttpClientTransportConfig::with_uri(url.to_owned()),
@@ -179,21 +196,22 @@ pub async fn remote(
             group: None,
             changed,
         }),
-        Ok(Err(e)) => Err(format!("it did not speak the protocol ({e}).")),
-        Err(_) => Err(format!(
-            "it did not answer within {} seconds.",
-            timeout.as_secs()
+        Ok(Err(e)) => Err(words.fill(TEXTS, "unspoken", &[("why", e.to_string())])),
+        Err(_) => Err(words.fill(
+            TEXTS,
+            "unanswered",
+            &[("seconds", timeout.as_secs().to_string())],
         )),
     }
 }
 
 impl Connection {
-    /// Every tool it lists.
-    pub async fn list(&self, timeout: Duration) -> Result<Vec<Listed>, String> {
+    /// Every tool it lists, or why not, in `words`.
+    pub async fn list(&self, words: &Store, timeout: Duration) -> Result<Vec<Listed>, String> {
         let tools = tokio::time::timeout(timeout, self.service.peer().list_all_tools())
             .await
-            .map_err(|_| "it did not list its tools in time.".to_owned())?
-            .map_err(|e| format!("it would not list its tools ({e})."))?;
+            .map_err(|_| words.text(TEXTS, "unlisted_in_time").to_owned())?
+            .map_err(|e| words.fill(TEXTS, "unlisted", &[("why", e.to_string())]))?;
         Ok(tools
             .into_iter()
             .map(|tool| {
@@ -208,9 +226,11 @@ impl Connection {
     }
 
     /// Call `tool` with `args`. Whatever it returns is read as text, with
-    /// any images it sent; `Err` only when it did not answer at all.
+    /// any images it sent; `Err` only when it did not answer at all. What
+    /// is said around it is said in `words`.
     pub async fn call(
         &self,
+        words: &Store,
         tool: &str,
         args: Map<String, Value>,
         timeout: Duration,
@@ -218,9 +238,18 @@ impl Connection {
         let request = CallToolRequestParams::new(tool.to_owned()).with_arguments(args);
         let answered = tokio::time::timeout(timeout, self.service.peer().call_tool(request))
             .await
-            .map_err(|_| format!("it did not answer within {} seconds.", timeout.as_secs()))?
-            .map_err(|e| format!("it fell over ({e})."))?;
-        Ok(read(&serde_json::to_value(&answered).unwrap_or_default()))
+            .map_err(|_| {
+                words.fill(
+                    TEXTS,
+                    "unanswered",
+                    &[("seconds", timeout.as_secs().to_string())],
+                )
+            })?
+            .map_err(|e| words.fill(TEXTS, "fell_over", &[("why", e.to_string())]))?;
+        Ok(read(
+            words,
+            &serde_json::to_value(&answered).unwrap_or_default(),
+        ))
     }
 
     /// Whether it has said its tools changed since this was last asked.
@@ -259,8 +288,14 @@ fn kill_group(group: Option<u32>) {
 }
 
 /// A tool's result as an outcome: text and resources as text, images as
-/// pictures, and structured content when there is nothing else.
-fn read(result: &Value) -> Outcome {
+/// pictures, and structured content when there is nothing else. What
+/// cannot be shown is named in `words`.
+fn read(words: &Store, result: &Value) -> Outcome {
+    let uri = |value: &Value, otherwise: &str| {
+        value
+            .as_str()
+            .map_or_else(|| words.text(TEXTS, otherwise).to_owned(), str::to_owned)
+    };
     let mut text = Vec::new();
     let mut pictures = Vec::new();
     for block in result["content"].as_array().into_iter().flatten() {
@@ -273,27 +308,26 @@ fn read(result: &Value) -> Outcome {
                     .filter(|b| b.len() <= crate::tools::MAX_PICTURE);
                 match bytes.and_then(crate::tools::picture) {
                     Some(picture) => pictures.push(picture),
-                    None => text.push("[an image that could not be shown]".to_owned()),
+                    None => text.push(words.text(TEXTS, "image_unshown").to_owned()),
                 }
             }
             "resource" => {
                 let resource = &block["resource"];
                 match resource["text"].as_str() {
-                    Some(body) => text.push(format!(
-                        "{}:\n{body}",
-                        resource["uri"].as_str().unwrap_or("a resource")
-                    )),
-                    None => text.push(format!(
-                        "[a file: {}]",
-                        resource["uri"].as_str().unwrap_or("unnamed")
+                    Some(body) => {
+                        text.push(format!("{}:\n{body}", uri(&resource["uri"], "a_resource")));
+                    }
+                    None => text.push(words.fill(
+                        TEXTS,
+                        "a_file_resource",
+                        &[("uri", uri(&resource["uri"], "unnamed"))],
                     )),
                 }
             }
-            "resource_link" => text.push(format!(
-                "[a link: {}]",
-                block["uri"].as_str().unwrap_or("unnamed")
-            )),
-            other => text.push(format!("[{other} content, not shown]")),
+            "resource_link" => {
+                text.push(words.fill(TEXTS, "a_link", &[("uri", uri(&block["uri"], "unnamed"))]));
+            }
+            other => text.push(words.fill(TEXTS, "content_unshown", &[("kind", other.to_owned())])),
         }
     }
     if text.is_empty()

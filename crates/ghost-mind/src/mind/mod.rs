@@ -720,7 +720,7 @@ impl Mind {
         // was not running: those are put aside, and she is told why at
         // once.
         if let Some(skills) = &self.workshop.skills {
-            skills.know(self.ghost.memory().skills()?);
+            skills.know(self.prompts.store(), self.ghost.memory().skills()?);
             self.installs_changed()?;
         }
         // Whatever she had taken on is still hers.

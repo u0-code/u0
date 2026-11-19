@@ -108,7 +108,7 @@ async fn something_added_mid_work_reaches_the_worker_before_its_next_step() {
         worker
             .undertaking
             .state()
-            .task_text()
+            .task_text(&crate::Prompts::shipped())
             .ends_with("Added later: also make it say hi twice")
     );
 }
@@ -243,15 +243,26 @@ async fn a_question_says_only_a_kind_there_is_and_options_only_for_a_choice() {
     let dir = tempfile::tempdir().unwrap();
     let (worker, _) = worker(dir.path(), Vec::new(), Limits::default());
     let ask = tools::Ask::new(worker.undertaking.clone());
-    let unknown = ask.call(&json!({"question": "q", "kind": "guess"})).await;
+    let unknown = ask
+        .call(
+            &json!({"question": "q", "kind": "guess"}),
+            &crate::Prompts::shipped(),
+        )
+        .await;
     assert!(unknown.failed);
     let stray = ask
-        .call(&json!({"question": "q", "kind": "file", "options": ["a", "b"]}))
+        .call(
+            &json!({"question": "q", "kind": "file", "options": ["a", "b"]}),
+            &crate::Prompts::shipped(),
+        )
         .await;
     assert!(stray.failed);
     assert_eq!(worker.undertaking.state().waiting, None);
     let file = ask
-        .call(&json!({"question": "send me the contract", "kind": "file"}))
+        .call(
+            &json!({"question": "send me the contract", "kind": "file"}),
+            &crate::Prompts::shipped(),
+        )
         .await;
     assert!(!file.failed);
     assert_eq!(
@@ -298,7 +309,7 @@ impl Tool for Meanwhile {
     fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
         tool::spec("meanwhile", "Wait a moment.", json!({}), &[])
     }
-    async fn call(&self, _: &Value) -> tool::Outcome {
+    async fn call(&self, _: &Value, _: &crate::prompts::Store) -> tool::Outcome {
         (self.0)();
         tool::Outcome::ok("waited")
     }
@@ -425,7 +436,7 @@ async fn work_with_a_folder_writes_there_and_elsewhere_only_in_a_file_whoever_as
         .unwrap();
     let machine: Arc<dyn crate::Machine> =
         crate::Machine::at(&Local::new(dir.path()), &folder).unwrap();
-    worker.tools = tools::standard(machine, &worker.undertaking, &worker.prompts);
+    worker.tools = tools::standard(machine, &worker.undertaking);
     assert_eq!(worker.run().await.ended, Ended::Finished);
 
     let turns = brain.turns_of(PARENT);

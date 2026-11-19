@@ -423,11 +423,14 @@ impl Mind {
                 );
             }
             let (look, intention, kept) = (job.look, job.intention(), job.kept);
+            let words = self.prompts.store().clone();
             let abort = self.jobs.spawn(async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
                     let started = std::time::Instant::now();
-                    let outcome = tokio::time::timeout(budget, reaching.run(&call)).await.ok();
+                    let outcome = tokio::time::timeout(budget, reaching.run(&call, &words))
+                        .await
+                        .ok();
                     let ms = started.elapsed().as_millis();
                     found.push(Found { call, outcome, ms });
                 }

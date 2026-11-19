@@ -364,7 +364,7 @@ impl Mind {
                         ("part", n.to_string()),
                         ("status", self.prompts.text(status).to_owned()),
                         ("brief", clip(&state.brief, 120)),
-                        ("latest", clip(&state.latest(), 160)),
+                        ("latest", clip(&state.latest(self.prompts.store()), 160)),
                     ],
                 )
             })

@@ -237,7 +237,7 @@ mod tests {
         assert!(line("system/logic/texts/addressed.toml", Some("fact_note")).starts_with("logic "));
         assert!(line("system/work/working.md", None).starts_with("work "));
         assert!(line("system/work/work.md", None).starts_with("work "));
-        assert!(line("system/work/texts.toml", Some("budget")).starts_with("work "));
+        assert!(line("system/work/texts/sitting.toml", Some("budget")).starts_with("work "));
         assert!(line("system/tools.toml", Some("say")).starts_with("work "));
         // Every line is of the tree, in one half of it or the other.
         for l in &lines {
