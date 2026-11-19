@@ -341,10 +341,11 @@ impl Mind {
             ("past", chars(&brought_back)),
         ];
         // Every channel is a place of its own, read on a page of its own.
-        let template = self.prompts.page(&self.cfg.page(&place.channel));
+        let page = self.cfg.page(&place.channel);
         let prompt = narrate::fill(
-            template,
+            self.prompts.page(&page),
             &[
+                ("platform", self.prompts.platform(&page).to_owned()),
                 (
                     "where",
                     self.describe_place(place, &people) + &self.allowed_here(place),

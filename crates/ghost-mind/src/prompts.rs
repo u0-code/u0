@@ -35,7 +35,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Origin};
-use ghost_core::{prompt, prompts::Store};
+use ghost_core::{narrate, prompt, prompts::Store};
 
 /// The mind's table of texts: `system/logic/texts/` and
 /// `character/texts.toml`, read as one.
@@ -44,7 +44,13 @@ pub const TEXTS: &str = "mind";
 /// The channels that have a page of their own in `system/channels/`. A
 /// channel by any other name reads `chat`'s, unless its settings name
 /// another (`[channels.<name>] page`).
-pub const PAGES: &[&str] = &["chat", "console", "qq", "discord", "telegram", "x"];
+pub const PAGES: &[&str] = &["chat", "console", "x"];
+
+/// The chat platforms the chat page says something of in particular:
+/// `platform_<name>` in `system/channels/texts.toml`, put into the page as
+/// `{{platform}}`. They read the one chat page, so that a change to it
+/// reaches every one of them.
+pub const PLATFORMS: &[&str] = &["qq", "discord", "telegram"];
 
 /// The files the mind reads, with what is built in. The work loop's are in
 /// [`ghost_work::prompts::FILES`], and are read beside them.
@@ -58,10 +64,12 @@ pub const FILES: &[File] = &[
     prompt!("system/logic/reply_tools.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/chat.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/console.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/qq.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/discord.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/telegram.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/x.md", Kind::Whole, Layer::Logic),
+    prompt!(
+        "system/channels/texts.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
     prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/lived.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/reflect.md", Kind::Whole, Layer::Logic),
@@ -268,6 +276,16 @@ impl Prompts {
             .map_or("", String::as_str)
     }
 
+    /// What the page called `name` says of that platform in particular,
+    /// for `{{platform}}`; nothing for a platform it says nothing of.
+    pub fn platform(&self, name: &str) -> &str {
+        if PLATFORMS.contains(&name) {
+            self.text(&format!("platform_{name}"))
+        } else {
+            ""
+        }
+    }
+
     /// Take in any file that changed, if the files have not been looked at
     /// in the last couple of seconds. Cheap enough to call on every wake.
     pub fn refresh(&mut self, now: DateTime<Utc>) {
@@ -396,12 +414,33 @@ mod tests {
                 assert!(!shipped.tool(&name).is_empty(), "{name} has no description");
             }
         }
-        assert_eq!(
-            shipped.page("qq"),
-            include_str!("../../../prompts/system/channels/qq.md")
-        );
         // A channel with no page of its own reads the chat page.
         assert_eq!(shipped.page("term"), shipped.page("chat"));
+        assert_eq!(shipped.platform("term"), "");
+    }
+
+    #[test]
+    fn each_chat_platform_reads_the_chat_page_with_its_own_paragraph_before_how_to_answer() {
+        let shipped = Prompts::shipped();
+        let chat = shipped.page("chat");
+        let without = narrate::fill(chat, &[("platform", String::new())]);
+        for (name, begins) in [
+            ("qq", "This is QQ: "),
+            ("discord", "This is Discord: "),
+            ("telegram", "This is Telegram. "),
+        ] {
+            assert_eq!(shipped.page(name), chat, "{name} has a page of its own");
+            let own = shipped.platform(name);
+            assert!(own.starts_with(begins) && own.ends_with(".\n\n"), "{own:?}");
+            let page = narrate::fill(chat, &[("platform", own.to_owned())]);
+            // The page is the chat page, word for word, with the platform's
+            // paragraph in front of how she answers and nothing else.
+            assert_eq!(
+                page,
+                without.replacen("{{reply}}", &format!("{own}{{{{reply}}}}"), 1),
+                "{name}"
+            );
+        }
     }
 
     #[test]
