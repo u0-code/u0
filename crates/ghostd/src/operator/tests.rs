@@ -300,34 +300,58 @@ async fn only_an_operator_who_says_who_they_are_answers_her_work_and_only_work_s
 }
 
 /// Before her mind starts: a piece of work with steps logged by its own
-/// loop and by a command-line agent's server of tools, a part with a step
-/// of its own, and a look at a conversation that kept a round.
+/// loop, a part with a step of its own, and a look at a conversation that
+/// kept a round.
 fn worked_and_looked(dir: &std::path::Path) {
-    use ghost_work::steps::call;
+    use ghost_work::steps::{Asked, Line, call};
     use serde_json::json;
     let db = dir.join(ghost_work::WORK_DB);
     let work = ghost_work::Undertaking::open(&db, "w1", Some("Find the rota.")).unwrap();
     for n in 1..=3 {
-        work.log(&json!({
-            "at": format!("2026-11-16T08:00:0{n}+00:00"),
-            "said": format!("step {n}"),
-            "model_ms": 40,
-            "calls": [call("shell", &json!({"command": format!("echo {n}")}), &format!("{n}\n"), false, 0, 5)],
-            "read": 1000 * n,
-            "cached": 600,
-            "wrote": 50,
-            "context": {"system": 900, "tools": 1200, "task": 40, "messages": 30 * n, "results": 10 * n},
-            "window": 1_048_576,
-            "folds_at": 838_860,
-        }));
+        work.log(&Line {
+            at: format!("2026-11-16T08:00:0{n}+00:00"),
+            step: n,
+            said: format!("step {n}"),
+            calls: vec![call(
+                "shell",
+                &json!({"command": format!("echo {n}")}),
+                &format!("{n}\n"),
+                false,
+                0,
+                5,
+            )],
+            asked: Some(Asked {
+                usage: ghost_brain::Usage {
+                    input: 1000 * n,
+                    cached: 600,
+                    output: 50,
+                    thought: 0,
+                },
+                model_ms: 40,
+                context: [
+                    ("system", 900),
+                    ("tools", 1200),
+                    ("task", 40),
+                    ("messages", 30 * n),
+                    ("results", 10 * n),
+                ]
+                .map(|(part, size)| (part.to_owned(), size))
+                .into(),
+                window: Some(1_048_576),
+                folds_at: Some(838_860),
+            }),
+        });
     }
-    let mut line = call("read", &json!({"path": "rota.md"}), "mon: wen", false, 0, 2);
-    line["via"] = json!("mcp");
-    work.log(&line);
     let part = work.open_part("Check the weekend.").unwrap();
     part.update(|state| state.brain = Some("openai/deepseek-chat".into()))
         .unwrap();
-    part.log(&json!({"said": "looking at the weekend", "calls": []}));
+    part.log(&Line {
+        at: "2026-11-16T08:00:04+00:00".into(),
+        step: 1,
+        said: "looking at the weekend".into(),
+        calls: Vec::new(),
+        asked: None,
+    });
     let handed = work.open_part("Check the holidays.").unwrap();
     handed
         .update(|state| state.agent = Some("codex".into()))
@@ -355,27 +379,18 @@ async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
     let (mut watcher, _) = Console::connect(&rig.url, None, None).await.unwrap();
 
     let all = watcher.work_steps("w1", None, None).await.unwrap();
-    assert_eq!(
-        all.steps.iter().map(|s| s.n).collect::<Vec<_>>(),
-        [1, 2, 3, 4]
-    );
+    assert_eq!(all.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [1, 2, 3]);
     assert!(!all.more);
     let first = &all.steps[0];
     assert_eq!((first.said.as_str(), first.ms), ("step 1", Some(40)));
     assert_eq!(first.calls[0].name, "shell");
     assert_eq!(first.calls[0].args["command"], "echo 1");
     assert_eq!(first.calls[0].out, "1\n");
-    // A call a command-line agent made is a step of its own.
-    let agent = &all.steps[3];
-    assert_eq!(agent.said, "");
-    assert_eq!(agent.calls[0].args["path"], "rota.md");
-    assert_eq!(agent.calls[0].out, "mon: wen");
     assert_eq!(all.parts.len(), 2);
     assert_eq!(all.parts[0].id, "w1/1");
     assert_eq!(all.parts[0].brief, "Check the weekend.");
     assert_eq!(all.parts[0].state, ghost_protocol::WorkState::Open);
-    // What fills the worker's context is its newest step's, though a call
-    // a command-line agent made came after it.
+    // What fills the worker's context is its newest step's.
     let context = all.context.expect("what the worker was given");
     assert_eq!(context.n, 3);
     assert_eq!(
@@ -388,8 +403,8 @@ async fn a_console_follows_her_work_step_by_step_and_each_part_by_its_own_id() {
         (Some(1_048_576), Some(838_860))
     );
 
-    let next = watcher.work_steps("w1", Some(1), Some(2)).await.unwrap();
-    assert_eq!(next.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [2, 3]);
+    let next = watcher.work_steps("w1", Some(1), Some(1)).await.unwrap();
+    assert_eq!(next.steps.iter().map(|s| s.n).collect::<Vec<_>>(), [2]);
     assert!(next.more);
     assert_eq!(
         next.context.map(|c| c.n),

@@ -37,9 +37,6 @@ not_json = "the arguments were not a valid JSON object. Call the tool again with
 missing_argument = "missing argument `{{argument}}` (a string)"
 # A call run beside others that ended without a result.
 tool_fell_over = "the tool fell over"
-# A call from an agent stepping the work through its tools (`ghost-work
-# --serve-mcp`) after the work has ended: nothing it does now counts.
-work_ended = "The work has ended, with `done` or by whoever it is for. Nothing more can be done; stop here."
 
 # Long output keeps its beginning and its end, with this between them, so
 # that the worker knows something is missing, and how much.

@@ -68,7 +68,7 @@ pub(super) struct Thinking {
     /// The round waiting on what reaches beyond the conversation: when it
     /// was called, and its calls in order as the record keeps them, with
     /// those still out left `None`.
-    pub out: Option<(DateTime<Utc>, Vec<Option<serde_json::Value>>)>,
+    pub out: Option<(DateTime<Utc>, Vec<Option<ghost_work::steps::Called>>)>,
     /// What the brain's last turn cost, as the provider counted it, for
     /// the record of her looks.
     pub usage: Option<ghost_brain::Usage>,

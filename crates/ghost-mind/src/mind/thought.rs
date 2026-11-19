@@ -162,7 +162,7 @@ impl Mind {
         outcome: Option<ghost_work::Outcome>,
         sees: bool,
         ms: u128,
-    ) -> Result<(Item, Value)> {
+    ) -> Result<(Item, steps::Called)> {
         let Some(ghost_work::Outcome {
             output,
             failed,
@@ -248,9 +248,9 @@ impl Mind {
         &mut self,
         job: &mut Thinking,
         at: DateTime<Utc>,
-        calls: impl IntoIterator<Item = Option<Value>>,
+        calls: impl IntoIterator<Item = Option<steps::Called>>,
     ) {
-        let calls: Vec<Value> = calls.into_iter().flatten().collect();
+        let calls: Vec<steps::Called> = calls.into_iter().flatten().collect();
         if calls.is_empty() && job.usage.is_none() {
             return;
         }

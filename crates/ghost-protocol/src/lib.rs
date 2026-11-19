@@ -1040,9 +1040,6 @@ pub struct WorkContext {
 }
 
 /// One step of a piece of work: what the model said, and what it called.
-///
-/// Where the work is stepped by a command-line agent, each call it makes
-/// is a step of its own, and the agent's words are not known.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LoggedStep {
     /// Its place in the work's log, from 1, over every sitting.

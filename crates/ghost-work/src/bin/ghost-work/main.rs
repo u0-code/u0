@@ -12,10 +12,7 @@
 //!
 //! `--agent claude` or `--agent codex` lets the work hand parts of itself to
 //! that installed CLI, which does them in the `--local` directory with its
-//! own tools. `--serve-mcp` does no work: it serves this program's tools on
-//! stdio, for any agent that speaks the Model Context Protocol.
-
-mod mcp;
+//! own tools.
 
 use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
 
@@ -31,7 +28,6 @@ use ghost_work::{
     version,
     about = "Do one piece of work with a model and a set of tools."
 )]
-#[allow(clippy::struct_excessive_bools)]
 struct Args {
     /// The task, as text.
     #[arg(long, conflicts_with = "task_file")]
@@ -44,18 +40,11 @@ struct Args {
     /// would work.
     #[arg(long)]
     state: PathBuf,
-    /// Which undertaking in that database. One database can hold many: a
-    /// ghost keeps all of hers in one, and names this when she has a
-    /// command-line agent serve her tools.
-    #[arg(long, default_value = "main")]
-    id: String,
     /// A directory of prompts laid out as `prompts/` is:
     /// `system/work/work.md`, the files of `system/work/texts/` and
     /// `system/tools.toml`, or any of them. What is built in is used for anything
     /// it does not have. A file changed while the work runs is taken in at
-    /// the next step. Nothing in `--state` is read as a prompt: when a ghost
-    /// has her tools served, that is her own directory, and how she works
-    /// is not kept there.
+    /// the next step.
     #[arg(long)]
     prompts: Option<PathBuf>,
 
@@ -93,11 +82,6 @@ struct Args {
     /// Codex on another provider: `--agent-arg=-c --agent-arg='model_provider="x"'`.
     #[arg(long = "agent-arg", allow_hyphen_values = true)]
     agent_args: Vec<String>,
-
-    /// Serve the tools over MCP on stdio instead of working, for an agent
-    /// that brings its own loop.
-    #[arg(long)]
-    serve_mcp: bool,
 
     /// The model API: `openai` (any compatible server) or `anthropic`.
     #[arg(long, default_value = "openai")]
@@ -164,8 +148,8 @@ async fn main() -> anyhow::Result<()> {
     };
     let db = args.state.join(WORK_DB);
     let undertaking = Arc::new(
-        Undertaking::open(&db, &args.id, brief.as_deref())
-            .with_context(|| format!("open {} in {}", args.id, db.display()))?,
+        Undertaking::open(&db, "main", brief.as_deref())
+            .with_context(|| format!("open {}", db.display()))?,
     );
 
     let machine: Arc<dyn Machine> = match (&args.local, &args.docker) {
@@ -206,10 +190,6 @@ async fn main() -> anyhow::Result<()> {
     // What it keeps stays in this undertaking's record. A helper is not
     // given `keep`: its record is its own, and nobody reads what it kept.
     let toolbox = equip(&undertaking).with(tools::Keep::new(undertaking.clone()));
-    if args.serve_mcp {
-        let input = tokio::io::BufReader::new(tokio::io::stdin());
-        return Ok(mcp::serve(toolbox, words, undertaking, input, tokio::io::stdout()).await?);
-    }
 
     // A first look around, so the first steps are not spent finding out
     // which system this is and what is in the directory.

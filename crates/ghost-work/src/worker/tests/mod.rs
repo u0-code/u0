@@ -14,7 +14,7 @@ use std::sync::{Mutex, atomic::AtomicU64};
 
 use async_trait::async_trait;
 use ghost_brain::{Call, Completion, Reply, Result, Step, ToolSpec};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{
     context::{PRUNE_OVER, UNKNOWN_WINDOW, prune},
