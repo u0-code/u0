@@ -47,15 +47,6 @@ pub enum Error {
     )]
     Newer(Vec<String>),
 
-    /// Her journal says she moved out of this directory, to the one named.
-    /// What she left is kept to be looked at; run here, she would go on as
-    /// a second her beside the one who moved.
-    #[error(
-        "she moved to {0}; this directory is the one she left, kept to be read, \
-         and run here she would go on as a second her"
-    )]
-    Moved(String),
-
     #[error("journal at {0} does not exist")]
     NoJournal(PathBuf),
 

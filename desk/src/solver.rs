@@ -125,8 +125,7 @@ pub struct Deployment {
     /// The core's home: `ghost_link::home()`.
     pub core: PathBuf,
     /// The checkout the desk was built in, which it never reads but for a
-    /// `ghostd` built there and, once, an old core kept there to be taken
-    /// into the home.
+    /// `ghostd` built there.
     checkout: PathBuf,
     child: Option<Child>,
     /// When the desk last started it, for saying "starting" rather than
@@ -205,15 +204,12 @@ impl Deployment {
     }
 
     /// Have `ghostd` make the core's home ready, and wait for it: the core
-    /// it starts there must have a ghost to run. A home already
-    /// set up is left as it is; one with no ghost yet takes in the core a
-    /// checkout kept before there were homes, if there is one.
+    /// it starts there must have a ghost to run. A home already set up is
+    /// left as it is.
     pub fn ready(&self) -> anyhow::Result<()> {
         let out = Command::new(self.ghostd())
             .arg("init")
             .arg(&self.core)
-            .arg("--adopt")
-            .arg(&self.checkout)
             .output()
             .context("run ghostd init")?;
         if !out.status.success() {
@@ -258,11 +254,8 @@ impl Deployment {
 
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            // Letting go of her lifeline stops her in order; SIGTERM as
-            // well, for a ghostd built before it read one.
+            // Letting go of her lifeline stops her in order.
             drop(child.stdin.take());
-            let pid = child.id();
-            let _ = Command::new("kill").arg(pid.to_string()).status();
             for _ in 0..40 {
                 if matches!(child.try_wait(), Ok(Some(_))) {
                     return;

@@ -289,11 +289,9 @@ impl Desk {
         //
         // That is done off the main thread, once the window is up: the
         // core makes its home ready before it runs, which the first time
-        // means a birth, or taking in an old core from a checkout under
-        // the Desktop, which waits for as long as macOS takes asking
-        // whether the app may. The window must not wait with it. Until it
-        // is done, the deployment the desk holds is one with nothing
-        // started and nothing read.
+        // means a birth. The window must not wait with it. Until it is
+        // done, the deployment the desk holds is one with nothing started
+        // and nothing read.
         let deployment = Deployment::find();
         let start = settings.solver_url == SOLVER_URL;
         let url = settings.solver_url.clone();

@@ -58,27 +58,6 @@ pub struct Peek {
     /// newer version wrote them. She can be looked at, and is not opened
     /// to live by this build.
     pub unknown: Vec<String>,
-    /// Where she lives now, if she moved out of this directory: it is the
-    /// one she left, to be looked at and never run again.
-    pub moved: Option<String>,
-}
-
-/// A ghost being moved out of her directory, from [`Ghost::leave`]. Her
-/// lock is held: no body can open her there until it is let go.
-pub struct Leaving {
-    journal: Journal,
-    _lock: File,
-}
-
-impl Leaving {
-    /// Write, as the last entry of her journal here, that she lives at
-    /// `to` from now on. Any version of Ghost that knows it refuses to run
-    /// her here again; any that does not refuses because it does not.
-    pub fn to(mut self, to: &Path) -> Result<Entry> {
-        self.journal.append(Event::Moved {
-            to: to.display().to_string(),
-        })
-    }
 }
 
 impl Ghost {
@@ -118,7 +97,7 @@ impl Ghost {
     /// Then her derived memory is brought up to date.
     ///
     /// Refused, before anything is written, when her journal has entries
-    /// of a kind this build does not know, or says she moved out of `dir`.
+    /// of a kind this build does not know.
     /// If another body has her, it is given a moment to let her go.
     pub fn open(dir: &Path) -> Result<Self> {
         let (
@@ -145,19 +124,6 @@ impl Ghost {
         Ok(ghost)
     }
 
-    /// Take her lock in `dir` so that she can be moved out of it: nothing
-    /// is written to her journal there while the [`Leaving`] is held, and
-    /// [`Leaving::to`] writes the last of it. Refused as [`Ghost::open`]
-    /// refuses. Her memory there is not touched: she does not live there
-    /// again.
-    pub fn leave(dir: &Path) -> Result<Leaving> {
-        let (Peek { journal, .. }, lock) = hold(dir)?;
-        Ok(Leaving {
-            journal,
-            _lock: lock,
-        })
-    }
-
     /// Verify a ghost and open her journal without taking the lock or
     /// touching derived state. Safe while a daemon is running her.
     pub fn peek(dir: &Path) -> Result<Peek> {
@@ -175,14 +141,12 @@ impl Ghost {
         let entries = journal.verify()?;
         let revised = recorded_seal(&journal)?.as_ref() != Some(identity.seal());
         let unknown = journal.unknown_kinds()?;
-        let moved = moved_in(&journal)?;
         Ok(Peek {
             identity,
             journal,
             entries,
             revised,
             unknown,
-            moved,
         })
     }
 
@@ -261,40 +225,27 @@ fn recorded_seal(journal: &Journal) -> Result<Option<Seal>> {
     })
 }
 
-/// Where she lives now, if the journal in `dir` says she moved out of it.
-/// Reads one entry, along the index of kinds.
-pub fn moved(dir: &Path) -> Result<Option<String>> {
-    moved_in(&Journal::open(&dir.join(JOURNAL_FILE))?)
-}
-
-fn moved_in(journal: &Journal) -> Result<Option<String>> {
-    Ok(match journal.last_of(&["moved"])?.map(|e| e.event) {
-        Some(Event::Moved { to }) => Some(to),
-        _ => None,
-    })
-}
-
 /// Her lock in `dir`, and her as [`Ghost::peek`] finds her, if she may be
 /// opened to live there by this build.
 fn hold(dir: &Path) -> Result<(Peek, File)> {
     let mut peek = Ghost::peek(dir)?;
-    livable(peek.unknown.clone(), peek.moved.clone())?;
+    livable(peek.unknown.clone())?;
     fs::create_dir_all(dir.join("derived"))?;
     let lock = lock(dir)?;
     // Read again with her lock held: the body that let her go may have
-    // written since she was looked at, even that she moved.
-    livable(peek.journal.unknown_kinds()?, moved_in(&peek.journal)?)?;
+    // written since she was looked at.
+    livable(peek.journal.unknown_kinds()?)?;
     peek.revised = recorded_seal(&peek.journal)?.as_ref() != Some(peek.identity.seal());
     Ok((peek, lock))
 }
 
-/// Refused if her journal has kinds this build does not know, or says
-/// she moved out of where it is.
-fn livable(unknown: Vec<String>, moved: Option<String>) -> Result<()> {
-    if !unknown.is_empty() {
-        return Err(Error::Newer(unknown));
+/// Refused if her journal has kinds this build does not know.
+fn livable(unknown: Vec<String>) -> Result<()> {
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::Newer(unknown))
     }
-    moved.map_or(Ok(()), |to| Err(Error::Moved(to)))
 }
 
 /// How long opening her waits for another body to let her go before she
@@ -491,54 +442,6 @@ sleep = "00:30"
         });
         assert!(Ghost::open(d.path()).is_ok());
         letting_go.join().unwrap();
-    }
-
-    #[test]
-    fn a_body_waiting_for_her_while_she_is_moved_out_does_not_run_her() {
-        let d = dir_with_seed();
-        drop(Ghost::birth(d.path()).unwrap());
-        let leaving = Ghost::leave(d.path()).unwrap();
-        let moving = std::thread::spawn(move || {
-            std::thread::sleep(LOCK_WAIT / 10);
-            leaving.to(Path::new("/elsewhere")).unwrap();
-        });
-        let opened = Ghost::open(d.path());
-        moving.join().unwrap();
-        assert!(matches!(opened, Err(Error::Moved(_))));
-    }
-
-    #[test]
-    fn she_is_not_run_again_where_she_moved_out_of_but_can_be_looked_at() {
-        let d = dir_with_seed();
-        drop(Ghost::birth(d.path()).unwrap());
-        let leaving = Ghost::leave(d.path()).unwrap();
-        assert!(
-            matches!(Ghost::open(d.path()), Err(Error::Busy(_))),
-            "nothing is written while she is copied"
-        );
-        let to = Path::new("/elsewhere/ghosts/solver");
-        let last = leaving.to(to).unwrap();
-        assert_eq!(
-            last.event,
-            Event::Moved {
-                to: "/elsewhere/ghosts/solver".into()
-            }
-        );
-
-        let Err(err) = Ghost::open(d.path()) else {
-            panic!("she was run again where she moved out of");
-        };
-        assert!(matches!(&err, Error::Moved(at) if at == "/elsewhere/ghosts/solver"));
-        assert_eq!(
-            err.to_string(),
-            "she moved to /elsewhere/ghosts/solver; this directory is the one she left, \
-             kept to be read, and run here she would go on as a second her"
-        );
-        assert!(matches!(Ghost::leave(d.path()), Err(Error::Moved(_))));
-        let peek = Ghost::peek(d.path()).unwrap();
-        assert_eq!(peek.moved.as_deref(), Some("/elsewhere/ghosts/solver"));
-        assert_eq!(peek.journal.last().unwrap().unwrap(), last);
-        assert_eq!(moved(d.path()).unwrap(), peek.moved);
     }
 
     fn canon(fact: &str) -> Event {

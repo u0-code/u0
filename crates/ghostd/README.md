@@ -86,17 +86,6 @@ too, with the keys it holds. A daemon run with `--config` lists its brains
 and refuses to change them: that file is whoever wrote it's. Command-line
 agents her work hands parts to are still found once, at start.
 
-`--adopt <checkout>` takes in the core a checkout kept before there were
-homes, once, when no ghost of the home has been born: the solver in
-`desk/core/ghosts/solver` or `ghosts/solver`, her `journal.db` and
-`work.db` copied through SQLite's backup, whole even while a daemon
-writes to them, and the rest of her directory but `derived/`, which is
-rebuilt from the journal; `[brain]`, `[providers]` and `[operators]` of
-`desk/core/ghostd.toml` or `solver/ghostd.toml`; and the checkout's
-`.env`, if the home has none. The copy is put together beside the home's
-`ghosts/` and checked, and only then moved in. Nothing in the checkout is
-changed, and a home that has a ghost never reads it.
-
 ## Several characters
 
 `ghostd run ghosts/lin ghosts/mei` runs both; `ghostd run ghosts` runs every

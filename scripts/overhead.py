@@ -437,15 +437,12 @@ def main():
 def desk(tmp, env, ghostd, brain):
     """The desktop app with nothing to do, for thirty seconds: its own RSS
     and CPU, and those of the solver daemon it starts beside it."""
-    # A checkout of its own, so that it starts its solver here on the fake
-    # brain and never touches the real one.
-    root = tmp / "desk"
-    core = root / "desk/core"
-    core.mkdir(parents=True)
-    shutil.copy(ROOT / "desk/core/ghostd.example.toml", core)
-    shutil.copytree(ROOT / "desk/core/ghosts/_solver", core / "ghosts/_solver")
-    (core / "ghostd.toml").write_text(config(7438, brain))
-    proc = spawn([str(DESK)], tmp / "desk.log", env=env | {"GHOST_ROOT": str(root), "GHOSTD_BIN": ghostd}, cwd=root)
+    # A home of its own, so that it starts its solver here on the fake brain
+    # and never touches the real one: ghostd births the mascot in it.
+    home = tmp / "desk-home"
+    home.mkdir(parents=True)
+    (home / "ghostd.toml").write_text(config(7438, brain))
+    proc = spawn([str(DESK)], tmp / "desk.log", env=env | {"GHOST_HOME": str(home), "GHOSTD_BIN": ghostd}, cwd=tmp)
     time.sleep(10)
     children = subprocess.run(["pgrep", "-P", str(proc.pid)], capture_output=True, text=True).stdout.split()
     start = {pid: ps(pid) for pid in [proc.pid, *map(int, children)]}

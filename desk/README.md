@@ -51,11 +51,7 @@ of connecting. A task given on the command line opens a new session
 with it. The desk reaches the solver at `ws://127.0.0.1:7438`, or at `GHOSTD_URL` on a first
 run; a token comes from `GHOSTD_TOKEN` in the environment or `.env`. Your
 sessions are kept by the solver's core; of them `~/.config/ghost-desk/desk.json`
-keeps only which one was open. A `desk.json` from before the core kept
-them hands its sessions over once, the first time the core lists its own:
-each is named on the core as the desk listed it, any the core has that
-were deleted here are set aside there, and the file lets them go once
-the core lists them so. The desk writes its files whole, so a crash never
+keeps only which one was open. The desk writes its files whole, so a crash never
 leaves half of one; a `desk.json` it cannot read is moved aside as
 `desk.json.unreadable-<time>`, said so in its log, and not written over.
 
@@ -71,24 +67,11 @@ app starts its core with that one. A `cargo run` of the desk has none
 beside it, and takes the checkout's `target/release/ghostd`, then
 `target/debug/ghostd`, then `ghostd` on PATH. `GHOSTD_BIN` names another.
 
-### A core kept in a checkout
-
-Before the core had a home, the desk kept it in the checkout: its
-configuration in `desk/core/ghostd.toml` (or `solver/ghostd.toml`), the
-solver born in `desk/core/ghosts/solver` (or `ghosts/solver`). The first
-time a home has no ghost, the desk passes the checkout it was built in
-(or `GHOST_ROOT`) to `ghostd init --adopt`, and the core takes that one
-in: her journal and her work copied whole through SQLite, the rest of her
-directory but `derived/`, which is rebuilt, the brains and operators of
-the old configuration, and the checkout's `.env` if the home has none.
-The checkout is left as it was. From then on the home has a ghost and
-the checkout is never read again: the desk runs without it.
-
 ### Signing it once, for good
 
-Taking in an old core reads the checkout once, and a checkout under
-`~/Desktop` (or `~/Documents`) is in a folder macOS asks about before an
-app may read it. It remembers the answer for the app's signature. Signed ad hoc, as
+Work done in a folder under `~/Desktop` (or `~/Documents`) is in a folder
+macOS asks about before an app may read it. It remembers the answer for
+the app's signature. Signed ad hoc, as
 `bundle.sh` does when it has nothing better, every build has a signature
 of its own, so every build is asked again. Signed with one certificate,
 every build is the same app and is asked once.
@@ -102,16 +85,15 @@ A self-signed certificate is enough, made once in Keychain Access:
    that is expected, and signing with it works all the same.
 
 From then on `bundle.sh` finds it and signs with it. The first time,
-macOS asks whether `codesign` may use its key: Always Allow. Open the app
-once, allow the Desktop folder, and builds after it keep that. To sign
+macOS asks whether `codesign` may use its key: Always Allow. Allow the
+Desktop folder once, and builds after it keep that. To sign
 with another identity, set `GHOST_SIGN_IDENTITY` to its name or hash;
 `GHOST_SIGN_IDENTITY=-` signs ad hoc.
 
 The desk itself reads nothing from the checkout as it opens: its faces
 and icons are built into it, and the core is made ready and started off
-the main thread once the window is up, so that a birth, or a question
-from macOS while an old core is taken in, holds up the core and not the
-window.
+the main thread once the window is up, so that a birth holds up the core
+and not the window.
 
 The core's brains, and their keys, are its own: the desk asks it which
 there are and changes them over the Ghost Protocol (`brains.*`), and
