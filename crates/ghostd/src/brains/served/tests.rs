@@ -66,6 +66,17 @@ async fn a_console_lists_the_brains_with_whether_each_has_a_key_and_never_the_ke
     assert_eq!((codex.key_env.as_deref(), codex.key_set), (None, false));
     assert_eq!(codex.program.as_deref(), Some("/no/such/codex"));
     assert!(codex.blocker.as_deref().unwrap().contains("not found"));
+    // Each is said to be the preset it is, where it is one, and the
+    // presets to add another from come with them.
+    assert_eq!(codex.preset.as_deref(), Some("codex"));
+    assert_eq!(main.preset, None, "an API on a host no preset is on");
+    let deepseek = list.presets.iter().find(|p| p.id == "deepseek").unwrap();
+    assert_eq!(
+        Json::Object(deepseek.provider.clone()),
+        serde_json::json!({"kind": "openai", "model": "deepseek-flash",
+            "base_url": "https://api.deepseek.com", "api_key_env": "DEEPSEEK_API_KEY",
+            "json_mode": true})
+    );
 }
 
 #[tokio::test]
@@ -211,9 +222,11 @@ async fn models_are_asked_with_the_key_the_daemon_holds_and_a_draft_is_laid_over
     // No key, no request.
     let e = held.models(&ask(Some("main"), None)).await.unwrap_err();
     assert_eq!(e.0, code::NO_KEY);
-    // A command-line agent has no list to ask for.
+    // A command-line agent's are read from it where it is installed, and
+    // one that is not installed has none.
     let e = held.models(&ask(Some("codex"), None)).await.unwrap_err();
     assert_eq!(e.0, code::BRAIN_FAILED);
+    assert!(e.1.contains("not found"), "{}", e.1);
     // What is being written is laid over what is saved: the variable
     // changed, the rest is the saved brain's.
     let draft = fields(&[("api_key_env", SECOND_KEY.into())]);

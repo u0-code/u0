@@ -22,8 +22,6 @@ use crate::{cast::Character, operator};
 #[cfg(test)]
 mod tests;
 
-/// The longest name a session is given; more is cut.
-const TITLE_MOST: usize = 80;
 /// The longest id a session may be asked for by.
 const ID_MOST: usize = 128;
 
@@ -106,7 +104,7 @@ async fn begin(
     asked: SessionNew,
     by: Operator,
 ) -> Result<serde_json::Value, Refusal> {
-    let title = match asked.title.as_deref().map(tidy) {
+    let title = match asked.title.as_deref().map(Session::tidy) {
         Some(Some(title)) => Some(title),
         Some(None) => return Err(nothing_in_title()),
         None => None,
@@ -142,7 +140,7 @@ async fn begin(
 
 async fn rename(her: &Character, asked: SessionRename, by: Operator) -> Result<(), Refusal> {
     let id = fit(&asked.id).ok_or_else(unfit)?;
-    let title = tidy(&asked.title).ok_or_else(nothing_in_title)?;
+    let title = Session::tidy(&asked.title).ok_or_else(nothing_in_title)?;
     name(her, id, title, by).await
 }
 
@@ -181,13 +179,6 @@ fn wire(s: memory::Session) -> Session {
         started: stamp(s.started),
         last: s.last.map(stamp),
     }
-}
-
-/// A name as it is kept: on one line, its spaces as one, cut at the most
-/// a name is; `None` when nothing is left.
-fn tidy(title: &str) -> Option<String> {
-    let one = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!one.is_empty()).then(|| one.chars().take(TITLE_MOST).collect())
 }
 
 /// `id` if it can be a session's: something, not too long, with nothing

@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use anyhow::{Context as _, anyhow, bail};
+pub(crate) use ghost_brain::presets::authority;
 use toml_edit::{DocumentMut, Item, Table, Value};
 
 /// Write a brain as `[providers.<name>]`, setting the keys in `set` and
@@ -191,25 +192,6 @@ pub(crate) fn value(json: &serde_json::Value) -> anyhow::Result<Value> {
 pub(crate) fn on_this_machine(base_url: &str) -> bool {
     let host = authority(base_url).1;
     matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]")
-}
-
-/// The authority (`host:port`) and the host of a URL, lower case.
-pub(crate) fn authority(url: &str) -> (String, String) {
-    let rest = url.split_once("://").map_or(url, |(_, r)| r);
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .rsplit('@')
-        .next()
-        .unwrap_or_default()
-        .to_lowercase();
-    let host = authority
-        .rsplit_once(':')
-        .filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit()))
-        .map_or(authority.as_str(), |(h, _)| h)
-        .to_owned();
-    (authority, host)
 }
 
 /// The text of a `.env` file with `var` set to `key`: the line that set it

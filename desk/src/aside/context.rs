@@ -17,8 +17,6 @@
 //! by those sizes. A window nobody knows is left out, and the shares are
 //! then of what was read.
 
-use std::path::Path;
-
 use chrono::{DateTime, Utc};
 use ghost_link::protocol::WorkContext;
 use gpui::{AnyElement, Div, FontWeight, Hsla, SharedString, div, prelude::*, px, relative};
@@ -28,7 +26,7 @@ use crate::{
     desk::{Desk, Watched},
     fonts::Faces,
     model::Entry,
-    models, theme,
+    theme,
     thread::{self},
     ui,
 };
@@ -340,18 +338,8 @@ fn buffer_color() -> Hsla {
 impl Desk {
     /// The Context section for the place `place` of `watched`: a block for
     /// her looks, and one for the work of this place if it has any.
-    pub(super) fn context(
-        &self,
-        faces: &Faces,
-        watched: &Watched,
-        place: &str,
-        solver: bool,
-    ) -> Div {
-        let window = watched
-            .status
-            .as_ref()
-            .and_then(|s| s.think_window)
-            .or_else(|| solver.then(|| self.cli_window()).flatten());
+    pub(super) fn context(faces: &Faces, watched: &Watched, place: &str) -> Div {
+        let window = watched.status.as_ref().and_then(|s| s.think_window);
         let mut body = div().flex().flex_col();
         body = body.child(match role(watched, place, window) {
             Ok((filled, when)) => block(faces, "role", "Role", &when, &filled),
@@ -368,14 +356,6 @@ impl Desk {
             });
         }
         body
-    }
-
-    /// The window of the model a command-line brain of the desk's Ghost
-    /// runs, where that CLI says; none for any other brain.
-    fn cli_window(&self) -> Option<u64> {
-        let p = self.current_provider()?;
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        models::cli_window(&p.kind, &p.model, home.as_deref().map(Path::new))
     }
 }
 

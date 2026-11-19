@@ -53,7 +53,9 @@ it is `GHOST_HOME`, or the platform's place for an app's data:
 `~/.local/share/ghost`) elsewhere. `ghostd init` makes it ready and stops.
 
 Ready means: a home with no `ghostd.toml` gets one (the files in
-[`home/`](home), built into the binary), and one in which no ghost has
+[`home/`](home), built into the binary, and the brains DeepSeek, Claude
+Code and Codex, as `ghost-brain`'s presets have them, thinking with
+DeepSeek), and one in which no ghost has
 been born gets the mascot, born from `home/ghosts/solver/ghost.toml`.
 Nothing already there is changed. Every ghost of a home is given the
 desk's persona and being, from

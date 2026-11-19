@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
+use crate::presets::{PRESETS, Preset};
+
 /// Something found, and the configuration that would use it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
@@ -29,45 +31,6 @@ impl Found {
         format!("[providers.{}]\n{}\n", self.name, self.config.join("\n"))
     }
 }
-
-/// Keys this looks for, and what each one reaches.
-const KEYS: &[(&str, &str, &[&str])] = &[
-    (
-        "DEEPSEEK_API_KEY",
-        "deepseek",
-        &[
-            r#"kind = "openai""#,
-            r#"model = "deepseek-flash""#,
-            r#"base_url = "https://api.deepseek.com""#,
-            r#"api_key_env = "DEEPSEEK_API_KEY""#,
-            "json_mode = true",
-        ],
-    ),
-    (
-        "ANTHROPIC_API_KEY",
-        "anthropic",
-        &[r#"kind = "anthropic""#, r#"model = "claude-sonnet-5-5""#],
-    ),
-    (
-        "OPENAI_API_KEY",
-        "openai",
-        &[
-            r#"kind = "openai""#,
-            r#"model = "" # the model to use"#,
-            "json_mode = true",
-        ],
-    ),
-    (
-        "OPENROUTER_API_KEY",
-        "openrouter",
-        &[
-            r#"kind = "openai""#,
-            r#"model = "" # for example deepseek/deepseek-flash"#,
-            r#"base_url = "https://openrouter.ai/api/v1""#,
-            r#"api_key_env = "OPENROUTER_API_KEY""#,
-        ],
-    ),
-];
 
 async fn version(program: &str) -> Option<String> {
     let run = Command::new(program).arg("--version").output();
@@ -107,52 +70,37 @@ async fn ollama() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Look around. Cheap enough to run at every start.
+/// Look around. Cheap enough to run at every start. What is found is
+/// configured as its preset is ([`crate::presets`]).
 pub async fn discover() -> Vec<Found> {
-    let mut found = Vec::new();
-    for (var, name, config) in KEYS {
-        if std::env::var(var).is_ok_and(|v| !v.trim().is_empty()) {
-            found.push(Found {
-                name: (*name).to_owned(),
-                what: format!("${var} is set"),
-                config: config.iter().map(|&l| l.to_owned()).collect(),
-                works: true,
-            });
-        }
-    }
+    let found_as = |id: &str, what: String, model: Option<&str>, works: bool| {
+        Preset::by_id(id).map(|p| Found {
+            name: p.id.to_owned(),
+            what,
+            config: p.lines(model),
+            works,
+        })
+    };
+    let mut found: Vec<Found> = PRESETS
+        .iter()
+        .filter_map(|p| {
+            let var = p.key_env?;
+            std::env::var(var)
+                .is_ok_and(|v| !v.trim().is_empty())
+                .then(|| found_as(p.id, format!("${var} is set"), None, true))?
+        })
+        .collect();
     let (claude, codex, local) = tokio::join!(version("claude"), version("codex"), ollama());
-    if let Some(v) = claude {
-        found.push(Found {
-            name: "claude-code".into(),
-            what: format!(
-                "the claude CLI is installed ({v}); it answers as whoever it is signed in as"
-            ),
-            config: vec![r#"kind = "claude-code""#.into()],
-            works: false,
-        });
-    }
-    if let Some(v) = codex {
-        found.push(Found {
-            name: "codex".into(),
-            what: format!(
-                "the codex CLI is installed ({v}); it answers as whoever it is signed in as"
-            ),
-            config: vec![r#"kind = "codex""#.into()],
-            works: false,
-        });
+    for (id, program, v) in [("claude-code", "claude", claude), ("codex", "codex", codex)] {
+        let Some(v) = v else { continue };
+        let what = format!(
+            "the {program} CLI is installed ({v}); it answers as whoever it is signed in as"
+        );
+        found.extend(found_as(id, what, None, false));
     }
     if let Some(model) = local.first() {
-        found.push(Found {
-            name: "ollama".into(),
-            what: format!("Ollama is running here with {}", local.join(", ")),
-            config: vec![
-                r#"kind = "openai""#.into(),
-                format!(r#"model = "{model}""#),
-                r#"base_url = "http://127.0.0.1:11434/v1""#.into(),
-                r#"api_key = "ollama""#.into(),
-            ],
-            works: true,
-        });
+        let what = format!("Ollama is running here with {}", local.join(", "));
+        found.extend(found_as("ollama", what, Some(model), true));
     }
     found
 }
@@ -163,19 +111,19 @@ mod tests {
     use crate::config::ProviderConfig;
 
     #[test]
-    fn every_suggested_block_is_valid_configuration() {
-        for (var, name, config) in KEYS {
-            let found = Found {
-                name: (*name).to_owned(),
-                what: (*var).to_owned(),
-                config: config.iter().map(|&l| l.to_owned()).collect(),
-                works: true,
-            };
-            let parsed: std::collections::BTreeMap<
-                String,
-                std::collections::BTreeMap<String, ProviderConfig>,
-            > = toml::from_str(&found.toml()).unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert!(parsed["providers"].contains_key(*name));
-        }
+    fn what_is_found_is_written_as_configuration_that_runs() {
+        let ollama = Preset::by_id("ollama").unwrap();
+        let found = Found {
+            name: ollama.id.to_owned(),
+            what: String::new(),
+            config: ollama.lines(Some("qwen3:8b")),
+            works: true,
+        };
+        let parsed: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeMap<String, ProviderConfig>,
+        > = toml::from_str(&found.toml()).unwrap();
+        assert!(found.toml().contains("model = \"qwen3:8b\""));
+        assert_eq!(parsed["providers"]["ollama"].kind(), "openai");
     }
 }

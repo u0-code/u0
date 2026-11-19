@@ -123,9 +123,9 @@ impl Desk {
             return;
         }
         // The core keeps the session from its first line, and names it by
-        // it; the list shows it so at once.
+        // it as it lists it.
         let place = self.session().id;
-        self.sessions.said(&text);
+        self.sessions.said();
         self.solver.say(place, text);
         // What you send is where you read on from.
         self.thread_scroll.scroll_to_bottom();

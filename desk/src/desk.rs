@@ -53,6 +53,7 @@ pub(crate) use self::{
 use crate::{
     answer::{Replies, Whom},
     attention,
+    brains::Preset,
     daemons::{Daemon, Host},
     follow::PlaceLooks,
     fonts,
@@ -151,8 +152,9 @@ pub struct Desk {
     /// started if it was to be.
     core_ready: bool,
     /// The brains the core has, as it last said, and which one it thinks
-    /// with.
+    /// with; and the presets it offers to add one from.
     pub(crate) providers: Vec<Provider>,
+    pub(crate) presets: Vec<Preset>,
     pub(crate) brain: Option<String>,
     /// Your sessions with the solver, as its core keeps them, and the one
     /// on screen.
@@ -362,6 +364,7 @@ impl Desk {
             deployment,
             core_ready: false,
             providers: Vec::new(),
+            presets: Vec::new(),
             brain: None,
             sessions,
             input,

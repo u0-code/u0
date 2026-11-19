@@ -22,7 +22,7 @@ pub mod text;
 use anyhow::{Context, anyhow};
 pub use ghost_protocol as protocol;
 use ghost_protocol::{
-    BrainAsk, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, ConsoleRewind,
+    BrainAsk, BrainList, BrainModel, BrainModels, BrainRemove, BrainSave, BrainUse, ConsoleRewind,
     ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello,
     JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, Session, SessionDelete,
     SessionNew, SessionRename, StepsRead, Welcome, WorkAnswer, WorkLog, WorkStop, method,
@@ -417,8 +417,8 @@ impl Console {
         self.conn.call(method::BRAIN_USE, &params).await
     }
 
-    /// The models the brain `ask` names offers, as its API lists them.
-    pub async fn brain_models(&mut self, ask: &BrainAsk) -> anyhow::Result<Vec<String>> {
+    /// The models the brain `ask` names offers, as the daemon finds them.
+    pub async fn brain_models(&mut self, ask: &BrainAsk) -> anyhow::Result<Vec<BrainModel>> {
         let listed: BrainModels = self.conn.call(method::BRAIN_MODELS, ask).await?;
         Ok(listed.models)
     }

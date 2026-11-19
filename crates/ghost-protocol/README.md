@@ -353,11 +353,13 @@ and is never sent a key.
 ```json
 {"jsonrpc":"2.0","id":8,"method":"brains.list"}
 
-{"jsonrpc":"2.0","id":8,"result":{"think":"main","tick":"main","changeable":true,"brains":[
-  {"name":"main","kind":"openai","model":"deepseek-chat","base_url":"https://api.deepseek.com/v1",
-   "key_env":"DEEPSEEK_API_KEY","key_set":true},
+{"jsonrpc":"2.0","id":8,"result":{"think":"deepseek","tick":"deepseek","changeable":true,"brains":[
+  {"name":"deepseek","kind":"openai","model":"deepseek-flash","base_url":"https://api.deepseek.com",
+   "key_env":"DEEPSEEK_API_KEY","key_set":true,"preset":"deepseek"},
   {"name":"codex","kind":"codex","model":"","key_set":false,"program":"codex",
-   "blocker":"`codex` was not found on this machine"}]}}
+   "blocker":"`codex` was not found on this machine","preset":"codex"}],
+ "presets":[{"id":"deepseek","name":"DeepSeek","provider":{"kind":"openai","model":"deepseek-flash",
+   "base_url":"https://api.deepseek.com","api_key_env":"DEEPSEEK_API_KEY","json_mode":true}}, …]}}
 ```
 
 - `key_env` is the variable an API's key is read from, the kind's default
@@ -369,6 +371,10 @@ and is never sent a key.
 - `changeable` is false on a daemon that runs no home (`ghostd run
   --config`): its file is whoever wrote it's, and every change below is
   refused with `-32007`.
+- `presets` are the providers the daemon knows how to add a brain from,
+  in the order to offer them: each `provider` is the table a new brain
+  from it is written with, as `brains.save` takes `set`. `preset` on a
+  brain names the one it is, known by its kind and the host of its API.
 
 Any console may list them. Everything else is an operator's, as
 `console.say` is (`-32001` otherwise), and needs no `who`:
@@ -378,7 +384,7 @@ Any console may list them. Everything else is an operator's, as
 | `brains.save` | `{"was"?, "name", "set"?, "clear"?, "key"?}` | the list, changed |
 | `brains.remove` | `{"name"}` | the list, changed |
 | `brains.use` | `{"name", "model"?}` | the list, changed |
-| `brains.models` | `{"name"?, "provider"?}` | `{"models":[…]}` |
+| `brains.models` | `{"name"?, "provider"?}` | `{"models":[{"id", "name"?}, …]}` |
 | `brains.check` | `{"name"?, "provider"?, "model"?}` | `{}` |
 
 - `brains.save` writes `[providers.<name>]`: `set` the keys to set, as
@@ -398,8 +404,12 @@ Any console may list them. Everything else is an operator's, as
   think once, as her mind would ask it; if it cannot, the request is
   refused with `-32011` and what it said, or `-32009` when its key is not
   set, and nothing changes.
-- `brains.models` lists what an API offers, asked by the daemon with the
-  key it holds; `brains.check` asks a brain to think once. Each takes a
+- `brains.models` lists what a brain offers, found on the daemon's own
+  machine: what an API lists, asked with the key the daemon holds, or what
+  a command-line agent installed there knows, its own default first (an
+  empty `id`, with the model that is as its `name` where the agent says),
+  each by the name the agent shows it under. `brains.check` asks a brain
+  to think once. Each takes a
   brain saved, by `name`; one being written, by `provider`, the keys of its
   table; or both, `provider` laid over what is saved, to try a change
   before it is saved.

@@ -29,7 +29,6 @@ mod link;
 mod markdown;
 mod media;
 mod model;
-mod models;
 mod path;
 mod sessions;
 mod settings;

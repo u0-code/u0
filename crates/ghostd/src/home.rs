@@ -17,9 +17,10 @@
 //! the prompts are not written into it at all, and so follow the binary
 //! that runs it rather than going stale in a copy nobody asked for.
 
-use std::{fs, path::Path};
+use std::{fmt::Write as _, fs, path::Path};
 
 use anyhow::Context;
+use ghost_brain::presets::Preset;
 use ghost_core::Ghost;
 use tracing::{info, warn};
 
@@ -34,8 +35,9 @@ pub(crate) const ENV: &str = ".env";
 
 /// Everything in the configuration but the brains.
 const SETTINGS: &str = include_str!("../home/ghostd.toml");
-/// The brains a new home thinks with.
-const BRAINS: &str = include_str!("../home/brains.toml");
+/// The brains a new home has, by their presets: she thinks and ticks with
+/// the first.
+const BRAINS: [&str; 3] = ["deepseek", "claude-code", "codex"];
 /// What the mascot is born from.
 const PERSONA: &str = include_str!("../home/ghosts/solver/ghost.toml");
 
@@ -71,7 +73,7 @@ pub fn ready(home: &Path) -> anyhow::Result<Made> {
         born: false,
     };
     if made.config {
-        write_whole(&config, &format!("{SETTINGS}{BRAINS}"))?;
+        write_whole(&config, &format!("{SETTINGS}{}", brains()))?;
     }
     if !any_born(&ghosts) {
         let solver = ghosts.join(SOLVER);
@@ -83,6 +85,29 @@ pub fn ready(home: &Path) -> anyhow::Result<Made> {
         made.born = true;
     }
     Ok(made)
+}
+
+/// The brains of a new home's configuration, each as its preset has it.
+fn brains() -> String {
+    let mut text = format!(
+        "# The brains it can think with. Whoever runs it picks among these and adds\n\
+         # to them over the Ghost Protocol (the desk does, from the line you type\n\
+         # into), and ghostd edits this file for them, keeping your comments. A key\n\
+         # is never written here, only the variable it is read from: given with a\n\
+         # brain, it goes into .env.\n\
+         [brain]\nthink = \"{0}\"\ntick = \"{0}\"\n",
+        BRAINS[0]
+    );
+    for p in BRAINS.iter().filter_map(|id| Preset::by_id(id)) {
+        let _ = write!(
+            text,
+            "\n# {}\n[providers.{}]\n{}\n",
+            p.name,
+            p.id,
+            p.lines(None).join("\n")
+        );
+    }
+    text
 }
 
 /// Say what [`ready`] did, if it did anything.

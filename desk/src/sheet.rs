@@ -1,7 +1,7 @@
 //! The sheet a brain is added or edited in: a small modal over the window.
 //!
 //! Adding goes in two steps. First a preset, from a grid of the providers
-//! the desk knows (`brains::PRESETS`); then its few fields: the model,
+//! the core offers (`BrainList::presets`); then its few fields: the model,
 //! offered from the provider's own list once its key is there; the
 //! variable the key is in, with whether the core has it; and, folded away,
 //! the base URL and the name it is saved under. Test asks it to think once.
@@ -10,14 +10,14 @@
 //! provider and writes the brain into its own configuration (`link::brains`).
 //! The key itself is never shown, and never read by the desk.
 
-use ghost_link::protocol::{BrainAsk, BrainSave, code};
+use ghost_link::protocol::{BrainAsk, BrainModel, BrainSave, code};
 use gpui::{
     AnyElement, Context, Div, Entity, FocusHandle, Focusable as _, FontWeight, Hsla, SharedString,
     Stateful, Window, actions, deferred, div, prelude::*, px,
 };
 
 use crate::{
-    brains::{self, Draft, Mark, PRESETS, Preset, Wire},
+    brains::{self, Draft, Preset, Wire},
     desk::Desk,
     fonts::Faces,
     input::{Cancelled, Changed, Submitted, TextInput},
@@ -84,7 +84,7 @@ impl KeyStatus {
 pub(crate) struct Sheet {
     pub open: bool,
     /// The preset being filled in; `None` is the first step, the grid.
-    pub preset: Option<&'static Preset>,
+    pub preset: Option<Preset>,
     /// The brain being edited, by the name it is saved under.
     pub editing: Option<String>,
     pub model: Entity<TextInput>,
@@ -191,15 +191,10 @@ impl Desk {
     }
 
     /// Fill the fields from `preset`, as a new brain.
-    fn pick_preset(
-        &mut self,
-        preset: &'static Preset,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn pick_preset(&mut self, preset: Preset, window: &mut Window, cx: &mut Context<Self>) {
         // A CLI is signed in to once; its tile opens the one there is.
         if preset.cli()
-            && let Some(p) = self.providers.iter().find(|p| p.kind == preset.kind)
+            && let Some(p) = self.providers.iter().find(|p| p.kind == preset.kind())
         {
             let p = p.clone();
             self.edit_brain(&p, window, cx);
@@ -209,33 +204,27 @@ impl Desk {
         let name = (1..100)
             .map(|i| {
                 if i == 1 {
-                    preset.id.to_owned()
+                    preset.id().to_owned()
                 } else {
-                    format!("{}-{i}", preset.id)
+                    format!("{}-{i}", preset.id())
                 }
             })
             .find(|n| !taken(n))
             .unwrap_or_default();
-        self.fill(
-            preset,
-            None,
-            &Draft {
-                model: preset.model.to_owned(),
-                key_env: preset.key_env.unwrap_or_default().to_owned(),
-                base_url: preset.base_url.to_owned(),
-            },
-            &name,
-            window,
-            cx,
-        );
+        let draft = Draft {
+            model: preset.model().to_owned(),
+            key_env: preset.key_env().to_owned(),
+            base_url: preset.base_url().to_owned(),
+        };
+        self.fill(preset, None, &draft, &name, window, cx);
     }
 
     /// Fill the fields from a brain already saved.
     fn edit_brain(&mut self, p: &Provider, window: &mut Window, cx: &mut Context<Self>) {
         let preset = p
             .preset()
-            .or_else(|| Preset::by_id("custom"))
-            .expect("a custom preset");
+            .cloned()
+            .unwrap_or_else(|| Preset::of_kind(&p.kind));
         let draft = Draft {
             model: p.model.clone(),
             key_env: p.key_env.clone().unwrap_or_default(),
@@ -244,14 +233,14 @@ impl Desk {
             base_url: p
                 .base_url
                 .clone()
-                .unwrap_or_else(|| preset.base_url.to_owned()),
+                .unwrap_or_else(|| preset.base_url().to_owned()),
         };
         self.fill(preset, Some(p.name.clone()), &draft, &p.name, window, cx);
     }
 
     fn fill(
         &mut self,
-        preset: &'static Preset,
+        preset: Preset,
         editing: Option<String>,
         draft: &Draft,
         name: &str,
@@ -259,9 +248,14 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.sheet.reset();
+        self.sheet.advanced = !preset.cli() && draft.base_url.is_empty();
+        let placeholder = if preset.cli() && preset.model().is_empty() {
+            "default"
+        } else {
+            "model"
+        };
         self.sheet.preset = Some(preset);
         self.sheet.editing = editing;
-        self.sheet.advanced = preset.id == "custom" && draft.base_url.is_empty();
         for (field, text) in [
             (&self.sheet.model, draft.model.as_str()),
             (&self.sheet.key, draft.key_env.as_str()),
@@ -270,16 +264,9 @@ impl Desk {
         ] {
             field.update(cx, |f, cx| f.set_text(text, cx));
         }
-        self.sheet.model.update(cx, |f, cx| {
-            f.set_placeholder(
-                if preset.id == "codex" {
-                    "default"
-                } else {
-                    "model"
-                },
-                cx,
-            );
-        });
+        self.sheet
+            .model
+            .update(cx, |f, cx| f.set_placeholder(placeholder, cx));
         self.sheet.model.focus_handle(cx).focus(window);
         // What the core said of a brain saved is known at once; anything
         // else is asked, with its model list, which says it too.
@@ -303,7 +290,7 @@ impl Desk {
         if !typed.is_empty() {
             return typed;
         }
-        match self.sheet.preset.map(Preset::wire) {
+        match self.sheet.preset.as_ref().map(Preset::wire) {
             Some(Wire::Anthropic) => "ANTHROPIC_API_KEY".to_owned(),
             Some(Wire::OpenAi) => "OPENAI_API_KEY".to_owned(),
             _ => String::new(),
@@ -315,7 +302,7 @@ impl Desk {
     /// reads; otherwise by asking it for the models, which it answers only
     /// with a key.
     fn refresh_key(&mut self, cx: &mut Context<Self>) {
-        let Some(preset) = self.sheet.preset else {
+        let Some(cli) = self.sheet.preset.as_ref().map(Preset::cli) else {
             return;
         };
         let var = self.key_var(cx);
@@ -330,7 +317,7 @@ impl Desk {
             Some(_) => KeyStatus::NotSet,
             None => KeyStatus::Unknown,
         };
-        if !preset.cli() {
+        if !cli {
             self.fetch_models(cx);
         }
         cx.notify();
@@ -340,7 +327,7 @@ impl Desk {
     /// would be written with, or, for one being edited, the fields laid
     /// over what is saved.
     fn sheet_ask(&self, model: Option<String>, cx: &Context<Self>) -> Option<BrainAsk> {
-        let preset = self.sheet.preset?;
+        let preset = self.sheet.preset.as_ref()?;
         let draft = Draft {
             model: self.sheet.model.read(cx).text(),
             key_env: self.sheet.key.read(cx).text(),
@@ -348,13 +335,7 @@ impl Desk {
         };
         Some(BrainAsk {
             name: self.sheet.editing.clone(),
-            provider: Some(
-                preset
-                    .fields(&draft)
-                    .into_iter()
-                    .map(|(k, v)| (k.to_owned(), v))
-                    .collect(),
-            ),
+            provider: Some(preset.fields(&draft)),
             model,
         })
     }
@@ -414,12 +395,14 @@ impl Desk {
         self.sheet.generation += 1;
         self.sheet.models = Models::Asking;
         self.sheet_call(BrainCall::Models(ask), cx, |this, answer| {
-            let keyed = this.sheet.preset.is_some_and(|p| p.key_env.is_some());
+            let keyed = this.sheet.preset.as_ref().is_some_and(Preset::keyed);
             if keyed {
                 this.sheet.key_status = KeyStatus::from_models(&answer);
             }
             this.sheet.models = match answer {
-                Ok(BrainAnswer::Models(ids)) if !ids.is_empty() => Models::Listed(ids),
+                Ok(BrainAnswer::Models(listed)) if !listed.is_empty() => {
+                    Models::Listed(listed.into_iter().map(|m: BrainModel| m.id).collect())
+                }
                 Ok(_) => Models::Failed("no models listed".to_owned()),
                 Err(refused) => Models::Failed(refused.why),
             };
@@ -438,7 +421,7 @@ impl Desk {
     /// One real request, made by the core: the brain the fields describe
     /// is asked to think once, as her mind would ask it.
     fn test_brain(&mut self, cx: &mut Context<Self>) {
-        let Some(preset) = self.sheet.preset else {
+        let Some(preset) = self.sheet.preset.clone() else {
             return;
         };
         let model = self.sheet.model.read(cx).text();
@@ -452,7 +435,7 @@ impl Desk {
             this.sheet.probe = match answer {
                 Ok(_) => Probe::Passed("ok · it answered".to_owned()),
                 Err(refused) if preset.cli() => {
-                    Probe::Failed(brains::cli_failure(preset.kind, &refused.why))
+                    Probe::Failed(brains::cli_failure(preset.kind(), &refused.why))
                 }
                 Err(refused) => Probe::Failed(refused.why),
             };
@@ -464,7 +447,7 @@ impl Desk {
     /// it if `use_it`. A change to the brain in use the core takes up by
     /// itself.
     fn save_brain(&mut self, use_it: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(preset) = self.sheet.preset else {
+        let Some(preset) = self.sheet.preset.clone() else {
             return;
         };
         let draft = Draft {
@@ -474,7 +457,7 @@ impl Desk {
         };
         let typed = self.sheet.name.read(cx).text();
         let name = if typed.is_empty() {
-            preset.id.to_owned()
+            preset.id().to_owned()
         } else {
             typed
         };
@@ -488,7 +471,7 @@ impl Desk {
             cx.notify();
             return;
         }
-        let save = save_of(preset, self.sheet.editing.clone(), &name, &draft);
+        let save = save_of(&preset, self.sheet.editing.clone(), &name, &draft);
         self.sheet.generation += 1;
         self.sheet.refused = None;
         self.sheet_call_in(
@@ -542,8 +525,8 @@ impl Desk {
         if !self.sheet.open {
             return None;
         }
-        let body = match self.sheet.preset {
-            None => Self::presets_grid(faces, cx),
+        let body = match &self.sheet.preset {
+            None => self.presets_grid(faces, cx),
             Some(preset) => self.brain_fields(preset, faces, cx),
         };
         let sheet = div()
@@ -587,7 +570,7 @@ impl Desk {
                 .child(ui::icon("chevron-left", 14.).text_color(theme::muted()))
                 .on_click(cx.listener(|this, _, window, cx| this.back_to_presets(window, cx)))
         });
-        let title: AnyElement = match self.sheet.preset {
+        let title: AnyElement = match &self.sheet.preset {
             None => ui::text(faces, "Add brain")
                 .text_size(px(13.5))
                 .font_weight(FontWeight::MEDIUM)
@@ -597,13 +580,13 @@ impl Desk {
                     .sheet
                     .editing
                     .clone()
-                    .unwrap_or_else(|| preset.name.to_owned());
+                    .unwrap_or_else(|| preset.name().to_owned());
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .min_w(px(0.))
-                    .child(ui::mark(faces, Mark::Icon(preset.icon), 16.))
+                    .child(ui::mark(faces, preset.mark(), 16.))
                     .child(
                         ui::text(faces, name)
                             .text_size(px(13.5))
@@ -628,13 +611,14 @@ impl Desk {
             )
     }
 
-    /// The first step: a tile for each preset.
-    fn presets_grid(faces: &Faces, cx: &mut Context<Self>) -> Div {
+    /// The first step: a tile for each preset the core offers.
+    fn presets_grid(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let mut grid = div().flex().flex_wrap().gap(px(8.)).px(px(16.)).pb(px(16.));
-        for preset in PRESETS {
+        for preset in &self.presets {
+            let picked = preset.clone();
             grid = grid.child(
                 div()
-                    .id(SharedString::from(format!("preset-{}", preset.id)))
+                    .id(SharedString::from(format!("preset-{}", preset.id())))
                     .flex()
                     .flex_col()
                     .items_center()
@@ -649,14 +633,14 @@ impl Desk {
                     .border_color(theme::border())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()).border_color(theme::border2()))
-                    .child(ui::mark(faces, Mark::Icon(preset.icon), 20.))
+                    .child(ui::mark(faces, preset.mark(), 20.))
                     .child(
-                        ui::text(faces, preset.name)
+                        ui::text(faces, preset.name().to_owned())
                             .text_size(px(12.))
                             .text_color(theme::text2()),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick_preset(preset, window, cx);
+                        this.pick_preset(picked.clone(), window, cx);
                     })),
             );
         }
@@ -664,7 +648,7 @@ impl Desk {
     }
 
     /// The second step: the few fields a brain has, and what to do with them.
-    fn brain_fields(&self, preset: &'static Preset, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn brain_fields(&self, preset: &Preset, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let api = !preset.cli();
         let mut body = div().flex().flex_col().gap(px(10.)).px(px(16.)).pb(px(14.));
 
@@ -698,7 +682,7 @@ impl Desk {
         }
 
         // The key's variable, and whether it holds a key here.
-        if preset.key_env.is_some() {
+        if preset.keyed() {
             let (word, color, tip) = match self.sheet.key_status {
                 KeyStatus::Found => ("found", theme::green(), "the core has it"),
                 KeyStatus::NotSet => (
@@ -781,7 +765,7 @@ impl Desk {
             (None, Probe::Running) => Some(("testing…".to_owned(), theme::muted())),
             (None, Probe::Passed(s)) => Some((s.clone(), theme::green())),
             (None, Probe::Failed(s)) => Some((s.clone(), theme::coral())),
-            (None, Probe::Idle) => preset.key_env.is_some().then(|| {
+            (None, Probe::Idle) => preset.keyed().then(|| {
                 (
                     "Only the variable's name is saved, never the key.".to_owned(),
                     theme::faint(),
@@ -995,14 +979,7 @@ pub(crate) fn save_of(
                 .collect(),
         )
     } else {
-        (
-            preset
-                .fields(draft)
-                .into_iter()
-                .map(|(k, v)| (k.to_owned(), v))
-                .collect(),
-            Vec::new(),
-        )
+        (preset.fields(draft), Vec::new())
     };
     BrainSave {
         was: editing,
@@ -1016,19 +993,20 @@ pub(crate) fn save_of(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::brains::tests::by_id;
 
     fn draft(preset: &Preset) -> Draft {
         Draft {
-            model: preset.model.to_owned(),
-            key_env: preset.key_env.unwrap_or_default().to_owned(),
-            base_url: preset.base_url.to_owned(),
+            model: preset.model().to_owned(),
+            key_env: preset.key_env().to_owned(),
+            base_url: preset.base_url().to_owned(),
         }
     }
 
     #[test]
     fn a_new_brain_asks_the_core_for_its_whole_table_and_an_edit_for_what_the_sheet_shows() {
-        let deepseek = Preset::by_id("deepseek").unwrap();
-        let new = save_of(deepseek, None, "deepseek", &draft(deepseek));
+        let deepseek = by_id("deepseek");
+        let new = save_of(&deepseek, None, "deepseek", &draft(&deepseek));
         assert_eq!(new.was, None);
         assert_eq!(
             serde_json::Value::Object(new.set.clone()),
@@ -1040,10 +1018,10 @@ mod tests {
         );
         assert!(new.clear.is_empty() && new.key.is_none());
 
-        let mut changed = draft(deepseek);
+        let mut changed = draft(&deepseek);
         changed.model = "deepseek-v4-pro".into();
         changed.base_url = String::new();
-        let edit = save_of(deepseek, Some("main".into()), "main", &changed);
+        let edit = save_of(&deepseek, Some("main".into()), "main", &changed);
         assert_eq!(edit.was.as_deref(), Some("main"));
         assert_eq!(
             serde_json::Value::Object(edit.set),
@@ -1052,8 +1030,8 @@ mod tests {
         );
         assert_eq!(edit.clear, ["base_url"], "an emptied field is taken out");
         // A CLI has no address or key to clear.
-        let codex = Preset::by_id("codex").unwrap();
-        let edit = save_of(codex, Some("codex".into()), "codex", &draft(codex));
+        let codex = by_id("codex");
+        let edit = save_of(&codex, Some("codex".into()), "codex", &draft(&codex));
         assert_eq!(edit.clear, ["model"], "its own default");
     }
 
@@ -1066,7 +1044,7 @@ mod tests {
             })
         };
         assert_eq!(
-            KeyStatus::from_models(&Ok(BrainAnswer::Models(vec!["m".into()]))),
+            KeyStatus::from_models(&Ok(BrainAnswer::Models(Vec::new()))),
             KeyStatus::Found
         );
         assert_eq!(

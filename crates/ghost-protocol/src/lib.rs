@@ -227,9 +227,11 @@ pub mod method {
     /// [`BRAIN_SAVE`] is.
     pub const BRAIN_USE: &str = "brains.use";
     /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
-    /// result [`BrainModels`](super::BrainModels): the models an API's own
-    /// listing offers, asked by the daemon, with the key it holds. Only an
-    /// operator may ask, since it spends the key.
+    /// result [`BrainModels`](super::BrainModels): the models a brain
+    /// offers, as the daemon finds them on its own machine: an API's own
+    /// listing, asked with the key it holds, or what a command-line agent
+    /// installed there knows. Only an operator may ask, since it spends
+    /// the key.
     pub const BRAIN_MODELS: &str = "brains.models";
     /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
     /// result `{}`: the brain was asked to think once, as little as there
@@ -822,6 +824,18 @@ pub struct Session {
     pub last: Option<String>,
 }
 
+impl Session {
+    /// The longest name a session is given; more is cut.
+    pub const TITLE_MOST: usize = 80;
+
+    /// A name as a daemon keeps it: on one line, its spaces as one, cut at
+    /// [`TITLE_MOST`](Self::TITLE_MOST). `None` when nothing is left.
+    pub fn tidy(title: &str) -> Option<String> {
+        let one = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!one.is_empty()).then(|| one.chars().take(Self::TITLE_MOST).collect())
+    }
+}
+
 /// Params of [`method::SESSION_NEW`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionNew {
@@ -1370,6 +1384,9 @@ pub struct BrainList {
     /// no home says no: its configuration is a file it was given.
     #[serde(default)]
     pub changeable: bool,
+    /// The brains it knows how to add, in the order to offer them.
+    #[serde(default)]
+    pub presets: Vec<BrainPreset>,
 }
 
 /// One brain a daemon is configured with, in a [`BrainList`].
@@ -1403,6 +1420,10 @@ pub struct BrainInfo {
     /// on that machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocker: Option<String>,
+    /// The [`BrainPreset`] it is, by its id, when the daemon knows it for
+    /// one: by its kind, and the host its API is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
 }
 
 /// Params of [`method::BRAIN_SAVE`].
@@ -1481,8 +1502,36 @@ pub struct BrainAsk {
 /// The result of [`method::BRAIN_MODELS`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrainModels {
-    /// By id, as the API lists them.
-    pub models: Vec<String>,
+    /// In the order the brain gives them.
+    pub models: Vec<BrainModel>,
+}
+
+/// One model a brain offers, in [`BrainModels`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainModel {
+    /// What it is asked for by, as [`BrainUse::model`] takes it. Empty for
+    /// a command-line agent's own default.
+    pub id: String,
+    /// The name the brain itself shows it by, where it gives one; for the
+    /// default, the model that is, where the agent says.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+}
+
+/// A brain a daemon knows how to add, in [`BrainList::presets`]: what a
+/// person would otherwise look up in a provider's documentation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainPreset {
+    /// What a brain from it is saved as unless named otherwise, and how
+    /// [`BrainInfo::preset`] names it.
+    pub id: String,
+    /// The provider's name, as shown.
+    pub name: String,
+    /// The `[providers.<id>]` keys a new brain from it is written with, as
+    /// [`BrainSave::set`] has them: its `kind`, and as it needs, the
+    /// `base_url` of its API, the `api_key_env` its key is conventionally
+    /// kept in, a `model` to start from, and anything else it takes.
+    pub provider: serde_json::Map<String, Value>,
 }
 
 #[cfg(test)]
@@ -1560,6 +1609,45 @@ mod tests {
         );
         let used: BrainUse = serde_json::from_str(r#"{"name":"main"}"#).unwrap();
         assert_eq!(used.model, None, "left out, the model it is set to");
+    }
+
+    #[test]
+    fn a_model_without_a_name_of_its_own_goes_by_its_id_alone() {
+        let models = BrainModels {
+            models: vec![
+                BrainModel {
+                    id: String::new(),
+                    name: "gpt-x".into(),
+                },
+                BrainModel {
+                    id: "deepseek-flash".into(),
+                    name: String::new(),
+                },
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&models).unwrap(),
+            serde_json::json!({"models": [{"id": "", "name": "gpt-x"}, {"id": "deepseek-flash"}]})
+        );
+        let preset: BrainPreset = serde_json::from_str(
+            r#"{"id":"ollama","name":"Ollama","provider":{"kind":"openai","api_key":"ollama"}}"#,
+        )
+        .unwrap();
+        assert_eq!(preset.provider["kind"], "openai");
+    }
+
+    #[test]
+    fn a_session_name_is_one_line_with_single_spaces_cut_at_the_most_a_name_is() {
+        assert_eq!(
+            Session::tidy("  Disk \n  space ").as_deref(),
+            Some("Disk space")
+        );
+        assert_eq!(Session::tidy(" \n "), None);
+        let long = "x".repeat(Session::TITLE_MOST + 5);
+        assert_eq!(
+            Session::tidy(&long).map(|t| t.chars().count()),
+            Some(Session::TITLE_MOST)
+        );
     }
 
     #[test]

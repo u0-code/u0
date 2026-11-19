@@ -41,7 +41,13 @@ fn an_empty_home_is_made_ready_once_with_its_configuration_and_the_mascot_born()
     );
     let cfg = config(&home);
     assert_eq!(cfg.listen.addr, "127.0.0.1:7438");
-    assert_eq!(cfg.brain.think, "main");
+    assert_eq!(cfg.brain.think, "deepseek");
+    assert_eq!(
+        cfg.providers["deepseek"].kind(),
+        Preset::by_id("deepseek").unwrap().kind,
+        "a new home's brains are written as their presets are"
+    );
+    assert!(cfg.providers.contains_key("claude-code") && cfg.providers.contains_key("codex"));
     let solver = home.join(GHOSTS).join(SOLVER);
     assert_eq!(Ghost::peek(&solver).unwrap().identity.name(), "Ghost");
     assert!(
@@ -60,7 +66,7 @@ fn a_home_already_set_up_is_left_as_it_is() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path();
     ready(home).unwrap();
-    fs::write(home.join(CONFIG), format!("# mine\n{SETTINGS}{BRAINS}")).unwrap();
+    fs::write(home.join(CONFIG), format!("# mine\n{SETTINGS}{}", brains())).unwrap();
     let before = snapshot(home);
     assert_eq!(ready(home).unwrap(), Made::default());
     assert_eq!(snapshot(home), before);

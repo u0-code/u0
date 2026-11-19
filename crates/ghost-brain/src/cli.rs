@@ -22,11 +22,13 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 pub(crate) struct ClaudeCode {
     agent: CliAgent,
     timeout: Duration,
+    window: Option<u64>,
 }
 
 impl ClaudeCode {
     pub(crate) fn new(agent: CliAgent, timeout: Option<Duration>) -> Self {
         Self {
+            window: crate::cli_models::window(&agent),
             agent,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
         }
@@ -40,6 +42,10 @@ impl Brain for ClaudeCode {
             "claude-code/{}",
             self.agent.model.as_deref().unwrap_or("default")
         )
+    }
+
+    fn window(&self) -> Option<u64> {
+        self.window
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
@@ -118,11 +124,15 @@ impl Brain for ClaudeCode {
 pub(crate) struct Codex {
     agent: CliAgent,
     timeout: Duration,
+    /// Read from what Codex keeps on this machine when it is made, not
+    /// whenever it is asked: asking must not wait on the disk.
+    window: Option<u64>,
 }
 
 impl Codex {
     pub(crate) fn new(agent: CliAgent, timeout: Option<Duration>) -> Self {
         Self {
+            window: crate::cli_models::window(&agent),
             agent,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
         }
@@ -133,6 +143,10 @@ impl Codex {
 impl Brain for Codex {
     fn label(&self) -> String {
         format!("codex/{}", self.agent.model.as_deref().unwrap_or("default"))
+    }
+
+    fn window(&self) -> Option<u64> {
+        self.window
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {

@@ -232,7 +232,7 @@ pub enum BrainCall {
 pub enum BrainAnswer {
     /// The brains, as they are now.
     List(BrainList),
-    Models(Vec<String>),
+    Models(Vec<ghost_link::protocol::BrainModel>),
     /// It thought, when asked to.
     Checked,
 }

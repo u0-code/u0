@@ -548,7 +548,7 @@ impl Desk {
             let work = &open.her.work;
             let environment = self.her_environment(faces, open, cx);
             let place = open.place(self.who());
-            let context = self.context(faces, &open.her, &place, false);
+            let context = Self::context(faces, &open.her, &place);
             let body = self.her_work(faces, work, cx);
             return column
                 .child(self.section(faces, "Environment", None, None, environment, cx))
@@ -568,7 +568,7 @@ impl Desk {
         let outputs = thread::outputs(&self.solver.journal, &session.id);
         let environment = self.environment(faces, cx);
         let place = thread::place_key(&session.id);
-        let context = self.context(faces, &self.solver, &place, true);
+        let context = Self::context(faces, &self.solver, &place);
         let work = self.work(faces, &session, &tasks, cx);
         column
             .child(self.section(faces, "Environment", None, None, environment, cx))

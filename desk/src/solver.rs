@@ -38,11 +38,18 @@ pub struct Provider {
     /// Why the core's machine cannot run it, if it cannot: its key is not
     /// set, its CLI is not installed, nothing answers where it runs.
     pub blocker: Option<String>,
+    /// The preset the core says it is, if it is one.
+    pub preset: Option<Preset>,
 }
 
-impl From<BrainInfo> for Provider {
-    fn from(b: BrainInfo) -> Self {
+impl Provider {
+    /// A brain as the core describes it, with the preset it says it is
+    /// found among those it offers.
+    pub fn new(b: BrainInfo, presets: &[Preset]) -> Self {
         Self {
+            preset: b
+                .preset
+                .and_then(|id| presets.iter().find(|p| p.id() == id).cloned()),
             name: b.name,
             kind: b.kind,
             model: b.model,
@@ -53,25 +60,23 @@ impl From<BrainInfo> for Provider {
             blocker: b.blocker,
         }
     }
-}
 
-impl Provider {
-    /// The preset it is, if the desk has one for it.
-    pub fn preset(&self) -> Option<&'static Preset> {
-        Preset::of(&self.kind, self.base_url.as_deref())
+    /// The preset it is, if it is one.
+    pub fn preset(&self) -> Option<&Preset> {
+        self.preset.as_ref()
     }
 
     /// The mark that stands for it.
     pub fn mark(&self) -> Mark {
         self.preset()
-            .map_or_else(|| Mark::letter(&self.name), |p| Mark::Icon(p.icon))
+            .map_or_else(|| Mark::letter(&self.name), Preset::mark)
     }
 
     /// How it is named in a list: the preset's name where it is saved
     /// under the preset's own id, otherwise the name it is saved under.
     pub fn title(&self) -> String {
         match self.preset() {
-            Some(p) if p.id == self.name => p.name.to_owned(),
+            Some(p) if p.id() == self.name => p.name().to_owned(),
             _ => self.name.clone(),
         }
     }
@@ -88,7 +93,7 @@ impl Provider {
         let base = self
             .base_url
             .as_deref()
-            .or_else(|| self.preset().map(|p| p.base_url))
+            .or_else(|| self.preset().map(Preset::base_url))
             .unwrap_or_default();
         let (_, host) = brains::authority(base);
         if host.is_empty() {
@@ -385,16 +390,18 @@ mod tests {
 
     /// One brain as a core describes it, read the way the desk reads it.
     fn described(json: &str) -> Provider {
-        Provider::from(serde_json::from_str::<BrainInfo>(json).unwrap())
+        let presets = crate::brains::tests::offered();
+        Provider::new(serde_json::from_str::<BrainInfo>(json).unwrap(), &presets)
     }
 
     #[test]
     fn a_brain_the_core_describes_is_named_and_marked_as_its_preset() {
         let deepseek = described(
             r#"{"name":"main","kind":"openai","model":"deepseek-flash",
-                "base_url":"https://api.deepseek.com/v1","key_env":"DEEPSEEK_API_KEY","key_set":true}"#,
+                "base_url":"https://api.deepseek.com/v1","key_env":"DEEPSEEK_API_KEY","key_set":true,
+                "preset":"deepseek"}"#,
         );
-        assert_eq!(deepseek.preset().map(|p| p.id), Some("deepseek"));
+        assert_eq!(deepseek.preset().map(Preset::id), Some("deepseek"));
         assert_eq!(deepseek.mark(), Mark::Icon("deepseek"));
         assert_eq!(deepseek.title(), "main", "saved under a name of its own");
         assert_eq!(deepseek.about(), "api.deepseek.com");
@@ -402,7 +409,8 @@ mod tests {
         assert!(deepseek.key_set);
 
         let claude = described(
-            r#"{"name":"claude-code","kind":"claude-code","model":"sonnet","program":"claude"}"#,
+            r#"{"name":"claude-code","kind":"claude-code","model":"sonnet","program":"claude",
+                "preset":"claude-code"}"#,
         );
         assert_eq!(
             (
@@ -418,7 +426,9 @@ mod tests {
                 "runs claude here"
             )
         );
-        let codex = described(r#"{"name":"codex","kind":"codex","program":"codex"}"#);
+        let codex =
+            described(r#"{"name":"codex","kind":"codex","program":"codex","preset":"codex"}"#);
+        assert_eq!(codex.title(), "Codex", "saved under its preset's own id");
         assert_eq!(codex.label(), "Codex", "no model is its own default");
     }
 

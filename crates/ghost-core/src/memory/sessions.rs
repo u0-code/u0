@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// How much of its first line a session without a name goes by.
-pub const TITLE_CHARS: usize = 48;
+const TITLE_CHARS: usize = 48;
 
 /// One conversation, as a console lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -58,7 +58,7 @@ pub use people::{Feeling, Person};
 pub use places::{Elsewhere, PlaceState, Talked};
 pub use public::Standing;
 pub use recall::Hit;
-pub use sessions::{Session, TITLE_CHARS};
+pub use sessions::Session;
 pub use skills::Skill;
 pub use work::{Undertaking, WorkReport};
 
