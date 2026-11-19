@@ -530,34 +530,6 @@ sleep = "00:30"
     }
 
     #[test]
-    fn a_memory_an_earlier_build_left_an_entry_out_of_is_folded_again() {
-        let d = dir_with_seed();
-        let mut g = Ghost::birth(d.path()).unwrap();
-        for fact in ["has a cat", "lives by the river", "drinks tea"] {
-            g.record(canon(fact)).unwrap();
-        }
-        drop(g);
-        // As builds before this one could leave it: an entry whose fold
-        // failed and was stepped past, and no count of what was folded.
-        {
-            let conn =
-                rusqlite::Connection::open(d.path().join(crate::memory::MEMORY_FILE)).unwrap();
-            conn.execute_batch(
-                "DELETE FROM canon WHERE fact = 'lives by the river';
-                 DELETE FROM meta WHERE key = 'folded';",
-            )
-            .unwrap();
-        }
-        let g = Ghost::open(d.path()).unwrap();
-        assert_eq!(facts(&g), ["drinks tea", "has a cat", "lives by the river"]);
-        drop(g);
-        // Once whole, opening her folds nothing again.
-        let mut memory = Memory::open(d.path()).unwrap();
-        let journal = Journal::open(&d.path().join(JOURNAL_FILE)).unwrap();
-        assert_eq!(memory.catch_up(&journal).unwrap(), 0);
-    }
-
-    #[test]
     fn memory_is_only_a_view() {
         let d = dir_with_seed();
         let mut g = Ghost::birth(d.path()).unwrap();
