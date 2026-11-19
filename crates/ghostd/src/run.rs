@@ -86,7 +86,6 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
     // is stops here.
     let core = crate::host::core(&crate::host::keeps_in(
         home,
-        from_file.then_some(cfg_path.as_path()),
         found
             .first()
             .map_or(Path::new("."), |(_, dir)| dir.as_path()),

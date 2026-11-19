@@ -30,6 +30,7 @@ Docker, or keep her on `local:` under this account.
 /etc/ghost/ghost.env     keys and tokens (the .env)              root:root, 600
 /etc/ghost/prompts/      prompts you changed, for every character   root:ghost, optional
 /var/lib/ghost/          her account's home: caches of the tools she installs
+/var/lib/ghost/core-id   which core this is, for consoles: made the first time
 /var/lib/ghost/weiwei/   her directory: ghost.toml, assets/, journal.db, work.db,
                          media/, skills/, tools/, derived/
 ```

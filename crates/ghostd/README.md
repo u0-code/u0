@@ -70,8 +70,9 @@ name of the computer. The paths she gives (her machine's directory, her
 work's folders, the files it hands over) are on that computer, and a
 console can open them only there: it knows it is there when it reads the
 same id at that path, which a host name could not tell it. A daemon run
-without a home keeps `core-id` beside the `ghostd.toml` it read, or in its
-first character's directory when it read none. The id is made once: a
+without a home keeps `core-id` in the directory its first character's
+directory is in (`/var/lib/ghost` for `ghostd run /var/lib/ghost/weiwei`),
+never beside its `ghostd.toml`, which it may only be able to read. The id is made once: a
 `core-id` that holds anything else stops the daemon, saying where it is,
 rather than being replaced with an id no console knows. Put the id back,
 or remove the file to have a new one made.
