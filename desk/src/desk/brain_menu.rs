@@ -289,16 +289,26 @@ impl Desk {
         (self.settings.solver_url.clone(), super::token())
     }
 
-    /// Ask the core on this machine `call` about its brains, on a
-    /// connection of its own, and hand what it answered to `done`.
+    /// Ask the core on this machine `call` about its brains: on the
+    /// solver's link to it while that is up, else on a connection of its
+    /// own.
+    pub(crate) fn brains(
+        &self,
+        call: BrainCall,
+    ) -> impl Future<Output = Result<BrainAnswer, Refused>> + Send + 'static {
+        let (url, token) = self.core_address();
+        link::brains(self.solver.conn.asker(), url, token, call)
+    }
+
+    /// Ask the core on this machine `call` about its brains, and hand what
+    /// it answered to `done`.
     pub(crate) fn ask_brains(
         &mut self,
         call: BrainCall,
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, Result<BrainAnswer, Refused>, &mut Context<Self>) + 'static,
     ) {
-        let (url, token) = self.core_address();
-        let task = link::runtime().spawn(link::brains(url, token, call));
+        let task = link::runtime().spawn(self.brains(call));
         cx.spawn(async move |this, cx| {
             let answer = task.await.unwrap_or_else(|e| {
                 Err(Refused {

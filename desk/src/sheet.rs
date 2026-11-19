@@ -368,8 +368,7 @@ impl Desk {
         + 'static,
     ) {
         let generation = self.sheet.generation;
-        let (url, token) = self.core_address();
-        let task = crate::link::runtime().spawn(crate::link::brains(url, token, call));
+        let task = crate::link::runtime().spawn(self.brains(call));
         cx.spawn_in(window, async move |this, cx| {
             let answer = task.await.unwrap_or_else(|e| {
                 Err(Refused {

@@ -89,16 +89,18 @@ impl Watched {
         let kept = cache::load(&cfg.url, cfg.ghost.as_deref());
         let keeper = cache::Keeper::new(&cfg.url, cfg.ghost.as_deref());
         let journal = Held::kept(kept.journal);
+        let conn = Link::watch(cfg.clone(), journal.newest());
         let media = media::Source {
             core: String::new(),
-            url: cfg.url.clone(),
-            token: cfg.token.clone(),
-            ghost: cfg.ghost.clone(),
+            url: cfg.url,
+            token: cfg.token,
+            ghost: cfg.ghost,
+            asker: conn.asker(),
         };
         Self {
             kept_core: kept.core,
             media,
-            conn: Link::watch(cfg, journal.newest()),
+            conn,
             fallback: fallback.to_owned(),
             link: LinkState::Connecting,
             reach: Reach::default(),

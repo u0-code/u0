@@ -17,25 +17,33 @@
 //! and then, and what each of them is waiting on you for, so that the desk
 //! can show a daemon's cast and its Attention without opening any of them;
 //! and it carries an answer given from Attention on a short connection of
-//! its own.
+//! its own. While a link to that daemon is up, the listing asks on the
+//! link's own connection what it can (who the daemon runs, and what she
+//! is waiting on you for) instead of opening one: an [`Asker`] is the way
+//! to it.
 //!
 //! All of it runs on one small tokio runtime and hands what it learns to
 //! the UI as [`Update`]s over a plain channel; the UI drains it on its own
 //! clock. Dropping either stops it. Nothing here touches a ghost's files.
 //!
 //! The brains of the core the desk runs are asked about and changed with
-//! [`brains`], on a short connection of its own each time: they are the
-//! core's, and the desk reads none of its files for them.
+//! [`brains`], and her files fetched by `media`, the same way: on the
+//! link's connection while it is up, else on a short connection of their
+//! own; what waits on a brain's provider always on one of its own. The
+//! brains are the core's, and the desk reads none of its files for them.
 
 use std::{
+    future::Future,
+    pin::Pin,
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
     time::{Duration, Instant},
 };
 
+use anyhow::anyhow;
 use ghost_link::{
     Console,
     protocol::{BrainAsk, BrainList, BrainSave},
@@ -61,7 +69,7 @@ const RETRY: Duration = Duration::from_secs(3);
 const RETRY_MOST: Duration = Duration::from_secs(30);
 /// How often each ghost a daemon runs is asked what is waiting on you. A
 /// minute is soon enough for what waits on a person, and costs one short
-/// connection per character a minute.
+/// connection per character a minute, but for the one a link is up to.
 const ATTENTION: Duration = Duration::from_secs(60);
 
 /// Wait out `wait`, or less if someone asks to try again now; then the next
@@ -170,6 +178,73 @@ async fn carry_out(console: &mut Console, order: &Order) -> anyhow::Result<bool>
 type Orders = tokio::sync::mpsc::UnboundedReceiver<Order>;
 type Reads = tokio::sync::mpsc::UnboundedReceiver<Read>;
 
+/// A call made on a daemon's connection, borrowing it while it runs.
+pub type Call<'c, T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'c>>;
+
+/// A call asked on a link's connection, with where its answer goes.
+type Job = Box<dyn for<'c> FnOnce(&'c mut Console) -> Call<'c, ()> + Send>;
+type Jobs = tokio::sync::mpsc::UnboundedReceiver<Job>;
+
+/// The way to a link's own asking connection, to ask on it while it is up
+/// rather than open another. Cloned freely, it outlives nothing: once the
+/// link is down, or gone, it asks nothing.
+#[derive(Clone)]
+pub struct Asker {
+    jobs: tokio::sync::mpsc::UnboundedSender<Job>,
+    /// The seal of whom the link speaks for, while it is up.
+    up: Arc<Mutex<Option<String>>>,
+}
+
+impl Asker {
+    /// The seal of the character the link speaks for, while it is up.
+    fn up(&self) -> Option<String> {
+        self.up.lock().ok()?.clone()
+    }
+
+    /// Ask `call` on the link's connection, after what it is asking now.
+    /// An error when the link is not up, or goes down first.
+    async fn ask<T, F>(&self, call: F) -> anyhow::Result<T>
+    where
+        T: Send + 'static,
+        F: for<'c> FnOnce(&'c mut Console) -> Call<'c, T> + Send + 'static,
+    {
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        let job: Job = Box::new(move |console| {
+            Box::pin(async move {
+                let _ = answer.send(call(console).await);
+                Ok(())
+            })
+        });
+        if self.up().is_none() || self.jobs.send(job).is_err() {
+            return Err(anyhow!("the link to the daemon is not up"));
+        }
+        answered
+            .await
+            .unwrap_or_else(|_| Err(anyhow!("the daemon closed the connection")))
+    }
+}
+
+/// Ask `call` of the character `ghost` on the daemon at `url`: on the
+/// connection of `via`'s link while it is up, else on a short connection
+/// of its own.
+pub async fn ask<T, F>(
+    via: Option<&Asker>,
+    url: &str,
+    token: Option<String>,
+    ghost: Option<String>,
+    call: F,
+) -> anyhow::Result<T>
+where
+    T: Send + 'static,
+    F: for<'c> FnOnce(&'c mut Console) -> Call<'c, T> + Send + 'static,
+{
+    if let Some(via) = via.filter(|a| a.up().is_some()) {
+        return via.ask(call).await;
+    }
+    let (mut console, _) = Console::connect(url, token, ghost).await?;
+    call(&mut console).await
+}
+
 /// Ask what `read` asks, and hand the answer, or why there is none, to the
 /// desk. A refusal is said, and the connection goes on.
 async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>) {
@@ -262,28 +337,36 @@ impl Refused {
     }
 }
 
-/// Ask the core at `url` about its brains, on a connection of its own.
+/// Ask the core at `url` about its brains: on the connection of `via`'s
+/// link to it while that is up, else on a connection of its own. What
+/// waits on a provider, its models or a test, always has one of its own:
+/// on the link's it would hold her journal and what you say to her back
+/// until the provider answered.
 pub async fn brains(
+    via: Asker,
     url: String,
     token: Option<String>,
     call: BrainCall,
 ) -> Result<BrainAnswer, Refused> {
-    let asked = async {
-        let (mut console, _) = Console::connect(&url, token, None).await?;
-        anyhow::Ok(match call {
-            BrainCall::List => BrainAnswer::List(console.brains().await?),
-            BrainCall::Save(save) => BrainAnswer::List(console.save_brain(&save).await?),
-            BrainCall::Remove(name) => BrainAnswer::List(console.remove_brain(&name).await?),
-            BrainCall::Use { name, model } => {
-                BrainAnswer::List(console.use_brain(&name, model).await?)
-            }
-            BrainCall::Models(ask) => BrainAnswer::Models(console.brain_models(&ask).await?),
-            BrainCall::Check(ask) => {
-                console.check_brain(&ask).await?;
-                BrainAnswer::Checked
-            }
+    let provider = matches!(call, BrainCall::Models(_) | BrainCall::Check(_));
+    let via = (!provider).then_some(&via);
+    let asked = ask(via, &url, token, None, move |console| {
+        Box::pin(async move {
+            Ok(match call {
+                BrainCall::List => BrainAnswer::List(console.brains().await?),
+                BrainCall::Save(save) => BrainAnswer::List(console.save_brain(&save).await?),
+                BrainCall::Remove(name) => BrainAnswer::List(console.remove_brain(&name).await?),
+                BrainCall::Use { name, model } => {
+                    BrainAnswer::List(console.use_brain(&name, model).await?)
+                }
+                BrainCall::Models(ask) => BrainAnswer::Models(console.brain_models(&ask).await?),
+                BrainCall::Check(ask) => {
+                    console.check_brain(&ask).await?;
+                    BrainAnswer::Checked
+                }
+            })
         })
-    };
+    });
     asked.await.map_err(|e| Refused::from(&e))
 }
 
@@ -302,6 +385,8 @@ pub struct Link {
     orders: tokio::sync::mpsc::UnboundedSender<Order>,
     /// Where what the thread wants to read of her steps goes.
     reads: tokio::sync::mpsc::UnboundedSender<Read>,
+    /// The way to ask on its connection.
+    asker: Asker,
     task: JoinHandle<()>,
     /// Rung to try a lost daemon again at once.
     wake: Arc<tokio::sync::Notify>,
@@ -315,15 +400,32 @@ impl Link {
         let (up, rx) = mpsc::channel();
         let (orders, taken) = tokio::sync::mpsc::unbounded_channel();
         let (reads, to_read) = tokio::sync::mpsc::unbounded_channel();
+        let (jobs, to_do) = tokio::sync::mpsc::unbounded_channel();
+        let asker = Asker {
+            jobs,
+            up: Arc::default(),
+        };
         let wake = Arc::new(tokio::sync::Notify::new());
-        let task = runtime().spawn(console(cfg, newest, up, wake.clone(), taken, to_read));
+        let channels = Channels {
+            orders: taken,
+            reads: to_read,
+            jobs: to_do,
+            up: asker.up.clone(),
+        };
+        let task = runtime().spawn(console(cfg, newest, up, wake.clone(), channels));
         Self {
             rx,
             orders,
             reads,
+            asker,
             task,
             wake,
         }
+    }
+
+    /// The way to ask on its connection while it is up.
+    pub fn asker(&self) -> Asker {
+        self.asker.clone()
     }
 
     /// Read some of her steps, once her daemon can be reached. The answer
@@ -346,6 +448,9 @@ impl Link {
 impl Drop for Link {
     fn drop(&mut self) {
         self.task.abort();
+        if let Ok(mut up) = self.asker.up.lock() {
+            *up = None;
+        }
     }
 }
 
@@ -366,14 +471,16 @@ pub struct Listing {
 impl Listing {
     /// Ask the daemon at `url` who it runs, and again every little while,
     /// connecting again when it goes away; and each of them, every minute,
-    /// what is waiting on you.
-    pub fn follow(url: String, token: Option<String>) -> Self {
+    /// what is waiting on you. `asker` is a link's to that daemon, where
+    /// the desk has one, to ask on while it is up.
+    pub fn follow(url: String, token: Option<String>, asker: Option<Asker>) -> Self {
         let (up, rx) = mpsc::channel();
         let wake = Arc::new(tokio::sync::Notify::new());
         let attend = Arc::new(AtomicBool::new(true));
         let task = runtime().spawn(listing(
             url.clone(),
             token.clone(),
+            asker,
             up.clone(),
             wake.clone(),
             attend.clone(),
@@ -436,6 +543,7 @@ impl Drop for Listing {
 async fn listing(
     url: String,
     token: Option<String>,
+    via: Option<Asker>,
     up: mpsc::Sender<Update>,
     wake: Arc<tokio::sync::Notify>,
     attend: Arc<AtomicBool>,
@@ -443,14 +551,26 @@ async fn listing(
     let mut wait = RETRY;
     let mut asked: Option<Instant> = None;
     loop {
-        match ghost_link::list(&url, token.clone()).await {
+        let listed = match via.as_ref().filter(|a| a.up().is_some()) {
+            Some(via) => via.ask(|console| Box::pin(console.list())).await,
+            None => ghost_link::list(&url, token.clone()).await,
+        };
+        match listed {
             Ok(roster) => {
                 wait = RETRY;
                 let _ = up.send(Update::Link(LinkState::Connected));
                 let due = asked.is_none_or(|at| at.elapsed() >= ATTENTION);
                 if attend.swap(false, Ordering::Relaxed) || due {
                     for g in &roster.ghosts {
-                        match waiting(&url, token.clone(), &g.id).await {
+                        // Hers on her link's connection, if it is hers.
+                        let on = via
+                            .as_ref()
+                            .filter(|a| a.up().as_deref() == Some(g.card.seal.as_str()));
+                        let ghost = Some(g.id.clone());
+                        let items = ask(on, &url, token.clone(), ghost, |console| {
+                            Box::pin(console.attention())
+                        });
+                        match items.await {
                             Ok(items) => {
                                 let _ = up.send(Update::Attention {
                                     ghost: g.id.clone(),
@@ -478,15 +598,24 @@ async fn listing(
     }
 }
 
-/// What the character `ghost` is waiting on you for, asked on a short
-/// connection of its own.
-async fn waiting(
-    url: &str,
-    token: Option<String>,
-    ghost: &str,
-) -> anyhow::Result<Vec<ghost_link::protocol::Attention>> {
-    let (mut console, _) = Console::connect(url, token, Some(ghost.to_owned())).await?;
-    console.attention().await
+/// What a link's task is handed from the desk, and where it says whom its
+/// connection speaks for while it is up.
+struct Channels {
+    orders: Orders,
+    reads: Reads,
+    jobs: Jobs,
+    up: Arc<Mutex<Option<String>>>,
+}
+
+impl Channels {
+    /// Say whom the connection speaks for, or that it is down; either way
+    /// what was asked of the one before is dropped, and its askers told.
+    fn speak_for(&mut self, seal: Option<String>) {
+        if let Ok(mut up) = self.up.lock() {
+            *up = seal;
+        }
+        while self.jobs.try_recv().is_ok() {}
+    }
 }
 
 /// The console role: connect, ask everything once, then follow her journal
@@ -498,13 +627,14 @@ async fn console(
     mut newest: i64,
     up: mpsc::Sender<Update>,
     wake: Arc<tokio::sync::Notify>,
-    mut orders: Orders,
-    mut reads: Reads,
+    mut channels: Channels,
 ) {
     let mut wait = RETRY;
     loop {
         let _ = up.send(Update::Link(LinkState::Connecting));
-        match session(&cfg, &mut newest, &up, &mut orders, &mut reads).await {
+        let ended = session(&cfg, &mut newest, &up, &mut channels).await;
+        channels.speak_for(None);
+        match ended {
             Ok(()) => {
                 let _ = up.send(Update::Link(LinkState::Lost(
                     "the daemon closed the connection".into(),
@@ -522,8 +652,7 @@ async fn session(
     cfg: &Config,
     newest: &mut i64,
     up: &mpsc::Sender<Update>,
-    orders: &mut Orders,
-    reads: &mut Reads,
+    channels: &mut Channels,
 ) -> anyhow::Result<()> {
     // One connection streams her journal; a second asks questions and
     // carries what you do, since a call on a subscribed connection would
@@ -541,6 +670,7 @@ async fn session(
         "connected to {} as a console for {}",
         cfg.url, welcome.ghost.name
     );
+    channels.speak_for(Some(welcome.ghost.seal.clone()));
     let _ = up.send(Update::Welcome(welcome.ghost));
     let _ = up.send(Update::Link(LinkState::Connected));
 
@@ -585,7 +715,7 @@ async fn session(
                     None => return Ok(()),
                 }
             }
-            Some(order) = orders.recv() => {
+            Some(order) = channels.orders.recv() => {
                 match carry_out(&mut asker, &order).await {
                     Ok(_) if matches!(order, Order::Say { .. }) => {}
                     // What became of her work shows at once, not at the
@@ -607,7 +737,11 @@ async fn session(
                     }
                 }
             }
-            Some(read) = reads.recv() => read_steps(&mut asker, read, up).await,
+            Some(read) = channels.reads.recv() => read_steps(&mut asker, read, up).await,
+            // What is asked on this connection rather than one of its own.
+            Some(job) = channels.jobs.recv() => {
+                let _ = job(&mut asker).await;
+            }
             _ = refresh.tick() => {
                 ask_all(&mut asker, up).await?;
                 if cfg.sessions {
@@ -675,4 +809,45 @@ async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Resu
     let _ = up.send(Update::Status(Box::new(Status::read(status))));
     ask_work(asker, up).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_is_asked_of_a_link_that_goes_down_is_refused_rather_than_kept() {
+        let (jobs, to_do) = tokio::sync::mpsc::unbounded_channel();
+        let up = Arc::new(Mutex::new(Some("seal".to_owned())));
+        let asker = Asker {
+            jobs,
+            up: up.clone(),
+        };
+        let mut channels = Channels {
+            orders: tokio::sync::mpsc::unbounded_channel().1,
+            reads: tokio::sync::mpsc::unbounded_channel().1,
+            jobs: to_do,
+            up,
+        };
+        let waiting = asker.clone();
+        let pending = runtime().spawn(async move {
+            waiting
+                .ask(|console| Box::pin(console.list()))
+                .await
+                .is_err()
+        });
+        while channels.jobs.is_empty() {
+            std::thread::yield_now();
+        }
+        // The link goes down with it asked and not yet answered.
+        channels.speak_for(None);
+        assert!(
+            runtime().block_on(pending).unwrap(),
+            "told, not kept waiting"
+        );
+        // Down, it takes nothing more: whoever asks opens a connection.
+        let later = runtime().block_on(asker.ask(|console| Box::pin(console.list())));
+        assert!(later.is_err());
+        assert!(channels.jobs.is_empty());
+    }
 }

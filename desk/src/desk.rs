@@ -318,7 +318,11 @@ impl Desk {
             },
             MASCOT,
         );
-        let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
+        let mut daemons = vec![Daemon::local(
+            &settings.solver_url,
+            token(),
+            solver.conn.asker(),
+        )];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
         let followed: Vec<&Host> = daemons.iter().map(|d| &d.host).collect();
         if attention::forget_unfollowed(&mut settings.seen, &followed) {
