@@ -32,7 +32,6 @@
 
 use std::{
     fs,
-    io::Write as _,
     path::{Path, PathBuf},
 };
 
@@ -113,7 +112,7 @@ pub fn ready(home: &Path, adopt: Option<&Path>) -> anyhow::Result<Made> {
         let solver = ghosts.join(SOLVER);
         if !solver.join("ghost.toml").is_file() {
             fs::create_dir_all(&solver)?;
-            fs::write(solver.join("ghost.toml"), PERSONA)?;
+            write_whole(&solver.join("ghost.toml"), PERSONA)?;
         }
         Ghost::birth(&solver).with_context(|| format!("birth in {}", solver.display()))?;
         made.born = true;
@@ -273,7 +272,8 @@ fn take_in(old: &Old, home: &Path) -> anyhow::Result<()> {
     let env = home.join(ENV);
     if let Some(from) = old.env.as_deref().filter(|_| !env.exists()) {
         let keys = fs::read(from).with_context(|| format!("read {}", from.display()))?;
-        private_file(&env)?.write_all(&keys)?;
+        ghost_core::whole::write_private(&env, &keys)
+            .with_context(|| format!("write {}", env.display()))?;
     }
     // Last, since she is hers here whether or not it is written: if it is
     // not, the next time this home is given the checkout writes it.
@@ -408,23 +408,11 @@ fn copy_tree(from: &Path, to: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Write `text` to `path` whole: beside it first, then renamed, so that a
-/// write cut short never leaves half a file under its name.
+/// Write `text` to `path` whole, as [`ghost_core::whole`] does: a crash
+/// leaves the file as it was or as it is now, never half of it.
 pub(crate) fn write_whole(path: &Path, text: &str) -> anyhow::Result<()> {
-    let part = path.with_extension("part");
-    fs::write(&part, text).with_context(|| format!("write {}", part.display()))?;
-    fs::rename(&part, path).with_context(|| format!("write {}", path.display()))
-}
-
-/// A new file only its owner may read.
-fn private_file(path: &Path) -> anyhow::Result<fs::File> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options
-        .open(path)
-        .with_context(|| format!("create {}", path.display()))
+    ghost_core::whole::write(path, text.as_bytes())
+        .with_context(|| format!("write {}", path.display()))
 }
 
 #[cfg(test)]
