@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// The name of the tag around what came from outside.
-pub const TAG: &str = "outside";
+pub(crate) const TAG: &str = "outside";
 /// How much of a command is shown as where its output came from.
 const COMMAND_SHOWN: usize = 120;
 

@@ -483,7 +483,7 @@ impl Mind {
             Arc::new(move |undertaking| {
                 let tools = match &machine {
                     Some(machine) => tools::standard(in_folder(machine, undertaking), undertaking),
-                    None => tools::desk(undertaking),
+                    None => tools::without_machine(undertaking),
                 };
                 let tools = tools::with_web(tools, &web);
                 let tools = match &servers {

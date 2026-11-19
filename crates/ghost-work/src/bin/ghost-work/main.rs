@@ -176,7 +176,7 @@ async fn main() -> anyhow::Result<()> {
         let machine = machine.clone();
         Arc::new(move |undertaking| {
             let toolbox = if no_machine {
-                tools::desk(undertaking)
+                tools::without_machine(undertaking)
             } else {
                 tools::standard(machine.clone(), undertaking)
             };
