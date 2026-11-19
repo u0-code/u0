@@ -239,6 +239,8 @@ pub fn state_word(state: WorkState) -> &'static str {
 /// its core says of it.
 pub struct Task<'a> {
     pub id: String,
+    /// The place it was taken on in, by its key.
+    pub place: &'a str,
     pub brief: String,
     pub started: DateTime<Utc>,
     /// Everything after `undertook` that names it, in order: what it told,
@@ -348,6 +350,7 @@ pub fn tasks<'a>(journal: &'a [Entry], work: &'a [Work]) -> Vec<Task<'a>> {
                 index.insert(id, all.len());
                 all.push(Task {
                     id: id.to_owned(),
+                    place: s(&e.data, "place"),
                     brief: s(&e.data, "brief").to_owned(),
                     started: e.at,
                     events: Vec::new(),
@@ -375,32 +378,21 @@ pub fn place_work<'a>(journal: &'a [Entry], place: &str) -> HashSet<&'a str> {
         .collect()
 }
 
-/// The work taken on in one session, oldest first: the work whose
-/// `undertook` names the session's place. One pass over the journal,
-/// since the sidebar asks this of every session on every tick.
-pub fn session_tasks<'a>(journal: &'a [Entry], work: &'a [Work], session: &str) -> Vec<Task<'a>> {
-    place_tasks(journal, work, &place_key(session))
-}
-
 /// The work taken on in the place `place`, a place key; oldest first.
 pub fn place_tasks<'a>(journal: &'a [Entry], work: &'a [Work], place: &str) -> Vec<Task<'a>> {
-    let ours = place_work(journal, place);
-    if ours.is_empty() {
-        return Vec::new();
-    }
     tasks(journal, work)
         .into_iter()
-        .filter(|t| ours.contains(t.id.as_str()))
+        .filter(|t| t.place == place)
         .collect()
 }
 
 /// The parts of a session's work still going, for the rows nested under
 /// the session in the sidebar.
-pub fn open_parts<'a>(tasks: &[Task<'a>]) -> Vec<&'a Work> {
+pub fn open_parts<'a>(tasks: &[&Task<'a>]) -> Vec<&'a Work> {
     tasks
         .iter()
         .filter(|t| t.open())
-        .flat_map(Task::parts)
+        .flat_map(|t| t.parts())
         .collect()
 }
 
@@ -843,8 +835,9 @@ pub struct Wanted {
 
 /// What the thread `view` shows of her steps.
 pub fn wanted(view: &View<'_>) -> Wanted {
+    let stream = Stream::of(view);
     let mut works = Vec::new();
-    for t in place_tasks(view.journal, view.work, view.place) {
+    for t in stream.tasks() {
         // Every work's steps are read, folded or not: its line says what
         // it did in them. Its parts only once it is opened.
         works.push((t.id.clone(), t.open()));
@@ -863,7 +856,7 @@ pub fn wanted(view: &View<'_>) -> Wanted {
     }
     Wanted {
         place: view.place.to_owned(),
-        thinking: waiting_since(&items(view)).is_some(),
+        thinking: waiting_since(&stream.0).is_some(),
         newest_end: newest_look_end(view.journal, view.place),
         works,
     }
@@ -924,19 +917,40 @@ fn waiting_since(items: &[(DateTime<Utc>, i64, Item<'_>)]) -> Option<DateTime<Ut
     since
 }
 
-/// Whether she is busy with what you said in the place `view` shows:
-/// thinking about your last line, or at work taken on there that is still
-/// open. While she is, the composer offers to stop her.
-pub fn busy(view: &View<'_>) -> bool {
-    waiting_since(&items(view)).is_some()
-        || place_tasks(view.journal, view.work, view.place)
-            .iter()
-            .any(Task::open)
+/// What the thread `view` shows, in order of time: built once each time
+/// it is drawn, or asked what it wants read, and handed to everything
+/// that reads it.
+pub struct Stream<'a>(Vec<(DateTime<Utc>, i64, Item<'a>)>);
+
+impl<'a> Stream<'a> {
+    pub fn of(view: &View<'a>) -> Self {
+        Self(items(view))
+    }
+
+    /// The work taken on in the place, oldest first.
+    fn tasks(&self) -> impl Iterator<Item = &Task<'a>> {
+        self.0.iter().filter_map(|(_, _, item)| match item {
+            Item::Task(t) => Some(t),
+            _ => None,
+        })
+    }
+
+    /// Whether she is busy with what you said in the place: thinking
+    /// about your last line, or at work taken on there that is still open.
+    /// While she is, the composer offers to stop her.
+    pub fn busy(&self) -> bool {
+        waiting_since(&self.0).is_some() || self.tasks().any(Task::open)
+    }
 }
 
-/// Draw the thread `view` shows task-first, as a coding agent's app
-/// does: each command and file and search, under a line saying how long
-/// it took.
-pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
-    task_first::render(view, faces, cx)
+/// Draw the thread `view` shows, as `stream` holds it, task-first, as a
+/// coding agent's app does: each command and file and search, under a
+/// line saying how long it took.
+pub fn render(
+    view: &View<'_>,
+    stream: Stream<'_>,
+    faces: &Faces,
+    cx: &mut Context<Desk>,
+) -> AnyElement {
+    task_first::render(view, stream.0, faces, cx)
 }

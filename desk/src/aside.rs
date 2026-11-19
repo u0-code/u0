@@ -565,7 +565,11 @@ impl Desk {
                 .into_any_element();
         }
         let session = self.session();
-        let tasks = thread::session_tasks(&self.solver.journal, &self.solver.work, &session.id);
+        let tasks = thread::place_tasks(
+            &self.solver.journal,
+            &self.solver.work,
+            &thread::place_key(&session.id),
+        );
         let outputs = thread::outputs(&self.solver.journal, &session.id);
         let environment = self.environment(faces, cx);
         let place = thread::place_key(&session.id);

@@ -351,9 +351,12 @@ impl Desk {
                     .py(px(8.)),
             );
         }
+        // Her work, read from her journal once for every session listed.
+        let work = thread::tasks(&self.solver.journal, &self.solver.work);
         for i in found {
             let session = &all[i];
-            let tasks = thread::session_tasks(&self.solver.journal, &self.solver.work, &session.id);
+            let place = thread::place_key(&session.id);
+            let tasks: Vec<&Task<'_>> = work.iter().filter(|t| t.place == place).collect();
             list = list.child(self.session_row(faces, session, &tasks, cx));
             let parts = thread::open_parts(&tasks);
             let count = parts.len();
@@ -373,7 +376,7 @@ impl Desk {
         &self,
         faces: &Faces,
         s: &Session,
-        tasks: &[Task<'_>],
+        tasks: &[&Task<'_>],
         cx: &mut Context<Self>,
     ) -> Div {
         let on = s.id == self.sessions.current_id() && self.open.is_none() && !self.attending();
@@ -452,7 +455,7 @@ impl Desk {
             .when(on || menu_open, |d| d.bg(theme::panel2()))
             .when(!on && !menu_open, |d| d.hover(|x| x.bg(theme::hover())))
             .child(name)
-            .when(tasks.iter().any(Task::open), |d| {
+            .when(tasks.iter().any(|t| t.open()), |d| {
                 d.child(ui::dot(theme::accent()))
             })
             .when(!renaming, |d| d.child(more))

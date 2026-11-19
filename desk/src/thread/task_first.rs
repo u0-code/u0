@@ -19,8 +19,7 @@ use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px
 use super::{
     Item, View, ago,
     cards::{task, tool},
-    clock, could_not, directed, items, look_started, sent_while_working, span, steps,
-    waiting_since,
+    clock, could_not, directed, look_started, sent_while_working, span, steps, waiting_since,
 };
 use crate::{
     desk::Desk,
@@ -49,8 +48,12 @@ enum Before {
     Other,
 }
 
-pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
-    let items = items(view);
+pub fn render<'a>(
+    view: &View<'a>,
+    items: Vec<(DateTime<Utc>, i64, Item<'a>)>,
+    faces: &Faces,
+    cx: &mut Context<Desk>,
+) -> AnyElement {
     if items.is_empty() {
         return empty(view, faces);
     }

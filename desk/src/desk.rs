@@ -696,10 +696,12 @@ impl Render for Desk {
                 - if self.panes.left { LEFT } else { 0. }
                 - if self.panes.right { RIGHT } else { 0. };
             view.column = (pane - 64.).clamp(240., COLUMN);
+            // What the thread holds, built once for all that reads it.
+            let stream = thread::Stream::of(&view);
             // Only a place on the console channel is yours to stop her in.
-            let busy = place.starts_with(&thread::place_key("")) && thread::busy(&view);
+            let busy = place.starts_with(&thread::place_key("")) && stream.busy();
             middle
-                .child(thread::render(&view, &faces, cx))
+                .child(thread::render(&view, stream, &faces, cx))
                 .child(self.composer(&faces, busy, window, cx))
         };
 

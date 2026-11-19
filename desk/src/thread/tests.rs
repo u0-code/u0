@@ -117,11 +117,11 @@ fn two_sessions() -> Vec<Entry> {
 #[test]
 fn a_session_holds_only_the_work_taken_on_in_its_place() {
     let journal = two_sessions();
-    let s1 = session_tasks(&journal, &[], "s1");
+    let s1 = place_tasks(&journal, &[], &place_key("s1"));
     assert_eq!(s1.len(), 1);
     assert_eq!(s1[0].id, "w1");
-    assert_eq!(session_tasks(&journal, &[], "s2")[0].id, "w2");
-    assert!(session_tasks(&journal, &[], "s3").is_empty());
+    assert_eq!(place_tasks(&journal, &[], &place_key("s2"))[0].id, "w2");
+    assert!(place_tasks(&journal, &[], &place_key("s3")).is_empty());
 }
 
 #[test]
@@ -132,12 +132,22 @@ fn the_sidebar_nests_every_part_of_open_work_and_none_of_finished_work() {
         listed("w1/2", WorkState::Running, Vec::new()),
     ];
     let work = [listed("w1", WorkState::Running, parts.clone())];
-    let s1 = session_tasks(&journal, &work, "s1");
-    let ids: Vec<&str> = open_parts(&s1).iter().map(|p| p.id.as_str()).collect();
+    let s1 = place_tasks(&journal, &work, &place_key("s1"));
+    let ids: Vec<&str> = open_parts(&s1.iter().collect::<Vec<_>>())
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
     assert_eq!(ids, ["w1/1", "w1/2"]);
 
     let work = [listed("w1", WorkState::Finished, parts)];
-    assert!(open_parts(&session_tasks(&journal, &work, "s1")).is_empty());
+    assert!(
+        open_parts(
+            &place_tasks(&journal, &work, &place_key("s1"))
+                .iter()
+                .collect::<Vec<_>>()
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -294,7 +304,7 @@ fn a_sessions_thread_has_its_lines_and_yours_not_yet_shown_and_its_own_work() {
     );
     // Its work is its own, and nobody else's.
     let ids = |s: &str| -> Vec<String> {
-        session_tasks(&journal, &[], s)
+        place_tasks(&journal, &[], &place_key(s))
             .iter()
             .map(|t| t.id.clone())
             .collect()
@@ -375,14 +385,14 @@ fn she_is_busy_after_your_line_until_she_answers_fails_or_is_stopped() {
     }];
     let expanded = HashSet::new();
     let place = place_key("s1");
-    assert!(busy(&view(&journal, &[], &place, &expanded)));
+    assert!(Stream::of(&view(&journal, &[], &place, &expanded)).busy());
     // A stop asked for after it ends the wait.
     let stops = [crate::model::Stop {
         place: "s1".into(),
         at: at(2),
         stopped: true,
     }];
-    assert!(!busy(&view(&journal, &stops, &place, &expanded)));
+    assert!(!Stream::of(&view(&journal, &stops, &place, &expanded)).busy());
     // So does a look that could not think, in that place only.
     journal.push(Entry {
         at: at(3),
@@ -394,7 +404,7 @@ fn she_is_busy_after_your_line_until_she_answers_fails_or_is_stopped() {
         )
     });
     let shown = view(&journal, &[], &place, &expanded);
-    assert!(!busy(&shown));
+    assert!(!Stream::of(&shown).busy());
     let failed: Vec<String> = items(&shown)
         .into_iter()
         .filter_map(|(_, _, i)| match i {
@@ -552,7 +562,10 @@ fn what_she_called_in_a_look_goes_above_the_answer_it_led_to() {
             "other"
         ]
     );
-    assert!(!busy(&view), "a look that ended is her done with your line");
+    assert!(
+        !Stream::of(&view).busy(),
+        "a look that ended is her done with your line"
+    );
     assert_eq!(newest_look_end(&journal, &place), Some(5));
 }
 
