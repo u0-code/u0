@@ -85,8 +85,18 @@ pub(crate) fn open(db: &Path) -> io::Result<Connection> {
     if let Some(parent) = db.parent().filter(|p| !p.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
+    let new = fs::metadata(db).map_or(true, |m| m.len() == 0);
     let mut conn = Connection::open(db).map_err(other)?;
     conn.busy_timeout(Duration::from_secs(10)).map_err(other)?;
+    if new {
+        // Pages freed are given back to the disk at the commit that frees
+        // them: looks are let go after a fortnight and the transcript of
+        // work that has ended goes, and the file would otherwise keep
+        // their room for good. It can only be said of a file nothing has
+        // been written to, before the switch to WAL writes its header.
+        conn.pragma_update(None, "auto_vacuum", "FULL")
+            .map_err(other)?;
+    }
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(other)?;
     // A database already at this schema is opened without a write: every
@@ -229,6 +239,12 @@ pub(super) fn store(conn: &Connection, id: &str, state: &State) -> rusqlite::Res
          ON CONFLICT (id) DO UPDATE SET state = excluded.state",
         params![id, text],
     )?;
+    // The transcript is what a sitting is picked up from. Work that has
+    // ended is never sat down to again, and every item it held is in its
+    // history, so it goes with the end.
+    if state.finish.is_some() {
+        conn.execute("DELETE FROM transcript_items WHERE id = ?1", [id])?;
+    }
     Ok(())
 }
 

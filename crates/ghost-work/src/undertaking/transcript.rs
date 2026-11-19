@@ -242,15 +242,27 @@ impl Undertaking {
             )
             .map_err(other)?;
         append(&tx, "history", "item", &self.id, history).map_err(other)?;
-        // Rows past its end go; all of them, where what is on disk is not
-        // known.
-        let keep = if known.is_some() { items.len() } else { 0 };
+        // Work that has ended keeps no transcript (see `db::store`): what
+        // it held is in the history, and nothing picks it up again.
+        let ended = match &out {
+            Some((_, state)) => state.finish.is_some(),
+            None => load(&tx, &self.id)
+                .map_err(other)?
+                .is_some_and(|state| state.finish.is_some()),
+        };
+        // Rows past its end go; all of them where what is on disk is not
+        // known, or the work has ended.
+        let keep = if known.is_some() && !ended {
+            items.len()
+        } else {
+            0
+        };
         tx.execute(
             "DELETE FROM transcript_items WHERE id = ?1 AND n > ?2",
             params![self.id, i64::try_from(keep).map_err(other)?],
         )
         .map_err(other)?;
-        {
+        if !ended {
             let mut put = tx
                 .prepare(
                     "INSERT OR REPLACE INTO transcript_items (id, n, item, history)
@@ -268,7 +280,7 @@ impl Undertaking {
             }
         }
         tx.commit().map_err(other)?;
-        *self.saved() = Some(items.to_vec());
+        *self.saved() = Some(if ended { Vec::new() } else { items.to_vec() });
         Ok(out.map(|(out, state)| {
             *self.cached() = state;
             out

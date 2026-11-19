@@ -11,7 +11,8 @@
 //! undertakings      brief, plan, notes, outcome, running totals
 //! transcript_items  what the model is shown now, an item a row, saved
 //!                   with every step; an item as the history has it is
-//!                   kept there and only pointed to
+//!                   kept there and only pointed to; gone once the work
+//!                   has ended
 //! history           every item the transcript ever held; append-only
 //! log            one line per step: what the model said, what it called
 //!                with what, the head of what came back, what it cost
