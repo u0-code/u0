@@ -268,7 +268,7 @@ impl Mind {
             talked.lines.push(self.prompts.fill(
                 "report_talked_line",
                 &[
-                    ("place", self.place_words(&t.place)?),
+                    ("place", self.place_words(&t.place, &[])?),
                     ("heard", t.heard.to_string()),
                     ("said", t.said.to_string()),
                 ],

@@ -6,19 +6,21 @@
 //! is put together in `look`, what a brain makes of it comes back in
 //! `thought`, and what she decided is carried out in `decided`.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Call, Item, Step};
 use ghost_core::{
     journal::Event,
     life::Phase,
-    memory::{Intention, PlaceState},
+    memory::{Intention, Line, PlaceState},
     social::{self, PlaceKind},
     tempo::Notice,
     will,
 };
 use tracing::{debug, warn};
 
-use super::{Attend, Mind, after};
+use super::{Attend, Mind, after, group::BOT_WINDOW};
 use crate::{
     Incoming, Result,
     actions::{Action, Deliberation},
@@ -341,8 +343,19 @@ impl Mind {
         if moment.phase == Phase::Asleep && !self.tempo.instant() && !terminal {
             return self.schedule_attend(place_key, now);
         }
+        // Who is talking is read off one read of the conversation, and
+        // each of them is looked up once, for both questions below.
+        let (lines, mut bots) = if terminal {
+            (Vec::new(), HashMap::new())
+        } else {
+            let window = self.cfg.thread_window.max(BOT_WINDOW);
+            (
+                self.ghost.memory().thread(place_key, window)?,
+                HashMap::new(),
+            )
+        };
         if !terminal
-            && self.only_bots_talking(&place)?
+            && self.only_bots_talking(&place, &lines, &mut bots)?
             && self
                 .ghost
                 .memory()
@@ -354,7 +367,7 @@ impl Mind {
                 "only automated accounts are talking, and she has said enough",
             );
         }
-        if !terminal && self.in_a_loop_with_bots(&place)? {
+        if !terminal && self.in_a_loop_with_bots(&place, &lines, &mut bots)? {
             return self.stay_out(
                 &place,
                 "she and automated accounts have been answering each other with no person in between",
@@ -436,22 +449,31 @@ impl Mind {
         Ok(())
     }
 
-    fn only_bots_talking(&self, place: &PlaceState) -> Result<bool> {
-        let memory = self.ghost.memory();
-        let unread: Vec<_> = memory
-            .thread(&place.key, self.cfg.thread_window)?
-            .into_iter()
+    /// Whether everything unread among the latest `lines` of a place was
+    /// written by automated accounts. `bots` is who is known to be one.
+    fn only_bots_talking(
+        &self,
+        place: &PlaceState,
+        lines: &[Line],
+        bots: &mut HashMap<String, bool>,
+    ) -> Result<bool> {
+        let lines = &lines[lines.len().saturating_sub(self.cfg.thread_window)..];
+        let mut unread = lines
+            .iter()
             .filter(|l| l.incoming && l.seq > place.read_upto)
-            .collect();
-        for line in &unread {
+            .peekable();
+        if unread.peek().is_none() {
+            return Ok(false);
+        }
+        for line in unread {
             let automated = match &line.person {
-                Some(key) => memory.person(key)?.is_some_and(|p| p.automated),
+                Some(key) => self.automated(key, bots)?,
                 None => false,
             };
             if !automated {
                 return Ok(false);
             }
         }
-        Ok(!unread.is_empty())
+        Ok(true)
     }
 }

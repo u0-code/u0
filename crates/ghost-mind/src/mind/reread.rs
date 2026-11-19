@@ -192,7 +192,7 @@ impl Mind {
             if place != here.key
                 && let Some(state) = memory.place(&place)?
             {
-                out.push(format!("In {}:", self.place_words(&state)?));
+                out.push(format!("In {}:", self.place_words(&state, &[])?));
             }
             out.push(narrate::transcript(&run, i64::MAX, clock, now));
         }

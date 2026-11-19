@@ -480,7 +480,12 @@ async fn in_a_private_chat_silence_neither_stretches_her_next_look_nor_shows_gro
     let place = place_of(&rig, "t:haoran");
     assert_stretched(&rig, &place.key, now, 1.0);
     assert!(!rig.mind.holds_back(&place, now));
-    assert!(!rig.mind.in_a_loop_with_bots(&place).unwrap());
+    let lines = rig.mind.ghost.memory().thread(&place.key, 60).unwrap();
+    assert!(
+        !rig.mind
+            .in_a_loop_with_bots(&place, &lines, &mut std::collections::HashMap::default())
+            .unwrap()
+    );
     let prompt = rig.think.last_prompt();
     assert!(prompt.contains("This is a private conversation."));
     assert!(!prompt.contains("What is so here"));

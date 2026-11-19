@@ -214,7 +214,7 @@ async fn what_someone_told_her_in_private_is_not_in_her_report() {
     let talked = p.fill(
         "report_talked_line",
         &[
-            ("place", rig.mind.place_words(&mei).unwrap()),
+            ("place", rig.mind.place_words(&mei, &[]).unwrap()),
             ("heard", "1".to_owned()),
             ("said", "0".to_owned()),
         ],
