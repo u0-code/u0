@@ -66,9 +66,6 @@ pub use work::{Undertaking, WorkReport};
 
 /// Where the derived memory lives inside a ghost directory.
 pub const MEMORY_FILE: &str = "derived/memory.db";
-/// Where it was kept when each platform had a database of its own. Removed
-/// when found.
-const OLD_DIR: &str = "derived/memory";
 
 /// Bump when the schema changes. A mismatch rebuilds from the journal.
 const SCHEMA_VERSION: i64 = 24;
@@ -85,11 +82,6 @@ pub struct Memory {
 impl Memory {
     /// Open the derived store under `dir`, creating or rebuilding it.
     pub fn open(dir: &Path) -> Result<Self> {
-        // From when each platform had a file of its own. It is only a view.
-        let old = dir.join(OLD_DIR);
-        if old.is_dir() {
-            std::fs::remove_dir_all(old)?;
-        }
         let path = dir.join(MEMORY_FILE);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -97,21 +89,9 @@ impl Memory {
         let version: i64 =
             Connection::open(&path)?.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version != SCHEMA_VERSION && version != 0 {
-            // An older shape. It is only a view: throw all of it away.
+            // Another shape. It is only a view: throw all of it away.
             discard(dir)?;
         }
-        let memory = Self::prepare(Connection::open(&path)?)?;
-        if memory.folded()? == memory.last_seq()? {
-            return Ok(memory);
-        }
-        // Her journal's seqs run 1, 2, 3 without a gap, so a store that
-        // folded each entry once has folded exactly `last_seq` of them.
-        // Fewer means one may have been passed over: by a build from before
-        // entries were folded strictly in order, whose failed fold the next
-        // one stepped past, or by such a build opening this store since.
-        // Which entries is not known, so all of them are folded again.
-        drop(memory);
-        discard(dir)?;
         Self::prepare(Connection::open(&path)?)
     }
 
@@ -171,11 +151,6 @@ impl Memory {
     /// The seq of the last journal entry folded in.
     pub fn last_seq(&self) -> Result<i64> {
         self.meta("last_seq")
-    }
-
-    /// How many journal entries have been folded in.
-    fn folded(&self) -> Result<i64> {
-        self.meta("folded")
     }
 
     fn meta(&self, key: &str) -> Result<i64> {
@@ -240,10 +215,9 @@ impl Memory {
             fold(&tx, entry, &stamp(&entry.at)).map_err(|e| unfolded(entry, e.to_string()))?;
         }
         tx.execute(
-            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1), ('folded', ?2)
-             ON CONFLICT(key) DO UPDATE SET value =
-                 CASE key WHEN 'last_seq' THEN excluded.value ELSE value + excluded.value END",
-            [last.seq, as_i64(entries.len())],
+            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [last.seq],
         )
         .and_then(|_| tx.commit())
         .map_err(|e| unfolded(first, e.to_string()))
@@ -465,7 +439,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::{
-        MEMORY_FILE, Memory, OLD_DIR, SCHEMA_VERSION,
+        MEMORY_FILE, Memory, SCHEMA_VERSION,
         testing::{fold, heard, on, said},
     };
     use crate::{
@@ -633,15 +607,11 @@ mod tests {
     }
 
     #[test]
-    fn the_store_from_before_is_replaced() {
+    fn a_store_of_another_shape_is_rebuilt() {
         let dir = tempfile::tempdir().unwrap();
-        // A database per platform, as they were kept.
-        let old = dir.path().join(OLD_DIR);
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join("global.db"), b"old").unwrap();
-        std::fs::write(old.join("qq.db"), b"old").unwrap();
-        // And a file where the store is now, in an older shape.
+        // A file where the store is, in another shape.
         let path = dir.path().join(MEMORY_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         {
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch("CREATE TABLE places (key TEXT PRIMARY KEY);")
@@ -651,7 +621,6 @@ mod tests {
 
         let mut j = Journal::in_memory();
         let mut m = Memory::open(dir.path()).unwrap();
-        assert!(!old.exists());
         let version: i64 = Connection::open(&path)
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))

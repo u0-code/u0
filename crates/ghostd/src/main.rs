@@ -49,8 +49,6 @@ enum Cmd {
         /// The home. Without it, `GHOST_HOME`, or the platform's place for
         /// an app's data (`~/Library/Application Support/Ghost` on macOS).
         dir: Option<PathBuf>,
-        #[command(flatten)]
-        adopt: Adopt,
     },
     /// Run them: for each, verify her journal, record any revision of
     /// ghost.toml and start her mind; then listen for presences.
@@ -72,8 +70,6 @@ enum Cmd {
             reason = "absent, present on its own, or naming a directory"
         )]
         home: Option<Option<PathBuf>>,
-        #[command(flatten)]
-        adopt: Adopt,
         /// Listen here rather than where ghostd.toml says, such as
         /// `127.0.0.1:7438`.
         #[arg(long, value_name = "ADDR")]
@@ -175,16 +171,6 @@ enum PromptsCmd {
     },
 }
 
-/// An old core to take in.
-#[derive(clap::Args)]
-struct Adopt {
-    /// A checkout that ran the desk before there were homes. A home with
-    /// no ghost born takes in the core kept there, once, and leaves the
-    /// checkout as it was: see `ghostd init`.
-    #[arg(long, value_name = "CHECKOUT")]
-    adopt: Option<PathBuf>,
-}
-
 /// Where the deployment's prompts are.
 #[derive(clap::Args)]
 struct PromptsDir {
@@ -253,22 +239,21 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().cmd {
         Cmd::Birth { dir } => directory::birth(&dir),
-        Cmd::Init { dir, adopt } => {
+        Cmd::Init { dir } => {
             let dir = dir.unwrap_or_else(ghost_link::home);
-            let made = home::ready(&dir, adopt.adopt.as_deref())?;
+            let made = home::ready(&dir)?;
             home::say(&dir, &made);
             println!("{}", dir.display());
             Ok(())
         }
         Cmd::Run {
             home: Some(dir),
-            adopt,
             listen,
             with_parent,
             ..
         } => {
             let dir = std::path::absolute(dir.unwrap_or_else(ghost_link::home))?;
-            let made = home::ready(&dir, adopt.adopt.as_deref())?;
+            let made = home::ready(&dir)?;
             home::say(&dir, &made);
             home::load_env(&dir);
             // What its configuration names by a relative path is in it.

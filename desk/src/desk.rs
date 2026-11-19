@@ -60,7 +60,7 @@ use crate::{
     input::{Cancelled, Changed, Submitted, TextInput},
     link,
     model::LinkState,
-    sessions::{self, Session, Sessions},
+    sessions::{Session, Sessions},
     settings::{SOLVER_URL, Settings},
     sheet::Sheet,
     solver::{Deployment, Provider},
@@ -243,16 +243,8 @@ fn listening(url: &str) -> bool {
 
 impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut settings = Settings::load();
-        let sessions = Sessions::new(
-            settings.kept.clone().unwrap_or_default(),
-            settings.open.clone(),
-        );
-        // Sessions the core began from now on are not ones deleted here.
-        if settings.kept.is_some() && settings.since.is_none() {
-            settings.since = Some(chrono::Utc::now());
-            settings.save();
-        }
+        let settings = Settings::load();
+        let sessions = Sessions::new(settings.open.clone());
         let input = cx.new(|cx| TextInput::new(cx, ASK).wrapping(6).padded(5.));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
             this.say(text.clone(), cx);
@@ -289,11 +281,9 @@ impl Desk {
         //
         // That is done off the main thread, once the window is up: the
         // core makes its home ready before it runs, which the first time
-        // means a birth, or taking in an old core from a checkout under
-        // the Desktop, which waits for as long as macOS takes asking
-        // whether the app may. The window must not wait with it. Until it
-        // is done, the deployment the desk holds is one with nothing
-        // started and nothing read.
+        // means a birth. The window must not wait with it. Until it is
+        // done, the deployment the desk holds is one with nothing started
+        // and nothing read.
         let deployment = Deployment::find();
         let start = settings.solver_url == SOLVER_URL;
         let url = settings.solver_url.clone();
@@ -547,33 +537,9 @@ impl Desk {
         self.sessions.current()
     }
 
-    /// Take in the sessions as the solver's core lists them now; and,
-    /// while `desk.json` still keeps sessions from before the core kept
-    /// them, hand those over to it, once, and let them go once it lists
-    /// them as the desk did.
+    /// Take in the sessions as the solver's core lists them now.
     fn take_sessions(&mut self, listed: &[ghost_link::protocol::Session]) {
         let core: Vec<Session> = listed.iter().map(Session::listed).collect();
-        if let (Some(kept), Some(since)) = (&self.settings.kept, self.settings.since) {
-            let left = sessions::handover(kept, &core, since);
-            if left.done() {
-                self.settings.kept = None;
-                self.settings.since = None;
-                self.settings.save();
-            } else if self.sessions.handing_over() {
-                for session in &left.name {
-                    self.sessions.hand_over(session);
-                    self.solver.order(link::Order::Rename {
-                        place: session.id.clone(),
-                        title: sessions::tidy(&session.title),
-                    });
-                }
-                for id in &left.set_aside {
-                    self.sessions.set_aside(id);
-                    self.solver
-                        .order(link::Order::SetAside { place: id.clone() });
-                }
-            }
-        }
         let was = self.sessions.current_id().to_owned();
         self.sessions.take(core);
         if self.sessions.current_id() != was {
@@ -709,8 +675,7 @@ impl Render for Desk {
                 - if self.panes.right { RIGHT } else { 0. };
             view.column = (pane - 64.).clamp(240., thread::COLUMN);
             // Only a place on the console channel is yours to stop her in.
-            let busy = thread::thread_key(&place).starts_with(&thread::place_key(""))
-                && thread::busy(&view);
+            let busy = place.starts_with(&thread::place_key("")) && thread::busy(&view);
             middle
                 .child(thread::render(&view, &faces, cx))
                 .child(self.composer(&faces, busy, window, cx))

@@ -33,7 +33,7 @@ in her journal; `persona.md` puts them in order, so that two characters
 differ in what fills it and in nothing else. Swapping one character for
 another changes her `ghost.toml` and none of these files. That is also why a
 character never holds prompts in her own directory: a copy there would make
-her work unlike the others. `ghostd` warns about one and does not read it.
+her work unlike the others. Nothing reads one there.
 
 Her system prompt is `character/persona.md`, then `system/being.md`, filled
 in. Everything else is put into a request by the code that needs it.

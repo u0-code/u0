@@ -103,7 +103,7 @@ impl Desk {
         match &self.open {
             Some(open) => {
                 let place = open.place(self.who());
-                let id = thread::thread_key(&place)
+                let id = place
                     .split_once(':')
                     .map(|(_, id)| id.to_owned())
                     .unwrap_or_default();
@@ -144,7 +144,7 @@ impl Desk {
         match &self.open {
             Some(open) => {
                 let place = open.place(self.who());
-                let id = thread::thread_key(&place)
+                let id = place
                     .split_once(':')
                     .map(|(_, id)| id.to_owned())
                     .unwrap_or_default();

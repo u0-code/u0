@@ -56,11 +56,11 @@ pub struct Status {
     pub awake: Option<bool>,
     /// What her day has her doing now, in her plan's words, when it says.
     pub doing: Option<String>,
-    /// What she can do besides talk, as her daemon runs her; `None` from a
-    /// daemon from before it said so.
+    /// What she can do besides talk, as her daemon runs her; `None` when
+    /// what it said could not be read.
     pub abilities: Option<Abilities>,
-    /// Where her daemon runs, as it says; `None` from one from before it
-    /// said so.
+    /// Where her daemon runs, as it says; `None` when what it said could
+    /// not be read.
     pub core: Option<CoreInfo>,
     /// Whether her daemon runs on this computer, so that the paths she
     /// gives can be opened here: see [`on_this_computer`]. Worked out off

@@ -561,11 +561,10 @@ pub enum Event {
         /// Who set it aside, as a person key.
         by: String,
     },
-    /// She moved out of the directory this journal is in, and lives in
-    /// `to` from now on, in a copy of it taken whole just before. This is
-    /// the last entry of the journal she left, and is in that one alone:
-    /// the copy goes on from the entry before it. Nothing runs her from
-    /// here again, so there are never two of her writing on from one past.
+    /// She moved out of the directory this journal is in, to `to`. Written
+    /// once, by a build that took a desk's core out of a checkout into a
+    /// home; nothing writes it now, nor reads anything into it, and it is
+    /// kept so that a journal that has one is read as it was written.
     Moved {
         /// Her directory now, as a path on the computer she moved on.
         to: String,

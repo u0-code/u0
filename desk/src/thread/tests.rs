@@ -56,7 +56,7 @@ fn two_sessions() -> Vec<Entry> {
         entry(
             1,
             "undertook",
-            json!({"id": "w1", "brief": "tidy downloads", "place": "desk:s1"}),
+            json!({"id": "w1", "brief": "tidy downloads", "place": "console:s1"}),
         ),
         entry(2, "undertook", json!({"id": "w1/1", "brief": "images"})),
         entry(3, "undertook", json!({"id": "w1/2", "brief": "archives"})),
@@ -68,7 +68,7 @@ fn two_sessions() -> Vec<Entry> {
         entry(
             5,
             "undertook",
-            json!({"id": "w2", "brief": "other", "place": "desk:s2"}),
+            json!({"id": "w2", "brief": "other", "place": "console:s2"}),
         ),
         entry(
             6,
@@ -134,12 +134,12 @@ fn a_session_shows_waiting_before_running() {
         entry(
             1,
             "undertook",
-            json!({"id": "a", "brief": "x", "place": "desk:s"}),
+            json!({"id": "a", "brief": "x", "place": "console:s"}),
         ),
         entry(
             2,
             "undertook",
-            json!({"id": "b", "brief": "y", "place": "desk:s"}),
+            json!({"id": "b", "brief": "y", "place": "console:s"}),
         ),
         entry(3, "asked", json!({"id": "b", "question": "which?"})),
     ];
@@ -216,9 +216,8 @@ fn her_places_are_listed_newest_first_each_once_and_called_by_name() {
     assert!(journal.iter().all(|e| console_message(e).is_none()));
 }
 
-/// A session's lines as the desk said them before it spoke through the
-/// console, then after; with another session beside it.
-fn before_and_after() -> Vec<Entry> {
+/// A session's lines said at the console, with another session beside it.
+fn two_threads() -> Vec<Entry> {
     let at = |m: i64| Utc::now() - chrono::Duration::minutes(60 - m);
     let heard = |seq, m, channel: &str, place: &str, text: &str| Entry {
         at: at(m),
@@ -238,16 +237,16 @@ fn before_and_after() -> Vec<Entry> {
         )
     };
     vec![
-        heard(1, 1, "desk", "s1", "free some disk"),
+        heard(1, 1, "console", "s1", "free some disk"),
         Entry {
             at: at(2),
             ..entry(
                 2,
                 "undertook",
-                json!({"id": "w1", "brief": "free disk", "place": "desk:s1"}),
+                json!({"id": "w1", "brief": "free disk", "place": "console:s1"}),
             )
         },
-        said(3, 3, "desk", "s1", "done: 4 GB"),
+        said(3, 3, "console", "s1", "done: 4 GB"),
         heard(4, 4, "console", "s2", "another session"),
         heard(5, 5, "console", "s1", "and the caches?"),
         said(6, 6, "console", "s1", "those too"),
@@ -255,8 +254,8 @@ fn before_and_after() -> Vec<Entry> {
 }
 
 #[test]
-fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
-    let journal = before_and_after();
+fn a_sessions_thread_has_its_lines_and_yours_not_yet_shown_and_its_own_work() {
+    let journal = two_threads();
     let expanded = HashSet::new();
     let pending = [Message {
         place: "s1".into(),
@@ -303,7 +302,7 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
             ("thanks", true),
         ]
     );
-    // Its work taken on before is still its own, and nobody else's.
+    // Its work is its own, and nobody else's.
     let ids = |s: &str| -> Vec<String> {
         session_tasks(&journal, s)
             .iter()
@@ -312,12 +311,12 @@ fn a_session_is_one_thread_across_the_old_desk_channel_and_the_console() {
     };
     assert_eq!(ids("s1"), ["w1"]);
     assert!(ids("s2").is_empty());
-    assert_eq!(task_place(&journal, "w1").as_deref(), Some("desk:s1"));
+    assert_eq!(task_place(&journal, "w1").as_deref(), Some("console:s1"));
 }
 
 #[test]
 fn a_transcript_names_who_said_what_and_when_and_counts_the_lines() {
-    let journal = before_and_after();
+    let journal = two_threads();
     let expanded = HashSet::new();
     let place = place_key("s1");
     let (text, lines) = transcript(&view(&journal, &[], &place, &expanded));
@@ -339,13 +338,11 @@ fn a_transcript_names_who_said_what_and_when_and_counts_the_lines() {
 }
 
 #[test]
-fn a_place_said_in_on_both_channels_is_listed_once_on_the_console() {
-    let spots = places(&before_and_after());
+fn each_place_said_in_is_listed_once_the_newest_first() {
+    let spots = places(&two_threads());
     let keys: Vec<&str> = spots.iter().map(|s| s.key.as_str()).collect();
     assert_eq!(keys, ["console:s1", "console:s2"]);
     assert_eq!(spots[0].label, "Fox · console");
-    assert_eq!(thread_key("desk:fox"), "console:fox");
-    assert_eq!(thread_key("qq:desk"), "qq:desk", "only the channel moves");
 }
 
 fn view<'a>(

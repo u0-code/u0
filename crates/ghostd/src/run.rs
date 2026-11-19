@@ -17,7 +17,7 @@ use crate::{
     brains::served::Held,
     cast::{self, Cast, Character, Life, Maker, Pauses},
     config::{Config, Hers},
-    prompts::{prompts_for, retired, say_overrides, say_stale},
+    prompts::{prompts_for, say_overrides, say_stale},
     server::{self, Presences, Shared},
     stop::told_to_stop,
     workshop::workshop,
@@ -94,9 +94,6 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
     // The prompts are the deployment's, read by every character's mind for
     // itself; what there is to say about them is said once.
     let deployment = cfg.prompts()?;
-    if let Some(said) = deployment.as_deref().and_then(retired) {
-        warn!("{said}");
-    }
     let prompts = Prompts::load_over(deployment.as_deref(), over);
     if !over.is_empty() {
         let files: Vec<&str> = over.iter().map(|(file, _)| *file).collect();
@@ -287,7 +284,7 @@ fn begin(
         tick,
         body: body.clone(),
         senses,
-        prompts: prompts_for(dir, deployment, over),
+        prompts: prompts_for(deployment, over),
         config: mind,
         workshop,
     });

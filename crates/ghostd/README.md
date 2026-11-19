@@ -86,17 +86,6 @@ too, with the keys it holds. A daemon run with `--config` lists its brains
 and refuses to change them: that file is whoever wrote it's. Command-line
 agents her work hands parts to are still found once, at start.
 
-`--adopt <checkout>` takes in the core a checkout kept before there were
-homes, once, when no ghost of the home has been born: the solver in
-`desk/core/ghosts/solver` or `ghosts/solver`, her `journal.db` and
-`work.db` copied through SQLite's backup, whole even while a daemon
-writes to them, and the rest of her directory but `derived/`, which is
-rebuilt from the journal; `[brain]`, `[providers]` and `[operators]` of
-`desk/core/ghostd.toml` or `solver/ghostd.toml`; and the checkout's
-`.env`, if the home has none. The copy is put together beside the home's
-`ghosts/` and checked, and only then moved in. Nothing in the checkout is
-changed, and a home that has a ghost never reads it.
-
 ## Several characters
 
 `ghostd run ghosts/lin ghosts/mei` runs both; `ghostd run ghosts` runs every
@@ -204,18 +193,8 @@ Each file is looked for in two places, and the first that has it wins:
 
 The directory is laid out as `prompts/` is: `system/channels/qq.md`
 there stands for `system/channels/qq.md` in the tree, and it holds only
-the files you change. A directory laid out the old way, flat, with every
-file at its top under its own name (`attend.md`, `texts.toml`,
-`work_texts.toml`, …), is still read, file by file, and the tree wins over
-it; `ghostd` warns about it once, and says where each of its files belongs
-now. `texts.toml` is now a file per feature, so for it the warning names
-the file each of its texts goes to.
-
-A ghost's own directory holds no prompts. If `<dir>/prompts/` has any of
-these files, laid out either way, `ghostd run` says so once at start, names
-them, and does not use them: move them to the deployment's directory to use
-them for every character. A copy of `self.md`, which earlier builds read, is
-named the same way: it is now `character/persona.md` and `system/being.md`.
+the files you change. A ghost's own directory holds no prompts: what she
+is told is shared by every character a deployment runs.
 
 Files of texts and `system/tools.toml` are merged one entry at a time, so
 an override need only carry the texts or tools it changes. The mind's texts
@@ -268,9 +247,7 @@ what it left. Export only what you mean to change: a copy keeps its text when
 the built-in improves.
 
 Beside the copies, `export` writes `.exported.toml`, a note of the built-in
-each was copied from, by its path in the tree; a note written when the
-copies were flat is still read under their old names, so copies moved into
-the tree keep it. At startup `ghostd run` warns about every copy, or
+each was copied from, by its path in the tree. At startup `ghostd run` warns about every copy, or
 every entry of a `.toml` copy, whose built-in has changed since, and names
 the placeholders the built-in fills in that the copy lacks. `update` then
 follows the upgrade for copies nobody edited, and leaves edited ones, and

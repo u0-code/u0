@@ -26,7 +26,7 @@
 //! One daemon can run several characters. A client is for one of them: its
 //! hello names her in [`Hello::ghost`], and everything on that connection
 //! goes to her alone. A daemon running one character takes a hello that
-//! names nobody, so clients from before there could be several still work.
+//! names nobody.
 //!
 //! These types are deliberately separate from the journal's own. The journal
 //! format is forever; this one is versioned by [`PROTOCOL`] and will change.
@@ -256,8 +256,6 @@ pub mod code {
     pub const UNAUTHORIZED: i64 = -32001;
     /// The client speaks a protocol version the daemon does not.
     pub const VERSION: i64 = -32002;
-    /// Unused since the newest presence for a channel replaces the older one.
-    pub const CHANNEL_TAKEN: i64 = -32003;
     /// The hello named a character this daemon does not run, or named
     /// nobody when it runs several. Retrying cannot fix it.
     pub const NO_SUCH_GHOST: i64 = -32004;
@@ -955,7 +953,7 @@ pub struct Work {
     /// What steps it: the installed agent it was handed to, by the name it
     /// is configured as (`claude-code`, `codex`), or the label of the model
     /// that stepped it last (`openai/deepseek-chat`). None before it has
-    /// begun, or from a daemon from before it was told.
+    /// begun.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brain: Option<String>,
 }
@@ -1023,8 +1021,8 @@ pub struct WorkLog {
     #[serde(default)]
     pub more: bool,
     /// What the newest step of the work put in front of its model,
-    /// whatever steps were asked for; none before its first step, from a
-    /// daemon from before it was kept, or for steps it did not take itself.
+    /// whatever steps were asked for; none before its first step, or for
+    /// steps it did not take itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<WorkContext>,
 }
@@ -1090,8 +1088,7 @@ pub struct ToolCall {
     /// tool of a server she has.
     pub name: String,
     /// What it was called with, as JSON, with any string in it longer than
-    /// a few hundred characters cut to its head. A step logged before
-    /// calls kept their output has a string here.
+    /// a few hundred characters cut to its head.
     #[serde(default)]
     pub args: Value,
     /// The head of what came back, as it came back: at most 1,500
@@ -1168,7 +1165,7 @@ pub struct LookRound {
     #[serde(default)]
     pub calls: Vec<ToolCall>,
     /// What the brain read and wrote for this round, in tokens, where
-    /// the provider says; none from a daemon from before it was kept.
+    /// the provider says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<LookUsage>,
     /// What was put in front of the brain for this look, in characters,
@@ -1306,8 +1303,7 @@ pub struct WorkStep {
 /// What she can do besides talk, as her daemon runs her: `abilities` in
 /// the answer to [`method::STATUS`]. A console says so and offers only
 /// that, rather than reading her daemon's configuration, which is on the
-/// daemon's machine and is not its to read. A daemon from before it said
-/// so leaves it out.
+/// daemon's machine and is not its to read.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Abilities {
     /// She takes things on as work: work is on for her, and she has a
@@ -1607,11 +1603,6 @@ mod tests {
         );
         assert_eq!(serde_json::from_value::<Abilities>(sent).unwrap(), full);
         assert!(full.local());
-        // A daemon from before machines had a directory says none.
-        let older: MachineInfo =
-            serde_json::from_str(r#"{"kind": "local", "spec": "local:"}"#).unwrap();
-        assert_eq!(older.dir, None);
-
         // Without a machine or agents, neither is written at all.
         let bare = Abilities {
             work: true,

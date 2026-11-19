@@ -193,19 +193,6 @@ impl Config {
     /// for each character.
     pub fn parse(text: &str) -> anyhow::Result<Self> {
         let cfg: Self = toml::from_str(text)?;
-        let prefixed = cfg.operators.contains_key("prefix")
-            || cfg.ghosts.iter().any(|(_, own)| {
-                own.get("operators")
-                    .and_then(toml::Value::as_table)
-                    .is_some_and(|ops| ops.contains_key("prefix"))
-            });
-        if prefixed {
-            bail!(
-                "[operators] prefix is gone: nothing anyone writes gives her an order any more. \
-                 Remove the line. The accounts listed there are still whoever runs her, and \
-                 a console is where she answers them at once"
-            );
-        }
         cfg.deployment()?;
         for id in cfg.ghosts.keys() {
             cfg.hers(id)?;
@@ -515,7 +502,7 @@ mod operator_tests {
     }
 
     #[test]
-    fn operators_are_read_per_channel_and_a_prefix_is_refused_with_why() {
+    fn operators_are_read_per_channel_as_lists_of_accounts() {
         let none = parse("");
         assert!(none.mind().operators.accounts.is_empty());
 
@@ -530,15 +517,8 @@ mod operator_tests {
         );
         assert!(!ops.includes("telegram", "B"));
 
-        for old in [
-            "[operators]\nprefix = \"fox:\"\nqq = [\"A\"]\n",
-            "[ghosts.lin.operators]\nprefix = \"op:\"\n",
-        ] {
-            let e = Config::parse(&format!("{BRAIN}{old}"))
-                .unwrap_err()
-                .to_string();
-            assert!(e.contains("prefix is gone"), "{e}");
-        }
+        // A line that is not a list of accounts is not taken for one.
+        assert!(Config::parse(&format!("{BRAIN}[operators]\nprefix = \"fox:\"\n")).is_err());
     }
 
     #[test]

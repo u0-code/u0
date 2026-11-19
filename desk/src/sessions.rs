@@ -8,12 +8,6 @@
 //! a new name or one deleted shows at once and stays while the core
 //! catches up. A new session nothing has been said in is the desk's
 //! alone: the core keeps it from its first line.
-//!
-//! Before the core kept them, the desk kept them in `desk.json`. Those are
-//! handed over once ([`handover`]): each is named on the core, so that it
-//! is listed as the desk listed it, and any the core has that the desk no
-//! longer did, because it was deleted here, is set aside on the core.
-//! They leave `desk.json` when the core lists them so.
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -112,38 +106,33 @@ fn first_line(text: &str) -> String {
 #[derive(Debug, Clone)]
 pub struct Sessions {
     /// As the core last listed them, newest first, with what was done here
-    /// since laid over them; before it has, those `desk.json` kept.
+    /// since laid over them.
     listed: Vec<Session>,
     /// A new session nothing has been said in yet.
     draft: Option<Session>,
     /// The one on screen, by id.
     current: String,
-    /// Begun or handed over here, and not yet listed by the core.
+    /// Begun here, and not yet listed by the core.
     begun: Vec<Session>,
     /// Named here, and not yet listed by that name.
     named: Vec<(String, String)>,
     /// Deleted here, and still listed by the core.
     gone: Vec<String>,
-    /// Whether what `desk.json` kept has been handed over to the core in
-    /// this run: it is sent once.
-    handed: bool,
 }
 
 impl Sessions {
-    /// The sessions to show until the core lists its own: those
-    /// `desk.json` `kept`, if it still keeps any, and the one that was
-    /// `open` last time on screen, or else the newest, or else a new one.
-    pub fn new(kept: Vec<Session>, open: Option<String>) -> Self {
+    /// The sessions to show until the core lists its own: the one that
+    /// was `open` last time on screen, or else a new one.
+    pub fn new(open: Option<String>) -> Self {
         let mut sessions = Self {
             current: String::new(),
-            listed: kept,
+            listed: Vec::new(),
             draft: None,
             begun: Vec::new(),
             named: Vec::new(),
             gone: Vec::new(),
-            handed: false,
         };
-        match open.or_else(|| sessions.listed.first().map(|s| s.id.clone())) {
+        match open {
             Some(id) => sessions.current = id,
             None => sessions.begin(),
         }
@@ -258,28 +247,6 @@ impl Sessions {
         tell
     }
 
-    /// Whether it is time to hand over what `desk.json` kept: the first
-    /// time it is asked in a run, and never again in it.
-    pub fn handing_over(&mut self) -> bool {
-        !std::mem::replace(&mut self.handed, true)
-    }
-
-    /// Hand over to the core the session `session` from `desk.json`: it
-    /// is listed as it is now until the core lists it.
-    pub fn hand_over(&mut self, session: &Session) {
-        if !self.begun.iter().any(|s| s.id == session.id) {
-            self.begun.push(session.clone());
-        }
-        self.named.retain(|(n, _)| *n != session.id);
-        self.named.push((session.id.clone(), tidy(&session.title)));
-    }
-
-    /// Set aside on the core the session `id`, which `desk.json` no longer
-    /// kept: it is not listed again.
-    pub fn set_aside(&mut self, id: &str) {
-        self.gone.push(id.to_owned());
-    }
-
     /// The core could not do what was asked about the session `id`: what
     /// the core lists of it is what stands.
     pub fn refused(&mut self, id: &str) {
@@ -314,51 +281,6 @@ impl Sessions {
             self.begin();
         }
     }
-}
-
-/// What handing the sessions `desk.json` kept over to the core still
-/// takes, once the core has listed what it has.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Handover {
-    /// The sessions to name on the core: those it does not list as the
-    /// desk did.
-    pub name: Vec<Session>,
-    /// The sessions to set aside on the core, by id: those it lists that
-    /// began before the handover did and the desk no longer kept, since
-    /// they were deleted here.
-    pub set_aside: Vec<String>,
-}
-
-impl Handover {
-    /// Whether nothing is left to do: the core lists them as the desk did,
-    /// and `desk.json` need not keep them.
-    pub fn done(&self) -> bool {
-        self.name.is_empty() && self.set_aside.is_empty()
-    }
-}
-
-/// What is left of handing over the sessions `kept` in `desk.json`, now
-/// that the core lists `core`. The handover began at `since`: a session
-/// the core began after it was begun by this desk, or another, and is not
-/// one deleted here. A session kept with no name had nothing said in it,
-/// and is nothing to hand over.
-pub fn handover(kept: &[Session], core: &[Session], since: DateTime<Utc>) -> Handover {
-    let name = kept
-        .iter()
-        .filter(|k| !tidy(&k.title).is_empty())
-        .filter(|k| {
-            core.iter()
-                .find(|c| c.id == k.id)
-                .is_none_or(|c| tidy(&c.title) != tidy(&k.title))
-        })
-        .cloned()
-        .collect();
-    let set_aside = core
-        .iter()
-        .filter(|c| c.at < since && !kept.iter().any(|k| k.id == c.id))
-        .map(|c| c.id.clone())
-        .collect();
-    Handover { name, set_aside }
 }
 
 #[cfg(test)]
@@ -411,7 +333,7 @@ mod tests {
 
     #[test]
     fn a_new_session_is_the_desk_s_until_something_is_said_in_it() {
-        let mut s = Sessions::new(Vec::new(), None);
+        let mut s = Sessions::new(None);
         let draft = s.current_id().to_owned();
         assert_eq!(ids(&s), std::slice::from_ref(&draft));
         // Asked for again, the same one is shown rather than another.
@@ -440,7 +362,7 @@ mod tests {
 
     #[test]
     fn a_name_given_here_holds_until_the_core_lists_it_so() {
-        let mut s = Sessions::new(Vec::new(), None);
+        let mut s = Sessions::new(None);
         s.take(vec![session("s1", "free some disk", 1)]);
         assert_eq!(
             s.rename("s1", "  Disk \n space "),
@@ -472,7 +394,7 @@ mod tests {
                 session("s1", "one", 1),
             ]
         };
-        let mut s = Sessions::new(Vec::new(), Some("s2".into()));
+        let mut s = Sessions::new(Some("s2".into()));
         s.take(core());
         assert_eq!(s.current_id(), "s2");
         assert!(s.remove("s2"), "the core is told");
@@ -499,7 +421,7 @@ mod tests {
 
     #[test]
     fn the_session_open_last_time_is_shown_and_one_the_core_lost_gives_way_to_a_new_one() {
-        let mut s = Sessions::new(Vec::new(), Some("s2".into()));
+        let mut s = Sessions::new(Some("s2".into()));
         assert_eq!(
             s.current().id,
             "s2",
@@ -508,62 +430,9 @@ mod tests {
         s.take(vec![session("s2", "two", 2), session("s1", "one", 1)]);
         assert_eq!(s.current().title, "two");
 
-        let mut s = Sessions::new(Vec::new(), Some("s7".into()));
+        let mut s = Sessions::new(Some("s7".into()));
         s.take(vec![session("s1", "one", 1)]);
         assert_eq!(s.current().title, "");
         assert_ne!(s.current_id(), "s7");
-    }
-
-    #[test]
-    fn what_desk_json_kept_is_handed_over_once_and_nothing_is_lost() {
-        let since = at(30);
-        let kept = vec![
-            session("s4", "", 20),
-            session("s3", "Summarise the commits", 10),
-            session("s2", "free some disk space\nplease", 5),
-        ];
-        // The core has s2 by its first line, s1 that was deleted here,
-        // s9 begun since by another desk, and not s3, which was said in on
-        // the old desk channel.
-        let core = vec![
-            session("s9", "begun since", 31),
-            session("s2", "free some disk space please", 5),
-            session("s1", "deleted here", 2),
-        ];
-        let left = handover(&kept, &core, since);
-        assert_eq!(
-            left.name.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
-            ["s3"],
-            "the untitled one had nothing said in it; s2 is listed as it was"
-        );
-        assert_eq!(left.set_aside, ["s1"]);
-        assert!(!left.done());
-
-        // While the core catches up, the list is the desk's as it was.
-        let mut s = Sessions::new(kept.clone(), Some("s2".into()));
-        for session in &left.name {
-            s.hand_over(session);
-        }
-        for id in &left.set_aside {
-            s.set_aside(id);
-        }
-        s.take(core.clone());
-        let titles: Vec<(String, String)> = s.all().into_iter().map(|s| (s.id, s.title)).collect();
-        assert_eq!(
-            titles,
-            [
-                ("s9".to_owned(), "begun since".to_owned()),
-                ("s3".to_owned(), "Summarise the commits".to_owned()),
-                ("s2".to_owned(), "free some disk space please".to_owned()),
-            ]
-        );
-
-        // Once it has, nothing is left to send, and desk.json lets go.
-        let after = vec![
-            session("s9", "begun since", 31),
-            session("s3", "Summarise the commits", 31),
-            session("s2", "free some disk space please", 5),
-        ];
-        assert!(handover(&kept, &after, since).done());
     }
 }

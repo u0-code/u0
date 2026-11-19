@@ -22,13 +22,9 @@
 //! A deployment's directory mirrors the tree: `system/logic/now.md`
 //! there stands for `system/logic/now.md` here, so that what a person
 //! edits sits where they would look for it, and `ghostd prompts export`
-//! writes the same tree. Before the tree, such a directory was flat, every
-//! file at its top under a name of its own; a file still found there by its
-//! old name is read, with a warning, once, that says where it belongs now
-//! (see [`flat`]). A ghost's own directory holds no prompts: a copy there
-//! would make one character work unlike the others, and swapping her
-//! persona would no longer be all it takes to swap her. What [`misplaced`]
-//! finds there is warned about and not read.
+//! writes the same tree. A ghost's own directory holds no prompts: a copy
+//! there would make one character work unlike the others, and swapping her
+//! persona would no longer be all it takes to swap her.
 //!
 //! A changed file is taken in at the next use, without a restart: whoever
 //! holds a store asks it to refresh, and at most every couple of seconds
@@ -56,10 +52,9 @@
 pub mod exported;
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     fmt, fs, io,
     path::{Path, PathBuf},
-    sync::{Mutex, PoisonError},
     time::SystemTime,
 };
 
@@ -69,9 +64,6 @@ use tracing::{info, warn};
 
 use crate::narrate;
 
-/// What a directory of prompts inside a ghost's own would be called. It is
-/// not read: see [`misplaced`].
-pub const DIR: &str = "prompts";
 /// The least time between two looks at the files.
 const CHECK_EVERY: Duration = Duration::seconds(2);
 
@@ -82,11 +74,11 @@ const CHECK_EVERY: Duration = Duration::seconds(2);
 /// from.
 ///
 /// ```ignore
-/// prompt!("system/logic/now.md", Kind::Whole, Layer::Logic, "now.md")
+/// prompt!("system/logic/now.md", Kind::Whole, Layer::Logic)
 /// ```
 #[macro_export]
 macro_rules! prompt {
-    ($path:literal, $kind:expr, $layer:expr, $flat:expr) => {
+    ($path:literal, $kind:expr, $layer:expr) => {
         $crate::prompts::File {
             path: $path,
             built_in: include_str!(concat!(
@@ -96,7 +88,6 @@ macro_rules! prompt {
             )),
             kind: $kind,
             layer: $layer,
-            flat: $flat,
         }
     };
 }
@@ -152,10 +143,6 @@ pub struct File {
     pub built_in: &'static str,
     pub kind: Kind,
     pub layer: Layer,
-    /// What it was called in a flat directory of overrides, before there
-    /// was a tree. Every file of a table of texts was in the one file this
-    /// names.
-    pub flat: &'static str,
 }
 
 /// The two loops a tool can be offered in. A tool may be described
@@ -294,39 +281,6 @@ struct Held {
     text: Option<String>,
 }
 
-/// One name a file may be found under in a deployment's directory, and the
-/// file it stands for. A file of texts found under its flat name stands for
-/// its whole table.
-#[derive(Debug, Clone, Copy)]
-struct Source {
-    name: &'static str,
-    file: File,
-    flat: bool,
-}
-
-/// The names to look for in a directory, each once: every file's path,
-/// then every flat name, so that in one directory the tree wins.
-fn sources(files: &[File]) -> Vec<Source> {
-    let mut out: Vec<Source> = files
-        .iter()
-        .map(|&file| Source {
-            name: file.path,
-            file,
-            flat: false,
-        })
-        .collect();
-    for &file in files {
-        if !out.iter().any(|s| s.name == file.flat) {
-            out.push(Source {
-                name: file.flat,
-                file,
-                flat: true,
-            });
-        }
-    }
-    out
-}
-
 /// The files of `files` that both have a key of the same table, as
 /// `(key, first, second)` by path. There should be none.
 pub fn duplicates(files: &[File]) -> Vec<(String, &'static str, &'static str)> {
@@ -353,7 +307,6 @@ pub fn duplicates(files: &[File]) -> Vec<(String, &'static str, &'static str)> {
 #[derive(Debug, Clone)]
 pub struct Store {
     files: Vec<File>,
-    sources: Vec<Source>,
     /// The texts built in, by table.
     shipped_texts: HashMap<&'static str, Texts>,
     shipped_tools: Tools,
@@ -404,7 +357,6 @@ impl Store {
         }
         Self {
             files: files.to_vec(),
-            sources: sources(files),
             texts: shipped_texts.clone(),
             shipped_texts,
             tools: shipped_tools.clone(),
@@ -433,9 +385,6 @@ impl Store {
         let mut store = Self::shipped(files);
         store.layers = layers.to_vec();
         store.scan(false);
-        for (_, dir) in layers {
-            say_flat(files, dir);
-        }
         store
     }
 
@@ -588,14 +537,13 @@ impl Store {
         self.held.get(&dir.join(name))?.text.as_deref()
     }
 
-    /// The sources in a directory that stand for what `file` holds, in the
-    /// order they win in: for a template, its path then its flat name; for
-    /// texts, every file of its table and then the flat names; for tools,
-    /// every file of tools and then theirs.
-    fn standing_for(&self, file: File) -> impl Iterator<Item = &Source> {
-        self.sources.iter().filter(move |s| match file.kind {
-            Kind::Whole => s.file.path == file.path,
-            kind => s.file.kind == kind,
+    /// The files in a directory that stand for what `file` holds, in the
+    /// order they win in: for a template, itself; for texts, every file of
+    /// its table; for tools, every file of tools.
+    fn standing_for(&self, file: File) -> impl Iterator<Item = &File> {
+        self.files.iter().filter(move |f| match file.kind {
+            Kind::Whole => f.path == file.path,
+            kind => f.kind == kind,
         })
     }
 
@@ -604,8 +552,8 @@ impl Store {
     fn provider(&self, file: File, has: impl Fn(&str) -> bool) -> (Origin, Option<PathBuf>) {
         for (origin, dir) in &self.layers {
             for source in self.standing_for(file) {
-                if self.held_text(dir, source.name).is_some_and(&has) {
-                    return (*origin, Some(dir.join(source.name)));
+                if self.held_text(dir, source.path).is_some_and(&has) {
+                    return (*origin, Some(dir.join(source.path)));
                 }
             }
         }
@@ -623,8 +571,8 @@ impl Store {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Some(false),
                 Err(_) => None,
             };
-            for source in self.sources.clone() {
-                let path = dir.join(source.name);
+            for source in self.files.clone() {
+                let path = dir.join(source.path);
                 let stamp = match there {
                     Some(true) => stamp(&path),
                     Some(false) => Stamp::Missing,
@@ -640,8 +588,8 @@ impl Store {
     }
 
     /// One file, as it is now. Returns whether what it says changed.
-    fn take(&mut self, path: PathBuf, source: Source, stamp: Stamp, loud: bool) -> bool {
-        let name = source.name;
+    fn take(&mut self, path: PathBuf, source: File, stamp: Stamp, loud: bool) -> bool {
+        let name = source.path;
         let before = self
             .held
             .get(&path)
@@ -718,14 +666,14 @@ impl Store {
             }
             // What each directory holds for it, the farthest directory
             // first, and in each what wins first.
-            let found: Vec<(PathBuf, Vec<(Source, String)>)> = self
+            let found: Vec<(PathBuf, Vec<(File, String)>)> = self
                 .layers
                 .iter()
                 .rev()
                 .map(|(_, dir)| {
                     let here = self
                         .standing_for(file)
-                        .filter_map(|s| Some((*s, self.held_text(dir, s.name)?.to_owned())))
+                        .filter_map(|f| Some((*f, self.held_text(dir, f.path)?.to_owned())))
                         .collect();
                     (dir.clone(), here)
                 })
@@ -743,10 +691,8 @@ impl Store {
                     let merged = texts_now.entry(table).or_default();
                     for (dir, here) in found {
                         // A key is taken from the first file of this
-                        // directory that has it. The tree comes before the
-                        // flat names, so a flat file quietly gives way; two
-                        // files of the tree with the same key are a mistake
-                        // a person should hear about.
+                        // directory that has it. Two files with the same
+                        // key are a mistake a person should hear about.
                         let mut from: HashMap<String, &str> = HashMap::new();
                         for (source, text) in here {
                             for (key, value) in texts(&text).unwrap_or_default() {
@@ -754,16 +700,14 @@ impl Store {
                                     continue;
                                 };
                                 if let Some(first) = from.get(&key) {
-                                    if !source.flat {
-                                        warn!(
-                                            "{} and {} both have {key}, which belongs in one file of the {table} texts: the one in {first} is used",
-                                            dir.join(first).display(),
-                                            dir.join(source.name).display(),
-                                        );
-                                    }
+                                    warn!(
+                                        "{} and {} both have {key}, which belongs in one file of the {table} texts: the one in {first} is used",
+                                        dir.join(first).display(),
+                                        dir.join(source.path).display(),
+                                    );
                                     continue;
                                 }
-                                from.insert(key, source.name);
+                                from.insert(key, source.path);
                                 *slot = value;
                             }
                         }
@@ -789,10 +733,10 @@ impl Store {
 
     /// The text of a file, if it is usable as `source`. Names in it that
     /// mean nothing are warned about; they do not make it unusable.
-    fn read(&self, path: &Path, source: Source) -> Result<String, String> {
+    fn read(&self, path: &Path, source: File) -> Result<String, String> {
         let bytes = fs::read(path).map_err(|e| format!("cannot be read: {e}"))?;
         let text = String::from_utf8(bytes).map_err(|_| "is not UTF-8".to_owned())?;
-        let unknown: Vec<String> = match source.file.kind {
+        let unknown: Vec<String> = match source.kind {
             Kind::Whole => Vec::new(),
             Kind::Texts(table) => {
                 let shipped = &self.shipped_texts[table];
@@ -829,97 +773,6 @@ impl Store {
         }
         Ok(text)
     }
-}
-
-/// What to say about the files in `dir` that are laid out the old, flat
-/// way, if there are any: each, and where in the tree it belongs now. A
-/// flat file of texts is said key by key, since its keys now live in a
-/// file per feature.
-pub fn flat(files: &[File], dir: &Path) -> Option<String> {
-    let mut moves = Vec::new();
-    for source in sources(files).into_iter().filter(|s| s.flat) {
-        let path = dir.join(source.name);
-        if !path.is_file() {
-            continue;
-        }
-        let to = match source.file.kind {
-            Kind::Texts(table) => {
-                let of_table: Vec<&File> = files
-                    .iter()
-                    .filter(|f| f.kind == Kind::Texts(table) && f.flat == source.name)
-                    .collect();
-                if let [only] = of_table.as_slice() {
-                    only.path.to_owned()
-                } else {
-                    // Its keys, by the file each now belongs in.
-                    let copy = fs::read_to_string(&path)
-                        .ok()
-                        .and_then(|t| texts(&t).ok())
-                        .unwrap_or_default();
-                    let said: Vec<String> = of_table
-                        .iter()
-                        .filter_map(|home| {
-                            let built_in = texts(home.built_in).unwrap_or_default();
-                            let mut keys: Vec<&str> = copy
-                                .keys()
-                                .filter(|k| built_in.contains_key(*k))
-                                .map(String::as_str)
-                                .collect();
-                            keys.sort_unstable();
-                            (!keys.is_empty())
-                                .then(|| format!("{} to {}", keys.join(", "), home.path))
-                        })
-                        .collect();
-                    if said.is_empty() {
-                        "a file per feature".to_owned()
-                    } else {
-                        format!("a file per feature: {}", said.join("; "))
-                    }
-                }
-            }
-            _ => source.file.path.to_owned(),
-        };
-        moves.push(format!("{} goes to {to}", source.name));
-    }
-    if moves.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "{} is laid out flat, the way a directory of prompts was before it mirrored prompts/. \
-         Its files are still read, but each now belongs at its place in the tree, which is looked at first: {}",
-        dir.display(),
-        moves.join("; ")
-    ))
-}
-
-/// Warn about `dir` being laid out flat, once for the life of the program
-/// however many stores read it.
-pub fn say_flat(files: &[File], dir: &Path) {
-    static SAID: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
-    let Some(said) = flat(files, dir) else {
-        return;
-    };
-    if SAID
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(dir.to_owned())
-    {
-        warn!("{said}");
-    }
-}
-
-/// The files of `files` in the `prompts/` of the ghost in `ghost`, by
-/// their path in the tree or their old flat name, which are not read.
-/// Everything a brain is told is shared by every character a deployment
-/// runs, the persona template included; what is hers alone is her
-/// `ghost.toml`. Whoever starts her says where these belong instead.
-pub fn misplaced(files: &[File], ghost: &Path) -> Vec<PathBuf> {
-    let dir = ghost.join(DIR);
-    sources(files)
-        .into_iter()
-        .map(|s| dir.join(s.name))
-        .filter(|path| path.is_file())
-        .collect()
 }
 
 /// The files of `files` that `names` pick: each name is a path in the
@@ -980,21 +833,18 @@ mod tests {
             built_in: "built in",
             kind: Kind::Whole,
             layer: Layer::Logic,
-            flat: "plan.md",
         },
         File {
             path: "system/logic/texts/look.toml",
             built_in: "look = \"built in\"\n",
             kind: Kind::Texts("mind"),
             layer: Layer::Logic,
-            flat: "texts.toml",
         },
         File {
             path: "system/logic/texts/day.toml",
             built_in: "other = \"built in\"\n",
             kind: Kind::Texts("mind"),
             layer: Layer::Logic,
-            flat: "texts.toml",
         },
         File {
             path: "system/tools.toml",
@@ -1002,7 +852,6 @@ mod tests {
                        [keep.conversation]\ndescription = \"Keep it here.\"\n",
             kind: Kind::Tools,
             layer: Layer::Work,
-            flat: "tools.toml",
         },
     ];
 
@@ -1121,80 +970,6 @@ mod tests {
             Store::load(FILES, Some(dir.path())).text("mind", "look"),
             "first"
         );
-    }
-
-    #[test]
-    fn a_flat_directory_is_still_read_and_said_to_belong_in_the_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        write_at(&dir.path().join("plan.md"), "flat plan", 1);
-        write_at(
-            &dir.path().join("texts.toml"),
-            "look = \"flat look\"\nother = \"flat other\"\n",
-            1,
-        );
-        write_at(
-            &dir.path().join("tools.toml"),
-            "[keep]\ndescription = \"Flat.\"\n",
-            1,
-        );
-        // The tree wins over a flat file in the same directory.
-        write_at(
-            &dir.path().join("system/logic/texts/day.toml"),
-            "other = \"tree other\"\n",
-            1,
-        );
-        let store = Store::load(FILES, Some(dir.path()));
-        assert_eq!(store.whole("system/logic/plan.md"), "flat plan");
-        assert_eq!(store.text("mind", "look"), "flat look");
-        assert_eq!(store.text("mind", "other"), "tree other");
-        assert_eq!(store.tool("keep", Loop::Work), "Flat.");
-
-        let said = flat(FILES, dir.path()).unwrap();
-        assert!(
-            said.contains("plan.md goes to system/logic/plan.md"),
-            "{said}"
-        );
-        assert!(
-            said.contains("tools.toml goes to system/tools.toml"),
-            "{said}"
-        );
-        assert!(
-            said.contains(
-                "texts.toml goes to a file per feature: look to system/logic/texts/look.toml; \
-                 other to system/logic/texts/day.toml"
-            ),
-            "{said}"
-        );
-        // A directory laid out as the tree has nothing to say.
-        fs::remove_file(dir.path().join("plan.md")).unwrap();
-        fs::remove_file(dir.path().join("texts.toml")).unwrap();
-        fs::remove_file(dir.path().join("tools.toml")).unwrap();
-        assert_eq!(flat(FILES, dir.path()), None);
-    }
-
-    #[test]
-    fn a_prompt_in_a_ghosts_own_directory_is_found_as_misplaced_and_never_read() {
-        let (ghost, dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        write_at(&ghost.path().join(DIR).join("plan.md"), "hers", 1);
-        write_at(&ghost.path().join(DIR).join("notes.txt"), "not a prompt", 1);
-        assert_eq!(
-            misplaced(FILES, ghost.path()),
-            [ghost.path().join(DIR).join("plan.md")]
-        );
-        assert_eq!(
-            Store::load(FILES, None).whole("system/logic/plan.md"),
-            "built in"
-        );
-        write_at(
-            &dir.path().join("system/logic/plan.md"),
-            "the deployment's",
-            1,
-        );
-        assert_eq!(
-            Store::load(FILES, Some(dir.path())).whole("system/logic/plan.md"),
-            "the deployment's"
-        );
-        assert!(misplaced(FILES, dir.path()).is_empty());
     }
 
     #[test]

@@ -175,8 +175,7 @@ type Orders = tokio::sync::mpsc::UnboundedReceiver<Order>;
 type Reads = tokio::sync::mpsc::UnboundedReceiver<Read>;
 
 /// Ask what `read` asks, and hand the answer, or why there is none, to the
-/// desk. A daemon from before steps were kept refuses it; that is said,
-/// and the connection goes on.
+/// desk. A refusal is said, and the connection goes on.
 async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>) {
     let update = match read {
         Read::Looks { place, after } => Update::Looks {
@@ -463,8 +462,8 @@ async fn listing(
                                     items,
                                 });
                             }
-                            // A daemon from before attention was listed has
-                            // no answer; the desk then shows nothing of hers.
+                            // Without an answer the desk shows nothing of
+                            // hers, and asks again next time.
                             Err(e) => debug!("what waits on {} at {url}: {e:#}", g.id),
                         }
                     }
@@ -642,8 +641,8 @@ fn changes_sessions(entry: &Entry) -> bool {
     }
 }
 
-/// Her sessions, as her core lists them. A core from before it kept them
-/// has no answer, and the desk keeps what it has.
+/// Her sessions, as her core lists them. Without an answer the desk keeps
+/// what it has.
 async fn ask_sessions(asker: &mut Console, up: &mpsc::Sender<Update>) {
     match asker.sessions().await {
         Ok(sessions) => {
@@ -656,8 +655,8 @@ async fn ask_sessions(asker: &mut Console, up: &mpsc::Sender<Update>) {
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let status = asker.status().await?;
     let _ = up.send(Update::Status(Box::new(Status::read(&status))));
-    // A daemon from before work could be listed has no answer; the desk
-    // then shows none.
+    // Without an answer about her work the desk shows none, and the rest
+    // of her status stands.
     if let Ok(work) = asker.work().await {
         let _ = up.send(Update::Work(work));
     }

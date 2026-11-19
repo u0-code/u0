@@ -2,13 +2,11 @@
 //! you are to it, which of your sessions with it was on screen, the other
 //! daemons you connect to, and which of what waits on you you have seen. A
 //! small JSON file in your home directory. The sessions themselves are the
-//! solver's core's to keep; a file from before it kept them still has them
-//! here, until they are handed over to it (see `sessions.rs`).
+//! solver's core's to keep.
 //!
 //! No token is ever written here. The solver's comes from `GHOSTD_TOKEN`,
 //! and a connection names the variable its token is in, read when the desk
 //! connects, in the environment or the `.env` file, as everywhere in Ghost.
-//! A file written before there were connections reads as having none.
 //!
 //! What you have seen in Attention is kept here and not on any daemon:
 //! a daemon lists what waits on its operators, and which of it one person
@@ -24,10 +22,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde_json::{Value, json};
-
-use crate::sessions::Session;
 
 /// The port the solver's deployment listens on, apart from characters'.
 pub const SOLVER_URL: &str = "ws://127.0.0.1:7438";
@@ -146,12 +142,6 @@ pub struct Settings {
     pub solver_url: String,
     /// The session on screen when the desk last showed one, by id.
     pub open: Option<String>,
-    /// The sessions a file from before the core kept them still has,
-    /// newest first, until they are handed over to it.
-    pub kept: Option<Vec<Session>>,
-    /// When their handover began: a session the core began after it is
-    /// not one deleted here.
-    pub since: Option<DateTime<Utc>>,
     /// The daemons it connects to besides its own, in the order added.
     pub connections: Vec<Connection>,
     /// What you have marked seen in Attention, by its key there.
@@ -167,8 +157,6 @@ impl Default for Settings {
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| SOLVER_URL.to_owned()),
             open: None,
-            kept: None,
-            since: None,
             connections: Vec::new(),
             seen: BTreeSet::new(),
         }
@@ -255,18 +243,6 @@ impl Settings {
                 .unwrap_or_default()
         };
         let default = Self::default();
-        // An empty list is nothing to hand over: it is not taken as every
-        // session the core has having been deleted here.
-        let kept: Vec<Session> = list("sessions")
-            .iter()
-            .filter_map(|x| {
-                Some(Session {
-                    id: s(x, "id")?,
-                    title: s(x, "title").unwrap_or_default(),
-                    at: s(x, "at")?.parse().ok()?,
-                })
-            })
-            .collect();
         let connections = list("connections")
             .iter()
             .filter_map(|x| {
@@ -286,8 +262,6 @@ impl Settings {
             who: s(v, "who").unwrap_or(default.who),
             solver_url: s(v, "solver_url").unwrap_or(default.solver_url),
             open: s(v, "open").filter(|o| !o.is_empty()),
-            since: s(v, "sessions_since").and_then(|t| t.parse().ok()),
-            kept: (!kept.is_empty()).then_some(kept),
             connections,
             seen,
         }
@@ -310,18 +284,6 @@ impl Settings {
         });
         if let Some(open) = &self.open {
             v["open"] = json!(open);
-        }
-        if let Some(kept) = &self.kept {
-            v["sessions"] = json!(
-                kept.iter()
-                    .map(|x| json!({
-                        "id": x.id, "title": x.title, "at": x.at.to_rfc3339(),
-                    }))
-                    .collect::<Vec<_>>()
-            );
-        }
-        if let Some(since) = &self.since {
-            v["sessions_since"] = json!(since.to_rfc3339());
         }
         v
     }
@@ -364,47 +326,16 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    fn named(title: &str) -> Session {
-        Session {
-            title: title.to_owned(),
-            ..Session::new()
-        }
-    }
-
     #[test]
-    fn a_file_from_before_connections_reads_with_none_and_keeps_its_sessions_to_hand_over() {
-        let old = json!({
-            "who": "fox",
-            "solver_url": "ws://127.0.0.1:7438",
-            "sessions": [{"id": "s1", "title": "Free some disk", "at": "2026-11-15T10:00:00Z"}],
-        });
-        let read = Settings::read(&old);
-        assert_eq!(read.who, "fox");
-        let kept = read.kept.as_deref().unwrap();
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].title, "Free some disk");
-        assert_eq!(read.since, None, "the handover has not begun");
-        assert!(read.connections.is_empty());
-        assert!(read.seen.is_empty(), "nothing was seen before Attention");
-        // Kept until they are handed over, with when that began.
-        let mut handing = read.clone();
-        handing.since = Some("2026-11-19T09:00:00Z".parse().unwrap());
-        assert_eq!(Settings::read(&handing.written()), handing);
-    }
-
-    #[test]
-    fn once_the_core_keeps_the_sessions_the_file_keeps_only_which_was_open() {
+    fn the_file_keeps_which_session_was_open_and_none_of_the_sessions() {
         let settings = Settings {
             open: Some("s1".to_owned()),
             ..Settings::read(&json!({"who": "fox"}))
         };
         let written = settings.written();
-        assert!(written.get("sessions").is_none() && written.get("sessions_since").is_none());
+        assert!(written.get("sessions").is_none());
         assert_eq!(written["open"], "s1");
         assert_eq!(Settings::read(&written), settings);
-        // An empty list is nothing to hand over.
-        let empty = Settings::read(&json!({"who": "fox", "sessions": []}));
-        assert_eq!(empty.kept, None);
     }
 
     #[test]
@@ -413,8 +344,6 @@ mod tests {
             who: "fox".to_owned(),
             solver_url: SOLVER_URL.to_owned(),
             open: None,
-            kept: None,
-            since: None,
             connections: Vec::new(),
             seen: [
                 "group:machine/solver/asked-12",
@@ -434,8 +363,6 @@ mod tests {
             who: "fox".to_owned(),
             solver_url: SOLVER_URL.to_owned(),
             open: None,
-            kept: Some(vec![named("one")]),
-            since: None,
             connections: vec![
                 Connection {
                     name: "studio".to_owned(),

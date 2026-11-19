@@ -255,7 +255,7 @@ fn role(
     let looks = watched
         .following
         .places
-        .get(&thread::thread_key(place))
+        .get(place)
         .ok_or("Nothing read here yet.")?;
     let look = looks
         .looks

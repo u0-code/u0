@@ -18,7 +18,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use ghost_brain::ToolSpec;
 use ghost_core::prompt;
-pub use ghost_core::prompts::{DIR, File, Kind, Layer, Listed, Loop, Origin, Store};
+pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Origin, Store};
 use serde_json::{Value, json};
 
 /// The work loop's table of texts: what a worker is told along the way.
@@ -28,14 +28,9 @@ const WORK: &str = "system/work/work.md";
 
 /// Every file the work loop reads, with what is built in.
 pub const FILES: &[File] = &[
-    prompt!("system/work/work.md", Kind::Whole, Layer::Work, "work.md"),
-    prompt!(
-        "system/work/texts.toml",
-        Kind::Texts(TEXTS),
-        Layer::Work,
-        "work_texts.toml"
-    ),
-    prompt!("system/tools.toml", Kind::Tools, Layer::Work, "tools.toml"),
+    prompt!("system/work/work.md", Kind::Whole, Layer::Work),
+    prompt!("system/work/texts.toml", Kind::Texts(TEXTS), Layer::Work),
+    prompt!("system/tools.toml", Kind::Tools, Layer::Work),
 ];
 
 /// The words of the work loop, as they are now.

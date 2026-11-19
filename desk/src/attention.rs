@@ -192,7 +192,6 @@ impl Desk {
                 .and_then(|w| thread::task_place(&self.solver.journal, w))
                 .or(it.place.clone());
             let session = place
-                .map(|p| thread::thread_key(&p))
                 .and_then(|p| p.split_once(':').map(|(_, id)| id.to_owned()))
                 .filter(|id| self.sessions.has(id));
             match session {
@@ -204,7 +203,7 @@ impl Desk {
         }
         self.open_character(host, ghost, cx);
         if let Some(open) = &mut self.open {
-            open.place = it.place.as_deref().map(thread::thread_key);
+            open.place = it.place;
             open.focus = it.work;
         }
         cx.notify();

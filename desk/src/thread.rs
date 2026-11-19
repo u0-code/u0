@@ -97,31 +97,15 @@ fn s<'a>(d: &'a Value, key: &str) -> &'a str {
     d.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-/// The channel the desk spoke on before it spoke through the console: it
-/// registered a presence of its own called `desk`. What was said there is
-/// still in her journal, under the same place ids.
-pub const OLD_CHANNEL: &str = "desk";
-
 /// The key of the place you speak to her in from the desk, by its id: a
 /// session's id with the solver, or your name with a character.
 pub fn place_key(id: &str) -> String {
     format!("{CONSOLE}:{id}")
 }
 
-/// The thread a place belongs to, by its key. A place on the old desk
-/// channel is one thread with the place of the same id on the console
-/// channel, so that what was said in a session before the desk spoke
-/// through the console is still in it; every other place is its own.
-pub fn thread_key(key: &str) -> String {
-    match key.split_once(':') {
-        Some((OLD_CHANNEL, id)) => place_key(id),
-        _ => key.to_owned(),
-    }
-}
-
-/// Whether something said on `channel` was said from the desk, now or before.
+/// Whether something said on `channel` was said from the desk.
 fn from_desk(channel: &str) -> bool {
-    channel == CONSOLE || channel == OLD_CHANNEL
+    channel == CONSOLE
 }
 
 /// The key of the place the work `work` was taken on in, if her journal's
@@ -205,18 +189,12 @@ pub struct Spot {
     pub at: DateTime<Utc>,
 }
 
-/// Every place something was said in `journal`, the most recent first. A
-/// place on the old desk channel is listed as one with its place on the
-/// console channel.
+/// Every place something was said in `journal`, the most recent first.
 pub fn places(journal: &[Entry]) -> Vec<Spot> {
     let mut spots: Vec<Spot> = Vec::new();
     for said in journal.iter().filter_map(said) {
-        let key = thread_key(&said.key());
-        let channel = if from_desk(&said.channel) {
-            CONSOLE
-        } else {
-            said.channel.as_str()
-        };
+        let key = said.key();
+        let channel = said.channel.as_str();
         // A place is called by its own name, or a private one by who it is
         // with.
         let name = said.place_name.clone().or_else(|| {
@@ -427,14 +405,12 @@ pub fn session_tasks<'a>(journal: &'a [Entry], session: &str) -> Vec<Task<'a>> {
     place_tasks(journal, &place_key(session))
 }
 
-/// The work taken on in the place `place`, a place key, or in the place
-/// on the old desk channel that is one thread with it; oldest first, parts
-/// under each.
+/// The work taken on in the place `place`, a place key; oldest first,
+/// parts under each.
 pub fn place_tasks<'a>(journal: &'a [Entry], place: &str) -> Vec<Task<'a>> {
-    let thread = thread_key(place);
     let ours: HashSet<&str> = journal
         .iter()
-        .filter(|e| e.kind == "undertook" && thread_key(s(&e.data, "place")) == thread)
+        .filter(|e| e.kind == "undertook" && s(&e.data, "place") == place)
         .map(|e| s(&e.data, "id"))
         .collect();
     if ours.is_empty() {
@@ -569,8 +545,7 @@ pub struct View<'a> {
     pub journal: &'a [Entry],
     /// What you said that the journal has not shown yet.
     pub pending: &'a [Message],
-    /// The place, by its key: `console:<session>` for a session. What was
-    /// said in its place on the old desk channel is in its thread too.
+    /// The place, by its key: `console:<session>` for a session.
     pub place: &'a str,
     /// The stops asked for from the desk, in whatever place.
     pub stops: &'a [crate::model::Stop],
@@ -608,12 +583,12 @@ pub struct View<'a> {
 /// that the journal has not shown yet.
 fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     let you = view.who.to_lowercase();
-    let thread = thread_key(view.place);
-    let looks = view.following.places.get(&thread);
+    let thread = view.place;
+    let looks = view.following.places.get(thread);
     // What was last said to her here: a look is timed from it.
     let mut heard: Option<DateTime<Utc>> = None;
     let mut items: Vec<(DateTime<Utc>, i64, Item<'a>)> = Vec::new();
-    let gone = taken_back(view.journal, &thread);
+    let gone = taken_back(view.journal, thread);
     let known = platform::Known::of(view.journal);
     for e in view.journal {
         // A change of brain is hers, not the thread's: what was taken
@@ -627,16 +602,16 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
         if gone.iter().any(|(from, to)| (*from..*to).contains(&e.seq)) {
             continue;
         }
-        if let Some(did) = platform::did(e, &thread, &known) {
+        if let Some(did) = platform::did(e, thread, &known) {
             items.push((e.at, e.seq, Item::Did(did)));
         }
-        if e.kind == "digested" && thread_key(s(&e.data, "place")) == thread {
+        if e.kind == "digested" && s(&e.data, "place") == thread {
             let text = s(&e.data, "text").trim().to_owned();
             items.push((e.at, e.seq, Item::Folded { seq: e.seq, text }));
             continue;
         }
         if let Some(mut said) = said(e) {
-            if thread_key(&said.key()) == thread {
+            if said.key() == thread {
                 if !said.message.hers {
                     heard = Some(e.at);
                 }
@@ -665,7 +640,7 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
         }
         // What she called in a look goes just before what it ended with,
         // and so above what she said after it.
-        if look_end(e).is_some_and(|p| thread_key(p) == thread)
+        if look_end(e).is_some_and(|p| p == thread)
             && let Some(look) = looks.and_then(|l| l.ended_with(e.seq))
             && steps::look_calls(look).next().is_some()
         {
@@ -681,11 +656,11 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
             && e.data
                 .get("place")
                 .and_then(Value::as_str)
-                .is_some_and(|p| thread_key(p) == thread)
+                .is_some_and(|p| p == thread)
         {
             items.push((e.at, e.seq, Item::Tool(e)));
         } else if let Some(why) = could_not_think(e)
-            && thread_key(s(&e.data, "about")) == thread
+            && s(&e.data, "about") == thread
         {
             items.push((e.at, e.seq, Item::Failed(why.to_owned())));
         }
@@ -867,18 +842,17 @@ fn look_end(e: &Entry) -> Option<&str> {
 fn taken_back(journal: &[Entry], thread: &str) -> Vec<(i64, i64)> {
     journal
         .iter()
-        .filter(|e| e.kind == "rewound" && thread_key(s(&e.data, "place")) == thread)
+        .filter(|e| e.kind == "rewound" && s(&e.data, "place") == thread)
         .filter_map(|e| Some((e.data.get("to")?.as_i64()?, e.seq)))
         .collect()
 }
 
 /// The newest entry in the thread of `place` a look can end with.
 pub fn newest_look_end(journal: &[Entry], place: &str) -> Option<i64> {
-    let thread = thread_key(place);
     journal
         .iter()
         .rev()
-        .find(|e| look_end(e).is_some_and(|p| thread_key(p) == thread))
+        .find(|e| look_end(e).is_some_and(|p| p == place))
         .map(|e| e.seq)
 }
 
@@ -931,7 +905,7 @@ pub fn wanted(view: &View<'_>) -> Wanted {
         );
     }
     Wanted {
-        place: thread_key(view.place),
+        place: view.place.to_owned(),
         thinking: waiting_since(&items(view)).is_some(),
         newest_end: newest_look_end(view.journal, view.place),
         works,

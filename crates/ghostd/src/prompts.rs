@@ -12,65 +12,11 @@ use ghost_core::prompts::{
 use ghost_mind::{Prompts, prompts::Origin};
 use tracing::{info, warn};
 
-/// The prompts for the ghost in `ghost_dir`, from the deployment's
-/// directory `deployment` if there is one, then `over`, then built in: her
-/// own copy, which her mind takes changes into by itself. Prompts in her
-/// own directory are warned about and not used.
-pub(crate) fn prompts_for(
-    ghost_dir: &Path,
-    deployment: Option<&Path>,
-    over: &[(&str, &'static str)],
-) -> Prompts {
-    if let Some(said) = misplaced(ghost_dir, deployment) {
-        warn!("{said}");
-    }
+/// The prompts for a ghost, from the deployment's directory `deployment`
+/// if there is one, then `over`, then built in: her own copy, which her
+/// mind takes changes into by itself.
+pub(crate) fn prompts_for(deployment: Option<&Path>, over: &[(&str, &'static str)]) -> Prompts {
     Prompts::load_over(deployment, over)
-}
-
-/// What there is to say about prompts in the ghost directory `ghost_dir`,
-/// if it has any. They are not read: how she works is shared by every
-/// character, and only her persona is hers.
-fn misplaced(ghost_dir: &Path, deployment: Option<&Path>) -> Option<String> {
-    let mut found = words::misplaced(&ghost_mind::prompts::all_files(), ghost_dir);
-    found.extend(
-        retired(&ghost_dir.join(words::DIR)).map(|_| ghost_dir.join(words::DIR).join(RETIRED)),
-    );
-    if found.is_empty() {
-        return None;
-    }
-    let hers = ghost_dir.join(words::DIR);
-    let names: Vec<String> = found
-        .iter()
-        .filter_map(|p| p.strip_prefix(&hers).ok())
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-    let to = deployment.map_or_else(
-        || "a directory of prompts named by `prompts` under [mind] in ghostd.toml".to_owned(),
-        |dir| dir.display().to_string(),
-    );
-    Some(format!(
-        "{} holds {}, which are not used: how she works is shared by every character this deployment runs, \
-         and what is hers alone is in her ghost.toml. Move them to their place in the tree in {to} to use them for everyone",
-        ghost_dir.join(words::DIR).display(),
-        names.join(", ")
-    ))
-}
-
-/// The prompt that was split into the persona template and her being.
-const RETIRED: &str = "self.md";
-
-/// What there is to say about a copy of `self.md` in `dir`, if there is
-/// one: nothing reads it any more.
-pub(crate) fn retired(dir: &Path) -> Option<String> {
-    let path = dir.join(RETIRED);
-    path.exists().then(|| {
-        format!(
-            "{} is no longer read: it is now character/persona.md, her own fields arranged, and system/being.md, \
-             what she is and the ground rules. `ghostd prompts export --only character/persona.md system/being.md` \
-             writes this build's, to carry your changes into",
-            path.display()
-        )
-    })
 }
 
 /// Say which prompts are not the built-in ones, and where they come from.
@@ -143,9 +89,6 @@ pub(crate) fn say_stale(prompts: &Prompts, over: &[(&str, &'static str)]) {
 
 /// `ghostd prompts list`.
 pub(crate) fn list_prompts(dir: Option<&Path>) {
-    if let Some(said) = dir.and_then(retired) {
-        warn!("{said}");
-    }
     for line in listing(&Prompts::load(dir)) {
         println!("{line}");
     }
@@ -210,7 +153,6 @@ fn prompt_files(names: &[String]) -> anyhow::Result<Vec<ghost_mind::prompts::Fil
 
 /// `ghostd prompts export`.
 pub(crate) fn export_prompts(target: &Path, force: bool, only: &[String]) -> anyhow::Result<()> {
-    words::say_flat(&ghost_mind::prompts::all_files(), target);
     let done = Store::export(&prompt_files(only)?, target, force)
         .with_context(|| format!("write into {}", target.display()))?;
     let skipped = done.iter().filter(|(_, written)| !written).count();
@@ -229,7 +171,6 @@ pub(crate) fn export_prompts(target: &Path, force: bool, only: &[String]) -> any
 
 /// `ghostd prompts update`.
 pub(crate) fn update_prompts(target: &Path, looked_at: &[String]) -> anyhow::Result<()> {
-    words::say_flat(&ghost_mind::prompts::all_files(), target);
     let looked_at: Vec<&str> = if looked_at.is_empty() {
         Vec::new()
     } else {
@@ -262,58 +203,6 @@ mod tests {
     use std::fs;
 
     use super::*;
-
-    #[test]
-    fn a_shared_prompt_in_a_ghosts_own_directory_is_warned_about_and_the_deployments_is_used() {
-        let (ghost, deployment) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let hers = ghost.path().join(words::DIR);
-        fs::create_dir_all(hers.join("character")).unwrap();
-        // One laid out as the tree, one the old flat way: neither is read.
-        fs::write(hers.join("plan.md"), "hers").unwrap();
-        fs::write(hers.join("character/persona.md"), "hers too").unwrap();
-
-        let said = misplaced(ghost.path(), Some(deployment.path())).unwrap();
-        assert!(said.contains("character/persona.md, plan.md"), "{said}");
-        assert!(
-            said.contains(&deployment.path().display().to_string()),
-            "{said}"
-        );
-        // Not read, with or without a deployment's directory.
-        assert_eq!(
-            prompts_for(ghost.path(), None, &[]).plan,
-            Prompts::shipped().plan
-        );
-        assert_eq!(
-            prompts_for(ghost.path(), None, &[]).persona,
-            Prompts::shipped().persona
-        );
-        fs::create_dir_all(deployment.path().join("system/logic")).unwrap();
-        fs::write(
-            deployment.path().join("system/logic/plan.md"),
-            "the deployment's",
-        )
-        .unwrap();
-        assert_eq!(
-            prompts_for(ghost.path(), Some(deployment.path()), &[]).plan,
-            "the deployment's"
-        );
-        // A ghost with no prompts of her own is not warned about.
-        assert_eq!(misplaced(deployment.path(), None), None);
-    }
-
-    #[test]
-    fn a_copy_of_the_retired_self_md_is_named_wherever_it_is() {
-        let (ghost, deployment) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        fs::create_dir_all(ghost.path().join(words::DIR)).unwrap();
-        fs::write(ghost.path().join(words::DIR).join(RETIRED), "old").unwrap();
-        fs::write(deployment.path().join(RETIRED), "old").unwrap();
-        assert!(misplaced(ghost.path(), None).unwrap().contains("self.md"));
-        let said = retired(deployment.path()).unwrap();
-        assert!(
-            said.contains("character/persona.md") && said.contains("system/being.md"),
-            "{said}"
-        );
-    }
 
     #[test]
     fn prompts_list_shows_each_prompt_by_its_file_in_the_tree_with_its_layer() {
