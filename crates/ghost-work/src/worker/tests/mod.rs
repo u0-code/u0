@@ -8,6 +8,7 @@ mod parts;
 mod prompts;
 mod results;
 mod run;
+mod writes;
 
 use std::sync::{Mutex, atomic::AtomicU64};
 

@@ -3,7 +3,7 @@
 //! pictures they name, kept under `media/` beside the database.
 
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -13,8 +13,8 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 
 use super::{
-    Undertaking,
-    db::{append, other},
+    State, Undertaking,
+    db::{append, load, other, store},
 };
 
 /// The line that stands for a picture wherever its bytes are not kept.
@@ -110,47 +110,199 @@ impl Undertaking {
     /// The sitting in progress, if one was left unfinished. Pictures saved
     /// as references are read back from `media/`.
     pub fn transcript(&self) -> Option<Vec<Item>> {
-        let text: String = self
-            .conn()
+        let read = self.read_transcript();
+        let items = match read {
+            Ok(Some((items, rows))) => {
+                // The rows this handle saves on from: what it just read,
+                // or nothing, when the transcript was in the old one row.
+                *self.saved() = Some(if rows { items.clone() } else { Vec::new() });
+                items
+            }
+            Ok(None) => {
+                *self.saved() = Some(Vec::new());
+                return None;
+            }
+            Err(e) => {
+                tracing::warn!("could not read the transcript of {}: {e}", self.id);
+                return None;
+            }
+        };
+        Some(items)
+    }
+
+    /// The transcript on disk, and whether it was in rows of its own; an
+    /// item that cannot be read leaves none.
+    fn read_transcript(&self) -> rusqlite::Result<Option<(Vec<Item>, bool)>> {
+        let conn = self.conn();
+        let rows: Vec<(Option<String>, Option<String>)> = conn
+            .prepare(
+                "SELECT t.item, h.item FROM transcript_items t
+                 LEFT JOIN history h ON h.id = t.id AND h.n = t.history
+                 WHERE t.id = ?1 ORDER BY t.n",
+            )?
+            .query_map([&self.id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let read = |text: &str| {
+            serde_json::from_str::<Value>(text)
+                .ok()
+                .and_then(|item| from_disk(item, self.media_root()))
+        };
+        if !rows.is_empty() {
+            return Ok(rows
+                .iter()
+                .map(|(item, kept)| read(item.as_deref().or(kept.as_deref())?))
+                .collect::<Option<Vec<Item>>>()
+                .map(|items| (items, true)));
+        }
+        // As versions before wrote it: the whole of it in one row.
+        let Some(text) = conn
             .query_row(
                 "SELECT items FROM transcript WHERE id = ?1",
                 [&self.id],
-                |row| row.get(0),
+                |row| row.get::<_, String>(0),
             )
-            .optional()
-            .ok()??;
-        let saved: Vec<Value> = serde_json::from_str(&text).ok()?;
-        saved
-            .into_iter()
-            .map(|item| from_disk(item, self.media_root()))
-            .collect()
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_str::<Vec<Value>>(&text)
+            .ok()
+            .and_then(|saved| {
+                saved
+                    .into_iter()
+                    .map(|item| from_disk(item, self.media_root()))
+                    .collect::<Option<Vec<Item>>>()
+            })
+            .map(|items| (items, false)))
     }
 
-    /// Replace the transcript with `items`. Done after every step, so that
-    /// a process stopped anywhere can be picked up from the last one.
+    fn saved(&self) -> std::sync::MutexGuard<'_, Option<Vec<Item>>> {
+        self.saved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Save the transcript `items`, of which the first `remembered` are
+    /// in the history already: the rest join it, and the transcript is
+    /// written where it differs from what is on disk. Done whenever a
+    /// sitting stops, so that it can be picked up from there.
+    pub fn save(&self, items: &[Item], remembered: usize) -> io::Result<()> {
+        self.write_step(None::<(fn(&mut State), &Value)>, items, remembered)
+            .map(|_| ())
+    }
+
+    /// One step, written in one transaction: `change` made to the state,
+    /// `line` added to the step log, and the transcript saved as
+    /// [`Undertaking::save`] saves it. A process stopped anywhere can be
+    /// picked up from the step before or the step after, never from half
+    /// of one.
+    pub fn step<T>(
+        &self,
+        change: impl FnOnce(&mut State) -> T,
+        line: &Value,
+        items: &[Item],
+        remembered: usize,
+    ) -> io::Result<T> {
+        self.write_step(Some((change, line)), items, remembered)?
+            .ok_or_else(|| io::Error::other("the step's change was not made"))
+    }
+
+    /// What [`Undertaking::save`] and [`Undertaking::step`] write.
     ///
-    /// It is rewritten whole every time, so it holds no image bytes: each
-    /// picture is kept under `media/` first, and saved as the name of its
-    /// file.
-    pub fn save_transcript(&self, items: &[Item]) {
-        let saved = items
+    /// The transcript is kept an item a row. Only the rows that differ
+    /// from what this handle knows to be on disk are written: after a
+    /// step, the items it added. An item that is new to the history and
+    /// holds no picture is the history's row word for word, and its row
+    /// here only says which one. Pictures are kept under `media/` before
+    /// the transaction, and named in the row.
+    fn write_step<T, F: FnOnce(&mut State) -> T>(
+        &self,
+        step: Option<(F, &Value)>,
+        items: &[Item],
+        remembered: usize,
+    ) -> io::Result<Option<T>> {
+        let remembered = remembered.min(items.len());
+        let history: Vec<String> = items[remembered..]
             .iter()
-            .map(|item| self.to_disk(item))
-            .collect::<Result<Vec<Value>, _>>()
-            .and_then(|items| serde_json::to_string(&items))
-            .map_err(other)
-            .and_then(|text| {
-                self.conn()
-                    .execute(
-                        "INSERT INTO transcript (id, items) VALUES (?1, ?2)
-                     ON CONFLICT (id) DO UPDATE SET items = excluded.items",
-                        params![self.id, text],
-                    )
-                    .map_err(other)
-            });
-        if let Err(e) = saved {
-            tracing::warn!("could not save the transcript: {e}");
+            .map(|item| serde_json::to_string(&without_pictures(item)))
+            .collect::<serde_json::Result<_>>()
+            .map_err(other)?;
+        let known = self.saved().clone();
+        // Each row to write: its place, and its item unless it is the
+        // history's.
+        let mut rows: Vec<(usize, Option<String>)> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if known.as_ref().and_then(|k| k.get(i)) == Some(item) {
+                continue;
+            }
+            let own = matches!(item, Item::Result { pictures, .. } if !pictures.is_empty())
+                || i < remembered;
+            let text = if own {
+                Some(serde_json::to_string(&self.to_disk(item).map_err(other)?).map_err(other)?)
+            } else {
+                None
+            };
+            rows.push((i, text));
         }
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(other)?;
+        let out = match step {
+            Some((change, line)) => {
+                let mut state = load(&tx, &self.id)
+                    .map_err(other)?
+                    .unwrap_or_else(|| self.cached().clone());
+                let out = change(&mut state);
+                store(&tx, &self.id, &state).map_err(other)?;
+                append(&tx, "log", "line", &self.id, [line.to_string()]).map_err(other)?;
+                Some((out, state))
+            }
+            None => None,
+        };
+        let last: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(n), 0) FROM history WHERE id = ?1",
+                [&self.id],
+                |row| row.get(0),
+            )
+            .map_err(other)?;
+        append(&tx, "history", "item", &self.id, history).map_err(other)?;
+        // Rows past its end go; all of them, where what is on disk is not
+        // known.
+        let keep = if known.is_some() { items.len() } else { 0 };
+        tx.execute(
+            "DELETE FROM transcript_items WHERE id = ?1 AND n > ?2",
+            params![self.id, i64::try_from(keep).map_err(other)?],
+        )
+        .map_err(other)?;
+        {
+            let mut put = tx
+                .prepare(
+                    "INSERT OR REPLACE INTO transcript_items (id, n, item, history)
+                     VALUES (?1, ?2, ?3, ?4)",
+                )
+                .map_err(other)?;
+            for (i, text) in rows {
+                let kept = match text {
+                    Some(_) => None,
+                    None => Some(last + 1 + i64::try_from(i - remembered).map_err(other)?),
+                };
+                let n = i64::try_from(i + 1).map_err(other)?;
+                put.execute(params![self.id, n, text, kept])
+                    .map_err(other)?;
+            }
+        }
+        // Read from here on, the transcript as it was first written is
+        // not wanted again.
+        tx.execute("DELETE FROM transcript WHERE id = ?1", [&self.id])
+            .map_err(other)?;
+        tx.commit().map_err(other)?;
+        *self.saved() = Some(items.to_vec());
+        Ok(out.map(|(out, state)| {
+            *self.cached() = state;
+            out
+        }))
     }
 
     /// Keep images a tool returned beside this database, under `media/`,

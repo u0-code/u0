@@ -16,7 +16,10 @@ handed in by whoever starts it. `ghost-mind` is what makes it hers.
 What makes it hold up over hours:
 
 - The plan, the notes and the outcome live in a SQLite database, `work.db`,
-  and the transcript is saved there after every step. Kill the process
+  and each step is saved there in one transaction: what it did to the
+  state, its line in the log, and what it added to the transcript, which
+  points into the history rather than holding the items again. A step
+  writes what is new in it, not the transcript so far. Kill the process
   anywhere; run it again with the same state directory and it carries on.
   One database holds any number of undertakings by id: a ghost keeps all of
   hers in `<ghost>/work.db`, beside her journal. Only the bookkeeping is

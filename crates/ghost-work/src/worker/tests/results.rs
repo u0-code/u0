@@ -131,7 +131,11 @@ async fn a_worker_picked_up_from_disk_gets_its_pictures_back_from_media() {
     let file = ghost_core::media::name(&bytes, "image/png");
     let row: String = rusqlite::Connection::open(state_db(dir.path()))
         .unwrap()
-        .query_row("SELECT items FROM transcript", [], |row| row.get(0))
+        .query_row(
+            "SELECT group_concat(item) FROM transcript_items WHERE item IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     assert!(row.contains(&file) && !row.contains("\"data\""), "{row}");
 
