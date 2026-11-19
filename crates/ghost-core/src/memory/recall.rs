@@ -39,6 +39,10 @@ pub struct Hit {
     pub place: Option<String>,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE VIRTUAL TABLE IF NOT EXISTS recall USING fts5(
     text, content = '', contentless_delete = 1, tokenize = 'trigram'

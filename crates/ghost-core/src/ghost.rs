@@ -73,7 +73,7 @@ impl Ghost {
         fs::create_dir_all(dir.join("derived"))?;
         let lock = lock(dir)?;
         let journal = Journal::create(&dir.join(JOURNAL_FILE))?;
-        let memory = Memory::open(dir)?;
+        let memory = Memory::open(dir, &journal)?;
         let mut ghost = Self {
             dir: dir.to_path_buf(),
             identity,
@@ -109,7 +109,7 @@ impl Ghost {
             },
             lock,
         ) = hold(dir)?;
-        let mut memory = Memory::open(dir)?;
+        let mut memory = Memory::open(dir, &journal)?;
         memory.catch_up(&journal)?;
         let mut ghost = Self {
             dir: dir.to_path_buf(),

@@ -38,7 +38,10 @@ deploy/                systemd units, a backup script, running on a server.
   `memory/recall.rs` (and a fold in whichever `memory/` file keeps it), and
   one in `ghostd`'s `show.rs`.
 - **Memory is derived.** Anything in `memory/` must be rebuildable from the
-  journal alone. If you add a table or a column, bump `SCHEMA_VERSION`.
+  journal alone. If you change a feature's tables or what its fold writes,
+  bump that file's `VERSION`: only it, and the features it reads or that
+  read it (`reads` in `memory/mod.rs`), are rebuilt. A fold that starts
+  reading another feature's tables says so there.
 - **One writer.** Only the `Mind` actor writes her journal. Anything slow is
   spawned and comes back as an `Outcome`; it does not touch her state.
 - **Every HTTP client comes from `ghost_net::builder()`**, and every program

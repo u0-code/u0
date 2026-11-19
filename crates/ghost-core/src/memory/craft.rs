@@ -25,6 +25,10 @@ pub struct Lesson {
     pub lesson: String,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS craft (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, lesson TEXT NOT NULL,

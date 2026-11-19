@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{
     Error, Result,
@@ -67,12 +67,74 @@ pub use work::{Undertaking, WorkReport};
 /// Where the derived memory lives inside a ghost directory.
 pub const MEMORY_FILE: &str = "derived/memory.db";
 
-/// Bump when the schema changes. A mismatch rebuilds from the journal.
-const SCHEMA_VERSION: i64 = 25;
+/// How the store says which version of each feature it holds. Bumped only
+/// if that changes: the whole store is then thrown away and rebuilt. A
+/// change to one feature bumps that feature's `VERSION` instead.
+const LAYOUT: i64 = 26;
 
-/// How far the journal has been folded in.
+/// How far the journal has been folded in (`last_seq`), and the version of
+/// each feature the store holds (`version:<name>`).
 const META: &str =
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);";
+
+/// One thing she can recall, kept by a file of its own here.
+///
+/// When a feature's `VERSION` is not the one the store holds, its tables
+/// are dropped on open and it is folded again from the whole journal,
+/// while every other feature keeps what it has. A feature that reads
+/// another's tables as it folds is rebuilt with it, whichever of the two
+/// changed: alone, it would read the other's tables as they are now
+/// rather than as they were at each entry, or leave what it once read
+/// from them as an older version wrote it.
+struct Feature {
+    name: &'static str,
+    version: i64,
+    schema: &'static str,
+    /// The features whose tables its fold reads.
+    reads: &'static [&'static str],
+    fold: fn(&Transaction<'_>, &Entry, &str) -> Result<()>,
+}
+
+macro_rules! feature {
+    ($name:ident $(, reads $($read:ident),+)?) => {
+        Feature {
+            name: stringify!($name),
+            version: $name::VERSION,
+            schema: $name::SCHEMA,
+            // Each by its file, so that a name that is not one does not
+            // build.
+            reads: &[$($({
+                let _ = $read::VERSION;
+                stringify!($read)
+            }),+)?],
+            fold: $name::fold,
+        }
+    };
+}
+
+/// Every feature, in the order each entry is folded into them.
+const FEATURES: [Feature; 17] = [
+    // First, so that it reads a line, and what was said in a place, as they
+    // were before this entry changes them.
+    feature!(recall, reads messages, people, work, belongings),
+    feature!(places),
+    feature!(messages),
+    feature!(people),
+    feature!(notes),
+    feature!(digests),
+    feature!(intentions),
+    feature!(canon),
+    feature!(work),
+    feature!(craft),
+    feature!(public),
+    feature!(links),
+    feature!(belongings),
+    feature!(installed),
+    feature!(skills),
+    feature!(sessions),
+    // After the people, so that a note about someone finds their place.
+    feature!(threads, reads people),
+];
 
 /// Everything she can recall, in one database.
 pub struct Memory {
@@ -80,39 +142,48 @@ pub struct Memory {
 }
 
 impl Memory {
-    /// Open the derived store under `dir`, creating or rebuilding it.
-    pub fn open(dir: &Path) -> Result<Self> {
+    /// Open the derived store under `dir`, creating it, or rebuilding from
+    /// `journal` what in it is not of this build's shape.
+    pub fn open(dir: &Path, journal: &Journal) -> Result<Self> {
         let path = dir.join(MEMORY_FILE);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let version: i64 =
+        let layout: i64 =
             Connection::open(&path)?.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version != SCHEMA_VERSION && version != 0 {
-            // Another shape. It is only a view: throw all of it away.
+        if layout != LAYOUT && layout != 0 {
+            // Kept in another way. It is only a view: throw all of it away.
             discard(dir)?;
         }
-        Self::prepare(Connection::open(&path)?)
+        let mut memory = Self::prepare(Connection::open(&path)?)?;
+        memory.refold(journal)?;
+        Ok(memory)
     }
 
     /// The store under `dir` as it was last written, for looking at from
     /// another process while she lives. It is opened read-only, so that
     /// nothing here can rebuild or change it under the body that keeps it.
-    /// `None` if there is none yet, or it is of a shape this build does
-    /// not read.
+    /// `None` if there is none yet, or any of it is of a shape this build
+    /// does not read, or is still being rebuilt.
     pub fn glance(dir: &Path) -> Result<Option<Self>> {
         let path = dir.join(MEMORY_FILE);
         if !path.exists() {
             return Ok(None);
         }
         let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        Ok((version == SCHEMA_VERSION).then_some(Self { conn }))
+        let layout: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let memory = Self { conn };
+        Ok((layout == LAYOUT && memory.stale()?.is_empty()).then_some(memory))
     }
 
     /// A store that lives only as long as the value. For tests and tools.
     pub fn in_memory() -> Result<Self> {
-        Self::prepare(Connection::open_in_memory()?)
+        let mut memory = Self::prepare(Connection::open_in_memory()?)?;
+        // Nothing has been folded into it, so every feature is whole.
+        let tx = memory.conn.transaction()?;
+        held(&tx, &FEATURES.iter().collect::<Vec<_>>())?;
+        tx.commit()?;
+        Ok(memory)
     }
 
     fn prepare(conn: Connection) -> Result<Self> {
@@ -122,30 +193,94 @@ impl Memory {
         // look while she writes, instead of holding her writes up.
         conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get::<_, String>(0))?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        for tables in [
-            META,
-            places::SCHEMA,
-            messages::SCHEMA,
-            people::SCHEMA,
-            notes::SCHEMA,
-            digests::SCHEMA,
-            intentions::SCHEMA,
-            canon::SCHEMA,
-            work::SCHEMA,
-            craft::SCHEMA,
-            public::SCHEMA,
-            links::SCHEMA,
-            belongings::SCHEMA,
-            installed::SCHEMA,
-            skills::SCHEMA,
-            threads::SCHEMA,
-            sessions::SCHEMA,
-            recall::SCHEMA,
-        ] {
-            conn.execute_batch(tables)?;
+        conn.execute_batch(META)?;
+        let memory = Self { conn };
+        // What is of another version is dropped, and made again empty;
+        // `refold` fills it.
+        for feature in memory.stale()? {
+            for table in tables(feature)? {
+                memory
+                    .conn
+                    .execute_batch(&format!("DROP TABLE IF EXISTS \"{table}\";"))?;
+            }
         }
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-        Ok(Self { conn })
+        for feature in &FEATURES {
+            memory.conn.execute_batch(feature.schema)?;
+        }
+        memory.conn.pragma_update(None, "user_version", LAYOUT)?;
+        Ok(memory)
+    }
+
+    /// The features this store does not hold as this build keeps them,
+    /// with every feature they read or that reads them, in fold order.
+    fn stale(&self) -> Result<Vec<&'static Feature>> {
+        let mut stale: Vec<&str> = Vec::new();
+        for feature in &FEATURES {
+            if self.meta(&format!("version:{}", feature.name))? != feature.version {
+                stale.push(feature.name);
+            }
+        }
+        // With whatever reads one of them or is read by one, until no more
+        // is added.
+        let touch =
+            |f: &Feature, g: &Feature| f.reads.contains(&g.name) || g.reads.contains(&f.name);
+        loop {
+            let more: Vec<&str> = FEATURES
+                .iter()
+                .filter(|f| {
+                    !stale.contains(&f.name)
+                        && FEATURES
+                            .iter()
+                            .any(|g| stale.contains(&g.name) && touch(f, g))
+                })
+                .map(|f| f.name)
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            stale.extend(more);
+        }
+        Ok(FEATURES
+            .iter()
+            .filter(|f| stale.contains(&f.name))
+            .collect())
+    }
+
+    /// Fold the journal, as far as the rest of memory has, into each
+    /// feature that is stale, 500 entries to a transaction. Its version
+    /// is written with the last of them, so a rebuild cut short is begun
+    /// again on the next open rather than taken for whole.
+    fn refold(&mut self, journal: &Journal) -> Result<()> {
+        let features = self.stale()?;
+        if features.is_empty() {
+            return Ok(());
+        }
+        let upto = self.last_seq()?;
+        let mut from = 1;
+        loop {
+            let mut batch = if from > upto {
+                Vec::new()
+            } else {
+                journal.read(from, BATCH)?
+            };
+            batch.retain(|e| e.seq <= upto);
+            let done = batch.last().is_none_or(|e| e.seq >= upto);
+            let tx = self.conn.transaction()?;
+            for entry in &batch {
+                let at = stamp(&entry.at);
+                for feature in &features {
+                    (feature.fold)(&tx, entry, &at).map_err(|e| unfolded(entry, e.to_string()))?;
+                }
+            }
+            if done {
+                held(&tx, &features)?;
+            }
+            tx.commit()?;
+            match batch.last() {
+                Some(last) if !done => from = last.seq + 1,
+                _ => return Ok(()),
+            }
+        }
     }
 
     /// The seq of the last journal entry folded in.
@@ -212,7 +347,10 @@ impl Memory {
             .transaction()
             .map_err(|e| unfolded(first, e.to_string()))?;
         for entry in entries {
-            fold(&tx, entry, &stamp(&entry.at)).map_err(|e| unfolded(entry, e.to_string()))?;
+            let at = stamp(&entry.at);
+            for feature in &FEATURES {
+                (feature.fold)(&tx, entry, &at).map_err(|e| unfolded(entry, e.to_string()))?;
+            }
         }
         tx.execute(
             "INSERT INTO meta (key, value) VALUES ('last_seq', ?1)
@@ -247,28 +385,31 @@ fn discard(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Every feature's fold of one entry. `at` is the entry's time as it is kept.
-fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
-    // First, so that it reads a line, and what was said in a place, as they
-    // were before this entry changes them.
-    recall::fold(tx, entry, at)?;
-    places::fold(tx, entry, at)?;
-    messages::fold(tx, entry, at)?;
-    people::fold(tx, entry, at)?;
-    notes::fold(tx, entry, at)?;
-    digests::fold(tx, entry, at)?;
-    intentions::fold(tx, entry, at)?;
-    canon::fold(tx, entry, at)?;
-    work::fold(tx, entry, at)?;
-    craft::fold(tx, entry, at)?;
-    public::fold(tx, entry, at)?;
-    links::fold(tx, entry, at)?;
-    belongings::fold(tx, entry, at)?;
-    installed::fold(tx, entry, at)?;
-    skills::fold(tx, entry, at)?;
-    sessions::fold(tx, entry, at)?;
-    // After the people, so that a note about someone finds their place.
-    threads::fold(tx, entry, at)
+/// Note that the store holds `features` as this build keeps them.
+fn held(tx: &Transaction<'_>, features: &[&Feature]) -> Result<()> {
+    for feature in features {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("version:{}", feature.name), feature.version],
+        )?;
+    }
+    Ok(())
+}
+
+/// The tables `feature` makes, as `SQLite` lists those its schema creates.
+/// Its indexes, and the tables behind a full-text index, go with them.
+fn tables(feature: &Feature) -> Result<Vec<String>> {
+    let scratch = Connection::open_in_memory()?;
+    scratch.execute_batch(feature.schema)?;
+    let mut stmt = scratch.prepare(
+        "SELECT name FROM pragma_table_list
+         WHERE schema = 'main' AND type IN ('table', 'virtual') AND name NOT LIKE 'sqlite_%'",
+    )?;
+    let names = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(names)
 }
 
 /// The platform a `channel:id` key belongs to.
@@ -441,7 +582,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::{
-        MEMORY_FILE, Memory, SCHEMA_VERSION,
+        FEATURES, LAYOUT, MEMORY_FILE, Memory, tables,
         testing::{fold, heard, on, said},
     };
     use crate::{
@@ -504,7 +645,7 @@ mod tests {
     fn a_reader_in_another_process_does_not_hold_up_her_writes() {
         let dir = tempfile::tempdir().unwrap();
         let mut j = Journal::in_memory();
-        let mut m = Memory::open(dir.path()).unwrap();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
         m.apply(&j.append(said("a", "one")).unwrap()).unwrap();
 
         // Looking, in the middle of a read, the way `ghostd status` does.
@@ -527,7 +668,7 @@ mod tests {
     fn her_memory_can_be_looked_at_when_nobody_has_it_open() {
         let dir = tempfile::tempdir().unwrap();
         let mut j = Journal::in_memory();
-        let mut m = Memory::open(dir.path()).unwrap();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
         m.apply(&j.append(said("a", "one")).unwrap()).unwrap();
         drop(m);
         let look = Memory::glance(dir.path()).unwrap().unwrap();
@@ -572,7 +713,7 @@ mod tests {
     fn every_platform_and_her_memory_are_kept_in_one_file_that_outlives_her_body() {
         let dir = tempfile::tempdir().unwrap();
         let mut j = Journal::in_memory();
-        let mut m = Memory::open(dir.path()).unwrap();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
         for event in [
             on(
                 "telegram",
@@ -602,14 +743,14 @@ mod tests {
 
         // Opened again, it is all still there, and nothing is folded twice.
         drop(m);
-        let mut m = Memory::open(dir.path()).unwrap();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
         assert_eq!(m.catch_up(&j).unwrap(), 0);
         assert_eq!(m.places().unwrap().len(), 2);
         assert_eq!(m.canon(5).unwrap().len(), 1);
     }
 
     #[test]
-    fn a_store_of_another_shape_is_rebuilt() {
+    fn a_store_kept_in_another_layout_is_rebuilt_whole() {
         let dir = tempfile::tempdir().unwrap();
         // A file where the store is, in another shape.
         let path = dir.path().join(MEMORY_FILE);
@@ -622,12 +763,12 @@ mod tests {
         }
 
         let mut j = Journal::in_memory();
-        let mut m = Memory::open(dir.path()).unwrap();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
         let version: i64 = Connection::open(&path)
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(version, LAYOUT);
         assert_eq!(m.last_seq().unwrap(), 0);
         m.apply(
             &j.append(heard("a", PlaceKind::Direct, "a", "1", "hi", true))
@@ -635,5 +776,169 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.place("t:a").unwrap().unwrap().unread, 1);
+    }
+
+    /// A life with something in every feature that reads another's tables,
+    /// and in a few that do not.
+    fn lived() -> Journal {
+        let mut j = Journal::in_memory();
+        for event in [
+            heard(
+                "a",
+                PlaceKind::Direct,
+                "a",
+                "1",
+                "the lantern [image]",
+                true,
+            ),
+            heard("g", PlaceKind::Group, "b", "2", "茶馆 at dusk", false),
+            said("a", "东边那家茶馆要拆了"),
+            Event::Viewed {
+                message: 1,
+                image: 0,
+                what: "a paper lantern".into(),
+                file: None,
+            },
+            Event::Noted {
+                sources: None,
+                about: "t:a".into(),
+                text: "keeps a lantern".into(),
+                place: Some("t:a".into()),
+            },
+            Event::Felt {
+                toward: "t:b".into(),
+                delta: 2,
+                why: "kind".into(),
+            },
+            Event::Canon {
+                fact: "lives near the old gate".into(),
+                source: "life".into(),
+            },
+            Event::Undertook {
+                id: "w1".into(),
+                brief: "Draw the east gate.".into(),
+                asked_by: Some("t:a".into()),
+                place: Some("t:a".into()),
+                directed: false,
+                dir: None,
+            },
+            Event::Stopped {
+                place: "t:a".into(),
+                by: "t:a".into(),
+                looking: true,
+                unsaid: Vec::new(),
+                works: vec!["w1".into()],
+            },
+            heard("g", PlaceKind::Group, "a", "3", "anyone here", false),
+        ] {
+            j.append(event).unwrap();
+        }
+        j
+    }
+
+    /// Every row of every feature's tables, and what a few searches find
+    /// (the full-text index keeps no rows to compare), to set two stores
+    /// side by side.
+    fn contents(m: &Memory) -> Vec<String> {
+        let mut out = Vec::new();
+        for feature in &FEATURES {
+            for table in tables(feature).unwrap() {
+                if table == "recall" {
+                    continue;
+                }
+                let mut stmt = m.conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
+                let n = stmt.column_count();
+                let mut rows: Vec<String> = stmt
+                    .query_map([], |r| {
+                        (0..n)
+                            .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    })
+                    .unwrap()
+                    .map(|row| format!("{table} {:?}", row.unwrap()))
+                    .collect();
+                rows.sort();
+                out.extend(rows);
+            }
+        }
+        for query in ["lantern", "茶馆", "east gate", "you"] {
+            out.push(format!("{query}: {:?}", m.search("t", query, 10).unwrap()));
+        }
+        out
+    }
+
+    fn rebuilt_whole(j: &Journal) -> Vec<String> {
+        let mut m = Memory::in_memory().unwrap();
+        m.catch_up(j).unwrap();
+        contents(&m)
+    }
+
+    #[test]
+    fn a_feature_of_another_version_is_rebuilt_alone_and_ends_as_a_whole_rebuild_would() {
+        let dir = tempfile::tempdir().unwrap();
+        let j = lived();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
+        m.catch_up(&j).unwrap();
+        // The canon as an older build kept it, and a mark in the places
+        // that a rebuild of them would wipe out.
+        m.conn
+            .execute_batch(
+                "UPDATE meta SET value = 0 WHERE key = 'version:canon';
+                 DELETE FROM canon;
+                 UPDATE places SET name = 'marked' WHERE key = 't:g';",
+            )
+            .unwrap();
+        drop(m);
+        // Until it is rebuilt, it is not looked at.
+        assert!(Memory::glance(dir.path()).unwrap().is_none());
+
+        let mut m = Memory::open(dir.path(), &j).unwrap();
+        assert_eq!(m.canon(5).unwrap().len(), 1);
+        assert_eq!(
+            m.place("t:g").unwrap().unwrap().name.as_deref(),
+            Some("marked")
+        );
+        assert_eq!(m.catch_up(&j).unwrap(), 0);
+        assert!(Memory::glance(dir.path()).unwrap().is_some());
+
+        m.conn
+            .execute_batch("UPDATE places SET name = NULL WHERE key = 't:g'")
+            .unwrap();
+        assert_eq!(contents(&m), rebuilt_whole(&j));
+    }
+
+    #[test]
+    fn a_feature_is_rebuilt_with_those_it_reads_and_those_that_read_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let j = lived();
+        let mut m = Memory::open(dir.path(), &j).unwrap();
+        m.catch_up(&j).unwrap();
+        // The people as an older build kept them. What she recalls reads
+        // them (who stopped her), and reads the messages; the threads read
+        // them too. None of those may keep what was made from the old.
+        m.conn
+            .execute_batch(
+                "UPDATE meta SET value = 0 WHERE key = 'version:people';
+                 UPDATE people SET name = 'OLD';
+                 DELETE FROM messages;
+                 DELETE FROM thread_of;
+                 DELETE FROM remembered;
+                 UPDATE places SET name = 'marked' WHERE key = 't:g';",
+            )
+            .unwrap();
+        drop(m);
+
+        let m = Memory::open(dir.path(), &j).unwrap();
+        // The places neither read the people nor are read by them.
+        assert_eq!(
+            m.place("t:g").unwrap().unwrap().name.as_deref(),
+            Some("marked")
+        );
+        m.conn
+            .execute_batch("UPDATE places SET name = NULL WHERE key = 't:g'")
+            .unwrap();
+        assert_eq!(contents(&m), rebuilt_whole(&j));
+        let stopped = m.search("t", "stopped", 5).unwrap();
+        assert!(stopped[0].text.starts_with("A stopped you"), "{stopped:?}");
     }
 }

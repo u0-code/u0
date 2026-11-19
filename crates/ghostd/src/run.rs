@@ -1,5 +1,6 @@
-//! `ghostd run`, the daemon: the characters it is given are each made in
-//! full, then listened for, then kept alive until she is told to stop.
+//! `ghostd run`, the daemon: it listens, makes each of the characters it
+//! is given in full, answers, and keeps them alive until she is told to
+//! stop.
 
 use std::{
     path::{Path, PathBuf},
@@ -105,7 +106,27 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
     say_overrides(&prompts);
     say_stale(&prompts, over);
 
-    // Each is made in full before anyone is listened to: one that cannot
+    // Listened on before they are made, which can take seconds when her
+    // memory is rebuilt from her journal: whoever connects meanwhile waits
+    // to be answered rather than being turned away, and the desk does not
+    // take an address that is slow to answer for one nothing listens on.
+    // Told to stop before anything is said about listening, so that a
+    // SIGTERM sent the moment she is up still stops her in order.
+    let told_to_stop = told_to_stop(with_parent);
+    let listener = TcpListener::bind(&cfg.listen.addr)
+        .await
+        .with_context(|| format!("listen on {}", cfg.listen.addr))?;
+    info!(
+        "listening on ws://{}{}; whoever connects is answered once each of them is up",
+        cfg.listen.addr,
+        if token.is_some() {
+            " (token required)"
+        } else {
+            ""
+        }
+    );
+
+    // Each is made in full before anyone is answered: one that cannot
     // be started stops the daemon here, as a single ghost always has.
     let agents = Arc::new(crate::brains::ready_agents(&cfg).await);
     // What each mind is made with is asked of this each time one is made,
@@ -164,21 +185,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         core.host.as_deref().unwrap_or("a computer with no name")
     );
 
-    // Listened for before anything is said about listening, so that a
-    // SIGTERM sent the moment she is up still stops her in order.
-    let told_to_stop = told_to_stop(with_parent);
-    let listener = TcpListener::bind(&cfg.listen.addr)
-        .await
-        .with_context(|| format!("listen on {}", cfg.listen.addr))?;
-    info!(
-        "listening on ws://{}{}",
-        cfg.listen.addr,
-        if token.is_some() {
-            " (token required)"
-        } else {
-            ""
-        }
-    );
+    info!("answering on ws://{}", cfg.listen.addr);
     let server = tokio::spawn(server::serve(
         listener,
         Arc::new(Shared {

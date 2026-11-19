@@ -20,6 +20,10 @@ use crate::{
     social,
 };
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS thread_of (
     place TEXT NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY (place, seq)

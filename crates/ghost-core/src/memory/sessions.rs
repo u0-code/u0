@@ -43,6 +43,10 @@ pub struct Session {
     pub set_aside: bool,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
     place TEXT PRIMARY KEY, channel TEXT NOT NULL, started TEXT NOT NULL,

@@ -55,6 +55,10 @@ pub struct Person {
     pub last_out_at: Option<DateTime<Utc>>,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS people (
     key TEXT PRIMARY KEY, channel TEXT NOT NULL, id TEXT NOT NULL,

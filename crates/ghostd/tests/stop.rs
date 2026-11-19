@@ -240,3 +240,19 @@ fn a_directory_of_characters_runs_each_with_her_own_settings_and_name_in_the_log
         "{refused:?}"
     );
 }
+
+#[test]
+fn she_is_listened_for_before_she_is_made_and_answered_once_she_is() {
+    let dir = tempfile::tempdir().unwrap();
+    born(dir.path(), "her");
+    std::fs::write(dir.path().join("ghostd.toml"), CONFIG).unwrap();
+
+    let mut running = Running::start(dir.path(), &["run", "her", "--config", "ghostd.toml"]);
+    // Rebuilding her memory, which can take seconds, is part of making
+    // her: a client that comes meanwhile is held, not turned away.
+    let listening = running.wait_for(&["listening on"]).join("\n");
+    assert!(!listening.contains(". seal "), "{listening}");
+    let answering = running.wait_for(&["answering on"]).join("\n");
+    assert!(answering.contains(". seal "), "{answering}");
+    assert_eq!(running.terminate(), Some(0));
+}
