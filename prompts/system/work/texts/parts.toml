@@ -1,0 +1,114 @@
+# Parts: pieces of the work handed out with `delegate`, each done by a
+# worker of its own, or by an agent installed here, while the one that
+# handed it out goes on with its share. {{part}} is a part's number.
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# What a part is told about where it stands, before its instructions.
+part_who = """\
+    You are doing one part of a larger piece of work. Another worker is doing the whole of it: it handed \
+    this part to you and goes on with its own share while you do yours. It sees nothing of what you do, only \
+    what you `tell` it, what you `ask` it, and the summary you give `done`. That summary is your report to it \
+    and all it will have of your work, so make it complete enough to act on: what you found or did, where it \
+    is, what you checked, and what is still open. Keep to the part you were given. The rest is being done by \
+    others, and work outside your part can undo theirs."""
+
+# What `delegate` returns: the part's number, and nothing of its work yet.
+# A part handed to an agent installed here (Claude Code, Codex), which is
+# given none of her instructions: only this.
+agent_task = """\
+{{task}}
+
+Work in this directory. When you are done, end with a short report for whoever handed you this: what you \
+did, what you found, and what is not done and why."""
+# What such an agent is told when it is picked up again with nothing new.
+agent_go_on = "Go on with the task where you left off, and end with the report it asks for."
+no_agent = "There is no agent called {{agent}} here."
+# An installed agent that cannot work here: not installed, not logged in,
+# too old. Fixing it is done on someone's account, as them, so it is never
+# the work's to fix, and trying (installing or upgrading something
+# system-wide) can break what they use. {{fix}} is the exact command.
+agent_unusable = "{{agent}} cannot do parts here: {{why}}. That is for whoever runs you to fix ({{fix}}), not for you: do not install, upgrade or log in to anything yourself. Say it in your report, and do this part another way or hand it to a worker like you."
+# Why such an agent's run came to nothing, as the part's report has it
+# ({{why}} in `part_failed`). {{noted}} is the last thing it said it was
+# doing, {{complaint}} what it complained of.
+agent_not_started = "could not start {{program}}: {{why}}"
+agent_no_output = "it gave no output to read"
+agent_no_answer = "ended without an answer. {{noted}} {{complaint}}"
+# When it reported an error and gave no reason.
+agent_error_unsaid = "it reported an error"
+
+# What `delegate` says when no part was handed out.
+task_empty = "the task is empty"
+part_unmade = "no part could be set up: {{why}}"
+part_not_made = "no part could be set up"
+part_started = "Part {{part}} has started on it, alongside you."
+part_queued = "Part {{part}} is queued, because as many parts as may run at once ({{running}}) already are. It starts when one of them ends."
+# After either, when the part was handed a step of the plan.
+part_on_step = " It is on step {{step}} of your plan, which is marked done with its report when it finishes, and failed if it does not."
+# Why a step cannot be handed out.
+no_step = "Your plan has no step {{step}}. Call `plan` to add it first, or leave `step` out."
+step_not_ready = "Step {{step}} cannot be started yet: it is after steps that are not done ({{waiting}})."
+step_taken = "Step {{step}} is already with part {{part}}, which has not ended. Steer that part, or stop it first."
+# What is recorded on a step as its result when the part given it ends:
+# {{how}} is one of the words below, {{line}} the first line of its report.
+part_result = "Part {{part}} {{how}}: {{line}}"
+# Put after the report of a part that was given a step.
+part_step_done = "\n\nStep {{step}} of your plan, which it was given, is now marked done, with the first line of this report as its result."
+part_step_failed = "\n\nStep {{step}} of your plan, which it was given, is now marked failed. Do it another way, hand it out again, or drop it with a reason."
+
+# What reaches the worker from its parts between its steps, each as a
+# message of its own that says whom it is from and what it is.
+part_told = "A message from part {{part}}, which goes on working:\n\n{{text}}{{files}}"
+part_told_files = "\n\nFiles it made: {{files}}"
+part_asked = "A question from part {{part}}, which has stopped until you answer it with `steer`:\n\n{{text}}"
+part_ended = "Part {{part}} {{how}} after {{steps}} steps. Its report:\n\n{{report}}"
+# A part of work whose folder is in a git repository works in a checkout of
+# its own, so that two workers never write over each other. What it is
+# told of it, after where it is; and what its report says of its changes.
+part_checkout = "You work in a checkout of your own of the work's folder, at {{dir}}, made from it as it was when you began: what others change meanwhile does not get in your way, and what you change does not get in theirs. Make every change here, not in {{of}}. When you finish, what you changed is brought back into the work's folder."
+part_applied = "\n\nWhat it changed is now in your folder: {{files}}."
+part_clashed = "\n\nWhat it changed could not be brought into your folder, because the same places changed there meanwhile: {{files}}. It is on the branch {{branch}} of {{repo}}: merge it with git, or do it again."
+part_kept = "\n\nIt did not finish, so what it changed was not brought into your folder: {{files}}. It is on the branch {{branch}} of {{repo}}."
+# After the first dozen files it changed, how many more there are.
+more_files = " and {{count}} more"
+part_finished = "finished"
+part_blocked = "could not go on"
+part_gave_up = "gave up"
+part_dropped = "was stopped"
+part_failed = "failed ({{why}})"
+part_ran_out = "ran out of steps before finishing"
+part_stalled = "stopped acting, and was ended"
+
+# What `steer`, `stop`, `wait` and `parts` return at work.
+steered = "Passed on to part {{part}}. It reads it before its next step."
+part_stopped = "Part {{part}} is stopped. If it is in the middle of a step it ends after that step, and its report reaches you."
+no_part = "There is no part {{part}}. Call `parts` to see the parts you have handed out."
+part_over = "Part {{part}} has already ended. Hand out a new part if there is more to do."
+# When `steer` or `stop` names no part, or could not do what it was asked.
+missing_part = "missing argument `part` (a number)"
+nothing_to_pass_on = "there is nothing to pass on"
+not_passed_on = "it could not be passed on: {{why}}"
+part_not_stopped = "part {{part}} could not be stopped: {{why}}"
+wait_arrived = "Something arrived. It follows."
+wait_timed_out = "Nothing arrived in {{seconds}} seconds."
+wait_idle = "No part is running or queued, so nothing will arrive. Call `parts` to see where each one stands."
+parts_none = "You have not handed out any parts."
+parts_line = "- part {{part}} ({{status}}, {{steps}} steps), given \"{{task}}\": {{latest}}"
+status_running = "running"
+status_queued = "queued"
+status_asking = "waiting for your answer"
+status_finished = "finished"
+status_blocked = "blocked"
+status_gave_up = "gave_up"
+status_dropped = "dropped"
+
+# What `done` says when the work is called finished while parts of it
+# have not ended.
+parts_open = """\
+    Not recorded. These parts have not ended: {{parts}}. Their results are not in, so the work is not \
+    finished yet. Wait for them with `wait`, or stop the ones you no longer need with `stop`, then call \
+    `done` again. Calling it blocked or gave_up instead ends them along with the work."""

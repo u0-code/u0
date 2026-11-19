@@ -103,7 +103,7 @@ impl Mind {
         let place = match memory.place(place_key)? {
             Some(place) => {
                 let people = memory.people_in(place_key, 6)?;
-                self.describe_place(&place, &people)
+                self.place_words(&place, &people, true)?
             }
             None => place_key.to_owned(),
         };
@@ -114,7 +114,13 @@ impl Mind {
                 ("where", place),
                 (
                     "transcript",
-                    narrate::transcript(&lines, i64::MAX, self.life.clock(), now),
+                    crate::narrate::transcript(
+                        &self.prompts,
+                        &lines,
+                        i64::MAX,
+                        self.life.clock(),
+                        now,
+                    ),
                 ),
             ],
         );

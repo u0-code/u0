@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 
 use super::MAX_PICTURE;
 use crate::{
-    prompts::{self, Loop, Store},
+    prompts::{self, Loop, Store, TEXTS},
     tool::{Outcome, Tool, text},
 };
 
@@ -36,11 +36,6 @@ const IMAGES_LISTED: usize = 40;
 /// An image a page declares narrower or shorter than this, in pixels, is
 /// an icon, a spacer or a pixel that counts visits.
 const MIN_SIDE: u32 = 32;
-
-/// Said after a result that came through the proxy. The model cannot see
-/// the network; this is the one thing it is told about it, because a page
-/// can differ by where it is asked from.
-const BY_PROXY: &str = "(reached through the proxy)";
 
 fn configured(builder: ClientBuilder) -> ClientBuilder {
     builder
@@ -110,8 +105,13 @@ impl Routes {
     }
 
     /// Send what `request` makes, the way that works. `request` is called
-    /// once for each try, with the client for that way.
-    async fn send(&self, request: impl Fn(&Client) -> RequestBuilder) -> Result<Reached, String> {
+    /// once for each try, with the client for that way. Why it could not
+    /// be sent either way is said in `words`.
+    async fn send(
+        &self,
+        words: &Store,
+        request: impl Fn(&Client) -> RequestBuilder,
+    ) -> Result<Reached, String> {
         let request = &request;
         let attempt = |route: Route| {
             let client = self.client(route);
@@ -169,7 +169,11 @@ impl Routes {
                 response,
                 route: second,
             }),
-            (Err(again), Err(first)) => Err(format!("{first}; the other way: {again}")),
+            (Err(again), Err(first)) => Err(words.fill(
+                TEXTS,
+                "unreached_either_way",
+                &[("first", first.to_string()), ("again", again.to_string())],
+            )),
         }
     }
 }
@@ -284,10 +288,10 @@ impl Search {
         }
     }
 
-    async fn ask(&self, query: &str, count: u64) -> Result<(Value, Route), String> {
+    async fn ask(&self, words: &Store, query: &str, count: u64) -> Result<(Value, Route), String> {
         let reached = self
             .routes
-            .send(|client| match &self.source {
+            .send(words, |client| match &self.source {
                 Source::DeepSeek { key } => client
                     .post(format!("{DEEPSEEK}/v1/tools/search"))
                     .bearer_auth(key)
@@ -304,12 +308,18 @@ impl Search {
         let status = reached.response.status();
         let body = reached.response.text().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            let said: String = body.chars().take(300).collect();
-            return Err(format!("the search service answered {status}: {said}"));
+            return Err(words.fill(
+                TEXTS,
+                "search_refused",
+                &[
+                    ("status", status.to_string()),
+                    ("said", body.chars().take(300).collect()),
+                ],
+            ));
         }
         serde_json::from_str(&body)
             .map(|v| (v, reached.route))
-            .map_err(|e| format!("the search service sent something unreadable: {e}"))
+            .map_err(|e| words.fill(TEXTS, "search_unreadable", &[("why", e.to_string())]))
     }
 }
 
@@ -329,38 +339,40 @@ impl Tool for Search {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let query = match text(args, "query") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let query = match text(words, args, "query") {
             Ok(q) => q.trim(),
             Err(refusal) => return refusal,
         };
         if query.is_empty() {
-            return Outcome::fail("the query is empty");
+            return Outcome::fail(words.text(TEXTS, "query_empty"));
         }
         // The service refuses long queries outright.
         let query: String = query.chars().take(128).collect();
         let count = args["count"].as_u64().unwrap_or(8).clamp(1, 20);
-        match self.ask(&query, count).await {
+        match self.ask(words, &query, count).await {
             Ok((v, route)) => {
                 let found = hits(&self.source, &v);
                 let said = if found.is_empty() {
-                    "No results. Try other words, fewer words, or another language.".to_owned()
+                    words.text(TEXTS, "no_results").to_owned()
                 } else {
                     listing(&found)
                 };
-                Outcome::ok(said_with_route(said, route))
+                Outcome::ok(said_with_route(words, said, route))
             }
             Err(why) => Outcome::fail(why),
         }
     }
 }
 
-/// What a tool says, and after it, if it came through the proxy, that it did.
-fn said_with_route(said: String, route: Route) -> String {
-    match route {
-        Route::Proxy => format!("{said}\n\n{BY_PROXY}"),
-        Route::Direct => said,
+/// What a tool says, and after it, if it came through the proxy, that it
+/// did. The model cannot see the network; this is the one thing it is told
+/// about it, because a page can differ by where it is asked from.
+fn said_with_route(words: &Store, mut said: String, route: Route) -> String {
+    if route == Route::Proxy {
+        said.push_str(words.text(TEXTS, "by_proxy"));
     }
+    said
 }
 
 pub struct Fetch {
@@ -380,13 +392,18 @@ impl Fetch {
     }
 
     /// The page as Markdown, through DeepSeek's fetch API.
-    async fn through_reader(&self, key: &str, url: &str) -> Result<(String, Route), String> {
+    async fn through_reader(
+        &self,
+        words: &Store,
+        key: &str,
+        url: &str,
+    ) -> Result<(String, Route), String> {
         let Reached {
             response: resp,
             route,
         } = self
             .routes
-            .send(|client| {
+            .send(words, |client| {
                 client
                     .post(format!("{}/v1/tools/fetch", self.reader_at))
                     .bearer_auth(key)
@@ -398,13 +415,15 @@ impl Fetch {
         if !status.is_success() {
             return Err(format!(
                 "{status}: {}",
-                v["error"]["message"].as_str().unwrap_or("no reason given")
+                v["error"]["message"]
+                    .as_str()
+                    .unwrap_or_else(|| words.text(TEXTS, "no_reason_given"))
             ));
         }
         let title = v["title"].as_str().unwrap_or_default().trim();
         let content = v["content"].as_str().unwrap_or_default().trim();
         if content.is_empty() {
-            return Err("the page had no readable content".to_owned());
+            return Err(words.text(TEXTS, "page_empty").to_owned());
         }
         let page = if title.is_empty() || content.starts_with('#') {
             content.to_owned()
@@ -416,14 +435,14 @@ impl Fetch {
 
     /// The page fetched from here and reduced to its text, with the images
     /// it shows listed after it; or the image at the address, to look at.
-    async fn directly(&self, url: &str) -> Result<(Fetched, Route), String> {
+    async fn directly(&self, words: &Store, url: &str) -> Result<(Fetched, Route), String> {
         let Reached {
             response: mut resp,
             route,
-        } = self.routes.send(|client| client.get(url)).await?;
+        } = self.routes.send(words, |client| client.get(url)).await?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(format!("the site answered {status}"));
+            return Err(words.fill(TEXTS, "site_refused", &[("status", status.to_string())]));
         }
         // Relative addresses on the page are taken from where it was in
         // the end, after any redirect.
@@ -443,12 +462,12 @@ impl Fetch {
                 .content_length()
                 .is_some_and(|n| n > MAX_PICTURE as u64)
             {
-                return Err(too_large(&kind));
+                return Err(too_large(words, &kind));
             }
             let mut bytes = Vec::new();
             while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
                 if bytes.len() + chunk.len() > MAX_PICTURE {
-                    return Err(too_large(&kind));
+                    return Err(too_large(words, &kind));
                 }
                 bytes.extend_from_slice(&chunk);
             }
@@ -456,9 +475,7 @@ impl Fetch {
                 return Ok((Fetched::Picture(picture), route));
             }
             if !kind.is_empty() {
-                return Err(format!(
-                    "the address holds {kind}, which is not an image that can be shown (PNG, JPEG, GIF or WebP). Download it with the shell if you need it."
-                ));
+                return Err(words.fill(TEXTS, "not_an_image", &[("kind", kind)]));
             }
             let body = String::from_utf8_lossy(&bytes).into_owned();
             return Ok((page_of(body, &base, false), route));
@@ -471,9 +488,7 @@ impl Fetch {
         {
             Ok((page_of(body, &base, kind.contains("html")), route))
         } else {
-            Err(format!(
-                "the address holds {kind}, not a page of text. Download it with the shell if you need it."
-            ))
+            Err(words.fill(TEXTS, "not_a_page", &[("kind", kind)]))
         }
     }
 }
@@ -504,11 +519,21 @@ fn page_of(body: String, base: &Url, html: bool) -> Fetched {
     }
 }
 
-fn too_large(kind: &str) -> String {
-    format!(
-        "the address holds {} larger than {} MB, too large to be shown. Download it with the shell if you need it.",
-        if kind.is_empty() { "a file" } else { kind },
-        MAX_PICTURE / (1024 * 1024)
+fn too_large(words: &Store, kind: &str) -> String {
+    words.fill(
+        TEXTS,
+        "too_large_to_show",
+        &[
+            (
+                "kind",
+                if kind.is_empty() {
+                    words.text(TEXTS, "a_file").to_owned()
+                } else {
+                    kind.to_owned()
+                },
+            ),
+            ("mb", (MAX_PICTURE / (1024 * 1024)).to_string()),
+        ],
     )
 }
 
@@ -675,10 +700,11 @@ fn entities(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The images worth naming, as plain lines the model can pick from: each
-/// once, at most [`IMAGES_LISTED`], and none of what is only there to count
-/// visits or to be an icon: drawings in SVG, and anything declared tiny.
-fn listed(found: Vec<Shown>) -> String {
+/// The images worth naming, as plain lines the model can pick from, under
+/// a line in `words`: each once, at most [`IMAGES_LISTED`], and none of
+/// what is only there to count visits or to be an icon: drawings in SVG,
+/// and anything declared tiny.
+fn listed(words: &Store, found: Vec<Shown>) -> String {
     let tiny = |side: &str| {
         side.trim_end_matches("px")
             .trim()
@@ -701,10 +727,7 @@ fn listed(found: Vec<Shown>) -> String {
         return String::new();
     }
     let more = kept.len().saturating_sub(IMAGES_LISTED);
-    let mut out = format!(
-        "Images on this page ({}). Fetch an address to see the image:\n",
-        kept.len()
-    );
+    let mut out = words.fill(TEXTS, "page_images", &[("count", kept.len().to_string())]);
     for s in kept.iter().take(IMAGES_LISTED) {
         let _ = write!(out, "- {}", s.url);
         if !s.words.is_empty() {
@@ -721,7 +744,11 @@ fn listed(found: Vec<Shown>) -> String {
         out.push('\n');
     }
     if more > 0 {
-        let _ = writeln!(out, "[and {more} more]");
+        let _ = writeln!(
+            out,
+            "{}",
+            words.fill(TEXTS, "more_images", &[("count", more.to_string())])
+        );
     }
     out.trim_end().to_owned()
 }
@@ -742,16 +769,17 @@ impl Tool for Fetch {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let url = match text(args, "url") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let url = match text(words, args, "url") {
             Ok(u) => u.trim(),
             Err(refusal) => return refusal,
         };
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Outcome::fail("the address must start with http:// or https://");
+            return Outcome::fail(words.text(TEXTS, "not_http"));
         }
+        let address = || ("url", url.to_owned());
         let fetched = match &self.reader_key {
-            Some(key) if !names_an_image(url) => match self.through_reader(key, url).await {
+            Some(key) if !names_an_image(url) => match self.through_reader(words, key, url).await {
                 Ok((text, route)) => {
                     let mut images = Url::parse(url)
                         .map(|base| markdown_images(&text, &base))
@@ -762,28 +790,37 @@ impl Tool for Fetch {
                     // the page itself.
                     if images.is_empty()
                         && let Ok((Fetched::Page { images: shown, .. }, _)) =
-                            self.directly(url).await
+                            self.directly(words, url).await
                     {
                         images = shown;
                     }
                     Ok((Fetched::Page { text, images }, route))
                 }
                 // The reader refuses some sites that answer a plain request.
-                Err(first) => self.directly(url).await.map_err(|second| {
-                    format!("could not read {url}: {first}; fetched directly: {second}")
+                Err(first) => self.directly(words, url).await.map_err(|second| {
+                    words.fill(
+                        TEXTS,
+                        "page_unread_either_way",
+                        &[address(), ("first", first), ("second", second)],
+                    )
                 }),
             },
             _ => self
-                .directly(url)
+                .directly(words, url)
                 .await
-                .map_err(|why| format!("could not read {url}: {why}")),
+                .map_err(|why| words.fill(TEXTS, "page_unread", &[address(), ("why", why)])),
         };
         let (page, images, route) = match fetched {
             Ok((Fetched::Page { text, images }, route)) => (text, images, route),
             Ok((Fetched::Picture(picture), route)) => {
                 return Outcome::seen(
                     said_with_route(
-                        format!("{url} is an image ({}).", super::about(&picture)),
+                        words,
+                        words.fill(
+                            TEXTS,
+                            "an_image_address",
+                            &[address(), ("about", super::about(&picture))],
+                        ),
                         route,
                     ),
                     picture,
@@ -794,24 +831,31 @@ impl Tool for Fetch {
         let total = page.chars().count();
         let from = usize::try_from(args["from"].as_u64().unwrap_or(0)).unwrap_or(0);
         if from >= total {
-            return Outcome::fail(format!("the page has only {total} characters"));
+            return Outcome::fail(words.fill(
+                TEXTS,
+                "page_too_short",
+                &[("count", total.to_string())],
+            ));
         }
         let mut part: String = page.chars().skip(from).take(PAGE_CHARS).collect();
         let end = from + part.chars().count();
         // The images come with the first part, so that a long page need
         // not be read to its end to learn what it shows.
-        let images = listed(images);
+        let images = listed(words, images);
         if from == 0 && !images.is_empty() {
             let _ = write!(part, "\n\n{images}");
         }
         if end < total {
-            let _ = write!(
-                part,
-                "\n\n[{} more characters. To read on: fetch with from={end}]",
-                total - end
-            );
+            part.push_str(&words.fill(
+                TEXTS,
+                "page_more",
+                &[
+                    ("count", (total - end).to_string()),
+                    ("from", end.to_string()),
+                ],
+            ));
         }
-        Outcome::ok(said_with_route(part, route))
+        Outcome::ok(said_with_route(words, part, route))
     }
 }
 
@@ -976,16 +1020,24 @@ mod tests {
         let fetch = fetch_by(&refusing_proxy().await, &[], "harbour.test", at);
         let url = format!("http://harbour.test:{}/harbour", at.port());
 
-        let read = fetch.call(&json!({ "url": url })).await;
+        let read = fetch
+            .call(&json!({ "url": url }), &crate::Prompts::shipped())
+            .await;
         assert!(!read.failed, "{}", read.output);
         assert!(read.output.contains("Boats at dawn."), "{}", read.output);
-        assert!(!read.output.contains(BY_PROXY), "{}", read.output);
+        assert!(
+            !read.output.contains("(reached through the proxy)"),
+            "{}",
+            read.output
+        );
         assert_eq!(
             fetch.routes.known().get("harbour.test"),
             Some(&Route::Direct)
         );
         // Now known, it goes direct first.
-        let again = fetch.call(&json!({ "url": url })).await;
+        let again = fetch
+            .call(&json!({ "url": url }), &crate::Prompts::shipped())
+            .await;
         assert!(!again.failed, "{}", again.output);
     }
 
@@ -1002,13 +1054,25 @@ mod tests {
         let proxy = serve(vec![(path, "text/html", b"<p>Far away.</p>".to_vec())]).await;
         let fetch = fetch_by(&proxy, &["far.test"], "far.test", closed);
 
-        let read = fetch.call(&json!({ "url": url })).await;
+        let read = fetch
+            .call(&json!({ "url": url }), &crate::Prompts::shipped())
+            .await;
         assert!(!read.failed, "{}", read.output);
         assert!(read.output.contains("Far away."), "{}", read.output);
-        assert!(read.output.ends_with(BY_PROXY), "{}", read.output);
+        assert!(
+            read.output.ends_with("(reached through the proxy)"),
+            "{}",
+            read.output
+        );
         assert_eq!(fetch.routes.known().get("far.test"), Some(&Route::Proxy));
-        let again = fetch.call(&json!({ "url": url })).await;
-        assert!(again.output.ends_with(BY_PROXY), "{}", again.output);
+        let again = fetch
+            .call(&json!({ "url": url }), &crate::Prompts::shipped())
+            .await;
+        assert!(
+            again.output.ends_with("(reached through the proxy)"),
+            "{}",
+            again.output
+        );
     }
 
     #[tokio::test]
@@ -1025,7 +1089,12 @@ mod tests {
         .await;
         let fetch = Fetch::new(None);
         for path in ["/a.png", "/raw"] {
-            let seen = fetch.call(&json!({"url": format!("{base}{path}")})).await;
+            let seen = fetch
+                .call(
+                    &json!({"url": format!("{base}{path}")}),
+                    &crate::Prompts::shipped(),
+                )
+                .await;
             assert!(!seen.failed, "{}", seen.output);
             assert_eq!(seen.pictures.len(), 1);
             assert_eq!(seen.pictures[0].mime, "image/png");
@@ -1038,7 +1107,10 @@ mod tests {
         }
         // What only claims to be an image is not shown as one.
         let fake = fetch
-            .call(&json!({"url": format!("{base}/fake.png")}))
+            .call(
+                &json!({"url": format!("{base}/fake.png")}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(fake.failed && fake.pictures.is_empty(), "{}", fake.output);
     }
@@ -1059,7 +1131,10 @@ mod tests {
         )])
         .await;
         let read = Fetch::new(None)
-            .call(&json!({"url": format!("{base}/news/today")}))
+            .call(
+                &json!({"url": format!("{base}/news/today")}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(!read.failed, "{}", read.output);
         assert!(read.pictures.is_empty(), "a page is read, not shown");
@@ -1091,7 +1166,12 @@ mod tests {
         .await;
         let mut fetch = Fetch::new(Some("key".into()));
         fetch.reader_at.clone_from(&base);
-        let read = fetch.call(&json!({"url": format!("{base}/gallery")})).await;
+        let read = fetch
+            .call(
+                &json!({"url": format!("{base}/gallery")}),
+                &crate::Prompts::shipped(),
+            )
+            .await;
         assert!(!read.failed, "{}", read.output);
         let (text, images) = read.output.split_once("\n\nImages on this page").unwrap();
         assert!(text.contains("deep thought"), "{text}");
@@ -1131,7 +1211,7 @@ mod tests {
                 height: None,
             })
             .collect();
-        let list = listed(found);
+        let list = listed(&crate::Prompts::shipped(), found);
         assert_eq!(list.lines().filter(|l| l.starts_with("- ")).count(), 40);
         assert!(list.ends_with("[and 10 more]"), "{list}");
     }

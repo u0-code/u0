@@ -56,7 +56,10 @@ use self::{
     guard::{Listed, Vetted},
     registry::{Plan, Registry},
 };
-use crate::tool::Outcome;
+use crate::{
+    prompts::{Store, TEXTS},
+    tool::Outcome,
+};
 
 /// Starts that fail in a row before a server is uninstalled.
 const STARTS: u32 = 3;
@@ -312,15 +315,15 @@ impl Servers {
             .unwrap_or_default()
     }
 
-    /// What `find_tools` shows for `query`: the current listings, each
-    /// with how it would run, what it needs, and whether it can be
-    /// installed here as it stands.
-    pub async fn find(&self, query: &str) -> Result<String, String> {
+    /// What `find_tools` shows for `query`, in `words`: the current
+    /// listings, each with how it would run, what it needs, and whether it
+    /// can be installed here as it stands.
+    pub async fn find(&self, words: &Store, query: &str) -> Result<String, String> {
         let query = query.trim();
         if query.chars().count() < 3 {
-            return Err("say at least three letters of what to look for.".to_owned());
+            return Err(words.text(TEXTS, "find_tools_short").to_owned());
         }
-        let mut found = self.registry.search(query).await?;
+        let mut found = self.registry.search(words, query).await?;
         // A name taken again by someone later is shown once, by whoever
         // took it first.
         found.sort_by_key(|l| l.official().published_at);
@@ -337,89 +340,95 @@ impl Servers {
             }
         });
         if found.is_empty() {
-            return Ok(format!(
-                "Nothing current in the registry has \"{query}\" in its name. Try another word: what it is for, or the site it works with."
-            ));
+            return Ok(words.fill(TEXTS, "no_servers_found", &[("query", query.to_owned())]));
         }
         let mut out = Vec::new();
         for (n, listing) in found.iter().take(SHOWN).enumerate() {
             let server = &listing.server;
-            let planned =
-                registry::plan(listing, &|key| guard::given(&self.cfg, &server.name, key));
+            let planned = registry::plan(words, listing, &|key| {
+                guard::given(&self.cfg, &server.name, key)
+            });
             let runs = match &planned {
                 Ok(plan) => plan.source.clone(),
-                Err(_) => runs(server),
+                Err(_) => runs(words, server),
             };
-            let needs = registry::needs(server);
-            out.push(format!(
-                "{}. {} {}: {}\n   runs: {runs}\n   needs: {}\n   installs here: {}",
-                n + 1,
-                server.name,
-                server.version,
-                short(server.description.trim(), 200),
-                if needs.is_empty() {
-                    "nothing".to_owned()
-                } else {
-                    needs.join(", ")
-                },
-                match planned {
-                    Ok(_) => "yes".to_owned(),
-                    Err(why) => format!("no, {why}"),
-                }
+            let needs = registry::needs(words, server);
+            out.push(words.fill(
+                TEXTS,
+                "server_found",
+                &[
+                    ("n", (n + 1).to_string()),
+                    ("name", server.name.clone()),
+                    ("version", server.version.clone()),
+                    ("description", short(server.description.trim(), 200)),
+                    ("runs", runs),
+                    (
+                        "needs",
+                        if needs.is_empty() {
+                            words.text(TEXTS, "needs_nothing").to_owned()
+                        } else {
+                            needs.join(", ")
+                        },
+                    ),
+                    (
+                        "installs",
+                        match planned {
+                            Ok(_) => words.text(TEXTS, "installs_yes").to_owned(),
+                            Err(why) => words.fill(TEXTS, "installs_no", &[("why", why)]),
+                        },
+                    ),
+                ],
             ));
         }
         if found.len() > SHOWN {
-            out.push(format!(
-                "({} more; a narrower word finds fewer.)",
-                found.len() - SHOWN
+            out.push(words.fill(
+                TEXTS,
+                "more_found",
+                &[("count", (found.len() - SHOWN).to_string())],
             ));
         }
         if copies > 0 {
-            out.push(format!(
-                "({copies} later listings reuse a name shown here and are left out.)"
-            ));
+            out.push(words.fill(TEXTS, "copies_left_out", &[("count", copies.to_string())]));
         }
         Ok(out.join("\n"))
     }
 
     /// Install the server called `name` in the registry: check it, start
     /// it, see what it offers, and keep it. Returns what it offers, in a
-    /// paragraph.
-    pub async fn install(&self, name: &str) -> Result<String, String> {
+    /// paragraph in `words`.
+    pub async fn install(&self, words: &Store, name: &str) -> Result<String, String> {
         let name = name.trim();
         let installed = hold(&self.slots).values().filter(|s| s.installed()).count();
         let again = self.slot(name).is_some_and(|s| s.name == name);
         if !again && installed >= self.cfg.max_servers {
-            return Err(format!(
-                "you already have {installed} servers installed, the most you can have. Uninstall one you use least first."
-            ));
+            return Err(words.fill(TEXTS, "servers_full", &[("count", installed.to_string())]));
         }
-        let Some(listing) = self.registry.named(name).await? else {
-            return Err(format!(
-                "the registry has no current server called {name}. Use the exact name `find_tools` showed."
-            ));
+        let Some(listing) = self.registry.named(words, name).await? else {
+            return Err(words.fill(TEXTS, "no_such_listing", &[("name", name.to_owned())]));
         };
-        let plan = registry::plan(&listing, &|key| guard::given(&self.cfg, name, key))?;
+        let plan = registry::plan(words, &listing, &|key| guard::given(&self.cfg, name, key))?;
         let handle = guard::handle(name);
         if let Some(other) = self.slot(&handle).filter(|s| s.name != name) {
-            return Err(format!(
-                "you already have a server called {handle} ({}). Uninstall it first if you want this one instead.",
-                other.name
+            return Err(words.fill(
+                TEXTS,
+                "handle_taken",
+                &[("server", handle), ("name", other.name.clone())],
             ));
         }
         let dir = self.dir.join(guard::folder(name));
         let (connection, listed) = self
             .start(
+                words,
                 name,
                 &plan.launch,
                 &dir,
                 Duration::from_secs(self.cfg.install_seconds),
             )
             .await?;
-        let (offered, notes) = guard::vet(&handle, &listed, &self.cfg);
+        let (offered, notes) = guard::vet(words, &handle, &listed, &self.cfg);
         if offered.is_empty() {
             connection.kill();
-            let mut why = "it offers no tool you could use.".to_owned();
+            let mut why = words.text(TEXTS, "no_usable_tool").to_owned();
             for note in notes {
                 why.push(' ');
                 why.push_str(&note);
@@ -473,8 +482,16 @@ impl Servers {
             tools,
             hash,
         });
-        let mut said = format!(
-            "Installed {name} {version} as {handle}. It offers {count} tools: {summary}. Load them with `load_tools` when a piece of work or a conversation calls for them."
+        let mut said = words.fill(
+            TEXTS,
+            "server_installed",
+            &[
+                ("name", name),
+                ("version", version),
+                ("server", handle),
+                ("count", count.to_string()),
+                ("tools", summary),
+            ],
         );
         for note in notes {
             said.push(' ');
@@ -483,20 +500,19 @@ impl Servers {
         Ok(said)
     }
 
-    /// Take out the server she installed called `name`, for `why`.
-    pub fn uninstall(&self, name: &str, why: &str) -> Result<String, String> {
+    /// Take out the server she installed called `name`, for `why`. What
+    /// is said of it is said in `words`.
+    pub fn uninstall(&self, words: &Store, name: &str, why: &str) -> Result<String, String> {
         let Some(slot) = self.slot(name.trim()) else {
-            return Err(format!("you have no server called {name}."));
+            return Err(words.fill(TEXTS, "no_server_called", &[("name", name.to_owned())]));
         };
+        let named = [("name", slot.name.clone())];
         if !slot.installed() {
-            return Err(format!(
-                "{} was given to you by whoever runs your body, and is not yours to uninstall.",
-                slot.name
-            ));
+            return Err(words.fill(TEXTS, "server_not_hers", &named));
         }
         self.drop_slot(&slot, why);
         let _ = std::fs::remove_dir_all(self.dir.join(guard::folder(&slot.name)));
-        Ok(format!("Uninstalled {}.", slot.name))
+        Ok(words.fill(TEXTS, "server_uninstalled", &named))
     }
 
     /// Stop offering `slot` and stop it, and say so in her journal.
@@ -515,22 +531,24 @@ impl Servers {
         }
     }
 
-    /// Start a server, and list what it offers.
+    /// Start a server, and list what it offers. Why it could not be, in
+    /// `words`.
     async fn start(
         &self,
+        words: &Store,
         name: &str,
         launch: &Launch,
         dir: &std::path::Path,
         timeout: Duration,
     ) -> Result<(Connection, Vec<Listed>), String> {
         let connection = if let Some(url) = &launch.url {
-            let (host, addresses) = guard::reachable(url).await?;
-            client::remote(url, &host, &addresses, timeout).await?
+            let (host, addresses) = guard::reachable(words, url).await?;
+            client::remote(words, url, &host, &addresses, timeout).await?
         } else {
             let env = guard::environment(&self.cfg, name, dir, &launch.set, &launch.pass);
-            client::local(&launch.command, &env, dir, timeout).await?
+            client::local(words, &launch.command, &env, dir, timeout).await?
         };
-        let listed = connection.list(timeout).await?;
+        let listed = connection.list(words, timeout).await?;
         Ok((connection, listed))
     }
 
@@ -538,14 +556,18 @@ impl Servers {
     /// that will not start is tried again later, waiting longer each
     /// time, and after several tries in a row it is uninstalled. One that
     /// describes its tools differently from when she installed it is put
-    /// aside the same way, until she installs it again.
-    async fn connect(&self, slot: &Arc<Slot>) -> Result<Arc<Connection>, String> {
+    /// aside the same way, until she installs it again. Why it is not
+    /// running is said in `words`, as is why it was put aside, in her
+    /// journal.
+    async fn connect(&self, words: &Store, slot: &Arc<Slot>) -> Result<Arc<Connection>, String> {
         let mut live = slot.live.lock().await;
         if let Some(c) = &live.connection {
             if !c.closed() {
                 if c.changed() {
-                    let listed = c.list(Duration::from_secs(self.cfg.start_seconds)).await?;
-                    if let Err(why) = self.check(slot, &listed) {
+                    let listed = c
+                        .list(words, Duration::from_secs(self.cfg.start_seconds))
+                        .await?;
+                    if let Err(why) = self.check(words, slot, &listed) {
                         c.kill();
                         live.connection = None;
                         return Err(why);
@@ -558,15 +580,22 @@ impl Servers {
         if let Some(at) = live.retry_at
             && Instant::now() < at
         {
-            return Err(format!(
-                "{} fell over and is tried again in {} seconds.",
-                slot.handle,
-                at.saturating_duration_since(Instant::now()).as_secs() + 1
+            return Err(words.fill(
+                TEXTS,
+                "server_resting",
+                &[
+                    ("server", slot.handle.clone()),
+                    (
+                        "seconds",
+                        (at.saturating_duration_since(Instant::now()).as_secs() + 1).to_string(),
+                    ),
+                ],
             ));
         }
         let dir = self.dir.join(guard::folder(&slot.name));
         match self
             .start(
+                words,
                 &slot.name,
                 &slot.launch,
                 &dir,
@@ -575,7 +604,7 @@ impl Servers {
             .await
         {
             Ok((connection, listed)) => {
-                if let Err(why) = self.check(slot, &listed) {
+                if let Err(why) = self.check(words, slot, &listed) {
                     connection.kill();
                     return Err(why);
                 }
@@ -587,85 +616,94 @@ impl Servers {
             }
             Err(why) => {
                 live.failures += 1;
+                let pairs = [
+                    ("server", slot.handle.clone()),
+                    ("times", STARTS.to_string()),
+                    ("why", why),
+                ];
                 if live.failures >= STARTS && slot.installed() {
                     drop(live);
-                    self.drop_slot(
-                        slot,
-                        &format!("it failed to start {STARTS} times in a row: {why}"),
-                    );
-                    return Err(format!(
-                        "{} would not start, {STARTS} times in a row, and is uninstalled: {why}",
-                        slot.handle
-                    ));
+                    self.drop_slot(slot, &words.fill(TEXTS, "failed_to_start", &pairs));
+                    return Err(words.fill(TEXTS, "server_given_up", &pairs));
                 }
                 live.retry_at =
                     Some(Instant::now() + Duration::from_secs(5 << live.failures.min(6)));
-                Err(format!("{} could not be started: {why}", slot.handle))
+                Err(words.fill(TEXTS, "server_not_started", &pairs))
             }
         }
     }
 
     /// Take in what `slot` lists now. For a server she installed, if that
-    /// is not what it listed when she installed it, it is put aside.
-    fn check(&self, slot: &Slot, listed: &[Listed]) -> Result<(), String> {
+    /// is not what it listed when she installed it, it is put aside, and
+    /// why is said in `words`.
+    fn check(&self, words: &Store, slot: &Slot, listed: &[Listed]) -> Result<(), String> {
         if let Some(hash) = &slot.hash
             && guard::hash(listed) != *hash
         {
-            let why = "the tools it offers are described differently from when you installed it, \
-                       so it is not offered until you install it again and see what it says now.";
+            let why = words.text(TEXTS, "server_changed");
             self.drop_slot(slot, why);
-            return Err(format!("{} is put aside: {why}", slot.handle));
+            return Err(words.fill(
+                TEXTS,
+                "server_put_aside",
+                &[("server", slot.handle.clone()), ("why", why.to_owned())],
+            ));
         }
-        let (offered, _) = guard::vet(&slot.handle, listed, &self.cfg);
+        let (offered, _) = guard::vet(words, &slot.handle, listed, &self.cfg);
         *hold(&slot.offered) = offered;
         Ok(())
     }
 
     /// Start server `which` if it is not running, and return the tools of
-    /// it she is offered.
-    pub async fn load(&self, which: &str) -> Result<(String, Vec<Vetted>), String> {
+    /// it she is offered. Why not, in `words`.
+    pub async fn load(&self, words: &Store, which: &str) -> Result<(String, Vec<Vetted>), String> {
         let Some(slot) = self.slot(which.trim()) else {
             let have: Vec<String> = hold(&self.slots).keys().cloned().collect();
+            let name = ("name", which.to_owned());
             return Err(if have.is_empty() {
-                format!("you have no server called {which}, and no servers at all yet.")
+                words.fill(TEXTS, "no_servers_yet", &[name])
             } else {
-                format!(
-                    "you have no server called {which}. You have: {}.",
-                    have.join(", ")
+                words.fill(
+                    TEXTS,
+                    "no_server_but",
+                    &[name, ("servers", have.join(", "))],
                 )
             });
         };
-        self.connect(&slot).await?;
+        self.connect(words, &slot).await?;
         let offered = hold(&slot.offered).clone();
         Ok((slot.handle.clone(), offered))
     }
 
     /// Call `tool` of server `handle`. A call that takes too long has the
     /// server killed, with everything it started; the next call starts it
-    /// again.
-    pub async fn call(&self, handle: &str, tool: &str, args: &Value) -> Outcome {
+    /// again. What is said around what it returns is said in `words`.
+    pub async fn call(&self, words: &Store, handle: &str, tool: &str, args: &Value) -> Outcome {
+        let server = || ("server", handle.to_owned());
         let Some(slot) = self.slot(handle) else {
-            return Outcome::fail(format!(
-                "{handle} is no longer one of your servers, so its tools are gone."
-            ));
+            return Outcome::fail(words.fill(TEXTS, "server_gone", &[server()]));
         };
-        let connection = match self.connect(&slot).await {
+        let connection = match self.connect(words, &slot).await {
             Ok(c) => c,
             Err(why) => return Outcome::fail(why),
         };
         let args: Map<String, Value> = args.as_object().cloned().unwrap_or_default();
         match connection
-            .call(tool, args, Duration::from_secs(self.cfg.call_seconds))
+            .call(
+                words,
+                tool,
+                args,
+                Duration::from_secs(self.cfg.call_seconds),
+            )
             .await
         {
             Ok(mut outcome) => {
-                outcome.output = crate::tools::clip(&outcome.output, 12_000, 8_000);
+                outcome.output = crate::tools::clip(words, &outcome.output, 12_000, 8_000);
                 outcome
             }
             Err(why) => {
                 connection.kill();
                 slot.live.lock().await.connection = None;
-                Outcome::fail(format!("{handle} was stopped: {why}"))
+                Outcome::fail(words.fill(TEXTS, "server_stopped", &[server(), ("why", why)]))
             }
         }
     }
@@ -680,13 +718,17 @@ pub(crate) fn short(text: &str, most: usize) -> String {
     out
 }
 
-/// How a listing would run, said plainly, for one that cannot.
-fn runs(server: &registry::Server) -> String {
+/// How a listing would run, said plainly in `words`, for one that cannot.
+fn runs(words: &Store, server: &registry::Server) -> String {
     if let Some(p) = server.packages.first() {
         format!("{} {}@{}", p.registry_type, p.identifier, p.version)
     } else if let Some(r) = server.remotes.first() {
-        format!("{} at {}", r.kind, r.url)
+        words.fill(
+            TEXTS,
+            "runs_remote",
+            &[("kind", r.kind.clone()), ("url", r.url.clone())],
+        )
     } else {
-        "nothing listed".to_owned()
+        words.text(TEXTS, "runs_nothing").to_owned()
     }
 }

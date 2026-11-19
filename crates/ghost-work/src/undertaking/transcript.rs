@@ -12,6 +12,8 @@ use ghost_core::media;
 use rusqlite::{TransactionBehavior, params};
 use serde_json::{Value, json};
 
+use crate::prompts::{Store, TEXTS};
+
 use super::{
     State, Undertaking,
     db::{append, load, other, store},
@@ -51,8 +53,8 @@ fn without_pictures(item: &Item) -> std::borrow::Cow<'_, Item> {
 
 /// An item from a saved transcript. A picture is a reference to a file
 /// under `root/media/`, which is read back. A reference whose file is gone
-/// is dropped, and the result says so.
-fn from_disk(mut saved: Value, root: &Path) -> Option<Item> {
+/// is dropped, and the result says so in `words`.
+fn from_disk(words: &Store, mut saved: Value, root: &Path) -> Option<Item> {
     let written = saved
         .as_object_mut()
         .and_then(|item| item.remove("pictures"));
@@ -78,9 +80,7 @@ fn from_disk(mut saved: Value, root: &Path) -> Option<Item> {
                 mime: picture["mime"].as_str().unwrap_or_default().to_owned(),
                 bytes,
             }),
-            None => output.push_str(&format!(
-                "\n[The image {file} is no longer on disk, so it cannot be shown.]"
-            )),
+            None => output.push_str(&words.fill(TEXTS, "image_gone", &[("file", file.to_owned())])),
         }
     }
     Some(item)
@@ -104,9 +104,10 @@ impl Undertaking {
     }
 
     /// The sitting in progress, if one was left unfinished. Pictures saved
-    /// as references are read back from `media/`.
-    pub fn transcript(&self) -> Option<Vec<Item>> {
-        let read = self.read_transcript();
+    /// as references are read back from `media/`; one that is gone is said
+    /// to be, in `words`.
+    pub fn transcript(&self, words: &Store) -> Option<Vec<Item>> {
+        let read = self.read_transcript(words);
         let items = match read {
             Ok(Some(items)) => {
                 // The rows this handle saves on from: what it just read.
@@ -126,7 +127,7 @@ impl Undertaking {
     }
 
     /// The transcript on disk; an item that cannot be read leaves none.
-    fn read_transcript(&self) -> rusqlite::Result<Option<Vec<Item>>> {
+    fn read_transcript(&self, words: &Store) -> rusqlite::Result<Option<Vec<Item>>> {
         let conn = self.conn();
         let rows: Vec<(Option<String>, Option<String>)> = conn
             .prepare(
@@ -139,7 +140,7 @@ impl Undertaking {
         let read = |text: &str| {
             serde_json::from_str::<Value>(text)
                 .ok()
-                .and_then(|item| from_disk(item, self.media_root()))
+                .and_then(|item| from_disk(words, item, self.media_root()))
         };
         if rows.is_empty() {
             return Ok(None);
@@ -159,9 +160,10 @@ impl Undertaking {
     /// Save the transcript `items`, of which the first `remembered` are
     /// in the history already: the rest join it, and the transcript is
     /// written where it differs from what is on disk. Done whenever a
-    /// sitting stops, so that it can be picked up from there.
-    pub fn save(&self, items: &[Item], remembered: usize) -> io::Result<()> {
-        self.write_step(None::<(fn(&mut State), &Value)>, items, remembered)
+    /// sitting stops, so that it can be picked up from there. An image
+    /// that cannot be kept is said to be gone, in `words`.
+    pub fn save(&self, words: &Store, items: &[Item], remembered: usize) -> io::Result<()> {
+        self.write_step(words, None::<(fn(&mut State), &Value)>, items, remembered)
             .map(|_| ())
     }
 
@@ -172,12 +174,13 @@ impl Undertaking {
     /// of one.
     pub fn step<T>(
         &self,
+        words: &Store,
         change: impl FnOnce(&mut State) -> T,
         line: &Value,
         items: &[Item],
         remembered: usize,
     ) -> io::Result<T> {
-        self.write_step(Some((change, line)), items, remembered)?
+        self.write_step(words, Some((change, line)), items, remembered)?
             .ok_or_else(|| io::Error::other("the step's change was not made"))
     }
 
@@ -191,6 +194,7 @@ impl Undertaking {
     /// the transaction, and named in the row.
     fn write_step<T, F: FnOnce(&mut State) -> T>(
         &self,
+        words: &Store,
         step: Option<(F, &Value)>,
         items: &[Item],
         remembered: usize,
@@ -212,7 +216,10 @@ impl Undertaking {
             let own = matches!(item, Item::Result { pictures, .. } if !pictures.is_empty())
                 || i < remembered;
             let text = if own {
-                Some(serde_json::to_string(&self.to_disk(item).map_err(other)?).map_err(other)?)
+                Some(
+                    serde_json::to_string(&self.to_disk(words, item).map_err(other)?)
+                        .map_err(other)?,
+                )
             } else {
                 None
             };
@@ -308,8 +315,8 @@ impl Undertaking {
 
     /// An item as the saved transcript holds it. A picture is kept before
     /// it is named, so a name on disk always has its file; one that cannot
-    /// be kept is left out, and its result says so.
-    fn to_disk(&self, item: &Item) -> serde_json::Result<Value> {
+    /// be kept is left out, and its result says so in `words`.
+    fn to_disk(&self, words: &Store, item: &Item) -> serde_json::Result<Value> {
         let Item::Result {
             id,
             name,
@@ -330,7 +337,7 @@ impl Undertaking {
                 Ok(file) => refs.push(json!({"mime": p.mime, "file": file})),
                 Err(e) => {
                     tracing::warn!("could not keep an image: {e}");
-                    output.push_str("\n[An image could not be kept on disk, and was dropped.]");
+                    output.push_str(words.text(TEXTS, "image_unkept"));
                 }
             }
         }

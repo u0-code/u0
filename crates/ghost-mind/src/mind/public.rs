@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 
 use super::{Mind, Outcome};
 use crate::{
-    Act, Acted, Can, Result,
+    Act, Acted, Can, Prompts, Result,
     actions::{self, clip},
 };
 
@@ -27,7 +27,7 @@ const REVIEW_NEEDS: usize = 5;
 
 /// The lessons and intentions in a review's summary: its `LESSON:` and
 /// `TRY:` lines.
-pub(super) fn conclusions(summary: &str) -> Vec<(String, Option<i64>)> {
+pub(super) fn conclusions(words: &Prompts, summary: &str) -> Vec<(String, Option<i64>)> {
     summary
         .lines()
         .filter_map(|line| {
@@ -36,7 +36,7 @@ pub(super) fn conclusions(summary: &str) -> Vec<(String, Option<i64>)> {
                 Some(lesson.trim().to_owned())
             } else {
                 line.strip_prefix("TRY:")
-                    .map(|what| format!("This week, try: {}", what.trim()))
+                    .map(|what| words.fill("try_this_week", &[("what", what.trim().to_owned())]))
             }
         })
         .filter(|text| text.len() > 12)
@@ -108,37 +108,48 @@ impl Mind {
         let mut lines = Vec::new();
         let counts = memory.followers(channel, 30)?;
         if let Some((_, latest)) = counts.last() {
-            let mut line = format!("- {latest} people follow you on {channel}");
-            if let Some((at, earlier)) =
-                counts.iter().find(|(at, _)| now - *at <= Duration::days(7))
-                && earlier != latest
-            {
-                line.push_str(&format!(
-                    " ({earlier} {})",
-                    when(*at, now, self.life.clock())
-                ));
-            }
-            lines.push(format!("{line}."));
+            let then = match counts.iter().find(|(at, _)| now - *at <= Duration::days(7)) {
+                Some((at, earlier)) if earlier != latest => self.prompts.fill(
+                    "followers_then",
+                    &[
+                        ("count", earlier.to_string()),
+                        ("when", when(*at, now, self.life.clock())),
+                    ],
+                ),
+                _ => String::new(),
+            };
+            lines.push(self.prompts.fill(
+                "followers",
+                &[
+                    ("count", latest.to_string()),
+                    ("channel", channel.to_owned()),
+                    ("then", then),
+                ],
+            ));
         }
         for post in memory.standings(channel, 8)? {
-            lines.push(format!(
-                "- {} \"{}\": {} likes, {} replies, {} reposts{}",
-                narrate::capital(&when(post.at, now, self.life.clock())),
-                clip(
-                    &post
-                        .text
-                        .unwrap_or_else(|| "(a post from before you kept track)".into())
-                        .replace('\n', " "),
-                    110
-                ),
-                post.likes,
-                post.replies,
-                post.reposts,
-                if post.views > 0 {
-                    format!(", seen {} times", post.views)
-                } else {
-                    String::new()
-                },
+            let text = post
+                .text
+                .unwrap_or_else(|| self.prompts.text("post_untracked").to_owned());
+            let views = if post.views > 0 {
+                self.prompts
+                    .fill("post_views", &[("views", post.views.to_string())])
+            } else {
+                String::new()
+            };
+            lines.push(self.prompts.fill(
+                "post_standing",
+                &[
+                    (
+                        "when",
+                        narrate::capital(&when(post.at, now, self.life.clock())),
+                    ),
+                    ("text", clip(&text.replace('\n', " "), 110)),
+                    ("likes", post.likes.to_string()),
+                    ("replies", post.replies.to_string()),
+                    ("reposts", post.reposts.to_string()),
+                    ("views", views),
+                ],
             ));
         }
         Ok(lines.join("\n"))
@@ -222,10 +233,12 @@ impl Mind {
                     None => false,
                 };
                 if told_privately {
-                    private.push(format!(
-                        "- about {}: {}",
-                        person.name,
-                        clip(&note.text, 200)
+                    private.push(self.prompts.fill(
+                        "gate_private",
+                        &[
+                            ("name", person.name.clone()),
+                            ("note", clip(&note.text, 200)),
+                        ],
                     ));
                 }
             }
@@ -236,13 +249,7 @@ impl Mind {
             .iter()
             .map(|f| format!("- {}", f.fact))
             .collect();
-        let or_none = |lines: String| {
-            if lines.is_empty() {
-                "(nothing)".to_owned()
-            } else {
-                lines
-            }
-        };
+        let or_none = |lines: String| self.prompts.or(lines, "nothing");
         let prompt = narrate::fill(
             &self.prompts.gate,
             &[
@@ -339,22 +346,8 @@ impl Mind {
             self.prompts.review.trim_end(),
             &[
                 ("standing", standing.join("\n")),
-                (
-                    "craft",
-                    if craft.is_empty() {
-                        "(nothing yet)".to_owned()
-                    } else {
-                        craft
-                    },
-                ),
-                (
-                    "cares",
-                    if cares.is_empty() {
-                        "(you have not said)".to_owned()
-                    } else {
-                        cares
-                    },
-                ),
+                ("craft", self.prompts.or(craft, "nothing_yet")),
+                ("cares", self.prompts.or(cares, "not_said")),
             ],
         );
         info!("time to look at how her public writing is going");
@@ -394,14 +387,7 @@ impl Mind {
             "public_review",
             &[
                 ("standing", sections.join("\n")),
-                (
-                    "craft",
-                    if craft.is_empty() {
-                        "(nothing yet)".to_owned()
-                    } else {
-                        craft
-                    },
-                ),
+                ("craft", self.prompts.or(craft, "nothing_yet")),
             ],
         ))
     }

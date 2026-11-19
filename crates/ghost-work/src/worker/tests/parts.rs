@@ -863,6 +863,7 @@ async fn what_is_passed_on_to_an_agents_part_is_given_to_it_in_the_same_session(
         &part,
         "make the tests pass",
         "go on",
+        &crate::Prompts::shipped(),
         &AtomicBool::new(false),
         std::time::Instant::now() + std::time::Duration::from_secs(30),
     )
@@ -1010,14 +1011,14 @@ async fn a_part_of_work_in_a_repository_works_in_a_checkout_of_its_own_brought_b
         ],
     );
     // Each worker's machine is in its own folder, as her mind gives it.
-    let (root, words) = (dir.path().to_path_buf(), worker.prompts.clone());
+    let root = dir.path().to_path_buf();
     worker.helpers = Some(Arc::new(move |undertaking: &Arc<Undertaking>| {
         let base = Local::new(&root);
         let machine: Arc<dyn crate::Machine> = match undertaking.state().dir {
             Some(d) => crate::Machine::at(&base, std::path::Path::new(&d)).unwrap(),
             None => Arc::new(base),
         };
-        tools::standard(machine, undertaking, &words)
+        tools::standard(machine, undertaking)
     }));
     let report = worker.run().await;
     assert_eq!(report.ended, Ended::Finished);

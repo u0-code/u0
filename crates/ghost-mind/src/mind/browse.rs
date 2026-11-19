@@ -110,6 +110,8 @@ impl Mind {
             .map(|ids| ids.iter().cloned().collect())
             .unwrap_or_default();
         let may_post = posted < set.posts_per_day as usize;
+        let nothing_new = self.prompts.text("nothing_new").to_owned();
+        let handle = self.prompts.text("card_handle").to_owned();
         self.browsing.insert(channel.clone());
         self.budget.spend(now);
         self.jobs.spawn(async move {
@@ -143,7 +145,7 @@ impl Mind {
                 };
             }
             let listing = if items.is_empty() {
-                "(nothing new)".to_owned()
+                nothing_new
             } else {
                 items
                     .iter()
@@ -156,7 +158,7 @@ impl Mind {
                             item.from
                                 .handle
                                 .as_deref()
-                                .map(|h| format!(" (@{h})"))
+                                .map(|h| narrate::fill(&handle, &[("handle", h.to_owned())]))
                                 .unwrap_or_default(),
                             clip(&item.text.replace('\n', " "), 400)
                         )

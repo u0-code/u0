@@ -25,7 +25,7 @@ pub use web::{Fetch, Search, Source, WebConfig};
 
 use crate::{
     machine::{Machine, Output, quote},
-    prompts::Shared,
+    prompts::{Store, TEXTS},
     tool::Toolbox,
     undertaking::Undertaking,
 };
@@ -60,9 +60,12 @@ impl Desk {
         })
     }
 
-    /// Why `path` is not to be written here, if it is not: see `fence`.
-    pub(crate) fn fenced(&self, path: &str) -> Option<String> {
-        self.fence.as_ref()?.refuses(path, self.cwd().as_deref())
+    /// Why `path` is not to be written here, if it is not, in `words`: see
+    /// `fence`.
+    pub(crate) fn fenced(&self, words: &Store, path: &str) -> Option<String> {
+        self.fence
+            .as_ref()?
+            .refuses(words, path, self.cwd().as_deref())
     }
 
     fn cwd(&self) -> Option<String> {
@@ -131,27 +134,27 @@ pub(crate) fn about(picture: &ghost_brain::Picture) -> String {
     }
 }
 
-/// Keep the beginning and the end of long text, and say what was cut.
-pub fn clip(text: &str, head: usize, tail: usize) -> String {
+/// Keep the beginning and the end of long text, and say in `words` what
+/// was cut.
+pub fn clip(words: &Store, text: &str, head: usize, tail: usize) -> String {
     let total = text.chars().count();
     if total <= head + tail {
         return text.to_owned();
     }
-    let start: String = text.chars().take(head).collect();
-    let end: String = text.chars().skip(total - tail).collect();
-    format!(
-        "{start}\n[... {} characters cut from the middle ...]\n{end}",
-        total - head - tail
+    words.fill(
+        TEXTS,
+        "cut",
+        &[
+            ("head", text.chars().take(head).collect()),
+            ("count", (total - head - tail).to_string()),
+            ("tail", text.chars().skip(total - tail).collect()),
+        ],
     )
 }
 
 /// The standard set: a shell and files on `machine`, and the record of
-/// `undertaking`, whose tools answer in `words`.
-pub fn standard(
-    machine: Arc<dyn Machine>,
-    undertaking: &Arc<Undertaking>,
-    words: &Shared,
-) -> Toolbox {
+/// `undertaking`.
+pub fn standard(machine: Arc<dyn Machine>, undertaking: &Arc<Undertaking>) -> Toolbox {
     let mut desk = Desk::new(machine);
     let state = undertaking.state();
     if let Some(own) = state.dir
@@ -169,20 +172,20 @@ pub fn standard(
         .with(Read::new(desk.clone()))
         .with(Write::new(desk.clone()))
         .with(Edit::new(desk));
-    record(tools, undertaking, words)
+    record(tools, undertaking)
 }
 
 /// The record of `undertaking` and nothing else: for work that needs no
 /// machine, such as finding something out.
-pub fn desk(undertaking: &Arc<Undertaking>, words: &Shared) -> Toolbox {
-    record(Toolbox::new(), undertaking, words)
+pub fn desk(undertaking: &Arc<Undertaking>) -> Toolbox {
+    record(Toolbox::new(), undertaking)
 }
 
-fn record(tools: Toolbox, undertaking: &Arc<Undertaking>, words: &Shared) -> Toolbox {
+fn record(tools: Toolbox, undertaking: &Arc<Undertaking>) -> Toolbox {
     tools
-        .with(Plan::new(undertaking.clone(), words.clone()))
+        .with(Plan::new(undertaking.clone()))
         .with(Note::new(undertaking.clone()))
-        .with(Done::new(undertaking.clone(), words.clone()))
+        .with(Done::new(undertaking.clone()))
 }
 
 /// Add the web to a toolbox: `search` if there is somewhere to search, and
@@ -302,10 +305,11 @@ mod tests {
 
     #[test]
     fn clipping_keeps_both_ends() {
+        let words = crate::Prompts::shipped();
         let text = "a".repeat(50) + &"b".repeat(50);
-        let cut = clip(&text, 10, 10);
+        let cut = clip(&words, &text, 10, 10);
         assert!(cut.starts_with("aaaaaaaaaa\n[... 80 characters cut"));
         assert!(cut.ends_with("bbbbbbbbbb"));
-        assert_eq!(clip("short", 10, 10), "short");
+        assert_eq!(clip(&words, "short", 10, 10), "short");
     }
 }

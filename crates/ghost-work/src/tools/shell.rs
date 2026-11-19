@@ -1,6 +1,6 @@
 //! `shell`: run a bash command on the machine.
 
-use std::{fmt::Write as _, sync::Arc, sync::atomic::Ordering, time::Duration};
+use std::{sync::Arc, sync::atomic::Ordering, time::Duration};
 
 use async_trait::async_trait;
 use ghost_brain::ToolSpec;
@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::{Desk, clip};
 use crate::{
     machine::quote,
-    prompts::{self, Loop, Store},
+    prompts::{self, Loop, Store, TEXTS},
     tool::{Outcome, Tool, text},
 };
 
@@ -17,6 +17,8 @@ const DEFAULT_TIMEOUT: u64 = 120;
 const MAX_TIMEOUT: u64 = 3600;
 /// Marks the line a command's final directory is reported on.
 const WHERE: &str = "\u{1e}GHOST_CWD:";
+/// What a look at a job that was never started exits with.
+const NO_JOB: i32 = 3;
 
 pub struct Shell {
     desk: Arc<Desk>,
@@ -29,14 +31,15 @@ impl Shell {
 }
 
 impl Shell {
-    /// Wait for a background job, up to `secs`, and report what it printed
-    /// since the last look.
-    async fn look_at(&self, job: u64, secs: u64) -> Outcome {
+    /// Wait for a background job, up to `secs`, and report in `words` what
+    /// it printed since the last look.
+    async fn look_at(&self, words: &Store, job: u64, secs: u64) -> Outcome {
         let dir = format!("/tmp/ghost-{}-job-{job}", self.desk.tag);
+        let number = || ("job", job.to_string());
         // One script does the waiting, so a slow job costs one call, not a
         // loop of them. `seen` remembers how far the log has been read.
         let script = format!(
-            "d={dir}; [ -f $d/log ] || {{ echo \"there is no job {job}\"; exit 3; }}\n\
+            "d={dir}; [ -f $d/log ] || exit {NO_JOB}\n\
              n=0; while [ ! -f $d/status ] && [ $n -lt {} ]; do sleep 0.5; n=$((n+1)); done\n\
              from=$(cat $d/seen 2>/dev/null || echo 0); size=$(wc -c < $d/log | tr -d ' ')\n\
              tail -c +$((from+1)) $d/log; echo $size > $d/seen\n\
@@ -49,34 +52,42 @@ impl Shell {
             .await
         {
             Ok(out) => out,
-            Err(e) => return Outcome::fail(format!("could not look at job {job}: {e}")),
+            Err(e) => {
+                return Outcome::fail(words.fill(
+                    TEXTS,
+                    "job_unreachable",
+                    &[number(), ("why", e.to_string())],
+                ));
+            }
         };
+        if out.code == Some(NO_JOB) {
+            return Outcome::fail(words.fill(TEXTS, "no_job", &[number()]));
+        }
         let Some(at) = out.text.rfind(WHERE) else {
             return Outcome::fail(out.text.trim().to_owned());
         };
         let state = out.text[at + WHERE.len()..].trim();
         let printed = out.text[..at].trim_end();
-        let mut output = clip(printed, 5000, 9000);
+        let mut output = clip(words, printed, 5000, 9000);
         if output.is_empty() {
-            output.push_str("(nothing new printed)");
+            output.push_str(words.text(TEXTS, "nothing_new"));
         }
-        let failed = match state.strip_prefix("done:") {
-            Some("0") => {
-                let _ = write!(output, "\n[job {job} finished]");
-                false
-            }
-            Some(code) => {
-                let _ = write!(output, "\n[job {job} finished with exit {code}]");
-                true
-            }
-            None => {
-                let _ = write!(
-                    output,
-                    "\n[job {job} is still running after {secs}s. Look again later, or get on with something else.]"
-                );
-                false
-            }
+        let (said, failed) = match state.strip_prefix("done:") {
+            Some("0") => (words.fill(TEXTS, "job_finished", &[number()]), false),
+            Some(code) => (
+                words.fill(TEXTS, "job_failed", &[number(), ("code", code.to_owned())]),
+                true,
+            ),
+            None => (
+                words.fill(
+                    TEXTS,
+                    "job_running",
+                    &[number(), ("seconds", secs.to_string())],
+                ),
+                false,
+            ),
         };
+        output.push_str(&said);
         Outcome {
             failed,
             ..Outcome::ok(output)
@@ -105,15 +116,15 @@ impl Tool for Shell {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
         let secs = args["timeout"]
             .as_u64()
             .unwrap_or(DEFAULT_TIMEOUT)
             .clamp(1, MAX_TIMEOUT);
         if let Some(job) = args["job"].as_u64() {
-            return self.look_at(job, secs).await;
+            return self.look_at(words, job, secs).await;
         }
-        let command = match text(args, "command") {
+        let command = match text(words, args, "command") {
             Ok(c) => c,
             Err(refusal) => return refusal,
         };
@@ -124,15 +135,36 @@ impl Tool for Shell {
             // When the job ends, however it ends, its exit status is left
             // beside its log, so a later look can tell done from running.
             let script = format!(
-                "rm -rf {dir}; mkdir -p {dir}\nnohup bash -c {} > {dir}/log 2>&1 < /dev/null &\necho \"started as job {n} (pid $!). Look at it with shell {{\\\"job\\\": {n}}}; its output is in {dir}/log\"",
+                "rm -rf {dir}; mkdir -p {dir}\nnohup bash -c {} > {dir}/log 2>&1 < /dev/null &\necho $!",
                 quote(&format!("trap 'echo $? > {dir}/status' EXIT\n{command}"))
             );
             return match self.desk.exec(&script, None, Duration::from_secs(30)).await {
-                Ok(out) => Outcome {
-                    failed: !out.ok(),
-                    ..Outcome::ok(out.text.trim())
-                },
-                Err(e) => Outcome::fail(format!("could not start the command: {e}")),
+                Ok(out) if out.ok() => {
+                    // The last line is its process; anything before it is
+                    // what the shell said on the way.
+                    let printed = out.text.trim();
+                    let (before, pid) = printed.rsplit_once('\n').unwrap_or(("", printed));
+                    let started = words.fill(
+                        TEXTS,
+                        "job_started",
+                        &[
+                            ("job", n.to_string()),
+                            ("pid", pid.trim().to_owned()),
+                            ("log", format!("{dir}/log")),
+                        ],
+                    );
+                    Outcome::ok(if before.is_empty() {
+                        started
+                    } else {
+                        format!("{before}\n{started}")
+                    })
+                }
+                Ok(out) => Outcome::fail(out.text.trim()),
+                Err(e) => Outcome::fail(words.fill(
+                    TEXTS,
+                    "not_started_command",
+                    &[("why", e.to_string())],
+                )),
             };
         }
 
@@ -146,7 +178,13 @@ impl Tool for Shell {
             .await
         {
             Ok(out) => out,
-            Err(e) => return Outcome::fail(format!("could not run the command: {e}")),
+            Err(e) => {
+                return Outcome::fail(words.fill(
+                    TEXTS,
+                    "not_run_command",
+                    &[("why", e.to_string())],
+                ));
+            }
         };
 
         let mut printed = out.text.as_str();
@@ -163,7 +201,7 @@ impl Tool for Shell {
             printed = printed[..at].strip_suffix('\n').unwrap_or(&printed[..at]);
         }
 
-        let mut output = clip(printed.trim_end(), 5000, 9000);
+        let mut output = clip(words, printed.trim_end(), 5000, 9000);
         if output.len() < printed.trim_end().len() {
             // Too long to show whole. Keep all of it where it can be searched.
             let n = self.desk.jobs.fetch_add(1, Ordering::Relaxed) + 1;
@@ -178,32 +216,36 @@ impl Tool for Shell {
                 .await
                 .is_ok_and(|saved| saved.ok());
             if saved {
-                let _ = write!(
-                    output,
-                    "\n[the whole output, {} lines, is in {path}: search it with grep or read part of it with sed]",
-                    printed.lines().count()
-                );
+                output.push_str(&words.fill(
+                    TEXTS,
+                    "output_kept",
+                    &[
+                        ("lines", printed.lines().count().to_string()),
+                        ("path", path),
+                    ],
+                ));
             }
         }
         if out.dropped > 0 {
-            let _ = write!(output, "\n[{} bytes of output were dropped]", out.dropped);
+            output.push_str(&words.fill(
+                TEXTS,
+                "output_dropped",
+                &[("bytes", out.dropped.to_string())],
+            ));
         }
         if output.is_empty() {
-            output.push_str("(no output)");
+            output.push_str(words.text(TEXTS, "no_output"));
         }
         if out.timed_out {
-            let _ = write!(
-                output,
-                "\n[stopped: still running after {secs}s. Raise `timeout`, or use `background` and poll.]"
-            );
+            output.push_str(&words.fill(TEXTS, "timed_out", &[("seconds", secs.to_string())]));
         } else if out.code != Some(0) {
-            let _ = match out.code {
-                Some(code) => write!(output, "\n[exit {code}]"),
-                None => write!(output, "\n[killed by a signal]"),
-            };
+            output.push_str(&match out.code {
+                Some(code) => words.fill(TEXTS, "exited", &[("code", code.to_string())]),
+                None => words.text(TEXTS, "killed").to_owned(),
+            });
         }
         if let Some(dir) = moved {
-            let _ = write!(output, "\n[now in {dir}]");
+            output.push_str(&words.fill(TEXTS, "moved", &[("dir", dir)]));
         }
         Outcome {
             failed: !out.ok(),
@@ -226,12 +268,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sh = shell(dir.path());
         let first = sh
-            .call(&json!({"command": "mkdir sub && cd sub && echo hi"}))
+            .call(
+                &json!({"command": "mkdir sub && cd sub && echo hi"}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(!first.failed);
         assert!(first.output.starts_with("hi"), "{}", first.output);
         let second = sh
-            .call(&json!({"command": "basename \"$PWD\"; false"}))
+            .call(
+                &json!({"command": "basename \"$PWD\"; false"}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(second.failed);
         assert_eq!(second.output, "sub\n[exit 1]");
@@ -241,7 +289,10 @@ mod tests {
     async fn an_overlong_command_says_so() {
         let dir = tempfile::tempdir().unwrap();
         let out = shell(dir.path())
-            .call(&json!({"command": "sleep 20", "timeout": 1}))
+            .call(
+                &json!({"command": "sleep 20", "timeout": 1}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(out.failed);
         assert!(
@@ -256,7 +307,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sh = shell(dir.path());
         let started = sh
-            .call(&json!({"command": "echo one; sleep 1.5; echo two; exit 4", "background": true}))
+            .call(
+                &json!({"command": "echo one; sleep 1.5; echo two; exit 4", "background": true}),
+                &crate::Prompts::shipped(),
+            )
             .await;
         assert!(!started.failed, "{}", started.output);
         let n: u64 = started
@@ -268,12 +322,19 @@ mod tests {
             .expect("the reply names the job");
 
         // A short look while it is still going: what it has printed so far.
-        let early = sh.call(&json!({"job": n, "timeout": 1})).await;
+        let early = sh
+            .call(&json!({"job": n, "timeout": 1}), &crate::Prompts::shipped())
+            .await;
         assert!(early.output.starts_with("one"), "{}", early.output);
         assert!(early.output.contains("still running"), "{}", early.output);
 
         // A longer look waits for it to end and shows only what is new.
-        let late = sh.call(&json!({"job": n, "timeout": 20})).await;
+        let late = sh
+            .call(
+                &json!({"job": n, "timeout": 20}),
+                &crate::Prompts::shipped(),
+            )
+            .await;
         assert!(late.failed);
         assert!(late.output.starts_with("two"), "{}", late.output);
         assert!(
@@ -283,7 +344,9 @@ mod tests {
             late.output
         );
 
-        let none = sh.call(&json!({"job": 999})).await;
+        let none = sh
+            .call(&json!({"job": 999}), &crate::Prompts::shipped())
+            .await;
         assert!(
             none.failed && none.output.contains("there is no job 999"),
             "{}",

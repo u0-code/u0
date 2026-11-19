@@ -293,7 +293,11 @@ async fn what_happens_to_her_servers_of_tools_is_written_in_her_journal_by_her()
     rig.mind.workshop.servers = Some(servers.clone());
     // As a sitting of work would, off to the side of her.
     servers
-        .uninstall("notes", "it never kept anything")
+        .uninstall(
+            &ghost_work::Prompts::shipped(),
+            "notes",
+            "it never kept anything",
+        )
         .unwrap();
     assert!(!rig.kinds().contains(&"uninstalled"));
     rig.mind.on_time(t0).unwrap();
@@ -343,16 +347,19 @@ async fn she_is_told_she_can_add_skills_and_sees_each_one_she_has_as_a_line() {
     )
     .unwrap();
     let have = skills();
-    have.know(vec![ghost_core::memory::Skill {
-        seq: 1,
-        at: t0,
-        name: "slides".into(),
-        source: "someone/skills".into(),
-        path: "skills/slides".into(),
-        sha: "a".repeat(40),
-        hash: ghost_work::skills::guard::hash(&folder.path().join("slides")).unwrap(),
-        description: "Build a slide deck.".into(),
-    }]);
+    have.know(
+        &ghost_work::Prompts::shipped(),
+        vec![ghost_core::memory::Skill {
+            seq: 1,
+            at: t0,
+            name: "slides".into(),
+            source: "someone/skills".into(),
+            path: "skills/slides".into(),
+            sha: "a".repeat(40),
+            hash: ghost_work::skills::guard::hash(&folder.path().join("slides")).unwrap(),
+            description: "Build a slide deck.".into(),
+        }],
+    );
     let mut rig = Rig::with_tools(t0);
     rig.mind.workshop.skills = Some(have);
     rig.hear(dm("wen", "1", "hi"), t0);

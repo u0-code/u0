@@ -63,14 +63,21 @@ impl Mind {
         let prompt = narrate::fill(
             &self.prompts.digest,
             &[
-                ("where", self.describe_place(place, &people)),
+                ("where", self.place_words(place, &people, true)?),
                 (
                     "before",
-                    kept.map_or_else(|| "(nothing yet)".to_owned(), |d| d.text),
+                    self.prompts
+                        .or(kept.map(|d| d.text).unwrap_or_default(), "nothing_yet"),
                 ),
                 (
                     "transcript",
-                    narrate::transcript(&stretch, i64::MAX, self.life.clock(), now),
+                    crate::narrate::transcript(
+                        &self.prompts,
+                        &stretch,
+                        i64::MAX,
+                        self.life.clock(),
+                        now,
+                    ),
                 ),
             ],
         );

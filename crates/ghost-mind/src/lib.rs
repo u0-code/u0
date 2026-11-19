@@ -14,6 +14,7 @@ pub mod actions;
 pub mod body;
 pub mod config;
 pub mod mind;
+mod narrate;
 pub mod prompts;
 pub mod senses;
 
@@ -23,7 +24,7 @@ pub use mind::{
     Mind, MindHandle, Operator, Order, Parts, Question, Refused, SessionChange, Workshop,
 };
 pub use prompts::Prompts;
-pub use senses::{Numb, OpenMeteo, Senses};
+pub use senses::{Forecast, Numb, OpenMeteo, Senses};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

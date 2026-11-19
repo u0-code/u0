@@ -247,7 +247,7 @@ impl Mind {
                 return Ok(Some(format!(
                     "{} is {} to her, which is not enough for this",
                     person.name,
-                    stage.word()
+                    crate::narrate::stage(&self.prompts, stage)
                 )));
             }
         }
@@ -430,7 +430,9 @@ impl Mind {
                 self.record(Event::Concluded {
                     id: next.id,
                     outcome: "blocked".into(),
-                    summary: format!("Its record could not be opened: {e}"),
+                    summary: self
+                        .prompts
+                        .fill("record_unopened", &[("why", e.to_string())]),
                 })?;
                 return Ok(true);
             }
@@ -463,7 +465,7 @@ impl Mind {
             return Ok(());
         }
         let place = match &self.workshop.machine {
-            Some(machine) => in_folder(machine, &undertaking).describe(),
+            Some(machine) => in_folder(machine, &undertaking).describe(self.prompts.store()),
             None => self.prompts.text("no_machine").to_owned(),
         };
         // What the work is told comes from the same files as what she is
@@ -478,13 +480,10 @@ impl Mind {
             let (machine, web) = (self.workshop.machine.clone(), self.workshop.web.clone());
             let servers = self.workshop.servers.clone();
             let skills = self.workshop.skills.clone();
-            let words = shared.clone();
             Arc::new(move |undertaking| {
                 let tools = match &machine {
-                    Some(machine) => {
-                        tools::standard(in_folder(machine, undertaking), undertaking, &words)
-                    }
-                    None => tools::desk(undertaking, &words),
+                    Some(machine) => tools::standard(in_folder(machine, undertaking), undertaking),
+                    None => tools::desk(undertaking),
                 };
                 let tools = tools::with_web(tools, &web);
                 let tools = match &servers {
@@ -570,7 +569,10 @@ impl Mind {
                 id,
                 before,
                 report,
-                progress: worker.undertaking.state().progress(),
+                progress: worker
+                    .undertaking
+                    .state()
+                    .progress(&ghost_work::prompts::hold(&worker.prompts)),
                 record: worker.undertaking,
             }
         });
@@ -811,7 +813,7 @@ impl Mind {
                 }
                 let state = record.state();
                 self.hear_from_work(&u.id, &state, now)?;
-                state.progress()
+                state.progress(self.prompts.store())
             }
             Err(e) => {
                 warn!("cannot open the undertaking {}: {e}", u.id);
@@ -872,7 +874,9 @@ impl Mind {
                 warn!("the sitting on {id} failed: {why}");
                 self.record(Event::Worked {
                     id: id.to_owned(),
-                    summary: format!("Could not think: {}", clip(why, 200)),
+                    summary: self
+                        .prompts
+                        .fill("could_not_think", &[("why", clip(why, 200))]),
                     steps,
                 })?;
                 self.rest(id, now + Duration::minutes(10).max(rest));
@@ -992,7 +996,7 @@ impl Mind {
             let id = &look.id;
             info!("{id} had ended on its record: {}", finish.outcome.word());
             self.hear_from_work(id, &look.state, now)?;
-            let progress = look.state.progress();
+            let progress = look.state.progress(self.prompts.store());
             match finish.outcome {
                 undertaking::Outcome::Dropped => self.dropped(id, &progress, None)?,
                 outcome => {
@@ -1038,7 +1042,7 @@ impl Mind {
         }
         // What a review of her own writing came to becomes part of her craft.
         if id.starts_with(super::public::REVIEW) && outcome == "finished" {
-            self.learn(super::public::conclusions(summary))?;
+            self.learn(super::public::conclusions(&self.prompts, summary))?;
         }
         // If someone asked, she means to tell them. How and whether is
         // decided when the moment comes, like any other intention.

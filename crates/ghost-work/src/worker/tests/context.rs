@@ -108,7 +108,7 @@ fn long_output_is_trimmed_before_anything_is_dropped() {
         result("short".into()),
         result("w".repeat(30_000)),
     ];
-    let freed = prune(&mut items, 1);
+    let freed = prune(&mut items, 1, &crate::Prompts::shipped());
     assert!(freed > 20_000);
     let Item::Result { output, .. } = &items[1] else {
         panic!()
@@ -120,7 +120,7 @@ fn long_output_is_trimmed_before_anything_is_dropped() {
     // The newest is what the worker is looking at: left whole.
     assert!(matches!(&items[3], Item::Result { output, .. } if output.len() == 30_000));
     // Trimming what is already trimmed changes nothing.
-    assert_eq!(prune(&mut items, 1), 0);
+    assert_eq!(prune(&mut items, 1, &crate::Prompts::shipped()), 0);
 }
 
 #[tokio::test]

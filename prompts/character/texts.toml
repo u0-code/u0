@@ -15,3 +15,7 @@ facets = "\nThere is more than one side to you, and each of them is really you: 
 # (`facet_examples`, only when it has some).
 facet = "## {{name}}\n\nWhen it comes out: {{when}}{{examples}}"
 facet_examples = "\n\nHow it sounds. Again, not lines to reuse:\n\n{{examples}}"
+# What her values, what she cares about and what she cannot stand say when
+# her persona lists none of them: the line in persona.md is there either
+# way, and an empty one would read as a mistake.
+nothing_listed = "(nothing listed)"

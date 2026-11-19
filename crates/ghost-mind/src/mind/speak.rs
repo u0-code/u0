@@ -86,14 +86,15 @@ impl Speaking {
 
     /// Stop: drop everything she has not yet handed to the body, and say
     /// what it was. What is being sent is out of her hands, and stays
-    /// until the body answers for it.
-    pub(super) fn cut(&mut self) -> Vec<String> {
+    /// until the body answers for it. A file sent with no words is
+    /// `a_file`.
+    pub(super) fn cut(&mut self, a_file: &str) -> Vec<String> {
         let sending = usize::from(matches!(self.step, Step::Sending));
         let at = sending.min(self.bubbles.len());
         self.bubbles
             .drain(at..)
             .map(|b| match (&b.file, b.text.trim().is_empty()) {
-                (Some(_), true) => "[a file]".to_owned(),
+                (Some(_), true) => a_file.to_owned(),
                 _ => b.text,
             })
             .collect()

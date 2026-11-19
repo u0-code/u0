@@ -32,11 +32,19 @@ const KEPT_SHOWN: usize = 6;
 const PARTS_SHOWN: usize = 6;
 
 impl Mind {
-    /// A place in a few words, as she would refer to it from elsewhere.
-    /// `people` are those already read for what she is looking at: whoever
-    /// a private place is with is found among them before it is read.
-    pub(super) fn place_words(&self, place: &PlaceState, people: &[Person]) -> Result<String> {
-        Ok(match place.kind {
+    /// A place in words: with `here`, where she is, as a conversation
+    /// opens with it; otherwise a few words for it, as she would refer to
+    /// it from elsewhere. `people` are those already read for what she is
+    /// looking at: whoever a private place is with is found among them
+    /// before it is read.
+    pub(super) fn place_words(
+        &self,
+        place: &PlaceState,
+        people: &[Person],
+        here: bool,
+    ) -> Result<String> {
+        let channel = ("channel", place.channel.clone());
+        let mut out = match place.kind {
             PlaceKind::Direct => {
                 let known = people
                     .iter()
@@ -46,19 +54,60 @@ impl Mind {
                     Some(person) => Some(person),
                     None => self.ghost.memory().person_of_direct(&place.key)?,
                 }
-                .map_or_else(|| "someone".to_owned(), |p| p.name);
-                format!("a private chat with {who} on {}", place.channel)
+                .map_or_else(|| self.prompts.text("someone").to_owned(), |p| p.name);
+                let key = if here {
+                    "place_direct"
+                } else {
+                    "place_there_direct"
+                };
+                self.prompts.fill(key, &[channel, ("who", who)])
             }
-            PlaceKind::Group => format!(
-                "the group {} on {}",
-                place
-                    .name
-                    .as_deref()
-                    .map_or_else(|| "chat".to_owned(), |n| format!("\"{n}\"")),
-                place.channel
+            PlaceKind::Group => match (place.name.as_deref(), here) {
+                (Some(name), here) => self.prompts.fill(
+                    if here {
+                        "place_group"
+                    } else {
+                        "place_there_group"
+                    },
+                    &[channel, ("name", format!("\"{name}\""))],
+                ),
+                (None, true) => self.prompts.fill(
+                    "place_group",
+                    &[
+                        channel,
+                        ("name", self.prompts.text("place_unnamed").to_owned()),
+                    ],
+                ),
+                (None, false) => self.prompts.fill("place_there_unnamed", &[channel]),
+            },
+            PlaceKind::Public => self.prompts.fill(
+                if here {
+                    "place_public"
+                } else {
+                    "place_there_public"
+                },
+                &[channel],
             ),
-            PlaceKind::Public => format!("public replies on {}", place.channel),
-        })
+        };
+        if here
+            && let Some(me) = self
+                .channels
+                .get(&place.channel)
+                .and_then(|c| c.me.as_ref())
+        {
+            out.push_str(
+                &self.prompts.fill(
+                    "place_me",
+                    &[(
+                        "me",
+                        me.handle
+                            .as_deref()
+                            .map_or_else(|| me.name.clone(), |h| format!("@{h}")),
+                    )],
+                ),
+            );
+        }
+        Ok(out)
     }
 
     /// Where something was said or learned, relative to where she is now:
@@ -68,19 +117,15 @@ impl Mind {
             return Ok(String::new());
         };
         if key == here {
-            return Ok(" (here)".to_owned());
+            return Ok(self.prompts.text("learned_here").to_owned());
         }
         let Some(place) = self.ghost.memory().place(key)? else {
             return Ok(String::new());
         };
+        let words = [("place", self.place_words(&place, &[], false)?)];
         Ok(match place.kind {
-            PlaceKind::Direct => {
-                format!(
-                    " (in {}; told to you privately)",
-                    self.place_words(&place, &[])?
-                )
-            }
-            _ => format!(" (in {})", self.place_words(&place, &[])?),
+            PlaceKind::Direct => self.prompts.fill("learned_private", &words),
+            _ => self.prompts.fill("learned_in", &words),
         })
     }
 
@@ -115,7 +160,7 @@ impl Mind {
                     alone
                 };
                 if told_alone {
-                    note.text.push_str(" (they told you this in private)");
+                    note.text.push_str(self.prompts.text("told_in_private"));
                 }
                 Ok(note)
             })
@@ -150,22 +195,21 @@ impl Mind {
             return Ok((text, notes));
         };
         let as_of = profile.sources.map_or_else(String::new, |s| {
-            format!(" (as of {})", when(s.until, now, self.life.clock()))
+            self.prompts
+                .fill("as_of", &[("when", when(s.until, now, self.life.clock()))])
         });
+        let known = |key, text: &str| {
+            self.prompts
+                .fill(key, &[("text", text.to_owned()), ("as_of", as_of.clone())])
+        };
         if !profile.shared.trim().is_empty() {
-            text.push_str(&format!(
-                "\n  What you know of them: {}{as_of}",
-                profile.shared.trim()
-            ));
+            text.push_str(&known("known_shared", profile.shared.trim()));
         }
         if !profile.private.trim().is_empty() {
             if alone_with_them {
-                text.push_str(&format!(
-                    "\n  What they have told you in private: {}{as_of}",
-                    profile.private.trim()
-                ));
+                text.push_str(&known("known_private", profile.private.trim()));
             } else {
-                text.push_str("\n  (They have told you more in private. None of it is for here.)");
+                text.push_str(self.prompts.text("known_more"));
             }
         }
         Ok((text, notes))
@@ -194,9 +238,11 @@ impl Mind {
         for u in taken {
             let whom = match u.asked_by.as_deref() {
                 Some(key) => match people.iter().find(|p| p.key == key) {
-                    Some(person) => format!(" for {}", person.name),
+                    Some(person) => self
+                        .prompts
+                        .fill("work_for", &[("name", person.name.clone())]),
                     None => match memory.person(key) {
-                        Ok(Some(person)) => format!(" for {}", person.name),
+                        Ok(Some(person)) => self.prompts.fill("work_for", &[("name", person.name)]),
                         _ => String::new(),
                     },
                 },
@@ -210,13 +256,21 @@ impl Mind {
                     } else if self.working.contains_key(&u.id) {
                         self.prompts.text("work_running").to_owned()
                     } else if u.sittings == 0 {
-                        "You have not started yet.".to_owned()
+                        self.prompts.text("work_not_started").to_owned()
                     } else {
-                        format!(
-                            "{} sitting{} so far. {}",
-                            u.sittings,
-                            if u.sittings == 1 { "" } else { "s" },
-                            clip(u.summary.as_deref().unwrap_or_default(), 200)
+                        self.prompts.fill(
+                            if u.sittings == 1 {
+                                "work_sitting"
+                            } else {
+                                "work_sittings"
+                            },
+                            &[
+                                ("sittings", u.sittings.to_string()),
+                                (
+                                    "summary",
+                                    clip(u.summary.as_deref().unwrap_or_default(), 200),
+                                ),
+                            ],
                         )
                     };
                     let mut line = self.prompts.fill(
@@ -265,16 +319,21 @@ impl Mind {
                     }
                     lines.push(line);
                 }
-                Some(outcome) if now - u.last_at < FRESH => lines.push(format!(
-                    "- {} you {} what you took on{whom} (\"{}\"): {}",
-                    capital(&when(u.last_at, now, self.life.clock())),
+                Some(outcome) if now - u.last_at < FRESH => lines.push(self.prompts.fill(
                     match outcome {
-                        "finished" => "finished",
-                        "blocked" => "got stuck on",
-                        _ => "let go of",
+                        "finished" => "work_finished",
+                        "blocked" => "work_blocked",
+                        _ => "work_let_go",
                     },
-                    clip(&u.brief, 100),
-                    clip(u.summary.as_deref().unwrap_or_default(), 240)
+                    &[
+                        ("when", capital(&when(u.last_at, now, self.life.clock()))),
+                        ("whom", whom),
+                        ("brief", clip(&u.brief, 100)),
+                        (
+                            "summary",
+                            clip(u.summary.as_deref().unwrap_or_default(), 240),
+                        ),
+                    ],
                 )),
                 Some(_) => {}
             }
@@ -283,17 +342,30 @@ impl Mind {
         for other in memory.elsewhere(now - WINDOW, &here.key, 5)? {
             let unread = match other.place.unread {
                 0 => String::new(),
-                n => format!(", {n} you have not read"),
+                n => self
+                    .prompts
+                    .fill("other_unread", &[("count", n.to_string())]),
             };
+            let (heard, said) = (
+                ("heard", other.heard.to_string()),
+                ("said", other.said.to_string()),
+            );
             let said = match (other.heard, other.said) {
-                (heard, 0) => format!("{heard} to read, nothing from you"),
-                (0, said) => format!("{said} from you"),
-                (heard, said) => format!("{heard} from them, {said} from you"),
+                (_, 0) => self.prompts.fill("other_heard", &[heard]),
+                (0, _) => self.prompts.fill("other_said", &[said]),
+                _ => self.prompts.fill("other_both", &[heard, said]),
             };
-            lines.push(format!(
-                "- {}: {said}, latest {}{unread}.",
-                capital(&self.place_words(&other.place, people)?),
-                when(other.last.at, now, self.life.clock())
+            lines.push(self.prompts.fill(
+                "other_place",
+                &[
+                    (
+                        "place",
+                        capital(&self.place_words(&other.place, people, false)?),
+                    ),
+                    ("said", said),
+                    ("latest", when(other.last.at, now, self.life.clock())),
+                    ("unread", unread),
+                ],
             ));
         }
 
@@ -364,7 +436,7 @@ impl Mind {
                         ("part", n.to_string()),
                         ("status", self.prompts.text(status).to_owned()),
                         ("brief", clip(&state.brief, 120)),
-                        ("latest", clip(&state.latest(), 160)),
+                        ("latest", clip(&state.latest(self.prompts.store()), 160)),
                     ],
                 )
             })
@@ -406,10 +478,9 @@ impl Mind {
         if said.is_empty() {
             return Ok(String::new());
         }
-        Ok(format!(
-            "\n\nWhat {} wrote, word for word:\n{}",
-            person.name,
-            said.join("\n")
+        Ok(self.prompts.fill(
+            "their_words",
+            &[("name", person.name.clone()), ("said", said.join("\n"))],
         ))
     }
 

@@ -92,7 +92,7 @@ impl Mind {
                     let about = self.resolve(place, None)?.map(|p| p.key);
                     if self.intend(
                         now + minutes_from(minutes.clamp(1.0, 7.0 * 24.0 * 60.0)),
-                        format!("get back to this conversation: {why}"),
+                        self.prompts.fill("later_what", &[("why", why)]),
                         about,
                         Some(place.key.clone()),
                         true,
@@ -309,7 +309,7 @@ impl Mind {
             self.record(Event::Felt {
                 toward: person.key,
                 delta: -3,
-                why: format!("wanted to leave: {why}"),
+                why: self.prompts.fill("wanted_to_leave", &[("why", why)]),
             })?;
             Ok(Some("pulled away"))
         }

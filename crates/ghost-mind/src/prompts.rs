@@ -44,7 +44,13 @@ pub const TEXTS: &str = "mind";
 /// The channels that have a page of their own in `system/channels/`. A
 /// channel by any other name reads `chat`'s, unless its settings name
 /// another (`[channels.<name>] page`).
-pub const PAGES: &[&str] = &["chat", "console", "qq", "discord", "telegram", "x"];
+pub const PAGES: &[&str] = &["chat", "console", "x"];
+
+/// The chat platforms the chat page says something of in particular:
+/// `platform_<name>` in `system/channels/texts.toml`, put into the page as
+/// `{{platform}}`. They read the one chat page, so that a change to it
+/// reaches every one of them.
+pub const PLATFORMS: &[&str] = &["qq", "discord", "telegram"];
 
 /// The files the mind reads, with what is built in. The work loop's are in
 /// [`ghost_work::prompts::FILES`], and are read beside them.
@@ -58,10 +64,12 @@ pub const FILES: &[File] = &[
     prompt!("system/logic/reply_tools.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/chat.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/console.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/qq.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/discord.md", Kind::Whole, Layer::Logic),
-    prompt!("system/channels/telegram.md", Kind::Whole, Layer::Logic),
     prompt!("system/channels/x.md", Kind::Whole, Layer::Logic),
+    prompt!(
+        "system/channels/texts.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
     prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/lived.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/reflect.md", Kind::Whole, Layer::Logic),
@@ -133,6 +141,31 @@ pub const FILES: &[File] = &[
     ),
     prompt!(
         "system/logic/texts/working.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
+    prompt!(
+        "system/logic/texts/conversation.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
+    prompt!(
+        "system/logic/texts/people.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
+    prompt!(
+        "system/logic/texts/reread.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
+    prompt!(
+        "system/logic/texts/public.toml",
+        Kind::Texts(TEXTS),
+        Layer::Logic
+    ),
+    prompt!(
+        "system/logic/texts/empty.toml",
         Kind::Texts(TEXTS),
         Layer::Logic
     ),
@@ -268,6 +301,16 @@ impl Prompts {
             .map_or("", String::as_str)
     }
 
+    /// What the page called `name` says of that platform in particular,
+    /// for `{{platform}}`; nothing for a platform it says nothing of.
+    pub fn platform(&self, name: &str) -> &str {
+        if PLATFORMS.contains(&name) {
+            self.text(&format!("platform_{name}"))
+        } else {
+            ""
+        }
+    }
+
     /// Take in any file that changed, if the files have not been looked at
     /// in the last couple of seconds. Cheap enough to call on every wake.
     pub fn refresh(&mut self, now: DateTime<Utc>) {
@@ -293,6 +336,18 @@ impl Prompts {
             String::new()
         } else {
             self.fill(key, &[(name, value.to_owned())])
+        }
+    }
+
+    /// `value`, or text `key` in its place when it is empty: what a slot
+    /// under a heading of its own says when there is nothing to put in it.
+    /// (Where the heading goes with what fills it, [`Prompts::section`]
+    /// leaves out both.)
+    pub fn or(&self, value: String, key: &str) -> String {
+        if value.is_empty() {
+            self.text(key).to_owned()
+        } else {
+            value
         }
     }
 
@@ -353,9 +408,11 @@ fn built_in(path: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration as StdDuration, UNIX_EPOCH};
-
-    use std::fs;
+    use std::{
+        collections::BTreeSet,
+        fs,
+        time::{Duration as StdDuration, UNIX_EPOCH},
+    };
 
     use chrono::{Duration, TimeZone};
 
@@ -387,6 +444,166 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../prompts")
     }
 
+    /// The code of the crate that is not a test, file by file: each file
+    /// up to its module of tests, and nothing under `tests/`.
+    fn code() -> Vec<String> {
+        fn walk(dir: &Path, out: &mut Vec<String>) {
+            for entry in fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|n| n != "tests") {
+                        walk(&path, out);
+                    }
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = fs::read_to_string(&path).unwrap();
+                    let code = text
+                        .split(
+                            "#[cfg(test)]
+mod tests {",
+                        )
+                        .next()
+                        .unwrap_or_default();
+                    out.push(code.to_owned());
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut out);
+        out
+    }
+
+    /// The string literals of `code` that could be a key, with whether
+    /// each is a pattern (followed by `=>`) rather than a value. Comments
+    /// and character literals are passed over.
+    fn literals(code: &str) -> Vec<(String, bool)> {
+        let mut out = Vec::new();
+        let mut chars = code.char_indices().peekable();
+        while let Some((i, c)) = chars.next() {
+            match c {
+                '/' if code[i..].starts_with("//") => {
+                    while chars.next_if(|(_, c)| *c != '\n').is_some() {}
+                }
+                '\'' if code[i..].starts_with("'\"'") || code[i..].starts_with("'\\\"'") => {
+                    while chars.next_if(|(_, c)| *c != '\'').is_some() {}
+                    chars.next();
+                }
+                '"' => {
+                    let mut text = String::new();
+                    let mut escaped = false;
+                    for (_, c) in chars.by_ref() {
+                        match c {
+                            _ if escaped => {
+                                escaped = false;
+                                text.push('\\');
+                            }
+                            '\\' => escaped = true,
+                            '"' => break,
+                            _ => text.push(c),
+                        }
+                    }
+                    let rest = chars.peek().map_or("", |(at, _)| &code[*at..]);
+                    if !text.is_empty()
+                        && text
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                    {
+                        out.push((text, rest.trim_start().starts_with("=>")));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The arguments of the call whose `(` is just before `code`, as
+    /// written: split at the commas that are not inside brackets or a
+    /// string.
+    fn arguments(code: &str) -> Vec<&str> {
+        let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+        let (mut start, mut out) = (0, Vec::new());
+        for (i, c) in code.char_indices() {
+            if quoted {
+                match c {
+                    _ if escaped => escaped = false,
+                    '\\' => escaped = true,
+                    '"' => quoted = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match c {
+                '"' => quoted = true,
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' if depth == 0 => {
+                    out.push(&code[start..i]);
+                    return out;
+                }
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    out.push(&code[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The keys `code` asks the mind's texts for: whatever is written as
+    /// the key of `.text(`, `.fill(` and `.section(`, and as the second
+    /// argument of `.or(`, the arms of an `if` or a `match` included.
+    fn asked(code: &str) -> BTreeSet<String> {
+        let mut keys = BTreeSet::new();
+        for (call, nth) in [(".text(", 0), (".fill(", 0), (".section(", 0), (".or(", 1)] {
+            for (at, _) in code.match_indices(call) {
+                let args = arguments(&code[at + call.len()..]);
+                if let Some(arg) = args.get(nth).filter(|_| nth == 0 || args.len() == 2) {
+                    keys.extend(
+                        literals(arg)
+                            .into_iter()
+                            .filter(|(_, pattern)| !pattern)
+                            .map(|(key, _)| key),
+                    );
+                }
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn every_text_of_the_mind_is_asked_for_and_every_one_asked_for_is_there() {
+        let tables: Vec<&str> = FILES
+            .iter()
+            .filter(|f| f.kind == Kind::Texts(TEXTS))
+            .map(|f| f.path)
+            .collect();
+        let table: BTreeSet<String> = Prompts::shipped()
+            .listing()
+            .into_iter()
+            .filter(|l| tables.contains(&l.file))
+            .filter_map(|l| l.key)
+            .collect();
+        let code = code();
+        let asked: BTreeSet<String> = code.iter().flat_map(|c| asked(c)).collect();
+        let missing: Vec<&String> = asked.difference(&table).collect();
+        assert!(missing.is_empty(), "asked for, and in no file: {missing:?}");
+        // A key may be chosen into a variable before it is asked for, so
+        // being written anywhere in the code counts; the platforms' are
+        // made from their names.
+        let written: BTreeSet<String> = code
+            .iter()
+            .flat_map(|c| literals(c))
+            .map(|(key, _)| key)
+            .chain(PLATFORMS.iter().map(|p| format!("platform_{p}")))
+            .collect();
+        let unasked: Vec<&String> = table.difference(&written).collect();
+        assert!(
+            unasked.is_empty(),
+            "in a file, and never asked for: {unasked:?}"
+        );
+    }
+
     #[test]
     fn the_built_in_files_parse_and_describe_every_tool() {
         let shipped = Prompts::shipped();
@@ -396,12 +613,33 @@ mod tests {
                 assert!(!shipped.tool(&name).is_empty(), "{name} has no description");
             }
         }
-        assert_eq!(
-            shipped.page("qq"),
-            include_str!("../../../prompts/system/channels/qq.md")
-        );
         // A channel with no page of its own reads the chat page.
         assert_eq!(shipped.page("term"), shipped.page("chat"));
+        assert_eq!(shipped.platform("term"), "");
+    }
+
+    #[test]
+    fn each_chat_platform_reads_the_chat_page_with_its_own_paragraph_before_how_to_answer() {
+        let shipped = Prompts::shipped();
+        let chat = shipped.page("chat");
+        let without = ghost_core::narrate::fill(chat, &[("platform", String::new())]);
+        for (name, begins) in [
+            ("qq", "This is QQ: "),
+            ("discord", "This is Discord: "),
+            ("telegram", "This is Telegram. "),
+        ] {
+            assert_eq!(shipped.page(name), chat, "{name} has a page of its own");
+            let own = shipped.platform(name);
+            assert!(own.starts_with(begins) && own.ends_with(".\n\n"), "{own:?}");
+            let page = ghost_core::narrate::fill(chat, &[("platform", own.to_owned())]);
+            // The page is the chat page, word for word, with the platform's
+            // paragraph in front of how she answers and nothing else.
+            assert_eq!(
+                page,
+                without.replacen("{{reply}}", &format!("{own}{{{{reply}}}}"), 1),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -684,7 +922,7 @@ mod tests {
             "system/being.md",
             LOOK,
             "system/work/work.md",
-            "system/work/texts.toml",
+            "system/work/texts/sitting.toml",
             TOOLS,
         ] {
             assert!(written.contains(&dir.join(path)), "{path} was not exported");
@@ -697,7 +935,7 @@ mod tests {
 
         // Changed where it was exported to, it is listed as the deployment's.
         write_at(
-            &dir.join("system/work/texts.toml"),
+            &dir.join("system/work/texts/sitting.toml"),
             "no_call = \"Call one.\"\n",
             1,
         );
@@ -718,11 +956,11 @@ mod tests {
             Some((Origin::Deployment, false))
         );
         assert_eq!(
-            find("system/work/texts.toml", Some("no_call")),
+            find("system/work/texts/sitting.toml", Some("no_call")),
             Some((Origin::Deployment, true))
         );
         assert_eq!(
-            find("system/work/texts.toml", Some("audit")),
+            find("system/work/texts/sitting.toml", Some("audit")),
             Some((Origin::BuiltIn, false))
         );
         assert_eq!(

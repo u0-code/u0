@@ -50,7 +50,7 @@ struct Args {
     #[arg(long, default_value = "main")]
     id: String,
     /// A directory of prompts laid out as `prompts/` is:
-    /// `system/work/work.md`, `system/work/texts.toml` and
+    /// `system/work/work.md`, the files of `system/work/texts/` and
     /// `system/tools.toml`, or any of them. What is built in is used for anything
     /// it does not have. A file changed while the work runs is taken in at
     /// the next step. Nothing in `--state` is read as a prompt: when a ghost
@@ -189,12 +189,12 @@ async fn main() -> anyhow::Result<()> {
     let (no_machine, web) = (args.no_machine, args.web);
     let words = Prompts::load(args.prompts.as_deref()).shared();
     let equip: ghost_work::worker::ToolsFor = {
-        let (machine, words) = (machine.clone(), words.clone());
+        let machine = machine.clone();
         Arc::new(move |undertaking| {
             let toolbox = if no_machine {
-                tools::desk(undertaking, &words)
+                tools::desk(undertaking)
             } else {
-                tools::standard(machine.clone(), undertaking, &words)
+                tools::standard(machine.clone(), undertaking)
             };
             if web {
                 tools::with_web(toolbox, &tools::WebConfig::from_env())
@@ -216,7 +216,7 @@ async fn main() -> anyhow::Result<()> {
     let mut place = if args.no_machine {
         prompts::hold(&words).text("no_machine").to_owned()
     } else {
-        machine.describe()
+        machine.describe(&prompts::hold(&words))
     };
     let look = "uname -srm 2>/dev/null; echo \"user: $(whoami 2>/dev/null)\"; echo \"directory: $PWD\"; ls -la 2>/dev/null | head -40";
     let looked = if args.no_machine {

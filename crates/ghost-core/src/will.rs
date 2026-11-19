@@ -23,19 +23,6 @@ pub enum Stage {
 }
 
 impl Stage {
-    /// How she would put it.
-    pub fn word(self) -> &'static str {
-        match self {
-            Self::Gone => "someone you have cut off",
-            Self::Estranged => "someone you have pulled far away from",
-            Self::Cooling => "someone you are cooling toward",
-            Self::Stranger => "a stranger",
-            Self::Acquaintance => "an acquaintance",
-            Self::Friend => "a friend",
-            Self::Close => "someone close to you",
-        }
-    }
-
     /// Multiplier on how long she takes to notice their messages.
     pub fn patience(self) -> f32 {
         match self {

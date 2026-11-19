@@ -138,15 +138,16 @@ impl Gauge {
 }
 
 /// Trim every long tool result but the newest few to its beginning and
-/// end. Returns how many characters that freed.
-pub(super) fn prune(items: &mut [Item], spare: usize) -> usize {
+/// end, saying in `words` what was cut. Returns how many characters that
+/// freed.
+pub(super) fn prune(items: &mut [Item], spare: usize, words: &Prompts) -> usize {
     let before = chars(items);
     let old = items.len().saturating_sub(spare);
     for item in &mut items[..old] {
         if let Item::Result { output, .. } = item
             && output.len() > PRUNE_OVER
         {
-            *output = clip(output, PRUNE_HEAD, PRUNE_TAIL);
+            *output = clip(words, output, PRUNE_HEAD, PRUNE_TAIL);
         }
     }
     before - chars(items)
@@ -209,23 +210,26 @@ fn tail_of(items: &[Item], budget: usize) -> Vec<Item> {
     items.get(from..).unwrap_or_default().to_vec()
 }
 
-/// Shorten long strings inside a call's arguments (file contents, mostly).
-fn thin(args: &mut Value) {
+/// Shorten long strings inside a call's arguments (file contents, mostly),
+/// saying in `words` that they were.
+fn thin(args: &mut Value, words: &Prompts) {
     if let Value::Object(map) = args {
         for value in map.values_mut() {
             if let Value::String(s) = value
                 && s.len() > 400
             {
-                let kept: String = s.chars().take(160).collect();
-                *s = format!("{kept}\n[... the rest was dropped to save context ...]");
+                *s = words.fill(
+                    "dropped_argument",
+                    &[("kept", s.chars().take(160).collect())],
+                );
             }
         }
     }
 }
 
-/// Drop the bulk of everything but the most recent items. Returns how many
-/// characters that freed.
-fn shed(items: &mut [Item], keep: usize) -> usize {
+/// Drop the bulk of everything but the most recent items, saying in
+/// `words` that it was. Returns how many characters that freed.
+fn shed(items: &mut [Item], keep: usize, words: &Prompts) -> usize {
     let before = chars(items);
     let old = items.len().saturating_sub(keep);
     for item in &mut items[..old] {
@@ -240,13 +244,15 @@ fn shed(items: &mut [Item], keep: usize) -> usize {
                 } else {
                     String::new()
                 };
-                *output = format!(
-                    "{kept}\n[... the rest of this output was dropped to save context; run it again if you need it ...]{ended}"
-                );
+                *output = words.fill("dropped_output", &[("kept", kept), ("ended", ended)]);
             }
             // What the provider asked to have handed back (`carry`) stays:
             // some reject a transcript whose earlier thinking is missing.
-            Item::Assistant { calls, .. } => calls.iter_mut().for_each(|c| thin(&mut c.args)),
+            Item::Assistant { calls, .. } => {
+                for call in calls {
+                    thin(&mut call.args, words);
+                }
+            }
             _ => {}
         }
     }
@@ -326,14 +332,14 @@ impl Worker {
         let mut freed = unsee(&mut trial, 0, words);
         trial_gauge.reweigh(&trial);
         if trial_gauge.tokens(&trial) > target {
-            freed += prune(&mut trial, KEEP_RECENT[2]);
+            freed += prune(&mut trial, KEEP_RECENT[2], words);
             trial_gauge.reweigh(&trial);
         }
         for keep in KEEP_RECENT {
             if trial_gauge.tokens(&trial) <= target {
                 break;
             }
-            freed += shed(&mut trial, keep);
+            freed += shed(&mut trial, keep, words);
             trial_gauge.reweigh(&trial);
         }
         let after = trial_gauge.tokens(&trial);
@@ -368,7 +374,7 @@ impl Worker {
                     spent = step.usage;
                     for call in &step.calls {
                         if matches!(call.name.as_str(), "handoff" | "plan") {
-                            let _ = tools.run(call).await;
+                            let _ = tools.run(call, words).await;
                         }
                     }
                     self.undertaking.remember(&[asking, step.into_item()]);

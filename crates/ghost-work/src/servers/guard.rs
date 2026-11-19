@@ -13,6 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 use serde_json::Value;
 
 use super::Config;
+use crate::prompts::{Store, TEXTS};
 
 /// The longest description of a tool she is shown.
 const DESCRIPTION: usize = 1024;
@@ -51,16 +52,15 @@ pub fn exact_version(version: &str) -> bool {
 
 /// What can be said of a remote's address without looking it up: it is
 /// `https`, and if it is written as an address, that address is public.
-pub fn plain_remote(url: &str) -> Result<reqwest::Url, String> {
-    let parsed =
-        reqwest::Url::parse(url).map_err(|_| format!("its address, {url}, is not an address."))?;
+/// Why not, in `words`.
+pub fn plain_remote(words: &Store, url: &str) -> Result<reqwest::Url, String> {
+    let said = |key: &str| words.fill(TEXTS, key, &[("url", url.to_owned())]);
+    let parsed = reqwest::Url::parse(url).map_err(|_| said("remote_not_an_address"))?;
     if parsed.scheme() != "https" {
-        return Err(format!(
-            "its address, {url}, is not https, and nothing is sent anywhere unencrypted."
-        ));
+        return Err(said("remote_not_https"));
     }
     let Some(host) = parsed.host_str() else {
-        return Err(format!("its address, {url}, names no host."));
+        return Err(said("remote_no_host"));
     };
     let literal = host
         .trim_start_matches('[')
@@ -69,30 +69,30 @@ pub fn plain_remote(url: &str) -> Result<reqwest::Url, String> {
     let local =
         host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".localhost");
     if local || literal.is_ok_and(|ip| !public(ip)) {
-        return Err(private(url));
+        return Err(said("remote_private"));
     }
     Ok(parsed)
-}
-
-fn private(url: &str) -> String {
-    format!(
-        "its address, {url}, points at this machine or a private network, which a server from the registry may not reach."
-    )
 }
 
 /// The addresses a remote's host has, every one of them public. They are
 /// what it is then reached at, so that a name that answers differently
 /// the second time it is asked still cannot lead inside.
-pub async fn reachable(url: &str) -> Result<(String, Vec<SocketAddr>), String> {
-    let parsed = plain_remote(url)?;
+pub async fn reachable(words: &Store, url: &str) -> Result<(String, Vec<SocketAddr>), String> {
+    let parsed = plain_remote(words, url)?;
     let host = parsed.host_str().unwrap_or_default().to_owned();
     let port = parsed.port_or_known_default().unwrap_or(443);
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await
-        .map_err(|e| format!("its address, {url}, could not be looked up ({e})."))?
+        .map_err(|e| {
+            words.fill(
+                TEXTS,
+                "remote_unknown",
+                &[("url", url.to_owned()), ("why", e.to_string())],
+            )
+        })?
         .collect();
     if addresses.is_empty() || addresses.iter().any(|a| !public(a.ip())) {
-        return Err(private(url));
+        return Err(words.fill(TEXTS, "remote_private", &[("url", url.to_owned())]));
     }
     Ok((host, addresses))
 }
@@ -240,14 +240,19 @@ fn canonical(value: &Value) -> String {
     }
 }
 
-/// The tools of server `server` that are offered, and a sentence for
-/// each kind of tool that was not. A tool whose name suggests it runs
+/// The tools of server `server` that are offered, and a sentence in
+/// `words` for each kind of tool that was not. A tool whose name suggests it runs
 /// whatever code it is handed is never offered: a server runs on her
 /// body's machine, not on hers, and such a tool would hand that machine
 /// to whoever wrote the code. Past `max_tools`, descriptions past their
 /// length, and schemas too large or too deep are cut for the same reason
 /// as any long output: they cost her room to think, at every step.
-pub fn vet(server: &str, tools: &[Listed], cfg: &Config) -> (Vec<Vetted>, Vec<String>) {
+pub fn vet(
+    words: &Store,
+    server: &str,
+    tools: &[Listed],
+    cfg: &Config,
+) -> (Vec<Vetted>, Vec<String>) {
     let mut offered: Vec<Vetted> = Vec::new();
     let (mut denied, mut oversized, mut over) = (Vec::new(), Vec::new(), 0);
     for tool in tools {
@@ -275,27 +280,25 @@ pub fn vet(server: &str, tools: &[Listed], cfg: &Config) -> (Vec<Vetted>, Vec<St
         offered.push(Vetted {
             remote: tool.name.clone(),
             called,
-            description: crate::tools::clip(&tool.description, DESCRIPTION - 200, 150),
+            description: crate::tools::clip(words, &tool.description, DESCRIPTION - 200, 150),
             schema,
         });
     }
     let mut notes = Vec::new();
     if !denied.is_empty() {
-        notes.push(format!(
-            "Not offered, because they run whatever code they are given: {}.",
-            denied.join(", ")
-        ));
+        notes.push(words.fill(TEXTS, "tools_denied", &[("tools", denied.join(", "))]));
     }
     if !oversized.is_empty() {
-        notes.push(format!(
-            "Not offered, because what they take is too large to describe: {}.",
-            oversized.join(", ")
-        ));
+        notes.push(words.fill(TEXTS, "tools_oversized", &[("tools", oversized.join(", "))]));
     }
     if over > 0 {
-        notes.push(format!(
-            "{over} more were not offered: no server offers more than {}.",
-            cfg.max_tools
+        notes.push(words.fill(
+            TEXTS,
+            "tools_over",
+            &[
+                ("count", over.to_string()),
+                ("most", cfg.max_tools.to_string()),
+            ],
         ));
     }
     (offered, notes)
@@ -366,12 +369,12 @@ mod tests {
             "https://localhost/mcp",
             "https://100.64.0.1/mcp",
         ] {
-            let why = plain_remote(url).unwrap_err();
+            let why = plain_remote(&crate::Prompts::shipped(), url).unwrap_err();
             assert!(why.contains("private network"), "{url}: {why}");
         }
-        assert!(plain_remote("http://example.com/mcp").is_err());
-        assert!(plain_remote("https://93.184.216.34/mcp").is_ok());
-        assert!(plain_remote("https://mcp.example.com/mcp").is_ok());
+        assert!(plain_remote(&crate::Prompts::shipped(), "http://example.com/mcp").is_err());
+        assert!(plain_remote(&crate::Prompts::shipped(), "https://93.184.216.34/mcp").is_ok());
+        assert!(plain_remote(&crate::Prompts::shipped(), "https://mcp.example.com/mcp").is_ok());
     }
 
     #[test]
@@ -418,6 +421,7 @@ mod tests {
             schema: serde_json::json!({"type": "object"}),
         };
         let (offered, notes) = vet(
+            &crate::Prompts::shipped(),
             "playwright-mcp",
             &[tool("browser_navigate"), tool("browser_run_code_unsafe")],
             &cfg,

@@ -189,11 +189,14 @@ fn at_work(servers: &Arc<Servers>) -> Toolbox {
 
 async fn run(tools: &Toolbox, name: &str, args: Value) -> ghost_work::Outcome {
     tools
-        .run(&Call {
-            id: "1".into(),
-            name: name.into(),
-            args,
-        })
+        .run(
+            &Call {
+                id: "1".into(),
+                name: name.into(),
+                args,
+            },
+            &ghost_work::Prompts::shipped(),
+        )
         .await
 }
 

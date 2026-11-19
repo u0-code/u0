@@ -11,7 +11,7 @@ use ghost_brain::ToolSpec;
 use serde_json::{Value, json};
 
 use crate::{
-    prompts::{self, Loop, Shared, Store},
+    prompts::{self, Loop, Store, TEXTS},
     tool::{Outcome, Tool, text},
     undertaking::{self, AskKind, Finish, PlanStep, Progress, State, Undertaking},
 };
@@ -20,22 +20,19 @@ use crate::{
 /// and what shows the ones that are.
 pub struct Plan {
     undertaking: Arc<Undertaking>,
-    words: Shared,
 }
 
 impl Plan {
-    pub fn new(undertaking: Arc<Undertaking>, words: Shared) -> Self {
-        Self { undertaking, words }
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
     }
 }
 
 /// What a tool says when its change to the record could not be written:
 /// nothing was changed, and the worker is told so rather than left to go
 /// on from a record it does not have.
-fn unwritten(e: &std::io::Error) -> Outcome {
-    Outcome::fail(format!(
-        "the work's record could not be written, so nothing was changed: {e}"
-    ))
+fn unwritten(words: &Store, e: &std::io::Error) -> Outcome {
+    Outcome::fail(words.fill(TEXTS, "unwritten", &[("why", e.to_string())]))
 }
 
 /// Models name the same states many ways.
@@ -156,22 +153,25 @@ fn rewrite(steps: &[Value], old: &[PlanStep]) -> Vec<PlanStep> {
 /// with a check marked done without saying how the check was met, one
 /// dropped without saying why, one in progress before what it is after is
 /// done.
-fn problems(state: &State, words: &prompts::Prompts) -> Vec<String> {
+fn problems(state: &State, words: &Store) -> Vec<String> {
     let mut problems = Vec::new();
     for (i, step) in state.plan.iter().enumerate() {
         let number = ("step", (i + 1).to_string());
         match step.status {
             Progress::Done if step.check.is_some() && step.result.is_none() => {
-                problems.push(words.fill("plan_unproven", &[number]));
+                problems.push(words.fill(TEXTS, "plan_unproven", &[number]));
             }
             Progress::Dropped if step.result.is_none() => {
-                problems.push(words.fill("plan_no_reason", &[number]));
+                problems.push(words.fill(TEXTS, "plan_no_reason", &[number]));
             }
             Progress::Doing => {
                 let waiting = state.waiting_on(i);
                 if !waiting.is_empty() {
-                    problems
-                        .push(words.fill("plan_not_ready", &[number, ("waiting", list(&waiting))]));
+                    problems.push(words.fill(
+                        TEXTS,
+                        "plan_not_ready",
+                        &[number, ("waiting", list(&waiting))],
+                    ));
                 }
             }
             _ => {}
@@ -223,31 +223,30 @@ impl Tool for Plan {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
         let Some(steps) = args["steps"].as_array() else {
-            return Outcome::fail("missing argument `steps` (a list of {text, status})");
+            return Outcome::fail(words.text(TEXTS, "plan_missing_steps"));
         };
-        let words = prompts::hold(&self.words).clone();
         // Read, checked and written in one go, so that a part ending
         // meanwhile and marking its step is built on and not lost.
         let said = self.undertaking.update(|state| {
             let plan = rewrite(steps, &state.plan);
             if plan.is_empty() {
-                return Err("the plan has no steps".to_owned());
+                return Err(words.text(TEXTS, "plan_empty").to_owned());
             }
             let was = std::mem::replace(&mut state.plan, plan);
-            let problems = problems(state, &words);
+            let problems = problems(state, words);
             if problems.is_empty() {
-                Ok(words.fill("plan_now", &[("plan", state.plan_text(&words))]))
+                Ok(words.fill(TEXTS, "plan_now", &[("plan", state.plan_text(words))]))
             } else {
                 state.plan = was;
-                Err(words.fill("plan_refused", &[("problems", problems.join("\n"))]))
+                Err(words.fill(TEXTS, "plan_refused", &[("problems", problems.join("\n"))]))
             }
         });
         match said {
             Ok(Ok(shown)) => Outcome::ok(shown),
             Ok(Err(why)) => Outcome::fail(why),
-            Err(e) => unwritten(&e),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -278,24 +277,24 @@ impl Tool for Note {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let words = match text(args, "text") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let note = match text(words, args, "text") {
             Ok(t) => t.trim(),
             Err(refusal) => return refusal,
         };
-        if words.is_empty() {
-            return Outcome::fail("the note is empty");
+        if note.is_empty() {
+            return Outcome::fail(words.text(TEXTS, "note_empty"));
         }
         let count = self.undertaking.update(|state| {
             state.notes.push(undertaking::Note {
                 at: Utc::now(),
-                text: words.to_owned(),
+                text: note.to_owned(),
             });
             state.notes.len()
         });
         match count {
-            Ok(count) => Outcome::ok(format!("noted ({count} so far)")),
-            Err(e) => unwritten(&e),
+            Ok(count) => Outcome::ok(words.fill(TEXTS, "noted", &[("count", count.to_string())])),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -327,20 +326,20 @@ impl Tool for Handoff {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let words = match text(args, "text") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let handoff = match text(words, args, "text") {
             Ok(t) => t.trim(),
             Err(refusal) => return refusal,
         };
-        if words.is_empty() {
-            return Outcome::fail("the handoff is empty");
+        if handoff.is_empty() {
+            return Outcome::fail(words.text(TEXTS, "handoff_empty"));
         }
         match self
             .undertaking
-            .update(|state| state.handoff = Some(words.to_owned()))
+            .update(|state| state.handoff = Some(handoff.to_owned()))
         {
-            Ok(()) => Outcome::ok("kept"),
-            Err(e) => unwritten(&e),
+            Ok(()) => Outcome::ok(words.text(TEXTS, "handoff_kept")),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -377,13 +376,13 @@ impl Tool for Ask {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let question = match text(args, "question") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let question = match text(words, args, "question") {
             Ok(q) => q.trim(),
             Err(refusal) => return refusal,
         };
         if question.is_empty() {
-            return Outcome::fail("the question is empty");
+            return Outcome::fail(words.text(TEXTS, "question_empty"));
         }
         let options: Vec<String> = args["options"]
             .as_array()
@@ -402,27 +401,27 @@ impl Tool for Ask {
             Some(word) => match AskKind::from_word(word) {
                 Some(kind) => Some(kind),
                 None => {
-                    return Outcome::fail(format!(
-                        "there is no kind {word:?}: it is answer, file, act or choose"
+                    return Outcome::fail(words.fill(
+                        TEXTS,
+                        "no_such_kind",
+                        &[("kind", format!("{word:?}"))],
                     ));
                 }
             },
             None => (!options.is_empty()).then_some(AskKind::Choose),
         };
         if kind == Some(AskKind::Choose) && options.len() < 2 {
-            return Outcome::fail("a choice needs at least two `options` to choose from");
+            return Outcome::fail(words.text(TEXTS, "too_few_options"));
         }
         if kind != Some(AskKind::Choose) && !options.is_empty() {
-            return Outcome::fail("`options` are only for a question of kind choose");
+            return Outcome::fail(words.text(TEXTS, "options_not_asked_for"));
         }
         match self
             .undertaking
             .update(|state| state.ask(question, kind, options))
         {
-            Ok(()) => Outcome::ok(
-                "Asked. The work stops here until they answer; their answer will be added to the task.",
-            ),
-            Err(e) => unwritten(&e),
+            Ok(()) => Outcome::ok(words.text(TEXTS, "asked")),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -456,8 +455,8 @@ impl Tool for Keep {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (file, note) = match (text(args, "file"), text(args, "note")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (file, note) = match (text(words, args, "file"), text(words, args, "note")) {
             (Ok(f), Ok(n)) => (f.trim(), n.trim()),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
@@ -469,13 +468,10 @@ impl Tool for Keep {
             .trim();
         let file = file.strip_prefix("media/").unwrap_or(file);
         if note.is_empty() {
-            return Outcome::fail("the note is empty: say what it is and when you would want it");
+            return Outcome::fail(words.text(TEXTS, "keep_no_note"));
         }
         if self.undertaking.media(file).is_none() {
-            return Outcome::fail(format!(
-                "there is no image called `{file}` among those you were shown. \
-                 Use the name a result gave it, as in `[image: <name>]`."
-            ));
+            return Outcome::fail(words.fill(TEXTS, "no_such_image", &[("file", file.to_owned())]));
         }
         let count = self.undertaking.update(|state| {
             state.kept.retain(|k| k.file != file);
@@ -487,8 +483,8 @@ impl Tool for Keep {
             state.kept.len()
         });
         match count {
-            Ok(count) => Outcome::ok(format!("kept ({count} so far)")),
-            Err(e) => unwritten(&e),
+            Ok(count) => Outcome::ok(words.fill(TEXTS, "kept", &[("count", count.to_string())])),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -525,13 +521,13 @@ impl Tool for Tell {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let words = match text(args, "text") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let told = match text(words, args, "text") {
             Ok(t) => t.trim(),
             Err(refusal) => return refusal,
         };
-        if words.is_empty() {
-            return Outcome::fail("there is nothing to tell");
+        if told.is_empty() {
+            return Outcome::fail(words.text(TEXTS, "nothing_to_tell"));
         }
         let files: Vec<String> = args["files"]
             .as_array()
@@ -546,13 +542,13 @@ impl Tool for Tell {
             .unwrap_or_default();
         match self.undertaking.update(|state| {
             state.told.push(undertaking::Told {
-                text: words.to_owned(),
+                text: told.to_owned(),
                 files,
                 at: Utc::now(),
             });
         }) {
-            Ok(()) => Outcome::ok("Told. Go on with the work."),
-            Err(e) => unwritten(&e),
+            Ok(()) => Outcome::ok(words.text(TEXTS, "told")),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -572,12 +568,11 @@ pub(crate) fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
 /// each step of it is either shown done or dropped for a reason.
 pub struct Done {
     undertaking: Arc<Undertaking>,
-    words: Shared,
 }
 
 impl Done {
-    pub fn new(undertaking: Arc<Undertaking>, words: Shared) -> Self {
-        Self { undertaking, words }
+    pub fn new(undertaking: Arc<Undertaking>) -> Self {
+        Self { undertaking }
     }
 }
 
@@ -602,26 +597,27 @@ impl Tool for Done {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (outcome, summary) = match (text(args, "outcome"), text(args, "summary")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (outcome, summary) = match (text(words, args, "outcome"), text(words, args, "summary"))
+        {
             (Ok(o), Ok(s)) => (o, s),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
         let Some(outcome) = outcome_of(outcome) else {
-            return Outcome::fail(format!(
-                "`{}` is not an outcome. Use finished, blocked or gave_up.",
-                outcome.trim().to_lowercase()
+            return Outcome::fail(words.fill(
+                TEXTS,
+                "not_an_outcome",
+                &[("outcome", outcome.trim().to_lowercase())],
             ));
         };
-        let words = prompts::hold(&self.words).clone();
         let refused = self.undertaking.update(|state| {
             let open = state.open_steps();
             if outcome == undertaking::Outcome::Finished && !open.is_empty() {
                 let steps: Vec<String> = open
                     .iter()
-                    .map(|&n| state.step_text(&words, n - 1))
+                    .map(|&n| state.step_text(words, n - 1))
                     .collect();
-                return Some(words.fill("steps_open", &[("steps", steps.join("\n"))]));
+                return Some(words.fill(TEXTS, "steps_open", &[("steps", steps.join("\n"))]));
             }
             state.finish = Some(Finish {
                 outcome,
@@ -648,8 +644,8 @@ impl Tool for Done {
         });
         match refused {
             Ok(Some(open)) => Outcome::fail(open),
-            Ok(None) => Outcome::ok("recorded"),
-            Err(e) => unwritten(&e),
+            Ok(None) => Outcome::ok(words.text(TEXTS, "recorded")),
+            Err(e) => unwritten(words, &e),
         }
     }
 }
@@ -671,19 +667,22 @@ mod tests {
         (dir, u)
     }
 
-    fn words() -> Shared {
-        crate::Prompts::shipped().shared()
+    fn words() -> crate::Prompts {
+        crate::Prompts::shipped()
     }
 
     #[tokio::test]
     async fn a_plan_is_kept_whole() {
         let (_dir, u) = undertaking();
-        let out = Plan::new(u.clone(), words())
-            .call(&json!({"steps": [
-                {"text": "look", "status": "completed"},
-                {"text": "write the file", "status": "in_progress"},
-                "check it",
-            ]}))
+        let out = Plan::new(u.clone())
+            .call(
+                &json!({"steps": [
+                    {"text": "look", "status": "completed"},
+                    {"text": "write the file", "status": "in_progress"},
+                    "check it",
+                ]}),
+                &words(),
+            )
             .await;
         assert!(
             out.output
@@ -697,12 +696,15 @@ mod tests {
     #[tokio::test]
     async fn a_step_with_a_check_needs_a_result_to_be_marked_done() {
         let (_dir, u) = undertaking();
-        let plan = Plan::new(u.clone(), words());
+        let plan = Plan::new(u.clone());
         let out = plan
-            .call(&json!({"steps": [
-                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi"},
-                {"text": "tidy up", "status": "done"},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi"},
+                    {"text": "tidy up", "status": "done"},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(out.failed);
         assert_eq!(
@@ -713,11 +715,14 @@ mod tests {
         assert!(u.state().plan.is_empty(), "a refused plan was kept");
 
         let out = plan
-            .call(&json!({"steps": [
-                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
-                 "result": "cat a.txt printed hi"},
-                {"text": "tidy up", "status": "done"},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
+                     "result": "cat a.txt printed hi"},
+                    {"text": "tidy up", "status": "done"},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
         let state = u.state();
@@ -732,13 +737,16 @@ mod tests {
     #[tokio::test]
     async fn a_step_cannot_start_before_the_steps_it_is_after_are_done() {
         let (_dir, u) = undertaking();
-        let plan = Plan::new(u.clone(), words());
+        let plan = Plan::new(u.clone());
         let out = plan
-            .call(&json!({"steps": [
-                {"text": "build", "status": "doing"},
-                {"text": "test", "status": "todo"},
-                {"text": "ship", "status": "doing", "after": [1, "step 2"]},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    {"text": "build", "status": "doing"},
+                    {"text": "test", "status": "todo"},
+                    {"text": "ship", "status": "doing", "after": [1, "step 2"]},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(out.failed);
         assert_eq!(
@@ -749,26 +757,35 @@ mod tests {
 
         // Dropped is not done: what depends on a dropped step waits until
         // it no longer names it.
-        plan.call(&json!({"steps": [
-            {"text": "build", "status": "done"},
-            {"text": "test", "status": "dropped", "result": "there are no tests"},
-            {"text": "ship", "status": "todo", "after": [1, 2]},
-        ]}))
+        plan.call(
+            &json!({"steps": [
+                {"text": "build", "status": "done"},
+                {"text": "test", "status": "dropped", "result": "there are no tests"},
+                {"text": "ship", "status": "todo", "after": [1, 2]},
+            ]}),
+            &words(),
+        )
         .await;
         let out = plan
-            .call(&json!({"steps": [
-                {"text": "build", "status": "done"},
-                {"text": "test", "status": "dropped"},
-                {"text": "ship", "status": "doing"},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    {"text": "build", "status": "done"},
+                    {"text": "test", "status": "dropped"},
+                    {"text": "ship", "status": "doing"},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(out.output.contains("(2)"), "{}", out.output);
         let out = plan
-            .call(&json!({"steps": [
-                {"text": "build", "status": "done"},
-                {"text": "test", "status": "dropped"},
-                {"text": "ship", "status": "doing", "after": [1]},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    {"text": "build", "status": "done"},
+                    {"text": "test", "status": "dropped"},
+                    {"text": "ship", "status": "doing", "after": [1]},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
     }
@@ -776,30 +793,39 @@ mod tests {
     #[tokio::test]
     async fn a_step_said_again_without_its_check_keeps_it_and_what_it_is_after_follows_it() {
         let (_dir, u) = undertaking();
-        let plan = Plan::new(u.clone(), words());
-        plan.call(&json!({"steps": [
-            {"text": "build", "status": "todo", "check": "make prints ok"},
-            {"text": "ship", "status": "todo", "after": [1]},
-        ]}))
+        let plan = Plan::new(u.clone());
+        plan.call(
+            &json!({"steps": [
+                {"text": "build", "status": "todo", "check": "make prints ok"},
+                {"text": "ship", "status": "todo", "after": [1]},
+            ]}),
+            &words(),
+        )
         .await;
         // Only statuses, and a step put in front.
         let out = plan
-            .call(&json!({"steps": [
-                "look around",
-                {"text": "build", "status": "doing"},
-                {"text": "ship", "status": "todo"},
-            ]}))
+            .call(
+                &json!({"steps": [
+                    "look around",
+                    {"text": "build", "status": "doing"},
+                    {"text": "ship", "status": "todo"},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
         let state = u.state();
         assert_eq!(state.plan[1].check.as_deref(), Some("make prints ok"));
         assert_eq!(state.plan[2].after, [2]);
         // Said again as empty, a check is gone.
-        plan.call(&json!({"steps": [
-            "look around",
-            {"text": "build", "status": "doing", "check": ""},
-            {"text": "ship", "status": "todo"},
-        ]}))
+        plan.call(
+            &json!({"steps": [
+                "look around",
+                {"text": "build", "status": "doing", "check": ""},
+                {"text": "ship", "status": "todo"},
+            ]}),
+            &words(),
+        )
         .await;
         assert_eq!(u.state().plan[1].check, None);
     }
@@ -807,15 +833,18 @@ mod tests {
     #[tokio::test]
     async fn the_plan_shows_what_each_step_is_after_its_check_and_its_result() {
         let (_dir, u) = undertaking();
-        let out = Plan::new(u.clone(), words())
-            .call(&json!({"steps": [
-                {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
-                 "result": "it printed hi"},
-                {"text": "survey the mirrors", "status": "dropped", "result": "one is enough"},
-                {"text": "copy it to b.txt", "status": "doing", "after": [1],
-                 "check": "cmp a.txt b.txt is silent"},
-                {"text": "say so", "status": "todo", "after": [3, 1]},
-            ]}))
+        let out = Plan::new(u.clone())
+            .call(
+                &json!({"steps": [
+                    {"text": "write a.txt", "status": "done", "check": "cat a.txt prints hi",
+                     "result": "it printed hi"},
+                    {"text": "survey the mirrors", "status": "dropped", "result": "one is enough"},
+                    {"text": "copy it to b.txt", "status": "doing", "after": [1],
+                     "check": "cmp a.txt b.txt is silent"},
+                    {"text": "say so", "status": "todo", "after": [3, 1]},
+                ]}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
         assert_eq!(
@@ -831,15 +860,18 @@ mod tests {
     #[tokio::test]
     async fn finishing_is_refused_while_steps_are_open_and_taken_once_they_are_done_or_dropped() {
         let (_dir, u) = undertaking();
-        let (plan, done) = (Plan::new(u.clone(), words()), Done::new(u.clone(), words()));
-        plan.call(&json!({"steps": [
-            {"text": "write a.txt", "status": "done"},
-            {"text": "check it", "status": "doing", "check": "cat a.txt prints hi"},
-            {"text": "mirror it", "status": "todo"},
-        ]}))
+        let (plan, done) = (Plan::new(u.clone()), Done::new(u.clone()));
+        plan.call(
+            &json!({"steps": [
+                {"text": "write a.txt", "status": "done"},
+                {"text": "check it", "status": "doing", "check": "cat a.txt prints hi"},
+                {"text": "mirror it", "status": "todo"},
+            ]}),
+            &words(),
+        )
         .await;
         let finished = json!({"outcome": "finished", "summary": "wrote it"});
-        let refused = done.call(&finished).await;
+        let refused = done.call(&finished, &words()).await;
         assert!(refused.failed);
         assert_eq!(
             refused.output,
@@ -849,13 +881,16 @@ mod tests {
         );
         assert!(u.state().finish.is_none());
 
-        plan.call(&json!({"steps": [
-            {"text": "write a.txt", "status": "done"},
-            {"text": "check it", "status": "done", "result": "it printed hi"},
-            {"text": "mirror it", "status": "dropped", "result": "nobody asked for it"},
-        ]}))
+        plan.call(
+            &json!({"steps": [
+                {"text": "write a.txt", "status": "done"},
+                {"text": "check it", "status": "done", "result": "it printed hi"},
+                {"text": "mirror it", "status": "dropped", "result": "nobody asked for it"},
+            ]}),
+            &words(),
+        )
         .await;
-        assert_eq!(done.call(&finished).await.output, "recorded");
+        assert_eq!(done.call(&finished, &words()).await.output, "recorded");
         assert_eq!(
             u.state().finish.unwrap().outcome,
             undertaking::Outcome::Finished
@@ -865,11 +900,14 @@ mod tests {
     #[tokio::test]
     async fn work_with_open_steps_can_still_end_blocked() {
         let (_dir, u) = undertaking();
-        Plan::new(u.clone(), words())
-            .call(&json!({"steps": ["write a.txt"]}))
+        Plan::new(u.clone())
+            .call(&json!({"steps": ["write a.txt"]}), &words())
             .await;
-        let out = Done::new(u.clone(), words())
-            .call(&json!({"outcome": "blocked", "summary": "the disk is read-only"}))
+        let out = Done::new(u.clone())
+            .call(
+                &json!({"outcome": "blocked", "summary": "the disk is read-only"}),
+                &words(),
+            )
             .await;
         assert_eq!(out.output, "recorded");
     }
@@ -884,11 +922,17 @@ mod tests {
         let file = &shown[0];
         let keep = Keep::new(u.clone());
         let out = keep
-            .call(&json!({"file": format!("[image: {file}]"), "note": "one clear pixel"}))
+            .call(
+                &json!({"file": format!("[image: {file}]"), "note": "one clear pixel"}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
         let out = keep
-            .call(&json!({"file": file, "note": "a pixel, for testing"}))
+            .call(
+                &json!({"file": file, "note": "a pixel, for testing"}),
+                &words(),
+            )
             .await;
         assert!(!out.failed, "{}", out.output);
         let kept = u.state().kept;
@@ -906,7 +950,9 @@ mod tests {
         std::fs::write(dir.path().join("secret.txt"), b"x").unwrap();
         let keep = Keep::new(u.clone());
         for file in ["../secret.txt", "secret.txt", "nothing.png", "/etc/hosts"] {
-            let out = keep.call(&json!({"file": file, "note": "mine"})).await;
+            let out = keep
+                .call(&json!({"file": file, "note": "mine"}), &words())
+                .await;
             assert!(out.failed, "{file} was kept");
         }
         assert!(u.state().kept.is_empty());
@@ -917,11 +963,15 @@ mod tests {
         let (_dir, u) = undertaking();
         let tell = Tell::new(u.clone());
         let said = tell
-            .call(&json!({"text": "  two sources agree  ", "files": [" /work/a.md ", ""]}))
+            .call(
+                &json!({"text": "  two sources agree  ", "files": [" /work/a.md ", ""]}),
+                &words(),
+            )
             .await;
         assert!(!said.failed, "{}", said.output);
-        tell.call(&json!({"text": "the third disagrees"})).await;
-        assert!(tell.call(&json!({"text": "  "})).await.failed);
+        tell.call(&json!({"text": "the third disagrees"}), &words())
+            .await;
+        assert!(tell.call(&json!({"text": "  "}), &words()).await.failed);
         let told: Vec<(String, Vec<String>)> = u
             .state()
             .told
@@ -943,12 +993,15 @@ mod tests {
     #[tokio::test]
     async fn finishing_is_recorded_as_it_is_reported() {
         let (_dir, u) = undertaking();
-        let done = Done::new(u.clone(), words());
+        let done = Done::new(u.clone());
         let said = done
-            .call(&json!({
-                "outcome": "finished", "summary": "wrote it",
-                "files": ["/work/a.txt"], "lesson": "print the file before saying so",
-            }))
+            .call(
+                &json!({
+                    "outcome": "finished", "summary": "wrote it",
+                    "files": ["/work/a.txt"], "lesson": "print the file before saying so",
+                }),
+                &words(),
+            )
             .await;
         assert_eq!(said.output, "recorded");
         let finish = u.state().finish.unwrap();
@@ -960,8 +1013,11 @@ mod tests {
         );
 
         let (_dir, other) = undertaking();
-        Done::new(other.clone(), words())
-            .call(&json!({"outcome": "blocked", "summary": "no network"}))
+        Done::new(other.clone())
+            .call(
+                &json!({"outcome": "blocked", "summary": "no network"}),
+                &words(),
+            )
             .await;
         assert_eq!(
             other.state().finish.unwrap().outcome,

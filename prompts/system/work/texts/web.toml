@@ -1,0 +1,49 @@
+# The web: what `search` and `fetch` say around what they bring back, and
+# why they brought nothing. Both are offered in a conversation as at work,
+# so these are read in both.
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# Put after a result that came through the proxy. The model cannot see the
+# network, and this is the one thing it is told about it, because a page
+# can differ by where it is asked from.
+by_proxy = "\n\n(reached through the proxy)"
+# When a site could not be reached the first way or the other.
+unreached_either_way = "{{first}}; the other way: {{again}}"
+
+# What `search` says.
+query_empty = "the query is empty"
+no_results = "No results. Try other words, fewer words, or another language."
+search_refused = "the search service answered {{status}}: {{said}}"
+search_unreadable = "the search service sent something unreadable: {{why}}"
+
+# What `fetch` says when it brought nothing back. {{url}} is the address.
+not_http = "the address must start with http:// or https://"
+page_unread = "could not read {{url}}: {{why}}"
+# When the reader refused the page and fetching it directly failed too.
+page_unread_either_way = "could not read {{url}}: {{first}}; fetched directly: {{second}}"
+# When the reader refused without a reason.
+no_reason_given = "no reason given"
+page_empty = "the page had no readable content"
+site_refused = "the site answered {{status}}"
+# What the address holds when it is not a page or an image that can be
+# shown, and how to have it anyway. {{kind}} is its type, or `a_file`
+# when the site did not say.
+not_an_image = "the address holds {{kind}}, which is not an image that can be shown (PNG, JPEG, GIF or WebP). Download it with the shell if you need it."
+not_a_page = "the address holds {{kind}}, not a page of text. Download it with the shell if you need it."
+too_large_to_show = "the address holds {{kind}} larger than {{mb}} MB, too large to be shown. Download it with the shell if you need it."
+a_file = "a file"
+
+# What `fetch` says with what it brought back. An address that holds an
+# image is shown as the image; {{about}} is its type, size and dimensions.
+an_image_address = "{{url}} is an image ({{about}})."
+page_too_short = "the page has only {{count}} characters"
+# After a part of a long page: how much is left, and how to read on.
+page_more = "\n\n[{{count}} more characters. To read on: fetch with from={{from}}]"
+# Before the images a page shows, a line each, so that a page of pictures
+# is not read as nothing but its captions.
+page_images = "Images on this page ({{count}}). Fetch an address to see the image:\n"
+more_images = "[and {{count}} more]"

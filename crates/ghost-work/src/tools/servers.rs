@@ -39,12 +39,12 @@ impl Tool for FindTools {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let query = match text(args, "query") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let query = match text(words, args, "query") {
             Ok(q) => q,
             Err(refusal) => return refusal,
         };
-        match self.0.find(query).await {
+        match self.0.find(words, query).await {
             Ok(found) => Outcome::ok(found),
             Err(why) => Outcome::fail(why),
         }
@@ -76,14 +76,18 @@ impl Tool for Install {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let name = match text(args, "name") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let name = match text(words, args, "name") {
             Ok(n) => n,
             Err(refusal) => return refusal,
         };
-        match self.0.install(name).await {
+        match self.0.install(words, name).await {
             Ok(said) => Outcome::ok(said),
-            Err(why) => Outcome::fail(format!("{name} was not installed: {why}")),
+            Err(why) => Outcome::fail(words.fill(
+                TEXTS,
+                "not_installed",
+                &[("name", name.to_owned()), ("why", why)],
+            )),
         }
     }
 }
@@ -113,12 +117,12 @@ impl Tool for Uninstall {
         )
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let (name, why) = match (text(args, "name"), text(args, "why")) {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let (name, why) = match (text(words, args, "name"), text(words, args, "why")) {
             (Ok(n), Ok(w)) => (n, w),
             (Err(refusal), _) | (_, Err(refusal)) => return refusal,
         };
-        match self.0.uninstall(name, why) {
+        match self.0.uninstall(words, name, why) {
             Ok(said) => Outcome::ok(said),
             Err(why) => Outcome::fail(why),
         }
@@ -200,22 +204,31 @@ impl Tool for LoadTools {
         spec
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
-        let which = match text(args, "server") {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
+        let which = match text(words, args, "server") {
             Ok(s) => s,
             Err(refusal) => return refusal,
         };
-        match self.servers.load(which).await {
+        match self.servers.load(words, which).await {
             Ok((handle, offered)) => {
                 self.loaded.add(&handle);
-                Outcome::ok(format!(
-                    "Loaded {handle}. You can now call its tools directly: {}.",
-                    offered
-                        .iter()
-                        .map(|t| t.called.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
+                Outcome::ok(
+                    words.fill(
+                        TEXTS,
+                        "loaded",
+                        &[
+                            ("server", handle),
+                            (
+                                "tools",
+                                offered
+                                    .iter()
+                                    .map(|t| t.called.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                        ],
+                    ),
+                )
             }
             Err(why) => Outcome::fail(why),
         }
@@ -263,9 +276,9 @@ impl Tool for Served {
         }
     }
 
-    async fn call(&self, args: &Value) -> Outcome {
+    async fn call(&self, args: &Value, words: &Store) -> Outcome {
         self.servers
-            .call(&self.handle, &self.tool.remote, args)
+            .call(words, &self.handle, &self.tool.remote, args)
             .await
     }
 }

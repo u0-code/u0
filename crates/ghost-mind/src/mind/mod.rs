@@ -46,7 +46,7 @@ use ghost_core::{
     Ghost,
     journal::{Entry, Event},
     life::Life,
-    narrate::{self, Scene},
+    narrate,
     social::{self, Actor},
     tempo::Tempo,
 };
@@ -56,6 +56,8 @@ use tokio::{
     task::{AbortHandle, JoinSet},
 };
 use tracing::{Instrument as _, info, warn};
+
+use crate::narrate::Scene;
 
 use self::{
     attend::{Looking, Thinking, Thought},
@@ -720,7 +722,7 @@ impl Mind {
         // was not running: those are put aside, and she is told why at
         // once.
         if let Some(skills) = &self.workshop.skills {
-            skills.know(self.ghost.memory().skills()?);
+            skills.know(self.prompts.store(), self.ghost.memory().skills()?);
             self.installs_changed()?;
         }
         // Whatever she had taken on is still hers.
@@ -993,22 +995,19 @@ impl Mind {
             identity: self.ghost.identity(),
             clock: self.life.clock(),
             now,
-            moment: &moment,
             day: day.as_ref(),
             recent: &recent,
             canon: &canon,
         };
-        let mut pairs = scene.pairs();
+        let mut pairs = scene.pairs(&self.prompts);
         // The exchanges in her persona are introduced as how she sounds, and
         // the introduction goes with them when she has none.
         for (key, value) in &mut pairs {
             if *key == "examples" {
                 *value = self.prompts.section("examples", "examples", value);
             }
-            if *key == "state" {
-                *value = self.state_words(&moment);
-            }
         }
+        pairs.push(("state", self.state_words(&moment)));
         pairs.push(("facets", self.facets_words()));
         pairs.push(("abilities", abilities.to_owned()));
         Ok((

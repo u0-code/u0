@@ -13,6 +13,13 @@ use crate::{config::Config, run::network};
 pub(crate) mod file;
 pub(crate) mod served;
 
+/// The least a brain can be asked, to see that it answers at all. It is a
+/// check on the provider, not anything she is told, so it is not one of
+/// her prompts.
+fn hello() -> Completion {
+    Completion::ask("Reply with exactly one word.", "Say hello.", 16)
+}
+
 /// Say what this machine could think with, as configuration to paste.
 pub(crate) async fn discover() -> anyhow::Result<()> {
     let found = ghost_brain::discover::discover().await;
@@ -81,7 +88,7 @@ pub(crate) async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result
             continue;
         }
         let Ok(brain) = built else { continue };
-        let request = Completion::ask("Reply with exactly one word.", "Say hello.", 16);
+        let request = hello();
         let started = Instant::now();
         match brain.complete(&request).await {
             Ok(r) => println!(

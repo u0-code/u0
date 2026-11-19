@@ -56,7 +56,7 @@ impl Tool for Camera {
     fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
         tool::spec("camera", "Take a picture.", json!({}), &[])
     }
-    async fn call(&self, _: &Value) -> tool::Outcome {
+    async fn call(&self, _: &Value, _: &crate::prompts::Store) -> tool::Outcome {
         let mut bytes = tools::testing::PIXEL.to_vec();
         bytes.extend(self.0.fetch_add(1, Ordering::Relaxed).to_be_bytes());
         tool::Outcome::seen(

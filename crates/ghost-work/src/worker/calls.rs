@@ -43,10 +43,10 @@ impl Worker {
         if together {
             let mut running = tokio::task::JoinSet::new();
             for (at, call) in calls.iter().enumerate() {
-                let (tools, call) = (tools.clone(), call.clone());
+                let (tools, call, words) = (tools.clone(), call.clone(), words.clone());
                 running.spawn(tracing::Instrument::in_current_span(async move {
                     let started = Instant::now();
-                    let outcome = tools.run(&call).await;
+                    let outcome = tools.run(&call, &words).await;
                     (at, outcome, started.elapsed().as_millis())
                 }));
             }
@@ -59,10 +59,10 @@ impl Worker {
         for (at, call) in calls.iter().enumerate() {
             let (outcome, ms) = match outcomes[at].take() {
                 Some(done) => done,
-                None if together => (tool::Outcome::fail("the tool fell over"), 0),
+                None if together => (tool::Outcome::fail(words.text("tool_fell_over")), 0),
                 None => {
                     let started = Instant::now();
-                    let outcome = tools.run(call).await;
+                    let outcome = tools.run(call, words).await;
                     (outcome, started.elapsed().as_millis())
                 }
             };

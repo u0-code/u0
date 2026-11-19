@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use ghost_brain::Usage;
 use serde::{Deserialize, Serialize};
 
-use crate::prompts::Prompts;
+use crate::prompts::{Store, TEXTS};
 
 /// What a question put to whoever the work is for asks of them, so that
 /// whoever shows it to them can show it as what it is.
@@ -271,11 +271,11 @@ impl State {
         self.waiting_options.clear();
     }
 
-    /// What was asked, with whatever was added to it since.
-    pub fn task_text(&self) -> String {
+    /// What was asked, with whatever was added to it since, in `words`.
+    pub fn task_text(&self, words: &Store) -> String {
         let mut text = self.brief.trim().to_owned();
         for added in &self.additions {
-            text.push_str(&format!("\n\nAdded later: {}", added.trim()));
+            text.push_str(&words.fill(TEXTS, "added_later", &[("added", added.trim().to_owned())]));
         }
         text
     }
@@ -284,9 +284,9 @@ impl State {
     /// what it is after, the part on it, its check and its result, so that
     /// a sitting picked up later knows what has been shown and what has
     /// not.
-    pub fn plan_text(&self, words: &Prompts) -> String {
+    pub fn plan_text(&self, words: &Store) -> String {
         if self.plan.is_empty() {
-            return words.text("no_plan").to_owned();
+            return words.text(TEXTS, "no_plan").to_owned();
         }
         (0..self.plan.len())
             .map(|i| self.step_text(words, i))
@@ -295,7 +295,7 @@ impl State {
     }
 
     /// Step `i` of the plan, counted from 0, as the worker is shown it.
-    pub fn step_text(&self, words: &Prompts, i: usize) -> String {
+    pub fn step_text(&self, words: &Store, i: usize) -> String {
         let step = &self.plan[i];
         let mark = match step.status {
             Progress::Todo => "[ ]",
@@ -305,7 +305,7 @@ impl State {
             Progress::Failed => "[!]",
         };
         let part = |key: &str, name: &str, value: Option<String>| {
-            value.map_or_else(String::new, |v| words.fill(key, &[(name, v)]))
+            value.map_or_else(String::new, |v| words.fill(TEXTS, key, &[(name, v)]))
         };
         let after = (!step.after.is_empty()).then(|| {
             step.after
@@ -315,6 +315,7 @@ impl State {
                 .join(", ")
         });
         words.fill(
+            TEXTS,
             "plan_step",
             &[
                 ("mark", mark.to_owned()),
@@ -355,9 +356,9 @@ impl State {
             .collect()
     }
 
-    /// Where the work stands, in a sentence or two: for whoever asks how it
-    /// is going between sittings.
-    pub fn progress(&self) -> String {
+    /// Where the work stands, in a sentence or two in `words`: for whoever
+    /// asks how it is going between sittings.
+    pub fn progress(&self, words: &Store) -> String {
         let done = self
             .plan
             .iter()
@@ -370,9 +371,16 @@ impl State {
             .or_else(|| self.plan.iter().find(|s| s.status == Progress::Todo));
         let mut out = String::new();
         if !self.plan.is_empty() {
-            out = format!("{done} of {} steps done", self.plan.len());
+            out = words.fill(
+                TEXTS,
+                "progress_steps",
+                &[
+                    ("done", done.to_string()),
+                    ("steps", self.plan.len().to_string()),
+                ],
+            );
             if let Some(step) = now {
-                out.push_str(&format!("; next: {}", step.text));
+                out.push_str(&words.fill(TEXTS, "progress_next", &[("step", step.text.clone())]));
             }
             out.push('.');
         }
@@ -380,11 +388,14 @@ impl State {
             if !out.is_empty() {
                 out.push(' ');
             }
-            let text: String = note.text.chars().take(240).collect();
-            out.push_str(&format!("Latest note: {text}"));
+            out.push_str(&words.fill(
+                TEXTS,
+                "progress_note",
+                &[("note", note.text.chars().take(240).collect())],
+            ));
         }
         if out.is_empty() {
-            "Started; nothing written down yet.".to_owned()
+            words.text(TEXTS, "progress_none").to_owned()
         } else {
             out
         }
@@ -392,8 +403,8 @@ impl State {
 
     /// The latest thing it has to say for itself: its report if it has
     /// ended, the question it is waiting on, what it last told, or where it
-    /// stands.
-    pub fn latest(&self) -> String {
+    /// stands, in `words`.
+    pub fn latest(&self, words: &Store) -> String {
         if let Some(finish) = self
             .finish
             .as_ref()
@@ -406,14 +417,15 @@ impl State {
         }
         match self.told.last() {
             Some(told) => told.text.trim().to_owned(),
-            None => self.progress(),
+            None => self.progress(words),
         }
     }
 
-    /// The newest notes that fit in `budget` characters, oldest first.
-    pub fn notes_text(&self, budget: usize) -> String {
+    /// The newest notes that fit in `budget` characters, oldest first, in
+    /// `words`.
+    pub fn notes_text(&self, words: &Store, budget: usize) -> String {
         if self.notes.is_empty() {
-            return "(no notes yet)".to_owned();
+            return words.text(TEXTS, "no_notes").to_owned();
         }
         let mut kept = Vec::new();
         let mut used = 0;
@@ -428,7 +440,10 @@ impl State {
         let left_out = self.notes.len() - kept.len();
         kept.reverse();
         if left_out > 0 {
-            kept.insert(0, format!("({left_out} older notes are not shown)"));
+            kept.insert(
+                0,
+                words.fill(TEXTS, "notes_hidden", &[("count", left_out.to_string())]),
+            );
         }
         kept.join("\n")
     }

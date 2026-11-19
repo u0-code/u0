@@ -151,12 +151,13 @@ impl Undertaking {
     }
 
     /// What whoever asked for it wrote, word for word: the lines its task
-    /// quotes, and for a part, its work's too.
+    /// quotes, and what was added to it later, and for a part, its work's
+    /// too.
     pub fn their_words(&self) -> String {
         let quoted = |state: &State| {
-            state
-                .task_text()
-                .lines()
+            std::iter::once(&state.brief)
+                .chain(&state.additions)
+                .flat_map(|text| text.lines())
                 .filter(|l| l.trim_start().starts_with('>'))
                 .map(str::to_owned)
                 .collect::<Vec<_>>()

@@ -132,8 +132,10 @@ Any OpenAI-compatible server works (`--base-url`, `--model`,
 Every word the model reads from this crate is a file in the tree
 [`prompts/`](../../prompts/README.md) at the top of the repository: the
 working instructions in `system/work/work.md`, what is said along the way
-in `system/work/texts.toml`, and in `system/tools.toml` what every tool is,
-for work and for a ghost's conversations alike. They are the work layer of
+and what each tool says back in `system/work/texts/` (a file per feature,
+read as one table), and in `system/tools.toml` what every tool is, for work
+and for a ghost's conversations alike. No text a model reads is written in
+the Rust: the code asks for a text by its name and fills in its values. They are the work layer of
 the system, the same for every character, and are built into the binary.
 What is built in is only the last resort: a file at the same path in
 `--prompts <dir>`, laid out as the tree is, wins, file by file, and the

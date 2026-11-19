@@ -1,0 +1,38 @@
+# Where what came from outside came from: the `from` of the tag around
+# it (see crates/ghost-work/src/outside.rs).
+
+# One of the files of the work loop's short texts, read with the others in
+# this directory as one table: see prompts/README.md. Words in {{double
+# braces}} are filled in as they are used. An override need only carry what
+# it changes; a text left out keeps its words from the next source.
+
+# What a tool brought back from outside reaches a brain inside an
+# <outside> tag, in a conversation as at work, and its `from` is one of
+# these: where it came from, by tool. Pages, files, searches and what a
+# command printed were written by someone else for reasons of their own,
+# and saying where each came from is what lets her treat it as what it
+# is. A tool the catalog does not know, such as one installed from
+# elsewhere, is outside too. What the tag means is said in being.md and
+# work.md, not here.
+outside_search = "a web search for: {{query}}"
+outside_fetch = "the web page {{url}}"
+outside_read = "the file {{path}}"
+outside_shell = "what this command printed: {{command}}"
+outside_job = "what background job {{job}} printed"
+outside_tool = "the tool {{tool}}, which is not one of yours"
+# A tool of a server of tools: someone else's program, installed from the
+# registry or given by whoever runs your body.
+outside_server = "the tool {{tool}} of {{server}}, a server of tools written by someone else"
+# What the registry lists, and what a server says of itself when it is
+# installed, are its publisher's words.
+outside_registry = "the registry of tools, searched for: {{query}}"
+outside_install = "the registry and the server {{name}}, as it was installed"
+
+# What the index of skills lists, what a skill says of itself when it is
+# installed, and everything a skill says when she reads it, are their
+# writers' words. A skill is named with the repository and commit it came
+# from, so that she knows whose words she is following.
+outside_skills = "the index of skills, searched for: {{query}}"
+outside_install_skill = "the index of skills and the skill {{id}}, as it was installed"
+outside_skill = "the skill {{skill}}, from {{origin}} on GitHub, written by someone else"
+outside_skill_file = "the file {{file}} of the skill {{skill}}, from {{origin}} on GitHub, written by someone else"
