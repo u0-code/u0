@@ -139,7 +139,9 @@ pub(crate) fn open(db: &Path) -> io::Result<Connection> {
 /// Open the work database at `db` to look, never to write, so that
 /// looking can never get in the way of the work. A database of another
 /// schema is refused here as [`open`] refuses it: its tables are not the
-/// ones these reads ask for.
+/// ones these reads ask for. One with no tables yet is being made by
+/// whoever opened it to write, this moment, and is refused as not found:
+/// there is nothing in it to read yet.
 pub(crate) fn read_only(db: &Path) -> io::Result<Connection> {
     let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(other)?;
@@ -147,6 +149,16 @@ pub(crate) fn read_only(db: &Path) -> io::Result<Connection> {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(other)?;
+    let tables = || -> io::Result<i64> {
+        conn.query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0))
+            .map_err(other)
+    };
+    if version == 0 && tables()? == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} is being made", db.display()),
+        ));
+    }
     if version != SCHEMA_VERSION {
         return Err(io::Error::other(format!(
             "{} is work kept in schema {version}, and this ghost-work reads only schema \

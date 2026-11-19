@@ -60,9 +60,9 @@ pub(super) struct Thinking {
     /// The servers of tools she loaded in this look: their tools are
     /// offered for the rest of it.
     pub loaded: ghost_work::tools::Loaded,
-    /// Its number in the record of her looks, once it has kept a round
-    /// there: what a console knows it by.
-    pub kept: Option<i64>,
+    /// When it began keeping its rounds in the record of her looks, once
+    /// it has kept one: what the record and a console know it by.
+    pub kept: Option<DateTime<Utc>>,
     /// The round waiting on what reaches beyond the conversation: when it
     /// was called, and its calls in order as the record keeps them, with
     /// those still out left `None`.
@@ -90,9 +90,9 @@ impl Thinking {
 pub(super) struct Looking {
     /// The intention it pursues, if that is why she looked.
     pub intention: Option<i64>,
-    /// Its number in the record of her looks, if it has kept a round:
-    /// the same look, as a console knows it.
-    pub kept: Option<i64>,
+    /// When it began keeping its rounds, if it has kept one: the same
+    /// look, as a console knows it.
+    pub kept: Option<DateTime<Utc>>,
 }
 
 impl Thinking {

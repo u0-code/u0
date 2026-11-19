@@ -47,9 +47,9 @@ const WORK_DB: &str = "work.db";
 pub(crate) struct Live {
     /// The work with a sitting at it, by id.
     pub sittings: BTreeSet<String>,
-    /// The places she is looking at, each with the number its look is kept
-    /// under, once it has kept a round.
-    pub looks: BTreeMap<String, Option<i64>>,
+    /// The places she is looking at, each with when its look began keeping
+    /// rounds, once it has kept one.
+    pub looks: BTreeMap<String, Option<DateTime<Utc>>>,
     /// The channels she can be reached on.
     pub online: BTreeSet<String>,
 }
@@ -109,10 +109,14 @@ impl Reader {
             ),
         };
         let db = dir.join(WORK_DB);
-        // A reader does not make the database: until work has been sat
-        // down to, there is nothing to read.
+        // A reader does not make the database: until her mind has made
+        // it, there is nothing to read.
         if records.is_none() && db.exists() {
-            *records = Some(Records::open(&db).map_err(|e| Error::Record(e.to_string()))?);
+            match Records::open(&db) {
+                Ok(open) => *records = Some(open),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(Error::Record(e.to_string())),
+            }
         }
         Ok(Open {
             journal,
@@ -249,7 +253,8 @@ impl Reader {
     /// and the one going on there, each with its rounds.
     pub fn looks(&mut self, place: &str, after: i64) -> Result<Vec<wire::Look>> {
         let open = self.open()?;
-        // The look in flight there, as the record knows it.
+        // When the look in flight there began keeping rounds: the record
+        // has it as the one begun since then that has not ended.
         let going = open.live.looks.get(place).copied().flatten();
         let Some(records) = open.records else {
             return Ok(Vec::new());
@@ -262,7 +267,7 @@ impl Reader {
                 Ok(wire::Look {
                     look: u64::try_from(look.id).unwrap_or_default(),
                     seq: look.seq,
-                    running: look.seq.is_none() && Some(look.id) == going,
+                    running: look.seq.is_none(),
                     rounds: as_wire(&look.rounds)?,
                 })
             })

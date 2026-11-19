@@ -65,9 +65,7 @@ async fn a_console_is_shown_what_waits_on_her_operators_newest_first_and_nothing
             question: "which week?".into(),
         },
     );
-    rig.mind
-        .undertaking("rota", "the brief of rota")
-        .unwrap()
+    rig.record("rota", "the brief of rota")
         .update(|s| {
             s.ask(
                 "which week?",

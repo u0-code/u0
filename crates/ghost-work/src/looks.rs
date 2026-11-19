@@ -14,7 +14,9 @@
 //! This is working state: neither forever, like the journal, nor rebuilt
 //! from it, like her memory. A look is kept for `KEPT_DAYS` days, and
 //! older ones are let go each time a new look begins. Only her mind writes
-//! here; anyone may read.
+//! here, through the one writer it keeps for the work database, off its
+//! own thread, and one look at a place at a time; anyone may read, and
+//! finds the look under way at a place by when it began.
 
 use std::{io, path::Path};
 
@@ -104,7 +106,12 @@ impl Looks {
 
 /// The looks at `place` in the work database at `db`, as
 /// [`Records::looks`] reads them. A database that is not there has none.
-pub fn read(db: &Path, place: &str, after: i64, open: Option<i64>) -> io::Result<Vec<Kept>> {
+pub fn read(
+    db: &Path,
+    place: &str,
+    after: i64,
+    open: Option<DateTime<Utc>>,
+) -> io::Result<Vec<Kept>> {
     if !db.exists() {
         return Ok(Vec::new());
     }
@@ -113,17 +120,24 @@ pub fn read(db: &Path, place: &str, after: i64, open: Option<i64>) -> io::Result
 
 impl Records {
     /// The looks at `place` that ended after the journal entry `after`,
-    /// with the look `open` if it is one of them and has not ended: oldest
-    /// first, at most the newest `READ_MOST`. Read without writing, on
-    /// the connection these records hold: a console asks this once a
+    /// with the one going on there, which has not ended and began at
+    /// `open` or since: one left without an end before it is not shown.
+    /// Oldest first, at most the newest `READ_MOST`. Read without writing,
+    /// on the connection these records hold: a console asks this once a
     /// second while she thinks.
-    pub fn looks(&self, place: &str, after: i64, open: Option<i64>) -> io::Result<Vec<Kept>> {
+    pub fn looks(
+        &self,
+        place: &str,
+        after: i64,
+        open: Option<DateTime<Utc>>,
+    ) -> io::Result<Vec<Kept>> {
         let conn = &self.conn;
         let most = i64::try_from(READ_MOST).unwrap_or(i64::MAX);
+        let open = open.map(|at| at.timestamp_millis());
         let mut looks: Vec<(i64, Option<i64>)> = conn
             .prepare_cached(
                 "SELECT id, seq FROM looks
-                 WHERE place = ?1 AND (seq > ?2 OR (seq IS NULL AND id = ?3))
+                 WHERE place = ?1 AND (seq > ?2 OR (seq IS NULL AND at >= ?3))
                  ORDER BY id DESC LIMIT ?4",
             )
             .and_then(|mut stmt| {
@@ -178,13 +192,13 @@ mod tests {
         let running = looks.begin("t:wen", at(10, 10)).unwrap();
         looks.round(running, &json!({"n": "now"})).unwrap();
 
-        let read = read(&db, "t:wen", 0, Some(running)).unwrap();
+        let read = read(&db, "t:wen", 0, Some(at(10, 10))).unwrap();
         assert_eq!(read.len(), 2);
         assert_eq!(read[0].seq, Some(40));
         assert_eq!(read[0].rounds, [json!({"n": "one"}), json!({"n": "two"})]);
         assert_eq!((read[1].id, read[1].seq), (running, None));
         // After the entry it ended with, only the one still going is left.
-        let later = super::read(&db, "t:wen", 40, Some(running)).unwrap();
+        let later = super::read(&db, "t:wen", 40, Some(at(10, 10))).unwrap();
         assert_eq!(later.iter().map(|k| k.id).collect::<Vec<_>>(), [running]);
         // One that did not end, and is not the one going on, is not shown.
         assert!(super::read(&db, "t:wen", 40, None).unwrap().is_empty());

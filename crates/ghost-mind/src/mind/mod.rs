@@ -34,6 +34,7 @@ mod thought;
 mod view;
 mod waiting;
 mod work;
+mod writer;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -426,12 +427,32 @@ enum Outcome {
         why: String,
     },
     /// A sitting of work ended.
-    Worked {
+    Worked { id: String, sat: Box<work::Sat> },
+    /// A sitting of work did not start: see [`work::Unseated`].
+    Unseated { id: String, why: work::Unseated },
+    /// `text` was put in the inbox of the work `id`, from `by` if it was
+    /// not she who passed it on, or could not be: `answer` is told which,
+    /// if it is a console's order.
+    Added {
         id: String,
-        /// Steps the undertaking had taken before this sitting.
-        before: u64,
-        report: ghost_work::Report,
-        progress: String,
+        text: String,
+        by: Option<String>,
+        result: std::io::Result<()>,
+        answer: Option<oneshot::Sender<std::result::Result<(), Refused>>>,
+    },
+    /// The record of the work `id`, which no sitting was at, was stopped,
+    /// by the operator named `by` if not by her: as it is now, if it could
+    /// be opened.
+    Stopped {
+        id: String,
+        by: Option<String>,
+        state: Option<Box<ghost_work::undertaking::State>>,
+    },
+    /// The record of the work `id` was ended as blocked, with `summary`.
+    Ended {
+        id: String,
+        summary: String,
+        files: Vec<String>,
     },
     /// She looked at the images in message `message`: for each, what she
     /// saw, or why she could not.
@@ -516,6 +537,9 @@ enum Purpose {
     Measure(String),
     /// A sitting at the work with this id.
     Work { id: String, working: work::Working },
+    /// A change to the record of the work with this id, on its way to her
+    /// work database.
+    Record(String),
 }
 
 /// A job that came back: what it was for, unless it was called off, and
@@ -609,6 +633,15 @@ impl Jobs {
         self.any(|p| matches!(p, Purpose::Work { id: at, .. } if at == id))
     }
 
+    /// Whether the work `id` is held: a sitting is at it, or a change to
+    /// its record is on its way.
+    fn busy(&self, id: &str) -> bool {
+        self.any(|p| match p {
+            Purpose::Work { id: at, .. } | Purpose::Record(at) => at == id,
+            _ => false,
+        })
+    }
+
     /// The sitting at the work `id`, to change how it goes on.
     fn sitting_mut(&mut self, id: &str) -> Option<&mut work::Working> {
         self.purposes
@@ -691,9 +724,9 @@ pub struct Mind {
     resting: HashMap<String, DateTime<Utc>>,
     /// When this body started running.
     started: DateTime<Utc>,
-    /// Where her looks keep their rounds for a console to read: the work
-    /// database, opened the first time a look keeps one.
-    kept_looks: Option<ghost_work::looks::Looks>,
+    /// What writes her work database, off her mind: the rounds of her
+    /// looks, and every change she makes to the records of her work.
+    writer: writer::Writer,
     /// Her work database opened to read, the first time it is there to be
     /// read: what she reads of her work as she thinks is read on this one
     /// connection, so that looking never writes, never makes a record,
@@ -714,6 +747,7 @@ impl Mind {
         let (tx, rx) = mpsc::channel(1024);
         let (entries, _) = broadcast::channel(1024);
         let life = Life::new(parts.ghost.identity());
+        let writer = writer::Writer::new(parts.ghost.dir().join(ghost_work::WORK_DB));
         let mind = Self {
             life,
             tempo: Tempo::new(parts.config.tempo),
@@ -738,7 +772,7 @@ impl Mind {
             resting: HashMap::new(),
             rng: Rng::new(),
             started: Utc::now(),
-            kept_looks: None,
+            writer,
             records: std::cell::OnceCell::new(),
             retries: HashMap::new(),
             held: HashMap::new(),
@@ -898,9 +932,7 @@ impl Mind {
             Signal::Status { answer } => {
                 let _ = answer.send(self.status(now)?);
             }
-            Signal::Order { order, by, answer } => {
-                let _ = answer.send(self.on_order(order, &by, now)?);
-            }
+            Signal::Order { order, by, answer } => self.on_order(order, &by, answer)?,
             Signal::Interrupt { place, by, answer } => {
                 let _ = answer.send(self.interrupt(&place, &by, now)?);
             }
@@ -1083,20 +1115,25 @@ impl Mind {
             } => self.on_posted(channel, text, result),
             Outcome::Measured { channel, result } => self.on_measured(&channel, result),
             Outcome::Held { channel, text, why } => self.on_held(&channel, &text, &why),
-            Outcome::Worked {
-                id,
-                before,
-                report,
-                progress,
-            } => {
+            Outcome::Worked { id, sat } => {
                 // A sitting is never called off: it is stopped, and comes
                 // back, so what it was for is always there.
                 let Some(Purpose::Work { working, .. }) = purpose else {
                     warn!("a sitting at {id} came back that was not under way");
                     return Ok(());
                 };
-                self.on_worked(&id, before, &report, progress, &working, now)
+                self.on_worked(&id, *sat, &working, now)
             }
+            Outcome::Unseated { id, why } => self.on_unseated(id, why, now),
+            Outcome::Added {
+                id,
+                text,
+                by,
+                result,
+                answer,
+            } => self.on_added(id, text, by, result, answer, now),
+            Outcome::Stopped { id, by, state } => self.on_stopped(&id, by.as_deref(), state, now),
+            Outcome::Ended { id, summary, files } => self.on_ended(&id, &summary, &files, now),
             Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }

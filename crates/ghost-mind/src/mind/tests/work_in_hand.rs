@@ -377,7 +377,7 @@ async fn stop_ends_the_work_as_dropped_and_keeps_what_it_kept() {
             .is_empty()
     );
     assert_eq!(
-        rig.mind.stop_work(work, t0).unwrap().as_deref(),
+        rig.mind.stop_work(work).unwrap().as_deref(),
         Some(format!("Work #{work} has already ended.").as_str())
     );
 }
@@ -387,7 +387,9 @@ async fn work_she_is_not_at_stops_at_once() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);
     let work = at_work_for_wen(&mut rig, "Draw the east gate.", t0);
-    assert_eq!(rig.mind.stop_work(work, t0).unwrap(), None);
+    assert_eq!(rig.mind.stop_work(work).unwrap(), None);
+    // Ended once its record is.
+    rig.settle(t0).await;
     let u = rig.mind.ghost.memory().undertakings(false, 1).unwrap()[0].clone();
     assert_eq!(u.outcome.as_deref(), Some("dropped"));
     // There is nothing left to sit down to.
@@ -395,7 +397,7 @@ async fn work_she_is_not_at_stops_at_once() {
     assert!(rig.think.turns.lock().unwrap().is_empty());
     assert!(
         rig.mind
-            .stop_work(work + 1000, t0)
+            .stop_work(work + 1000)
             .unwrap()
             .is_some_and(|why| why.contains("no work numbered"))
     );
@@ -478,7 +480,7 @@ async fn the_parts_of_her_work_show_under_it_a_line_each() {
     // Not sitting down to it here: only how it is shown is looked at.
     rig.mind.agenda.work = None;
     let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
-    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let record = rig.record(&u.id, &u.brief);
     let first = record
         .open_part("Read the reviews of the east one")
         .unwrap();
@@ -533,7 +535,7 @@ async fn her_open_work_shows_how_far_its_plan_has_got_in_one_line() {
     let work = at_work_for_wen(&mut rig, "Survey the tea houses.", t0);
     rig.mind.agenda.work = None;
     let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
-    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let record = rig.record(&u.id, &u.brief);
     let step = |text: &str, status| PlanStep {
         text: text.into(),
         status,
@@ -652,7 +654,7 @@ async fn an_operator_answers_what_her_work_asked_and_her_journal_says_it_was_the
         work: u.id.clone(),
         text: "Weekdays.".into(),
     };
-    assert_eq!(rig.mind.on_order(order, &fox(), asked).unwrap(), Ok(()));
+    assert_eq!(rig.order(order, &fox(), asked).await, Ok(()));
     let added = rig
         .mind
         .ghost
@@ -684,7 +686,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
         .unwrap()
         .id;
     let stop = || crate::Order::Stop { work: id.clone() };
-    assert_eq!(rig.mind.on_order(stop(), &fox(), t0).unwrap(), Ok(()));
+    assert_eq!(rig.order(stop(), &fox(), t0).await, Ok(()));
     let ended = rig
         .mind
         .ghost
@@ -697,7 +699,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
 
     // What is over, and what was never hers, cannot be answered or stopped.
     assert!(matches!(
-        rig.mind.on_order(stop(), &fox(), t0).unwrap(),
+        rig.order(stop(), &fox(), t0).await,
         Err(crate::Refused::NoSuchWork(_))
     ));
     let part = crate::Order::Answer {
@@ -705,7 +707,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
         text: "yes".into(),
     };
     assert!(matches!(
-        rig.mind.on_order(part, &fox(), t0).unwrap(),
+        rig.order(part, &fox(), t0).await,
         Err(crate::Refused::NoSuchWork(_))
     ));
     assert_eq!(count(&rig, "added"), 0);

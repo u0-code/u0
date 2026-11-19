@@ -286,7 +286,8 @@ async fn work_directed_where_she_was_stopped_goes_on_and_is_stopped_only_from_it
     let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();
     assert_eq!(still.len(), 2);
     // Stopped from its own card, it ends.
-    rig.mind.stop_open(going, Some("Fox".into()), t0).unwrap();
+    rig.mind.stop_open(going, Some("Fox".into()));
+    rig.settle(t0).await;
     let ended = rig.mind.ghost.memory().undertaking(&gate).unwrap().unwrap();
     assert_eq!(ended.outcome.as_deref(), Some("dropped"));
     let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();

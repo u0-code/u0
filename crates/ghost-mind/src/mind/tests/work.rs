@@ -538,7 +538,7 @@ async fn work_that_ended_on_its_record_before_she_wrote_it_down_ends_as_its_reco
     let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
     // Its one sitting finished it, and she stopped before she heard: the
     // record says so, her journal has its sitting and has it open.
-    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let record = rig.record(&u.id, &u.brief);
     record
         .update(|s| {
             s.told.push(ghost_work::undertaking::Told {
@@ -598,8 +598,10 @@ async fn work_she_ends_ends_on_its_record_too() {
         })
         .unwrap();
 
-    // Out of sittings, it comes back to her unfinished.
+    // Out of sittings, it comes back to her unfinished, once its record
+    // has ended.
     rig.mind.on_time(t0).unwrap();
+    rig.settle(t0).await;
 
     let ended = rig.mind.ghost.memory().undertaking(&u.id).unwrap().unwrap();
     assert_eq!(ended.outcome.as_deref(), Some("blocked"));

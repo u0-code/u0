@@ -592,6 +592,35 @@ impl Rig {
         self.mind.on_done(done, now).unwrap();
     }
 
+    /// Let every job in flight come back, with nothing new falling due:
+    /// what she handed her work database's writer, say.
+    async fn settle(&mut self, now: DateTime<Utc>) {
+        while let Some(done) = self.mind.jobs.join_next().await {
+            self.outcome(done, now);
+        }
+    }
+
+    /// The operator `by` does `order` to her work from a console, at
+    /// `now`: what she answers, once what it set off has come back.
+    async fn order(
+        &mut self,
+        order: crate::Order,
+        by: &crate::Operator,
+        now: DateTime<Utc>,
+    ) -> Result<(), crate::Refused> {
+        let (answer, told) = tokio::sync::oneshot::channel();
+        self.mind.on_order(order, by, answer).unwrap();
+        self.settle(now).await;
+        told.await.unwrap()
+    }
+
+    /// The record of the work `id` in her work database, made from
+    /// `brief` if it is not there, to write to as the work does.
+    fn record(&self, id: &str, brief: &str) -> ghost_work::Undertaking {
+        let db = self.mind.ghost.dir().join(ghost_work::WORK_DB);
+        ghost_work::Undertaking::open(&db, id, Some(brief)).unwrap()
+    }
+
     /// Keep stepping beside a running sitting until `done`.
     async fn beside_until(&mut self, done: impl Fn(&Self) -> bool) -> DateTime<Utc> {
         for _ in 0..200 {

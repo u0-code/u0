@@ -29,6 +29,13 @@ it alone knows (`MindHandle::status`, the agenda) and says, each time it has
 handled something, which sittings and looks are under way and which
 channels are online, for the reader to read.
 
+The actor does not write `work.db` either. The rounds of her looks, and what
+she changes in the records of her work (a word passed on, a stop, an end, the
+record a sitting opens on), go to one writer thread of hers, which makes them
+in order and on its own connections; what she has to know of one comes back
+as a job's outcome, and her journal says so then. A sitting holding the
+database's lock never holds her up.
+
 In a conversation she has the same abilities as at work, at a conversation's
 pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
 needs; where her brain takes tools, `search`, `fetch` and, in private with a
