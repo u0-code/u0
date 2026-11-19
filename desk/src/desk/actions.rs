@@ -61,7 +61,7 @@ impl Desk {
     /// Whether the solver's daemon is the core on this machine, which the
     /// desk looks after and can start.
     pub(crate) fn core_is_local(&self) -> bool {
-        self.settings.solver_url == crate::solver::url()
+        self.settings.solver_url == ghost_link::default_url()
     }
 
     /// Try the solver's daemon again now, and ask the core who it runs.

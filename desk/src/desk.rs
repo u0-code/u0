@@ -286,7 +286,7 @@ impl Desk {
         // done, the deployment the desk holds is one with nothing started
         // and nothing read.
         let deployment = Deployment::find();
-        let start = settings.solver_url == crate::solver::url();
+        let start = settings.solver_url == ghost_link::default_url();
         let url = settings.solver_url.clone();
         let core = link::runtime().spawn_blocking(move || {
             let mut deployment = Deployment::find();

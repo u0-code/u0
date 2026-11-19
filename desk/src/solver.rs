@@ -115,14 +115,6 @@ impl Provider {
     }
 }
 
-/// Where the desk's core listens.
-const LISTEN: &str = "127.0.0.1:7438";
-
-/// Where the desk reaches its core.
-pub fn url() -> String {
-    format!("ws://{LISTEN}")
-}
-
 /// The desk's core, and the daemon if the desk started it.
 ///
 /// The core keeps everything in a home of its own, which `ghostd` makes
@@ -309,7 +301,7 @@ fn run_args(core: &Path) -> Vec<OsString> {
         "--home".into(),
         core.into(),
         "--listen".into(),
-        LISTEN.into(),
+        ghost_link::protocol::DEFAULT_ADDR.into(),
     ]
 }
 
@@ -385,7 +377,9 @@ mod tests {
                 d.core.clone().into_os_string()
             ]
         );
-        assert!(args.contains(&OsString::from(LISTEN)));
+        assert!(args.contains(&OsString::from(
+            ghost_link::protocol::DEFAULT_ADDR
+        )));
     }
 
     /// One brain as a core describes it, read the way the desk reads it.

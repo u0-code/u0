@@ -163,7 +163,7 @@ impl Default for Settings {
         let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
         Self {
             who: var("USER").unwrap_or_else(|| "you".to_owned()),
-            solver_url: var("GHOSTD_URL").unwrap_or_else(crate::solver::url),
+            solver_url: var("GHOSTD_URL").unwrap_or_else(ghost_link::default_url),
             open: None,
             connections: Vec::new(),
             seen: BTreeSet::new(),
