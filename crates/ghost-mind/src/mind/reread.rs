@@ -12,7 +12,7 @@ use ghost_core::{
     journal::{Event, Sources},
     memory::{Line, PlaceState},
     narrate,
-    social::{PlaceKind, split_key},
+    social::split_key,
     when::when,
 };
 
@@ -157,11 +157,7 @@ impl Mind {
         let mut withheld = 0;
         let mut kept = Vec::with_capacity(lines.len());
         for (place, line) in lines {
-            let private_elsewhere = place != here.key
-                && memory
-                    .place(&place)?
-                    .is_some_and(|p| p.kind == PlaceKind::Direct);
-            if private_elsewhere {
+            if self.kept_from(&place, &here.key)? {
                 withheld += 1;
             } else {
                 kept.push((place, line));

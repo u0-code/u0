@@ -347,33 +347,44 @@ async fn her_past_comes_up_only_when_the_conversation_touches_it() {
 }
 
 #[tokio::test]
-async fn what_was_told_in_someone_elses_private_chat_is_marked_private_like_their_own() {
+async fn what_was_told_in_private_is_marked_everywhere_but_the_conversation_it_was_told_in() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);
     rig.hear(dm("bo", "1", "between us"), t0);
     rig.hear(group("g", "ann", "2", "hello all", false), t0);
-    let note = |seq, place: &str| ghost_core::memory::Note {
-        seq,
-        at: t0,
-        text: format!("note {seq}"),
-        place: Some(place.to_owned()),
-        sources: None,
-    };
     // About ann: two learned from bo in private, one in the group.
-    let notes = vec![note(1, "t:bo"), note(2, "t:g"), note(3, "t:bo")];
-    let marked: Vec<String> = rig
-        .mind
-        .with_provenance(notes, "t:g", &[])
-        .unwrap()
-        .into_iter()
-        .map(|n| n.text)
-        .collect();
+    for (text, place) in [("one", "t:bo"), ("two", "t:g"), ("three", "t:bo")] {
+        rig.mind
+            .record(Event::Noted {
+                about: "t:ann".into(),
+                text: text.into(),
+                place: Some(place.into()),
+                sources: None,
+            })
+            .unwrap();
+    }
+    let marked = |here: &str| -> Vec<String> {
+        let notes = rig.mind.ghost.memory().notes("t:ann", 10).unwrap();
+        rig.mind
+            .with_provenance(notes, here)
+            .into_iter()
+            .map(|n| n.text)
+            .collect()
+    };
+    let private = |text: &str| format!("{text} (they told you this in private)");
     assert_eq!(
-        marked,
-        [
-            "note 1 (they told you this in private)",
-            "note 2",
-            "note 3 (they told you this in private)",
-        ]
+        marked("t:g"),
+        [private("one"), "two".into(), private("three")],
+        "in the group, what bo said alone is marked"
+    );
+    assert_eq!(
+        marked("t:ann"),
+        [private("one"), "two".into(), private("three")],
+        "and in ann's own private conversation, which is not bo's"
+    );
+    assert_eq!(
+        marked("t:bo"),
+        ["one", "two", "three"],
+        "in bo's, where it was said, nothing is held back"
     );
 }

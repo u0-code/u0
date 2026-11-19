@@ -3,6 +3,8 @@
 //!
 //! A note is one thing worth keeping about someone, with the place she
 //! learned it, so that what was said in private is not repeated elsewhere.
+//! Whether that place was a private conversation is decided once, as the
+//! note is folded in, so that nothing reading notes has to look it up.
 //! A profile is her standing account of a person, written now and then from
 //! the notes; each one replaces the last, and notes written after it are
 //! what it does not yet know. Both are her memory, found from any platform.
@@ -15,6 +17,7 @@ use super::{Memory, as_i64, columns, sources_at, time_at};
 use crate::{
     Result,
     journal::{Entry, Event, Sources},
+    social::PlaceKind,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,6 +27,8 @@ pub struct Note {
     pub text: String,
     /// Where she learned it.
     pub place: Option<String>,
+    /// Whether `place` was a private conversation when she learned it.
+    pub private: bool,
     /// What she had in front of her when she wrote it.
     pub sources: Option<Sources>,
 }
@@ -42,20 +47,36 @@ pub struct Profile {
 
 /// Bumped when `SCHEMA`, or what `fold` writes, changes: see
 /// [`super::Feature`].
-pub(super) const VERSION: i64 = 1;
+pub(super) const VERSION: i64 = 2;
 
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS notes (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, person TEXT NOT NULL, text TEXT NOT NULL,
-    place TEXT, src_from INTEGER, src_upto INTEGER, since TEXT, until TEXT
+    place TEXT, private INTEGER NOT NULL, src_from INTEGER, src_upto INTEGER,
+    since TEXT, until TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_person ON notes (person, seq);
+CREATE INDEX IF NOT EXISTS notes_private ON notes (private, seq);
 CREATE TABLE IF NOT EXISTS profiles (
     person TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL,
     shared TEXT NOT NULL, private TEXT NOT NULL,
     src_from INTEGER, src_upto INTEGER, since TEXT, until TEXT
 );
 ";
+
+/// The columns a note is read from, in the order `note_at` reads them.
+const NOTE: &str = "seq, at, text, place, private, src_from, src_upto, since, until";
+
+fn note_at(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
+    Ok(Note {
+        seq: r.get(0)?,
+        at: time_at(r, 1)?,
+        text: r.get(2)?,
+        place: r.get(3)?,
+        private: r.get(4)?,
+        sources: sources_at(r, 5)?,
+    })
+}
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
     let seq = entry.seq;
@@ -67,10 +88,21 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
             sources,
         } => {
             let (from, upto, since, until) = columns(sources.as_ref());
+            // As the place was at this entry: places are folded before
+            // notes.
+            let private = match place {
+                Some(key) => tx
+                    .query_row("SELECT kind FROM places WHERE key = ?1", [key], |r| {
+                        r.get::<_, String>(0)
+                    })
+                    .optional()?
+                    .is_some_and(|kind| kind == PlaceKind::Direct.as_str()),
+                None => false,
+            };
             tx.execute(
-                "INSERT INTO notes (seq, at, person, text, place, src_from, src_upto, since, until)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![seq, at, about, text, place, from, upto, since, until],
+                "INSERT INTO notes (seq, at, person, text, place, private, src_from, src_upto, since, until)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![seq, at, about, text, place, private, from, upto, since, until],
             )?;
         }
         Event::Profiled {
@@ -96,20 +128,26 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
 impl Memory {
     /// Notes about someone, the newest `limit` of them, oldest first.
     pub fn notes(&self, person: &str, limit: usize) -> Result<Vec<Note>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT seq, at, text, place, src_from, src_upto, since, until
-             FROM notes WHERE person = ?1 ORDER BY seq DESC LIMIT ?2",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {NOTE} FROM notes WHERE person = ?1 ORDER BY seq DESC LIMIT ?2"
+        ))?;
         let mut notes = stmt
-            .query_map(params![person, as_i64(limit)], |r| {
-                Ok(Note {
-                    seq: r.get(0)?,
-                    at: time_at(r, 1)?,
-                    text: r.get(2)?,
-                    place: r.get(3)?,
-                    sources: sources_at(r, 4)?,
-                })
-            })?
+            .query_map(params![person, as_i64(limit)], note_at)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        notes.reverse();
+        Ok(notes)
+    }
+
+    /// The newest `limit` notes she learned in private, about anyone, each
+    /// with the name of whoever it is about; oldest first.
+    pub fn private_notes(&self, limit: usize) -> Result<Vec<(String, Note)>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {NOTE}, COALESCE(people.name, notes.person) FROM notes
+             LEFT JOIN people ON people.key = notes.person
+             WHERE private = 1 ORDER BY seq DESC LIMIT ?1"
+        ))?;
+        let mut notes = stmt
+            .query_map([as_i64(limit)], |r| Ok((r.get(9)?, note_at(r)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         notes.reverse();
         Ok(notes)
@@ -153,6 +191,46 @@ mod tests {
         journal::{Event, Sources},
         social::PlaceKind,
     };
+
+    #[test]
+    fn a_note_is_private_when_it_was_learned_in_a_private_conversation() {
+        let note = |text: &str, place: Option<&str>| Event::Noted {
+            about: "t:a".into(),
+            text: text.into(),
+            place: place.map(Into::into),
+            sources: None,
+        };
+        let (_, m) = fold(vec![
+            heard("a", PlaceKind::Direct, "a", "1", "between us", true),
+            heard("g", PlaceKind::Group, "a", "2", "hello all", false),
+            note("told alone", Some("t:a")),
+            note("told in the group", Some("t:g")),
+            note("from nowhere in particular", None),
+            note("from a place she never heard from", Some("t:gone")),
+        ]);
+        let private: Vec<(String, bool)> = m
+            .notes("t:a", 10)
+            .unwrap()
+            .into_iter()
+            .map(|n| (n.text, n.private))
+            .collect();
+        assert_eq!(
+            private,
+            [
+                ("told alone".to_owned(), true),
+                ("told in the group".to_owned(), false),
+                ("from nowhere in particular".to_owned(), false),
+                ("from a place she never heard from".to_owned(), false),
+            ]
+        );
+        let told: Vec<(String, String)> = m
+            .private_notes(10)
+            .unwrap()
+            .into_iter()
+            .map(|(name, n)| (name, n.text))
+            .collect();
+        assert_eq!(told, [("A".to_owned(), "told alone".to_owned())]);
+    }
 
     #[test]
     fn what_was_learned_keeps_where_it_was_learned() {

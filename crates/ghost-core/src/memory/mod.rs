@@ -118,7 +118,8 @@ const FEATURES: [Feature; 16] = [
     feature!(places),
     feature!(messages),
     feature!(people),
-    feature!(notes),
+    // Whether a note was learned in private is read from its place.
+    feature!(notes, reads places),
     feature!(digests),
     feature!(intentions),
     feature!(canon),

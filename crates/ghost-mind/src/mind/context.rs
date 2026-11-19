@@ -6,8 +6,6 @@
 //! and each memory says where that was, so that what was told to her in
 //! private is marked as such wherever it comes up.
 
-use std::collections::HashMap;
-
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
     journal::Sources,
@@ -30,6 +28,17 @@ const REPORTS_SHOWN: usize = 3;
 const KEPT_SHOWN: usize = 6;
 /// How many of the newest parts of a piece of work are shown under it.
 const PARTS_SHOWN: usize = 6;
+
+/// Whether what came of the place `from` is kept from `here`: the one rule
+/// for what she was told in private, which everything that shows one place
+/// what came of another follows. What was said in a private conversation
+/// belongs to it. There it can all be brought up again, by her or by the
+/// person who said it; anywhere else, in another private conversation, a
+/// group or in public, it is not. `private` is whether `from` is a private
+/// conversation.
+pub(super) fn private_elsewhere(from: &str, private: bool, here: &str) -> bool {
+    private && from != here
+}
 
 impl Mind {
     /// A place in words: with `here`, where she is, as a conversation
@@ -123,48 +132,41 @@ impl Mind {
             return Ok(String::new());
         };
         let words = [("place", self.place_words(&place, &[], false)?)];
-        Ok(match place.kind {
-            PlaceKind::Direct => self.prompts.fill("learned_private", &words),
-            _ => self.prompts.fill("learned_in", &words),
-        })
+        Ok(
+            if private_elsewhere(key, place.kind == PlaceKind::Direct, here) {
+                self.prompts.fill("learned_private", &words)
+            } else {
+                self.prompts.fill("learned_in", &words)
+            },
+        )
+    }
+
+    /// Whether what came of the place `from` is kept from `here`, by
+    /// [`private_elsewhere`], for something that does not carry whether
+    /// its place is private: the place is read only when it is not `here`.
+    pub(super) fn kept_from(&self, from: &str, here: &str) -> Result<bool> {
+        if from == here {
+            return Ok(false);
+        }
+        let private = self
+            .ghost
+            .memory()
+            .place(from)?
+            .is_some_and(|p| p.kind == PlaceKind::Direct);
+        Ok(private_elsewhere(from, private, here))
     }
 
     /// Mark the notes that came from a private conversation other than this
-    /// one, so she knows not to bring them up here. A place that is private
-    /// with one of `people` is known to be without reading it, and each
-    /// other place is read once, however many notes were made there.
-    pub(super) fn with_provenance(
-        &self,
-        notes: Vec<Note>,
-        here: &str,
-        people: &[Person],
-    ) -> Result<Vec<Note>> {
-        let memory = self.ghost.memory();
-        let mut private: HashMap<String, bool> = people
-            .iter()
-            .filter_map(|p| Some((p.direct.clone()?, true)))
-            .collect();
+    /// one, so she knows not to bring them up here.
+    pub(super) fn with_provenance(&self, mut notes: Vec<Note>, here: &str) -> Vec<Note> {
+        for note in &mut notes {
+            if let Some(from) = note.place.as_deref()
+                && private_elsewhere(from, note.private, here)
+            {
+                note.text.push_str(self.prompts.text("told_in_private"));
+            }
+        }
         notes
-            .into_iter()
-            .map(|mut note| {
-                let Some(key) = note.place.as_deref().filter(|key| *key != here) else {
-                    return Ok(note);
-                };
-                let told_alone = if let Some(alone) = private.get(key) {
-                    *alone
-                } else {
-                    let alone = memory
-                        .place(key)?
-                        .is_some_and(|p| p.kind == PlaceKind::Direct);
-                    private.insert(key.to_owned(), alone);
-                    alone
-                };
-                if told_alone {
-                    note.text.push_str(self.prompts.text("told_in_private"));
-                }
-                Ok(note)
-            })
-            .collect()
     }
 
     /// What she knows of someone, for a place: her standing account of
@@ -179,17 +181,17 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<(String, Vec<Note>)> {
         let memory = self.ghost.memory();
-        let alone_with_them =
-            here.kind == PlaceKind::Direct && person.direct.as_deref() == Some(here.key.as_str());
+        // What they told her alone came of their private conversation with
+        // her; without one, there is nowhere it can be brought up.
+        let kept = person
+            .direct
+            .as_deref()
+            .is_none_or(|direct| private_elsewhere(direct, true, &here.key));
         let profile = memory.profile(&person.key)?;
         let since = profile.as_ref().map_or(0, |p| p.seq);
         let mut notes = memory.notes_after(&person.key, since, limit)?;
         let skip = notes.len().saturating_sub(limit);
-        let notes = self.with_provenance(
-            notes.split_off(skip),
-            &here.key,
-            std::slice::from_ref(person),
-        )?;
+        let notes = self.with_provenance(notes.split_off(skip), &here.key);
         let mut text = String::new();
         let Some(profile) = profile else {
             return Ok((text, notes));
@@ -206,10 +208,10 @@ impl Mind {
             text.push_str(&known("known_shared", profile.shared.trim()));
         }
         if !profile.private.trim().is_empty() {
-            if alone_with_them {
-                text.push_str(&known("known_private", profile.private.trim()));
-            } else {
+            if kept {
                 text.push_str(self.prompts.text("known_more"));
+            } else {
+                text.push_str(&known("known_private", profile.private.trim()));
             }
         }
         Ok((text, notes))
