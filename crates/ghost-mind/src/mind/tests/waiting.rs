@@ -74,7 +74,8 @@ async fn a_console_is_shown_what_waits_on_her_operators_newest_first_and_nothing
                 Some(ghost_work::undertaking::AskKind::Choose),
                 vec!["this".into(), "next".into()],
             );
-        });
+        })
+        .unwrap();
 
     // Lately: work that was blocked, and work for the boss that told her
     // something, beside work for someone else that did.

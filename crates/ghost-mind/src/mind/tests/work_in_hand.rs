@@ -461,23 +461,27 @@ async fn the_parts_of_her_work_show_under_it_a_line_each() {
     let first = record
         .open_part("Read the reviews of the east one")
         .unwrap();
-    first.update(|s| {
-        s.finish = Some(ghost_work::undertaking::Finish {
-            outcome: ghost_work::undertaking::Outcome::Finished,
-            summary: "Mostly about the tea, which they love.".into(),
-            files: vec![],
-            lesson: None,
-            at: t0,
-        });
-    });
+    first
+        .update(|s| {
+            s.finish = Some(ghost_work::undertaking::Finish {
+                outcome: ghost_work::undertaking::Outcome::Finished,
+                summary: "Mostly about the tea, which they love.".into(),
+                files: vec![],
+                lesson: None,
+                at: t0,
+            });
+        })
+        .unwrap();
     let second = record.open_part("Find their opening hours").unwrap();
-    second.update(|s| {
-        s.told.push(ghost_work::undertaking::Told {
-            text: "Nine on weekdays.".into(),
-            files: vec![],
-            at: t0,
-        });
-    });
+    second
+        .update(|s| {
+            s.told.push(ghost_work::undertaking::Told {
+                text: "Nine on weekdays.".into(),
+                files: vec![],
+                at: t0,
+            });
+        })
+        .unwrap();
 
     rig.think
         .then(r#"{"thought":"","actions":[{"do":"say","text":"soon"}]}"#);
@@ -514,15 +518,17 @@ async fn her_open_work_shows_how_far_its_plan_has_got_in_one_line() {
         status,
         ..PlanStep::default()
     };
-    record.update(|s| {
-        s.plan = vec![
-            step("List the tea houses", Progress::Done),
-            step("Read the reviews", Progress::Done),
-            step("Find the opening hours", Progress::Doing),
-            step("Visit the east one", Progress::Dropped),
-            step("Write it up", Progress::Todo),
-        ];
-    });
+    record
+        .update(|s| {
+            s.plan = vec![
+                step("List the tea houses", Progress::Done),
+                step("Read the reviews", Progress::Done),
+                step("Find the opening hours", Progress::Doing),
+                step("Visit the east one", Progress::Dropped),
+                step("Write it up", Progress::Todo),
+            ];
+        })
+        .unwrap();
 
     rig.think
         .then(r#"{"thought":"","actions":[{"do":"say","text":"soon"}]}"#);

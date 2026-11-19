@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use ghost_core::{memory::Undertaking, will};
 use ghost_work::{
     WORK_DB, looks,
-    undertaking::{self, Look, Outcome},
+    undertaking::{Look, Outcome},
 };
 use serde_json::{Value, json};
 use tracing::warn;
@@ -177,16 +177,8 @@ impl Mind {
                 .filter(|u| u.outcome.is_some())
                 .take(ENDED),
         );
-        let db = self.ghost.dir().join(WORK_DB);
         let ids: Vec<String> = taken.iter().map(|u| u.id.clone()).collect();
-        let looks = if db.exists() {
-            undertaking::look(&db, &ids).unwrap_or_else(|e| {
-                warn!("could not read {}: {e}", db.display());
-                Vec::new()
-            })
-        } else {
-            Vec::new()
-        };
+        let looks = self.records_of(&ids);
         let mut works: Vec<(DateTime<Utc>, Value)> = taken
             .iter()
             .map(|u| self.work_of(u, looks.iter().find(|l| l.id == u.id)))
@@ -200,23 +192,18 @@ impl Mind {
     /// work's own record, read without writing. `null` if there is no work
     /// by that id.
     fn steps_view(&self, id: &str, after: u64, limit: usize) -> Value {
-        let db = self.ghost.dir().join(WORK_DB);
-        if !db.exists() {
+        let Some(records) = self.records() else {
             return Value::Null;
-        }
-        let cannot = |e: std::io::Error| warn!("could not read {id} in {}: {e}", db.display());
-        let logged = match undertaking::steps(&db, id, after, limit.clamp(1, STEPS_MOST)) {
+        };
+        let logged = match records.steps(id, after, limit.clamp(1, STEPS_MOST)) {
             Ok(Some(logged)) => logged,
             Ok(None) => return Value::Null,
             Err(e) => {
-                cannot(e);
+                warn!("could not read the steps of {id}: {e}");
                 return Value::Null;
             }
         };
-        let looked = undertaking::look(&db, &[id.to_owned()]).unwrap_or_else(|e| {
-            cannot(e);
-            Vec::new()
-        });
+        let looked = self.records_of(&[id.to_owned()]);
         // A part is at it while the sitting of the work it belongs to is.
         let top = id.split('/').next().unwrap_or(id);
         let running = self.working.contains_key(top);

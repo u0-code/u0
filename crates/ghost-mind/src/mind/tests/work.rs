@@ -466,6 +466,156 @@ async fn work_that_runs_out_of_sittings_comes_back_unfinished_and_she_means_to_t
     );
 }
 
+/// Her attention, with every piece of work given one sitting.
+fn one_sitting() -> MindConfig {
+    MindConfig {
+        channels: [(
+            "t".to_owned(),
+            crate::ChannelConfig {
+                browse_minutes: [0, 0],
+                ..crate::ChannelConfig::default()
+            },
+        )]
+        .into(),
+        live: false,
+        work: crate::WorkConfig {
+            sitting_steps: 1,
+            max_sittings: 1,
+            ..crate::WorkConfig::default()
+        },
+        ..MindConfig::default()
+    }
+}
+
+#[tokio::test]
+async fn work_that_ended_on_its_record_before_she_wrote_it_down_ends_as_its_record_says() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(one_sitting(), t0);
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
+    // Its one sitting finished it, and she stopped before she heard: the
+    // record says so, her journal has its sitting and has it open.
+    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    record
+        .update(|s| {
+            s.told.push(ghost_work::undertaking::Told {
+                text: "The park's page says nine.".into(),
+                files: vec![],
+                at: t0,
+            });
+            s.finish = Some(ghost_work::undertaking::Finish {
+                outcome: ghost_work::undertaking::Outcome::Finished,
+                summary: "It closes at nine on weekdays.".into(),
+                files: vec!["hours.md".into()],
+                lesson: None,
+                at: t0,
+            });
+        })
+        .unwrap();
+    rig.mind
+        .record(Event::Worked {
+            id: u.id.clone(),
+            summary: "Started; nothing written down yet.".into(),
+            steps: 3,
+        })
+        .unwrap();
+
+    rig.mind.on_time(t0).unwrap();
+
+    let ended = rig.mind.ghost.memory().undertaking(&u.id).unwrap().unwrap();
+    assert_eq!(
+        ended.outcome.as_deref(),
+        Some("finished"),
+        "as the record says, not blocked for want of sittings"
+    );
+    assert_eq!(
+        ended.summary.as_deref(),
+        Some("It closes at nine on weekdays.")
+    );
+    assert_eq!(count(&rig, "reported"), 1, "what it told her comes first");
+    assert!(running(&rig).is_empty(), "nothing sat down to it again");
+    let meant = meant_for_wen(&rig);
+    assert!(
+        meant.contains(rig.mind.prompts.text("how_finished")),
+        "{meant}"
+    );
+}
+
+#[tokio::test]
+async fn work_she_ends_ends_on_its_record_too() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(one_sitting(), t0);
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
+    rig.mind
+        .record(Event::Worked {
+            id: u.id.clone(),
+            summary: "Two sources disagree.".into(),
+            steps: 3,
+        })
+        .unwrap();
+
+    // Out of sittings, it comes back to her unfinished.
+    rig.mind.on_time(t0).unwrap();
+
+    let ended = rig.mind.ghost.memory().undertaking(&u.id).unwrap().unwrap();
+    assert_eq!(ended.outcome.as_deref(), Some("blocked"));
+    let looked = ghost_work::undertaking::look(
+        &rig.mind.ghost.dir().join(ghost_work::WORK_DB),
+        std::slice::from_ref(&u.id),
+    )
+    .unwrap();
+    let finish = looked[0].state.finish.clone().unwrap();
+    assert_eq!(
+        finish.outcome,
+        ghost_work::undertaking::Outcome::Blocked,
+        "a tool server still holding it refuses from now on"
+    );
+    assert_eq!(Some(finish.summary), ended.summary);
+}
+
+#[tokio::test]
+async fn looking_at_work_she_has_ended_makes_no_record_of_it() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.mind.workshop.machine = Some(Arc::new(ghost_work::Local::new(rig.mind.ghost.dir())));
+    rig.mind
+        .on_signal(
+            Signal::Online {
+                channel: "t".into(),
+                me: None,
+                can: vec![Can::Send, Can::Files],
+                facts: crate::ChannelFacts::default(),
+            },
+            t0,
+        )
+        .unwrap();
+    at_work_for_wen(&mut rig, "Find out when the tea house closes.", t0);
+    rig.mind.agenda.work = None;
+    let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
+    rig.mind
+        .record(Event::Concluded {
+            id: u.id.clone(),
+            outcome: "finished".into(),
+            summary: "It closes at nine.".into(),
+        })
+        .unwrap();
+    // Her work database is there, with other work in it.
+    let db = rig.mind.ghost.dir().join(ghost_work::WORK_DB);
+    ghost_work::Undertaking::open(&db, "other", Some("something else")).unwrap();
+
+    let place = rig.mind.ghost.memory().place("t:wen").unwrap().unwrap();
+    assert!(rig.mind.deliverables(&place).unwrap().is_empty());
+    rig.mind.elsewhere(&place, t0).unwrap();
+
+    assert!(
+        ghost_work::undertaking::look(&db, std::slice::from_ref(&u.id))
+            .unwrap()
+            .is_empty(),
+        "no record was made by looking"
+    );
+}
+
 #[tokio::test]
 async fn work_that_stops_getting_anywhere_comes_back_unfinished_after_one_sitting() {
     let t0 = at(14, 0);

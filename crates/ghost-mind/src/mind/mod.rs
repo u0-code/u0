@@ -581,6 +581,10 @@ pub struct Mind {
     /// Where her looks keep their rounds for a console to read: the work
     /// database, opened the first time a look keeps one.
     kept_looks: Option<ghost_work::looks::Looks>,
+    /// Her work database opened to read, the first time it is there to be
+    /// read: every look at her work goes through it, so that looking never
+    /// writes, never makes a record, and never waits on the work.
+    records: std::cell::OnceCell<ghost_work::undertaking::Records>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
     /// Intentions with a deliberation in flight.
@@ -634,6 +638,7 @@ impl Mind {
             thinking: HashMap::new(),
             looks: 0,
             kept_looks: None,
+            records: std::cell::OnceCell::new(),
             retries: HashMap::new(),
             pursuing: HashSet::new(),
             held: HashMap::new(),

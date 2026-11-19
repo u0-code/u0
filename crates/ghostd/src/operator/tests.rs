@@ -335,10 +335,13 @@ fn worked_and_looked(dir: &std::path::Path) {
     line["via"] = json!("mcp");
     work.log(&line);
     let part = work.open_part("Check the weekend.").unwrap();
-    part.update(|state| state.brain = Some("openai/deepseek-chat".into()));
+    part.update(|state| state.brain = Some("openai/deepseek-chat".into()))
+        .unwrap();
     part.log(&json!({"said": "looking at the weekend", "calls": []}));
     let handed = work.open_part("Check the holidays.").unwrap();
-    handed.update(|state| state.agent = Some("codex".into()));
+    handed
+        .update(|state| state.agent = Some("codex".into()))
+        .unwrap();
 
     let looks = ghost_work::looks::Looks::open(&db).unwrap();
     let look = looks.begin("t:wen", chrono::Utc::now()).unwrap();
