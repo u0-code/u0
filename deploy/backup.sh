@@ -43,6 +43,15 @@ mkdir -p "$dest"
 # A plain copy of a database that is being written can catch it halfway
 # through a transaction. SQLite's own backup takes a consistent snapshot,
 # and does not stop her to do it.
+#
+# The two are snapshots of two moments, and the order is what makes them
+# agree once restored. She changes a work's record in work.db first and
+# writes what she did in her journal second, so the record is never behind
+# the journal. Copying the journal first and work.db after keeps that true
+# of the copies: the record can only be ahead, and a record that ended
+# where the journal has the work open is ended in her journal, as the
+# record says, when she next looks at her work. Copied the other way, the
+# journal could hold an answer or an end its record never had.
 for db in journal.db work.db; do
     if [ -f "$ghost/$db" ]; then
         sqlite3 "$ghost/$db" ".backup '$dest/$db'"

@@ -145,7 +145,14 @@ impl Mind {
         let memory = self.ghost.memory();
         let mut lines = Vec::new();
 
-        for u in memory.undertakings(false, 6)? {
+        let taken = memory.undertakings(false, 6)?;
+        let open: Vec<String> = taken
+            .iter()
+            .filter(|u| u.outcome.is_none())
+            .map(|u| u.id.clone())
+            .collect();
+        let records = self.records_of(&open);
+        for u in taken {
             let whom = match u.asked_by.as_deref().map(|key| memory.person(key)) {
                 Some(Ok(Some(person))) => format!(" for {}", person.name),
                 _ => String::new(),
@@ -176,9 +183,9 @@ impl Mind {
                             ("state", state),
                         ],
                     );
-                    let record = self.work_record(&u.id);
-                    if let Some(record) = &record {
-                        line.push_str(&self.plan_of(&record.state()));
+                    let record = records.iter().find(|r| r.id == u.id);
+                    if let Some(record) = record {
+                        line.push_str(&self.plan_of(&record.state));
                     }
                     // What it chose to tell her, and never how it got there.
                     for report in memory.reports(&u.id, REPORTS_SHOWN)? {
@@ -208,7 +215,7 @@ impl Mind {
                             ],
                         ));
                     }
-                    if let Some(record) = &record {
+                    if let Some(record) = record {
                         line.push_str(&self.parts_of(&u.id, record));
                     }
                     lines.push(line);
@@ -250,16 +257,6 @@ impl Mind {
             .section("elsewhere", "lines", &lines.join("\n")))
     }
 
-    /// The record of the work `id`, if there is one to read.
-    fn work_record(&self, id: &str) -> Option<ghost_work::Undertaking> {
-        let db = self.ghost.dir().join(ghost_work::WORK_DB);
-        // Opening a record that is not there would make one.
-        if !db.exists() {
-            return None;
-        }
-        ghost_work::Undertaking::open(&db, id, None).ok()
-    }
-
     /// How far the plan of a piece of work has got, in one short line to
     /// go under it: how many of the steps it has not dropped are done, and
     /// the step it is on. Empty when it has no plan.
@@ -299,13 +296,14 @@ impl Mind {
     /// The newest parts the work `id` has handed out, a line each, to go
     /// under it: what each was given, where it stands and the latest it
     /// said. Empty when it has none.
-    fn parts_of(&self, id: &str, record: &ghost_work::Undertaking) -> String {
-        let parts = record.parts();
+    fn parts_of(&self, id: &str, record: &ghost_work::undertaking::Look) -> String {
+        let parts = &record.parts;
         let sitting = self.working.contains_key(id);
         let from = parts.len().saturating_sub(PARTS_SHOWN);
         parts[from..]
             .iter()
-            .map(|(n, state)| {
+            .map(|(n, part)| {
+                let state = &part.state;
                 let status = match state.finish.as_ref().map(|f| f.outcome) {
                     Some(ghost_work::undertaking::Outcome::Finished) => "part_finished",
                     Some(ghost_work::undertaking::Outcome::Blocked) => "part_blocked",
@@ -388,6 +386,7 @@ impl Mind {
             .chain(memory.person_of_direct(&place.key)?.map(|p| p.key))
             .collect();
         let mut files = Vec::new();
+        let mut finished = Vec::new();
         for u in memory.undertakings(false, 12)? {
             let theirs = u.place.as_deref() == Some(place.key.as_str())
                 || u.asked_by.as_ref().is_some_and(|who| here.contains(who));
@@ -398,10 +397,13 @@ impl Mind {
             for report in memory.reports(&u.id, 20)? {
                 files.extend(report.files);
             }
-            if u.outcome.as_deref() == Some("finished")
-                && let Ok(done) = self.undertaking(&u.id, &u.brief)
-                && let Some(finish) = done.state().finish
-            {
+            if u.outcome.as_deref() == Some("finished") {
+                finished.push(u.id);
+            }
+        }
+        // And what it handed over at the end, from its record.
+        for done in self.records_of(&finished) {
+            if let Some(finish) = done.state.finish {
                 files.extend(finish.files);
             }
         }

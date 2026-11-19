@@ -143,7 +143,10 @@ async fn the_budget_follows_the_window_and_stays_under_a_refusal() {
     brain.max_output.store(0, Ordering::Relaxed);
     worker.limits.context_tokens = Some(50_000);
     assert_eq!(worker.budget(), 50_000);
-    worker.undertaking.update(|s| s.refused_at = Some(40_000));
+    worker
+        .undertaking
+        .update(|s| s.refused_at = Some(40_000))
+        .unwrap();
     assert_eq!(worker.budget(), 28_000);
 }
 

@@ -151,6 +151,13 @@ sudo crontab -u ghost -e
 # 17 * * * * /opt/ghost/bin/ghost-backup /var/lib/ghost/weiwei /var/lib/ghost/backups 14
 ```
 
+It copies `journal.db` first and `work.db` after, on purpose: a piece of
+work's record is always written before her journal says what came of it,
+so with the copies in that order the record is never behind the journal,
+and a work that ended on its record but not in the copied journal is ended
+there, as its record says, when she next looks at her work. Restore the two
+from the same run; copy them by hand in the same order.
+
 Then copy `/var/lib/ghost/backups` somewhere else. For a journal that is
 never more than seconds behind, [Litestream](https://litestream.io) can
 replicate `journal.db` to object storage continuously. `derived/` is rebuilt

@@ -20,9 +20,7 @@ use ghost_core::{
     journal::{Entry, Event},
     social,
 };
-use ghost_work::{WORK_DB, undertaking};
 use serde_json::{Value, json};
-use tracing::warn;
 
 use super::Mind;
 use crate::Result;
@@ -59,16 +57,8 @@ impl Mind {
         if waiting.is_empty() {
             return Ok(Vec::new());
         }
-        let db = self.ghost.dir().join(WORK_DB);
         let ids: Vec<String> = waiting.iter().map(|u| u.id.clone()).collect();
-        let looks = if db.exists() {
-            undertaking::look(&db, &ids).unwrap_or_else(|e| {
-                warn!("could not read {}: {e}", db.display());
-                Vec::new()
-            })
-        } else {
-            Vec::new()
-        };
+        let looks = self.records_of(&ids);
         let mut items = Vec::new();
         for u in waiting {
             let asked = self

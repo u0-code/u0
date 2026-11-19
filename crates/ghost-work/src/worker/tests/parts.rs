@@ -990,7 +990,8 @@ async fn a_part_of_work_in_a_repository_works_in_a_checkout_of_its_own_brought_b
     let (mut worker, brain) = worker(dir.path(), script, Limits::default());
     worker
         .undertaking
-        .update(|s| s.dir = Some(folder.display().to_string()));
+        .update(|s| s.dir = Some(folder.display().to_string()))
+        .unwrap();
     brain.part(
         "write the summary",
         vec![

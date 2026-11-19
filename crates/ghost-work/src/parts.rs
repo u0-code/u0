@@ -36,7 +36,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use chrono::Utc;
+
 use ghost_brain::{Brain, ToolSpec, Usage};
 use serde_json::{Value, json};
 
@@ -46,7 +46,7 @@ use crate::{
     prompts::{self, Loop, Shared, Store},
     tool::{self, Tool, Toolbox},
     tools::{self, clip, list, outcome_of, step_number},
-    undertaking::{Finish, MailKind, Outcome, Progress, Undertaking},
+    undertaking::{MailKind, Outcome, Progress, Undertaking},
     worker::{Ended, Limits, ToolsFor, Worker, preview},
 };
 
@@ -250,8 +250,12 @@ impl Parts {
         };
         // What it spent is spent on the work it is part of.
         let after = part.state();
-        self.parent
-            .update(|state| state.usage.add(spent(before.usage, after.usage)));
+        if let Err(e) = self
+            .parent
+            .update(|state| state.usage.add(spent(before.usage, after.usage)))
+        {
+            tracing::warn!("what part {n} spent is not counted: {e}");
+        }
         let back = self.bring_back(n, &part, &ended).await;
         if let Some(report) = self.ending(n, &part, &ended).map(|r| r + &back)
             && let Err(e) = self.parent.post(MailKind::Ended, &report)
@@ -290,10 +294,12 @@ impl Parts {
         match made {
             Ok(Ok(Some((checkout, dir)))) => {
                 tracing::info!("part {n} works in {}", checkout.at);
-                part.update(|state| {
+                if let Err(e) = part.update(|state| {
                     state.dir = Some(dir.display().to_string());
                     state.checkout = Some(checkout);
-                });
+                }) {
+                    tracing::warn!("part {n} works in its work's folder: {e}");
+                }
             }
             Ok(Ok(None)) => {}
             Ok(Err(e)) => tracing::warn!("part {n} works in its work's folder: {e}"),
@@ -380,17 +386,9 @@ impl Parts {
     /// reach its model is ended here, so that it is not started again.
     fn ending(&self, n: u64, part: &Undertaking, ended: &Ended) -> Option<String> {
         let end = |outcome: Outcome| {
-            part.update(|state| {
-                if state.finish.is_none() {
-                    state.finish = Some(Finish {
-                        outcome,
-                        summary: String::new(),
-                        files: Vec::new(),
-                        lesson: None,
-                        at: Utc::now(),
-                    });
-                }
-            });
+            if let Err(e) = part.end(outcome, "") {
+                tracing::warn!("part {n} could not be ended on its record: {e}");
+            }
         };
         let how = match ended {
             // It goes on later: in this sitting once it is answered, or in
@@ -455,7 +453,7 @@ impl Parts {
     /// Returns their numbers, counted from 1. A step closed meanwhile by
     /// the parent itself is left as the parent left it.
     fn mark(&self, n: u64, finished: bool, result: &str) -> Vec<usize> {
-        self.parent.update(|state| {
+        let marked = self.parent.update(|state| {
             let mut marked = Vec::new();
             for (i, step) in state.plan.iter_mut().enumerate() {
                 if step.part == Some(n) && !step.status.closed() {
@@ -469,6 +467,10 @@ impl Parts {
                 }
             }
             marked
+        });
+        marked.unwrap_or_else(|e| {
+            tracing::warn!("the plan could not be marked for part {n}: {e}");
+            Vec::new()
         })
     }
 
@@ -621,17 +623,21 @@ impl Tool for Delegate {
         let Some(n) = part.number() else {
             return tool::Outcome::fail("no part could be set up");
         };
-        if agent.is_some() {
-            part.update(|state| state.agent.clone_from(&agent));
+        if agent.is_some()
+            && let Err(e) = part.update(|state| state.agent.clone_from(&agent))
+        {
+            return tool::Outcome::fail(format!("no part could be set up: {e}"));
         }
-        if let Some(step) = step {
-            self.0.parent.update(|state| {
+        if let Some(step) = step
+            && let Err(e) = self.0.parent.update(|state| {
                 if let Some(on) = state.plan.get_mut(step - 1) {
                     on.status = Progress::Doing;
                     on.part = Some(n);
                     on.result = None;
                 }
-            });
+            })
+        {
+            tracing::warn!("step {step} is not marked as given to part {n}: {e}");
         }
         self.0.pump();
         let number = ("part", n.to_string());
@@ -715,10 +721,10 @@ impl Tool for Stop {
             Err(refusal) => return refusal,
         };
         let number = [("part", n.to_string())];
-        if part.stop() {
-            tool::Outcome::ok(self.0.fill("part_stopped", &number))
-        } else {
-            tool::Outcome::fail(self.0.fill("part_over", &number))
+        match part.stop() {
+            Ok(true) => tool::Outcome::ok(self.0.fill("part_stopped", &number)),
+            Ok(false) => tool::Outcome::fail(self.0.fill("part_over", &number)),
+            Err(e) => tool::Outcome::fail(format!("part {n} could not be stopped: {e}")),
         }
     }
 }

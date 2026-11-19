@@ -44,6 +44,25 @@
 //! it during a sitting. They report to the work, through the same inbox,
 //! and never to her: she sees each only as a line under the work in the
 //! rest of her day.
+//!
+//! What is whose. Her journal is her record of the work: that she took it
+//! on, for whom, where and in what folder, each sitting she gave it, what
+//! she asked and was answered, what it told her and what she kept from it,
+//! and that it ended and how. Its record in `work.db` is the doing: the
+//! plan, the notes, the transcript, the history and the step log, the
+//! inbox, the running totals, and the worker's own account of how it
+//! ended. Where both speak of one thing, her journal is what she goes by,
+//! and it is written second: the record is changed first (a word passed
+//! on, an end), and then her journal says so. So the record is never
+//! behind her journal, only ever ahead of it, and only when she stopped
+//! between the two. Work her journal has open whose record has ended is a
+//! sitting, or a stop, whose end she never wrote down: before she sits
+//! down to anything she writes it, from the record and as the record has
+//! it. Work her journal has ended is over, whatever its record says.
+//!
+//! She only reads the records she looks at, through one read-only handle
+//! on the database: looking at work never makes a record, writes one, or
+//! waits on a sitting for a lock.
 
 use std::sync::{
     Arc,
@@ -56,7 +75,10 @@ use ghost_core::{
     memory::{Person, PlaceState},
     will::{self, Stage},
 };
-use ghost_work::{Ended, Limits, Report, Undertaking, WORK_DB, Worker, tools, undertaking::Kept};
+use ghost_work::{
+    Ended, Limits, Report, Undertaking, WORK_DB, Worker, tools,
+    undertaking::{self, Kept, Look, Records, State},
+};
 
 /// How often she glances at what a sitting in progress has told her.
 const GLANCE: Duration = Duration::seconds(30);
@@ -87,10 +109,44 @@ impl Mind {
             .cloned()
     }
 
-    /// The undertaking `id` in her work database, started from `brief` if
-    /// it has not been opened before.
+    /// The undertaking `id` in her work database, to write to, started
+    /// from `brief` if it has not been opened before. Only what changes the
+    /// work opens it this way; looking at it goes through [`Mind::records`].
     pub(super) fn undertaking(&self, id: &str, brief: &str) -> std::io::Result<Undertaking> {
         Undertaking::open(&self.ghost.dir().join(WORK_DB), id, Some(brief))
+    }
+
+    /// Her work database, read-only, once there is one.
+    pub(super) fn records(&self) -> Option<&Records> {
+        if let Some(records) = self.records.get() {
+            return Some(records);
+        }
+        let db = self.ghost.dir().join(WORK_DB);
+        // A reader does not make the database: until work has been sat
+        // down to, there is nothing to read.
+        if !db.exists() {
+            return None;
+        }
+        match Records::open(&db) {
+            Ok(records) => Some(self.records.get_or_init(|| records)),
+            Err(e) => {
+                warn!("could not read {}: {e}", db.display());
+                None
+            }
+        }
+    }
+
+    /// The records of the work `ids` as they are now, each with its parts,
+    /// in that order. Work with no record, or none that can be read, is
+    /// left out.
+    pub(super) fn records_of(&self, ids: &[String]) -> Vec<Look> {
+        let Some(records) = self.records() else {
+            return Vec::new();
+        };
+        records.look(ids).unwrap_or_else(|e| {
+            warn!("could not read the records of her work: {e}");
+            Vec::new()
+        })
     }
 
     /// Whether `person` is an account of whoever runs her: anyone at a
@@ -260,7 +316,7 @@ impl Mind {
             .map(|(id, w)| (id.clone(), w.record.clone()))
             .collect();
         for (id, record) in &running {
-            self.hear_from_work(id, record, now)?;
+            self.hear_from_work(id, &record.state(), now)?;
         }
         if !running.is_empty() {
             self.work_at(now + GLANCE);
@@ -283,6 +339,9 @@ impl Mind {
             return Ok(false);
         };
         let open = self.ghost.memory().undertakings(true, 20)?;
+        if self.settle_ended(&open, now)? {
+            return Ok(true);
+        }
         let patience = Duration::hours(i64::from(self.cfg.work.ask_hours));
         let unanswered = open
             .iter()
@@ -345,6 +404,14 @@ impl Mind {
                     ("progress", next.summary.clone().unwrap_or_default()),
                 ],
             );
+            // Its record ends first, so that nothing goes on with it: a
+            // tool server still holding it refuses from now on.
+            if let Err(e) = self
+                .undertaking(&next.id, &next.brief)
+                .and_then(|record| record.end(undertaking::Outcome::Blocked, &summary))
+            {
+                warn!("the record of {} could not be ended: {e}", next.id);
+            }
             self.end_work(&next.id, "blocked", &summary, None, &[], now)?;
             return Ok(true);
         }
@@ -385,10 +452,15 @@ impl Mind {
         // Done in its own folder, where her machine can be given one: the
         // record keeps where, for every sitting and every part of it.
         let folder = next.dir.clone().filter(|_| self.workshop.folders.is_some());
-        if let Some(dir) = &folder {
-            undertaking.update(|state| {
+        if let Some(dir) = &folder
+            && let Err(e) = undertaking.update(|state| {
                 state.dir.get_or_insert_with(|| dir.clone());
-            });
+            })
+        {
+            // Not done anywhere but where it is to be done.
+            warn!("cannot sit down to {}: {e}", next.id);
+            self.rest(&next.id, now + Duration::minutes(10));
+            return Ok(());
         }
         let place = match &self.workshop.machine {
             Some(machine) => in_folder(machine, &undertaking).describe(),
@@ -535,8 +607,7 @@ impl Mind {
     /// Most of it waits until she next looks at anything. Something she
     /// could hand over now, a kept image or a file made, also brings her
     /// back to whoever asked for the work, as something she means to do.
-    fn hear_from_work(&mut self, id: &str, record: &Undertaking, now: DateTime<Utc>) -> Result<()> {
-        let state = record.state();
+    fn hear_from_work(&mut self, id: &str, state: &State, now: DateTime<Utc>) -> Result<()> {
         let heard = self.ghost.memory().reported(id)?;
         let mut to_hand_over = Vec::new();
         let mut made = false;
@@ -725,7 +796,9 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<()> {
         if let Some(working) = self.working.get_mut(&u.id) {
-            working.record.stop();
+            if let Err(e) = working.record.stop() {
+                warn!("the record of {} could not be ended: {e}", u.id);
+            }
             working.pause.store(true, Ordering::Relaxed);
             working.stopped_by = by;
             info!("stopping {}", u.id);
@@ -733,9 +806,12 @@ impl Mind {
         }
         let progress = match self.undertaking(&u.id, &u.brief) {
             Ok(record) => {
-                record.stop();
-                self.hear_from_work(&u.id, &record, now)?;
-                record.state().progress()
+                if let Err(e) = record.stop() {
+                    warn!("the record of {} could not be ended: {e}", u.id);
+                }
+                let state = record.state();
+                self.hear_from_work(&u.id, &state, now)?;
+                state.progress()
             }
             Err(e) => {
                 warn!("cannot open the undertaking {}: {e}", u.id);
@@ -776,7 +852,7 @@ impl Mind {
     ) -> Result<()> {
         let stopped_by = self.working.remove(id).and_then(|w| w.stopped_by);
         // Whatever it said and kept up to the end.
-        self.hear_from_work(id, record, now)?;
+        self.hear_from_work(id, &record.state(), now)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]
@@ -850,6 +926,9 @@ impl Mind {
             Ended::Stalled => {
                 info!("{id} stalled after {} steps", report.steps);
                 let summary = self.prompts.fill("stalled", &[("progress", progress)]);
+                if let Err(e) = record.end(undertaking::Outcome::Blocked, &summary) {
+                    warn!("the record of {id} could not be ended: {e}");
+                }
                 return self.end_work(id, "blocked", &summary, None, &report.files, now);
             }
             Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused => {
@@ -881,6 +960,58 @@ impl Mind {
             &report.files,
             now,
         )
+    }
+
+    /// Work her journal has open whose record has ended, and that no
+    /// sitting here is on: a sitting, or a stop, whose end she did not
+    /// write down before she stopped. It ends in her journal now, as its
+    /// record says, with whatever it told her and kept first. Returns
+    /// whether any did.
+    fn settle_ended(
+        &mut self,
+        open: &[ghost_core::memory::Undertaking],
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        let idle: Vec<String> = open
+            .iter()
+            .filter(|u| !self.working.contains_key(&u.id))
+            .map(|u| u.id.clone())
+            .collect();
+        if idle.is_empty() {
+            return Ok(false);
+        }
+        let ended: Vec<Look> = self
+            .records_of(&idle)
+            .into_iter()
+            .filter(|look| look.state.finish.is_some())
+            .collect();
+        for look in &ended {
+            let Some(finish) = &look.state.finish else {
+                continue;
+            };
+            let id = &look.id;
+            info!("{id} had ended on its record: {}", finish.outcome.word());
+            self.hear_from_work(id, &look.state, now)?;
+            let progress = look.state.progress();
+            match finish.outcome {
+                undertaking::Outcome::Dropped => self.dropped(id, &progress, None)?,
+                outcome => {
+                    let summary = match finish.summary.trim() {
+                        "" => progress,
+                        said => said.to_owned(),
+                    };
+                    self.end_work(
+                        id,
+                        outcome.word(),
+                        &summary,
+                        finish.lesson.as_deref(),
+                        &finish.files,
+                        now,
+                    )?;
+                }
+            }
+        }
+        Ok(!ended.is_empty())
     }
 
     /// The work `id` ends with `outcome`. What it taught her about working

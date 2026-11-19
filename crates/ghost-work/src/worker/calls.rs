@@ -94,13 +94,14 @@ impl Worker {
             if !outcome.failed
                 && matches!(call.name.as_str(), "write" | "edit")
                 && let Some(path) = call.args["path"].as_str()
-            {
-                self.undertaking.update(|state| {
+                && let Err(e) = self.undertaking.update(|state| {
                     state.touched.retain(|p| p != path);
                     state.touched.push(path.to_owned());
                     let extra = state.touched.len().saturating_sub(8);
                     state.touched.drain(..extra);
-                });
+                })
+            {
+                tracing::warn!("{path} is not kept among the files touched: {e}");
             }
             // A call to a tool the worker does not carry was answered by
             // the toolbox, not by anything outside.

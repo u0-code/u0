@@ -379,10 +379,16 @@ impl Worker {
         let share = if ask { TAIL_SHARE } else { TAIL_SHARE / 2 };
         let room = usize::try_from(ceiling * share / 100 * 3).unwrap_or(usize::MAX);
         let tail = tail_of(items, room);
-        let state = self.undertaking.update(|state| {
-            state.sittings += 1;
-            state.clone()
-        });
+        let state = self
+            .undertaking
+            .update(|state| {
+                state.sittings += 1;
+                state.clone()
+            })
+            .unwrap_or_else(|e| {
+                tracing::warn!("the new sitting is not counted: {e}");
+                self.undertaking.state()
+            });
         let opening = Item::user(opening_with(words, &state, !tail.is_empty()));
         self.undertaking.remember(std::slice::from_ref(&opening));
         tracing::info!(

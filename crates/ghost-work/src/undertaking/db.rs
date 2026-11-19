@@ -88,6 +88,15 @@ pub(crate) fn open(db: &Path) -> io::Result<Connection> {
     conn.busy_timeout(Duration::from_secs(10)).map_err(other)?;
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(other)?;
+    // A database already at this schema is opened without a write: every
+    // sitting and every word passed on to work opens one, and a write here
+    // would wait on the worker for the lock to change nothing.
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(other)?;
+    if version == SCHEMA_VERSION {
+        return Ok(conn);
+    }
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(other)?;
