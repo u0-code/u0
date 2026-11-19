@@ -1,6 +1,6 @@
-//! An undertaking's record: kept across handles and processes, loaded as
-//! every earlier version wrote it, and never rewritten where it is meant
-//! to be append-only.
+//! An undertaking's record: kept across handles and processes, refused
+//! when another build wrote it, and never rewritten where it is meant to
+//! be append-only.
 
 use std::{fs, path::PathBuf};
 
@@ -122,11 +122,13 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
 fn a_plan_whose_steps_have_only_a_text_and_a_status_loads() {
     let dir = tempfile::tempdir().unwrap();
     // As a step with no check, no order and no proof is saved.
-    let state = r#"{"brief":"build the thing","plan":[
-        {"text":"look around","status":"done"},
-        {"text":"build it","status":"doing"}
-    ],"notes":[],"finish":null,"sittings":1,"steps":4,
-    "usage":{"input":0,"cached":0,"output":0,"thought":0},"seconds":1.0}"#;
+    let mut state = serde_json::to_value(State::default()).unwrap();
+    state["brief"] = json!("build the thing");
+    state["plan"] = json!([
+        {"text": "look around", "status": "done"},
+        {"text": "build it", "status": "doing"}
+    ]);
+    let state = state.to_string();
     let conn = Connection::open(db(&dir)).unwrap();
     conn.execute_batch(SCHEMA).unwrap();
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -697,32 +699,13 @@ fn a_record_a_newer_build_wrote_is_refused_rather_than_written_back_without_what
     .unwrap();
 
     let refused = work.update(|s| s.steps = 9).unwrap_err().to_string();
-    assert!(
-        refused.contains("plan[0].weight"),
-        "it says what: {refused}"
-    );
+    assert!(refused.contains("`weight`"), "it says what: {refused}");
     assert!(Undertaking::open(&db(&dir), "u1", None).is_err());
     assert_eq!(
         saved(&conn),
         newer,
         "the record is as the newer build left it"
     );
-}
-
-#[test]
-fn a_field_this_build_does_not_have_that_holds_nothing_does_not_stop_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
-    Connection::open(db(&dir))
-        .unwrap()
-        .execute(
-            "UPDATE undertakings
-             SET state = json_set(state, '$.gone', json('null'), '$.none', json('[]'))",
-            [],
-        )
-        .unwrap();
-    work.update(|s| s.steps = 2).unwrap();
-    assert_eq!(work.state().steps, 2);
 }
 
 #[test]

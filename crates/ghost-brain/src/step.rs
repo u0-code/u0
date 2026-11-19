@@ -155,6 +155,7 @@ pub enum Stop {
 
 /// Tokens spent on one step.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Usage {
     /// Everything the model read, cached or not.
     pub input: u64,
@@ -163,7 +164,6 @@ pub struct Usage {
     /// Everything the model produced, thinking included.
     pub output: u64,
     /// The part of `output` that was thinking, where the provider says.
-    #[serde(default)]
     pub thought: u64,
 }
 

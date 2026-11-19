@@ -2,8 +2,9 @@
 //! it ended, and what it kept and told along the way, with the ways the
 //! worker and others are shown it.
 //!
-//! This is written to the database as JSON, so it is a format that has to
-//! go on loading: fields are added, optional, and never taken away.
+//! This is written to the database as JSON. A record holding a field this
+//! build does not know is refused, read or written, rather than written
+//! back without it: a newer build wrote it.
 
 use chrono::{DateTime, Utc};
 use ghost_brain::Usage;
@@ -69,6 +70,7 @@ impl Progress {
 /// how that was shown. Everything but its text and status is optional,
 /// and left out of what is saved when it is not there.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanStep {
     pub text: String,
     pub status: Progress,
@@ -89,6 +91,7 @@ pub struct PlanStep {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Note {
     pub at: DateTime<Utc>,
     pub text: String,
@@ -129,15 +132,14 @@ impl Outcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Finish {
     pub outcome: Outcome,
     pub summary: String,
     /// The files that are the result, where the result is files: paths as
     /// the machine knows them.
-    #[serde(default)]
     pub files: Vec<String>,
     /// What doing this taught about doing things like it, if anything.
-    #[serde(default)]
     pub lesson: Option<String>,
     pub at: DateTime<Utc>,
 }
@@ -145,6 +147,7 @@ pub struct Finish {
 /// An image the worker was shown and kept, to be had again after the work
 /// is over.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Kept {
     /// Its name under `media/`, beside the database.
     pub file: String,
@@ -156,17 +159,18 @@ pub struct Kept {
 /// Something the worker told whoever the work is for while it ran: worth
 /// their knowing before the work is done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Told {
     pub text: String,
     /// Files it made that are ready to hand over: paths as the machine
     /// knows them.
-    #[serde(default)]
     pub files: Vec<String>,
     pub at: DateTime<Utc>,
 }
 
 /// Where a part's own checkout is, and what it was made from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Checkout {
     /// The folder of the work it is part of, which it does not write in.
     pub of: String,
@@ -181,6 +185,7 @@ pub struct Checkout {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct State {
     /// What was asked, as it was asked.
     pub brief: String,
@@ -188,19 +193,15 @@ pub struct State {
     pub notes: Vec<Note>,
     /// What the worker wrote for itself the last time its context was
     /// cleared. One document, replaced each time.
-    #[serde(default)]
     pub handoff: Option<String>,
     pub finish: Option<Finish>,
     /// Files written or edited most recently, newest last.
-    #[serde(default)]
     pub touched: Vec<String>,
     /// Things added to the task after it began, in order. The brief itself
     /// never changes; these extend it.
-    #[serde(default)]
     pub additions: Vec<String>,
     /// The session of a command-line agent that has been stepping this
     /// work, so its next sitting can pick its own context back up.
-    #[serde(default)]
     pub session: Option<String>,
     /// The installed agent this part was handed to, by name, when it is
     /// not done by a worker of ours.
@@ -214,7 +215,6 @@ pub struct State {
     pub brain: Option<String>,
     /// A question the worker put to whoever the work is for. The work
     /// waits here until something is added to the task from outside.
-    #[serde(default)]
     pub waiting: Option<String>,
     /// What kind of answer the question in `waiting` asks for, when the
     /// worker said.
@@ -225,15 +225,12 @@ pub struct State {
     pub waiting_options: Vec<String>,
     /// The model once refused a context of about this many tokens. The
     /// transcript is kept well under it from then on.
-    #[serde(default)]
     pub refused_at: Option<u64>,
     /// What the worker kept, in the order it was kept. Keeping a file again
     /// replaces its note and moves it to the end.
-    #[serde(default)]
     pub kept: Vec<Kept>,
     /// What the worker told whoever the work is for, in the order it told
     /// them. Only ever appended to.
-    #[serde(default)]
     pub told: Vec<Told>,
     /// The folder it is done in, on the machine's own computer: its own,
     /// or one whoever asked named. A part is done where its parent is.
@@ -247,7 +244,6 @@ pub struct State {
     pub checkout: Option<Checkout>,
     /// The undertaking this is a part of, for a part handed out by a
     /// worker; none for work taken on by her.
-    #[serde(default)]
     pub parent: Option<String>,
     /// How many times work was picked up with a fresh context.
     pub sittings: u32,
