@@ -61,29 +61,6 @@ fn work_under_way_can_be_looked_at_from_outside_without_writing() {
 }
 
 #[test]
-fn a_step_logged_before_steps_kept_their_context_still_says_what_it_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let work = Undertaking::open(&db(&dir), "w", Some("Count the files.")).unwrap();
-    work.log(&json!({"at": "2026-11-17T16:50:43+00:00", "said": "", "calls": [], "read": 15_068, "cached": 14_464, "wrote": 370}));
-    let mut call = crate::steps::call("read", &json!({"path": "a"}), "x", false, 0, 1);
-    call["via"] = json!("mcp");
-    work.log(&call);
-    let logged = steps(&db(&dir), "w", 0, 10).unwrap().unwrap();
-    let context = logged.context.expect("what the step read");
-    assert_eq!(context.n, 1);
-    assert_eq!(
-        (
-            context.usage.input,
-            context.usage.cached,
-            context.usage.output
-        ),
-        (15_068, 14_464, 370)
-    );
-    assert!(context.parts.is_empty());
-    assert_eq!((context.window, context.folds_at), (None, None));
-}
-
-#[test]
 fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let first = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
@@ -116,10 +93,9 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
 }
 
 #[test]
-fn a_plan_saved_before_steps_had_checks_still_loads() {
+fn a_plan_whose_steps_have_only_a_text_and_a_status_loads() {
     let dir = tempfile::tempdir().unwrap();
-    // As the state was written before steps had anything but a text
-    // and a status.
+    // As a step with no check, no order and no proof is saved.
     let state = r#"{"brief":"build the thing","plan":[
         {"text":"look around","status":"done"},
         {"text":"build it","status":"doing"}
@@ -127,6 +103,8 @@ fn a_plan_saved_before_steps_had_checks_still_loads() {
     "usage":{"input":0,"cached":0,"output":0,"thought":0},"seconds":1.0}"#;
     let conn = Connection::open(db(&dir)).unwrap();
     conn.execute_batch(SCHEMA).unwrap();
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .unwrap();
     conn.execute(
         "INSERT INTO undertakings (id, state) VALUES ('u1', ?1)",
         [state],
@@ -166,59 +144,6 @@ fn a_part_is_numbered_on_from_the_parts_on_record_and_only_its_own_parent_counts
     assert_eq!(second.id(), "main/2");
     assert_eq!(second.state().brief, "second");
     assert!(parent.open_part("  ").is_err(), "a part needs a brief");
-}
-
-#[test]
-fn a_transcript_saved_before_tools_returned_pictures_still_loads() {
-    let dir = tempfile::tempdir().unwrap();
-    let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
-    // Exactly as an earlier version wrote it.
-    let old = r#"[{"is":"user","text":"list the files"},{"is":"assistant","text":"","calls":[{"id":"c1","name":"shell","args":{"command":"ls"}}]},{"is":"result","id":"c1","name":"shell","output":"a.txt","failed":false}]"#;
-    Connection::open(db(&dir))
-        .unwrap()
-        .execute(
-            "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
-            [old],
-        )
-        .unwrap();
-    let items = u.transcript().expect("it loads");
-    assert_eq!(items.len(), 3);
-    assert_eq!(items[2], Item::result("c1", "shell", "a.txt", false));
-}
-
-#[test]
-fn a_transcript_saved_whole_by_an_earlier_version_is_picked_up_and_saved_on() {
-    let dir = tempfile::tempdir().unwrap();
-    // A database as schema 3 had it, with a transcript in it.
-    let old = r#"[{"is":"user","text":"list the files"},{"is":"assistant","text":"","calls":[{"id":"c1","name":"shell","args":{"command":"ls"}}]},{"is":"result","id":"c1","name":"shell","output":"a.txt","failed":false}]"#;
-    let conn = Connection::open(db(&dir)).unwrap();
-    conn.execute_batch(SCHEMA).unwrap();
-    conn.execute_batch(
-        "DROP TABLE transcript_items;
-         PRAGMA user_version = 3;
-         INSERT INTO undertakings (id, state) VALUES ('u1', '{\"brief\":\"list\",\"plan\":[],\"notes\":[],\"finish\":null,\"sittings\":0,\"steps\":2,\"usage\":{\"input\":0,\"cached\":0,\"output\":0,\"thought\":0},\"seconds\":0.0}');",
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
-        [old],
-    )
-    .unwrap();
-    drop(conn);
-
-    let u = Undertaking::open(&db(&dir), "u1", None).unwrap();
-    let mut items = u.transcript().unwrap();
-    assert_eq!(items.len(), 3);
-    items.push(Item::user("now count them"));
-    u.save(&items, 3).unwrap();
-
-    let again = Undertaking::open(&db(&dir), "u1", None).unwrap();
-    assert_eq!(again.transcript().unwrap(), items);
-    let left: i64 = Connection::open(db(&dir))
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM transcript", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(left, 0, "the old row is not read again");
 }
 
 /// The rows of the transcript of `u1`: what each holds of its own, and
@@ -332,22 +257,20 @@ fn a_picture_whose_file_is_gone_comes_back_as_a_line_of_text() {
 }
 
 #[test]
-fn a_picture_saved_as_base64_still_loads_and_a_path_is_not_followed() {
+fn a_picture_named_by_a_path_is_not_followed() {
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     fs::write(dir.path().join("outside.png"), "not to be read").unwrap();
-    let row = r#"[{"is":"result","id":"c1","name":"fetch","output":"An image.","failed":false,"pictures":[{"mime":"image/png","data":"AQID"}]},
-        {"is":"result","id":"c2","name":"fetch","output":"Another.","failed":false,"pictures":[{"mime":"image/png","file":"../outside.png"}]}]"#;
+    let row = r#"{"is":"result","id":"c2","name":"fetch","output":"Another.","failed":false,"pictures":[{"mime":"image/png","file":"../outside.png"}]}"#;
     Connection::open(db(&dir))
         .unwrap()
         .execute(
-            "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
+            "INSERT INTO transcript_items (id, n, item) VALUES ('u1', 1, ?1)",
             [row],
         )
         .unwrap();
     let items = u.transcript().unwrap();
-    assert_eq!(items[0], seen(&[1, 2, 3]));
-    assert!(matches!(&items[1], Item::Result { pictures, output, .. }
+    assert!(matches!(&items[0], Item::Result { pictures, output, .. }
         if pictures.is_empty() && output.contains("no longer on disk")));
 }
 
@@ -524,13 +447,8 @@ fn what_is_added_from_outside_becomes_part_of_the_task() {
 }
 
 #[test]
-fn an_inbox_written_by_schema_one_is_kept_and_what_is_in_it_still_joins_the_task() {
+fn a_database_of_another_schema_is_refused_and_left_as_it_was() {
     let dir = tempfile::tempdir().unwrap();
-    let state = serde_json::to_string(&State {
-        brief: "find when it closes".into(),
-        ..State::default()
-    })
-    .unwrap();
     // As schema 1 left it, with a line not yet taken.
     let conn = Connection::open(db(&dir)).unwrap();
     conn.execute_batch(
@@ -542,24 +460,24 @@ fn an_inbox_written_by_schema_one_is_kept_and_what_is_in_it_still_joins_the_task
          PRAGMA user_version = 1;",
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO undertakings (id, state) VALUES ('u1', ?1)",
-        [&state],
-    )
-    .unwrap();
     drop(conn);
 
-    let u = Undertaking::open(&db(&dir), "u1", None).unwrap();
-    assert_eq!(
-        u.take_inbox(),
-        [Mail {
-            kind: MailKind::Added,
-            text: "weekends too".into()
-        }]
-    );
-    assert_eq!(u.state().additions, ["weekends too"]);
-    u.post(MailKind::Told, "from a part").unwrap();
-    assert_eq!(u.take_inbox()[0].kind, MailKind::Told);
+    let refused = Undertaking::open(&db(&dir), "u1", Some("anything"))
+        .err()
+        .expect("schema 1 is not read");
+    assert!(refused.to_string().contains("schema 1"), "{refused}");
+    let conn = Connection::open(db(&dir)).unwrap();
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    let columns: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('inbox')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!((version, columns), (1, 4), "nothing in it was changed");
 }
 
 #[test]
@@ -606,8 +524,8 @@ fn the_parts_of_a_work_are_listed_by_number_and_end_when_it_is_stopped() {
             });
         })
         .unwrap();
-    // A helper from before parts ran on their own is not one of them.
-    Undertaking::open(&db(&dir), "main/3", Some("an old helper")).unwrap();
+    // One whose id only looks like a part's, with no parent, is not one.
+    Undertaking::open(&db(&dir), "main/3", Some("not a part")).unwrap();
     let listed: Vec<(u64, String)> = parent
         .parts()
         .into_iter()

@@ -9,7 +9,7 @@ use std::{
 
 use ghost_brain::{Item, Picture};
 use ghost_core::media;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{TransactionBehavior, params};
 use serde_json::{Value, json};
 
 use super::{
@@ -49,10 +49,9 @@ fn without_pictures(item: &Item) -> std::borrow::Cow<'_, Item> {
     std::borrow::Cow::Owned(Item::result(id, name, output, *failed))
 }
 
-/// An item from a saved transcript. A picture is either a reference to a
-/// file under `root/media/`, which is read back, or, as this was first
-/// written, its bytes in base64. A reference whose file is gone is dropped,
-/// and the result says so.
+/// An item from a saved transcript. A picture is a reference to a file
+/// under `root/media/`, which is read back. A reference whose file is gone
+/// is dropped, and the result says so.
 fn from_disk(mut saved: Value, root: &Path) -> Option<Item> {
     let written = saved
         .as_object_mut()
@@ -68,10 +67,7 @@ fn from_disk(mut saved: Value, root: &Path) -> Option<Item> {
         return Some(item);
     };
     for picture in written {
-        let Some(file) = picture["file"].as_str() else {
-            pictures.push(serde_json::from_value(picture).ok()?);
-            continue;
-        };
+        let file = picture["file"].as_str()?;
         // Only a bare name is looked for, and only under `media/`.
         let bytes = Path::new(file)
             .file_name()
@@ -112,10 +108,9 @@ impl Undertaking {
     pub fn transcript(&self) -> Option<Vec<Item>> {
         let read = self.read_transcript();
         let items = match read {
-            Ok(Some((items, rows))) => {
-                // The rows this handle saves on from: what it just read,
-                // or nothing, when the transcript was in the old one row.
-                *self.saved() = Some(if rows { items.clone() } else { Vec::new() });
+            Ok(Some(items)) => {
+                // The rows this handle saves on from: what it just read.
+                *self.saved() = Some(items.clone());
                 items
             }
             Ok(None) => {
@@ -130,9 +125,8 @@ impl Undertaking {
         Some(items)
     }
 
-    /// The transcript on disk, and whether it was in rows of its own; an
-    /// item that cannot be read leaves none.
-    fn read_transcript(&self) -> rusqlite::Result<Option<(Vec<Item>, bool)>> {
+    /// The transcript on disk; an item that cannot be read leaves none.
+    fn read_transcript(&self) -> rusqlite::Result<Option<Vec<Item>>> {
         let conn = self.conn();
         let rows: Vec<(Option<String>, Option<String>)> = conn
             .prepare(
@@ -147,33 +141,13 @@ impl Undertaking {
                 .ok()
                 .and_then(|item| from_disk(item, self.media_root()))
         };
-        if !rows.is_empty() {
-            return Ok(rows
-                .iter()
-                .map(|(item, kept)| read(item.as_deref().or(kept.as_deref())?))
-                .collect::<Option<Vec<Item>>>()
-                .map(|items| (items, true)));
-        }
-        // As versions before wrote it: the whole of it in one row.
-        let Some(text) = conn
-            .query_row(
-                "SELECT items FROM transcript WHERE id = ?1",
-                [&self.id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-        else {
+        if rows.is_empty() {
             return Ok(None);
-        };
-        Ok(serde_json::from_str::<Vec<Value>>(&text)
-            .ok()
-            .and_then(|saved| {
-                saved
-                    .into_iter()
-                    .map(|item| from_disk(item, self.media_root()))
-                    .collect::<Option<Vec<Item>>>()
-            })
-            .map(|items| (items, false)))
+        }
+        Ok(rows
+            .iter()
+            .map(|(item, kept)| read(item.as_deref().or(kept.as_deref())?))
+            .collect::<Option<Vec<Item>>>())
     }
 
     fn saved(&self) -> std::sync::MutexGuard<'_, Option<Vec<Item>>> {
@@ -293,10 +267,6 @@ impl Undertaking {
                     .map_err(other)?;
             }
         }
-        // Read from here on, the transcript as it was first written is
-        // not wanted again.
-        tx.execute("DELETE FROM transcript WHERE id = ?1", [&self.id])
-            .map_err(other)?;
         tx.commit().map_err(other)?;
         *self.saved() = Some(items.to_vec());
         Ok(out.map(|(out, state)| {

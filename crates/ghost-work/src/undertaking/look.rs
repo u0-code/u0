@@ -277,9 +277,7 @@ fn steps_in(conn: &Connection, id: &str, after: u64, limit: usize) -> io::Result
 }
 
 /// What the newest step of undertaking `id` that says so put in front of
-/// the model. A step logged before steps kept what they were given says
-/// only how many tokens were read: that is still what the window held,
-/// told without its parts or the window's size.
+/// the model.
 fn newest_context(conn: &Connection, id: &str) -> io::Result<Option<StepContext>> {
     let rows: Vec<(i64, String)> = conn
         .prepare("SELECT n, line FROM log WHERE id = ?1 ORDER BY n DESC LIMIT ?2")
@@ -292,12 +290,7 @@ fn newest_context(conn: &Connection, id: &str) -> io::Result<Option<StepContext>
         .map_err(other)?;
     Ok(rows.into_iter().find_map(|(n, line)| {
         let line: Value = serde_json::from_str(&line).ok()?;
-        let parts = if let Some(context) = line.get("context") {
-            serde_json::from_value(context.clone()).ok()?
-        } else {
-            line.get("read")?.as_u64()?;
-            BTreeMap::new()
-        };
+        let parts = serde_json::from_value(line.get("context")?.clone()).ok()?;
         Some(StepContext {
             n: u64::try_from(n).unwrap_or_default(),
             at: line["at"].as_str().map(str::to_owned),

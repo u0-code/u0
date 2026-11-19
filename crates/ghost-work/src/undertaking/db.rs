@@ -10,11 +10,9 @@ use super::State;
 /// The database a ghost keeps her work in, beside her journal.
 pub const WORK_DB: &str = "work.db";
 
-/// The version of the schema below. Raised, with a way forward from the
-/// last one, when a table changes: this is state nothing else can rebuild.
-/// Schema 3 added `looks` and `look_rounds`, which are made where missing.
-/// Schema 4 added `transcript_items`, the transcript an item a row; a
-/// transcript saved before it, in `transcript`, is still read.
+/// The version of the schema below, raised when a table changes. This is
+/// state nothing else can rebuild, and a database of another version is
+/// not read: it is refused, and nothing in it is changed.
 pub(super) const SCHEMA_VERSION: i64 = 4;
 
 /// Every undertaking in one database, keyed by id. `history` is append-only
@@ -33,10 +31,6 @@ pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS undertakings (
     id    TEXT PRIMARY KEY,
     state TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS transcript (
-    id    TEXT PRIMARY KEY,
-    items TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS transcript_items (
     id      TEXT    NOT NULL,
@@ -84,14 +78,9 @@ CREATE TABLE IF NOT EXISTS look_rounds (
 );
 ";
 
-/// What schema 1 lacked: the kind of what is in the inbox. Everything
-/// written before it was added to the task.
-const KIND_COLUMN: &str = "ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'added'";
-
-/// Open the work database at `db` for writing, making it, or bringing an
-/// older one up to this schema, first. Several handles write here at once,
-/// from more than one process, so a writer waits its turn rather than
-/// failing.
+/// Open the work database at `db` for writing, making it first if it is
+/// new. Several handles write here at once, from more than one process,
+/// so a writer waits its turn rather than failing.
 pub(crate) fn open(db: &Path) -> io::Result<Connection> {
     if let Some(parent) = db.parent().filter(|p| !p.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
@@ -115,23 +104,22 @@ pub(crate) fn open(db: &Path) -> io::Result<Connection> {
     let version: i64 = tx
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(other)?;
-    if version > SCHEMA_VERSION {
+    if version == SCHEMA_VERSION {
+        // Another handle made it while this one waited.
+        drop(tx);
+        return Ok(conn);
+    }
+    let tables: i64 = tx
+        .query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0))
+        .map_err(other)?;
+    if version != 0 || tables != 0 {
         return Err(io::Error::other(format!(
-            "{} was written by a newer ghost-work (schema {version})",
+            "{} is work kept in schema {version}, and this ghost-work reads only schema \
+             {SCHEMA_VERSION}; move it aside to start her work afresh",
             db.display()
         )));
     }
     tx.execute_batch(SCHEMA).map_err(other)?;
-    let has_kind: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('inbox') WHERE name = 'kind'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(other)?;
-    if has_kind == 0 {
-        tx.execute_batch(KIND_COLUMN).map_err(other)?;
-    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(other)?;
     tx.commit().map_err(other)?;

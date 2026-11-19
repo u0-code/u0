@@ -66,8 +66,8 @@ impl Progress {
 
 /// One step of the plan. The plan is a small graph: a step can be after
 /// others, and carries how it will be known to be done and, once it is,
-/// how that was shown. Everything but its text and status came later and
-/// is optional, so that plans saved before still load.
+/// how that was shown. Everything but its text and status is optional,
+/// and left out of what is saved when it is not there.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanStep {
     pub text: String,
@@ -246,9 +246,7 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkout: Option<Checkout>,
     /// The undertaking this is a part of, for a part handed out by a
-    /// worker. Helpers from before parts ran on their own have none, and
-    /// are not counted as parts: each of them ended in the step that
-    /// started it.
+    /// worker; none for work taken on by her.
     #[serde(default)]
     pub parent: Option<String>,
     /// How many times work was picked up with a fresh context.
