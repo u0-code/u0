@@ -611,6 +611,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // A file where the store is, in another shape.
         let path = dir.path().join(MEMORY_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         {
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch("CREATE TABLE places (key TEXT PRIMARY KEY);")
