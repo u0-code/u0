@@ -53,7 +53,9 @@ it is `GHOST_HOME`, or the platform's place for an app's data:
 `~/.local/share/ghost`) elsewhere. `ghostd init` makes it ready and stops.
 
 Ready means: a home with no `ghostd.toml` gets one (the files in
-[`home/`](home), built into the binary), and one in which no ghost has
+[`home/`](home), built into the binary, and the brains DeepSeek, Claude
+Code and Codex, as `ghost-brain`'s presets have them, thinking with
+DeepSeek), and one in which no ghost has
 been born gets the mascot, born from `home/ghosts/solver/ghost.toml`.
 Nothing already there is changed. Every ghost of a home is given the
 desk's persona and being, from
@@ -68,8 +70,9 @@ name of the computer. The paths she gives (her machine's directory, her
 work's folders, the files it hands over) are on that computer, and a
 console can open them only there: it knows it is there when it reads the
 same id at that path, which a host name could not tell it. A daemon run
-without a home keeps `core-id` beside the `ghostd.toml` it read, or in its
-first character's directory when it read none. The id is made once: a
+without a home keeps `core-id` in the directory its first character's
+directory is in (`/var/lib/ghost` for `ghostd run /var/lib/ghost/weiwei`),
+never beside its `ghostd.toml`, which it may only be able to read. The id is made once: a
 `core-id` that holds anything else stops the daemon, saying where it is,
 rather than being replaced with an id no console knows. Put the id back,
 or remove the file to have a new one made.

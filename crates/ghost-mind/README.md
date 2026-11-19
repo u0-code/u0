@@ -21,6 +21,21 @@ it is shared by every character: swapping one for another changes only her
 same path in the deployment's directory (`[mind] prompts`) is used instead,
 and taken in again when it changes.
 
+What a console reads of her, her journal, her work and its steps, the
+rounds of her looks, her sessions and what waits on her operators, is
+answered by `Reader`, off the actor, on connections of its own that only read
+(`MindHandle::read`), in the protocol's types. The actor answers only what
+it alone knows (`MindHandle::status`, the agenda) and says, each time it has
+handled something, which sittings and looks are under way and which
+channels are online, for the reader to read.
+
+The actor does not write `work.db` either. The rounds of her looks, and what
+she changes in the records of her work (a word passed on, a stop, an end, the
+record a sitting opens on), go to one writer thread of hers, which makes them
+in order and on its own connections; what she has to know of one comes back
+as a job's outcome, and her journal says so then. A sitting holding the
+database's lock never holds her up.
+
 In a conversation she has the same abilities as at work, at a conversation's
 pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
 needs; where her brain takes tools, `search`, `fetch` and, in private with a

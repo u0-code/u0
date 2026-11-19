@@ -26,8 +26,13 @@ A CLI cannot take one step at a time, but it brings a loop of its own.
 part of a piece of work, which it does with its own tools. It never steps a
 ghost's own work: that needs a brain that steps.
 
-`discover` looks for what is usable on this machine: keys in the environment,
-the two CLIs, a local Ollama. Requests retry with backoff on rate limits,
+`presets` is the one list of providers Ghost knows how to think with: for
+each, its kind, base URL, the variable its key is conventionally kept in
+and a model to start from, and which brain already configured is which.
+`discover` looks for what of it is usable on this machine: keys in the
+environment, the two CLIs, a local Ollama. `cli_models` reads what models
+an installed CLI offers, and its window: Claude Code's from its build,
+Codex's from its own cache. Requests retry with backoff on rate limits,
 overload and dropped connections.
 
 `openai` covers OpenAI, OpenRouter, DeepSeek, Moonshot, Groq, Ollama, vLLM and

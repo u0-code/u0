@@ -134,7 +134,8 @@ pub fn public(ip: IpAddr) -> bool {
 /// `PATH` to find its runtime, a home, a working directory and a place
 /// for temporary files of its own, the values it declared as defaults,
 /// and the variables whoever runs her body gave it by name. Nothing else
-/// of the body's environment, so none of her keys, reaches it.
+/// of the body's environment, so none of her keys, reaches it, but the
+/// proxy rule `ghost_net::spawn` adds to every program she starts.
 pub fn environment(
     cfg: &Config,
     name: &str,
@@ -153,13 +154,6 @@ pub fn environment(
         ("HOME".to_owned(), dir.display().to_string()),
         ("TMPDIR".to_owned(), dir.join("tmp").display().to_string()),
     ];
-    // The same way out to the network as everything else she runs: the
-    // proxy rule, and nothing more of this process's environment.
-    for (key, value) in ghost_net::current().child_env() {
-        if let Some(value) = value {
-            env.push((key.to_owned(), value));
-        }
-    }
     for pair in set {
         if let Some((key, value)) = pair.split_once('=') {
             env.push((key.to_owned(), value.to_owned()));

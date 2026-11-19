@@ -3,14 +3,14 @@
 //!
 //! A preset is what a person would otherwise look up in a provider's docs:
 //! the kind of API, its base URL, the variable its key is conventionally
-//! kept in, and a model to start from. Every API here but Anthropic's
-//! speaks the `OpenAI`-compatible protocol, which is what `kind = "openai"`
-//! in `ghostd.toml` means. The desk hands what a preset and the sheet's
+//! kept in, and a model to start from. The core has them, and says which
+//! of its brains is which. The desk hands what a preset and the sheet's
 //! fields say to the core, which writes it into its own configuration;
 //! whether a key is there, which models an API offers, and whether a brain
 //! thinks are asked of the core too (`link::brains`), which holds the keys
 //! and makes the requests. The desk never sees a key.
 
+use ghost_link::protocol::BrainPreset;
 use serde_json::Value;
 
 /// How a brain is talked to.
@@ -35,255 +35,96 @@ impl Wire {
     }
 }
 
-/// One brain the desk can add in a few clicks.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Preset {
-    /// What it is saved as by default, and how it is recognised.
-    pub id: &'static str,
-    pub name: &'static str,
-    /// Its mark among the desk's icons.
-    pub icon: &'static str,
-    /// The `kind` in `ghostd.toml`.
-    pub kind: &'static str,
-    pub base_url: &'static str,
-    /// The variable its key is conventionally kept in; `None` for a brain
-    /// that needs none.
-    pub key_env: Option<&'static str>,
-    pub model: &'static str,
-    /// Hosts its base URL is on, by which a brain already configured is
-    /// known for this one.
-    pub hosts: &'static [&'static str],
-    /// The program, for a CLI.
-    pub program: Option<&'static str>,
-}
-
-const fn api(
-    id: &'static str,
-    name: &'static str,
-    icon: &'static str,
-    base_url: &'static str,
-    key_env: &'static str,
-    model: &'static str,
-    hosts: &'static [&'static str],
-) -> Preset {
-    Preset {
-        id,
-        name,
-        icon,
-        kind: "openai",
-        base_url,
-        key_env: Some(key_env),
-        model,
-        hosts,
-        program: None,
-    }
-}
-
-/// Every preset, in the order the sheet shows them. Each base URL, key
-/// variable and model is the one the provider's own documentation gives.
-pub const PRESETS: &[Preset] = &[
-    api(
-        "deepseek",
-        "DeepSeek",
-        "deepseek",
-        "https://api.deepseek.com",
-        "DEEPSEEK_API_KEY",
-        "deepseek-flash",
-        &["deepseek.com"],
-    ),
-    api(
-        "openai",
-        "OpenAI",
-        "openai",
-        "https://api.openai.com/v1",
-        "OPENAI_API_KEY",
-        "gpt-6-astra",
-        &["api.openai.com"],
-    ),
-    Preset {
-        id: "anthropic",
-        name: "Anthropic",
-        icon: "claude",
-        kind: "anthropic",
-        base_url: "https://api.anthropic.com",
-        key_env: Some("ANTHROPIC_API_KEY"),
-        model: "claude-opus-5-5",
-        hosts: &["anthropic.com"],
-        program: None,
-    },
-    api(
-        "gemini",
-        "Gemini",
-        "gemini",
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        "GEMINI_API_KEY",
-        "gemini-3.8-flash",
-        &["generativelanguage.googleapis.com"],
-    ),
-    api(
-        "openrouter",
-        "OpenRouter",
-        "openrouter",
-        "https://openrouter.ai/api/v1",
-        "OPENROUTER_API_KEY",
-        "openrouter/auto",
-        &["openrouter.ai"],
-    ),
-    api(
-        "kimi",
-        "Kimi",
-        "kimi",
-        "https://api.moonshot.ai/v1",
-        "MOONSHOT_API_KEY",
-        "kimi-k3.1-pro",
-        &["moonshot.ai", "moonshot.cn", "kimi.ai"],
-    ),
-    api(
-        "qwen",
-        "Qwen",
-        "qwen",
-        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        "DASHSCOPE_API_KEY",
-        "qwen4-max",
-        &["aliyuncs.com"],
-    ),
-    api(
-        "glm",
-        "GLM",
-        "zhipu",
-        "https://api.z.ai/api/paas/v4",
-        "ZAI_API_KEY",
-        "glm-5.3",
-        &["z.ai", "bigmodel.cn"],
-    ),
-    api(
-        "grok",
-        "Grok",
-        "grok",
-        "https://api.x.ai/v1",
-        "XAI_API_KEY",
-        "grok-4.7",
-        &["x.ai"],
-    ),
-    api(
-        "mistral",
-        "Mistral",
-        "mistral",
-        "https://api.mistral.ai/v1",
-        "MISTRAL_API_KEY",
-        "mistral-large-latest",
-        &["mistral.ai"],
-    ),
-    api(
-        "groq",
-        "Groq",
-        "groq",
-        "https://api.groq.com/openai/v1",
-        "GROQ_API_KEY",
-        "openai/gpt-oss-120b",
-        &["groq.com"],
-    ),
-    Preset {
-        id: "ollama",
-        name: "Ollama",
-        icon: "ollama",
-        kind: "openai",
-        base_url: "http://localhost:11434/v1",
-        key_env: None,
-        model: "gpt-oss:20b",
-        hosts: &["localhost:11434", "127.0.0.1:11434", "ollama.com"],
-        program: None,
-    },
-    Preset {
-        id: "claude-code",
-        name: "Claude Code",
-        icon: "claude",
-        kind: "claude-code",
-        base_url: "",
-        key_env: None,
-        model: "sonnet",
-        hosts: &[],
-        program: Some("claude"),
-    },
-    Preset {
-        id: "codex",
-        name: "Codex",
-        icon: "openai",
-        kind: "codex",
-        base_url: "",
-        key_env: None,
-        model: "",
-        hosts: &[],
-        program: Some("codex"),
-    },
-    Preset {
-        id: "custom",
-        name: "Custom",
-        icon: "plug",
-        kind: "openai",
-        base_url: "",
-        key_env: Some(""),
-        model: "",
-        hosts: &[],
-        program: None,
-    },
-];
-
-/// What a local API with no key is given: the `OpenAI`-compatible client
-/// needs some key, and Ollama ignores it. It is not a secret.
-pub const NO_KEY: &str = "ollama";
+/// One brain the desk can add in a few clicks: a preset as the core offers
+/// it (`BrainList::presets`), which is where they are defined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preset(pub BrainPreset);
 
 impl Preset {
-    pub fn by_id(id: &str) -> Option<&'static Self> {
-        PRESETS.iter().find(|p| p.id == id)
+    /// One for a brain of `kind` there is no preset for: its kind, and the
+    /// rest as the sheet's fields say.
+    pub fn of_kind(kind: &str) -> Self {
+        let mut provider = serde_json::Map::new();
+        provider.insert("kind".to_owned(), Value::from(kind));
+        Self(BrainPreset {
+            id: kind.to_owned(),
+            name: kind.to_owned(),
+            provider,
+        })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.0.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+
+    /// What its table sets `key` to, or nothing.
+    fn get(&self, key: &str) -> &str {
+        self.0
+            .provider
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    }
+
+    /// The `kind` in `ghostd.toml`.
+    pub fn kind(&self) -> &str {
+        self.get("kind")
+    }
+
+    pub fn model(&self) -> &str {
+        self.get("model")
+    }
+
+    pub fn base_url(&self) -> &str {
+        self.get("base_url")
+    }
+
+    /// The variable its key is conventionally kept in, if it names one.
+    pub fn key_env(&self) -> &str {
+        self.get("api_key_env")
     }
 
     pub fn wire(&self) -> Wire {
-        Wire::of(self.kind)
+        Wire::of(self.kind())
     }
 
     /// Whether it is a command-line tool rather than an API.
     pub fn cli(&self) -> bool {
-        self.program.is_some()
+        self.wire() == Wire::Cli
     }
 
-    /// The preset a configured brain is, from its kind and where its API
-    /// is; `None` for one the desk has no preset for.
-    pub fn of(kind: &str, base_url: Option<&str>) -> Option<&'static Self> {
-        match kind {
-            "claude-code" | "codex" | "anthropic" => return Self::by_id(kind),
-            _ => {}
+    /// Whether it reads a key: an API not given a stand-in for one.
+    pub fn keyed(&self) -> bool {
+        !self.cli() && !self.0.provider.contains_key("api_key")
+    }
+
+    /// Its mark: the brand's icon, or a plug for a server the desk has
+    /// no icon for.
+    pub fn mark(&self) -> Mark {
+        match Mark::from_words(self.id()) {
+            Mark::Letter(_) => Mark::Icon("plug"),
+            icon @ Mark::Icon(_) => icon,
         }
-        let Some(base) = base_url.filter(|b| !b.is_empty()) else {
-            // The OpenAI-compatible client's own default is OpenAI.
-            return Self::by_id("openai");
-        };
-        let (authority, host) = authority(base);
-        PRESETS.iter().filter(|p| p.kind == kind).find(|p| {
-            p.hosts
-                .iter()
-                .any(|h| authority == *h || host == *h || host.ends_with(&format!(".{h}")))
-        })
     }
 
     /// The fields a new brain from this preset is written with, as
-    /// `[providers.<name>]` keys: what the sheet's fields say, and what the
-    /// preset always adds. An empty field is left out.
-    pub fn fields(&self, draft: &Draft) -> Vec<(&'static str, Value)> {
-        let mut fields = vec![("kind", Value::from(self.kind))];
-        fields.extend(
-            draft
-                .managed()
-                .into_iter()
-                .filter(|(k, v)| !v.is_empty() && self.uses(k))
-                .map(|(k, v)| (k, Value::from(v))),
-        );
-        match self.id {
-            // DeepSeek enforces JSON when asked, as the example deployment has it.
-            "deepseek" => fields.push(("json_mode", true.into())),
-            "ollama" => fields.push(("api_key", NO_KEY.into())),
-            "claude-code" | "codex" => fields.push(("timeout_secs", 120.into())),
-            _ => {}
+    /// `[providers.<name>]` keys: its own table, with what the sheet's
+    /// fields say in place of what it suggests. An empty field is left out.
+    pub fn fields(&self, draft: &Draft) -> serde_json::Map<String, Value> {
+        let mut fields = self.0.provider.clone();
+        for (k, v) in draft.managed() {
+            if !self.uses(k) {
+                continue;
+            }
+            if v.is_empty() {
+                fields.remove(k);
+            } else {
+                fields.insert(k.to_owned(), Value::from(v));
+            }
         }
         fields
     }
@@ -293,7 +134,7 @@ impl Preset {
         match field {
             "model" => true,
             "base_url" => !self.cli(),
-            "api_key_env" => self.key_env.is_some(),
+            "api_key_env" => self.keyed(),
             _ => false,
         }
     }
@@ -472,7 +313,7 @@ fn http_status(text: &str) -> Option<u16> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -520,136 +361,78 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_preset_is_shown_in_the_order_asked_for() {
-        let ids: Vec<&str> = PRESETS.iter().map(|p| p.id).collect();
-        assert_eq!(
-            ids,
-            [
-                "deepseek",
-                "openai",
-                "anthropic",
-                "gemini",
-                "openrouter",
-                "kimi",
-                "qwen",
-                "glm",
-                "grok",
-                "mistral",
-                "groq",
-                "ollama",
-                "claude-code",
-                "codex",
-                "custom"
-            ]
-        );
+    /// Presets as a core offers them.
+    pub(crate) fn offered() -> Vec<Preset> {
+        let json = serde_json::json!([
+            {"id": "deepseek", "name": "DeepSeek", "provider": {"kind": "openai",
+                "model": "deepseek-flash", "base_url": "https://api.deepseek.com",
+                "api_key_env": "DEEPSEEK_API_KEY", "json_mode": true}},
+            {"id": "ollama", "name": "Ollama", "provider": {"kind": "openai",
+                "model": "gpt-oss:20b", "base_url": "http://localhost:11434/v1",
+                "api_key": "ollama"}},
+            {"id": "claude-code", "name": "Claude Code", "provider": {"kind": "claude-code",
+                "model": "sonnet", "timeout_secs": 120}},
+            {"id": "codex", "name": "Codex", "provider": {"kind": "codex", "timeout_secs": 120}},
+            {"id": "custom", "name": "Custom", "provider": {"kind": "openai"}},
+        ]);
+        serde_json::from_value::<Vec<BrainPreset>>(json)
+            .unwrap()
+            .into_iter()
+            .map(Preset)
+            .collect()
     }
 
-    #[test]
-    fn an_api_preset_writes_its_kind_url_model_and_key_variable_and_never_a_key() {
-        let gemini = Preset::by_id("gemini").unwrap();
-        let draft = Draft {
-            model: gemini.model.to_owned(),
-            key_env: gemini.key_env.unwrap().to_owned(),
-            base_url: format!("{}/", gemini.base_url),
-        };
-        let fields: Vec<(&str, String)> = gemini
-            .fields(&draft)
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string().trim().to_owned()))
-            .collect();
-        assert_eq!(
-            fields,
-            [
-                ("kind", "\"openai\"".to_owned()),
-                ("model", "\"gemini-3.8-flash\"".to_owned()),
-                (
-                    "base_url",
-                    "\"https://generativelanguage.googleapis.com/v1beta/openai\"".to_owned()
-                ),
-                ("api_key_env", "\"GEMINI_API_KEY\"".to_owned()),
-            ]
-        );
-        for preset in PRESETS {
-            let draft = Draft {
-                model: preset.model.to_owned(),
-                key_env: preset.key_env.unwrap_or_default().to_owned(),
-                base_url: preset.base_url.to_owned(),
-            };
-            let fields = preset.fields(&draft);
-            assert_eq!(fields[0].1.as_str(), Some(preset.kind), "{}", preset.id);
-            for (k, v) in &fields {
-                if *k == "api_key" {
-                    assert_eq!(v.as_str(), Some(NO_KEY), "only Ollama's placeholder");
-                }
-            }
+    pub(crate) fn by_id(id: &str) -> Preset {
+        offered().into_iter().find(|p| p.id() == id).unwrap()
+    }
+
+    fn draft(p: &Preset) -> Draft {
+        Draft {
+            model: p.model().to_owned(),
+            key_env: p.key_env().to_owned(),
+            base_url: p.base_url().to_owned(),
         }
     }
 
     #[test]
+    fn a_new_brain_is_its_presets_table_with_what_the_fields_say_and_never_a_key() {
+        let deepseek = by_id("deepseek");
+        let mut typed = draft(&deepseek);
+        typed.model = "deepseek-v4-pro".into();
+        typed.base_url = "https://api.deepseek.com/v1/".into();
+        assert_eq!(
+            Value::Object(deepseek.fields(&typed)),
+            serde_json::json!({"kind": "openai", "model": "deepseek-v4-pro",
+                "base_url": "https://api.deepseek.com/v1", "api_key_env": "DEEPSEEK_API_KEY",
+                "json_mode": true})
+        );
+        let ollama = by_id("ollama");
+        assert!(!ollama.keyed(), "it is given a stand-in");
+        assert_eq!(ollama.fields(&draft(&ollama))["api_key"], "ollama");
+        let custom = by_id("custom");
+        assert_eq!(
+            Value::Object(custom.fields(&draft(&custom))),
+            serde_json::json!({"kind": "openai"}),
+            "a custom brain is what you type"
+        );
+    }
+
+    #[test]
     fn each_preset_brings_only_what_it_needs() {
-        let keys = |id: &str| -> Vec<&str> {
-            let p = Preset::by_id(id).unwrap();
-            let draft = Draft {
-                model: p.model.to_owned(),
-                key_env: p.key_env.unwrap_or_default().to_owned(),
-                base_url: p.base_url.to_owned(),
-            };
-            p.fields(&draft).into_iter().map(|(k, _)| k).collect()
+        let keys = |id: &str| -> Vec<String> {
+            let p = by_id(id);
+            p.fields(&draft(&p)).keys().cloned().collect()
         };
-        assert_eq!(
-            keys("deepseek"),
-            ["kind", "model", "base_url", "api_key_env", "json_mode"]
-        );
-        assert_eq!(
-            keys("anthropic"),
-            ["kind", "model", "base_url", "api_key_env"]
-        );
-        assert_eq!(keys("ollama"), ["kind", "model", "base_url", "api_key"]);
         assert_eq!(keys("claude-code"), ["kind", "model", "timeout_secs"]);
         assert_eq!(
             keys("codex"),
             ["kind", "timeout_secs"],
             "no model is its own default"
         );
-        assert_eq!(keys("custom"), ["kind"], "a custom brain is what you type");
-    }
-
-    #[test]
-    fn a_configured_brain_is_known_by_where_its_api_is() {
-        let id = |kind: &str, base: Option<&str>| Preset::of(kind, base).map(|p| p.id);
-        assert_eq!(
-            id("openai", Some("https://api.deepseek.com/v1")),
-            Some("deepseek")
-        );
-        assert_eq!(
-            id(
-                "openai",
-                Some("https://generativelanguage.googleapis.com/v1beta/openai/")
-            ),
-            Some("gemini")
-        );
-        assert_eq!(
-            id("openai", Some("https://open.bigmodel.cn/api/paas/v4")),
-            Some("glm")
-        );
-        assert_eq!(
-            id("openai", Some("http://localhost:11434/v1")),
-            Some("ollama")
-        );
-        assert_eq!(id("openai", Some("https://api.x.ai/v1")), Some("grok"));
-        assert_eq!(
-            id("openai", Some("https://max.ai/v1")),
-            None,
-            "x.ai is a host, not a suffix"
-        );
-        assert_eq!(id("openai", None), Some("openai"));
-        assert_eq!(id("openai", Some("http://localhost:8000/v1")), None);
-        assert_eq!(id("claude-code", None), Some("claude-code"));
-        assert_eq!(
-            id("anthropic", Some("https://proxy.example")),
-            Some("anthropic")
-        );
+        assert!(by_id("codex").cli() && !by_id("codex").uses("base_url"));
+        assert!(by_id("custom").uses("api_key_env"));
+        assert_eq!(by_id("custom").mark(), Mark::Icon("plug"));
+        assert_eq!(by_id("claude-code").mark(), Mark::Icon("claude"));
     }
 
     #[test]

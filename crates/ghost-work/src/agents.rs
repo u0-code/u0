@@ -117,15 +117,16 @@ impl Agent {
     pub async fn check(&self) -> Readiness {
         let says = |args: &[&str]| {
             let mut command = Command::new(&self.cli.program);
-            command.args(args).stdin(Stdio::null()).kill_on_drop(true);
-            for name in handed_on_not(std::env::vars()) {
-                command.env_remove(name);
-            }
+            command
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
             async move {
-                tokio::time::timeout(Duration::from_secs(20), command.output())
+                let answered = ghost_net::spawn(&mut command)?.output();
+                tokio::time::timeout(Duration::from_secs(20), answered)
                     .await
-                    .map_err(|_| std::io::Error::other("it did not answer"))
-                    .and_then(|done| done)
+                    .map_err(|_| std::io::Error::other("it did not answer"))?
             }
         };
         match says(&["--version"]).await {
@@ -190,26 +191,6 @@ fn cause_of(text: &str) -> Option<Cause> {
     } else {
         None
     }
-}
-
-/// The names in `vars`, this process's environment, that belong to a
-/// Claude Code session the daemon was itself started from, and are not
-/// handed on: an agent that inherited them would take that session, and
-/// its login, for its own. A token put in the environment on purpose
-/// (`CLAUDE_CODE_OAUTH_TOKEN`) is handed on.
-fn handed_on_not(vars: impl Iterator<Item = (String, String)>) -> Vec<String> {
-    let names: Vec<String> = vars.map(|(name, _)| name).collect();
-    let inside = names.iter().any(|n| n == "CLAUDECODE");
-    names
-        .into_iter()
-        .filter(|n| {
-            n == "CLAUDECODE"
-                || (n.starts_with("CLAUDE_CODE_") && n != "CLAUDE_CODE_OAUTH_TOKEN")
-                || n.starts_with("CLAUDE_AGENT_SDK_")
-                // Inside a session, the address of the session's own host.
-                || (inside && n == "ANTHROPIC_BASE_URL")
-        })
-        .collect()
 }
 
 /// How one run of the agent came out.
@@ -323,18 +304,11 @@ fn command(agent: &Agent, dir: &Path, prompt: &str, session: Option<&str>) -> Co
             };
         }
     }
-    // Nothing of a Claude Code session the daemon runs inside.
-    for name in handed_on_not(std::env::vars()) {
-        command.env_remove(name);
-    }
     command
         .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    // It reaches the web as she does.
-    ghost_net::pass_on(&mut command);
+        .stderr(Stdio::piped());
     command
 }
 
@@ -484,22 +458,23 @@ async fn once(
     let dir = state
         .dir
         .map_or_else(|| agent.dir.clone(), |d| agent.dir.join(d));
-    let mut child = match command(agent, &dir, prompt, state.session.as_deref()).spawn() {
-        Ok(child) => child,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Run::Unusable(agent.unusable(Cause::Missing));
-        }
-        Err(e) => {
-            return Run::Failed(words.fill(
-                TEXTS,
-                "agent_not_started",
-                &[
-                    ("program", agent.cli.program.clone()),
-                    ("why", e.to_string()),
-                ],
-            ));
-        }
-    };
+    let mut child =
+        match ghost_net::spawn(&mut command(agent, &dir, prompt, state.session.as_deref())) {
+            Ok(child) => child,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Run::Unusable(agent.unusable(Cause::Missing));
+            }
+            Err(e) => {
+                return Run::Failed(words.fill(
+                    TEXTS,
+                    "agent_not_started",
+                    &[
+                        ("program", agent.cli.program.clone()),
+                        ("why", e.to_string()),
+                    ],
+                ));
+            }
+        };
     let Some(stdout) = child.stdout.take() else {
         return Run::Failed(words.text(TEXTS, "agent_no_output").to_owned());
     };
@@ -564,8 +539,9 @@ async fn once(
             noted = note;
         }
     };
+    // Stopped, it is stopped with the shells and servers it started.
     if ended.is_some() {
-        let _ = child.kill().await;
+        child.stop();
     }
     let _ = child.wait().await;
     let complaint = match errors {
@@ -678,36 +654,6 @@ mod tests {
             Some(Cause::Outdated)
         );
         assert_eq!(cause_of("cargo test failed: 3 tests"), None);
-    }
-
-    #[test]
-    fn nothing_of_a_claude_code_session_the_daemon_runs_in_is_handed_on() {
-        let vars = |pairs: &[&str]| {
-            pairs
-                .iter()
-                .map(|n| ((*n).to_owned(), "x".to_owned()))
-                .collect::<Vec<_>>()
-                .into_iter()
-        };
-        let inside = handed_on_not(vars(&[
-            "CLAUDECODE",
-            "CLAUDE_CODE_SESSION_ID",
-            "CLAUDE_AGENT_SDK_VERSION",
-            "CLAUDE_CODE_OAUTH_TOKEN",
-            "ANTHROPIC_BASE_URL",
-            "PATH",
-        ]));
-        assert_eq!(
-            inside,
-            [
-                "CLAUDECODE",
-                "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_AGENT_SDK_VERSION",
-                "ANTHROPIC_BASE_URL"
-            ]
-        );
-        // Outside one, a base URL set on purpose is handed on.
-        assert!(handed_on_not(vars(&["ANTHROPIC_BASE_URL", "PATH"])).is_empty());
     }
 
     fn fake(dir: &std::path::Path, kind: CliKind, body: &str) -> Agent {

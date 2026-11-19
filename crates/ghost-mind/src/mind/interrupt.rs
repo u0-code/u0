@@ -113,10 +113,7 @@ impl Mind {
     fn call_off(&mut self, key: &str) -> Result<CalledOff> {
         self.agenda.attend.remove(key);
         self.retries.remove(key);
-        let under_way = self.thinking.remove(key);
-        if let Some(looking) = &under_way {
-            looking.abort.abort();
-        }
+        let under_way = self.jobs.call_off(key);
         let unsaid = match self.agenda.speaking.get_mut(key) {
             Some(speaking) => {
                 let unsaid = speaking.cut(self.prompts.text("a_file"));
@@ -159,7 +156,6 @@ impl Mind {
             self.end_kept(key, looking.kept, seq);
         }
         if let Some(intention) = under_way.and_then(|l| l.intention) {
-            self.pursuing.remove(&intention);
             self.record(Event::Settled {
                 intention,
                 outcome: format!("{} stopped you in the middle of it", by.name),

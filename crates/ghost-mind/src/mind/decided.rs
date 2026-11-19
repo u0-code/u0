@@ -150,7 +150,7 @@ impl Mind {
                         }
                     }
                 }
-                Action::Steer { work, text } => match self.steer(work, &text, now)? {
+                Action::Steer { work, text } => match self.steer(work, &text)? {
                     None => did.push("passed something on to her work".to_owned()),
                     Some(why) => {
                         self.record(Event::Decided {
@@ -160,7 +160,7 @@ impl Mind {
                         })?;
                     }
                 },
-                Action::Stop { work } => match self.stop_work(work, now)? {
+                Action::Stop { work } => match self.stop_work(work)? {
                     None => did.push("stopped a piece of work".to_owned()),
                     Some(why) => {
                         self.record(Event::Decided {
@@ -273,7 +273,6 @@ impl Mind {
                 intention: intention.seq,
                 outcome: decision,
             })?;
-            self.pursuing.remove(&intention.seq);
         }
         self.refresh_intentions()?;
         if bubbles.is_empty() {

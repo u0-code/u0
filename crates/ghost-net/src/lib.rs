@@ -27,9 +27,10 @@
 //! otherwise the default. The presences have no `ghostd.toml`, and read the
 //! environment alone.
 //!
-//! The programs she starts (her shell, the command-line brains, and the tool
-//! servers those start in turn) are given the same rule by [`pass_on`], in
-//! the variables programs of every kind read.
+//! The programs she starts (her shell, the command-line agents and brains,
+//! and her servers of tools) are started by [`spawn`], which gives them the
+//! same rule in the variables programs of every kind read, and stops each
+//! with everything it started.
 //!
 //! Nothing here changes route by itself. A model API and a platform follow
 //! the setting and nothing else, because a request that silently took
@@ -37,11 +38,15 @@
 //! wants to try the other way when one fails, as her web tools do, asks for
 //! a client that always goes one [`Route`] and decides for itself.
 
+mod program;
+
 use std::{
     fmt,
     net::IpAddr,
     sync::{Arc, OnceLock},
 };
+
+pub use program::{Child, spawn};
 
 pub use reqwest::Url;
 use reqwest::{ClientBuilder, Proxy};
@@ -217,7 +222,7 @@ impl Network {
     /// `GHOST_PROXY` and `GHOST_DIRECT` are removed: a program of ours
     /// started with neither reads the standard variables, which say the
     /// same thing, and a `system` it resolved again could not differ.
-    pub fn child_env(&self) -> Vec<(&'static str, Option<String>)> {
+    pub(crate) fn child_env(&self) -> Vec<(&'static str, Option<String>)> {
         let written = |url: &Option<Url>| url.as_ref().map(|u| u.as_str().to_owned());
         let mut direct = vec!["localhost".to_owned(), "127.0.0.1".into(), "::1".into()];
         direct.extend(self.0.direct.iter().cloned());
@@ -326,16 +331,6 @@ pub fn current() -> &'static Network {
 /// Ghost program makes starts here.
 pub fn builder() -> ClientBuilder {
     current().builder()
-}
-
-/// Give a program about to be started this process's rule.
-pub fn pass_on(command: &mut tokio::process::Command) {
-    for (name, value) in current().child_env() {
-        match value {
-            Some(value) => command.env(name, value),
-            None => command.env_remove(name),
-        };
-    }
 }
 
 /// An entry of a `direct` list as it is matched: lower case, no port, and

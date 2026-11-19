@@ -22,9 +22,8 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use ghost_mind::{Incoming, MindHandle, Question};
+use ghost_mind::{Incoming, MindHandle};
 use ghost_protocol::{GhostCard, Listed, PROTOCOL, Roster};
-use serde_json::Value;
 use tokio::sync::{Notify, watch};
 use tracing::{Instrument as _, Span, error, info, warn};
 
@@ -161,9 +160,9 @@ impl Cast {
     /// mind being started again cannot hold up the list.
     pub async fn roster(&self) -> Roster {
         let each = self.0.iter().map(|who| async move {
-            let asked = tokio::time::timeout(ASK_WITHIN, who.mind().ask(Question::Status)).await;
+            let asked = tokio::time::timeout(ASK_WITHIN, who.mind().status()).await;
             let (awake, doing) = match asked {
-                Ok(Ok(status)) => phase(&status),
+                Ok(Ok(status)) => (Some(status.awake), status.doing),
                 _ => (None, None),
             };
             Listed {
@@ -179,15 +178,6 @@ impl Cast {
             ghosts: futures_util::future::join_all(each).await,
         }
     }
-}
-
-/// Whether her day has her awake, and what it has her doing, as her status
-/// says.
-fn phase(status: &Value) -> (Option<bool>, Option<String>) {
-    let moment = &status["moment"];
-    let awake = moment["phase"].as_str().map(|phase| phase == "awake");
-    let doing = moment["doing"]["what"].as_str().map(str::to_owned);
-    (awake, doing)
 }
 
 /// The ghost directories `paths` names, each with her id. A path is either

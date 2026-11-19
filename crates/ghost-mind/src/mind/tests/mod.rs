@@ -41,7 +41,7 @@ use ghost_core::{
     social::{Actor, Place, PlaceKind},
 };
 
-use super::{Mind, Parts, Question, Signal, Workshop, living};
+use super::{Mind, Parts, Signal, Workshop, living};
 use crate::{Act, Acted, Body, Can, Incoming, MindConfig, Numb, Prompts};
 
 const SEED: &str = r#"
@@ -122,6 +122,9 @@ struct Script {
     /// Steps of work held in the middle until their gate opens, by the
     /// number of the step: the sitting is running all that while.
     held: Mutex<Vec<(usize, Arc<tokio::sync::Notify>)>>,
+    /// How many of the next calls to answer fall over, and how many have.
+    falls: std::sync::atomic::AtomicUsize,
+    fallen: std::sync::atomic::AtomicUsize,
 }
 
 impl Script {
@@ -131,6 +134,16 @@ impl Script {
 
     fn calls(&self) -> usize {
         self.seen.lock().unwrap().len()
+    }
+
+    /// Have the next call to answer fall over: the job it is in panics.
+    fn fall(&self) {
+        self.falls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn fallen(&self) -> usize {
+        self.fallen.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Give it eyes: it is shown the images in what it is sent.
@@ -213,6 +226,13 @@ impl Brain for Script {
 
     async fn complete(&self, req: &Completion) -> ghost_brain::Result<Reply> {
         self.seen.lock().unwrap().push(req.clone());
+        let falls = &self.falls;
+        if falls.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+            falls.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            self.fallen
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            panic!("the brain fell over, as it was told to");
+        }
         let text = self
             .replies
             .lock()
@@ -320,6 +340,9 @@ impl Body for Recorder {
 
 struct Rig {
     mind: Mind,
+    /// Her handle, as her daemon holds it. Her mind is never run here, so
+    /// nothing sent to it is answered: only what is read off it.
+    handle: super::MindHandle,
     think: Arc<Script>,
     tick: Arc<Script>,
     body: Arc<Recorder>,
@@ -425,7 +448,7 @@ impl Rig {
             Arc::new(Script::default()),
             Arc::new(Recorder::default()),
         );
-        let (mut mind, _handle) = Mind::new(Parts {
+        let (mut mind, handle) = Mind::new(Parts {
             ghost,
             think: think.clone(),
             tick: tick.clone(),
@@ -453,6 +476,7 @@ impl Rig {
         .unwrap();
         Self {
             mind,
+            handle,
             think,
             tick,
             body,
@@ -558,16 +582,43 @@ impl Rig {
     }
 
     /// Hand her what a job brought back. A job she called off brings back
-    /// nothing; any other that fell over is a failure of the test.
-    fn outcome(
-        &mut self,
-        done: std::result::Result<super::Outcome, tokio::task::JoinError>,
-        now: DateTime<Utc>,
-    ) {
-        match done {
-            Ok(outcome) => self.mind.on_outcome(outcome, now).unwrap(),
-            Err(e) => assert!(e.is_cancelled(), "a job fell over: {e}"),
+    /// nothing; any other that fell over, unless a brain was told to, is a
+    /// failure of the test.
+    fn outcome(&mut self, done: super::Done, now: DateTime<Utc>) {
+        if let Err(e) = &done.result {
+            let told = self.think.fallen() + self.tick.fallen() > 0;
+            assert!(e.is_cancelled() || told, "a job fell over: {e}");
         }
+        self.mind.on_done(done, now).unwrap();
+    }
+
+    /// Let every job in flight come back, with nothing new falling due:
+    /// what she handed her work database's writer, say.
+    async fn settle(&mut self, now: DateTime<Utc>) {
+        while let Some(done) = self.mind.jobs.join_next().await {
+            self.outcome(done, now);
+        }
+    }
+
+    /// The operator `by` does `order` to her work from a console, at
+    /// `now`: what she answers, once what it set off has come back.
+    async fn order(
+        &mut self,
+        order: crate::Order,
+        by: &crate::Operator,
+        now: DateTime<Utc>,
+    ) -> Result<(), crate::Refused> {
+        let (answer, told) = tokio::sync::oneshot::channel();
+        self.mind.on_order(order, by, answer).unwrap();
+        self.settle(now).await;
+        told.await.unwrap()
+    }
+
+    /// The record of the work `id` in her work database, made from
+    /// `brief` if it is not there, to write to as the work does.
+    fn record(&self, id: &str, brief: &str) -> ghost_work::Undertaking {
+        let db = self.mind.ghost.dir().join(ghost_work::WORK_DB);
+        ghost_work::Undertaking::open(&db, id, Some(brief)).unwrap()
     }
 
     /// Keep stepping beside a running sitting until `done`.
@@ -602,6 +653,16 @@ impl Rig {
             }
         }
         panic!("never happened");
+    }
+
+    /// A reader of her, as a console's questions are answered: off her
+    /// mind, from what she has written and what it last said is under way.
+    fn reader(&self) -> super::Reader {
+        super::Reader::new(
+            self.mind.ghost.dir().to_path_buf(),
+            self.mind.cfg.operators.clone(),
+            self.mind.live.subscribe(),
+        )
     }
 
     fn kinds(&self) -> Vec<&'static str> {
@@ -879,5 +940,10 @@ fn operated() -> MindConfig {
 
 /// The pieces of work with a sitting running, by id.
 fn running(rig: &Rig) -> Vec<String> {
-    rig.mind.working.keys().cloned().collect()
+    rig.mind
+        .jobs
+        .sittings()
+        .into_iter()
+        .map(|(id, _)| id.clone())
+        .collect()
 }

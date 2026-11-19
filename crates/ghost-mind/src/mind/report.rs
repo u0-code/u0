@@ -21,7 +21,7 @@ use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
     journal::Event,
     memory::{Intention, PlaceState},
-    social::{self, PlaceKind},
+    social,
     when::when,
 };
 use tracing::info;
@@ -242,7 +242,7 @@ impl Mind {
                 _ => continue,
             };
             let kind = &mut found[of];
-            if self.private_elsewhere(origin.as_deref(), &here.key)? {
+            if self.kept_from_origin(origin.as_deref(), &here.key)? {
                 kind.private += 1;
             } else {
                 kind.lines.push(line);
@@ -309,22 +309,18 @@ impl Mind {
         ))
     }
 
-    /// Whether something came of a private conversation with someone other
-    /// than the one she is in: `origin` is the place it came from, or the
-    /// piece of work it came of.
-    fn private_elsewhere(&self, origin: Option<&str>, here: &str) -> Result<bool> {
+    /// Whether something is kept from `here` by the rule for what she was
+    /// told in private: `origin` is the place it came from, or the piece of
+    /// work it came of, which came of the place it was taken on in.
+    fn kept_from_origin(&self, origin: Option<&str>, here: &str) -> Result<bool> {
         let Some(origin) = origin else {
             return Ok(false);
         };
-        let memory = self.ghost.memory();
-        let place = match memory.place(origin)? {
-            Some(place) => Some(place),
-            None => match memory.undertaking(origin)?.and_then(|u| u.place) {
-                Some(key) => memory.place(&key)?,
-                None => None,
-            },
+        let from = match self.ghost.memory().undertaking(origin)? {
+            Some(work) => work.place,
+            None => Some(origin.to_owned()),
         };
-        Ok(place.is_some_and(|p| p.kind == PlaceKind::Direct && p.key != here))
+        from.map_or(Ok(false), |from| self.kept_from(&from, here))
     }
 
     /// A piece of work by what it was, in a few words.

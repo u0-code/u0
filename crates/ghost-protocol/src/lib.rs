@@ -63,11 +63,10 @@ pub mod method {
     /// registered this channel; this one has been replaced and should stop.
     pub const DISPLACED: &str = "presence.displaced";
 
-    /// Console → daemon request. No params. Result: who she is and what
-    /// she is in the middle of, as a JSON object; among it, what she can do
-    /// besides talk, under `abilities`, as [`Abilities`](super::Abilities),
-    /// and where her daemon runs, under `core`, as
-    /// [`CoreInfo`](super::CoreInfo).
+    /// Console → daemon request. No params. Result
+    /// [`GhostStatus`](super::GhostStatus): who she is and what she is in
+    /// the middle of, what she can do besides talk, and where her daemon
+    /// runs.
     pub const STATUS: &str = "ghost.status";
     /// Console → daemon request. No params.
     pub const AGENDA: &str = "mind.agenda";
@@ -95,9 +94,10 @@ pub mod method {
     pub const CANON: &str = "memory.canon";
     /// Console → daemon request. No params. Every place she is in.
     pub const PLACES: &str = "memory.places";
-    /// Console → daemon request. Params [`PlaceRead`](super::PlaceRead). The
-    /// journal entries that belong to one place: what was said there and
-    /// what she made of it.
+    /// Console → daemon request. Params [`PlaceRead`](super::PlaceRead),
+    /// result: a list of [`Entry`](super::Entry), oldest first. The journal
+    /// entries that belong to one place: what was said there and what she
+    /// made of it.
     pub const JOURNAL_PLACE: &str = "journal.place";
     /// Console → daemon request. No params. Result: a list of
     /// [`Work`](super::Work), what she has in hand and what ended lately,
@@ -115,12 +115,13 @@ pub mod method {
     /// round: the looks that ended after a journal entry, and the one she
     /// is in the middle of. Kept for a fortnight.
     pub const LOOK_STEPS: &str = "look.steps";
-    /// Console → daemon request. Params [`JournalRead`](super::JournalRead).
+    /// Console → daemon request. Params [`JournalRead`](super::JournalRead),
+    /// result: a list of [`Entry`](super::Entry), oldest first.
     pub const JOURNAL_READ: &str = "journal.read";
     /// Console → daemon request. No params. Afterwards the daemon sends a
     /// [`JOURNAL_ENTRY`] notification for every entry as it is written.
     pub const JOURNAL_SUBSCRIBE: &str = "journal.subscribe";
-    /// Daemon → console notification. Params: one journal entry.
+    /// Daemon → console notification. Params: one [`Entry`](super::Entry).
     pub const JOURNAL_ENTRY: &str = "journal.entry";
     /// Console → daemon request. Params [`ConsoleSay`](super::ConsoleSay),
     /// result [`ConsoleSaid`](super::ConsoleSaid). Whoever is at the
@@ -227,9 +228,11 @@ pub mod method {
     /// [`BRAIN_SAVE`] is.
     pub const BRAIN_USE: &str = "brains.use";
     /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
-    /// result [`BrainModels`](super::BrainModels): the models an API's own
-    /// listing offers, asked by the daemon, with the key it holds. Only an
-    /// operator may ask, since it spends the key.
+    /// result [`BrainModels`](super::BrainModels): the models a brain
+    /// offers, as the daemon finds them on its own machine: an API's own
+    /// listing, asked with the key it holds, or what a command-line agent
+    /// installed there knows. Only an operator may ask, since it spends
+    /// the key.
     pub const BRAIN_MODELS: &str = "brains.models";
     /// Console → daemon request. Params [`BrainAsk`](super::BrainAsk),
     /// result `{}`: the brain was asked to think once, as little as there
@@ -822,6 +825,18 @@ pub struct Session {
     pub last: Option<String>,
 }
 
+impl Session {
+    /// The longest name a session is given; more is cut.
+    pub const TITLE_MOST: usize = 80;
+
+    /// A name as a daemon keeps it: on one line, its spaces as one, cut at
+    /// [`TITLE_MOST`](Self::TITLE_MOST). `None` when nothing is left.
+    pub fn tidy(title: &str) -> Option<String> {
+        let one = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!one.is_empty()).then(|| one.chars().take(Self::TITLE_MOST).collect())
+    }
+}
+
 /// Params of [`method::SESSION_NEW`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionNew {
@@ -1354,6 +1369,70 @@ pub struct CoreInfo {
     pub host: Option<String>,
 }
 
+/// The result of [`method::STATUS`]: who she is, what she is in the middle
+/// of, and what she can do besides talk.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GhostStatus {
+    pub name: String,
+    pub pronouns: String,
+    pub city: String,
+    pub country: String,
+    /// The seal of her persona as she lives it.
+    pub seal: String,
+    /// Her timezone, as the tz database names it: `Asia/Shanghai`.
+    pub timezone: String,
+    /// Her clock, `YYYY-MM-DD HH:MM`.
+    pub local_time: String,
+    /// Whether her day has her awake now.
+    pub awake: bool,
+    /// What her day has her doing now, in her plan's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
+    /// The seq of the newest entry in her journal.
+    pub journal: i64,
+    /// The channels she can be reached on now, by name.
+    #[serde(default)]
+    pub channels: Vec<String>,
+    /// How fast her day goes: 1 is a person's pace.
+    pub tempo: f32,
+    /// The brain she thinks with, in conversation and reflection, by its
+    /// label (`openai/deepseek-flash`).
+    pub think: String,
+    /// The brain she ticks with, the routine of her day, by its label.
+    pub tick: String,
+    /// The context window of the brain she thinks with, in tokens, where
+    /// it is known: a console shows how full her looks keep it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub think_window: Option<u64>,
+    /// The same, of the brain she ticks with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tick_window: Option<u64>,
+    /// How many brain calls she made in the last hour.
+    pub calls_this_hour: u32,
+    /// What she can do besides talk.
+    pub abilities: Abilities,
+    /// Where her daemon runs: the daemon's to say, beside what she is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core: Option<CoreInfo>,
+}
+
+/// One entry of her journal, as [`method::JOURNAL_READ`],
+/// [`method::JOURNAL_PLACE`] and [`method::JOURNAL_ENTRY`] carry it. What
+/// happened is as her journal keeps it: its `kind`, and its `data`, whose
+/// shape is the journal's for that kind. The journal's vocabulary is her
+/// core's, a format kept for ever, and a console reads the kinds it shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    pub seq: i64,
+    /// When it was written.
+    pub at: chrono::DateTime<chrono::Utc>,
+    /// The name it is written under: `heard`, `said`, `undertook`.
+    pub kind: String,
+    /// What it says. `null` for a kind that says nothing more.
+    #[serde(default)]
+    pub data: Value,
+}
+
 /// The result of [`method::BRAINS`], and of every request that changes
 /// the brains: what they are once it has.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1370,6 +1449,9 @@ pub struct BrainList {
     /// no home says no: its configuration is a file it was given.
     #[serde(default)]
     pub changeable: bool,
+    /// The brains it knows how to add, in the order to offer them.
+    #[serde(default)]
+    pub presets: Vec<BrainPreset>,
 }
 
 /// One brain a daemon is configured with, in a [`BrainList`].
@@ -1403,6 +1485,10 @@ pub struct BrainInfo {
     /// on that machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocker: Option<String>,
+    /// The [`BrainPreset`] it is, by its id, when the daemon knows it for
+    /// one: by its kind, and the host its API is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
 }
 
 /// Params of [`method::BRAIN_SAVE`].
@@ -1481,8 +1567,36 @@ pub struct BrainAsk {
 /// The result of [`method::BRAIN_MODELS`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrainModels {
-    /// By id, as the API lists them.
-    pub models: Vec<String>,
+    /// In the order the brain gives them.
+    pub models: Vec<BrainModel>,
+}
+
+/// One model a brain offers, in [`BrainModels`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainModel {
+    /// What it is asked for by, as [`BrainUse::model`] takes it. Empty for
+    /// a command-line agent's own default.
+    pub id: String,
+    /// The name the brain itself shows it by, where it gives one; for the
+    /// default, the model that is, where the agent says.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+}
+
+/// A brain a daemon knows how to add, in [`BrainList::presets`]: what a
+/// person would otherwise look up in a provider's documentation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrainPreset {
+    /// What a brain from it is saved as unless named otherwise, and how
+    /// [`BrainInfo::preset`] names it.
+    pub id: String,
+    /// The provider's name, as shown.
+    pub name: String,
+    /// The `[providers.<id>]` keys a new brain from it is written with, as
+    /// [`BrainSave::set`] has them: its `kind`, and as it needs, the
+    /// `base_url` of its API, the `api_key_env` its key is conventionally
+    /// kept in, a `model` to start from, and anything else it takes.
+    pub provider: serde_json::Map<String, Value>,
 }
 
 #[cfg(test)]
@@ -1560,6 +1674,45 @@ mod tests {
         );
         let used: BrainUse = serde_json::from_str(r#"{"name":"main"}"#).unwrap();
         assert_eq!(used.model, None, "left out, the model it is set to");
+    }
+
+    #[test]
+    fn a_model_without_a_name_of_its_own_goes_by_its_id_alone() {
+        let models = BrainModels {
+            models: vec![
+                BrainModel {
+                    id: String::new(),
+                    name: "gpt-x".into(),
+                },
+                BrainModel {
+                    id: "deepseek-flash".into(),
+                    name: String::new(),
+                },
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&models).unwrap(),
+            serde_json::json!({"models": [{"id": "", "name": "gpt-x"}, {"id": "deepseek-flash"}]})
+        );
+        let preset: BrainPreset = serde_json::from_str(
+            r#"{"id":"ollama","name":"Ollama","provider":{"kind":"openai","api_key":"ollama"}}"#,
+        )
+        .unwrap();
+        assert_eq!(preset.provider["kind"], "openai");
+    }
+
+    #[test]
+    fn a_session_name_is_one_line_with_single_spaces_cut_at_the_most_a_name_is() {
+        assert_eq!(
+            Session::tidy("  Disk \n  space ").as_deref(),
+            Some("Disk space")
+        );
+        assert_eq!(Session::tidy(" \n "), None);
+        let long = "x".repeat(Session::TITLE_MOST + 5);
+        assert_eq!(
+            Session::tidy(&long).map(|t| t.chars().count()),
+            Some(Session::TITLE_MOST)
+        );
     }
 
     #[test]

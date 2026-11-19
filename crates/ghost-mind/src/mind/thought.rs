@@ -1,5 +1,9 @@
 //! What a brain made of a look, as it comes back: an answer, a turn of tool
 //! calls to be answered, what she went to look up, or a failure to retry.
+//!
+//! Each round, and where the look ended, is kept for whoever watches her
+//! think in the record of her looks; her work database's writer keeps them
+//! (see `writer`), so a look never waits on that database.
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Call, Item, Step};
@@ -7,17 +11,15 @@ use ghost_core::{
     journal::Event, media, memory::PlaceState, narrate, social::PlaceKind, when::when,
 };
 use ghost_work::{
-    WORK_DB,
     catalog::{self, Need},
-    looks::Looks,
     steps,
     undertaking::placeholder,
 };
-use serde_json::{Value, json};
-use tracing::{debug, warn};
+use serde_json::json;
+use tracing::warn;
 
 use super::{
-    Attend, Mind, Outcome,
+    Attend, Mind, Outcome, Purpose,
     attend::{Found, Looking, Thinking, Thought, Why},
 };
 use crate::{
@@ -44,17 +46,6 @@ impl Mind {
         result: Result<Thought>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        if self
-            .thinking
-            .get(&job.place)
-            .is_none_or(|looking| looking.look != job.look)
-        {
-            // She was stopped in the middle of this look before it came
-            // back: what it came to is not hers to act on.
-            debug!("{}: a look she was stopped in came back", job.place);
-            return Ok(());
-        }
-        self.thinking.remove(&job.place);
         let Some(place) = self.ghost.memory().place(&job.place)? else {
             return Ok(());
         };
@@ -239,11 +230,12 @@ impl Mind {
     }
 
     /// Keep one round of the look `job`, called `at`, where looks keep
-    /// their rounds, numbering the look if this is its first. A call still
-    /// out, `None`, is left out. A round of no calls is kept only for what
-    /// the brain's turn cost, so that a look that only answered still says
-    /// what it read. The look goes on whether or not it could be kept: it
-    /// is a record of her thinking, not a part of it.
+    /// their rounds: handed to her work database's writer, the look
+    /// beginning there with its first. A call still out, `None`, is left
+    /// out. A round of no calls is kept only for what the brain's turn
+    /// cost, so that a look that only answered still says what it read.
+    /// The look goes on without waiting for it, and whether or not it
+    /// could be kept: it is a record of her thinking, not a part of it.
     fn keep_round(
         &mut self,
         job: &mut Thinking,
@@ -261,42 +253,41 @@ impl Mind {
         if !job.context.is_empty() {
             round["context"] = json!(job.context);
         }
-        if let Err(e) = self.kept_round(job, at, &round) {
-            warn!("{}: could not keep a round of the look: {e}", job.place);
-        }
-    }
-
-    fn kept_round(
-        &mut self,
-        job: &mut Thinking,
-        at: DateTime<Utc>,
-        round: &Value,
-    ) -> std::io::Result<()> {
-        let looks = match &mut self.kept_looks {
-            Some(looks) => looks,
-            none => none.insert(Looks::open(&self.ghost.dir().join(WORK_DB))?),
-        };
-        let kept = match job.kept {
-            Some(kept) => kept,
-            None => *job.kept.insert(looks.begin(&job.place, at)?),
-        };
-        looks.round(kept, round)
+        let since = *job.kept.get_or_insert(at);
+        let place = job.place.clone();
+        self.write(
+            None,
+            move |work| {
+                if let Err(e) = work.round(&place, since, &round) {
+                    warn!("{place}: could not keep a round of the look: {e}");
+                }
+            },
+            |()| Outcome::Done,
+        );
     }
 
     /// The look `job` ended with the journal entry `seq`: the record of
     /// her looks says where, if it kept the look.
-    pub(super) fn end_look(&self, job: &Thinking, seq: i64) {
+    pub(super) fn end_look(&mut self, job: &Thinking, seq: i64) {
         self.end_kept(&job.place, job.kept, seq);
     }
 
-    /// The look kept as `kept` in `place`, if one was, ended with the
-    /// journal entry `seq`.
-    pub(super) fn end_kept(&self, place: &str, kept: Option<i64>, seq: i64) {
-        if let (Some(looks), Some(kept)) = (&self.kept_looks, kept)
-            && let Err(e) = looks.end(kept, seq)
-        {
-            warn!("{place}: could not say where a look ended: {e}");
-        }
+    /// The look in `place` that began keeping rounds `kept`, if it kept
+    /// any, ended with the journal entry `seq`.
+    pub(super) fn end_kept(&mut self, place: &str, kept: Option<DateTime<Utc>>, seq: i64) {
+        let Some(since) = kept else {
+            return;
+        };
+        let place = place.to_owned();
+        self.write(
+            None,
+            move |work| {
+                if let Err(e) = work.end_look(&place, since, seq) {
+                    warn!("{place}: could not say where a look ended: {e}");
+                }
+            },
+            |()| Outcome::Done,
+        );
     }
 
     /// One turn of a look made of tool calls came back. What she asked to
@@ -421,9 +412,16 @@ impl Mind {
                     clip(&call.args.to_string(), 80)
                 );
             }
-            let (look, intention, kept) = (job.look, job.intention(), job.kept);
+            let looking = Looking {
+                intention: job.intention(),
+                kept: job.kept,
+            };
             let words = self.prompts.store().clone();
-            let abort = self.jobs.spawn(async move {
+            let purpose = Purpose::Look {
+                place: place.key.clone(),
+                looking,
+            };
+            self.jobs.spawn_for(purpose, async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
                     let started = std::time::Instant::now();
@@ -438,15 +436,6 @@ impl Mind {
                     result: Ok(Thought::Looked(found)),
                 }
             });
-            self.thinking.insert(
-                place.key.clone(),
-                Looking {
-                    look,
-                    abort,
-                    intention,
-                    kept,
-                },
-            );
             return Ok(());
         }
         if again {
@@ -498,7 +487,6 @@ impl Mind {
         // an end; one given up ends with the entry that says so, below.
         if let Why::Intention(intention) = &job.why {
             // Try the intention again later rather than losing it.
-            self.pursuing.remove(&intention.seq);
             self.held.insert(intention.seq, now + Duration::minutes(10));
             return self.refresh_intentions();
         }

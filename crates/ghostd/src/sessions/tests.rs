@@ -149,13 +149,3 @@ fn a_new_session_takes_the_id_proposed_only_when_it_is_free_and_fit() {
     let long = "x".repeat(ID_MOST + 1);
     assert_eq!(fresh(Some(&long), &[], 7), "s7");
 }
-
-#[test]
-fn a_name_is_kept_on_one_line_and_cut_short() {
-    assert_eq!(
-        tidy("  Free\tsome \n disk "),
-        Some("Free some disk".to_owned())
-    );
-    assert_eq!(tidy(" \n "), None);
-    assert_eq!(tidy(&"é".repeat(100)).unwrap().chars().count(), TITLE_MOST);
-}

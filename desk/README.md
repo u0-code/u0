@@ -267,13 +267,12 @@ The brain chip beside the line, and the solver's row at the foot of the
 sidebar, open a small picker: every brain the core says it has (`brains.list`),
 with its mark and its name, and the models of the one looked at, with a
 check on the one in use. The models come from the brain itself, none
-from a list in the desk: Claude Code's are read out of the build
-installed on this machine, once per build, under the names Claude Code
-gives them (Opus 4.5, Sonnet 4.5); Codex's are what its own cache lists
-for your account; an API's are what its `/models` says, asked by the core
-with the key it holds (`brains.models`) when the desk starts and again
-after a day, and kept in `~/.config/ghost-desk/models.json` so that the
-picker has them at once, with or without the network. Picking a model
+from a list in the desk, and are found by the core on its own machine,
+where the brain runs (`brains.models`), once a run when the desk starts:
+Claude Code's are read out of the build installed there, under the names
+Claude Code gives them (Opus, Sonnet 4.5); Codex's are what its own cache
+there lists for your account; an API's are what its `/models` says, asked
+with the key the core holds. Picking a model
 asks the core to have her think with it (`brains.use`): it first asks the
 brain to think once, as little as there is, the way her mind would. If it
 cannot (a CLI signed out answers for its version but not for this), the
@@ -281,10 +280,10 @@ desk says why in plain words and keeps the brain it had; otherwise the
 core writes `[brain]` and starts her mind again on it, by itself.
 
 
-**Add brain…** opens a sheet with a tile for each provider the desk knows:
-DeepSeek, OpenAI, Anthropic, Gemini, OpenRouter, Kimi, Qwen, GLM, Grok,
-Mistral, Groq, Ollama on this machine, the Claude Code and Codex CLIs you
-are signed in to, and any other OpenAI-compatible API. A tile fills in the
+**Add brain…** opens a sheet with a tile for each provider the core
+offers (`brains.list` carries them): DeepSeek, OpenAI, Anthropic, Gemini,
+OpenRouter, Kimi, Qwen, GLM, Grok, Mistral, Groq, Ollama, the Claude Code
+and Codex CLIs, and any other OpenAI-compatible API. A tile fills in the
 provider's base URL, the variable its key is conventionally in, and a model
 to start from; the model field offers the provider's own list once the key
 is there, and the key's variable says whether the core has it. Test has

@@ -9,11 +9,11 @@
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Brain, Completion};
-use ghost_core::{journal::Event, narrate, social::PlaceKind, when::when};
+use ghost_core::{journal::Event, narrate, when::when};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
-use super::{Mind, Outcome};
+use super::{Mind, Outcome, Purpose};
 use crate::{
     Act, Acted, Can, Prompts, Result,
     actions::{self, clip},
@@ -171,14 +171,19 @@ impl Mind {
                 matches!(&e.event, Event::Measured { channel: c, .. } if c == channel)
                     && now - e.at < Duration::hours(i64::from(hours))
             });
-        if asked_recently || !self.measuring.insert(channel.to_owned()) {
+        if asked_recently
+            || self
+                .jobs
+                .any(|p| matches!(p, Purpose::Measure(at) if at == channel))
+        {
             return Ok(());
         }
         let (body, channel) = (self.body.clone(), channel.to_owned());
-        self.jobs.spawn(async move {
-            let result = body.act(&channel, Act::Measure).await;
-            Outcome::Measured { channel, result }
-        });
+        self.jobs
+            .spawn_for(Purpose::Measure(channel.clone()), async move {
+                let result = body.act(&channel, Act::Measure).await;
+                Outcome::Measured { channel, result }
+            });
         Ok(())
     }
 
@@ -187,7 +192,6 @@ impl Mind {
         channel: &str,
         result: std::result::Result<Acted, String>,
     ) -> Result<()> {
-        self.measuring.remove(channel);
         let measure = match result {
             Ok(acted) => acted.measure.unwrap_or_default(),
             Err(e) => {
@@ -222,28 +226,18 @@ impl Mind {
     ) -> Result<Completion> {
         let memory = self.ghost.memory();
         // What she was told in private lately: the things a post must not
-        // carry out into the open.
-        let mut private = Vec::new();
-        for person in memory.people()?.into_iter().take(40) {
-            for note in memory.notes(&person.key, 6)? {
-                let told_privately = match note.place.as_deref() {
-                    Some(key) => memory
-                        .place(key)?
-                        .is_some_and(|p| p.kind == PlaceKind::Direct),
-                    None => false,
-                };
-                if told_privately {
-                    private.push(self.prompts.fill(
-                        "gate_private",
-                        &[
-                            ("name", person.name.clone()),
-                            ("note", clip(&note.text, 200)),
-                        ],
-                    ));
-                }
-            }
-        }
-        private.truncate(30);
+        // carry out into the open. A post is in no private conversation, so
+        // by `private_elsewhere` all of it is kept from one.
+        let private: Vec<String> = memory
+            .private_notes(30)?
+            .into_iter()
+            .map(|(name, note)| {
+                self.prompts.fill(
+                    "gate_private",
+                    &[("name", name), ("note", clip(&note.text, 200))],
+                )
+            })
+            .collect();
         let canon: Vec<String> = memory
             .canon(30)?
             .iter()

@@ -14,7 +14,7 @@
 //! says it runs, or a control that does what it says; there are no entries
 //! for things that do not work yet.
 
-use ghost_link::protocol::Listed;
+use ghost_link::protocol::{Listed, Work};
 use gpui::{
     AnyElement, Context, Corner, Div, FontWeight, MouseButton, SharedString, Stateful, anchored,
     deferred, div, prelude::*, px,
@@ -28,7 +28,7 @@ use crate::{
     sessions::{self, Session},
     solver::Provider,
     theme,
-    thread::{self, State, Task},
+    thread::{self, Task},
     ui,
 };
 
@@ -352,7 +352,7 @@ impl Desk {
         }
         for i in found {
             let session = &all[i];
-            let tasks = thread::session_tasks(&self.solver.journal, &session.id);
+            let tasks = thread::session_tasks(&self.solver.journal, &self.solver.work, &session.id);
             list = list.child(self.session_row(faces, session, &tasks, cx));
             let parts = thread::open_parts(&tasks);
             let count = parts.len();
@@ -451,12 +451,9 @@ impl Desk {
             .when(on || menu_open, |d| d.bg(theme::panel2()))
             .when(!on && !menu_open, |d| d.hover(|x| x.bg(theme::hover())))
             .child(name)
-            .children(thread::session_state(tasks).map(|st| {
-                ui::dot(match st {
-                    State::Waiting => theme::accent(),
-                    _ => theme::accent(),
-                })
-            }))
+            .when(tasks.iter().any(Task::open), |d| {
+                d.child(ui::dot(theme::accent()))
+            })
             .when(!renaming, |d| d.child(more))
             .on_click(cx.listener(move |this, _, _, cx| this.choose(&for_click, cx)))
             .on_mouse_down(
@@ -590,7 +587,7 @@ impl Desk {
 fn part_row(
     faces: &Faces,
     session: &str,
-    part: &Task<'_>,
+    part: &Work,
     last: bool,
     cx: &mut Context<Desk>,
 ) -> Stateful<Div> {
@@ -607,7 +604,7 @@ fn part_row(
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .child(connector(last))
-        .child(ui::dot(part.state().color()))
+        .child(ui::dot(thread::state_color(part.state)))
         .child(ui::one_line(
             ui::text(faces, part.brief.clone())
                 .text_size(px(13.))

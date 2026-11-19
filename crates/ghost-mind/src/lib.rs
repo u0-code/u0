@@ -21,7 +21,7 @@ pub mod senses;
 pub use body::{Act, Acted, Body, Can, ChannelFacts, Feed, Incoming, Measure};
 pub use config::{CONSOLE, ChannelConfig, MindConfig, Operators, PlaceConfig, WorkConfig};
 pub use mind::{
-    Mind, MindHandle, Operator, Order, Parts, Question, Refused, SessionChange, Workshop,
+    Mind, MindHandle, Operator, Order, Parts, Question, Reader, Refused, SessionChange, Workshop,
 };
 pub use prompts::Prompts;
 pub use senses::{Forecast, Numb, OpenMeteo, Senses};
@@ -34,6 +34,8 @@ pub enum Error {
     Brain(#[from] ghost_brain::Error),
     #[error("could not understand the brain: {0}")]
     Parse(String),
+    #[error("{0}")]
+    Record(String),
     #[error("the mind has stopped")]
     Stopped,
 }

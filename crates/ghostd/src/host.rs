@@ -31,19 +31,19 @@ use tracing::warn;
 pub const FILE: &str = "core-id";
 
 /// Where a daemon keeps its id: its home; run without one, the directory
-/// of the configuration it read; with neither, the directory of the first
-/// character it runs, which is always there.
-pub(crate) fn keeps_in(home: Option<&Path>, config: Option<&Path>, first: &Path) -> PathBuf {
-    home.map(Path::to_path_buf)
-        .or_else(|| {
-            let dir = config?.parent()?;
-            Some(if dir.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                dir.to_path_buf()
-            })
-        })
-        .unwrap_or_else(|| first.to_path_buf())
+/// its first character's directory is in, beside her as a home keeps it
+/// beside its `ghosts/`. What a daemon keeps goes where its characters are
+/// written, never beside its configuration, which is often somewhere it
+/// may only read (`/etc` under systemd) or a checkout. Two daemons running
+/// characters from one directory share the id, as they share the file
+/// system it stands for; her directory's name keeps each apart.
+pub(crate) fn keeps_in(home: Option<&Path>, first: &Path) -> PathBuf {
+    if let Some(home) = home {
+        return home.to_path_buf();
+    }
+    let full = first.canonicalize().unwrap_or_else(|_| first.to_path_buf());
+    full.parent()
+        .map_or_else(|| full.clone(), Path::to_path_buf)
 }
 
 /// This daemon as it says where it runs: its id, read from `dir` or made
@@ -201,24 +201,25 @@ mod tests {
     }
 
     #[test]
-    fn the_id_is_kept_in_the_home_else_beside_the_configuration_else_with_her() {
-        let her = Path::new("/srv/ghosts/weiwei");
-        assert_eq!(
-            keeps_in(
-                Some(Path::new("/home/me/Ghost")),
-                Some(Path::new("/etc/ghostd.toml")),
-                her
-            ),
-            Path::new("/home/me/Ghost")
-        );
-        assert_eq!(
-            keeps_in(None, Some(Path::new("/etc/ghost/ghostd.toml")), her),
-            Path::new("/etc/ghost")
-        );
-        assert_eq!(
-            keeps_in(None, Some(Path::new("ghostd.toml")), her),
-            Path::new(".")
-        );
-        assert_eq!(keeps_in(None, None, her), her);
+    fn the_id_is_kept_in_the_home_else_where_her_directory_is_never_beside_the_configuration() {
+        let home = Path::new("/home/me/Ghost");
+        assert_eq!(keeps_in(Some(home), Path::new("/srv/weiwei")), home);
+
+        // As the systemd unit runs her: `ghostd run /var/lib/ghost/weiwei
+        // --config /etc/ghost/ghostd.toml`, where /etc is hers only to read.
+        let root = tempfile::tempdir().unwrap();
+        let (etc, lib) = (root.path().join("etc"), root.path().join("lib"));
+        let her = lib.join("weiwei");
+        fs::create_dir_all(&her).unwrap();
+        fs::create_dir_all(&etc).unwrap();
+        fs::write(etc.join("ghostd.toml"), "").unwrap();
+        let lib = lib.canonicalize().unwrap();
+        assert_eq!(keeps_in(None, &her), lib);
+        assert_eq!(keeps_in(None, &her.join(".")), lib, "named from inside");
+
+        let made = core(&keeps_in(None, &her)).unwrap();
+        assert_eq!(Path::new(&made.id_file), lib.join(FILE));
+        assert_eq!(core(&keeps_in(None, &her)).unwrap().id, made.id, "again");
+        assert!(!etc.join(FILE).exists() && !her.join(FILE).exists());
     }
 }

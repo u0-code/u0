@@ -24,10 +24,14 @@ use std::{
     time::Duration,
 };
 
-use ghost_brain::config::ProviderConfig;
+use ghost_brain::{
+    cli_models,
+    config::ProviderConfig,
+    presets::{PRESETS, Preset},
+};
 use ghost_protocol::{
-    BrainAsk, BrainInfo, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, Frame, code,
-    method,
+    BrainAsk, BrainInfo, BrainList, BrainModel, BrainModels, BrainPreset, BrainRemove, BrainSave,
+    BrainUse, Frame, code, method,
 };
 use serde_json::Value as Json;
 use toml_edit::DocumentMut;
@@ -103,6 +107,7 @@ impl Held {
             think: Some(cfg.brain.think.clone()),
             tick: Some(cfg.brain.tick.clone()),
             changeable: self.home.is_some(),
+            presets: PRESETS.iter().map(preset).collect(),
         }
     }
 
@@ -231,12 +236,31 @@ impl Held {
         Ok(self.list().await)
     }
 
-    /// `brains.models`: what the API of the brain asked about lists.
+    /// `brains.models`: what the brain asked about offers, found on this
+    /// machine: what its API lists, or what the agent installed here knows.
     pub(crate) async fn models(&self, ask: &BrainAsk) -> Result<BrainModels, Refusal> {
         let p = self.provider(ask)?;
-        Ok(BrainModels {
-            models: list_models(&p).await?,
-        })
+        let models = match p.agent() {
+            Some(agent) => tokio::task::spawn_blocking(move || cli_models::offered(&agent))
+                .await
+                .map_err(|e| internal(e.into()))?
+                .map_err(|why| (code::BRAIN_FAILED, why))?
+                .into_iter()
+                .map(|o| BrainModel {
+                    id: o.id,
+                    name: o.name,
+                })
+                .collect(),
+            None => list_models(&p)
+                .await?
+                .into_iter()
+                .map(|id| BrainModel {
+                    id,
+                    name: String::new(),
+                })
+                .collect(),
+        };
+        Ok(BrainModels { models })
     }
 
     /// `brains.check`: the brain asked about thinks once.
@@ -450,6 +474,19 @@ fn env_set(var: &str) -> bool {
     std::env::var(var).is_ok_and(|v| !v.trim().is_empty())
 }
 
+/// A preset as `brains.list` offers it.
+fn preset(p: &Preset) -> BrainPreset {
+    let provider = match serde_json::to_value(p.table()) {
+        Ok(Json::Object(table)) => table,
+        _ => serde_json::Map::new(),
+    };
+    BrainPreset {
+        id: p.id.to_owned(),
+        name: p.name.to_owned(),
+        provider,
+    }
+}
+
 /// One brain as `brains.list` has it, with whether this machine can run it.
 async fn info(name: &str, p: &ProviderConfig, cfg: &Config) -> BrainInfo {
     let mut out = BrainInfo {
@@ -472,6 +509,7 @@ async fn info(name: &str, p: &ProviderConfig, cfg: &Config) -> BrainInfo {
             ..
         } => {
             out.base_url.clone_from(base_url);
+            out.preset = Preset::of(&out.kind, base_url.as_deref()).map(|p| p.id.to_owned());
             if api_key.is_some() {
                 out.key_set = true;
             } else {
@@ -496,21 +534,14 @@ async fn info(name: &str, p: &ProviderConfig, cfg: &Config) -> BrainInfo {
                 }
                 .to_owned()
             });
-            out.blocker =
-                (!on_path(&program)).then(|| format!("`{program}` was not found on this machine"));
+            out.blocker = cli_models::find(&program)
+                .is_none()
+                .then(|| format!("`{program}` was not found on this machine"));
             out.program = Some(program);
+            out.preset = Preset::of(&out.kind, None).map(|p| p.id.to_owned());
         }
     }
     out
-}
-
-/// Whether a program is installed: a path to it, or its name on PATH.
-fn on_path(name: &str) -> bool {
-    if name.contains('/') {
-        return Path::new(name).is_file();
-    }
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
 }
 
 /// Whether something listens at `host:port`, asked quickly.
@@ -594,10 +625,9 @@ async fn list_models(p: &ProviderConfig) -> Result<Vec<String>, Refusal> {
                 true,
             )
         }
+        // An agent's are read where it is installed: see `Held::models`.
         ProviderConfig::ClaudeCode { .. } | ProviderConfig::Codex { .. } => {
-            return Err(failed(
-                "a command-line agent has no list of models to ask for".to_owned(),
-            ));
+            return Err(failed("a command-line agent has no API to list".to_owned()));
         }
     };
     let response = request.send().await.map_err(|e| failed(sent_error(&e)))?;

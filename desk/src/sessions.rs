@@ -7,17 +7,13 @@
 //! itself since and the core has not listed yet, so that a new session,
 //! a new name or one deleted shows at once and stays while the core
 //! catches up. A new session nothing has been said in is the desk's
-//! alone: the core keeps it from its first line.
+//! alone: the core keeps it from its first line, and calls it by that
+//! line as it lists it, which it does as soon as the line is heard.
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use chrono::{DateTime, Utc};
-
-/// What a session nothing has named goes by: its first line, as the core
-/// cuts it.
-const FIRST_LINE: usize = 48;
-/// The longest name the core keeps.
-const TITLE_MOST: usize = 80;
+use ghost_link::protocol;
 
 /// One conversation with the solver.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +55,7 @@ impl Session {
     }
 
     /// A session as its core lists it.
-    pub fn listed(s: &ghost_link::protocol::Session) -> Self {
+    pub fn listed(s: &protocol::Session) -> Self {
         Self {
             id: s.id.clone(),
             title: s.title.clone(),
@@ -80,25 +76,6 @@ pub fn matching(sessions: &[Session], query: &str) -> Vec<usize> {
             words.iter().all(|w| label.contains(w.as_str()))
         })
         .map(|(i, _)| i)
-        .collect()
-}
-
-/// A name as its core keeps one: on one line, its spaces as one, cut at
-/// the most a name is. Empty when nothing is left.
-pub fn tidy(title: &str) -> String {
-    let one = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    one.chars().take(TITLE_MOST).collect()
-}
-
-/// What a session goes by once `text` is said in it first, as its core
-/// will list it: the first line with anything on it, cut short.
-fn first_line(text: &str) -> String {
-    text.lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or_default()
-        .chars()
-        .take(FIRST_LINE)
         .collect()
 }
 
@@ -185,16 +162,13 @@ impl Sessions {
         self.current = draft.id.clone();
     }
 
-    /// `text` was said in the session on screen. A new one is now one the
-    /// core keeps, by its first line, as the core will list it.
-    pub fn said(&mut self, text: &str) {
+    /// Something was said in the session on screen. A new one is now one
+    /// the core keeps; what it is called is the core's to say when it
+    /// lists it.
+    pub fn said(&mut self) {
         if let Some(draft) = self.draft.take_if(|d| d.id == self.current) {
-            let session = Session {
-                title: first_line(text),
-                ..draft
-            };
-            self.begun.push(session.clone());
-            self.listed.insert(0, session);
+            self.begun.push(draft.clone());
+            self.listed.insert(0, draft);
         }
     }
 
@@ -202,10 +176,7 @@ impl Sessions {
     /// keep it, to be sent to it; `None` when there is nothing to call it
     /// or no such session.
     pub fn rename(&mut self, id: &str, title: &str) -> Option<String> {
-        let title = tidy(title);
-        if title.is_empty() {
-            return None;
-        }
+        let title = protocol::Session::tidy(title)?;
         // A new session given a name is kept by the core from its name.
         if let Some(draft) = self.draft.take_if(|d| d.id == id) {
             self.begun.push(draft.clone());
@@ -263,7 +234,7 @@ impl Sessions {
         let find = |id: &str| core.iter().find(|s| s.id == id);
         self.begun.retain(|b| find(&b.id).is_none());
         self.named
-            .retain(|(id, title)| find(id).is_none_or(|s| tidy(&s.title) != *title));
+            .retain(|(id, title)| find(id).is_none_or(|s| s.title != *title));
         self.gone.retain(|id| find(id).is_some());
         if self.draft.as_ref().is_some_and(|d| find(&d.id).is_some()) {
             self.draft = None;
@@ -340,13 +311,10 @@ mod tests {
         s.begin();
         assert_eq!(ids(&s), std::slice::from_ref(&draft));
 
-        // Said in, it goes by its first line at once, and stays while the
-        // core has not listed it yet.
-        s.said("\n  free some disk space on this machine, the big caches\nthen tell me");
-        assert_eq!(
-            s.current().title,
-            "free some disk space on this machine, the big ca"
-        );
+        // Said in, it stays while the core has not listed it yet, and goes
+        // by what the core calls it once it has.
+        s.said();
+        assert_eq!(s.current().title, "");
         s.take(vec![session("s1", "older", 1)]);
         assert_eq!(ids(&s), [draft.clone(), "s1".to_owned()]);
         assert_eq!(s.current_id(), draft);

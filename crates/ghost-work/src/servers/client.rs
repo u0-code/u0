@@ -30,8 +30,7 @@ use rmcp::{
     },
     service::{ClientLifecycleMode, ClientServiceExt, NotificationContext, RunningService},
     transport::{
-        StreamableHttpClientTransport, TokioChildProcess,
-        streamable_http_client::StreamableHttpClientTransportConfig,
+        StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
 use serde_json::{Map, Value};
@@ -68,8 +67,9 @@ impl ClientHandler for Listener {
 /// A running server, ready to be asked.
 pub struct Connection {
     service: RunningService<RoleClient, Listener>,
-    /// The process group of a server on this machine.
-    group: Option<u32>,
+    /// A server on this machine, stopped with all it started when the
+    /// connection is dropped.
+    child: Option<ghost_net::Child>,
     changed: Arc<AtomicBool>,
 }
 
@@ -106,55 +106,48 @@ pub async fn local(
         .env_clear()
         .envs(env.iter().map(|(k, v)| (k, v)))
         .current_dir(dir)
-        .kill_on_drop(true);
-    let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
-    #[cfg(unix)]
-    wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
-    let (transport, _) = TokioChildProcess::builder(wrapped)
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .map_err(|e| {
-            words.fill(
-                TEXTS,
-                "program_not_started",
-                &[("program", program.clone()), ("why", e.to_string())],
-            )
-        })?;
-    let group = transport.id();
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(stderr));
+    let mut child = ghost_net::spawn(&mut cmd).map_err(|e| {
+        words.fill(
+            TEXTS,
+            "program_not_started",
+            &[("program", program.clone()), ("why", e.to_string())],
+        )
+    })?;
+    let (Some(stdout), Some(stdin)) = (child.stdout.take(), child.stdin.take()) else {
+        unreachable!("both pipes were asked for")
+    };
     let changed = Arc::new(AtomicBool::new(false));
     let listener = Listener {
         changed: changed.clone(),
     };
+    // A server that does not shake hands is stopped when `child` is dropped.
     match tokio::time::timeout(
         timeout,
-        listener.serve_with_lifecycle(transport, lifecycle()),
+        listener.serve_with_lifecycle((stdout, stdin), lifecycle()),
     )
     .await
     {
         Ok(Ok(service)) => Ok(Connection {
             service,
-            group,
+            child: Some(child),
             changed,
         }),
-        Ok(Err(e)) => {
-            kill_group(group);
-            Err(words.fill(
-                TEXTS,
-                "started_unspoken",
-                &[
-                    ("why", e.to_string()),
-                    ("log", dir.join("stderr.log").display().to_string()),
-                ],
-            ))
-        }
-        Err(_) => {
-            kill_group(group);
-            Err(words.fill(
-                TEXTS,
-                "unanswered_at_start",
-                &[("seconds", timeout.as_secs().to_string())],
-            ))
-        }
+        Ok(Err(e)) => Err(words.fill(
+            TEXTS,
+            "started_unspoken",
+            &[
+                ("why", e.to_string()),
+                ("log", dir.join("stderr.log").display().to_string()),
+            ],
+        )),
+        Err(_) => Err(words.fill(
+            TEXTS,
+            "unanswered_at_start",
+            &[("seconds", timeout.as_secs().to_string())],
+        )),
     }
 }
 
@@ -193,7 +186,7 @@ pub async fn remote(
     {
         Ok(Ok(service)) => Ok(Connection {
             service,
-            group: None,
+            child: None,
             changed,
         }),
         Ok(Err(e)) => Err(words.fill(TEXTS, "unspoken", &[("why", e.to_string())])),
@@ -265,25 +258,10 @@ impl Connection {
 
     /// Stop it at once, and everything it started.
     pub fn kill(&self) {
-        kill_group(self.group);
+        if let Some(child) = &self.child {
+            child.stop();
+        }
         self.service.cancellation_token().cancel();
-    }
-}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        kill_group(self.group);
-    }
-}
-
-/// Kill a process group, if there is one. The leader's id is the group's.
-fn kill_group(group: Option<u32>) {
-    #[cfg(unix)]
-    if let Some(group) = group {
-        let _ = std::process::Command::new("kill")
-            .args(["-KILL", &format!("-{group}")])
-            .stderr(Stdio::null())
-            .status();
     }
 }
 

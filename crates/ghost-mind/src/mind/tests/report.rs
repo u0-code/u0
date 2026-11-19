@@ -226,6 +226,28 @@ async fn what_someone_told_her_in_private_is_not_in_her_report() {
 }
 
 #[tokio::test]
+async fn what_she_did_in_an_operators_own_private_conversation_is_in_their_report() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::new(reporting(), t0);
+    boss_writes(&mut rig, t0).await;
+    // The report is told in that same conversation, to the person who was
+    // in it: the rule that keeps a private conversation in its place does
+    // not keep it from itself.
+    rig.mind
+        .record(looked_up("quarterly figures for boss", Some("t:boss")))
+        .unwrap();
+    rig.pump(at(21, 0)).await;
+
+    let report = report_prompts(&rig).pop().unwrap();
+    assert!(report.contains("quarterly figures for boss"), "{report}");
+    let counted = rig
+        .mind
+        .prompts
+        .fill("report_private", &[("count", "1".to_owned())]);
+    assert!(!report.contains(&counted), "{report}");
+}
+
+#[tokio::test]
 async fn she_reports_once_a_day_and_a_restart_does_not_make_it_twice() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(reporting(), t0);

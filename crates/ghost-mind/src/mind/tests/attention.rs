@@ -5,6 +5,24 @@
 use super::*;
 
 #[tokio::test]
+async fn a_look_whose_brain_falls_over_does_not_keep_her_from_looking_there_again() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.think.fall();
+    rig.think
+        .then(r#"{"thought":"back","actions":[{"do":"say","text":"here now"}]}"#);
+    rig.hear(dm("haoran", "1", "are you around?"), t0);
+    let fell = rig.until(|r| r.think.fallen() == 1).await;
+    assert!(
+        rig.mind.jobs.looking("t:haoran").is_none(),
+        "the look that fell over is not still under way"
+    );
+    rig.hear(dm("haoran", "2", "hello?"), fell);
+    rig.until(|r| !r.body.sent().is_empty()).await;
+    assert_eq!(rig.body.sent(), vec!["here now"]);
+}
+
+#[tokio::test]
 async fn she_answers_in_bubbles_at_a_human_pace() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);
@@ -239,7 +257,7 @@ async fn with_her_phone_in_her_hand_she_gets_to_everyone_who_wrote() {
     // She looks at the first when its time comes. The other one is now due
     // within the same sitting, whatever its own clock said.
     let looked = rig.until(|r| r.think.calls() == 1).await;
-    assert!(rig.mind.thinking.contains_key(first) || rig.kinds().contains(&"read"));
+    assert!(rig.mind.jobs.looking(first).is_some() || rig.kinds().contains(&"read"));
     let pulled = rig.mind.agenda.attend[second].due;
     assert!(pulled <= later, "never later than it would have been");
     assert!(

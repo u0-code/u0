@@ -76,7 +76,7 @@ async fn stopped_while_the_brain_is_thinking_she_says_nothing_even_when_it_answe
     rig.mind.on_time(now).unwrap();
     rig.meanwhile(|r| r.think.turns.lock().unwrap().len() == 1)
         .await;
-    assert!(rig.mind.thinking.contains_key("console:fox"));
+    assert!(rig.mind.jobs.looking("console:fox").is_some());
 
     assert!(rig.mind.interrupt("console:fox", &fox(), now).unwrap());
     // The brain answers anyway; it is too late to be heard.
@@ -184,13 +184,7 @@ async fn an_answer_already_back_when_she_was_stopped_is_let_go_and_the_next_look
     let now = rig.mind.agenda.next_due().unwrap();
     rig.mind.on_time(now).unwrap();
     // The brain has answered, and she has not heard it yet.
-    rig.meanwhile(|r| {
-        r.mind
-            .thinking
-            .get("console:fox")
-            .is_some_and(|l| l.abort.is_finished())
-    })
-    .await;
+    rig.meanwhile(|r| r.mind.jobs.finished("console:fox")).await;
     assert!(rig.mind.interrupt("console:fox", &fox(), now).unwrap());
 
     // He says something else before it comes in: that look is hers.
@@ -292,7 +286,8 @@ async fn work_directed_where_she_was_stopped_goes_on_and_is_stopped_only_from_it
     let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();
     assert_eq!(still.len(), 2);
     // Stopped from its own card, it ends.
-    rig.mind.stop_open(going, Some("Fox".into()), t0).unwrap();
+    rig.mind.stop_open(going, Some("Fox".into()));
+    rig.settle(t0).await;
     let ended = rig.mind.ghost.memory().undertaking(&gate).unwrap().unwrap();
     assert_eq!(ended.outcome.as_deref(), Some("dropped"));
     let still = rig.mind.ghost.memory().undertakings(true, 5).unwrap();

@@ -172,14 +172,10 @@ impl Config {
     /// default, and the first thing found here that she can think with.
     /// Returns the configuration and what it settled on.
     pub fn from_found(found: &[ghost_brain::discover::Found]) -> anyhow::Result<(Self, String)> {
-        // A suggestion with a blank to fill in cannot be used as it stands.
-        let usable = found
-            .iter()
-            .find(|f| !f.config.iter().any(|line| line.starts_with("model = \"\"")))
-            .context(
-                "no ghostd.toml, and nothing here to think with: set DEEPSEEK_API_KEY or \
+        let usable = found.first().context(
+            "no ghostd.toml, and nothing here to think with: set DEEPSEEK_API_KEY or \
                  ANTHROPIC_API_KEY, install the claude or codex CLI, or start Ollama",
-            )?;
+        )?;
         let text = format!(
             "[brain]\nthink = \"{0}\"\ntick = \"{0}\"\n\n{1}",
             usable.name,
@@ -389,13 +385,10 @@ mod found_tests {
     }
 
     #[test]
-    fn with_no_file_she_thinks_with_the_first_thing_that_is_ready() {
+    fn with_no_file_she_thinks_with_the_first_thing_found() {
         let here = [
-            found(
-                "openai",
-                &[r#"kind = "openai""#, r#"model = "" # the model to use"#],
-            ),
             found("claude-code", &[r#"kind = "claude-code""#]),
+            found("codex", &[r#"kind = "codex""#]),
         ];
         let (cfg, what) = Config::from_found(&here).unwrap();
         assert_eq!(cfg.brain.think, "claude-code");

@@ -19,7 +19,7 @@ fn reported(rig: &Rig) -> Vec<(String, String, Vec<String>)> {
 
 /// The moment she next glances at the sitting she is at.
 fn glance(rig: &Rig) -> DateTime<Utc> {
-    assert!(!rig.mind.working.is_empty(), "she is at a sitting");
+    assert!(!rig.mind.jobs.sittings().is_empty(), "she is at a sitting");
     rig.mind.agenda.work.expect("she means to glance at it")
 }
 
@@ -44,7 +44,7 @@ async fn something_the_work_tells_her_reaches_her_journal_while_it_is_still_runn
     assert!(reported(&rig).is_empty(), "nothing until she glances at it");
 
     rig.mind.on_time(glance(&rig)).unwrap();
-    let id = rig.mind.working.keys().next().unwrap().clone();
+    let id = rig.mind.jobs.sittings()[0].0.clone();
     assert_eq!(
         reported(&rig),
         [(
@@ -66,11 +66,26 @@ async fn something_the_work_tells_her_reaches_her_journal_while_it_is_still_runn
     assert!(told < kinds.iter().position(|k| *k == "concluded").unwrap());
 }
 
-/// What she answers a console asking after her work, read as a console
-/// reads it.
-fn work_seen(rig: &Rig, now: DateTime<Utc>) -> Vec<ghost_protocol::Work> {
-    let answer = rig.mind.answer(&super::Question::Work, now).unwrap();
-    serde_json::from_value(answer).expect("it reads as the protocol's work")
+/// What she answers a console asking after her work.
+fn work_seen(rig: &Rig) -> Vec<ghost_protocol::Work> {
+    rig.reader().work().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_console_reads_her_journal_and_work_without_her_mind_answering() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("haoran", "1", "are you around?"), t0);
+    let newest = rig.mind.ghost.journal().last_seq().unwrap();
+    // Her mind is never run here: a question sent to it would never be
+    // answered, and these are.
+    let read = rig.handle.read(|r| Ok((r.journal(0, 5)?, r.work()?)));
+    let (entries, work) = tokio::time::timeout(std::time::Duration::from_secs(5), read)
+        .await
+        .expect("read without waiting on her mind")
+        .unwrap();
+    assert_eq!(entries.last().map(|e| e.seq), Some(newest));
+    assert!(work.is_empty());
 }
 
 #[tokio::test]
@@ -94,7 +109,7 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
         .await;
 
     let written = rig.mind.ghost.journal().last_seq().unwrap();
-    let seen = work_seen(&rig, t0);
+    let seen = work_seen(&rig);
     assert_eq!(rig.mind.ghost.journal().last_seq().unwrap(), written);
     assert_eq!(seen.len(), 1);
     let work = &seen[0];
@@ -127,8 +142,8 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
     }
     first.notify_one();
     second.notify_one();
-    rig.until(|r| r.mind.working.is_empty()).await;
-    let seen = work_seen(&rig, t0);
+    rig.until(|r| r.mind.jobs.sittings().is_empty()).await;
+    let seen = work_seen(&rig);
     assert_eq!(seen.len(), 1, "work that ended is still shown");
     assert_eq!(seen[0].state, WorkState::Blocked);
     assert_eq!(seen[0].summary.as_deref(), Some("The page is down."));
@@ -183,7 +198,7 @@ async fn mail_with_kept_files_wakes_her_attention_to_the_askers_place_and_plain_
     assert!(rig.mind.agenda.intention.is_some_and(|due| due > now));
 
     second.notify_one();
-    rig.until(|r| r.mind.working.is_empty()).await;
+    rig.until(|r| r.mind.jobs.sittings().is_empty()).await;
 }
 
 #[tokio::test]
@@ -215,7 +230,10 @@ async fn a_picture_kept_by_running_work_can_be_sent_in_the_conversation_before_t
         files_sent(&rig),
         [(file.clone(), PIXEL.to_vec(), Some("first one".into()))]
     );
-    assert!(!rig.mind.working.is_empty(), "the sitting is still running");
+    assert!(
+        !rig.mind.jobs.sittings().is_empty(),
+        "the sitting is still running"
+    );
     let u = rig.mind.ghost.memory().undertakings(false, 1).unwrap()[0].clone();
     assert_eq!(u.outcome, None, "and the work is not over");
     // What she had in front of her named it, by number and by file.
@@ -267,7 +285,10 @@ async fn steer_reaches_the_running_worker_at_its_next_step() {
         r#"{{"thought":"","actions":[{{"do":"say","text":"nearly there"}},{{"do":"steer","work":{work},"text":"Only the weekday hours, after all."}}]}}"#
     ));
     rig.beside_until(|r| r.kinds().contains(&"added")).await;
-    assert!(!rig.mind.working.is_empty(), "the sitting is still running");
+    assert!(
+        !rig.mind.jobs.sittings().is_empty(),
+        "the sitting is still running"
+    );
     let offered = rig.think.seen.lock().unwrap().last().unwrap().messages[0]
         .text
         .clone();
@@ -356,7 +377,7 @@ async fn stop_ends_the_work_as_dropped_and_keeps_what_it_kept() {
             .is_empty()
     );
     assert_eq!(
-        rig.mind.stop_work(work, t0).unwrap().as_deref(),
+        rig.mind.stop_work(work).unwrap().as_deref(),
         Some(format!("Work #{work} has already ended.").as_str())
     );
 }
@@ -366,7 +387,9 @@ async fn work_she_is_not_at_stops_at_once() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);
     let work = at_work_for_wen(&mut rig, "Draw the east gate.", t0);
-    assert_eq!(rig.mind.stop_work(work, t0).unwrap(), None);
+    assert_eq!(rig.mind.stop_work(work).unwrap(), None);
+    // Ended once its record is.
+    rig.settle(t0).await;
     let u = rig.mind.ghost.memory().undertakings(false, 1).unwrap()[0].clone();
     assert_eq!(u.outcome.as_deref(), Some("dropped"));
     // There is nothing left to sit down to.
@@ -374,7 +397,7 @@ async fn work_she_is_not_at_stops_at_once() {
     assert!(rig.think.turns.lock().unwrap().is_empty());
     assert!(
         rig.mind
-            .stop_work(work + 1000, t0)
+            .stop_work(work + 1000)
             .unwrap()
             .is_some_and(|why| why.contains("no work numbered"))
     );
@@ -457,7 +480,7 @@ async fn the_parts_of_her_work_show_under_it_a_line_each() {
     // Not sitting down to it here: only how it is shown is looked at.
     rig.mind.agenda.work = None;
     let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
-    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let record = rig.record(&u.id, &u.brief);
     let first = record
         .open_part("Read the reviews of the east one")
         .unwrap();
@@ -512,7 +535,7 @@ async fn her_open_work_shows_how_far_its_plan_has_got_in_one_line() {
     let work = at_work_for_wen(&mut rig, "Survey the tea houses.", t0);
     rig.mind.agenda.work = None;
     let u = rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].clone();
-    let record = rig.mind.undertaking(&u.id, &u.brief).unwrap();
+    let record = rig.record(&u.id, &u.brief);
     let step = |text: &str, status| PlanStep {
         text: text.into(),
         status,
@@ -606,7 +629,7 @@ async fn an_operator_answers_what_her_work_asked_and_her_journal_says_it_was_the
 
     // A console is shown what answering takes, and she means to give Wen
     // the choices along with the question.
-    let shown = rig.mind.answer(&Question::Work, asked).unwrap();
+    let shown = serde_json::to_value(rig.reader().work().unwrap()).unwrap();
     assert_eq!(shown[0]["question"], "weekdays or weekends?");
     assert_eq!(shown[0]["kind"], "choose");
     assert_eq!(
@@ -631,7 +654,7 @@ async fn an_operator_answers_what_her_work_asked_and_her_journal_says_it_was_the
         work: u.id.clone(),
         text: "Weekdays.".into(),
     };
-    assert_eq!(rig.mind.on_order(order, &fox(), asked).unwrap(), Ok(()));
+    assert_eq!(rig.order(order, &fox(), asked).await, Ok(()));
     let added = rig
         .mind
         .ghost
@@ -663,7 +686,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
         .unwrap()
         .id;
     let stop = || crate::Order::Stop { work: id.clone() };
-    assert_eq!(rig.mind.on_order(stop(), &fox(), t0).unwrap(), Ok(()));
+    assert_eq!(rig.order(stop(), &fox(), t0).await, Ok(()));
     let ended = rig
         .mind
         .ghost
@@ -676,7 +699,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
 
     // What is over, and what was never hers, cannot be answered or stopped.
     assert!(matches!(
-        rig.mind.on_order(stop(), &fox(), t0).unwrap(),
+        rig.order(stop(), &fox(), t0).await,
         Err(crate::Refused::NoSuchWork(_))
     ));
     let part = crate::Order::Answer {
@@ -684,7 +707,7 @@ async fn an_operator_stops_her_work_and_it_ends_as_their_doing_not_hers() {
         text: "yes".into(),
     };
     assert!(matches!(
-        rig.mind.on_order(part, &fox(), t0).unwrap(),
+        rig.order(part, &fox(), t0).await,
         Err(crate::Refused::NoSuchWork(_))
     ));
     assert_eq!(count(&rig, "added"), 0);

@@ -21,6 +21,8 @@ mod look;
 mod public;
 mod pursuit;
 mod reach;
+mod reader;
+pub use reader::Reader;
 mod report;
 mod reread;
 mod sessions;
@@ -32,9 +34,10 @@ mod thought;
 mod view;
 mod waiting;
 mod work;
+mod writer;
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::Arc,
     time::Duration as StdDuration,
 };
@@ -114,49 +117,15 @@ pub struct Workshop {
     pub folders: Option<std::path::PathBuf>,
 }
 
-/// Something an observer can ask a running mind.
+/// Something an observer can ask a running mind, of what only it knows.
+/// What is read from her journal, memory and work is asked of her
+/// [`Reader`] instead, off her mind.
 #[derive(Debug, Clone)]
 pub enum Question {
-    /// Who she is and what she is in the middle of.
-    Status,
     /// What is scheduled, and when.
     Agenda,
-    /// Everyone she knows and where she stands with them.
-    People,
     /// Her persona and its seal.
     Identity,
-    /// What is true about her life, oldest first.
-    Canon,
-    /// Every place she is in, most recently active first.
-    Places,
-    /// What she has in hand and what ended lately, most recently active
-    /// first, each with the parts it handed out: read from her work's own
-    /// record, which has what her journal does not.
-    Work,
-    /// The steps the work `work`, or a part of it, has taken after the
-    /// `after`th, at most `limit` of them, with the parts it handed out;
-    /// `null` if she has no work by that id.
-    WorkSteps {
-        work: String,
-        after: u64,
-        limit: usize,
-    },
-    /// What she called while she looked at `place`, round by round: in the
-    /// looks that ended after the journal entry `after`, and in the one
-    /// she is in the middle of there.
-    LookSteps { place: String, after: i64 },
-    /// The journal entries that belong to one place, oldest first.
-    Thread { place: String, limit: usize },
-    /// Journal entries from seq `from` on. Zero or less counts back from the
-    /// newest entry.
-    Journal { from: i64, limit: usize },
-    /// What is waiting on the people who run her, newest first: work
-    /// waiting on an answer, work that ended blocked or given up lately,
-    /// what work done for them told her lately, and her reports to them.
-    Waiting,
-    /// Her conversations on the console channel, the sessions a console
-    /// lists, newest first, those set aside among them and marked so.
-    Sessions,
 }
 
 /// Someone who runs her body, acting on her from a console.
@@ -230,6 +199,9 @@ enum Signal {
         question: Question,
         answer: oneshot::Sender<Value>,
     },
+    Status {
+        answer: oneshot::Sender<ghost_protocol::GhostStatus>,
+    },
     Order {
         order: Order,
         by: Operator,
@@ -259,6 +231,7 @@ enum Signal {
 pub struct MindHandle {
     tx: mpsc::Sender<Signal>,
     entries: broadcast::Sender<Entry>,
+    reader: Arc<std::sync::Mutex<Reader>>,
 }
 
 impl MindHandle {
@@ -309,6 +282,28 @@ impl MindHandle {
         let (answer, rx) = oneshot::channel();
         self.send(Signal::Ask { question, answer }).await?;
         rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// Who she is and what she is in the middle of, this moment.
+    pub async fn status(&self) -> Result<ghost_protocol::GhostStatus> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Status { answer }).await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// Read something of her with `read`, off her mind and off the
+    /// runtime's threads: on her [`Reader`], one question at a time.
+    pub async fn read<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&mut Reader) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let reader = self.reader.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut reader = reader.lock().map_err(|_| Error::Stopped)?;
+            read(&mut reader)
+        })
+        .await
+        .map_err(|_| Error::Stopped)?
     }
 
     /// An operator, `by`, does `order` to her work from a console.
@@ -432,14 +427,32 @@ enum Outcome {
         why: String,
     },
     /// A sitting of work ended.
-    Worked {
+    Worked { id: String, sat: Box<work::Sat> },
+    /// A sitting of work did not start: see [`work::Unseated`].
+    Unseated { id: String, why: work::Unseated },
+    /// `text` was put in the inbox of the work `id`, from `by` if it was
+    /// not she who passed it on, or could not be: `answer` is told which,
+    /// if it is a console's order.
+    Added {
         id: String,
-        /// Steps the undertaking had taken before this sitting.
-        before: u64,
-        report: ghost_work::Report,
-        progress: String,
-        /// Its record, with everything it kept and told in it.
-        record: Arc<ghost_work::Undertaking>,
+        text: String,
+        by: Option<String>,
+        result: std::io::Result<()>,
+        answer: Option<oneshot::Sender<std::result::Result<(), Refused>>>,
+    },
+    /// The record of the work `id`, which no sitting was at, was stopped,
+    /// by the operator named `by` if not by her: as it is now, if it could
+    /// be opened.
+    Stopped {
+        id: String,
+        by: Option<String>,
+        state: Option<Box<ghost_work::undertaking::State>>,
+    },
+    /// The record of the work `id` was ended as blocked, with `summary`.
+    Ended {
+        id: String,
+        summary: String,
+        files: Vec<String>,
     },
     /// She looked at the images in message `message`: for each, what she
     /// saw, or why she could not.
@@ -503,25 +516,163 @@ impl Agenda {
     }
 }
 
-/// The jobs she has sent off. Each runs in the span she was in when she
-/// sent it, so that whatever it logs says whose it is when one daemon runs
-/// several characters.
+/// What a job she sent off is for, while it runs. This is the one record
+/// of what she is in the middle of: whatever way a job ends, its coming
+/// back frees what it was for, so a job that falls over cannot leave her
+/// thinking she is still at it.
+enum Purpose {
+    /// A look at a place, by its key.
+    Look { place: String, looking: Looking },
+    /// Planning the rest of her day.
+    Plan,
+    /// Writing up a block of today's plan.
+    Live,
+    /// Looking back on her day, or on one platform's part of it.
+    Reflect,
+    /// Writing down the earlier conversation of a place, by its key.
+    Digest(String),
+    /// Scrolling a channel.
+    Browse(String),
+    /// Asking a channel how her posts are doing.
+    Measure(String),
+    /// A sitting at the work with this id.
+    Work { id: String, working: work::Working },
+    /// A change to the record of the work with this id, on its way to her
+    /// work database.
+    Record(String),
+}
+
+/// A job that came back: what it was for, unless it was called off, and
+/// what it brought back or how it fell over.
+struct Done {
+    purpose: Option<Purpose>,
+    result: std::result::Result<Outcome, tokio::task::JoinError>,
+}
+
+/// The jobs she has sent off, and what each is for. Each runs in the span
+/// she was in when she sent it, so that whatever it logs says whose it is
+/// when one daemon runs several characters.
 #[derive(Default)]
-struct Jobs(JoinSet<Outcome>);
+struct Jobs {
+    set: JoinSet<Outcome>,
+    purposes: HashMap<tokio::task::Id, (Purpose, AbortHandle)>,
+}
 
 impl Jobs {
-    /// Send `job` off. What is returned calls it off, if it is still
-    /// running.
-    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) -> AbortHandle {
-        self.0.spawn(job.in_current_span())
+    /// Send off `job`, which is for nothing she has to know is under way.
+    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) {
+        self.set.spawn(job.in_current_span());
     }
 
-    async fn join_next(&mut self) -> Option<std::result::Result<Outcome, tokio::task::JoinError>> {
-        self.0.join_next().await
+    /// Send off `job`, for `purpose`.
+    fn spawn_for(&mut self, purpose: Purpose, job: impl Future<Output = Outcome> + Send + 'static) {
+        let abort = self.set.spawn(job.in_current_span());
+        self.purposes.insert(abort.id(), (purpose, abort));
+    }
+
+    async fn join_next(&mut self) -> Option<Done> {
+        let (id, result) = match self.set.join_next_with_id().await? {
+            Ok((id, outcome)) => (id, Ok(outcome)),
+            Err(e) => (e.id(), Err(e)),
+        };
+        let purpose = self.purposes.remove(&id).map(|(purpose, _)| purpose);
+        Some(Done { purpose, result })
     }
 
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.set.is_empty()
+    }
+
+    /// Whether a job is under way for something `is` picks out.
+    fn any(&self, is: impl Fn(&Purpose) -> bool) -> bool {
+        self.purposes.values().any(|(purpose, _)| is(purpose))
+    }
+
+    /// The look under way at the place `key`, if there is one.
+    fn looking(&self, key: &str) -> Option<&Looking> {
+        self.purposes
+            .values()
+            .find_map(|(purpose, _)| match purpose {
+                Purpose::Look { place, looking } if place == key => Some(looking),
+                _ => None,
+            })
+    }
+
+    /// Every look under way, by the key of its place.
+    fn looks(&self) -> impl Iterator<Item = (&String, &Looking)> {
+        self.purposes
+            .values()
+            .filter_map(|(purpose, _)| match purpose {
+                Purpose::Look { place, looking } => Some((place, looking)),
+                _ => None,
+            })
+    }
+
+    /// Whether a look under way pursues the intention `seq`.
+    fn pursuing(&self, seq: i64) -> bool {
+        self.looks()
+            .any(|(_, looking)| looking.intention == Some(seq))
+    }
+
+    /// The sittings in progress, by the id of their work, in its order.
+    fn sittings(&self) -> Vec<(&String, &work::Working)> {
+        let mut sittings: Vec<_> = self
+            .purposes
+            .values()
+            .filter_map(|(purpose, _)| match purpose {
+                Purpose::Work { id, working } => Some((id, working)),
+                _ => None,
+            })
+            .collect();
+        sittings.sort_by_key(|(id, _)| *id);
+        sittings
+    }
+
+    /// Whether a sitting at the work `id` is in progress.
+    fn sitting(&self, id: &str) -> bool {
+        self.any(|p| matches!(p, Purpose::Work { id: at, .. } if at == id))
+    }
+
+    /// Whether the work `id` is held: a sitting is at it, or a change to
+    /// its record is on its way.
+    fn busy(&self, id: &str) -> bool {
+        self.any(|p| match p {
+            Purpose::Work { id: at, .. } | Purpose::Record(at) => at == id,
+            _ => false,
+        })
+    }
+
+    /// The sitting at the work `id`, to change how it goes on.
+    fn sitting_mut(&mut self, id: &str) -> Option<&mut work::Working> {
+        self.purposes
+            .values_mut()
+            .find_map(|(purpose, _)| match purpose {
+                Purpose::Work { id: at, working } if at == id => Some(working),
+                _ => None,
+            })
+    }
+
+    /// Whether the job of the look under way at the place `key` has
+    /// finished, and waits to be joined.
+    #[cfg(test)]
+    fn finished(&self, key: &str) -> bool {
+        self.purposes.values().any(|(purpose, abort)| {
+            matches!(purpose, Purpose::Look { place, .. } if place == key) && abort.is_finished()
+        })
+    }
+
+    /// Call off the look under way at the place `key`, if there is one:
+    /// it is no longer hers, and whatever it brings back is not acted on.
+    fn call_off(&mut self, key: &str) -> Option<Looking> {
+        let id = self.purposes.iter().find_map(|(id, (purpose, _))| {
+            matches!(purpose, Purpose::Look { place, .. } if place == key).then_some(*id)
+        })?;
+        let (purpose, abort) = self.purposes.remove(&id)?;
+        abort.abort();
+        match purpose {
+            Purpose::Look { looking, .. } => Some(looking),
+            _ => None,
+        }
     }
 }
 
@@ -560,51 +711,33 @@ pub struct Mind {
     senses: Arc<dyn Senses>,
     rx: mpsc::Receiver<Signal>,
     entries: broadcast::Sender<Entry>,
+    /// What she is in the middle of, for her [`Reader`].
+    live: tokio::sync::watch::Sender<reader::Live>,
     channels: HashMap<String, Channel>,
     agenda: Agenda,
     jobs: Jobs,
     rng: Rng,
     budget: Budget,
     workshop: Workshop,
-    /// The sittings in progress, by the work they are on.
-    working: BTreeMap<String, work::Working>,
     /// Work that is not to be sat down to again before the time given: it
     /// is resting after a sitting.
     resting: HashMap<String, DateTime<Utc>>,
-    /// Channels that have been asked how her posts are doing and have not
-    /// answered yet.
-    measuring: HashSet<String>,
     /// When this body started running.
     started: DateTime<Utc>,
-    /// Places with a deliberation in flight, and which look it is.
-    thinking: HashMap<String, Looking>,
-    /// Looks sent off so far: the last one's number.
-    looks: u64,
-    /// Where her looks keep their rounds for a console to read: the work
-    /// database, opened the first time a look keeps one.
-    kept_looks: Option<ghost_work::looks::Looks>,
+    /// What writes her work database, off her mind: the rounds of her
+    /// looks, and every change she makes to the records of her work.
+    writer: writer::Writer,
     /// Her work database opened to read, the first time it is there to be
-    /// read: every question a console asks of her work, and of the rounds
-    /// of her looks, is answered on this one connection, so that looking
-    /// never writes, never makes a record, never waits on the work, and
-    /// does not open the file again each time it is asked.
+    /// read: what she reads of her work as she thinks is read on this one
+    /// connection, so that looking never writes, never makes a record,
+    /// never waits on the work, and does not open the file again each
+    /// time. A console's questions are her [`Reader`]'s.
     records: std::cell::OnceCell<ghost_work::undertaking::Records>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
-    /// Intentions with a deliberation in flight.
-    pursuing: HashSet<i64>,
     /// Intentions put off until a later moment.
     held: HashMap<i64, DateTime<Utc>>,
-    planning: bool,
     plan_failures: u8,
-    /// The block whose `Lived` entry is being written.
-    living: Option<u32>,
-    /// How many looks back on the day are still being thought.
-    reflecting: usize,
-    /// Places whose earlier conversation she is writing down right now.
-    digesting: HashSet<String>,
-    /// Channels with a scroll in flight.
-    browsing: HashSet<String>,
     /// Posts she has already scrolled past, per channel. Bounded.
     scrolled: HashMap<String, VecDeque<String>>,
 }
@@ -614,6 +747,7 @@ impl Mind {
         let (tx, rx) = mpsc::channel(1024);
         let (entries, _) = broadcast::channel(1024);
         let life = Life::new(parts.ghost.identity());
+        let writer = writer::Writer::new(parts.ghost.dir().join(ghost_work::WORK_DB));
         let mind = Self {
             life,
             tempo: Tempo::new(parts.config.tempo),
@@ -630,31 +764,32 @@ impl Mind {
             senses: parts.senses,
             rx,
             entries: entries.clone(),
+            live: tokio::sync::watch::Sender::new(reader::Live::default()),
             channels: HashMap::new(),
             agenda: Agenda::default(),
             jobs: Jobs::default(),
             workshop: parts.workshop,
-            working: BTreeMap::new(),
             resting: HashMap::new(),
-            measuring: HashSet::new(),
             rng: Rng::new(),
             started: Utc::now(),
-            thinking: HashMap::new(),
-            looks: 0,
-            kept_looks: None,
+            writer,
             records: std::cell::OnceCell::new(),
             retries: HashMap::new(),
-            pursuing: HashSet::new(),
             held: HashMap::new(),
-            planning: false,
             plan_failures: 0,
-            living: None,
-            reflecting: 0,
-            digesting: HashSet::new(),
-            browsing: HashSet::new(),
             scrolled: HashMap::new(),
         };
-        (mind, MindHandle { tx, entries })
+        let reader = Reader::new(
+            mind.ghost.dir().to_path_buf(),
+            mind.cfg.operators.clone(),
+            mind.live.subscribe(),
+        );
+        let handle = MindHandle {
+            tx,
+            entries,
+            reader: Arc::new(std::sync::Mutex::new(reader)),
+        };
+        (mind, handle)
     }
 
     /// Live until told to stop. Returns only on `stop` or a storage failure.
@@ -669,12 +804,9 @@ impl Mind {
                     None | Some(Signal::Stop) => break,
                     Some(signal) => self.on_signal(signal, Utc::now())?,
                 },
-                Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => match done {
-                    Ok(outcome) => self.on_outcome(outcome, Utc::now())?,
-                    // Called off: she was stopped in the middle of it.
-                    Err(e) if e.is_cancelled() => {}
-                    Err(e) => warn!("a job fell over: {e}"),
-                },
+                Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => {
+                    self.on_done(done, Utc::now())?;
+                }
                 () = tokio::time::sleep(wait) => self.on_time(Utc::now())?,
             }
         }
@@ -795,11 +927,12 @@ impl Mind {
                 self.channels.remove(&channel);
             }
             Signal::Ask { question, answer } => {
-                let _ = answer.send(self.answer(&question, now)?);
+                let _ = answer.send(self.answer(&question));
             }
-            Signal::Order { order, by, answer } => {
-                let _ = answer.send(self.on_order(order, &by, now)?);
+            Signal::Status { answer } => {
+                let _ = answer.send(self.status(now)?);
             }
+            Signal::Order { order, by, answer } => self.on_order(order, &by, answer)?,
             Signal::Interrupt { place, by, answer } => {
                 let _ = answer.send(self.interrupt(&place, &by, now)?);
             }
@@ -816,6 +949,7 @@ impl Mind {
             }
             Signal::Stop => {}
         }
+        self.publish();
         Ok(())
     }
 
@@ -859,14 +993,93 @@ impl Mind {
         if due(self.agenda.work) {
             self.work(now)?;
         }
+        self.publish();
         Ok(())
     }
 
-    fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
+    /// A job came back, with what it brought or having fallen over. What
+    /// it was for is no longer under way either way.
+    fn on_done(&mut self, done: Done, now: DateTime<Utc>) -> Result<()> {
+        let handled = match done.result {
+            Ok(outcome) => self.on_outcome(outcome, done.purpose, now),
+            // Called off: she was stopped in the middle of it.
+            Err(e) if e.is_cancelled() => Ok(()),
+            Err(e) => {
+                warn!("a job fell over: {e}");
+                self.on_fell(done.purpose, now)
+            }
+        };
+        self.publish();
+        handled
+    }
+
+    /// Say what she is in the middle of, for her reader, if it changed.
+    /// Called once each thing she handles is handled: what is under way
+    /// changes only there.
+    fn publish(&self) {
+        let live = reader::Live {
+            sittings: self
+                .jobs
+                .sittings()
+                .into_iter()
+                .map(|(id, _)| id.clone())
+                .collect(),
+            looks: self
+                .jobs
+                .looks()
+                .map(|(place, looking)| (place.clone(), looking.kept))
+                .collect(),
+            online: self.channels.keys().cloned().collect(),
+        };
+        self.live.send_if_modified(|was| {
+            let changed = *was != live;
+            *was = live;
+            changed
+        });
+    }
+
+    /// A job for `purpose` fell over before it brought anything back. What
+    /// it was for is free to be done again, and is put back on her agenda
+    /// where nothing else would bring it round: her day, her phone and her
+    /// posts come round on their own.
+    fn on_fell(&mut self, purpose: Option<Purpose>, now: DateTime<Utc>) -> Result<()> {
+        match purpose {
+            Some(Purpose::Look { place, looking }) => match looking.intention {
+                // Tried again later rather than lost, as when she could
+                // not think.
+                Some(intention) => {
+                    self.held.insert(intention, now + Duration::minutes(10));
+                    self.refresh_intentions()
+                }
+                None => self.schedule_attend(&place, now),
+            },
+            Some(Purpose::Work { id, .. }) => {
+                self.resting.insert(id, now + Duration::minutes(10));
+                self.work_at(now);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn on_outcome(
+        &mut self,
+        outcome: Outcome,
+        purpose: Option<Purpose>,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
         self.prompts.refresh(now);
         self.installs_changed()?;
         match outcome {
-            Outcome::Thought { job, result } => self.on_thought(*job, result, now),
+            Outcome::Thought { job, result } => {
+                // Without its purpose, the look was called off before it
+                // came back: what it came to is not hers to act on.
+                if purpose.is_none() {
+                    tracing::debug!("{}: a look she was stopped in came back", job.place);
+                    return Ok(());
+                }
+                self.on_thought(*job, result, now)
+            }
             Outcome::Sent {
                 place,
                 bubble,
@@ -902,13 +1115,25 @@ impl Mind {
             } => self.on_posted(channel, text, result),
             Outcome::Measured { channel, result } => self.on_measured(&channel, result),
             Outcome::Held { channel, text, why } => self.on_held(&channel, &text, &why),
-            Outcome::Worked {
+            Outcome::Worked { id, sat } => {
+                // A sitting is never called off: it is stopped, and comes
+                // back, so what it was for is always there.
+                let Some(Purpose::Work { working, .. }) = purpose else {
+                    warn!("a sitting at {id} came back that was not under way");
+                    return Ok(());
+                };
+                self.on_worked(&id, *sat, &working, now)
+            }
+            Outcome::Unseated { id, why } => self.on_unseated(id, why, now),
+            Outcome::Added {
                 id,
-                before,
-                report,
-                progress,
-                record,
-            } => self.on_worked(&id, before, &report, progress, &record, now),
+                text,
+                by,
+                result,
+                answer,
+            } => self.on_added(id, text, by, result, answer, now),
+            Outcome::Stopped { id, by, state } => self.on_stopped(&id, by.as_deref(), state, now),
+            Outcome::Ended { id, summary, files } => self.on_ended(&id, &summary, &files, now),
             Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }

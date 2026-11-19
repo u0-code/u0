@@ -20,9 +20,9 @@ use ghost_core::{
     journal::{Entry, Event},
     social,
 };
-use serde_json::{Value, json};
+use ghost_protocol::{Attention, AttentionKind};
 
-use super::Mind;
+use super::reader::{Open, stamp};
 use crate::Result;
 
 /// How many days back what has ended, been told and been reported is shown.
@@ -36,19 +36,19 @@ struct Saying {
     lines: Vec<String>,
 }
 
-impl Mind {
+impl Open<'_> {
     /// Everything waiting on the people who run her, newest first.
-    pub(super) fn waiting_view(&self, now: DateTime<Utc>) -> Result<Value> {
-        let mut items: Vec<(DateTime<Utc>, Value)> = self.questions()?;
+    pub(super) fn waiting(&self, now: DateTime<Utc>) -> Result<Vec<Attention>> {
+        let mut items: Vec<(DateTime<Utc>, Attention)> = self.questions()?;
         items.extend(self.lately(now - Duration::days(DAYS))?);
         items.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        Ok(json!(items.into_iter().map(|(_, v)| v).collect::<Vec<_>>()))
+        Ok(items.into_iter().map(|(_, item)| item).collect())
     }
 
     /// Each piece of open work waiting on an answer, by the entry that
     /// asked, with what answering it takes from its own record.
-    fn questions(&self) -> Result<Vec<(DateTime<Utc>, Value)>> {
-        let memory = self.ghost.memory();
+    fn questions(&self) -> Result<Vec<(DateTime<Utc>, Attention)>> {
+        let memory = self.memory();
         let waiting: Vec<_> = memory
             .undertakings(true, 500)?
             .into_iter()
@@ -58,11 +58,10 @@ impl Mind {
             return Ok(Vec::new());
         }
         let ids: Vec<String> = waiting.iter().map(|u| u.id.clone()).collect();
-        let looks = self.records_of(&ids);
+        let looks = self.records_of(&ids)?;
         let mut items = Vec::new();
         for u in waiting {
             let asked = self
-                .ghost
                 .journal()
                 .of_kinds_after(&["asked"], u.seq)?
                 .into_iter()
@@ -72,26 +71,25 @@ impl Mind {
             let state = looks.iter().find(|l| l.id == u.id).map(|l| &l.state);
             items.push((
                 asked.at,
-                json!({
-                    "id": format!("asked-{}", asked.seq),
-                    "kind": "question",
-                    "at": asked.at,
-                    "seq": asked.seq,
-                    "work": u.id,
-                    "brief": u.brief,
-                    "text": u.waiting,
-                    "ask": state.and_then(|s| s.waiting_kind),
-                    "options": state.map(|s| s.waiting_options.clone()).unwrap_or_default(),
-                }),
+                Attention {
+                    ask: state
+                        .and_then(|s| s.waiting_kind)
+                        .and_then(|kind| serde_json::from_value(serde_json::json!(kind)).ok()),
+                    options: state.map(|s| s.waiting_options.clone()).unwrap_or_default(),
+                    work: Some(u.id),
+                    brief: Some(u.brief),
+                    text: u.waiting.unwrap_or_default(),
+                    ..item(AttentionKind::Question, "asked", asked.seq, asked.at)
+                },
             ));
         }
         Ok(items)
     }
 
     /// What ended badly, was told, and was reported since `since`.
-    fn lately(&self, since: DateTime<Utc>) -> Result<Vec<(DateTime<Utc>, Value)>> {
-        let memory = self.ghost.memory();
-        let journal = self.ghost.journal();
+    fn lately(&self, since: DateTime<Utc>) -> Result<Vec<(DateTime<Utc>, Attention)>> {
+        let memory = self.memory();
+        let journal = self.journal();
         // Only the days asked about are read, however long she has lived.
         let from = journal.first_seq_since(since)?;
         let entries: Vec<Entry> = journal
@@ -126,16 +124,13 @@ impl Mind {
                     let brief = memory.undertaking(&id)?.map(|u| u.brief);
                     items.push((
                         entry.at,
-                        json!({
-                            "id": format!("ended-{}", entry.seq),
-                            "kind": "ended",
-                            "at": entry.at,
-                            "seq": entry.seq,
-                            "work": id,
-                            "brief": brief,
-                            "text": summary,
-                            "outcome": outcome,
-                        }),
+                        Attention {
+                            work: Some(id),
+                            brief,
+                            text: summary,
+                            outcome: Some(outcome),
+                            ..item(AttentionKind::Ended, "ended", entry.seq, entry.at)
+                        },
                     ));
                 }
                 Event::Reported { id, text, files } => {
@@ -146,24 +141,19 @@ impl Mind {
                         || u.asked_by
                             .as_deref()
                             .and_then(social::split_key)
-                            .is_some_and(|(channel, who)| {
-                                self.cfg.operators.includes(channel, who)
-                            });
+                            .is_some_and(|(channel, who)| self.operator(channel, who));
                     if !operators {
                         continue;
                     }
                     items.push((
                         entry.at,
-                        json!({
-                            "id": format!("told-{}", entry.seq),
-                            "kind": "told",
-                            "at": entry.at,
-                            "seq": entry.seq,
-                            "work": id,
-                            "brief": u.brief,
-                            "text": text,
-                            "files": files,
-                        }),
+                        Attention {
+                            work: Some(id),
+                            brief: Some(u.brief),
+                            text,
+                            files,
+                            ..item(AttentionKind::Told, "told", entry.seq, entry.at)
+                        },
                     ));
                 }
                 Event::Intended {
@@ -222,16 +212,41 @@ impl Mind {
             let Some(at) = report.at else { continue };
             items.push((
                 at,
-                json!({
-                    "id": format!("report-{}", report.intention),
-                    "kind": "report",
-                    "at": at,
-                    "seq": report.intention,
-                    "place": place,
-                    "text": report.lines.join("\n"),
-                }),
+                Attention {
+                    id: format!("report-{}", report.intention),
+                    kind: AttentionKind::Report,
+                    at: stamp(at),
+                    seq: report.intention,
+                    work: None,
+                    brief: None,
+                    text: report.lines.join("\n"),
+                    ask: None,
+                    options: Vec::new(),
+                    outcome: None,
+                    files: Vec::new(),
+                    place: Some(place),
+                },
             ));
         }
         Ok(items)
+    }
+}
+
+/// An item of `kind` that comes of the journal entry `seq`, written `at`,
+/// known by `name` and that seq, with nothing else said of it yet.
+fn item(kind: AttentionKind, name: &str, seq: i64, at: DateTime<Utc>) -> Attention {
+    Attention {
+        id: format!("{name}-{seq}"),
+        kind,
+        at: stamp(at),
+        seq,
+        work: None,
+        brief: None,
+        text: String::new(),
+        ask: None,
+        options: Vec::new(),
+        outcome: None,
+        files: Vec::new(),
+        place: None,
     }
 }

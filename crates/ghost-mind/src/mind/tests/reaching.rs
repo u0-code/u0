@@ -469,12 +469,14 @@ async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<U
     let gate = rig.think.hold(1);
     rig.hear(dm("wen", "1", "when does the tea house close?"), t0);
     let mut now = t0;
-    while !rig.mind.thinking.contains_key("t:wen") {
+    while rig.mind.jobs.looking("t:wen").is_none() {
         now = rig.mind.agenda.next_due().expect("she looks").max(now);
         rig.mind.on_time(now).unwrap();
     }
     for _ in 0..400 {
-        if rig.think.turns.lock().unwrap().len() == 2 {
+        // The second turn is asked for, and the look is all that is out:
+        // the round before it has been kept.
+        if rig.think.turns.lock().unwrap().len() == 2 && rig.mind.jobs.set.len() == 1 {
             break;
         }
         if let Ok(Some(done)) = tokio::time::timeout(
@@ -483,7 +485,7 @@ async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<U
         )
         .await
         {
-            rig.mind.on_outcome(done.unwrap(), now).unwrap();
+            rig.mind.on_done(done, now).unwrap();
         }
     }
     (rig, gate, now)
@@ -491,23 +493,15 @@ async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<U
 
 /// Her looks at Wen's that ended after the journal entry `after`, and the
 /// one going on, as a console reads them.
-fn looks_at_wen(rig: &Rig, after: i64, now: DateTime<Utc>) -> serde_json::Value {
-    rig.mind
-        .answer(
-            &Question::LookSteps {
-                place: "t:wen".into(),
-                after,
-            },
-            now,
-        )
-        .unwrap()
+fn looks_at_wen(rig: &Rig, after: i64) -> serde_json::Value {
+    serde_json::to_value(rig.reader().looks("t:wen", after).unwrap()).unwrap()
 }
 
 #[tokio::test]
 async fn what_she_calls_in_a_conversation_is_kept_round_by_round_and_tied_to_where_the_look_ended()
 {
     let (mut rig, gate, now) = in_the_middle_of_a_look().await;
-    let ask = |rig: &Rig, after: i64| looks_at_wen(rig, after, now);
+    let ask = |rig: &Rig, after: i64| looks_at_wen(rig, after);
 
     let going = ask(&rig, 0);
     assert_eq!(going.as_array().unwrap().len(), 1, "{going}");
@@ -565,18 +559,87 @@ async fn what_she_calls_in_a_conversation_is_kept_round_by_round_and_tied_to_whe
 }
 
 #[tokio::test]
+async fn a_look_does_not_wait_on_a_sitting_holding_work_db_and_its_rounds_are_kept_after() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::with_tools(t0);
+    befriend(&mut rig, "wen", t0);
+    // A sitting in the middle of a write: it holds the database's lock
+    // until it is let go.
+    let record = rig.record("w1", "Count the tea houses.");
+    let (held, holding) = std::sync::mpsc::channel();
+    let (let_go, waiting) = std::sync::mpsc::channel::<()>();
+    let sitting = std::thread::spawn(move || {
+        record
+            .update(|_| {
+                held.send(()).unwrap();
+                let _ = waiting.recv();
+            })
+            .unwrap();
+    });
+    holding.recv().unwrap();
+
+    rig.think.then_turn(
+        "let me think",
+        &[("recall", serde_json::json!({"query": "tea house"}))],
+    );
+    rig.think.then_turn(
+        "",
+        &[("say", serde_json::json!({"text": "it closes at ten"}))],
+    );
+    let started = std::time::Instant::now();
+    rig.hear(dm("wen", "1", "when does the tea house close?"), t0);
+    let now = rig.beside_until(|r| r.body.sent().len() == 1).await;
+    // Well inside the time a write waits for the lock before it gives up:
+    // her mind never waited on it.
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(rig.body.sent(), ["it closes at ten"]);
+    assert!(looks_at_wen(&rig, 0).as_array().unwrap().is_empty());
+
+    let_go.send(()).unwrap();
+    sitting.join().unwrap();
+    rig.settle(now).await;
+    let kept = looks_at_wen(&rig, 0);
+    assert_eq!(kept.as_array().unwrap().len(), 1, "{kept}");
+    let rounds = kept[0]["rounds"].as_array().unwrap();
+    assert_eq!(rounds.len(), 2, "{kept}");
+    assert_eq!(rounds[0]["calls"][0]["name"], "recall");
+    let decided = rig
+        .mind
+        .ghost
+        .journal()
+        .of_kinds_after(&["decided"], 0)
+        .unwrap()
+        .last()
+        .unwrap()
+        .seq;
+    assert_eq!(kept[0]["seq"], decided);
+}
+
+#[tokio::test]
 async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
     let (mut rig, gate, now) = in_the_middle_of_a_look().await;
-    let going = looks_at_wen(&rig, 0, now);
+    let going = looks_at_wen(&rig, 0);
+    assert_eq!(going.as_array().unwrap().len(), 1, "{going}");
     assert_eq!(going[0]["running"], true);
-    // The look her mind is waiting on is the one a console reads.
-    assert_eq!(rig.mind.thinking["t:wen"].kept, going[0]["look"].as_i64());
+    // The look her mind is waiting on is the one a console reads: by when
+    // it began keeping rounds, which is when its first round was called.
+    assert_eq!(
+        rig.mind
+            .jobs
+            .looking("t:wen")
+            .unwrap()
+            .kept
+            .map(|at| at.to_rfc3339()),
+        going[0]["rounds"][0]["at"].as_str().map(str::to_owned)
+    );
 
     let fox = crate::Operator {
         key: "console:fox".into(),
         name: "Fox".into(),
     };
     assert!(rig.mind.interrupt("t:wen", &fox, now).unwrap());
+    // Where it ended is in the record once her writer has put it there.
+    rig.settle(now).await;
     let stopped = rig
         .mind
         .ghost
@@ -586,7 +649,7 @@ async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
         .last()
         .expect("she was stopped")
         .seq;
-    let ended = looks_at_wen(&rig, 0, now);
+    let ended = looks_at_wen(&rig, 0);
     assert_eq!(ended[0]["look"], going[0]["look"]);
     assert_eq!(ended[0]["running"], false);
     assert_eq!(ended[0]["seq"], stopped);
@@ -596,11 +659,6 @@ async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
     gate.notify_one();
     rig.pump(now).await;
     assert!(rig.body.sent().is_empty());
-    assert_eq!(looks_at_wen(&rig, 0, now), ended);
-    assert!(
-        looks_at_wen(&rig, stopped, now)
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(looks_at_wen(&rig, 0), ended);
+    assert!(looks_at_wen(&rig, stopped).as_array().unwrap().is_empty());
 }

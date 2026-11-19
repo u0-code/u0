@@ -6,12 +6,17 @@ use serde_json::Value;
 
 /// One journal entry on one line, in her local time.
 pub fn entry(e: &Entry, tz: Tz) -> String {
+    event(e.seq, e.at, &e.event, tz)
+}
+
+/// What happened as the entry `seq`, written `at`, on one line, as
+/// [`entry`] shows an entry.
+pub fn event(seq: i64, at: chrono::DateTime<chrono::Utc>, event: &Event, tz: Tz) -> String {
     format!(
-        "#{:<5} {}  {:<9} {}",
-        e.seq,
-        e.at.with_timezone(&tz).format("%m-%d %H:%M:%S"),
-        e.event.kind(),
-        describe(&e.event, tz)
+        "#{seq:<5} {}  {:<9} {}",
+        at.with_timezone(&tz).format("%m-%d %H:%M:%S"),
+        event.kind(),
+        describe(event, tz)
     )
 }
 

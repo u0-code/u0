@@ -13,57 +13,71 @@ fn entry(seq: i64, kind: &str, data: Value) -> Entry {
     }
 }
 
+/// A piece of work as her core lists it.
+fn listed(id: &str, state: WorkState, parts: Vec<Work>) -> Work {
+    let mut work: Work = serde_json::from_value(json!({
+        "id": id,
+        "brief": id,
+        "state": state,
+    }))
+    .unwrap();
+    work.parts = parts;
+    work
+}
+
 #[test]
-fn a_task_waits_on_you_from_its_question_until_its_answer() {
-    let mut journal = vec![
+fn a_task_stands_as_its_core_lists_it_whatever_its_journal_says() {
+    let journal = vec![
         entry(1, "undertook", json!({"id": "a", "brief": "tidy"})),
         entry(2, "asked", json!({"id": "a", "question": "which folder?"})),
+        entry(3, "added", json!({"id": "a", "text": "Downloads"})),
     ];
-    assert_eq!(tasks(&journal)[0].state(), State::Waiting);
-    journal.push(entry(3, "added", json!({"id": "a", "text": "Downloads"})));
-    assert_eq!(tasks(&journal)[0].state(), State::Running);
+    let work = [listed("a", WorkState::Waiting, Vec::new())];
+    assert_eq!(tasks(&journal, &work)[0].state(), WorkState::Waiting);
+    assert!(tasks(&journal, &work)[0].open());
+    let work = [listed("a", WorkState::Finished, Vec::new())];
+    assert!(!tasks(&journal, &work)[0].open());
+}
+
+#[test]
+fn work_its_core_has_not_listed_yet_is_just_begun_and_work_it_no_longer_lists_ended_as_it_concluded()
+ {
+    let mut journal = vec![entry(1, "undertook", json!({"id": "a", "brief": "tidy"}))];
+    assert_eq!(tasks(&journal, &[])[0].state(), WorkState::Open);
     journal.push(entry(
-        4,
+        2,
         "concluded",
         json!({"id": "a", "outcome": "gave_up", "summary": ""}),
     ));
-    assert_eq!(tasks(&journal)[0].state(), State::Blocked);
+    assert_eq!(tasks(&journal, &[])[0].state(), WorkState::GaveUp);
 }
 
 #[test]
-fn parts_are_kept_under_the_task_that_handed_them_out() {
+fn a_tasks_parts_are_the_ones_its_core_lists_with_it() {
     let journal = vec![
         entry(1, "undertook", json!({"id": "a", "brief": "tidy"})),
-        entry(2, "undertook", json!({"id": "a/1", "brief": "photos"})),
-        entry(
-            3,
-            "worked",
-            json!({"id": "a/1", "summary": "sorted", "steps": 4}),
-        ),
-        entry(4, "undertook", json!({"id": "b", "brief": "other"})),
+        entry(2, "undertook", json!({"id": "b", "brief": "other"})),
     ];
-    let all = tasks(&journal);
+    let work = [listed(
+        "a",
+        WorkState::Running,
+        vec![listed("a/1", WorkState::Running, Vec::new())],
+    )];
+    let all = tasks(&journal, &work);
     assert_eq!(all.len(), 2);
-    assert_eq!(all[0].parts.len(), 1);
-    assert_eq!(all[0].parts[0].events.len(), 1, "its sitting is its own");
+    assert_eq!(all[0].parts().len(), 1);
+    assert!(all[1].parts().is_empty(), "nothing listed, no parts");
 }
 
 /// Two sessions' worth of journal, as the daemon writes it: work taken
-/// on in `s1` with two parts, one done; work in `s2`; a file reported
-/// and one kept by `s1`'s work, one kept and let go, one kept by `s2`.
+/// on in `s1`; work in `s2`; a file reported and one kept by `s1`'s work,
+/// one kept and let go, one kept by `s2`.
 fn two_sessions() -> Vec<Entry> {
     vec![
         entry(
             1,
             "undertook",
             json!({"id": "w1", "brief": "tidy downloads", "place": "console:s1"}),
-        ),
-        entry(2, "undertook", json!({"id": "w1/1", "brief": "images"})),
-        entry(3, "undertook", json!({"id": "w1/2", "brief": "archives"})),
-        entry(
-            4,
-            "concluded",
-            json!({"id": "w1/1", "outcome": "finished", "summary": "done"}),
         ),
         entry(
             5,
@@ -78,7 +92,7 @@ fn two_sessions() -> Vec<Entry> {
         entry(
             7,
             "kept",
-            json!({"file": "abc.png", "note": "a chart", "from": "w1/2"}),
+            json!({"file": "abc.png", "note": "a chart", "from": "w1"}),
         ),
         entry(
             8,
@@ -102,51 +116,27 @@ fn two_sessions() -> Vec<Entry> {
 #[test]
 fn a_session_holds_only_the_work_taken_on_in_its_place() {
     let journal = two_sessions();
-    let s1 = session_tasks(&journal, "s1");
+    let s1 = session_tasks(&journal, &[], "s1");
     assert_eq!(s1.len(), 1);
     assert_eq!(s1[0].id, "w1");
-    assert_eq!(session_tasks(&journal, "s2")[0].id, "w2");
-    assert!(session_tasks(&journal, "s3").is_empty());
+    assert_eq!(session_tasks(&journal, &[], "s2")[0].id, "w2");
+    assert!(session_tasks(&journal, &[], "s3").is_empty());
 }
 
 #[test]
 fn the_sidebar_nests_every_part_of_open_work_and_none_of_finished_work() {
-    let mut journal = two_sessions();
-    let s1 = session_tasks(&journal, "s1");
-    let parts: Vec<&str> = open_parts(&s1).iter().map(|p| p.brief.as_str()).collect();
-    assert_eq!(parts, ["images", "archives"]);
-    assert_eq!(open_parts(&s1)[0].state(), State::Finished);
-    assert_eq!(session_state(&s1), Some(State::Running));
-
-    journal.push(entry(
-        12,
-        "concluded",
-        json!({"id": "w1", "outcome": "finished", "summary": ""}),
-    ));
-    let s1 = session_tasks(&journal, "s1");
-    assert!(open_parts(&s1).is_empty());
-    assert_eq!(session_state(&s1), None);
-}
-
-#[test]
-fn a_session_shows_waiting_before_running() {
-    let journal = vec![
-        entry(
-            1,
-            "undertook",
-            json!({"id": "a", "brief": "x", "place": "console:s"}),
-        ),
-        entry(
-            2,
-            "undertook",
-            json!({"id": "b", "brief": "y", "place": "console:s"}),
-        ),
-        entry(3, "asked", json!({"id": "b", "question": "which?"})),
+    let journal = two_sessions();
+    let parts = vec![
+        listed("w1/1", WorkState::Finished, Vec::new()),
+        listed("w1/2", WorkState::Running, Vec::new()),
     ];
-    assert_eq!(
-        session_state(&session_tasks(&journal, "s")),
-        Some(State::Waiting)
-    );
+    let work = [listed("w1", WorkState::Running, parts.clone())];
+    let s1 = session_tasks(&journal, &work, "s1");
+    let ids: Vec<&str> = open_parts(&s1).iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, ["w1/1", "w1/2"]);
+
+    let work = [listed("w1", WorkState::Finished, parts)];
+    assert!(open_parts(&session_tasks(&journal, &work, "s1")).is_empty());
 }
 
 #[test]
@@ -303,7 +293,7 @@ fn a_sessions_thread_has_its_lines_and_yours_not_yet_shown_and_its_own_work() {
     );
     // Its work is its own, and nobody else's.
     let ids = |s: &str| -> Vec<String> {
-        session_tasks(&journal, s)
+        session_tasks(&journal, &[], s)
             .iter()
             .map(|t| t.id.clone())
             .collect()
@@ -581,7 +571,30 @@ fn the_thread_asks_for_the_steps_of_every_work_and_of_the_open_parts_of_open_car
     let journal = two_sessions();
     let place = place_key("s1");
     let mut expanded = HashSet::new();
-    let works = |expanded: &HashSet<String>| wanted(&view(&journal, &[], &place, expanded)).works;
+    let mut following = Following::default();
+    let part = |id: &str, state| ghost_link::protocol::WorkPart {
+        id: id.into(),
+        brief: id.into(),
+        state,
+        brain: None,
+    };
+    let log = ghost_link::protocol::WorkLog {
+        steps: Vec::new(),
+        parts: vec![
+            part("w1/1", WorkState::Finished),
+            part("w1/2", WorkState::Running),
+        ],
+        more: false,
+        context: None,
+    };
+    following.steps("w1", std::time::Instant::now(), Ok(log));
+    let works = |expanded: &HashSet<String>| {
+        wanted(&View {
+            following: &following,
+            ..view(&journal, &[], &place, expanded)
+        })
+        .works
+    };
     // A folded work's steps are read too: its line says what it did.
     assert_eq!(works(&expanded), [("w1".to_owned(), true)]);
     expanded.insert("part:w1/2".to_owned());
@@ -694,7 +707,7 @@ fn a_line_taken_back_is_out_of_the_thread_with_everything_said_after_it() {
 fn a_works_brief_shows_without_the_words_it_was_handed_and_its_title_is_its_first_line() {
     let brief = "统计每个 crate 的行数，排成表。\n\n步骤：\n1. 列出目录\n\nWhat Fox wrote, word for word:\n> 帮我看看";
     let journal = vec![entry(1, "undertook", json!({"id": "w", "brief": brief}))];
-    let t = &tasks(&journal)[0];
+    let t = &tasks(&journal, &[])[0];
     assert_eq!(
         t.brief_shown(),
         "统计每个 crate 的行数，排成表。\n\n步骤：\n1. 列出目录"
@@ -705,7 +718,7 @@ fn a_works_brief_shows_without_the_words_it_was_handed_and_its_title_is_its_firs
         "undertook",
         json!({"id": "w", "brief": "  tidy up  "}),
     )];
-    assert_eq!(tasks(&plain)[0].brief_shown(), "tidy up");
+    assert_eq!(tasks(&plain, &[])[0].brief_shown(), "tidy up");
 }
 
 /// Something heard from you, or said by her, on the console in `s1`, `m`

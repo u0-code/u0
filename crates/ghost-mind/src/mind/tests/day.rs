@@ -147,7 +147,7 @@ async fn she_looks_back_on_her_own_day_and_on_each_platform_apart() {
     rig.mind.cfg.live = true;
     rig.mind.reflect(night).unwrap();
     while let Some(done) = rig.mind.jobs.join_next().await {
-        rig.mind.on_outcome(done.unwrap(), night).unwrap();
+        rig.mind.on_done(done, night).unwrap();
     }
 
     // One look at her own day, and one at each platform.

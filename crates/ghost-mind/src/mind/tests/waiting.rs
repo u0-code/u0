@@ -65,9 +65,7 @@ async fn a_console_is_shown_what_waits_on_her_operators_newest_first_and_nothing
             question: "which week?".into(),
         },
     );
-    rig.mind
-        .undertaking("rota", "the brief of rota")
-        .unwrap()
+    rig.record("rota", "the brief of rota")
         .update(|s| {
             s.ask(
                 "which week?",
@@ -148,7 +146,7 @@ async fn a_console_is_shown_what_waits_on_her_operators_newest_first_and_nothing
     rig.hear(answer, minutes(8));
     said(&mut rig, minutes(9), "boss", "and you?");
 
-    let shown = rig.mind.waiting_view(minutes(10)).unwrap();
+    let shown = serde_json::to_value(rig.reader().waiting(minutes(10)).unwrap()).unwrap();
     let ids: Vec<&str> = shown
         .as_array()
         .unwrap()
@@ -206,7 +204,7 @@ async fn a_console_is_shown_what_waits_on_her_operators_newest_first_and_nothing
             by: Some("console:fox".into()),
         },
     );
-    let shown = rig.mind.waiting_view(minutes(12)).unwrap();
+    let shown = serde_json::to_value(rig.reader().waiting(minutes(12)).unwrap()).unwrap();
     assert!(!shown.to_string().contains("asked-"), "{shown}");
     // Nothing was written to be shown any of it.
     assert_eq!(

@@ -79,7 +79,7 @@ Use these. Do not write another.
 | Need | Use |
 |---|---|
 | HTTP client | `ghost_net::builder()` |
-| Environment for a spawned program | `ghost_net::pass_on` |
+| Starting and stopping a program (its own process group, the proxy rule, no Claude Code session variables) | `ghost_net::spawn` |
 | Atomic file write | `ghost_core::whole` (`desk/src/whole.rs` in the desk) |
 | Media type from a file name | `ghost_core::media::mime` |
 | Protocol messages | the types in `ghost-protocol`; never hand-built JSON that mirrors them |

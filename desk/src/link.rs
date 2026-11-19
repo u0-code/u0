@@ -201,7 +201,7 @@ async fn read_steps(console: &mut Console, read: Read, up: &mpsc::Sender<Update>
         // A place that cannot be read shows what the desk holds of it; a
         // daemon that refuses says so in the log, not on the desk.
         Read::Place { place } => match console.thread(&place, PLACE_READ).await {
-            Ok(entries) => Update::Place(sorted(&entries)),
+            Ok(entries) => Update::Place(sorted(entries)),
             Err(e) => {
                 debug!("could not read the place {place}: {e:#}");
                 return;
@@ -232,7 +232,7 @@ pub enum BrainCall {
 pub enum BrainAnswer {
     /// The brains, as they are now.
     List(BrainList),
-    Models(Vec<String>),
+    Models(Vec<ghost_link::protocol::BrainModel>),
     /// It thought, when asked to.
     Checked,
 }
@@ -288,8 +288,7 @@ pub async fn brains(
 }
 
 /// Entries as the daemon serves them, oldest first.
-fn sorted(values: &[serde_json::Value]) -> Vec<Entry> {
-    let mut entries: Vec<Entry> = values.iter().filter_map(Entry::from_value).collect();
+fn sorted(mut entries: Vec<Entry>) -> Vec<Entry> {
     entries.sort_by_key(|e| e.seq);
     entries
 }
@@ -565,16 +564,22 @@ async fn session(
         tokio::select! {
             entry = stream.next_entry() => {
                 match entry? {
-                    Some(v) => {
-                        if let Some(entry) = Entry::from_value(&v) {
-                            *newest = entry.seq.max(*newest);
-                            let listed = cfg.sessions && changes_sessions(&entry);
-                            let _ = up.send(Update::Entry(entry));
-                            // Begun, named or set aside, by this desk or
-                            // another: what the list is now.
-                            if listed {
-                                ask_sessions(&mut asker, up).await;
-                            }
+                    Some(entry) => {
+                        *newest = entry.seq.max(*newest);
+                        let listed = cfg.sessions && changes_sessions(&entry);
+                        let worked = changes_work(&entry);
+                        let _ = up.send(Update::Entry(entry));
+                        // Begun, named or set aside, by this desk or
+                        // another: what the list is now.
+                        if listed {
+                            ask_sessions(&mut asker, up).await;
+                        }
+                        // Where her work stands is her core's to say: asked
+                        // as soon as her journal says it moved, so that a
+                        // card shows it with the entry, not at the next
+                        // refresh.
+                        if worked {
+                            ask_work(&mut asker, up).await;
                         }
                     }
                     None => return Ok(()),
@@ -619,12 +624,12 @@ async fn session(
 async fn since(asker: &mut Console, newest: i64) -> anyhow::Result<Vec<Entry>> {
     const MOST: u32 = TAIL * 4;
     if newest > 0 {
-        let gap = sorted(&asker.journal(newest + 1, MOST).await?);
+        let gap = sorted(asker.journal(newest + 1, MOST).await?);
         if gap.len() < MOST as usize {
             return Ok(gap);
         }
     }
-    Ok(sorted(&asker.journal(-i64::from(TAIL), TAIL).await?))
+    Ok(sorted(asker.journal(-i64::from(TAIL), TAIL).await?))
 }
 
 /// Whether `entry` may change the list of her sessions: one begun by its
@@ -634,6 +639,23 @@ fn changes_sessions(entry: &Entry) -> bool {
         "session_named" | "session_set_aside" => true,
         "heard" => entry.data["channel"] == ghost_link::protocol::CONSOLE,
         _ => false,
+    }
+}
+
+/// Whether `entry` may move a piece of her work: taken on, asking,
+/// answered or over.
+fn changes_work(entry: &Entry) -> bool {
+    matches!(
+        entry.kind.as_str(),
+        "undertook" | "asked" | "added" | "concluded"
+    )
+}
+
+/// Her work, as her core lists it. Without an answer the desk shows what
+/// it had, and the rest of her status stands.
+async fn ask_work(asker: &mut Console, up: &mpsc::Sender<Update>) {
+    if let Ok(work) = asker.work().await {
+        let _ = up.send(Update::Work(work));
     }
 }
 
@@ -650,11 +672,7 @@ async fn ask_sessions(asker: &mut Console, up: &mpsc::Sender<Update>) {
 
 async fn ask_all(asker: &mut Console, up: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let status = asker.status().await?;
-    let _ = up.send(Update::Status(Box::new(Status::read(&status))));
-    // Without an answer about her work the desk shows none, and the rest
-    // of her status stands.
-    if let Ok(work) = asker.work().await {
-        let _ = up.send(Update::Work(work));
-    }
+    let _ = up.send(Update::Status(Box::new(Status::read(status))));
+    ask_work(asker, up).await;
     Ok(())
 }

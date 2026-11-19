@@ -28,7 +28,7 @@ impl Mind {
             .retain(|seq, _| open.iter().any(|i| i.seq == *seq));
         self.agenda.intention = open
             .iter()
-            .filter(|i| !self.pursuing.contains(&i.seq))
+            .filter(|i| !self.jobs.pursuing(i.seq))
             .map(|i| self.held.get(&i.seq).map_or(i.due, |held| i.due.max(*held)))
             .min();
         Ok(())
@@ -43,20 +43,6 @@ impl Mind {
         about: Option<String>,
         place: Option<String>,
         owed: bool,
-    ) -> Result<bool> {
-        self.intend_as(due, what, about, place, owed, false)
-    }
-
-    /// The same, saying whether it comes of work asked for at a terminal:
-    /// then it is acted on whatever her day is, as the asking was.
-    pub(super) fn intend_as(
-        &mut self,
-        due: DateTime<Utc>,
-        what: String,
-        about: Option<String>,
-        place: Option<String>,
-        owed: bool,
-        directed: bool,
     ) -> Result<bool> {
         let held = self.ghost.memory().open_intentions()?.iter().any(|open| {
             let same = match (&about, &open.about) {
@@ -73,6 +59,28 @@ impl Mind {
             debug!("already means to: {what}");
             return Ok(false);
         }
+        self.intend_as(due, what, about, place, owed, false)?;
+        Ok(true)
+    }
+
+    /// Something a piece of work brings her to mean to do: to show what it
+    /// found, ask what it needs, or tell how it ended. `directed` says
+    /// whether the work was asked for at a terminal: then it is acted on
+    /// whatever her day is, as the asking was.
+    ///
+    /// It is always recorded. Her journal already makes each piece of news
+    /// from work come once, and each is news of its own: that she means to
+    /// show what a piece of work found so far is no reason not to tell
+    /// them, a moment later, that it is over.
+    pub(super) fn intend_as(
+        &mut self,
+        due: DateTime<Utc>,
+        what: String,
+        about: Option<String>,
+        place: Option<String>,
+        owed: bool,
+        directed: bool,
+    ) -> Result<()> {
         self.record(Event::Intended {
             due,
             what,
@@ -82,7 +90,7 @@ impl Mind {
             directed,
             report: false,
         })?;
-        Ok(true)
+        Ok(())
     }
 
     /// What she already means to do that concerns a place or the people in it.
@@ -108,7 +116,7 @@ impl Mind {
     pub(super) fn pursue(&mut self, now: DateTime<Utc>) -> Result<()> {
         let open = self.ghost.memory().open_intentions()?;
         let Some(intention) = open.into_iter().find(|i| {
-            !self.pursuing.contains(&i.seq)
+            !self.jobs.pursuing(i.seq)
                 && self.held.get(&i.seq).map_or(i.due, |held| i.due.max(*held)) <= now
         }) else {
             return self.refresh_intentions();
@@ -132,13 +140,12 @@ impl Mind {
         let Some(place) = self.ghost.memory().place(&place_key)? else {
             return self.refresh_intentions();
         };
-        self.pursuing.insert(intention.seq);
-        self.refresh_intentions()?;
         self.ponder(
             Thinking::new(&place.key, Why::Intention(intention), false),
             &place,
             now,
-        )
+        )?;
+        self.refresh_intentions()
     }
 
     /// Where an intention would be carried out.
@@ -193,7 +200,8 @@ impl Mind {
                 )));
             }
         }
-        if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
+        if self.jobs.looking(&place.key).is_some() || self.agenda.speaking.contains_key(&place.key)
+        {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
         // What comes of work asked for at a terminal, or is to be said at

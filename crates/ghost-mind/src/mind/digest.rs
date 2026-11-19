@@ -15,7 +15,7 @@ use ghost_core::{
 };
 use tracing::{debug, warn};
 
-use super::{Mind, Outcome};
+use super::{Mind, Outcome, Purpose};
 use crate::{Error, Result};
 
 /// The most messages one note is asked to take in.
@@ -28,7 +28,10 @@ impl Mind {
     /// write down what to keep of the part she is about to stop seeing.
     pub(super) fn consider_digest(&mut self, place: &PlaceState, now: DateTime<Utc>) -> Result<()> {
         let window = self.cfg.thread_window.max(1);
-        if self.digesting.contains(&place.key) {
+        if self
+            .jobs
+            .any(|p| matches!(p, Purpose::Digest(at) if *at == place.key))
+        {
             return Ok(());
         }
         let memory = self.ghost.memory();
@@ -84,21 +87,21 @@ impl Mind {
         let request = Completion::ask(self.who(now)?, prompt, NOTE_TOKENS).thinking(Effort::Low);
         let brain = self.tick.clone();
         self.budget.spend(now);
-        self.digesting.insert(place.key.clone());
         let place = place.key.clone();
-        self.jobs.spawn(async move {
-            let result = brain
-                .complete(&request)
-                .await
-                .map(|reply| reply.text)
-                .map_err(Error::from);
-            Outcome::Digested {
-                place,
-                upto,
-                sources,
-                result,
-            }
-        });
+        self.jobs
+            .spawn_for(Purpose::Digest(place.clone()), async move {
+                let result = brain
+                    .complete(&request)
+                    .await
+                    .map(|reply| reply.text)
+                    .map_err(Error::from);
+                Outcome::Digested {
+                    place,
+                    upto,
+                    sources,
+                    result,
+                }
+            });
         Ok(())
     }
 
@@ -109,7 +112,6 @@ impl Mind {
         sources: Sources,
         result: Result<String>,
     ) -> Result<()> {
-        self.digesting.remove(place);
         match result {
             Ok(text) if !text.trim().is_empty() => {
                 debug!("{place}: kept the conversation up to #{upto}");

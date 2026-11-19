@@ -58,7 +58,7 @@ pub use people::{Feeling, Person};
 pub use places::{Elsewhere, PlaceState, Talked};
 pub use public::Standing;
 pub use recall::Hit;
-pub use sessions::{Session, TITLE_CHARS};
+pub use sessions::Session;
 pub use skills::Skill;
 pub use work::{Undertaking, WorkReport};
 
@@ -118,7 +118,8 @@ const FEATURES: [Feature; 16] = [
     feature!(places),
     feature!(messages),
     feature!(people),
-    feature!(notes),
+    // Whether a note was learned in private is read from its place.
+    feature!(notes, reads places),
     feature!(digests),
     feature!(intentions),
     feature!(canon),

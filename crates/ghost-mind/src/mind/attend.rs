@@ -60,11 +60,9 @@ pub(super) struct Thinking {
     /// The servers of tools she loaded in this look: their tools are
     /// offered for the rest of it.
     pub loaded: ghost_work::tools::Loaded,
-    /// Which look this is, once it has been sent off: none is 0.
-    pub look: u64,
-    /// Its number in the record of her looks, once it has kept a round
-    /// there: what a console knows it by.
-    pub kept: Option<i64>,
+    /// When it began keeping its rounds in the record of her looks, once
+    /// it has kept one: what the record and a console know it by.
+    pub kept: Option<DateTime<Utc>>,
     /// The round waiting on what reaches beyond the conversation: when it
     /// was called, and its calls in order as the record keeps them, with
     /// those still out left `None`.
@@ -90,16 +88,11 @@ impl Thinking {
 
 /// A look whose brain call, or reach beyond the conversation, is out.
 pub(super) struct Looking {
-    /// Which look it is. What comes back of any other look in the place
-    /// is not hers to act on: she was stopped in the middle of that one.
-    pub look: u64,
-    /// Calls the job off.
-    pub abort: tokio::task::AbortHandle,
     /// The intention it pursues, if that is why she looked.
     pub intention: Option<i64>,
-    /// Its number in the record of her looks, if it has kept a round:
-    /// the same look, as a console knows it.
-    pub kept: Option<i64>,
+    /// When it began keeping its rounds, if it has kept one: the same
+    /// look, as a console knows it.
+    pub kept: Option<DateTime<Utc>>,
 }
 
 impl Thinking {
@@ -117,7 +110,6 @@ impl Thinking {
             thought: String::new(),
             nudged: false,
             loaded: ghost_work::tools::Loaded::default(),
-            look: 0,
             kept: None,
             out: None,
             usage: None,
@@ -318,7 +310,7 @@ impl Mind {
     /// The moment she looks at a place.
     pub(super) fn attend(&mut self, place_key: &str, now: DateTime<Utc>) -> Result<()> {
         self.agenda.attend.remove(place_key);
-        if self.thinking.contains_key(place_key) || self.agenda.speaking.contains_key(place_key) {
+        if self.jobs.looking(place_key).is_some() || self.agenda.speaking.contains_key(place_key) {
             // Already on it. Whatever is new gets picked up when that finishes.
             return Ok(());
         }

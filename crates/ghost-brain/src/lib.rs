@@ -6,10 +6,12 @@
 
 pub mod anthropic;
 mod cli;
+pub mod cli_models;
 pub mod config;
 pub mod discover;
 mod http;
 pub mod openai;
+pub mod presets;
 pub mod step;
 
 use std::{fmt::Write as _, time::Duration};

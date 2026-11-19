@@ -26,13 +26,14 @@ use std::{
 
 use async_trait::async_trait;
 use base64::Engine as _;
+use chrono::Utc;
 use futures_util::StreamExt;
 use ghost_link::socket::{recv, send};
-use ghost_mind::{Act, Acted, Body, ChannelFacts, MindHandle, Question};
+use ghost_mind::{Act, Acted, Body, ChannelFacts, MindHandle, Question, Reader};
 use ghost_protocol::{
-    Action, Actor, Allows, Avatar, CONSOLE, Capability, Frame, Hello, Inbound, JournalRead,
-    ListGhosts, LookRead, MediaFile, MediaRead, PROTOCOL, PlaceRead, PresenceHello, Role,
-    StepsRead, Typing, Welcome, code, method,
+    Action, Actor, Allows, Avatar, CONSOLE, Capability, Frame, GhostStatus, Hello, Inbound,
+    JournalRead, ListGhosts, LookRead, MediaFile, MediaRead, PROTOCOL, PlaceRead, PresenceHello,
+    Role, StepsRead, Typing, Welcome, code, method,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -544,15 +545,23 @@ async fn watch<S>(
     let mut subscribed = false;
     while let Ok(Some(frame)) = recv(stream).await {
         let Some(id) = frame.id else { continue };
-        let question = match frame.method.as_deref() {
-            Some(method::STATUS) => Question::Status,
-            Some(method::AGENDA) => Question::Agenda,
-            Some(method::PEOPLE) => Question::People,
-            Some(method::IDENTITY) => Question::Identity,
-            Some(method::CANON) => Question::Canon,
-            Some(method::PLACES) => Question::Places,
-            Some(method::WORK) => Question::Work,
-            Some(method::ATTENTION) => Question::Waiting,
+        let mind = who.mind();
+        let reply = match frame.method.as_deref() {
+            // Where she runs is the daemon's to say, beside what she is.
+            Some(method::STATUS) => answer(
+                id,
+                mind.status().await.map(|status| GhostStatus {
+                    core: Some(shared.core.clone()),
+                    ..status
+                }),
+            ),
+            Some(method::AGENDA) => answer(id, mind.ask(Question::Agenda).await),
+            Some(method::IDENTITY) => answer(id, mind.ask(Question::Identity).await),
+            Some(method::PEOPLE) => answer(id, mind.read(|r| r.people(Utc::now())).await),
+            Some(method::CANON) => answer(id, mind.read(Reader::canon).await),
+            Some(method::PLACES) => answer(id, mind.read(Reader::places).await),
+            Some(method::WORK) => answer(id, mind.read(Reader::work).await),
+            Some(method::ATTENTION) => answer(id, mind.read(|r| r.waiting(Utc::now())).await),
             Some(method::LIST) => {
                 if out
                     .send(Frame::ok(id, &shared.cast.roster().await))
@@ -639,47 +648,48 @@ async fn watch<S>(
                 continue;
             }
             Some(method::WORK_STEPS) => match frame.params::<StepsRead>() {
-                Ok(read) => Question::WorkSteps {
-                    work: read.work,
-                    after: read.after.unwrap_or(0),
-                    limit: read.limit.map_or(STEPS_ASKED, |l| l as usize),
-                },
-                Err(e) => {
-                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
-                    continue;
+                Ok(read) => {
+                    let limit = read.limit.map_or(STEPS_ASKED, |l| l as usize);
+                    let after = read.after.unwrap_or(0);
+                    match mind.read(move |r| r.steps(&read.work, after, limit)).await {
+                        Ok(None) => {
+                            Frame::err(id, code::NO_SUCH_WORK, "she has no work by that id")
+                        }
+                        logged => answer(id, logged),
+                    }
                 }
+                Err(e) => Frame::err(id, e.code, e.message),
             },
             Some(method::LOOK_STEPS) => match frame.params::<LookRead>() {
-                Ok(read) => Question::LookSteps {
-                    place: read.place,
-                    after: read
+                Ok(read) => {
+                    let after = read
                         .after
-                        .map_or(0, |seq| i64::try_from(seq).unwrap_or(i64::MAX)),
-                },
-                Err(e) => {
-                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
-                    continue;
+                        .map_or(0, |seq| i64::try_from(seq).unwrap_or(i64::MAX));
+                    answer(id, mind.read(move |r| r.looks(&read.place, after)).await)
                 }
+                Err(e) => Frame::err(id, e.code, e.message),
             },
             Some(method::JOURNAL_PLACE) => match frame.params::<PlaceRead>() {
-                Ok(read) => Question::Thread {
-                    place: read.place,
-                    limit: read.limit as usize,
-                },
-                Err(e) => {
-                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
-                    continue;
+                Ok(read) => {
+                    let limit = read.limit as usize;
+                    let entries = mind.read(move |r| r.thread(&read.place, limit)).await;
+                    answer(
+                        id,
+                        entries.map(|e| e.iter().map(wire::entry).collect::<Vec<_>>()),
+                    )
                 }
+                Err(e) => Frame::err(id, e.code, e.message),
             },
             Some(method::JOURNAL_READ) => match frame.params::<JournalRead>() {
-                Ok(read) => Question::Journal {
-                    from: read.from,
-                    limit: read.limit as usize,
-                },
-                Err(e) => {
-                    let _ = out.send(Frame::err(id, e.code, e.message)).await;
-                    continue;
+                Ok(read) => {
+                    let limit = read.limit as usize;
+                    let entries = mind.read(move |r| r.journal(read.from, limit)).await;
+                    answer(
+                        id,
+                        entries.map(|e| e.iter().map(wire::entry).collect::<Vec<_>>()),
+                    )
                 }
+                Err(e) => Frame::err(id, e.code, e.message),
             },
             Some(method::JOURNAL_SUBSCRIBE) => {
                 if !subscribed {
@@ -691,7 +701,8 @@ async fn watch<S>(
                         loop {
                             match entries.recv().await {
                                 Ok(entry) => {
-                                    let frame = Frame::notify(method::JOURNAL_ENTRY, &entry);
+                                    let frame =
+                                        Frame::notify(method::JOURNAL_ENTRY, &wire::entry(&entry));
                                     if out.send(frame).await.is_err() {
                                         break;
                                     }
@@ -724,24 +735,18 @@ async fn watch<S>(
                 continue;
             }
         };
-        let steps = matches!(question, Question::WorkSteps { .. });
-        let status = matches!(question, Question::Status);
-        let reply = match who.mind().ask(question).await {
-            // Her mind has no work by that id.
-            Ok(serde_json::Value::Null) if steps => {
-                Frame::err(id, code::NO_SUCH_WORK, "she has no work by that id")
-            }
-            // Where she runs is the daemon's to say, beside what she is.
-            Ok(mut value) if status && value.is_object() => {
-                value["core"] = serde_json::json!(shared.core);
-                Frame::ok(id, &value)
-            }
-            Ok(value) => Frame::ok(id, &value),
-            Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
-        };
         if out.send(reply).await.is_err() {
             break;
         }
+    }
+}
+
+/// The reply to request `id`: what her mind or her reader answered, or
+/// why it could not.
+fn answer<T: serde::Serialize>(id: u64, answered: ghost_mind::Result<T>) -> Frame {
+    match answered {
+        Ok(value) => Frame::ok(id, &value),
+        Err(e) => Frame::err(id, code::INTERNAL, e.to_string()),
     }
 }
 

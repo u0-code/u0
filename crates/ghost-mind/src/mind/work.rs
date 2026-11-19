@@ -62,7 +62,12 @@
 //!
 //! She only reads the records she looks at, through one read-only handle
 //! on the database: looking at work never makes a record, writes one, or
-//! waits on a sitting for a lock.
+//! waits on a sitting for a lock. What she changes in them (a word passed
+//! on, a stop, an end, the record a sitting is opened on) she hands to her
+//! work database's writer (see `writer`), and her journal says so when it
+//! comes back done: the order above holds, and she never waits on a
+//! sitting's lock. Until it is back, that work is held: nothing else is
+//! begun on it.
 
 use std::sync::{
     Arc,
@@ -79,23 +84,41 @@ use ghost_work::{
     Ended, Limits, Report, Undertaking, WORK_DB, Worker, tools,
     undertaking::{self, Kept, Look, Records, State},
 };
+use tokio::sync::oneshot;
 
 /// How often she glances at what a sitting in progress has told her.
 const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
-use super::{Mind, Operator, Order, Outcome, Refused};
+use super::{Mind, Operator, Order, Outcome, Purpose, Refused};
 use crate::{Result, actions::clip};
 
 /// A sitting in progress.
 pub(super) struct Working {
     /// Set to stop the sitting after the step it is on.
     pub pause: Arc<AtomicBool>,
-    /// Its record, which the sitting writes to as it goes.
-    pub record: Arc<Undertaking>,
     /// The name of an operator who stopped it from a console, if one did,
     /// for when the sitting comes back stopped.
     pub stopped_by: Option<String>,
+}
+
+/// What a sitting came back with.
+pub(super) struct Sat {
+    /// The steps taken in it.
+    pub steps: u32,
+    pub report: Report,
+    /// Its record as the sitting left it, and how far that has got.
+    pub state: State,
+    pub progress: String,
+}
+
+/// Why a sitting did not start.
+pub(super) enum Unseated {
+    /// Its record could not be opened: the work ends, blocked, with why.
+    Unopened(String),
+    /// It could not be made ready this time, for why: it rests, and is
+    /// sat down to again later.
+    Later(String),
 }
 
 impl Mind {
@@ -109,26 +132,20 @@ impl Mind {
             .cloned()
     }
 
-    /// The undertaking `id` in her work database, to write to, started
-    /// from `brief` if it has not been opened before. Only what changes the
-    /// work opens it this way; looking at it goes through [`Mind::records`].
-    pub(super) fn undertaking(&self, id: &str, brief: &str) -> std::io::Result<Undertaking> {
-        Undertaking::open(&self.ghost.dir().join(WORK_DB), id, Some(brief))
-    }
-
     /// Her work database, read-only, once there is one.
     pub(super) fn records(&self) -> Option<&Records> {
         if let Some(records) = self.records.get() {
             return Some(records);
         }
         let db = self.ghost.dir().join(WORK_DB);
-        // A reader does not make the database: until work has been sat
-        // down to, there is nothing to read.
+        // A reader does not make the database: until her writer has made
+        // it, there is nothing to read.
         if !db.exists() {
             return None;
         }
         match Records::open(&db) {
             Ok(records) => Some(self.records.get_or_init(|| records)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => {
                 warn!("could not read {}: {e}", db.display());
                 None
@@ -205,26 +222,8 @@ impl Mind {
                     None => String::new(),
                 }
             );
-            return Ok(
-                match self
-                    .undertaking(&open.id, &open.brief)
-                    .and_then(|u| u.add(&added))
-                {
-                    Ok(()) => {
-                        info!("added to {}: {}", open.id, clip(brief, 80));
-                        self.record(Event::Added {
-                            id: open.id,
-                            text: added,
-                            by: None,
-                        })?;
-                        self.work_at(now);
-                        None
-                    }
-                    Err(e) => Some(format!(
-                        "it could not be added to what she is already doing: {e}"
-                    )),
-                },
-            );
+            self.pass_on(open, &added, None, None);
+            return Ok(None);
         }
         // How much she takes on, and for whom, is hers to decide, except
         // for whoever runs her.
@@ -310,25 +309,26 @@ impl Mind {
         self.agenda.work = None;
         // At sittings already, this is when she glances at what each has
         // told her so far.
-        let running: Vec<(String, Arc<Undertaking>)> = self
-            .working
-            .iter()
-            .map(|(id, w)| (id.clone(), w.record.clone()))
+        let running: Vec<String> = self
+            .jobs
+            .sittings()
+            .into_iter()
+            .map(|(id, _)| id.clone())
             .collect();
-        for (id, record) in &running {
-            self.hear_from_work(id, &record.state(), now)?;
+        for look in self.records_of(&running) {
+            self.hear_from_work(&look.id, &look.state, now)?;
         }
         if !running.is_empty() {
             self.work_at(now + GLANCE);
         }
         self.resting.retain(|_, until| *until > now);
         let at_once = usize::try_from(self.cfg.work.at_once.max(1)).unwrap_or(usize::MAX);
-        while self.working.len() < at_once && self.sit_down(now)? {}
+        while self.jobs.sittings().len() < at_once && self.sit_down(now)? {}
         Ok(())
     }
 
     /// Look at her work again no later than `at`.
-    fn work_at(&mut self, at: DateTime<Utc>) {
+    pub(super) fn work_at(&mut self, at: DateTime<Utc>) {
         self.agenda.work = Some(self.agenda.work.map_or(at, |due| due.min(at)));
     }
 
@@ -338,7 +338,15 @@ impl Mind {
         let Some(brain) = self.working_brain().filter(|_| self.cfg.work.enabled) else {
             return Ok(false);
         };
-        let open = self.ghost.memory().undertakings(true, 20)?;
+        // What a sitting is at, or what a change to its record is on its
+        // way for, is left as it is.
+        let open: Vec<_> = self
+            .ghost
+            .memory()
+            .undertakings(true, 20)?
+            .into_iter()
+            .filter(|u| !self.jobs.busy(&u.id))
+            .collect();
         if self.settle_ended(&open, now)? {
             return Ok(true);
         }
@@ -350,17 +358,7 @@ impl Mind {
         if let Some(stale) = unanswered {
             // Nobody answered. She goes on without, and says so in the work.
             let said = self.prompts.text("no_answer").to_owned();
-            if let Err(e) = self
-                .undertaking(&stale.id, &stale.brief)
-                .and_then(|u| u.add(&said))
-            {
-                warn!("cannot go on with {} unanswered: {e}", stale.id);
-            }
-            self.record(Event::Added {
-                id: stale.id,
-                text: said,
-                by: None,
-            })?;
+            self.pass_on(stale, &said, None, None);
             return Ok(true);
         }
         // What is waiting to be answered is come back to when the first of
@@ -377,7 +375,7 @@ impl Mind {
         // sitting.
         let mut ready = Vec::new();
         for u in open {
-            if u.waiting.is_some() || self.working.contains_key(&u.id) {
+            if u.waiting.is_some() {
                 continue;
             }
             match self.resting.get(&u.id) {
@@ -404,15 +402,7 @@ impl Mind {
                     ("progress", next.summary.clone().unwrap_or_default()),
                 ],
             );
-            // Its record ends first, so that nothing goes on with it: a
-            // tool server still holding it refuses from now on.
-            if let Err(e) = self
-                .undertaking(&next.id, &next.brief)
-                .and_then(|record| record.end(undertaking::Outcome::Blocked, &summary))
-            {
-                warn!("the record of {} could not be ended: {e}", next.id);
-            }
-            self.end_work(&next.id, "blocked", &summary, None, &[], now)?;
+            self.end_blocked(&next.id, &next.brief, summary, Vec::new());
             return Ok(true);
         }
         // A sitting is one call from the body's budget: its steps are
@@ -423,51 +413,42 @@ impl Mind {
             self.work_at(now + Duration::minutes(10));
             return Ok(false);
         }
-        let undertaking = match self.undertaking(&next.id, &next.brief) {
-            Ok(u) => Arc::new(u),
-            Err(e) => {
-                warn!("cannot open the undertaking {}: {e}", next.id);
-                self.record(Event::Concluded {
-                    id: next.id,
-                    outcome: "blocked".into(),
-                    summary: self
-                        .prompts
-                        .fill("record_unopened", &[("why", e.to_string())]),
-                })?;
-                return Ok(true);
-            }
-        };
         self.budget.spend(now);
-        self.sit(&next, undertaking, brain, now)?;
+        self.sit(&next, brain, now)?;
         Ok(true)
     }
 
-    /// Start a sitting on `next`, whose record is `undertaking`.
+    /// Start a sitting on `next`. Its record is opened first, by her work
+    /// database's writer: the sitting waits for it, and she does not.
     fn sit(
         &mut self,
         next: &ghost_core::memory::Undertaking,
-        undertaking: Arc<Undertaking>,
         brain: Arc<dyn ghost_brain::Brain>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        let before = undertaking.state().steps;
         // Done in its own folder, where her machine can be given one: the
         // record keeps where, for every sitting and every part of it.
         let folder = next.dir.clone().filter(|_| self.workshop.folders.is_some());
-        if let Some(dir) = &folder
-            && let Err(e) = undertaking.update(|state| {
-                state.dir.get_or_insert_with(|| dir.clone());
+        let opened = {
+            let (id, brief, dir) = (next.id.clone(), next.brief.clone(), folder.clone());
+            self.writer.write(move |work| {
+                let record = work
+                    .undertaking(&id, &brief)
+                    .map_err(|e| Unseated::Unopened(e.to_string()))?;
+                if let Some(dir) = &dir {
+                    // Not done anywhere but where it is to be done.
+                    record
+                        .update(|state| {
+                            state.dir.get_or_insert_with(|| dir.clone());
+                        })
+                        .map_err(|e| Unseated::Later(e.to_string()))?;
+                }
+                let before = record.state().steps;
+                Ok((Arc::new(record), before))
             })
-        {
-            // Not done anywhere but where it is to be done.
-            warn!("cannot sit down to {}: {e}", next.id);
-            self.rest(&next.id, now + Duration::minutes(10));
-            return Ok(());
-        }
-        let place = match &self.workshop.machine {
-            Some(machine) => in_folder(machine, &undertaking).describe(self.prompts.store()),
-            None => self.prompts.text("no_machine").to_owned(),
         };
+        let (machine, store) = (self.workshop.machine.clone(), self.prompts.store().clone());
+        let no_machine = self.prompts.text("no_machine").to_owned();
         // What the work is told comes from the same files as what she is
         // told, and is looked at again before each step.
         let words = self.prompts.for_work();
@@ -498,18 +479,8 @@ impl Mind {
                 }
             })
         };
-        // What she keeps while she works is hers to have again, and so is
-        // what she tells herself from it. A helper given part of the work
-        // does neither: it reports to the work.
-        let tools = equip(&undertaking)
-            .with(tools::Keep::new(undertaking.clone()))
-            .with(tools::Tell::new(undertaking.clone()));
         // With someone to ask, she can stop and ask.
-        let tools = if next.asked_by.is_some() {
-            tools.with(tools::Ask::new(undertaking.clone()))
-        } else {
-            tools
-        };
+        let can_ask = next.asked_by.is_some();
         let pause = Arc::new(AtomicBool::new(false));
         let limits = Limits {
             max_steps: self.cfg.work.sitting_steps,
@@ -530,29 +501,53 @@ impl Mind {
             self.practice_block()?
         );
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
-        self.working.insert(
-            next.id.clone(),
-            Working {
-                pause: pause.clone(),
-                record: undertaking.clone(),
-                stopped_by: None,
-            },
-        );
         self.work_at(now + GLANCE);
         let id = next.id.clone();
-        let worker = Worker {
-            brain,
-            tools,
-            undertaking,
-            limits,
-            who,
-            machine: place,
-            pause,
-            helpers: Some(equip),
-            prompts: shared,
-            agents: self.workshop.agents.clone(),
+        let agents = self.workshop.agents.clone();
+        let working = Working {
+            pause: pause.clone(),
+            stopped_by: None,
         };
-        self.jobs.spawn(async move {
+        let purpose = Purpose::Work {
+            id: id.clone(),
+            working,
+        };
+        self.jobs.spawn_for(purpose, async move {
+            let (undertaking, before) = match opened.await {
+                Ok(Ok(opened)) => opened,
+                Ok(Err(why)) => return Outcome::Unseated { id, why },
+                Err(_) => {
+                    let why = Unseated::Later("her work database's writer is gone".into());
+                    return Outcome::Unseated { id, why };
+                }
+            };
+            let place = match &machine {
+                Some(machine) => in_folder(machine, &undertaking).describe(&store),
+                None => no_machine,
+            };
+            // What she keeps while she works is hers to have again, and so
+            // is what she tells herself from it. A helper given part of the
+            // work does neither: it reports to the work.
+            let tools = equip(&undertaking)
+                .with(tools::Keep::new(undertaking.clone()))
+                .with(tools::Tell::new(undertaking.clone()));
+            let tools = if can_ask {
+                tools.with(tools::Ask::new(undertaking.clone()))
+            } else {
+                tools
+            };
+            let worker = Worker {
+                brain,
+                tools,
+                undertaking,
+                limits,
+                who,
+                machine: place,
+                pause,
+                helpers: Some(equip),
+                prompts: shared,
+                agents,
+            };
             // Its folder is made before its first step, out of her way.
             if let Some(dir) = folder {
                 let path = std::path::PathBuf::from(&dir);
@@ -565,17 +560,43 @@ impl Mind {
                 }
             }
             let report = worker.run().await;
+            let state = worker.undertaking.state();
+            let sat = Sat {
+                steps: u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX),
+                progress: state.progress(&ghost_work::prompts::hold(&worker.prompts)),
+                report,
+                state,
+            };
             Outcome::Worked {
                 id,
-                before,
-                report,
-                progress: worker
-                    .undertaking
-                    .state()
-                    .progress(&ghost_work::prompts::hold(&worker.prompts)),
-                record: worker.undertaking,
+                sat: Box::new(sat),
             }
         });
+        Ok(())
+    }
+
+    /// A sitting at the work `id` did not start, for `why`.
+    pub(super) fn on_unseated(
+        &mut self,
+        id: String,
+        why: Unseated,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        match why {
+            Unseated::Unopened(why) => {
+                warn!("cannot open the undertaking {id}: {why}");
+                self.record(Event::Concluded {
+                    id,
+                    outcome: "blocked".into(),
+                    summary: self.prompts.fill("record_unopened", &[("why", why)]),
+                })?;
+                self.work_at(now);
+            }
+            Unseated::Later(why) => {
+                warn!("cannot sit down to {id}: {why}");
+                self.rest(&id, now + Duration::minutes(10));
+            }
+        }
         Ok(())
     }
 
@@ -663,17 +684,15 @@ impl Mind {
                 ),
             ],
         );
-        if self.intend_as(
+        self.intend_as(
             now + Duration::minutes(1),
             share,
             u.asked_by,
             u.place,
             true,
             u.directed,
-        )? {
-            self.refresh_intentions()?;
-        }
-        Ok(())
+        )?;
+        self.refresh_intentions()
     }
 
     /// The open piece of work she knows by `number`, or, as a sentence for
@@ -692,13 +711,9 @@ impl Mind {
 
     /// She passes something on to work she has under way. It reaches the
     /// worker before its next step, in this sitting or the next. Returns
-    /// why not, if it cannot.
-    pub(super) fn steer(
-        &mut self,
-        number: i64,
-        text: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<String>> {
+    /// why not, if she cannot; that its record could not be written to
+    /// comes back later, and leaves only a warning.
+    pub(super) fn steer(&mut self, number: i64, text: &str) -> Result<Option<String>> {
         let text = text.trim();
         if text.is_empty() {
             return Ok(Some(self.prompts.text("steer_nothing").to_owned()));
@@ -707,54 +722,93 @@ impl Mind {
             Ok(u) => u,
             Err(why) => return Ok(Some(why)),
         };
-        self.pass_on(u, text, None, now)
+        self.pass_on(u, text, None, None);
+        Ok(None)
     }
 
     /// Put `text` in the inbox of the open work `u`, from `by` if it was
-    /// not she who passed it on, and write it in her journal. Returns why
-    /// not, if its record cannot be written to.
+    /// not she who passed it on: her journal says so once its record has
+    /// it, and `answer`, a console's order, is told whether it could.
     fn pass_on(
         &mut self,
         u: ghost_core::memory::Undertaking,
         text: &str,
         by: Option<String>,
+        answer: Option<oneshot::Sender<std::result::Result<(), Refused>>>,
+    ) {
+        let (id, text) = (u.id, text.to_owned());
+        let (to, adding) = (id.clone(), text.clone());
+        self.write(
+            Some(id.clone()),
+            move |work| {
+                work.undertaking(&to, &u.brief)
+                    .and_then(|record| record.add(&adding))
+            },
+            move |result| Outcome::Added {
+                id,
+                text,
+                by,
+                result,
+                answer,
+            },
+        );
+    }
+
+    /// What was passed on to the work `id` is in its inbox, or could not
+    /// be put there.
+    pub(super) fn on_added(
+        &mut self,
+        id: String,
+        text: String,
+        by: Option<String>,
+        result: std::io::Result<()>,
+        answer: Option<oneshot::Sender<std::result::Result<(), Refused>>>,
         now: DateTime<Utc>,
-    ) -> Result<Option<String>> {
-        if let Err(e) = self
-            .undertaking(&u.id, &u.brief)
-            .and_then(|record| record.add(text))
-        {
-            warn!("cannot pass anything on to {}: {e}", u.id);
-            return Ok(Some(format!("its record could not be written to: {e}")));
+    ) -> Result<()> {
+        let told = match result {
+            Ok(()) => {
+                info!("passed on to {id}: {}", clip(&text, 80));
+                self.record(Event::Added { id, text, by })?;
+                self.work_at(now);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("cannot pass anything on to {id}: {e}");
+                Err(Refused::Failed(format!(
+                    "its record could not be written to: {e}"
+                )))
+            }
+        };
+        if let Some(answer) = answer {
+            let _ = answer.send(told);
         }
-        info!("passed on to {}: {}", u.id, clip(text, 80));
-        self.record(Event::Added {
-            id: u.id,
-            text: text.to_owned(),
-            by,
-        })?;
-        self.work_at(now);
-        Ok(None)
+        Ok(())
     }
 
     /// An operator does `order` to her work from a console, without her:
     /// answers what it asked, or stops it, the way she would. It has to be
     /// work she has open; a part answers to the work it is part of.
+    /// `answer` is told whether it was done: an answer once it is in the
+    /// work's inbox, a stop at once.
     pub(super) fn on_order(
         &mut self,
         order: Order,
         by: &Operator,
-        now: DateTime<Utc>,
-    ) -> Result<std::result::Result<(), Refused>> {
+        answer: oneshot::Sender<std::result::Result<(), Refused>>,
+    ) -> Result<()> {
         let (Order::Answer { work, .. } | Order::Stop { work }) = &order;
         let u = match self.ghost.memory().undertaking(work)? {
             Some(u) if u.outcome.is_none() => u,
             Some(_) => {
-                return Ok(Err(Refused::NoSuchWork(format!(
+                let _ = answer.send(Err(Refused::NoSuchWork(format!(
                     "{work} has already ended"
                 ))));
+                return Ok(());
             }
-            None => return Ok(Err(Refused::NoSuchWork(format!("she has no work {work}")))),
+            None => {
+                let _ = answer.send(Err(Refused::NoSuchWork(format!("she has no work {work}"))));
+                return Ok(());
+            }
         };
         info!(
             "{} {} from a console",
@@ -764,64 +818,141 @@ impl Mind {
                 Order::Stop { .. } => "stops",
             }
         );
-        let failed = match order {
+        match order {
             Order::Answer { text, .. } => {
-                self.pass_on(u, text.trim(), Some(by.key.clone()), now)?
+                self.pass_on(u, text.trim(), Some(by.key.clone()), Some(answer));
             }
             Order::Stop { .. } => {
-                self.stop_open(u, Some(by.name.clone()), now)?;
-                None
+                self.stop_open(u, Some(by.name.clone()));
+                let _ = answer.send(Ok(()));
             }
-        };
-        Ok(failed.map_or(Ok(()), |why| Err(Refused::Failed(why))))
+        }
+        Ok(())
     }
 
     /// She stops work she has under way. A sitting on it ends after the
     /// step it is on and comes back as dropped; with none running, it ends
-    /// now. Either way what it kept and told is hers first. Returns why
-    /// not, if it cannot.
-    pub(super) fn stop_work(&mut self, number: i64, now: DateTime<Utc>) -> Result<Option<String>> {
+    /// once its record has. Either way what it kept and told is hers
+    /// first. Returns why not, if it cannot.
+    pub(super) fn stop_work(&mut self, number: i64) -> Result<Option<String>> {
         let u = match self.open_work(number)? {
             Ok(u) => u,
             Err(why) => return Ok(Some(why)),
         };
-        self.stop_open(u, None, now)?;
+        self.stop_open(u, None);
         Ok(None)
     }
 
     /// Stop the open work `u`, as she does, or as the operator named `by`
-    /// does from a console.
-    pub(super) fn stop_open(
-        &mut self,
-        u: ghost_core::memory::Undertaking,
-        by: Option<String>,
-        now: DateTime<Utc>,
-    ) -> Result<()> {
-        if let Some(working) = self.working.get_mut(&u.id) {
-            if let Err(e) = working.record.stop() {
-                warn!("the record of {} could not be ended: {e}", u.id);
-            }
-            working.pause.store(true, Ordering::Relaxed);
-            working.stopped_by = by;
-            info!("stopping {}", u.id);
-            return Ok(());
-        }
-        let progress = match self.undertaking(&u.id, &u.brief) {
-            Ok(record) => {
+    /// does from a console. Its record is stopped first, so that a tool
+    /// server still holding it refuses from then on.
+    pub(super) fn stop_open(&mut self, u: ghost_core::memory::Undertaking, by: Option<String>) {
+        let sitting = self
+            .jobs
+            .sitting_mut(&u.id)
+            .map(|working| {
+                working.pause.store(true, Ordering::Relaxed);
+                working.stopped_by.clone_from(&by);
+            })
+            .is_some();
+        info!("stopping {}", u.id);
+        let id = u.id.clone();
+        self.write(
+            Some(u.id.clone()),
+            move |work| {
+                let record = work
+                    .undertaking(&u.id, &u.brief)
+                    .inspect_err(|e| warn!("cannot open the undertaking {}: {e}", u.id))
+                    .ok()?;
                 if let Err(e) = record.stop() {
                     warn!("the record of {} could not be ended: {e}", u.id);
                 }
-                let state = record.state();
-                self.hear_from_work(&u.id, &state, now)?;
+                Some(Box::new(record.state()))
+            },
+            // A sitting comes back stopped, and says so then.
+            move |state| {
+                if sitting {
+                    Outcome::Done
+                } else {
+                    Outcome::Stopped { id, by, state }
+                }
+            },
+        );
+    }
+
+    /// The record of the work `id`, which no sitting was at, was stopped,
+    /// by the operator named `by` if not by her, and is `state` now if it
+    /// could be opened.
+    pub(super) fn on_stopped(
+        &mut self,
+        id: &str,
+        by: Option<&str>,
+        state: Option<Box<State>>,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        // Stopped twice, or ended meanwhile: it is over already.
+        if !self.still_open(id)? {
+            return Ok(());
+        }
+        let progress = match state {
+            Some(state) => {
+                self.hear_from_work(id, &state, now)?;
                 state.progress(self.prompts.store())
             }
-            Err(e) => {
-                warn!("cannot open the undertaking {}: {e}", u.id);
-                u.summary.unwrap_or_default()
-            }
+            None => self
+                .ghost
+                .memory()
+                .undertaking(id)?
+                .and_then(|u| u.summary)
+                .unwrap_or_default(),
         };
-        info!("stopped {}", u.id);
-        self.dropped(&u.id, &progress, by.as_deref())
+        info!("stopped {id}");
+        self.dropped(id, &progress, by)
+    }
+
+    /// The record of the work `id` was ended as blocked, with `summary`,
+    /// or could not be: her journal ends it too, unless it is over already.
+    pub(super) fn on_ended(
+        &mut self,
+        id: &str,
+        summary: &str,
+        files: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        if self.still_open(id)? {
+            self.end_work(id, "blocked", summary, None, files, now)?;
+        }
+        Ok(())
+    }
+
+    /// Whether her journal still has the work `id` open.
+    fn still_open(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .ghost
+            .memory()
+            .undertaking(id)?
+            .is_some_and(|u| u.outcome.is_none()))
+    }
+
+    /// End the record of the work `id`, taken on as `brief`, as blocked,
+    /// with `summary`: first, so that nothing goes on with it and a tool
+    /// server still holding it refuses from now on. Her journal ends it
+    /// once its record has, or could not be.
+    fn end_blocked(&mut self, id: &str, brief: &str, summary: String, files: Vec<String>) {
+        let (key, brief, said) = (id.to_owned(), brief.to_owned(), summary.clone());
+        let id = id.to_owned();
+        self.write(
+            Some(id.clone()),
+            move |work| {
+                if let Err(e) = work
+                    .undertaking(&key, &brief)
+                    .and_then(|record| record.end(undertaking::Outcome::Blocked, &said))
+                {
+                    warn!("the record of {key} could not be ended: {e}");
+                }
+            },
+            move |()| Outcome::Ended { id, summary, files },
+        );
     }
 
     /// The work `id` ends because she stopped it, or the operator named
@@ -842,20 +973,22 @@ impl Mind {
         Ok(())
     }
 
-    /// A sitting ended.
+    /// A sitting ended, with what it `sat` to.
     pub(super) fn on_worked(
         &mut self,
         id: &str,
-        before: u64,
-        report: &Report,
-        progress: String,
-        record: &Undertaking,
+        sat: Sat,
+        working: &Working,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        let stopped_by = self.working.remove(id).and_then(|w| w.stopped_by);
+        let Sat {
+            steps,
+            report,
+            state,
+            progress,
+        } = sat;
         // Whatever it said and kept up to the end.
-        self.hear_from_work(id, &record.state(), now)?;
-        let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
+        self.hear_from_work(id, &state, now)?;
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]
         let rest = Duration::seconds(secs as i64);
@@ -867,7 +1000,7 @@ impl Mind {
             Ended::GaveUp => "gave_up",
             Ended::Dropped => {
                 info!("{id} stopped after {} steps", report.steps);
-                self.dropped(id, &progress, stopped_by.as_deref())?;
+                self.dropped(id, &progress, working.stopped_by.as_deref())?;
                 return Ok(());
             }
             Ended::Failed(why) => {
@@ -895,7 +1028,7 @@ impl Mind {
                     question: question.clone(),
                 })?;
                 if let Some(u) = self.ghost.memory().undertaking(id)? {
-                    let options = record.state().waiting_options;
+                    let options = state.waiting_options;
                     let choices = if options.is_empty() {
                         String::new()
                     } else {
@@ -930,10 +1063,8 @@ impl Mind {
             Ended::Stalled => {
                 info!("{id} stalled after {} steps", report.steps);
                 let summary = self.prompts.fill("stalled", &[("progress", progress)]);
-                if let Err(e) = record.end(undertaking::Outcome::Blocked, &summary) {
-                    warn!("the record of {id} could not be ended: {e}");
-                }
-                return self.end_work(id, "blocked", &summary, None, &report.files, now);
+                self.end_blocked(id, &state.brief, summary, report.files);
+                return Ok(());
             }
             Ended::OutOfSteps | Ended::OutOfTime | Ended::Paused => {
                 self.record(Event::Worked {
@@ -966,21 +1097,17 @@ impl Mind {
         )
     }
 
-    /// Work her journal has open whose record has ended, and that no
-    /// sitting here is on: a sitting, or a stop, whose end she did not
-    /// write down before she stopped. It ends in her journal now, as its
+    /// Of the work `idle`, open in her journal and held by nothing here,
+    /// what has ended on its record: a sitting, or a stop, whose end she
+    /// did not write down before she stopped. It ends in her journal now, as its
     /// record says, with whatever it told her and kept first. Returns
     /// whether any did.
     fn settle_ended(
         &mut self,
-        open: &[ghost_core::memory::Undertaking],
+        idle: &[ghost_core::memory::Undertaking],
         now: DateTime<Utc>,
     ) -> Result<bool> {
-        let idle: Vec<String> = open
-            .iter()
-            .filter(|u| !self.working.contains_key(&u.id))
-            .map(|u| u.id.clone())
-            .collect();
+        let idle: Vec<String> = idle.iter().map(|u| u.id.clone()).collect();
         if idle.is_empty() {
             return Ok(false);
         }
