@@ -205,7 +205,7 @@ that two files of the directory both have is warned about, the first of them
 winning. A tool said differently in one loop has a table for it,
 `[keep.conversation]` or `[keep.work]`. A running daemon looks at the files every couple of seconds at
 most, as she wakes, and work looks before each step, taking in any that
-changed: no restart. A file that is removed gives way to the next place; one
+changed: no restart. A file that is removed gives way to the built-in; one
 that cannot be read or does not parse is warned about, and what was in use
 stays. At startup, and on every change, the log says which files are in use.
 

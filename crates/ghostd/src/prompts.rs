@@ -9,7 +9,7 @@ use ghost_core::prompts::{
     self as words, Store,
     exported::{self, Updated},
 };
-use ghost_mind::{Prompts, prompts::Origin};
+use ghost_mind::Prompts;
 use tracing::{info, warn};
 
 /// The prompts for a ghost, from the deployment's directory `deployment`
@@ -39,52 +39,52 @@ pub(crate) fn say_overrides(prompts: &Prompts) {
 }
 
 /// Warn about each copy of a prompt that may hide something newer in this
-/// build, and say once per directory what to do about it. `over` is what
-/// is built in for them in place of the binary's own.
+/// build, and say once what to do about it. `over` is what is built in
+/// for them in place of the binary's own.
 pub(crate) fn say_stale(prompts: &Prompts, over: &[(&str, &'static str)]) {
     let files = ghost_mind::prompts::files_over(over);
-    for (_, dir) in prompts.store().layers() {
-        let stale = exported::stale(&files, dir);
-        if stale.is_empty() {
-            continue;
+    let Some(dir) = prompts.store().dir() else {
+        return;
+    };
+    let stale = exported::stale(&files, dir);
+    if stale.is_empty() {
+        return;
+    }
+    for one in &stale {
+        let what = match &one.key {
+            Some(key) => format!("{key} in {}", one.file),
+            None => one.file.to_owned(),
+        };
+        let lacks = if one.missing.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<String> = one.missing.iter().map(|m| format!("{{{{{m}}}}}")).collect();
+            format!(
+                "; it lacks {}, which the built-in fills in, so that is left out of what her brain reads",
+                names.join(", ")
+            )
+        };
+        if one.changed {
+            warn!(
+                "{}: the built-in {what} has changed since this copy was exported, and the copy hides the newer one{lacks}",
+                one.path.display()
+            );
+        } else {
+            warn!(
+                "{}: there is no record of when this copy of {what} was exported{lacks}",
+                one.path.display()
+            );
         }
-        for one in &stale {
-            let what = match &one.key {
-                Some(key) => format!("{key} in {}", one.file),
-                None => one.file.to_owned(),
-            };
-            let lacks = if one.missing.is_empty() {
-                String::new()
-            } else {
-                let names: Vec<String> =
-                    one.missing.iter().map(|m| format!("{{{{{m}}}}}")).collect();
-                format!(
-                    "; it lacks {}, which the built-in fills in, so that is left out of what her brain reads",
-                    names.join(", ")
-                )
-            };
-            if one.changed {
-                warn!(
-                    "{}: the built-in {what} has changed since this copy was exported, and the copy hides the newer one{lacks}",
-                    one.path.display()
-                );
-            } else {
-                warn!(
-                    "{}: there is no record of when this copy of {what} was exported{lacks}",
-                    one.path.display()
-                );
-            }
-        }
-        let mut names: Vec<&str> = stale.iter().map(|s| s.file).collect();
-        names.dedup();
-        let names = names.join(" ");
-        warn!(
-            "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
+    }
+    let mut names: Vec<&str> = stale.iter().map(|s| s.file).collect();
+    names.dedup();
+    let names = names.join(" ");
+    warn!(
+        "if you never edited them, `ghostd prompts update {0}` brings them up to date. \
              If you did, write this build's next to them with `ghostd prompts export <somewhere> --only {names}`, \
              carry over what you want, then `ghostd prompts update {0} --looked-at {names}`",
-            dir.display()
-        );
-    }
+        dir.display()
+    );
 }
 
 /// `ghostd prompts list`.
@@ -102,9 +102,9 @@ fn listing(prompts: &Prompts) -> Vec<String> {
     let files = ghost_mind::prompts::all_files();
     let behind: Vec<(PathBuf, Option<String>)> = prompts
         .store()
-        .layers()
-        .iter()
-        .flat_map(|(_, dir)| exported::stale(&files, dir))
+        .dir()
+        .into_iter()
+        .flat_map(|dir| exported::stale(&files, dir))
         .map(|s| (s.path, s.key))
         .collect();
     prompts
@@ -115,9 +115,9 @@ fn listing(prompts: &Prompts) -> Vec<String> {
                 Some(key) => format!("{} {key}", listed.file),
                 None => listed.file.to_owned(),
             };
-            let from = match (&listed.origin, &listed.path) {
-                (Origin::BuiltIn, _) | (_, None) => listed.origin.to_string(),
-                (origin, Some(path)) => format!("{origin:<10} {}", path.display()),
+            let from = match &listed.path {
+                None => "built-in".to_owned(),
+                Some(path) => format!("{:<10} {}", "deployment", path.display()),
             };
             let is_behind = listed.path.as_ref().is_some_and(|path| {
                 behind

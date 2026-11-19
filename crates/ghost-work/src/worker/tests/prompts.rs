@@ -59,7 +59,7 @@ async fn a_tool_described_anew_in_tools_toml_reaches_work_already_running() {
     let shipped = Prompts::shipped();
     assert_eq!(
         shell(&seen[0]).description,
-        shipped.store().tool("shell", Loop::Work)
+        shipped.tool("shell", Loop::Work)
     );
     let now = shell(&seen[1]);
     assert_eq!(now.description, "Run it.");
@@ -70,10 +70,7 @@ async fn a_tool_described_anew_in_tools_toml_reaches_work_already_running() {
     // What the file does not mention keeps its built-in words.
     assert_eq!(
         now.parameters["properties"]["timeout"]["description"],
-        shipped
-            .store()
-            .parameter("shell", "timeout", Loop::Work)
-            .unwrap()
+        shipped.parameter("shell", "timeout", Loop::Work).unwrap()
     );
 }
 
