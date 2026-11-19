@@ -148,18 +148,7 @@ async fn fetch(source: &Source, name: &str, path: &Path) -> Result<(), String> {
                 }
             },
         )?;
-    keep(path, &bytes).map_err(|e| format!("{name} could not be kept here: {e}"))
-}
-
-/// Write `bytes` to `path` aside and move them into place, so that a file
-/// under its name is always whole.
-fn keep(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let aside = dir.join(format!(".{name}.partial"));
-    std::fs::write(&aside, bytes)?;
-    std::fs::rename(&aside, path)
+    crate::whole::write(path, &bytes).map_err(|e| format!("{name} could not be kept here: {e}"))
 }
 
 #[cfg(test)]
@@ -206,7 +195,7 @@ mod tests {
     fn a_kept_file_is_whole_under_its_name_and_nothing_is_left_aside() {
         let dir = std::env::temp_dir().join(format!("ghost-desk-media-{}", std::process::id()));
         let path = dir.join("5f0c").join("a.png");
-        keep(&path, b"her picture").unwrap();
+        crate::whole::write(&path, b"her picture").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"her picture");
         let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()

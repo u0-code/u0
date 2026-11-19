@@ -60,12 +60,20 @@ fn path(url: &str, ghost: Option<&str>) -> Option<PathBuf> {
     Some(dir()?.join(format!("{key}.json")))
 }
 
-/// What was kept of the daemon at `url`, if anything.
+/// What was kept of the daemon at `url`, if anything. A copy that cannot
+/// be read is said so and taken as none: it is only a copy, and the next
+/// one written replaces it.
 pub fn load(url: &str, ghost: Option<&str>) -> Cached {
-    path(url, ghost)
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    let Some(path) = path(url, ghost) else {
+        return Cached::default();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Cached::default();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!("{} is not a copy this desk can read: {e}", path.display());
+        Cached::default()
+    })
 }
 
 /// Keeps a daemon's copy written, a little after it changes.
@@ -90,7 +98,10 @@ impl Keeper {
     }
 
     /// Write the copy if it changed a moment ago. `cached` is asked for
-    /// only then, so that nothing is serialised for nothing.
+    /// only then, so that nothing is serialised for nothing. The file is
+    /// written whole on a thread of its own, since syncing it takes longer
+    /// than a frame; written a second apart at the least, one write is done
+    /// long before the next begins, and if not, each is still whole.
     pub fn settle(&mut self, cached: impl FnOnce() -> Cached) {
         let Some(since) = self.changed else { return };
         if since.elapsed() < SETTLE {
@@ -100,11 +111,12 @@ impl Keeper {
         let Some(path) = path(&self.url, self.ghost.as_deref()) else {
             return;
         };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         if let Ok(text) = serde_json::to_string(&cached()) {
-            let _ = std::fs::write(path, text);
+            std::thread::spawn(move || {
+                if let Err(e) = crate::whole::write(&path, text.as_bytes()) {
+                    tracing::warn!("{} could not be written: {e}", path.display());
+                }
+            });
         }
     }
 }

@@ -13,8 +13,16 @@
 //! What you have seen in Attention is kept here and not on any daemon:
 //! a daemon lists what waits on its operators, and which of it one person
 //! has looked at is theirs to remember.
+//!
+//! It is written whole (see `whole.rs`). A file that cannot be read as
+//! JSON is not written over: it is moved aside, with the time in its name,
+//! and said so, and the desk starts as if it had none.
 
-use std::{collections::BTreeSet, net::IpAddr, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    net::IpAddr,
+    path::{Path, PathBuf},
+};
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -186,19 +194,53 @@ pub fn path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Self {
-        path()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .map_or_else(Self::default, |v| Self::read(&v))
+        path().map_or_else(Self::default, |path| Self::load_from(&path))
+    }
+
+    /// The settings in the file at `path`; a file that is not JSON is
+    /// moved aside first.
+    fn load_from(path: &Path) -> Self {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("{} could not be read: {e}", path.display());
+                }
+                return Self::default();
+            }
+        };
+        match serde_json::from_str::<Value>(&text) {
+            Ok(v) => Self::read(&v),
+            Err(e) => {
+                let aside =
+                    path.with_extension(format!("json.unreadable-{}", Utc::now().timestamp()));
+                match std::fs::rename(path, &aside) {
+                    Ok(()) => tracing::warn!(
+                        "{} is not JSON ({e}); kept as {} and started without it",
+                        path.display(),
+                        aside.display()
+                    ),
+                    Err(moved) => tracing::warn!(
+                        "{} is not JSON ({e}) and could not be moved aside ({moved}); \
+                         it is written over when the desk next saves",
+                        path.display()
+                    ),
+                }
+                Self::default()
+            }
+        }
     }
 
     pub fn save(&self) {
         let Some(path) = path() else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(text) = serde_json::to_string_pretty(&self.written()) {
-            let _ = std::fs::write(path, text);
+        self.save_to(&path);
+    }
+
+    fn save_to(&self, path: &Path) {
+        if let Ok(text) = serde_json::to_string_pretty(&self.written())
+            && let Err(e) = crate::whole::write(path, text.as_bytes())
+        {
+            tracing::warn!("{} could not be written: {e}", path.display());
         }
     }
 
@@ -288,6 +330,39 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_that_is_not_json_is_kept_aside_and_never_written_over() {
+        let dir = std::env::temp_dir().join(format!("ghost-desk-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("desk.json");
+        let torn = "{\"who\": \"me\", \"connections\": [{\"name\": \"stu";
+        std::fs::write(&path, torn).unwrap();
+
+        let settings = Settings::load_from(&path);
+        assert_eq!(
+            settings.connections.len(),
+            0,
+            "started as if there were none"
+        );
+        assert!(!path.exists(), "moved, not left to be written over");
+        let aside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.to_string_lossy().contains("desk.json.unreadable-"))
+            .collect();
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        assert_eq!(std::fs::read_to_string(&aside[0]).unwrap(), torn);
+
+        // What is saved next is a file of its own, read back whole.
+        let mut next = settings;
+        next.who = "me".to_owned();
+        next.save_to(&path);
+        assert_eq!(Settings::load_from(&path).who, "me");
+        assert_eq!(std::fs::read_to_string(&aside[0]).unwrap(), torn);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn named(title: &str) -> Session {
         Session {
