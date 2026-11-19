@@ -24,9 +24,8 @@ pub use ghost_protocol as protocol;
 use ghost_protocol::{
     BrainAsk, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, ConsoleRewind,
     ConsoleRewound, ConsoleSaid, ConsoleSay, ConsoleStop, ConsoleStopped, Frame, Hello,
-    JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, SayMode, Session,
-    SessionDelete, SessionNew, SessionRename, StepsRead, Welcome, WorkAnswer, WorkLog, WorkStop,
-    method,
+    JournalRead, ListGhosts, Look, LookRead, PROTOCOL, Role, Roster, Session, SessionDelete,
+    SessionNew, SessionRename, StepsRead, Welcome, WorkAnswer, WorkLog, WorkStop, method,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -291,16 +290,10 @@ impl Console {
     /// the console channel, or in the one named after whoever is at the
     /// console. What she says back is in her journal: read it from
     /// [`Self::next_entry`] on another connection, or with [`Self::thread`].
-    pub async fn say(
-        &mut self,
-        place: Option<String>,
-        text: &str,
-        mode: SayMode,
-    ) -> anyhow::Result<ConsoleSaid> {
+    pub async fn say(&mut self, place: Option<String>, text: &str) -> anyhow::Result<ConsoleSaid> {
         let params = ConsoleSay {
             place,
             text: text.to_owned(),
-            mode,
         };
         self.conn.call(method::SAY, &params).await
     }

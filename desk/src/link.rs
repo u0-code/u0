@@ -38,7 +38,7 @@ use std::{
 
 use ghost_link::{
     Console,
-    protocol::{BrainAsk, BrainList, BrainSave, SayMode},
+    protocol::{BrainAsk, BrainList, BrainSave},
 };
 use tokio::{runtime::Runtime, task::JoinHandle};
 use tracing::{debug, info};
@@ -105,11 +105,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Order {
     /// Say `text` in the place `place` on the console channel, by its id.
-    Say {
-        place: String,
-        text: String,
-        mode: SayMode,
-    },
+    Say { place: String, text: String },
     /// Answer what the work `work` asked, or add to what it was asked.
     Answer { work: String, text: String },
     /// Stop the work `work`.
@@ -156,8 +152,8 @@ impl Order {
 /// anything was stopped, for a stop in a place; otherwise that it was done.
 async fn carry_out(console: &mut Console, order: &Order) -> anyhow::Result<bool> {
     match order {
-        Order::Say { place, text, mode } => {
-            console.say(Some(place.clone()), text, *mode).await?;
+        Order::Say { place, text } => {
+            console.say(Some(place.clone()), text).await?;
         }
         Order::Answer { work, text } => console.answer(work, text).await?,
         Order::Stop { work } => console.stop(work).await?,

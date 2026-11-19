@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use ghost_core::journal::{Entry, Event};
 use ghost_link::{Conn, Console};
-use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError, SayMode};
+use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError};
 
 use super::*;
 use crate::cast::tests::{Rig, Spec};
@@ -70,10 +70,7 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         .await
         .unwrap();
 
-    let said = fox
-        .say(None, "how are the patients, 5e1d", SayMode::Say)
-        .await
-        .unwrap();
+    let said = fox.say(None, "how are the patients, 5e1d").await.unwrap();
     assert_eq!(said.place, "console:fox");
     assert_eq!(
         next_where(&mut stream, said_on_console).await,
@@ -88,13 +85,9 @@ async fn an_operator_at_a_console_speaks_to_her_and_reads_her_answer_in_the_jour
         "{thread}"
     );
 
-    // Marked as a directive or not, in a place of its own, it is the same.
+    // In a place of its own, it is the same.
     let other = fox
-        .say(
-            Some("desk-1".into()),
-            "send me the rota",
-            SayMode::Directive,
-        )
+        .say(Some("desk-1".into()), "send me the rota")
         .await
         .unwrap();
     assert_eq!(other.place, "console:desk-1");
@@ -117,10 +110,7 @@ async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_bef
     let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("Fox".into()))
         .await
         .unwrap();
-    let said = fox
-        .say(None, "how are the patients, 7a2e", SayMode::Say)
-        .await
-        .unwrap();
+    let said = fox.say(None, "how are the patients, 7a2e").await.unwrap();
     assert_eq!(
         next_where(&mut stream, said_on_console).await,
         ("fox".to_owned(), "lin here".to_owned())
@@ -172,12 +162,12 @@ async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_bef
 async fn a_console_says_who_is_at_it_before_it_speaks_and_has_something_to_say() {
     let rig = Rig::run(vec![Spec::new("lin")]).await;
     let (mut nobody, _) = Console::connect(&rig.url, None, None).await.unwrap();
-    let e = nobody.say(None, "hello", SayMode::Say).await.unwrap_err();
+    let e = nobody.say(None, "hello").await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
     let (mut fox, _) = Console::connect_as(&rig.url, None, None, Some("fox".into()))
         .await
         .unwrap();
-    let e = fox.say(None, "   ", SayMode::Say).await.unwrap_err();
+    let e = fox.say(None, "   ").await.unwrap_err();
     assert_eq!(code_of(&e), Some(code::INVALID_PARAMS));
     assert!(rig.heard(0).await.is_empty());
 }
@@ -189,7 +179,7 @@ async fn a_console_with_the_daemon_s_token_speaks_as_its_owner() {
     let (mut fox, _) = Console::connect_as(&rig.url, Some(token.into()), None, Some("fox".into()))
         .await
         .unwrap();
-    fox.say(None, "evening, 3c9a", SayMode::Say).await.unwrap();
+    fox.say(None, "evening, 3c9a").await.unwrap();
     rig.until_heard(0, "evening, 3c9a").await;
     // Admitted, it is the console's terminal she answers on.
     rig.until(

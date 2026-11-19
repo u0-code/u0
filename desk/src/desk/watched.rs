@@ -7,7 +7,7 @@ use std::{collections::HashSet, time::Instant};
 
 use chrono::Utc;
 use chrono_tz::Tz;
-use ghost_link::protocol::{CONSOLE, SayMode, Work};
+use ghost_link::protocol::{CONSOLE, Work};
 
 use crate::{
     cache,
@@ -154,16 +154,16 @@ impl Watched {
         })
     }
 
-    /// Say `text` to her, as `mode` has it, in the place `place` on the
-    /// console channel, and show it until her journal does.
-    pub(super) fn say(&mut self, place: String, text: String, mode: SayMode) {
+    /// Say `text` to her in the place `place` on the console channel, and
+    /// show it until her journal does.
+    pub(super) fn say(&mut self, place: String, text: String) {
         self.pending.push(Message {
             place: place.clone(),
             hers: false,
             text: text.clone(),
             at: Utc::now(),
         });
-        self.conn.order(Order::Say { place, text, mode });
+        self.conn.order(Order::Say { place, text });
     }
 
     /// Answer or stop a piece of her work, as an operator of hers.
