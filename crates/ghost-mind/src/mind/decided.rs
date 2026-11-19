@@ -273,7 +273,6 @@ impl Mind {
                 intention: intention.seq,
                 outcome: decision,
             })?;
-            self.pursuing.remove(&intention.seq);
         }
         self.refresh_intentions()?;
         if bubbles.is_empty() {

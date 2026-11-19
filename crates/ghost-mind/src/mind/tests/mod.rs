@@ -122,6 +122,9 @@ struct Script {
     /// Steps of work held in the middle until their gate opens, by the
     /// number of the step: the sitting is running all that while.
     held: Mutex<Vec<(usize, Arc<tokio::sync::Notify>)>>,
+    /// How many of the next calls to answer fall over, and how many have.
+    falls: std::sync::atomic::AtomicUsize,
+    fallen: std::sync::atomic::AtomicUsize,
 }
 
 impl Script {
@@ -131,6 +134,16 @@ impl Script {
 
     fn calls(&self) -> usize {
         self.seen.lock().unwrap().len()
+    }
+
+    /// Have the next call to answer fall over: the job it is in panics.
+    fn fall(&self) {
+        self.falls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn fallen(&self) -> usize {
+        self.fallen.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Give it eyes: it is shown the images in what it is sent.
@@ -213,6 +226,13 @@ impl Brain for Script {
 
     async fn complete(&self, req: &Completion) -> ghost_brain::Result<Reply> {
         self.seen.lock().unwrap().push(req.clone());
+        let falls = &self.falls;
+        if falls.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+            falls.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            self.fallen
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            panic!("the brain fell over, as it was told to");
+        }
         let text = self
             .replies
             .lock()
@@ -558,16 +578,14 @@ impl Rig {
     }
 
     /// Hand her what a job brought back. A job she called off brings back
-    /// nothing; any other that fell over is a failure of the test.
-    fn outcome(
-        &mut self,
-        done: std::result::Result<super::Outcome, tokio::task::JoinError>,
-        now: DateTime<Utc>,
-    ) {
-        match done {
-            Ok(outcome) => self.mind.on_outcome(outcome, now).unwrap(),
-            Err(e) => assert!(e.is_cancelled(), "a job fell over: {e}"),
+    /// nothing; any other that fell over, unless a brain was told to, is a
+    /// failure of the test.
+    fn outcome(&mut self, done: super::Done, now: DateTime<Utc>) {
+        if let Err(e) = &done.result {
+            let told = self.think.fallen() + self.tick.fallen() > 0;
+            assert!(e.is_cancelled() || told, "a job fell over: {e}");
         }
+        self.mind.on_done(done, now).unwrap();
     }
 
     /// Keep stepping beside a running sitting until `done`.
@@ -879,5 +897,10 @@ fn operated() -> MindConfig {
 
 /// The pieces of work with a sitting running, by id.
 fn running(rig: &Rig) -> Vec<String> {
-    rig.mind.working.keys().cloned().collect()
+    rig.mind
+        .jobs
+        .sittings()
+        .into_iter()
+        .map(|(id, _)| id.clone())
+        .collect()
 }

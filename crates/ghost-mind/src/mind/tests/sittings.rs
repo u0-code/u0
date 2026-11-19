@@ -80,12 +80,13 @@ async fn looking_at_her_phone_does_not_stop_a_running_sitting() {
     let due = rig.mind.agenda.attend["t:wen"].due;
     rig.mind.on_time(due).unwrap();
     assert!(
-        rig.mind.thinking.contains_key("t:wen"),
+        rig.mind.jobs.looking("t:wen").is_some(),
         "she is looking at it"
     );
     assert_eq!(running(&rig), std::slice::from_ref(&id));
     assert!(
-        !rig.mind.working[&id]
+        !rig.mind.jobs.sittings()[0]
+            .1
             .pause
             .load(std::sync::atomic::Ordering::Relaxed),
         "the sitting was not asked to stop"
@@ -129,9 +130,9 @@ async fn two_pieces_of_work_run_at_once_and_a_third_waits() {
     // The third is held at its first step, so that it is seen running.
     let third = rig.think.hold(1);
     first.notify_one();
-    rig.beside_until(|r| r.mind.working.contains_key(&c)).await;
-    assert!(!rig.mind.working.contains_key(&a));
-    assert!(rig.mind.working.contains_key(&b));
+    rig.beside_until(|r| r.mind.jobs.sitting(&c)).await;
+    assert!(!rig.mind.jobs.sitting(&a));
+    assert!(rig.mind.jobs.sitting(&b));
     second.notify_one();
     third.notify_one();
 }
@@ -163,7 +164,7 @@ async fn work_asked_for_at_a_terminal_starts_before_older_work() {
     );
     rig.mind.on_time(t0).unwrap();
     assert_eq!(running(&rig), [directed]);
-    assert!(!rig.mind.working.contains_key(&older));
+    assert!(!rig.mind.jobs.sitting(&older));
     gate.notify_one();
 }
 

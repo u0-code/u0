@@ -18,7 +18,7 @@ use ghost_core::{
 use serde_json::Value;
 use tracing::{info, warn};
 
-use super::{Mind, Outcome, decided::minutes_from};
+use super::{Mind, Outcome, Purpose, decided::minutes_from};
 use crate::{Error, Result, actions};
 
 /// The longest the life engine goes without checking on her day.
@@ -95,7 +95,10 @@ impl Mind {
 
     /// Ask a brain what the rest of today holds.
     fn plan(&mut self, now: DateTime<Utc>) -> Result<()> {
-        if self.planning || self.plan_failures >= PLAN_RETRIES || !self.budget.allow(now) {
+        if self.jobs.any(|p| matches!(p, Purpose::Plan))
+            || self.plan_failures >= PLAN_RETRIES
+            || !self.budget.allow(now)
+        {
             return Ok(());
         }
         let clock = self.life.clock();
@@ -151,9 +154,8 @@ impl Mind {
         let (brain, senses) = (self.tick.clone(), self.senses.clone());
         let words = self.prompts.clone();
         let (want_weather, max_tokens) = (self.cfg.weather, self.cfg.max_tokens);
-        self.planning = true;
         self.budget.spend(now);
-        self.jobs.spawn(async move {
+        self.jobs.spawn_for(Purpose::Plan, async move {
             let weather = if want_weather {
                 senses
                     .weather(&city, &country)
@@ -191,7 +193,6 @@ impl Mind {
         result: Result<PlanDraft>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.planning = false;
         let draft = match result {
             Ok(draft) => draft,
             Err(e) => {
@@ -230,7 +231,7 @@ impl Mind {
 
     /// Write up any block of today's plan that has ended while she was running.
     fn live_through(&mut self, day: &Day, now: DateTime<Utc>) -> Result<()> {
-        if self.living.is_some() || !self.budget.allow(now) {
+        if self.jobs.any(|p| matches!(p, Purpose::Live)) || !self.budget.allow(now) {
             return Ok(());
         }
         let lived: Vec<u32> = self
@@ -269,9 +270,8 @@ impl Mind {
         let request = self.framed(now, &prompt)?.expecting_json();
         let brain = self.tick.clone();
         let index = block.index;
-        self.living = Some(index);
         self.budget.spend(now);
-        self.jobs.spawn(async move {
+        self.jobs.spawn_for(Purpose::Live, async move {
             let result = ask(brain.as_ref(), &request)
                 .await
                 .and_then(|v| lived_draft(&v));
@@ -289,7 +289,6 @@ impl Mind {
         result: Result<LivedDraft>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.living = None;
         match result {
             Ok(draft) => {
                 self.record(Event::Lived {
@@ -318,7 +317,7 @@ impl Mind {
     /// only, so that what is said in one place is weighed with that place in
     /// front of her.
     pub(super) fn reflect(&mut self, now: DateTime<Utc>) -> Result<()> {
-        if !self.cfg.live || self.reflecting > 0 {
+        if !self.cfg.live || self.jobs.any(|p| matches!(p, Purpose::Reflect)) {
             return Ok(());
         }
         let journal = self.ghost.journal();
@@ -537,9 +536,8 @@ impl Mind {
     ) -> Result<()> {
         let request = self.framed(now, prompt)?.expecting_json();
         let brain = self.think.clone();
-        self.reflecting += 1;
         self.budget.spend(now);
-        self.jobs.spawn(async move {
+        self.jobs.spawn_for(Purpose::Reflect, async move {
             let result = ask(brain.as_ref(), &request)
                 .await
                 .and_then(|v| reflect_draft(&v));
@@ -563,7 +561,6 @@ impl Mind {
         result: Result<ReflectDraft>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.reflecting = self.reflecting.saturating_sub(1);
         let draft = match result {
             Ok(draft) => draft,
             Err(e) => {

@@ -116,7 +116,7 @@ impl Mind {
         attend.sort_by_key(|a| a["due"].as_str().unwrap_or_default().to_owned());
         let mut speaking: Vec<&String> = self.agenda.speaking.keys().collect();
         speaking.sort();
-        let mut thinking: Vec<&String> = self.thinking.keys().collect();
+        let mut thinking: Vec<&String> = self.jobs.looks().map(|(place, _)| place).collect();
         thinking.sort();
         json!({
             "attend": attend,
@@ -203,7 +203,7 @@ impl Mind {
         let looked = self.records_of(&[id.to_owned()]);
         // A part is at it while the sitting of the work it belongs to is.
         let top = id.split('/').next().unwrap_or(id);
-        let running = self.working.contains_key(top);
+        let running = self.jobs.sitting(top);
         let parts: Vec<Value> = looked
             .first()
             .map(|look| {
@@ -233,7 +233,7 @@ impl Mind {
     fn looks_view(&self, place: &str, after: i64) -> Value {
         // The look in flight there, as the record knows it: the same look
         // her mind is waiting on, numbered where its rounds are kept.
-        let open = self.thinking.get(place).and_then(|looking| looking.kept);
+        let open = self.jobs.looking(place).and_then(|looking| looking.kept);
         let kept = self.records().map_or_else(Vec::new, |records| {
             records.looks(place, after, open).unwrap_or_else(|e| {
                 warn!("could not read her looks at {place}: {e}");
@@ -255,7 +255,7 @@ impl Mind {
     /// One piece of work as she knows it, with what its record adds, and
     /// when anything last happened in it.
     fn work_of(&self, u: &Undertaking, look: Option<&Look>) -> (DateTime<Utc>, Value) {
-        let running = self.working.contains_key(&u.id);
+        let running = self.jobs.sitting(&u.id);
         let state = match (&u.outcome, look) {
             (Some(outcome), _) => outcome.clone(),
             (None, Some(look)) => state_of(look, running),

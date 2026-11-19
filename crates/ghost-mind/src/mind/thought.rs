@@ -14,10 +14,10 @@ use ghost_work::{
     undertaking::placeholder,
 };
 use serde_json::{Value, json};
-use tracing::{debug, warn};
+use tracing::warn;
 
 use super::{
-    Attend, Mind, Outcome,
+    Attend, Mind, Outcome, Purpose,
     attend::{Found, Looking, Thinking, Thought, Why},
 };
 use crate::{
@@ -44,17 +44,6 @@ impl Mind {
         result: Result<Thought>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        if self
-            .thinking
-            .get(&job.place)
-            .is_none_or(|looking| looking.look != job.look)
-        {
-            // She was stopped in the middle of this look before it came
-            // back: what it came to is not hers to act on.
-            debug!("{}: a look she was stopped in came back", job.place);
-            return Ok(());
-        }
-        self.thinking.remove(&job.place);
         let Some(place) = self.ghost.memory().place(&job.place)? else {
             return Ok(());
         };
@@ -421,9 +410,16 @@ impl Mind {
                     clip(&call.args.to_string(), 80)
                 );
             }
-            let (look, intention, kept) = (job.look, job.intention(), job.kept);
+            let looking = Looking {
+                intention: job.intention(),
+                kept: job.kept,
+            };
             let words = self.prompts.store().clone();
-            let abort = self.jobs.spawn(async move {
+            let purpose = Purpose::Look {
+                place: place.key.clone(),
+                looking,
+            };
+            self.jobs.spawn_for(purpose, async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
                     let started = std::time::Instant::now();
@@ -438,15 +434,6 @@ impl Mind {
                     result: Ok(Thought::Looked(found)),
                 }
             });
-            self.thinking.insert(
-                place.key.clone(),
-                Looking {
-                    look,
-                    abort,
-                    intention,
-                    kept,
-                },
-            );
             return Ok(());
         }
         if again {
@@ -498,7 +485,6 @@ impl Mind {
         // an end; one given up ends with the entry that says so, below.
         if let Why::Intention(intention) = &job.why {
             // Try the intention again later rather than losing it.
-            self.pursuing.remove(&intention.seq);
             self.held.insert(intention.seq, now + Duration::minutes(10));
             return self.refresh_intentions();
         }

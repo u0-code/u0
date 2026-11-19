@@ -34,7 +34,7 @@ mod waiting;
 mod work;
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::Arc,
     time::Duration as StdDuration,
 };
@@ -438,8 +438,6 @@ enum Outcome {
         before: u64,
         report: ghost_work::Report,
         progress: String,
-        /// Its record, with everything it kept and told in it.
-        record: Arc<ghost_work::Undertaking>,
     },
     /// She looked at the images in message `message`: for each, what she
     /// saw, or why she could not.
@@ -503,25 +501,151 @@ impl Agenda {
     }
 }
 
-/// The jobs she has sent off. Each runs in the span she was in when she
-/// sent it, so that whatever it logs says whose it is when one daemon runs
-/// several characters.
+/// What a job she sent off is for, while it runs. This is the one record
+/// of what she is in the middle of: whatever way a job ends, its coming
+/// back frees what it was for, so a job that falls over cannot leave her
+/// thinking she is still at it.
+enum Purpose {
+    /// A look at a place, by its key.
+    Look { place: String, looking: Looking },
+    /// Planning the rest of her day.
+    Plan,
+    /// Writing up a block of today's plan.
+    Live,
+    /// Looking back on her day, or on one platform's part of it.
+    Reflect,
+    /// Writing down the earlier conversation of a place, by its key.
+    Digest(String),
+    /// Scrolling a channel.
+    Browse(String),
+    /// Asking a channel how her posts are doing.
+    Measure(String),
+    /// A sitting at the work with this id.
+    Work { id: String, working: work::Working },
+}
+
+/// A job that came back: what it was for, unless it was called off, and
+/// what it brought back or how it fell over.
+struct Done {
+    purpose: Option<Purpose>,
+    result: std::result::Result<Outcome, tokio::task::JoinError>,
+}
+
+/// The jobs she has sent off, and what each is for. Each runs in the span
+/// she was in when she sent it, so that whatever it logs says whose it is
+/// when one daemon runs several characters.
 #[derive(Default)]
-struct Jobs(JoinSet<Outcome>);
+struct Jobs {
+    set: JoinSet<Outcome>,
+    purposes: HashMap<tokio::task::Id, (Purpose, AbortHandle)>,
+}
 
 impl Jobs {
-    /// Send `job` off. What is returned calls it off, if it is still
-    /// running.
-    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) -> AbortHandle {
-        self.0.spawn(job.in_current_span())
+    /// Send off `job`, which is for nothing she has to know is under way.
+    fn spawn(&mut self, job: impl Future<Output = Outcome> + Send + 'static) {
+        self.set.spawn(job.in_current_span());
     }
 
-    async fn join_next(&mut self) -> Option<std::result::Result<Outcome, tokio::task::JoinError>> {
-        self.0.join_next().await
+    /// Send off `job`, for `purpose`.
+    fn spawn_for(&mut self, purpose: Purpose, job: impl Future<Output = Outcome> + Send + 'static) {
+        let abort = self.set.spawn(job.in_current_span());
+        self.purposes.insert(abort.id(), (purpose, abort));
+    }
+
+    async fn join_next(&mut self) -> Option<Done> {
+        let (id, result) = match self.set.join_next_with_id().await? {
+            Ok((id, outcome)) => (id, Ok(outcome)),
+            Err(e) => (e.id(), Err(e)),
+        };
+        let purpose = self.purposes.remove(&id).map(|(purpose, _)| purpose);
+        Some(Done { purpose, result })
     }
 
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.set.is_empty()
+    }
+
+    /// Whether a job is under way for something `is` picks out.
+    fn any(&self, is: impl Fn(&Purpose) -> bool) -> bool {
+        self.purposes.values().any(|(purpose, _)| is(purpose))
+    }
+
+    /// The look under way at the place `key`, if there is one.
+    fn looking(&self, key: &str) -> Option<&Looking> {
+        self.purposes
+            .values()
+            .find_map(|(purpose, _)| match purpose {
+                Purpose::Look { place, looking } if place == key => Some(looking),
+                _ => None,
+            })
+    }
+
+    /// Every look under way, by the key of its place.
+    fn looks(&self) -> impl Iterator<Item = (&String, &Looking)> {
+        self.purposes
+            .values()
+            .filter_map(|(purpose, _)| match purpose {
+                Purpose::Look { place, looking } => Some((place, looking)),
+                _ => None,
+            })
+    }
+
+    /// Whether a look under way pursues the intention `seq`.
+    fn pursuing(&self, seq: i64) -> bool {
+        self.looks()
+            .any(|(_, looking)| looking.intention == Some(seq))
+    }
+
+    /// The sittings in progress, by the id of their work, in its order.
+    fn sittings(&self) -> Vec<(&String, &work::Working)> {
+        let mut sittings: Vec<_> = self
+            .purposes
+            .values()
+            .filter_map(|(purpose, _)| match purpose {
+                Purpose::Work { id, working } => Some((id, working)),
+                _ => None,
+            })
+            .collect();
+        sittings.sort_by_key(|(id, _)| *id);
+        sittings
+    }
+
+    /// Whether a sitting at the work `id` is in progress.
+    fn sitting(&self, id: &str) -> bool {
+        self.any(|p| matches!(p, Purpose::Work { id: at, .. } if at == id))
+    }
+
+    /// The sitting at the work `id`, to change how it goes on.
+    fn sitting_mut(&mut self, id: &str) -> Option<&mut work::Working> {
+        self.purposes
+            .values_mut()
+            .find_map(|(purpose, _)| match purpose {
+                Purpose::Work { id: at, working } if at == id => Some(working),
+                _ => None,
+            })
+    }
+
+    /// Whether the job of the look under way at the place `key` has
+    /// finished, and waits to be joined.
+    #[cfg(test)]
+    fn finished(&self, key: &str) -> bool {
+        self.purposes.values().any(|(purpose, abort)| {
+            matches!(purpose, Purpose::Look { place, .. } if place == key) && abort.is_finished()
+        })
+    }
+
+    /// Call off the look under way at the place `key`, if there is one:
+    /// it is no longer hers, and whatever it brings back is not acted on.
+    fn call_off(&mut self, key: &str) -> Option<Looking> {
+        let id = self.purposes.iter().find_map(|(id, (purpose, _))| {
+            matches!(purpose, Purpose::Look { place, .. } if place == key).then_some(*id)
+        })?;
+        let (purpose, abort) = self.purposes.remove(&id)?;
+        abort.abort();
+        match purpose {
+            Purpose::Look { looking, .. } => Some(looking),
+            _ => None,
+        }
     }
 }
 
@@ -566,20 +690,11 @@ pub struct Mind {
     rng: Rng,
     budget: Budget,
     workshop: Workshop,
-    /// The sittings in progress, by the work they are on.
-    working: BTreeMap<String, work::Working>,
     /// Work that is not to be sat down to again before the time given: it
     /// is resting after a sitting.
     resting: HashMap<String, DateTime<Utc>>,
-    /// Channels that have been asked how her posts are doing and have not
-    /// answered yet.
-    measuring: HashSet<String>,
     /// When this body started running.
     started: DateTime<Utc>,
-    /// Places with a deliberation in flight, and which look it is.
-    thinking: HashMap<String, Looking>,
-    /// Looks sent off so far: the last one's number.
-    looks: u64,
     /// Where her looks keep their rounds for a console to read: the work
     /// database, opened the first time a look keeps one.
     kept_looks: Option<ghost_work::looks::Looks>,
@@ -591,20 +706,9 @@ pub struct Mind {
     records: std::cell::OnceCell<ghost_work::undertaking::Records>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
-    /// Intentions with a deliberation in flight.
-    pursuing: HashSet<i64>,
     /// Intentions put off until a later moment.
     held: HashMap<i64, DateTime<Utc>>,
-    planning: bool,
     plan_failures: u8,
-    /// The block whose `Lived` entry is being written.
-    living: Option<u32>,
-    /// How many looks back on the day are still being thought.
-    reflecting: usize,
-    /// Places whose earlier conversation she is writing down right now.
-    digesting: HashSet<String>,
-    /// Channels with a scroll in flight.
-    browsing: HashSet<String>,
     /// Posts she has already scrolled past, per channel. Bounded.
     scrolled: HashMap<String, VecDeque<String>>,
 }
@@ -634,24 +738,14 @@ impl Mind {
             agenda: Agenda::default(),
             jobs: Jobs::default(),
             workshop: parts.workshop,
-            working: BTreeMap::new(),
             resting: HashMap::new(),
-            measuring: HashSet::new(),
             rng: Rng::new(),
             started: Utc::now(),
-            thinking: HashMap::new(),
-            looks: 0,
             kept_looks: None,
             records: std::cell::OnceCell::new(),
             retries: HashMap::new(),
-            pursuing: HashSet::new(),
             held: HashMap::new(),
-            planning: false,
             plan_failures: 0,
-            living: None,
-            reflecting: 0,
-            digesting: HashSet::new(),
-            browsing: HashSet::new(),
             scrolled: HashMap::new(),
         };
         (mind, MindHandle { tx, entries })
@@ -669,12 +763,9 @@ impl Mind {
                     None | Some(Signal::Stop) => break,
                     Some(signal) => self.on_signal(signal, Utc::now())?,
                 },
-                Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => match done {
-                    Ok(outcome) => self.on_outcome(outcome, Utc::now())?,
-                    // Called off: she was stopped in the middle of it.
-                    Err(e) if e.is_cancelled() => {}
-                    Err(e) => warn!("a job fell over: {e}"),
-                },
+                Some(done) = self.jobs.join_next(), if !self.jobs.is_empty() => {
+                    self.on_done(done, Utc::now())?;
+                }
                 () = tokio::time::sleep(wait) => self.on_time(Utc::now())?,
             }
         }
@@ -862,11 +953,62 @@ impl Mind {
         Ok(())
     }
 
-    fn on_outcome(&mut self, outcome: Outcome, now: DateTime<Utc>) -> Result<()> {
+    /// A job came back, with what it brought or having fallen over. What
+    /// it was for is no longer under way either way.
+    fn on_done(&mut self, done: Done, now: DateTime<Utc>) -> Result<()> {
+        match done.result {
+            Ok(outcome) => self.on_outcome(outcome, done.purpose, now),
+            // Called off: she was stopped in the middle of it.
+            Err(e) if e.is_cancelled() => Ok(()),
+            Err(e) => {
+                warn!("a job fell over: {e}");
+                self.on_fell(done.purpose, now)
+            }
+        }
+    }
+
+    /// A job for `purpose` fell over before it brought anything back. What
+    /// it was for is free to be done again, and is put back on her agenda
+    /// where nothing else would bring it round: her day, her phone and her
+    /// posts come round on their own.
+    fn on_fell(&mut self, purpose: Option<Purpose>, now: DateTime<Utc>) -> Result<()> {
+        match purpose {
+            Some(Purpose::Look { place, looking }) => match looking.intention {
+                // Tried again later rather than lost, as when she could
+                // not think.
+                Some(intention) => {
+                    self.held.insert(intention, now + Duration::minutes(10));
+                    self.refresh_intentions()
+                }
+                None => self.schedule_attend(&place, now),
+            },
+            Some(Purpose::Work { id, .. }) => {
+                self.resting.insert(id, now + Duration::minutes(10));
+                self.work_at(now);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn on_outcome(
+        &mut self,
+        outcome: Outcome,
+        purpose: Option<Purpose>,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
         self.prompts.refresh(now);
         self.installs_changed()?;
         match outcome {
-            Outcome::Thought { job, result } => self.on_thought(*job, result, now),
+            Outcome::Thought { job, result } => {
+                // Without its purpose, the look was called off before it
+                // came back: what it came to is not hers to act on.
+                if purpose.is_none() {
+                    tracing::debug!("{}: a look she was stopped in came back", job.place);
+                    return Ok(());
+                }
+                self.on_thought(*job, result, now)
+            }
             Outcome::Sent {
                 place,
                 bubble,
@@ -907,8 +1049,15 @@ impl Mind {
                 before,
                 report,
                 progress,
-                record,
-            } => self.on_worked(&id, before, &report, progress, &record, now),
+            } => {
+                // A sitting is never called off: it is stopped, and comes
+                // back, so what it was for is always there.
+                let Some(Purpose::Work { working, .. }) = purpose else {
+                    warn!("a sitting at {id} came back that was not under way");
+                    return Ok(());
+                };
+                self.on_worked(&id, before, &report, progress, &working, now)
+            }
             Outcome::Viewed { message, seen } => self.on_viewed(message, seen),
             Outcome::Done => Ok(()),
         }

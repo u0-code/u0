@@ -84,7 +84,7 @@ use ghost_work::{
 const GLANCE: Duration = Duration::seconds(30);
 use tracing::{info, warn};
 
-use super::{Mind, Operator, Order, Outcome, Refused};
+use super::{Mind, Operator, Order, Outcome, Purpose, Refused};
 use crate::{Result, actions::clip};
 
 /// A sitting in progress.
@@ -311,8 +311,9 @@ impl Mind {
         // At sittings already, this is when she glances at what each has
         // told her so far.
         let running: Vec<(String, Arc<Undertaking>)> = self
-            .working
-            .iter()
+            .jobs
+            .sittings()
+            .into_iter()
             .map(|(id, w)| (id.clone(), w.record.clone()))
             .collect();
         for (id, record) in &running {
@@ -323,12 +324,12 @@ impl Mind {
         }
         self.resting.retain(|_, until| *until > now);
         let at_once = usize::try_from(self.cfg.work.at_once.max(1)).unwrap_or(usize::MAX);
-        while self.working.len() < at_once && self.sit_down(now)? {}
+        while self.jobs.sittings().len() < at_once && self.sit_down(now)? {}
         Ok(())
     }
 
     /// Look at her work again no later than `at`.
-    fn work_at(&mut self, at: DateTime<Utc>) {
+    pub(super) fn work_at(&mut self, at: DateTime<Utc>) {
         self.agenda.work = Some(self.agenda.work.map_or(at, |due| due.min(at)));
     }
 
@@ -377,7 +378,7 @@ impl Mind {
         // sitting.
         let mut ready = Vec::new();
         for u in open {
-            if u.waiting.is_some() || self.working.contains_key(&u.id) {
+            if u.waiting.is_some() || self.jobs.sitting(&u.id) {
                 continue;
             }
             match self.resting.get(&u.id) {
@@ -530,16 +531,9 @@ impl Mind {
             self.practice_block()?
         );
         info!("sitting down to {} ({})", next.id, clip(&next.brief, 80));
-        self.working.insert(
-            next.id.clone(),
-            Working {
-                pause: pause.clone(),
-                record: undertaking.clone(),
-                stopped_by: None,
-            },
-        );
         self.work_at(now + GLANCE);
         let id = next.id.clone();
+        let (pause_kept, kept) = (pause.clone(), undertaking.clone());
         let worker = Worker {
             brain,
             tools,
@@ -552,7 +546,16 @@ impl Mind {
             prompts: shared,
             agents: self.workshop.agents.clone(),
         };
-        self.jobs.spawn(async move {
+        let working = Working {
+            pause: pause_kept,
+            record: kept,
+            stopped_by: None,
+        };
+        let purpose = Purpose::Work {
+            id: id.clone(),
+            working,
+        };
+        self.jobs.spawn_for(purpose, async move {
             // Its folder is made before its first step, out of her way.
             if let Some(dir) = folder {
                 let path = std::path::PathBuf::from(&dir);
@@ -573,7 +576,6 @@ impl Mind {
                     .undertaking
                     .state()
                     .progress(&ghost_work::prompts::hold(&worker.prompts)),
-                record: worker.undertaking,
             }
         });
         Ok(())
@@ -797,7 +799,7 @@ impl Mind {
         by: Option<String>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        if let Some(working) = self.working.get_mut(&u.id) {
+        if let Some(working) = self.jobs.sitting_mut(&u.id) {
             if let Err(e) = working.record.stop() {
                 warn!("the record of {} could not be ended: {e}", u.id);
             }
@@ -849,12 +851,11 @@ impl Mind {
         before: u64,
         report: &Report,
         progress: String,
-        record: &Undertaking,
+        working: &Working,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        let stopped_by = self.working.remove(id).and_then(|w| w.stopped_by);
         // Whatever it said and kept up to the end.
-        self.hear_from_work(id, &record.state(), now)?;
+        self.hear_from_work(id, &working.record.state(), now)?;
         let steps = u32::try_from(report.steps.saturating_sub(before)).unwrap_or(u32::MAX);
         let secs = f64::from(self.cfg.work.rest_minutes) * 60.0 * f64::from(self.cfg.tempo);
         #[allow(clippy::cast_possible_truncation)]
@@ -867,7 +868,7 @@ impl Mind {
             Ended::GaveUp => "gave_up",
             Ended::Dropped => {
                 info!("{id} stopped after {} steps", report.steps);
-                self.dropped(id, &progress, stopped_by.as_deref())?;
+                self.dropped(id, &progress, working.stopped_by.as_deref())?;
                 return Ok(());
             }
             Ended::Failed(why) => {
@@ -895,7 +896,7 @@ impl Mind {
                     question: question.clone(),
                 })?;
                 if let Some(u) = self.ghost.memory().undertaking(id)? {
-                    let options = record.state().waiting_options;
+                    let options = working.record.state().waiting_options;
                     let choices = if options.is_empty() {
                         String::new()
                     } else {
@@ -930,7 +931,7 @@ impl Mind {
             Ended::Stalled => {
                 info!("{id} stalled after {} steps", report.steps);
                 let summary = self.prompts.fill("stalled", &[("progress", progress)]);
-                if let Err(e) = record.end(undertaking::Outcome::Blocked, &summary) {
+                if let Err(e) = working.record.end(undertaking::Outcome::Blocked, &summary) {
                     warn!("the record of {id} could not be ended: {e}");
                 }
                 return self.end_work(id, "blocked", &summary, None, &report.files, now);
@@ -978,7 +979,7 @@ impl Mind {
     ) -> Result<bool> {
         let idle: Vec<String> = open
             .iter()
-            .filter(|u| !self.working.contains_key(&u.id))
+            .filter(|u| !self.jobs.sitting(&u.id))
             .map(|u| u.id.clone())
             .collect();
         if idle.is_empty() {

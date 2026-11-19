@@ -28,7 +28,7 @@ impl Mind {
             .retain(|seq, _| open.iter().any(|i| i.seq == *seq));
         self.agenda.intention = open
             .iter()
-            .filter(|i| !self.pursuing.contains(&i.seq))
+            .filter(|i| !self.jobs.pursuing(i.seq))
             .map(|i| self.held.get(&i.seq).map_or(i.due, |held| i.due.max(*held)))
             .min();
         Ok(())
@@ -108,7 +108,7 @@ impl Mind {
     pub(super) fn pursue(&mut self, now: DateTime<Utc>) -> Result<()> {
         let open = self.ghost.memory().open_intentions()?;
         let Some(intention) = open.into_iter().find(|i| {
-            !self.pursuing.contains(&i.seq)
+            !self.jobs.pursuing(i.seq)
                 && self.held.get(&i.seq).map_or(i.due, |held| i.due.max(*held)) <= now
         }) else {
             return self.refresh_intentions();
@@ -132,13 +132,12 @@ impl Mind {
         let Some(place) = self.ghost.memory().place(&place_key)? else {
             return self.refresh_intentions();
         };
-        self.pursuing.insert(intention.seq);
-        self.refresh_intentions()?;
         self.ponder(
             Thinking::new(&place.key, Why::Intention(intention), false),
             &place,
             now,
-        )
+        )?;
+        self.refresh_intentions()
     }
 
     /// Where an intention would be carried out.
@@ -193,7 +192,8 @@ impl Mind {
                 )));
             }
         }
-        if self.thinking.contains_key(&place.key) || self.agenda.speaking.contains_key(&place.key) {
+        if self.jobs.looking(&place.key).is_some() || self.agenda.speaking.contains_key(&place.key)
+        {
             return Ok(Err(Wait::Until(now + Duration::minutes(2))));
         }
         // What comes of work asked for at a terminal, or is to be said at

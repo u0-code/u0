@@ -16,7 +16,7 @@ use ghost_core::{
 use tracing::{debug, warn};
 
 use super::{
-    Mind, Outcome,
+    Mind, Outcome, Purpose,
     public::{Verdict, gate},
     speak::Bubble,
 };
@@ -67,7 +67,11 @@ impl Mind {
             .feeds()
             .into_iter()
             .map(|(name, _)| name)
-            .filter(|name| !self.browsing.contains(name))
+            .filter(|name| {
+                !self
+                    .jobs
+                    .any(|p| matches!(p, Purpose::Browse(at) if at == name))
+            })
             .collect();
         if feeds.is_empty() {
             return Ok(());
@@ -112,74 +116,74 @@ impl Mind {
         let may_post = posted < set.posts_per_day as usize;
         let nothing_new = self.prompts.text("nothing_new").to_owned();
         let handle = self.prompts.text("card_handle").to_owned();
-        self.browsing.insert(channel.clone());
         self.budget.spend(now);
-        self.jobs.spawn(async move {
-            let fetched = body
-                .act(
-                    &channel,
-                    Act::Fetch {
-                        feed: Feed::Timeline,
-                        limit: SCROLL,
-                    },
-                )
-                .await;
-            // Only what she has not scrolled past before.
-            let items: Vec<Incoming> = match fetched {
-                Ok(acted) => acted
-                    .items
-                    .into_iter()
-                    .filter(|item| !seen.contains(&item.id))
-                    .collect(),
-                Err(e) => {
-                    warn!("{channel}: could not load the timeline: {e}");
-                    Vec::new()
+        self.jobs
+            .spawn_for(Purpose::Browse(channel.clone()), async move {
+                let fetched = body
+                    .act(
+                        &channel,
+                        Act::Fetch {
+                            feed: Feed::Timeline,
+                            limit: SCROLL,
+                        },
+                    )
+                    .await;
+                // Only what she has not scrolled past before.
+                let items: Vec<Incoming> = match fetched {
+                    Ok(acted) => acted
+                        .items
+                        .into_iter()
+                        .filter(|item| !seen.contains(&item.id))
+                        .collect(),
+                    Err(e) => {
+                        warn!("{channel}: could not load the timeline: {e}");
+                        Vec::new()
+                    }
+                };
+                if items.is_empty() && !may_post {
+                    // Nothing new and nothing left to say today: she puts it down.
+                    return Outcome::Browsed {
+                        channel,
+                        items,
+                        result: Ok(Deliberation::default()),
+                    };
                 }
-            };
-            if items.is_empty() && !may_post {
-                // Nothing new and nothing left to say today: she puts it down.
-                return Outcome::Browsed {
+                let listing = if items.is_empty() {
+                    nothing_new
+                } else {
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, item)| {
+                            format!(
+                                "[i{}] {}{}: {}",
+                                i + 1,
+                                item.from.name,
+                                item.from
+                                    .handle
+                                    .as_deref()
+                                    .map(|h| narrate::fill(&handle, &[("handle", h.to_owned())]))
+                                    .unwrap_or_default(),
+                                clip(&item.text.replace('\n', " "), 400)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                let mut pairs = pairs;
+                pairs.push(("items", listing));
+                let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
+                let request = Completion::ask(system, prompt, max_tokens).expecting_json();
+                let result = match brain.complete(&request).await {
+                    Ok(reply) => actions::parse(&reply.text).map_err(Error::Parse),
+                    Err(e) => Err(e.into()),
+                };
+                Outcome::Browsed {
                     channel,
                     items,
-                    result: Ok(Deliberation::default()),
-                };
-            }
-            let listing = if items.is_empty() {
-                nothing_new
-            } else {
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| {
-                        format!(
-                            "[i{}] {}{}: {}",
-                            i + 1,
-                            item.from.name,
-                            item.from
-                                .handle
-                                .as_deref()
-                                .map(|h| narrate::fill(&handle, &[("handle", h.to_owned())]))
-                                .unwrap_or_default(),
-                            clip(&item.text.replace('\n', " "), 400)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
-            let mut pairs = pairs;
-            pairs.push(("items", listing));
-            let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
-            let request = Completion::ask(system, prompt, max_tokens).expecting_json();
-            let result = match brain.complete(&request).await {
-                Ok(reply) => actions::parse(&reply.text).map_err(Error::Parse),
-                Err(e) => Err(e.into()),
-            };
-            Outcome::Browsed {
-                channel,
-                items,
-                result,
-            }
-        });
+                    result,
+                }
+            });
         Ok(())
     }
 
@@ -204,7 +208,6 @@ impl Mind {
         result: Result<Deliberation>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        self.browsing.remove(channel);
         let scrolled = self.scrolled.entry(channel.to_owned()).or_default();
         scrolled.extend(items.iter().map(|item| item.id.clone()));
         while scrolled.len() > REMEMBERED {

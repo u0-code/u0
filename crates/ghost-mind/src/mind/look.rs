@@ -10,7 +10,7 @@ use ghost_work::{
 };
 
 use super::{
-    Mind, Outcome,
+    Mind, Outcome, Purpose,
     attend::{Looking, Thinking, Thought, Why},
 };
 use crate::{
@@ -84,10 +84,6 @@ impl Mind {
                 .insert("tools".to_owned(), spec.chars().count() as u64);
         }
         self.budget.spend(now);
-        if job.look == 0 {
-            self.looks += 1;
-            job.look = self.looks;
-        }
         if job.round == 0 && matches!(job.why, Why::Unread) && self.can(&place.channel, Can::Read) {
             let upto = self
                 .ghost
@@ -102,8 +98,14 @@ impl Mind {
                 },
             );
         }
-        let (look, intention, kept) = (job.look, job.intention(), job.kept);
-        let abort = if with_tools {
+        let purpose = Purpose::Look {
+            place: place.key.clone(),
+            looking: Looking {
+                intention: job.intention(),
+                kept: job.kept,
+            },
+        };
+        if with_tools {
             let system = match request {
                 Some((system, prompt)) => {
                     job.items.push(Item::user(prompt));
@@ -131,7 +133,7 @@ impl Mind {
                 // she says.
                 effort: Some(Effort::Low),
             };
-            self.jobs.spawn(async move {
+            self.jobs.spawn_for(purpose, async move {
                 let result = brain
                     .step(&turn)
                     .await
@@ -141,7 +143,7 @@ impl Mind {
                     job: Box::new(job),
                     result,
                 }
-            })
+            });
         } else {
             // Answering in JSON, what she sees is always put together.
             let Some((system, prompt)) = request else {
@@ -150,7 +152,7 @@ impl Mind {
             let request = Completion::ask(system, prompt, self.cfg.max_tokens)
                 .expecting_json()
                 .thinking(Effort::Low);
-            self.jobs.spawn(async move {
+            self.jobs.spawn_for(purpose, async move {
                 let result = deliberate(brain.as_ref(), &request)
                     .await
                     .map(Thought::Whole);
@@ -158,17 +160,8 @@ impl Mind {
                     job: Box::new(job),
                     result,
                 }
-            })
-        };
-        self.thinking.insert(
-            place.key.clone(),
-            Looking {
-                look,
-                abort,
-                intention,
-                kept,
-            },
-        );
+            });
+        }
         Ok(())
     }
 

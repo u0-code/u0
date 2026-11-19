@@ -19,7 +19,7 @@ fn reported(rig: &Rig) -> Vec<(String, String, Vec<String>)> {
 
 /// The moment she next glances at the sitting she is at.
 fn glance(rig: &Rig) -> DateTime<Utc> {
-    assert!(!rig.mind.working.is_empty(), "she is at a sitting");
+    assert!(!rig.mind.jobs.sittings().is_empty(), "she is at a sitting");
     rig.mind.agenda.work.expect("she means to glance at it")
 }
 
@@ -44,7 +44,7 @@ async fn something_the_work_tells_her_reaches_her_journal_while_it_is_still_runn
     assert!(reported(&rig).is_empty(), "nothing until she glances at it");
 
     rig.mind.on_time(glance(&rig)).unwrap();
-    let id = rig.mind.working.keys().next().unwrap().clone();
+    let id = rig.mind.jobs.sittings()[0].0.clone();
     assert_eq!(
         reported(&rig),
         [(
@@ -127,7 +127,7 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
     }
     first.notify_one();
     second.notify_one();
-    rig.until(|r| r.mind.working.is_empty()).await;
+    rig.until(|r| r.mind.jobs.sittings().is_empty()).await;
     let seen = work_seen(&rig, t0);
     assert_eq!(seen.len(), 1, "work that ended is still shown");
     assert_eq!(seen[0].state, WorkState::Blocked);
@@ -183,7 +183,7 @@ async fn mail_with_kept_files_wakes_her_attention_to_the_askers_place_and_plain_
     assert!(rig.mind.agenda.intention.is_some_and(|due| due > now));
 
     second.notify_one();
-    rig.until(|r| r.mind.working.is_empty()).await;
+    rig.until(|r| r.mind.jobs.sittings().is_empty()).await;
 }
 
 #[tokio::test]
@@ -215,7 +215,10 @@ async fn a_picture_kept_by_running_work_can_be_sent_in_the_conversation_before_t
         files_sent(&rig),
         [(file.clone(), PIXEL.to_vec(), Some("first one".into()))]
     );
-    assert!(!rig.mind.working.is_empty(), "the sitting is still running");
+    assert!(
+        !rig.mind.jobs.sittings().is_empty(),
+        "the sitting is still running"
+    );
     let u = rig.mind.ghost.memory().undertakings(false, 1).unwrap()[0].clone();
     assert_eq!(u.outcome, None, "and the work is not over");
     // What she had in front of her named it, by number and by file.
@@ -267,7 +270,10 @@ async fn steer_reaches_the_running_worker_at_its_next_step() {
         r#"{{"thought":"","actions":[{{"do":"say","text":"nearly there"}},{{"do":"steer","work":{work},"text":"Only the weekday hours, after all."}}]}}"#
     ));
     rig.beside_until(|r| r.kinds().contains(&"added")).await;
-    assert!(!rig.mind.working.is_empty(), "the sitting is still running");
+    assert!(
+        !rig.mind.jobs.sittings().is_empty(),
+        "the sitting is still running"
+    );
     let offered = rig.think.seen.lock().unwrap().last().unwrap().messages[0]
         .text
         .clone();

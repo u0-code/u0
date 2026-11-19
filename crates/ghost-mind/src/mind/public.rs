@@ -13,7 +13,7 @@ use ghost_core::{journal::Event, narrate, social::PlaceKind, when::when};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
-use super::{Mind, Outcome};
+use super::{Mind, Outcome, Purpose};
 use crate::{
     Act, Acted, Can, Prompts, Result,
     actions::{self, clip},
@@ -171,14 +171,19 @@ impl Mind {
                 matches!(&e.event, Event::Measured { channel: c, .. } if c == channel)
                     && now - e.at < Duration::hours(i64::from(hours))
             });
-        if asked_recently || !self.measuring.insert(channel.to_owned()) {
+        if asked_recently
+            || self
+                .jobs
+                .any(|p| matches!(p, Purpose::Measure(at) if at == channel))
+        {
             return Ok(());
         }
         let (body, channel) = (self.body.clone(), channel.to_owned());
-        self.jobs.spawn(async move {
-            let result = body.act(&channel, Act::Measure).await;
-            Outcome::Measured { channel, result }
-        });
+        self.jobs
+            .spawn_for(Purpose::Measure(channel.clone()), async move {
+                let result = body.act(&channel, Act::Measure).await;
+                Outcome::Measured { channel, result }
+            });
         Ok(())
     }
 
@@ -187,7 +192,6 @@ impl Mind {
         channel: &str,
         result: std::result::Result<Acted, String>,
     ) -> Result<()> {
-        self.measuring.remove(channel);
         let measure = match result {
             Ok(acted) => acted.measure.unwrap_or_default(),
             Err(e) => {

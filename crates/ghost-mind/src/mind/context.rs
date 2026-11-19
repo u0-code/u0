@@ -253,7 +253,7 @@ impl Mind {
                     let state = if let Some(question) = &u.waiting {
                         self.prompts
                             .fill("waiting_answer", &[("question", clip(question, 200))])
-                    } else if self.working.contains_key(&u.id) {
+                    } else if self.jobs.sitting(&u.id) {
                         self.prompts.text("work_running").to_owned()
                     } else if u.sittings == 0 {
                         self.prompts.text("work_not_started").to_owned()
@@ -415,7 +415,7 @@ impl Mind {
     /// said. Empty when it has none.
     fn parts_of(&self, id: &str, record: &ghost_work::undertaking::Look) -> String {
         let parts = &record.parts;
-        let sitting = self.working.contains_key(id);
+        let sitting = self.jobs.sitting(id);
         let from = parts.len().saturating_sub(PARTS_SHOWN);
         parts[from..]
             .iter()

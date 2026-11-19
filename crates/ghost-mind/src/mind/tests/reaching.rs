@@ -469,7 +469,7 @@ async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<U
     let gate = rig.think.hold(1);
     rig.hear(dm("wen", "1", "when does the tea house close?"), t0);
     let mut now = t0;
-    while !rig.mind.thinking.contains_key("t:wen") {
+    while rig.mind.jobs.looking("t:wen").is_none() {
         now = rig.mind.agenda.next_due().expect("she looks").max(now);
         rig.mind.on_time(now).unwrap();
     }
@@ -483,7 +483,7 @@ async fn in_the_middle_of_a_look() -> (Rig, Arc<tokio::sync::Notify>, DateTime<U
         )
         .await
         {
-            rig.mind.on_outcome(done.unwrap(), now).unwrap();
+            rig.mind.on_done(done, now).unwrap();
         }
     }
     (rig, gate, now)
@@ -570,7 +570,10 @@ async fn a_look_she_is_stopped_in_shows_as_ended_where_she_was_stopped() {
     let going = looks_at_wen(&rig, 0, now);
     assert_eq!(going[0]["running"], true);
     // The look her mind is waiting on is the one a console reads.
-    assert_eq!(rig.mind.thinking["t:wen"].kept, going[0]["look"].as_i64());
+    assert_eq!(
+        rig.mind.jobs.looking("t:wen").unwrap().kept,
+        going[0]["look"].as_i64()
+    );
 
     let fox = crate::Operator {
         key: "console:fox".into(),
