@@ -40,6 +40,7 @@ mod syntax;
 mod theme;
 mod thread;
 mod ui;
+mod whole;
 
 use gpui::{
     App, AppContext as _, Application, Bounds, Focusable as _, KeyBinding, TitlebarOptions,

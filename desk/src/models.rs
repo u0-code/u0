@@ -49,11 +49,22 @@ fn cache_path() -> Option<PathBuf> {
     )
 }
 
+/// The listings kept. A file that cannot be read is said so and taken as
+/// none: each listing is asked for again, and the file written anew.
 fn read_cache() -> BTreeMap<String, Value> {
-    cache_path()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    let Some(path) = cache_path() else {
+        return BTreeMap::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!(
+            "{} is not a listing this desk can read: {e}",
+            path.display()
+        );
+        BTreeMap::new()
+    })
 }
 
 /// The ids kept under `key`, and when they were listed.
@@ -87,11 +98,10 @@ pub fn remember(key: &str, ids: &[String]) {
         key.to_owned(),
         json!({"ids": ids, "at": Utc::now().to_rfc3339()}),
     );
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(text) = serde_json::to_string_pretty(&all) {
-        let _ = std::fs::write(path, text);
+    if let Ok(text) = serde_json::to_string_pretty(&all)
+        && let Err(e) = crate::whole::write(&path, text.as_bytes())
+    {
+        tracing::warn!("{} could not be written: {e}", path.display());
     }
 }
 
