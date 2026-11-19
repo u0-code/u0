@@ -781,10 +781,13 @@ dependencies = [
 name = "ghost-net"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "futures-util",
  "reqwest",
  "rustix",
  "serde",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "tracing",
 ]
 
@@ -798,6 +801,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "ghost-link",
+ "ghost-net",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
@@ -827,7 +831,6 @@ dependencies = [
  "ghost-link",
  "ghost-net",
  "reqwest",
- "rustls",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
@@ -2496,11 +2499,7 @@ checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
 dependencies = [
  "futures-util",
  "log",
- "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
  "tokio",
- "tokio-rustls",
  "tungstenite 0.30.0",
 ]
 
@@ -2715,8 +2714,6 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.10.3",
- "rustls",
- "rustls-pki-types",
  "sha1 0.11.0",
  "thiserror 2.0.21",
 ]

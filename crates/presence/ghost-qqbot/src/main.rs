@@ -247,9 +247,6 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .with_writer(std::io::stderr)
         .init();
-    // The gateway's TLS needs a crypto provider chosen once for the process.
-    // Another may already be installed; either will do.
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let args = Args::parse();
 
     let api = Arc::new(Api::new(

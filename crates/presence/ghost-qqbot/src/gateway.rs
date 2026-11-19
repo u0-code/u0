@@ -216,10 +216,10 @@ async fn sitting(
     url: &str,
     events: &mpsc::Sender<Event>,
 ) -> anyhow::Result<Duration> {
-    let (socket, _) = match tokio_tungstenite::connect_async(url).await {
+    let socket = match ghost_net::websocket(url, None).await {
         Ok(socket) => socket,
         Err(e) => {
-            warn!("cannot open the qq gateway: {e}");
+            warn!("cannot open the qq gateway: {e:#}");
             return Ok(session.backoff());
         }
     };

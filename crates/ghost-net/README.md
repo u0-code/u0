@@ -1,8 +1,10 @@
 # ghost-net
 
-How every HTTP request a Ghost program makes leaves the machine.
+How every connection a Ghost program makes leaves the machine.
 
-**Is:** the one place HTTP clients are built (`ghost_net::builder()`), and
+**Is:** the one place HTTP clients are built (`ghost_net::builder()`) and
+platform WebSockets are opened (`ghost_net::websocket`, an HTTP request
+from such a client asking to be upgraded, so it goes the same way), and
 the one setting they follow: `proxy` (`system`, `none`, or an HTTP proxy's
 address) and `direct` (hosts, and `*.suffix` patterns, that never use it).
 Each comes from `GHOST_PROXY` and `GHOST_DIRECT` in the environment, then

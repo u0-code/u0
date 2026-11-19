@@ -1,6 +1,6 @@
 [package]
 name = "ghost-net"
-description = "How every HTTP request a Ghost program makes leaves the machine: one proxy setting, one place that builds clients, one that starts programs."
+description = "How every connection a Ghost program makes leaves the machine: one proxy setting, one place that builds HTTP clients and opens WebSockets, one that starts programs."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,15 +9,18 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow = "1.0.104"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["process", "io-util", "macros"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 tracing = "0.1.44"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.6", features = ["process"] }
 
 [dev-dependencies]
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 tokio = { version = "1.54.1", features = ["net", "io-util", "macros", "rt"] }
 
 [lints]

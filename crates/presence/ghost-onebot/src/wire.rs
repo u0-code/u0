@@ -13,11 +13,11 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
+use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
 /// How long an action may take before we stop waiting for its answer.
@@ -145,21 +145,12 @@ async fn keep_alive(
     }
 }
 
-type Socket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
-async fn connect(endpoint: &str, access_token: Option<&str>) -> anyhow::Result<Socket> {
-    let mut request = endpoint
-        .into_client_request()
-        .with_context(|| format!("{endpoint:?} is not a websocket address"))?;
-    if let Some(token) = access_token {
-        request.headers_mut().insert(
-            "Authorization",
-            HeaderValue::from_str(&format!("Bearer {token}")).context("access token")?,
-        );
-    }
-    let (socket, _) = tokio_tungstenite::connect_async(request).await?;
-    Ok(socket)
+async fn connect(
+    endpoint: &str,
+    access_token: Option<&str>,
+) -> anyhow::Result<ghost_net::WebSocket> {
+    let authorization = access_token.map(|token| format!("Bearer {token}"));
+    ghost_net::websocket(endpoint, authorization.as_deref()).await
 }
 
 /// An answer goes to whoever asked; anything else with a `post_type` is an event.

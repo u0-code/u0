@@ -201,7 +201,9 @@ impl Platform for Discord {
 }
 
 /// Discord's HTTP API as the bot, going the way the network setting says.
-/// The gateway's own connection is a websocket, and is made directly.
+/// The gateway does not: serenity 0.12.5 opens its websocket itself, with
+/// `connect_async_with_config` in `gateway/ws.rs`, and takes no connection
+/// or connector to open it with, so it goes direct whatever the setting.
 fn http(token: &str) -> anyhow::Result<Http> {
     let client = ghost_net::builder()
         .build()
