@@ -665,17 +665,15 @@ impl Mind {
                 ),
             ],
         );
-        if self.intend_as(
+        self.intend_as(
             now + Duration::minutes(1),
             share,
             u.asked_by,
             u.place,
             true,
             u.directed,
-        )? {
-            self.refresh_intentions()?;
-        }
-        Ok(())
+        )?;
+        self.refresh_intentions()
     }
 
     /// The open piece of work she knows by `number`, or, as a sentence for

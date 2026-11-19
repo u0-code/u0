@@ -414,6 +414,49 @@ async fn a_work_sittings_kept_files_become_kept_entries_once_from_that_undertaki
     assert_eq!(from.as_deref(), Some(id.as_str()));
 }
 
+#[tokio::test]
+async fn work_that_ends_while_she_still_means_to_show_what_it_found_is_still_told_as_ended() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    at_work_for_wen(&mut rig, "Find a good picture of a heron.", t0);
+    // The work keeps something worth handing over, and then is done, in
+    // the one sitting: she means to show Wen what it found before she has
+    // had a moment to.
+    let file = ghost_core::media::store(rig.mind.ghost.dir(), PIXEL, "image/png").unwrap();
+    rig.think.then_call(
+        "keep",
+        serde_json::json!({"file": file, "note": "A heron, wings out."}),
+    );
+    rig.think.then_call(
+        "done",
+        serde_json::json!({"outcome": "finished", "summary": "Found one by the lake."}),
+    );
+    rig.mind.on_time(t0).unwrap();
+    rig.until(|r| r.kinds().contains(&"concluded")).await;
+
+    let open: Vec<String> = rig
+        .mind
+        .ghost
+        .memory()
+        .open_intentions()
+        .unwrap()
+        .into_iter()
+        .filter(|i| i.about.as_deref() == Some("t:wen"))
+        .map(|i| i.what)
+        .collect();
+    assert!(
+        open.iter().any(|w| w.contains("A heron, wings out.")),
+        "{open:?}"
+    );
+    // That it is over, and what it came to, is not taken for the same
+    // thing as what it had found so far.
+    assert!(
+        open.iter().any(|w| w.contains("Found one by the lake.")
+            && w.contains(rig.mind.prompts.text("how_finished"))),
+        "{open:?}"
+    );
+}
+
 /// What she means to do about the work that came back to her for Wen.
 fn meant_for_wen(rig: &Rig) -> String {
     let open = rig.mind.ghost.memory().open_intentions().unwrap();
