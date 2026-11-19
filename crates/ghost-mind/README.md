@@ -37,8 +37,8 @@ as a job's outcome, and her journal says so then. A sitting holding the
 database's lock never holds her up.
 
 In a conversation she has the same abilities as at work, at a conversation's
-pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
-needs; where her brain takes tools, `search`, `fetch` and, in private with a
+pace. Her catalogue (`src/catalog.rs`) says what each tool of a conversation
+is and what a place needs before it is offered there; where her brain takes tools, `search`, `fetch` and, in private with a
 friend or an operator, her machine (`shell`, `read`, `write`, `edit`) run off
 to the side, each for at most `[mind] talk_tool_seconds`, within `talk_steps`
 turns. A page or picture she opens is in her journal as `Opened`, so that she
@@ -70,7 +70,9 @@ whatever her day, with no reading or typing time, on a page of its own
 asked for there goes first and is not held to her floors.
 
 In public she posts, is shown how her posts did, and writes down what that
-taught her. Every post is read over before it goes out. What a platform does
+taught her. What she must not say in public (anything told her in private,
+anything untrue of her life) is said once, where every public message is
+written, and what was private is never put in front of her there. What a platform does
 not allow an automated account is off unless it is turned on.
 
 **Is not:** aware of any platform or wire format. It acts through the `Body`

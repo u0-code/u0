@@ -8,12 +8,14 @@
 
 use ghost_brain::{Call, ToolSpec};
 use ghost_core::narrate;
-use ghost_work::catalog::{self, Need};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
 use tracing::debug;
 
-use crate::Prompts;
+use crate::{
+    Prompts,
+    catalog::{self, Kind, Need},
+};
 
 /// One thing she decides to do.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -192,7 +194,7 @@ pub struct Offer {
     /// How she would take something on, if she can: what fills `{{means}}`
     /// in `undertake`.
     pub means: Option<String>,
-    /// What the place and she have here, as the catalog of tools asks it:
+    /// What the place and she have here, as the catalogue of tools asks it:
     /// a place that takes files, work under way, a group, a place among
     /// people, a channel that reacts.
     pub here: Vec<Need>,
@@ -202,95 +204,32 @@ pub struct Offer {
 }
 
 impl Offer {
-    /// What she has here, as the catalog of tools asks it.
+    /// What she has here, as the catalogue of tools asks it.
     fn has(&self, need: Need) -> bool {
         match need {
             Need::Work => self.means.is_some(),
             Need::Memory => true,
-            Need::UnderWay
-            | Need::Files
-            | Need::Group
-            | Need::Social
-            | Need::React
-            | Need::WritesFirst => self.here.contains(&need),
-            // Those reach beyond the conversation, and are offered as
-            // they are given.
-            _ => false,
+            need => self.here.contains(&need),
         }
     }
 }
 
-/// Arguments by name and JSON type, and which of them are required.
-type Shape = (
-    &'static [(&'static str, &'static str)],
-    &'static [&'static str],
-);
-
-/// The arguments of each thing she does in a conversation. A tool that
-/// runs the same in work is shaped there instead.
-fn shape(name: &str) -> Option<Shape> {
-    Some(match name {
-        "say" => (&[("text", "string"), ("reply_to", "integer")], &["text"]),
-        "react" => (&[("to", "integer"), ("emoji", "string")], &["to", "emoji"]),
-        "later" => (&[("minutes", "number"), ("why", "string")], &["minutes"]),
-        "note" => (&[("about", "string"), ("text", "string")], &["text"]),
-        "feel" => (
-            &[("toward", "string"), ("delta", "number"), ("why", "string")],
-            &["delta"],
-        ),
-        "intend" => (
-            &[("hours", "number"), ("what", "string"), ("about", "string")],
-            &["hours", "what"],
-        ),
-        "canon" => (&[("fact", "string")], &["fact"]),
-        "recall" => (&[("query", "string")], &["query"]),
-        "reread" => (&[("memory", "integer")], &["memory"]),
-        "keep" => (
-            &[
-                ("file", "string"),
-                ("message", "integer"),
-                ("image", "integer"),
-                ("note", "string"),
-            ],
-            &["note"],
-        ),
-        "let_go" => (&[("thing", "integer")], &["thing"]),
-        "undertake" => (
-            &[("brief", "string"), ("for", "string"), ("dir", "string")],
-            &["brief"],
-        ),
-        "steer" => (
-            &[("work", "integer"), ("text", "string")],
-            &["work", "text"],
-        ),
-        "stop" => (&[("work", "integer")], &["work"]),
-        "send_file" => (
-            &[
-                ("file", "string"),
-                ("message", "integer"),
-                ("image", "integer"),
-                ("text", "string"),
-                ("what", "string"),
-            ],
-            &[],
-        ),
-        "quiet" => (&[("hours", "number")], &["hours"]),
-        "leave" => (&[("why", "string")], &[]),
-        _ => return None,
-    })
-}
-
 /// What a brain that takes tools is offered while she looks at a place, in
-/// the catalog's order. What she does with people in front of her is read
+/// the catalogue's order. What she does with people in front of her is read
 /// straight into an [`Action`]; what reaches beyond the conversation runs
 /// as it does at work. What each is said to be is in `tools.toml`.
 pub fn tools(words: &Prompts, offer: &Offer) -> Vec<ToolSpec> {
     // Each argument by name and JSON type, described if `tools.toml` says
     // something about it.
-    let tool = |name: &str, arguments: &[(&str, &str)], required: &[&str]| {
+    let tool = |name: &str, arguments: &[catalog::Arg]| {
+        let required: Vec<&str> = arguments
+            .iter()
+            .filter(|(_, _, required)| *required)
+            .map(|(argument, ..)| *argument)
+            .collect();
         let properties: Map<String, Value> = arguments
             .iter()
-            .map(|(argument, kind)| {
+            .map(|(argument, kind, _)| {
                 let mut schema = json!({"type": kind});
                 if let Some(said) = words.parameter(name, argument) {
                     schema["description"] = Value::String(said.to_owned());
@@ -306,30 +245,31 @@ pub fn tools(words: &Prompts, offer: &Offer) -> Vec<ToolSpec> {
     };
     let mut tools = Vec::new();
     for entry in catalog::TOOLS {
-        if !entry
-            .loops
-            .contains(&ghost_core::prompts::Loop::Conversation)
-        {
-            continue;
-        }
-        if let Some(reaching) = offer.reaching.iter().find(|t| t.name == entry.name) {
-            tools.push(reaching.clone());
-            continue;
-        }
-        let Some((arguments, required)) = shape(entry.name) else {
-            continue;
+        let arguments = match entry.kind {
+            Kind::Hers(arguments) => arguments,
+            Kind::Reaching => {
+                tools.extend(
+                    offer
+                        .reaching
+                        .iter()
+                        .find(|t| t.name == entry.name)
+                        .cloned(),
+                );
+                continue;
+            }
+            Kind::Work => continue,
         };
         if !entry.needs.iter().all(|need| offer.has(*need)) {
             continue;
         }
-        let mut spec = tool(entry.name, arguments, required);
+        let mut spec = tool(entry.name, arguments);
         if let Some(means) = offer.means.as_deref().filter(|_| entry.name == "undertake") {
             spec.description = narrate::fill(&spec.description, &[("means", means.to_owned())]);
         }
         tools.push(spec);
     }
     // What a tool brought with it, such as the tools of a server she
-    // loaded, is in no catalog: it comes after everything that is.
+    // loaded, is in no catalogue: it comes after everything that is.
     tools.extend(
         offer
             .reaching

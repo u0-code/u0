@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use ghost_link::protocol::{Attention, Listed};
 
 use crate::{
-    link::{Listing, Order},
+    link::{Asker, Listing, Order},
     model::{LinkState, Update},
     settings::{Connection, THIS_MACHINE},
 };
@@ -87,9 +87,10 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    /// The core on this machine, at `url`.
-    pub fn local(url: &str, token: Option<String>) -> Self {
-        Self::follow(Host::Local, url, Ok(token))
+    /// The core on this machine, at `url`, asked on the solver's link
+    /// to it, `asker`, while that is up.
+    pub fn local(url: &str, token: Option<String>, asker: Asker) -> Self {
+        Self::follow(Host::Local, url, Ok(token), Some(asker))
     }
 
     /// A connection from the settings. Its token is read now, from the
@@ -99,13 +100,19 @@ impl Daemon {
             Host::Remote(connection.name.clone()),
             &connection.url,
             connection.token(),
+            None,
         )
     }
 
-    fn follow(host: Host, url: &str, token: Result<Option<String>, String>) -> Self {
+    fn follow(
+        host: Host,
+        url: &str,
+        token: Result<Option<String>, String>,
+        asker: Option<Asker>,
+    ) -> Self {
         let mut cast = Cast::new();
         let listing = match &token {
-            Ok(token) => Some(Listing::follow(url.to_owned(), token.clone())),
+            Ok(token) => Some(Listing::follow(url.to_owned(), token.clone(), asker)),
             Err(why) => {
                 cast.link = LinkState::Lost(why.clone());
                 None

@@ -1,5 +1,5 @@
-//! In public: scrolling, posting, the read-over a post gets before it goes
-//! out, and how she learns from the way her posts did.
+//! In public: scrolling, posting, what a post is written from, and how she
+//! learns from the way her posts did.
 
 use super::*;
 
@@ -15,7 +15,6 @@ async fn scrolling_mostly_ends_in_nothing_and_sometimes_in_a_post() {
                     posts_per_day: 1,
                     likes: true,
                     replies: true,
-                    gate: false,
                     ..crate::ChannelConfig::default()
                 },
             )]
@@ -158,7 +157,6 @@ async fn by_default_she_neither_likes_nor_replies_to_strangers_posts() {
                 "t".to_owned(),
                 crate::ChannelConfig {
                     browse_minutes: [10, 10],
-                    gate: false,
                     ..crate::ChannelConfig::default()
                 },
             )]
@@ -190,7 +188,7 @@ async fn by_default_she_neither_likes_nor_replies_to_strangers_posts() {
 }
 
 #[tokio::test]
-async fn a_post_is_read_over_and_held_if_it_carries_something_private() {
+async fn what_she_was_told_in_private_never_reaches_the_request_that_writes_a_post() {
     let t0 = at(14, 0);
     let mut rig = Rig::new(
         MindConfig {
@@ -221,39 +219,27 @@ async fn a_post_is_read_over_and_held_if_it_carries_something_private() {
     );
     rig.until(|r| r.kinds().contains(&"noted")).await;
 
-    // Scrolling later, she drafts a post that leans on it.
-    rig.think.then(
-        r#"{"thought":"","actions":[{"do":"post","text":"a friend is about to walk out of a design institute and i think she is right"}]}"#,
-    );
-    rig.tick
-        .then(r#"{"verdict":"drop","why":"this is what Wen told me in private"}"#);
-    rig.until(|r| r.decisions().iter().any(|d| d == "did not post"))
-        .await;
-    assert_eq!(rig.body.count(|a| matches!(a, Act::Post { .. })), 0);
-    assert!(!rig.kinds().contains(&"posted"));
-
-    // The read-over was shown the private note and the draft.
-    let gate = rig.tick.last_prompt();
-    assert!(
-        gate.contains("about wen: is quitting her job at the institute next month"),
-        "{gate}"
-    );
-    assert!(gate.contains("walk out of a design institute"));
-
-    // A draft that is fine goes out, revised if the read-over says so.
+    // Scrolling later, she writes a post, and it goes out as she wrote it:
+    // nothing reads it over after her.
+    let ticks = rig.tick.calls();
     rig.think.then(
         r#"{"thought":"","actions":[{"do":"post","text":"flat light all day, good for roofs"}]}"#,
-    );
-    rig.tick.then(
-        r#"{"verdict":"revise","text":"flat light all day. good for roofs.","why":"tighter"}"#,
     );
     rig.until(|r| r.kinds().contains(&"posted")).await;
     assert_eq!(
         rig.body.count(
-            |a| matches!(a, Act::Post { text } if text == "flat light all day. good for roofs.")
+            |a| matches!(a, Act::Post { text } if text == "flat light all day, good for roofs")
         ),
         1
     );
+    assert_eq!(rig.tick.calls(), ticks, "no second brain read it over");
+
+    // What she wrote it from never held the note: a public place is told
+    // nothing of a private one, and the rule against carrying it out is
+    // said where she writes.
+    let request = format!("{:?}", rig.think.seen.lock().unwrap().last().unwrap());
+    assert!(!request.contains("quitting"), "{request}");
+    assert!(request.contains("Nothing anyone told you in private"));
 }
 
 #[tokio::test]
@@ -265,7 +251,6 @@ async fn she_sees_how_her_posts_did_and_keeps_what_she_learns() {
                 "t".to_owned(),
                 crate::ChannelConfig {
                     browse_minutes: [10, 10],
-                    gate: false,
                     ..crate::ChannelConfig::default()
                 },
             )]

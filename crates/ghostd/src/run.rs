@@ -48,32 +48,14 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         prompts: over,
         home,
     } = how;
-    let loaded = if Config::exists(config) {
-        Some(Config::load(config)?)
-    } else {
-        None
-    };
-    // Before anything makes a request, looking for brains included.
-    network(
-        &loaded
-            .as_ref()
-            .map(|(cfg, _)| cfg.network.clone())
-            .unwrap_or_default(),
-    )?;
-    let from_file = loaded.is_some();
-    let (mut cfg, cfg_path) = if let Some(loaded) = loaded {
-        loaded
-    } else {
-        // Nothing was written down for this machine. Use what is on it.
-        let (cfg, what) = Config::from_found(&ghost_brain::discover::discover().await)?;
-        info!("no ghostd.toml: {what}");
-        (cfg, PathBuf::from("(none)"))
-    };
+    let (mut cfg, cfg_path) = Config::settle(config).await?;
     if let Some(addr) = listen {
         cfg.listen.addr = addr;
     }
     let token = cfg.listen.token()?;
-    info!("config {}", cfg_path.display());
+    if let Some(path) = &cfg_path {
+        info!("config {}", path.display());
+    }
     let found = cast::find(paths)?;
     let ids: Vec<&str> = found.iter().map(|(id, _)| id.as_str()).collect();
     cfg.check_ids(&ids)?;
@@ -133,7 +115,7 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
     // started again after it.
     let held = Arc::new(Held::new(
         Arc::new(cfg),
-        from_file.then(|| cfg_path.clone()),
+        cfg_path,
         home.map(Path::to_path_buf),
     ));
     let cfg = held.now();

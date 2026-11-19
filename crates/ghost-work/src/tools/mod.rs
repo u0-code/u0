@@ -17,7 +17,7 @@ use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
 pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
-pub(crate) use record::{list, outcome_of, step_number};
+pub(crate) use record::{list, step_number};
 pub use servers::{FindTools, Install, LoadTools, Loaded, Uninstall};
 pub use shell::Shell;
 pub use skills::{FindSkills, InstallSkill, UninstallSkill, UseSkill};
@@ -302,6 +302,30 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_tool_a_worker_carries_is_described_for_work() {
+        let words = crate::Prompts::shipped();
+        let dir = tempfile::tempdir().unwrap();
+        let u = Arc::new(Undertaking::open(&dir.path().join("w.db"), "main", Some("x")).unwrap());
+        let carried = with_web(
+            standard(Arc::new(crate::machine::Local::new(dir.path())), &u),
+            &WebConfig {
+                search: Some(Source::Searxng { url: "x".into() }),
+                reader_key: None,
+            },
+        )
+        .with(Keep::new(u.clone()))
+        .with(Tell::new(u.clone()))
+        .with(Ask::new(u.clone()))
+        .with(Handoff::new(u));
+        for name in carried.names() {
+            assert!(
+                !words.tool(&name, crate::prompts::Loop::Work).is_empty(),
+                "{name} is not described"
+            );
+        }
+    }
 
     #[test]
     fn clipping_keeps_both_ends() {

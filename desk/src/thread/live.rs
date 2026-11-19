@@ -10,29 +10,26 @@
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_link::protocol::{LoggedStep, Look};
-use gpui::{Div, div, prelude::*, px};
+use gpui::{Div, prelude::*, px};
 
-use super::{
-    style::{ROW, S2, meta},
-    task_first::breathing,
+use super::task_first::breathing;
+use crate::{
+    fonts::Faces,
+    style::{self, S2, SMALL, meta},
+    theme, ui,
 };
-use crate::{fonts::Faces, theme, ui};
 
 /// The last row of something still going on: an amber dot breathing, a
 /// word, and, when it is known, how long since it last moved on, counting
 /// as the desk draws again.
 pub(super) fn row(faces: &Faces, word: &'static str, since: Option<DateTime<Utc>>) -> Div {
     let ring = ui::dot(theme::accent()).flex_none().size(px(7.));
-    div()
-        .flex()
-        .items_center()
+    style::row()
         .gap(px(S2))
-        .h(px(30.))
-        .px(px(10.))
         .child(breathing(ring))
         .child(
             ui::text(faces, word)
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted()),
         )
         .when_some(since, |d, since| {

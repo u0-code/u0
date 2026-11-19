@@ -35,7 +35,8 @@ const LARGEST_UPLOAD: usize = 20 * 1024 * 1024;
 #[command(
     name = "ghost-qqbot",
     version,
-    about = "Carries a ghost on QQ through the official QQ Bot API."
+    about = "Carries a ghost on QQ through the official QQ Bot API.",
+    mut_arg("channel", |a| a.default_value("qq"))
 )]
 struct Args {
     /// The bot's `AppID`, from the QQ open platform.
@@ -44,19 +45,8 @@ struct Args {
     /// The bot's `AppSecret`, from the QQ open platform.
     #[arg(long, env = "QQBOT_SECRET", hide_env_values = true)]
     app_secret: String,
-    /// The daemon's address.
-    #[arg(long, default_value_t = ghost_link::default_url())]
-    url: String,
-    /// The daemon's token, if it has one.
-    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    /// The character this bot is: the name of her directory. Needed when
-    /// the daemon runs more than one.
-    #[arg(long, env = "GHOST_NAME")]
-    ghost: Option<String>,
-    /// The channel name to register as.
-    #[arg(long, default_value = "qq")]
-    channel: String,
+    #[command(flatten)]
+    daemon: presence::Daemon,
     /// Base URL of the open API. The sandbox is at
     /// `https://sandbox.api.sgroup.qq.com`.
     #[arg(long, default_value = "https://api.sgroup.qq.com")]
@@ -236,21 +226,7 @@ fn sending(passive: bool) -> &'static str {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Keys and settings may sit in an ignored `.env` file in the directory
-    // this runs from or one above it. Anything already set in the
-    // environment wins.
-    dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
-    // The gateway's TLS needs a crypto provider chosen once for the process.
-    // Another may already be installed; either will do.
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    let args = Args::parse();
+    let args: Args = presence::init("info");
 
     let api = Arc::new(Api::new(
         &args.api_base,
@@ -299,10 +275,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let link = Link {
-        url: args.url,
-        token: args.token,
-        ghost: args.ghost,
-        channel: args.channel,
+        daemon: args.daemon,
         me: Some(Actor {
             id: me.id,
             name: me.name,

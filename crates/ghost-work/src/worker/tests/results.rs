@@ -69,6 +69,25 @@ impl Tool for Camera {
     }
 }
 
+/// A tool that brings a camera, as `load_tools` brings a server's tools.
+struct Shelf(Arc<Camera>);
+
+#[async_trait]
+impl Tool for Shelf {
+    fn name(&self) -> &'static str {
+        "shelf"
+    }
+    fn spec(&self, _: &Store, _: Loop) -> ToolSpec {
+        tool::spec("shelf", "Bring the camera.", json!({}), &[])
+    }
+    async fn call(&self, _: &Value, _: &crate::prompts::Store) -> tool::Outcome {
+        tool::Outcome::ok("")
+    }
+    fn brings(&self) -> Vec<Arc<dyn Tool>> {
+        vec![self.0.clone()]
+    }
+}
+
 fn pictures_in(item: &Item) -> usize {
     match item {
         Item::Result { pictures, .. } => pictures.len(),
@@ -199,13 +218,16 @@ async fn a_brain_that_cannot_see_is_told_how_many_images_it_was_not_shown() {
         calls("done", json!({"outcome": "blocked", "summary": "enough"})),
     ];
     let (mut worker, brain) = worker(dir.path(), script, Limits::default());
-    worker.tools = worker.tools.with(Camera(AtomicU64::new(0)));
+    worker.tools = worker
+        .tools
+        .with(Shelf(Arc::new(Camera(AtomicU64::new(0)))));
     assert_eq!(worker.run().await.ended, Ended::Blocked);
     let seen = brain.seen.lock().unwrap();
     let last = seen[1].items.last().unwrap();
     assert_eq!(pictures_in(last), 0);
-    // The camera is not one of hers, so what it said is marked as
-    // from outside; where its picture is kept is said after the mark.
+    // The camera was brought by another tool, as a server's tools are, so
+    // it is not one of hers and what it said is marked as from outside;
+    // where its picture is kept is said after the mark.
     assert!(matches!(last, Item::Result { output, .. }
         if output.starts_with("<outside from=")
             && output.contains("\nA picture.\n</outside>\n[image: ")

@@ -59,9 +59,6 @@ impl Mind {
             since: before.map_or(first.at, |s| s.since),
             until: last.at,
         };
-        if !self.budget.allow(now) {
-            return Ok(());
-        }
         let people = memory.people_in(&place.key, 6)?;
         let prompt = narrate::fill(
             &self.prompts.digest,
@@ -86,7 +83,9 @@ impl Mind {
         );
         let request = Completion::ask(self.who(now)?, prompt, NOTE_TOKENS).thinking(Effort::Low);
         let brain = self.tick.clone();
-        self.budget.spend(now);
+        if !self.budget.take(now, 1) {
+            return Ok(());
+        }
         let place = place.key.clone();
         self.jobs
             .spawn_for(Purpose::Digest(place.clone()), async move {

@@ -35,6 +35,7 @@ use crate::{
     fonts::Faces,
     link::{self, BrainAnswer, BrainCall, Refused},
     solver::Provider,
+    style::{CAPTION, FINE, META, SMALL},
     theme, ui,
 };
 
@@ -288,16 +289,26 @@ impl Desk {
         (self.settings.solver_url.clone(), super::token())
     }
 
-    /// Ask the core on this machine `call` about its brains, on a
-    /// connection of its own, and hand what it answered to `done`.
+    /// Ask the core on this machine `call` about its brains: on the
+    /// solver's link to it while that is up, else on a connection of its
+    /// own.
+    pub(crate) fn brains(
+        &self,
+        call: BrainCall,
+    ) -> impl Future<Output = Result<BrainAnswer, Refused>> + Send + 'static {
+        let (url, token) = self.core_address();
+        link::brains(self.solver.conn.asker(), url, token, call)
+    }
+
+    /// Ask the core on this machine `call` about its brains, and hand what
+    /// it answered to `done`.
     pub(crate) fn ask_brains(
         &mut self,
         call: BrainCall,
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, Result<BrainAnswer, Refused>, &mut Context<Self>) + 'static,
     ) {
-        let (url, token) = self.core_address();
-        let task = link::runtime().spawn(link::brains(url, token, call));
+        let task = link::runtime().spawn(self.brains(call));
         cx.spawn(async move |this, cx| {
             let answer = task.await.unwrap_or_else(|e| {
                 Err(Refused {
@@ -533,7 +544,7 @@ impl Desk {
                 .child(ui::icon("plus", 15.).text_color(theme::muted()))
                 .child(
                     ui::text(faces, "Add brain…")
-                        .text_size(px(13.))
+                        .text_size(px(SMALL))
                         .text_color(theme::text2()),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -575,8 +586,10 @@ impl Desk {
                 this.menu = Menu::Closed;
                 this.open_sheet(Some(edit.clone()), window, cx);
             }));
-        let about = ui::one_line(ui::text(faces, p.about()))
-            .text_size(px(11.5))
+        // The left column less its insets, the mark, the pencil and the check.
+        let room = ui::cols(250. - 90.);
+        let about = ui::one_line(ui::text(faces, ui::fit(&p.about(), room)))
+            .text_size(px(FINE))
             .line_height(px(15.))
             .text_color(if p.blocker.is_some() {
                 theme::coral()
@@ -604,10 +617,8 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .child(
-                        ui::text(faces, p.title())
-                            .w_full()
-                            .truncate()
-                            .text_size(px(13.))
+                        ui::one_line(ui::text(faces, ui::fit(&p.title(), room)))
+                            .text_size(px(SMALL))
                             .line_height(px(18.)),
                     )
                     .child(about),
@@ -647,7 +658,7 @@ impl Desk {
         else {
             return column.child(
                 ui::text(faces, "Add a brain to choose its model.")
-                    .text_size(px(12.5))
+                    .text_size(px(META))
                     .text_color(theme::muted())
                     .p(px(8.)),
             );
@@ -655,7 +666,7 @@ impl Desk {
         let head = ui::menu_head(faces, format!("Model · {}", p.title()));
         let note = |text: String| {
             ui::text(faces, text)
-                .text_size(px(12.))
+                .text_size(px(CAPTION))
                 .line_height(px(16.))
                 .text_color(theme::muted())
                 .px(px(10.))
@@ -679,9 +690,11 @@ impl Desk {
                     .cursor_pointer()
                     .when(on, |d| d.bg(theme::panel2()))
                     .hover(|s| s.bg(theme::hover()))
+                    // The menu less the brains' column, the insets, the
+                    // check and the key.
                     .child(ui::one_line(
-                        ui::text(faces, c.label.clone())
-                            .text_size(px(13.))
+                        ui::text(faces, ui::fit(&c.label, ui::cols(540. - 250. - 70.)))
+                            .text_size(px(SMALL))
                             .text_color(if on { theme::text() } else { theme::text2() }),
                     ))
                     .child(div().flex_none().w(px(14.)).when(on, |d| {

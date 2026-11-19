@@ -730,13 +730,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "ghost-link",
  "ghost-net",
  "serenity",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -746,6 +744,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.23.1",
+ "clap",
+ "dotenvy",
  "futures-util",
  "ghost-protocol",
  "serde",
@@ -753,6 +753,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -781,10 +782,13 @@ dependencies = [
 name = "ghost-net"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "futures-util",
  "reqwest",
  "rustix",
  "serde",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "tracing",
 ]
 
@@ -795,14 +799,13 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "futures-util",
  "ghost-link",
+ "ghost-net",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -822,17 +825,14 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "futures-util",
  "ghost-link",
  "ghost-net",
  "reqwest",
- "rustls",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -842,7 +842,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "ghost-link",
  "ghost-net",
  "reqwest",
@@ -850,7 +849,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -861,10 +859,8 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "ghost-link",
  "tokio",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -900,7 +896,6 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "fastrand",
  "ghost-link",
  "ghost-net",
@@ -912,7 +907,6 @@ dependencies = [
  "sha1 0.11.0",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2496,11 +2490,7 @@ checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
 dependencies = [
  "futures-util",
  "log",
- "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
  "tokio",
- "tokio-rustls",
  "tungstenite 0.30.0",
 ]
 
@@ -2715,8 +2705,6 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.10.3",
- "rustls",
- "rustls-pki-types",
  "sha1 0.11.0",
  "thiserror 2.0.21",
 ]

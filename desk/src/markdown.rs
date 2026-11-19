@@ -4,7 +4,7 @@
 //! `code`, **bold** and *italic* (with asterisks only). Anything else is
 //! left as the text it is.
 //!
-//! It is set in the thread's type (`thread/style.rs`): body text with room
+//! It is set in the desk's type (`style.rs`): body text with room
 //! between its lines, blocks a step apart and the items of a list closer,
 //! inline code in mono on a faint ground, and a code block in a well that
 //! scrolls sideways rather than wrapping a command, as a table wider than
@@ -20,12 +20,8 @@ use gpui::{
 use crate::{
     desk::Desk,
     fonts::{self, Faces},
-    theme,
-    thread::style::{
-        BODY_LINE, BOX_RADIUS, H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S2, S3, S4, SMALL,
-        WELL_RADIUS,
-    },
-    ui,
+    style::{BODY, BODY_LINE, H1, H2, H3, MONO, MONO_LINE, S2, S3, S4, SMALL, WELL_RADIUS, boxed},
+    theme, ui,
 };
 
 /// One block of a message.
@@ -387,8 +383,8 @@ pub enum Setting {
 impl Setting {
     fn size(self) -> (f32, f32) {
         match self {
-            Setting::Prose => (PROSE, PROSE_LINE),
-            Setting::Small => (SMALL + 1., BODY_LINE),
+            Setting::Prose => (BODY, BODY_LINE),
+            Setting::Small => (BODY, BODY_LINE),
         }
     }
 
@@ -834,20 +830,12 @@ fn table(
 /// frames on the thread's ground.
 fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
     let lang = if lang.is_empty() { "text" } else { lang };
-    div()
-        .flex()
-        .flex_col()
+    boxed()
         .gap(px(S3))
-        .px(px(S3))
-        .pt(px(14.))
-        .pb(px(S4))
-        .rounded(px(BOX_RADIUS))
-        .border_1()
-        .border_color(theme::border())
         .child(
             ui::text(faces, lang.to_owned())
                 .px(px(10.))
-                .text_size(px(14.))
+                .text_size(px(BODY))
                 .text_color(theme::muted()),
         )
         .child({

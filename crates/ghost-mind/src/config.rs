@@ -204,10 +204,6 @@ pub struct ChannelConfig {
     /// allows automated replies only to people who wrote to the account
     /// first. Replies to mentions are not affected.
     pub replies: bool,
-    /// Read a post over before it goes out: for anything learned in
-    /// private, anything that contradicts what is true of her, and whether
-    /// it is worth posting at all.
-    pub gate: bool,
     /// Hours between asking a channel how her posts are doing. `0` is never.
     pub measure_hours: u32,
     /// Days between the times she sits down to look at how her writing is
@@ -224,7 +220,6 @@ impl Default for ChannelConfig {
             browse_minutes: [45, 150],
             likes: false,
             replies: false,
-            gate: true,
             measure_hours: 12,
             review_days: 7,
         }

@@ -50,5 +50,7 @@ banned; this adapter does not do it.
 
 The message conversion is tested against payloads in Discord's wire format.
 The gateway connection itself is handled by
-[serenity](https://github.com/serenity-rs/serenity). This adapter has not yet
+[serenity](https://github.com/serenity-rs/serenity), which opens it directly:
+the network setting (`GHOST_PROXY`) carries her HTTP requests to Discord but
+not the gateway, which needs a direct way out. This adapter has not yet
 been run against Discord with a real bot token; treat the first run as a test.

@@ -420,12 +420,6 @@ enum Outcome {
         channel: String,
         result: std::result::Result<Acted, String>,
     },
-    /// A post was read over and not sent.
-    Held {
-        channel: String,
-        text: String,
-        why: String,
-    },
     /// A sitting of work ended.
     Worked { id: String, sat: Box<work::Sat> },
     /// A sitting of work did not start: see [`work::Unseated`].
@@ -697,6 +691,16 @@ impl Budget {
     fn spend(&mut self, now: DateTime<Utc>) {
         self.spent.push_back(now);
     }
+
+    /// Spend `calls` if there is room for one more call this hour, and say
+    /// whether there was: what is about to ask a brain asks this, once.
+    fn take(&mut self, now: DateTime<Utc>, calls: usize) -> bool {
+        let room = self.allow(now);
+        if room {
+            self.spent.extend(std::iter::repeat_n(now, calls));
+        }
+        room
+    }
 }
 
 pub struct Mind {
@@ -718,6 +722,8 @@ pub struct Mind {
     jobs: Jobs,
     rng: Rng,
     budget: Budget,
+    /// The client every image she is sent is fetched with.
+    images: reqwest::Client,
     workshop: Workshop,
     /// Work that is not to be sat down to again before the time given: it
     /// is resting after a sitting.
@@ -755,6 +761,7 @@ impl Mind {
                 cap: parts.config.calls_per_hour,
                 spent: VecDeque::new(),
             },
+            images: view::client(),
             ghost: parts.ghost,
             cfg: parts.config,
             prompts: parts.prompts,
@@ -874,12 +881,51 @@ impl Mind {
     /// back, so a sitting that installs something has it on the record
     /// within one glance.
     fn installs_changed(&mut self) -> Result<()> {
+        use ghost_work::{servers, skills};
         let mut changes = Vec::new();
         if let Some(servers) = &self.workshop.servers {
-            changes.extend(servers.take_changes());
+            changes.extend(servers.take_changes().into_iter().map(|c| match c {
+                servers::Change::Installed {
+                    name,
+                    version,
+                    description,
+                    source,
+                    owner,
+                    how,
+                    tools,
+                    hash,
+                } => Event::Installed {
+                    name,
+                    version,
+                    description,
+                    source,
+                    owner,
+                    how,
+                    tools,
+                    hash,
+                },
+                servers::Change::Uninstalled { name, why } => Event::Uninstalled { name, why },
+            }));
         }
         if let Some(skills) = &self.workshop.skills {
-            changes.extend(skills.take_changes());
+            changes.extend(skills.take_changes().into_iter().map(|c| match c {
+                skills::Change::Installed {
+                    name,
+                    source,
+                    path,
+                    sha,
+                    hash,
+                    description,
+                } => Event::SkillInstalled {
+                    name,
+                    source,
+                    path,
+                    sha,
+                    hash,
+                    description,
+                },
+                skills::Change::Uninstalled { name, why } => Event::SkillUninstalled { name, why },
+            }));
         }
         for event in changes {
             info!("tools: {}", event.kind());
@@ -1114,7 +1160,6 @@ impl Mind {
                 result,
             } => self.on_posted(channel, text, result),
             Outcome::Measured { channel, result } => self.on_measured(&channel, result),
-            Outcome::Held { channel, text, why } => self.on_held(&channel, &text, &why),
             Outcome::Worked { id, sat } => {
                 // A sitting is never called off: it is stopped, and comes
                 // back, so what it was for is always there.

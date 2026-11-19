@@ -13,10 +13,8 @@ base64 = "0.23.1"
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 clap = { version = "4.6.7", features = ["derive", "env"] }
-ghost-link = { path = "../../ghost-link" }
+ghost-link = { path = "../../ghost-link", features = ["presence"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-dotenvy = "0.15"
 
 [lints]
 workspace = true

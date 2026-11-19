@@ -45,7 +45,7 @@ use crate::{
     checkout,
     prompts::{self, Loop, Shared, Store, TEXTS},
     tool::{self, Tool, Toolbox},
-    tools::{self, clip, list, outcome_of, step_number},
+    tools::{self, clip, list, step_number},
     undertaking::{MailKind, Outcome, Progress, Undertaking},
     worker::{Ended, Limits, ToolsFor, Worker, preview},
 };
@@ -102,12 +102,10 @@ impl Parts {
     }
 
     /// `tools`, with what a worker that hands out parts needs: `delegate`,
-    /// `steer`, `stop`, `wait` and `parts`, and a `done` that will not call
-    /// the work finished while a part of it has not ended.
+    /// `steer`, `stop`, `wait` and `parts`. `done` will not call the work
+    /// finished while a part of it has not ended.
     pub(crate) fn equip(self: &Arc<Self>, tools: Toolbox) -> Toolbox {
-        let parts = self.clone();
         tools
-            .wrapping("done", move |done| Arc::new(Finishing { done, parts }))
             .with(Delegate(self.clone()))
             .with(Steer(self.clone()))
             .with(Stop(self.clone()))
@@ -852,46 +850,6 @@ impl Tool for List {
         } else {
             tool::Outcome::ok(lines.join("\n"))
         }
-    }
-}
-
-/// `done`, except that the work is not called finished while a part of it
-/// has not ended: its results are not in. Ending it any other way ends
-/// the parts with it, when the sitting settles.
-struct Finishing {
-    done: Arc<dyn Tool>,
-    parts: Arc<Parts>,
-}
-
-#[async_trait]
-impl Tool for Finishing {
-    fn name(&self) -> &'static str {
-        "done"
-    }
-
-    fn spec(&self, words: &Store, lp: Loop) -> ToolSpec {
-        self.done.spec(words, lp)
-    }
-
-    async fn call(&self, args: &Value, words: &Store) -> tool::Outcome {
-        if args["outcome"].as_str().and_then(outcome_of) == Some(Outcome::Finished) {
-            let open: Vec<String> = self
-                .parts
-                .parent
-                .parts()
-                .into_iter()
-                .filter(|(_, state)| state.finish.is_none())
-                .map(|(n, _)| n.to_string())
-                .collect();
-            if !open.is_empty() {
-                return tool::Outcome::fail(words.fill(
-                    TEXTS,
-                    "parts_open",
-                    &[("parts", open.join(", "))],
-                ));
-            }
-        }
-        self.done.call(args, words).await
     }
 }
 

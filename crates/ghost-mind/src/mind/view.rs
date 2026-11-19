@@ -28,6 +28,15 @@ const FETCH_TIMEOUT: StdDuration = StdDuration::from_secs(20);
 const AT_MOST: usize = 4;
 /// Room for two or three sentences.
 const VIEW_TOKENS: u32 = 600;
+
+/// The client images are fetched with: one for her whole life, so that a
+/// connection to where images are kept is used again.
+pub(super) fn client() -> reqwest::Client {
+    ghost_net::builder()
+        .timeout(FETCH_TIMEOUT)
+        .build()
+        .unwrap_or_default()
+}
 /// How much of the conversation she has in mind while looking.
 const CONTEXT_LINES: usize = 8;
 
@@ -67,20 +76,14 @@ impl Mind {
         if wanted.is_empty() {
             return Ok(());
         }
-        if !self.budget.allow(now) {
+        if !self.budget.take(now, wanted.len()) {
             debug!("{place_key}: no calls left this hour to look at an image");
             return Ok(());
         }
-        for _ in &wanted {
-            self.budget.spend(now);
-        }
         let request = self.view_request(place_key, message, now)?;
         let dir = self.ghost.dir().to_path_buf();
+        let client = self.images.clone();
         self.jobs.spawn(async move {
-            let client = ghost_net::builder()
-                .timeout(FETCH_TIMEOUT)
-                .build()
-                .unwrap_or_default();
             let mut seen = Vec::new();
             for (image, url) in wanted {
                 let result = look(&client, &brain, &request, &dir, &url).await;

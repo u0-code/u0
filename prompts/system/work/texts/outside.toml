@@ -11,8 +11,8 @@
 # these: where it came from, by tool. Pages, files, searches and what a
 # command printed were written by someone else for reasons of their own,
 # and saying where each came from is what lets her treat it as what it
-# is. A tool the catalog does not know, such as one installed from
-# elsewhere, is outside too. What the tag means is said in being.md and
+# is. A tool another tool brought, such as one installed from elsewhere,
+# is outside too. What the tag means is said in being.md and
 # work.md, not here.
 outside_search = "a web search for: {{query}}"
 outside_fetch = "the web page {{url}}"

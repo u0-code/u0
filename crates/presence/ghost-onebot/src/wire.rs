@@ -13,11 +13,12 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail};
 use futures_util::{SinkExt, StreamExt};
+use ghost_link::presence::Backoff;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
+use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
 /// How long an action may take before we stop waiting for its answer.
@@ -103,12 +104,12 @@ async fn keep_alive(
     events: mpsc::Sender<Value>,
     pending: Pending,
 ) {
-    let mut retry = Duration::from_secs(1);
+    let mut retry = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
         match connect(&endpoint, access_token.as_deref()).await {
             Ok(socket) => {
                 info!("connected to onebot at {endpoint}");
-                retry = Duration::from_secs(1);
+                retry.reset();
                 let (mut sink, mut stream) = socket.split();
                 loop {
                     tokio::select! {
@@ -140,26 +141,16 @@ async fn keep_alive(
             }
             Err(e) => warn!("cannot reach onebot: {e:#}"),
         }
-        tokio::time::sleep(retry).await;
-        retry = (retry * 2).min(Duration::from_secs(30));
+        tokio::time::sleep(retry.wait()).await;
     }
 }
 
-type Socket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
-async fn connect(endpoint: &str, access_token: Option<&str>) -> anyhow::Result<Socket> {
-    let mut request = endpoint
-        .into_client_request()
-        .with_context(|| format!("{endpoint:?} is not a websocket address"))?;
-    if let Some(token) = access_token {
-        request.headers_mut().insert(
-            "Authorization",
-            HeaderValue::from_str(&format!("Bearer {token}")).context("access token")?,
-        );
-    }
-    let (socket, _) = tokio_tungstenite::connect_async(request).await?;
-    Ok(socket)
+async fn connect(
+    endpoint: &str,
+    access_token: Option<&str>,
+) -> anyhow::Result<ghost_net::WebSocket> {
+    let authorization = access_token.map(|token| format!("Bearer {token}"));
+    ghost_net::websocket(endpoint, authorization.as_deref()).await
 }
 
 /// An answer goes to whoever asked; anything else with a `post_type` is an event.

@@ -7,7 +7,20 @@
 //! over each other. A folder that was there already, named by whoever
 //! asked, is used as it is.
 
-use std::{io, path::Path, process::Command};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+/// A path as a person writes it, with `~/` read as their home directory;
+/// as it is written where there is no home to read it as.
+pub fn expand(path: &str) -> PathBuf {
+    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+        (Some(rest), Some(home)) => Path::new(&home).join(rest),
+        _ => PathBuf::from(path),
+    }
+}
 
 /// Make `dir` ready to work in: there already, it is left as it is;
 /// otherwise it is made, and made a git repository. Says whether it was

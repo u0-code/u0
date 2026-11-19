@@ -8,7 +8,9 @@
 //! the proxy the shell exports stalls long model streams, and the cure was
 //! to list the model's host in `NO_PROXY` by hand before every run. So no
 //! crate builds an HTTP client of its own: each asks here for a [`builder`],
-//! adds its own timeouts, and follows the same rule as every other.
+//! adds its own timeouts, and follows the same rule as every other. A
+//! platform's websocket is opened here too, by [`websocket`], as an HTTP
+//! request from such a client: it goes the same way.
 //!
 //! The rule is one setting in two parts:
 //!
@@ -39,6 +41,7 @@
 //! a client that always goes one [`Route`] and decides for itself.
 
 mod program;
+mod websocket;
 
 use std::{
     fmt,
@@ -47,6 +50,7 @@ use std::{
 };
 
 pub use program::{Child, spawn};
+pub use websocket::{WebSocket, websocket};
 
 pub use reqwest::Url;
 use reqwest::{ClientBuilder, Proxy};

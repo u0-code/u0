@@ -127,7 +127,7 @@ Keep `[listen] addr` on `127.0.0.1`. The presences on the same machine
 connect there, and a console from your own machine goes through ssh:
 
 ```bash
-ssh -N -L 7437:127.0.0.1:7437 you@server &
+ssh -N -L 7438:127.0.0.1:7438 you@server &
 ghostd watch --last 20
 ghost-term --as yourname
 ```

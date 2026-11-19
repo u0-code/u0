@@ -21,6 +21,7 @@ use crate::{
     fonts::Faces,
     input::{Submitted, TextInput},
     link::Order,
+    style::{CAPTION, META, SMALL},
     theme, thread, ui,
 };
 
@@ -89,7 +90,7 @@ fn chip(faces: &Faces, id: String, text: impl Into<SharedString>) -> Stateful<Di
         .hover(|s| s.bg(theme::hover()))
         .child(
             ui::text(faces, text)
-                .text_size(px(12.5))
+                .text_size(px(META))
                 .text_color(theme::text2()),
         )
 }
@@ -167,7 +168,7 @@ impl Desk {
         if let Some(question) = ask.question {
             body = body.child(
                 ui::text(faces, question.to_owned())
-                    .text_size(px(12.5))
+                    .text_size(px(META))
                     .line_height(px(18.))
                     .text_color(theme::text2()),
             );
@@ -250,7 +251,11 @@ impl Desk {
                 .rounded(px(6.))
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::hover()))
-                .child(ui::text(faces, text).text_size(px(12.)).text_color(color))
+                .child(
+                    ui::text(faces, text)
+                        .text_size(px(CAPTION))
+                        .text_color(color),
+                )
         };
         let row = div().flex().items_center().gap(px(4.));
         if !self.expanded.contains(&armed) {
@@ -284,7 +289,7 @@ impl Desk {
         if work.is_empty() {
             return div().child(
                 ui::text(faces, "Nothing running in the background.")
-                    .text_size(px(13.))
+                    .text_size(px(SMALL))
                     .text_color(theme::muted())
                     .py(px(4.)),
             );
@@ -297,7 +302,7 @@ impl Desk {
                 faces,
                 SharedString::from(format!("her-work-{}", w.id)),
                 running_lead(),
-                w.brief.clone(),
+                &w.brief,
                 right,
                 color,
             ));
@@ -320,7 +325,7 @@ impl Desk {
         let summary = ended_summary(ended.iter().map(|w| w.state));
         let key = "more:her".to_owned();
         let open = self.expanded.contains(&key);
-        list = list.child(ended_row(faces, "her-work-ended", summary, open, cx, key));
+        list = list.child(ended_row(faces, "her-work-ended", &summary, open, cx, key));
         if open {
             for w in ended {
                 let ago = when(&w.last).map_or_else(String::new, |t| {
@@ -331,7 +336,7 @@ impl Desk {
                         faces,
                         SharedString::from(format!("her-work-{}", w.id)),
                         glyph(w.state).into_any_element(),
-                        w.brief.clone(),
+                        &w.brief,
                         ago,
                         theme::faint(),
                     )

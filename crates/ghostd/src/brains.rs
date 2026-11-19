@@ -8,7 +8,7 @@ use ghost_brain::Completion;
 use ghost_work::agents::Readiness;
 use tracing::{info, warn};
 
-use crate::{config::Config, run::network};
+use crate::config::Config;
 
 pub(crate) mod file;
 pub(crate) mod served;
@@ -71,9 +71,11 @@ pub(crate) async fn ready_agents(cfg: &Config) -> Vec<(String, ghost_brain::CliA
 }
 
 pub(crate) async fn brains(probe: bool, config: Option<&Path>) -> anyhow::Result<()> {
-    let (cfg, path) = Config::load(config)?;
-    network(&cfg.network)?;
-    println!("config    {}", path.display());
+    let (cfg, path) = Config::settle(config).await?;
+    match path {
+        Some(path) => println!("config    {}", path.display()),
+        None => println!("config    none: what this machine has, as `ghostd run` would"),
+    }
     println!("think     {}", cfg.brain.think);
     println!("tick      {}", cfg.brain.tick);
     println!();

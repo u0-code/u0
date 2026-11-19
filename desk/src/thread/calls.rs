@@ -182,13 +182,13 @@ pub fn say(name: &str, args: &Value) -> Said {
             };
             return Said {
                 verb: used,
-                what: one_line(first_string(&args), KEY_KEPT),
+                what: crate::ui::fit(first_string(&args), KEY_KEPT),
             };
         }
     };
     Said {
         verb: verb.to_owned(),
-        what: one_line(&what, KEY_KEPT),
+        what: crate::ui::fit(&what, KEY_KEPT),
     }
 }
 
@@ -319,42 +319,6 @@ pub(super) fn plural(n: usize, word: &str) -> String {
     } else {
         format!("{n} {word}s")
     }
-}
-
-/// `text` on one line, its runs of space and its line breaks each made one
-/// space, and at most `most` characters, ending in `…` when it was longer.
-pub fn one_line(text: &str, most: usize) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() <= most {
-        flat
-    } else {
-        let mut cut: String = flat.chars().take(most.saturating_sub(1)).collect();
-        cut.push('…');
-        cut
-    }
-}
-
-/// `text` on one line in at most `cols` columns, a Chinese character
-/// taking two, ending in "…" when it is cut. GPUI cuts a line that is too
-/// long at the edge without an ellipsis (it measures before it knows the
-/// width), so a line that must end in one is cut here first.
-pub fn fit(text: &str, cols: usize) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let wide = |c: char| if c.len_utf8() >= 3 { 2 } else { 1 };
-    if flat.chars().map(wide).sum::<usize>() <= cols {
-        return flat;
-    }
-    let mut out = String::new();
-    let mut used = 1;
-    for c in flat.chars() {
-        if used + wide(c) > cols {
-            break;
-        }
-        used += wide(c);
-        out.push(c);
-    }
-    out.push('…');
-    out
 }
 
 /// What came back, as the row opens to it: the head that was kept, and a
@@ -505,14 +469,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_line_too_long_is_cut_with_an_ellipsis_counting_chinese_as_two() {
-        assert_eq!(fit("short", 10), "short");
-        assert_eq!(fit("abcdefghijkl", 6), "abcde…");
-        assert_eq!(fit("一二三四五六", 7), "一二三…");
-        assert_eq!(fit("一二三", 6), "一二三");
-    }
-
-    #[test]
     fn a_long_path_keeps_its_end_and_a_short_one_stays_whole() {
         assert_eq!(path_tail("src/main.rs", 48), "src/main.rs");
         let long =
@@ -644,7 +600,6 @@ mod tests {
         assert!(what.starts_with("ls /tmp && xxx"));
         assert_eq!(what.chars().count(), KEY_KEPT);
         assert!(what.ends_with('…'));
-        assert_eq!(one_line("短 的\n句子", 10), "短 的 句子");
     }
 
     #[test]

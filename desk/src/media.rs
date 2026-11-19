@@ -26,14 +26,14 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use ghost_link::{Console, protocol::code};
+use ghost_link::protocol::code;
 use tokio::sync::Semaphore;
 
 use crate::{cache, link};
 
 /// Where to ask for her files: her core, by its id, and how to reach her
 /// on it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Source {
     pub core: String,
     pub url: String,
@@ -41,6 +41,8 @@ pub struct Source {
     /// Which of the core's characters, by her id: `None` when it runs
     /// only one.
     pub ghost: Option<String>,
+    /// Her link, to ask on while it is up.
+    pub asker: link::Asker,
 }
 
 /// What can be drawn of a file of hers now.
@@ -58,8 +60,9 @@ pub enum Shown {
 /// again: her core may only have been out of reach.
 const AGAIN: Duration = Duration::from_secs(30);
 
-/// How many files are asked for at once, each on a connection of its own:
-/// a thread full of images does not open a socket for every one.
+/// How many files are asked for at once, each on her link's connection
+/// while it is up, else on one of its own: a thread full of images does
+/// not open a socket for every one.
 static AT_ONCE: Semaphore = Semaphore::const_new(4);
 
 /// A file being asked for, or that could not be had and since when.
@@ -221,11 +224,14 @@ fn files(root: &Path) -> Vec<(SystemTime, u64, PathBuf)> {
 /// Ask her core for `name` and keep it at `path`, or say why not. Returns
 /// how many bytes were kept.
 async fn fetch(source: &Source, name: &str, path: &Path) -> Result<u64, String> {
-    let asked = async {
-        let (mut console, _) =
-            Console::connect(&source.url, source.token.clone(), source.ghost.clone()).await?;
-        console.media(name).await
-    };
+    let wanted = name.to_owned();
+    let asked = link::ask(
+        Some(&source.asker),
+        &source.url,
+        source.token.clone(),
+        source.ghost.clone(),
+        move |console| Box::pin(async move { console.media(&wanted).await }),
+    );
     let (_, bytes) =
         asked.await.map_err(
             |e| match e.downcast_ref::<ghost_link::protocol::RpcError>() {

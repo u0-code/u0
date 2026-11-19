@@ -22,7 +22,14 @@ use gpui::{
 };
 
 use super::{At, Desk, Menu};
-use crate::{brains, fonts::Faces, input::TextInput, link::Order, theme, thread, ui};
+use crate::{
+    brains,
+    fonts::Faces,
+    input::TextInput,
+    link::Order,
+    style::{BODY, CAPTION, COLUMN, FINE, META},
+    theme, thread, ui,
+};
 
 /// A line at the foot of the composer: what the desk just did, or why it
 /// could not. It is short enough to read at a glance; a long message keeps
@@ -35,6 +42,10 @@ pub(crate) struct Notice {
     /// Whether the detail is shown.
     pub open: bool,
 }
+
+/// How much of the brain's name the chip under the line you type into
+/// shows, in columns.
+const BRAIN_COLS: usize = 34;
 
 /// How long a notice's line may be before it is cut to its gist, in
 /// characters: about one line of the composer's width.
@@ -203,8 +214,8 @@ impl Desk {
                 .hover(|s| s.bg(theme::hover()))
                 .children(provider.map(|p| ui::mark(faces, p.mark(), 13.)))
                 .child(ui::one_line(
-                    ui::text(faces, label)
-                        .text_size(px(12.5))
+                    ui::text(faces, ui::fit(&label, BRAIN_COLS))
+                        .text_size(px(META))
                         .text_color(theme::muted()),
                 ))
                 .child(
@@ -259,7 +270,7 @@ impl Desk {
             })
             .child(
                 ui::mono(faces, "↑")
-                    .text_size(px(14.))
+                    .text_size(px(BODY))
                     .text_color(if empty { theme::faint() } else { theme::text() }),
             )
             .tooltip(ui::tip("Send · Return"))
@@ -299,7 +310,7 @@ impl Desk {
             .flex_col()
             .gap(px(2.))
             .w_full()
-            .max_w(px(thread::COLUMN))
+            .max_w(px(COLUMN))
             .px(px(8.))
             .pt(px(6.))
             .pb(px(8.))
@@ -344,7 +355,7 @@ impl Desk {
                 .hover(|s| s.bg(theme::hover()))
                 .child(
                     ui::text(faces, word)
-                        .text_size(px(12.))
+                        .text_size(px(CAPTION))
                         .line_height(px(18.))
                         .text_color(theme::faint()),
                 )
@@ -358,7 +369,7 @@ impl Desk {
                 ui::text(faces, n.line.clone())
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(12.))
+                    .text_size(px(CAPTION))
                     .line_height(px(18.))
                     .text_color(theme::text2()),
             )
@@ -409,7 +420,7 @@ impl Desk {
                         .rounded(px(8.))
                         .child(
                             ui::mono(faces, detail)
-                                .text_size(px(11.5))
+                                .text_size(px(FINE))
                                 .line_height(px(17.))
                                 .text_color(theme::text2()),
                         ),
@@ -430,7 +441,7 @@ impl Desk {
                 .flex_col()
                 .gap(px(6.))
                 .w_full()
-                .max_w(px(thread::COLUMN))
+                .max_w(px(COLUMN))
                 .px(px(10.))
                 .child(line)
                 .children(detail)

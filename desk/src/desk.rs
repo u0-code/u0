@@ -64,6 +64,7 @@ use crate::{
     settings::Settings,
     sheet::Sheet,
     solver::{Deployment, Provider},
+    style::{BODY, COLUMN},
     theme, thread,
 };
 
@@ -286,7 +287,7 @@ impl Desk {
         // done, the deployment the desk holds is one with nothing started
         // and nothing read.
         let deployment = Deployment::find();
-        let start = settings.solver_url == crate::solver::url();
+        let start = settings.solver_url == ghost_link::default_url();
         let url = settings.solver_url.clone();
         let core = link::runtime().spawn_blocking(move || {
             let mut deployment = Deployment::find();
@@ -317,7 +318,11 @@ impl Desk {
             },
             MASCOT,
         );
-        let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
+        let mut daemons = vec![Daemon::local(
+            &settings.solver_url,
+            token(),
+            solver.conn.asker(),
+        )];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
         let followed: Vec<&Host> = daemons.iter().map(|d| &d.host).collect();
         if attention::forget_unfollowed(&mut settings.seen, &followed) {
@@ -325,7 +330,7 @@ impl Desk {
         }
         let connection_fields = [
             cx.new(|cx| TextInput::new(cx, "studio").field()),
-            cx.new(|cx| TextInput::new(cx, "wss://host:7437").field()),
+            cx.new(|cx| TextInput::new(cx, "wss://host:7438").field()),
             cx.new(|cx| TextInput::new(cx, "STUDIO_TOKEN · optional").field()),
         ];
         for field in &connection_fields {
@@ -650,7 +655,7 @@ fn thread_view<'a>(
         work: &ghost.work,
         whom,
         scroll: Some(scroll),
-        column: thread::COLUMN,
+        column: COLUMN,
         media: ghost.media(),
         status: ghost.status.as_ref(),
     }
@@ -694,11 +699,13 @@ impl Render for Desk {
             let pane = f32::from(window.viewport_size().width)
                 - if self.panes.left { LEFT } else { 0. }
                 - if self.panes.right { RIGHT } else { 0. };
-            view.column = (pane - 64.).clamp(240., thread::COLUMN);
+            view.column = (pane - 64.).clamp(240., COLUMN);
+            // What the thread holds, built once for all that reads it.
+            let stream = thread::Stream::of(&view);
             // Only a place on the console channel is yours to stop her in.
-            let busy = place.starts_with(&thread::place_key("")) && thread::busy(&view);
+            let busy = place.starts_with(&thread::place_key("")) && stream.busy();
             middle
-                .child(thread::render(&view, &faces, cx))
+                .child(thread::render(&view, stream, &faces, cx))
                 .child(self.composer(&faces, busy, window, cx))
         };
 
@@ -708,7 +715,7 @@ impl Render for Desk {
             .size_full()
             .bg(theme::bg())
             .font_family(faces.ui.clone())
-            .text_size(px(14.))
+            .text_size(px(BODY))
             .text_color(theme::text())
             .when(self.panes.left, |d| d.child(self.left(&faces, lights, cx)))
             .child(middle)

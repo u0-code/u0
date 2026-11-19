@@ -135,6 +135,9 @@ pub(super) struct Found {
     pub outcome: Option<ghost_work::Outcome>,
     /// How long it took, in milliseconds, or was waited for.
     pub ms: u128,
+    /// Whether another tool brought it, such as a tool of a server she
+    /// loaded: installed from elsewhere.
+    pub brought: bool,
 }
 
 /// What made her look.
@@ -214,7 +217,7 @@ impl Mind {
             );
             return Ok(());
         }
-        let addressed = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        let addressed = place.said_to_her();
         // Where she is holding back, what the others say among themselves
         // waits until something is said to her.
         if !addressed && self.holds_back(&place, now) {
@@ -324,7 +327,7 @@ impl Mind {
         // A terminal does not wait on her day: not on sleep, not on how
         // often she has spoken here, not on who else is talking.
         let terminal = self.facts(&place.channel).waited_on;
-        let addressed = terminal || place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+        let addressed = terminal || place.said_to_her();
         if !addressed && self.holds_back(&place, now) {
             return Ok(());
         }

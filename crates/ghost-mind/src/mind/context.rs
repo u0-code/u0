@@ -15,6 +15,8 @@ use ghost_core::{
     when::when,
 };
 
+use ghost_work::undertaking::Outcome;
+
 use super::Mind;
 use crate::{Result, actions::clip};
 
@@ -322,9 +324,9 @@ impl Mind {
                     lines.push(line);
                 }
                 Some(outcome) if now - u.last_at < FRESH => lines.push(self.prompts.fill(
-                    match outcome {
-                        "finished" => "work_finished",
-                        "blocked" => "work_blocked",
+                    match Outcome::from_word(outcome) {
+                        Some(Outcome::Finished) => "work_finished",
+                        Some(Outcome::Blocked) => "work_blocked",
                         _ => "work_let_go",
                     },
                     &[
@@ -511,7 +513,7 @@ impl Mind {
             for report in memory.reports(&u.id, 20)? {
                 files.extend(report.files);
             }
-            if u.outcome.as_deref() == Some("finished") {
+            if u.outcome.as_deref().and_then(Outcome::from_word) == Some(Outcome::Finished) {
                 finished.push(u.id);
             }
         }

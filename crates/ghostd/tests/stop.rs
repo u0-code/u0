@@ -49,7 +49,9 @@ fn ghostd(dir: &Path) -> Command {
         .env("NO_COLOR", "1")
         .env_remove("GHOST_PROXY")
         .env_remove("GHOST_DIRECT")
-        .env_remove("GHOSTD_CONFIG");
+        .env_remove("GHOSTD_CONFIG")
+        // Nor the core home of the machine running the tests.
+        .env("GHOST_HOME", dir);
     command
 }
 

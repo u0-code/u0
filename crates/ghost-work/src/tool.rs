@@ -120,21 +120,6 @@ impl Toolbox {
         self
     }
 
-    /// The same tools, with the one called `name` replaced, in its place,
-    /// by what `wrap` makes of it.
-    #[must_use]
-    pub fn wrapping(
-        mut self,
-        name: &str,
-        wrap: impl FnOnce(Arc<dyn Tool>) -> Arc<dyn Tool>,
-    ) -> Self {
-        if let Some(at) = self.tools.iter().position(|t| t.name() == name) {
-            let tool = self.tools[at].clone();
-            self.tools[at] = wrap(tool);
-        }
-        self
-    }
-
     /// Every tool, each followed by what it brings, in order.
     fn all(&self) -> Vec<Arc<dyn Tool>> {
         let mut all = Vec::with_capacity(self.tools.len());
@@ -158,6 +143,16 @@ impl Toolbox {
     /// Whether it carries a tool called `name`.
     pub fn has(&self, name: &str) -> bool {
         self.all().iter().any(|t| t.name() == name)
+    }
+
+    /// Whether the tool called `name` was brought by another rather than
+    /// carried: installed from elsewhere, and so outside (see
+    /// [`crate::outside`]).
+    pub fn brought(&self, name: &str) -> bool {
+        self.tools
+            .iter()
+            .flat_map(|t| t.brings())
+            .any(|t| t.name() == name)
     }
 
     /// Only the named tools.

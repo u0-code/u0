@@ -12,11 +12,12 @@ use std::ops::Range;
 
 use gpui::{Div, FontWeight, Hsla, SharedString, StyledText, TextRun, div, prelude::*, px};
 
-use super::{
-    kinds,
+use super::kinds;
+use crate::{
+    fonts::Faces,
     style::{MONO, MONO_LINE, S2, WELL_RADIUS, meta},
+    theme, ui,
 };
-use crate::{fonts::Faces, theme, ui};
 
 /// How many lines of what came back show before the rest is folded: a
 /// file read shows its first twelve; anything else, if longer than eight,

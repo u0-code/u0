@@ -6,7 +6,7 @@ use super::*;
 
 /// What the home's configuration says, as ghostd reads it.
 fn config(home: &Path) -> Config {
-    Config::load(Some(&home.join(CONFIG))).unwrap().0
+    Config::load(&home.join(CONFIG)).unwrap()
 }
 
 /// Every file under `dir`, with what is in it.
@@ -40,7 +40,7 @@ fn an_empty_home_is_made_ready_once_with_its_configuration_and_the_mascot_born()
         }
     );
     let cfg = config(&home);
-    assert_eq!(cfg.listen.addr, "127.0.0.1:7438");
+    assert_eq!(cfg.listen.addr, ghost_protocol::DEFAULT_ADDR);
     assert_eq!(cfg.brain.think, "deepseek");
     assert_eq!(
         cfg.providers["deepseek"].kind(),

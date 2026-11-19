@@ -15,11 +15,7 @@ use ghost_core::{
 };
 use tracing::{debug, warn};
 
-use super::{
-    Mind, Outcome, Purpose,
-    public::{Verdict, gate},
-    speak::Bubble,
-};
+use super::{Mind, Outcome, Purpose, speak::Bubble};
 use crate::{
     Act, Acted, Can, Error, Feed, Incoming, Result,
     actions::{self, Action, Deliberation, clip},
@@ -60,7 +56,7 @@ impl Mind {
     pub(super) fn browse(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.agenda.phone = self.next_phone(now);
         let moment = self.life.moment(self.ghost.journal(), now)?;
-        if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy || !self.budget.allow(now) {
+        if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy {
             return Ok(());
         }
         let feeds: Vec<String> = self
@@ -116,7 +112,9 @@ impl Mind {
         let may_post = posted < set.posts_per_day as usize;
         let nothing_new = self.prompts.text("nothing_new").to_owned();
         let handle = self.prompts.text("card_handle").to_owned();
-        self.budget.spend(now);
+        if !self.budget.take(now, 1) {
+            return Ok(());
+        }
         self.jobs
             .spawn_for(Purpose::Browse(channel.clone()), async move {
                 let fetched = body
@@ -308,25 +306,8 @@ impl Mind {
                     }
                     posted += 1;
                     let body = self.body.clone();
-                    // Read it over first, as herself, for what must not go out.
-                    let check = if set.gate {
-                        Some((self.tick.clone(), self.gate_request(channel, &text, now)?))
-                    } else {
-                        None
-                    };
                     let channel = channel.to_owned();
                     self.jobs.spawn(async move {
-                        let text = match check {
-                            Some((brain, request)) => {
-                                match gate(brain.as_ref(), &request, text.clone()).await {
-                                    Verdict::Post(text) => text,
-                                    Verdict::Drop(why) => {
-                                        return Outcome::Held { channel, text, why };
-                                    }
-                                }
-                            }
-                            None => text,
-                        };
                         let result = body.act(&channel, Act::Post { text: text.clone() }).await;
                         Outcome::Posted {
                             channel,

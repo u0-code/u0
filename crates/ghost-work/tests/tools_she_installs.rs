@@ -19,13 +19,39 @@ use ghost_core::{
 };
 use ghost_work::{
     Prompts, Toolbox,
-    servers::{Config, Servers},
+    servers::{Change, Config, Servers},
     tools::{self, Loaded},
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 const NAME: &str = "io.github.ghost-test/echo";
+
+/// A change as her mind writes it in her journal.
+fn journaled(change: Change) -> Event {
+    match change {
+        Change::Installed {
+            name,
+            version,
+            description,
+            source,
+            owner,
+            how,
+            tools,
+            hash,
+        } => Event::Installed {
+            name,
+            version,
+            description,
+            source,
+            owner,
+            how,
+            tools,
+            hash,
+        },
+        Change::Uninstalled { name, why } => Event::Uninstalled { name, why },
+    }
+}
 
 fn official(status: &str, latest: bool, published: &str) -> Value {
     json!({"io.modelcontextprotocol.registry/official": {
@@ -376,7 +402,7 @@ async fn install_runs_a_stdio_server_with_a_clean_environment_and_pinned_args() 
 
     let changes = servers.take_changes();
     let [
-        Event::Installed {
+        Change::Installed {
             name,
             version,
             source,
@@ -453,7 +479,8 @@ async fn loaded_tools_are_callable_natively_as_server_tool_and_not_offered_until
         name: "echo__read".into(),
         args: json!({}),
     };
-    let from = ghost_work::outside::source(&words, &call, None).unwrap();
+    assert!(tools.brought(&call.name), "load_tools brought it");
+    let from = ghost_work::outside::source(&words, &call, None, true).unwrap();
     assert!(from.contains("the tool read of echo"), "{from}");
 }
 
@@ -496,8 +523,10 @@ async fn descriptions_changing_after_install_quarantine_the_server() {
     // started later has it.
     let mut journal = Journal::create(&rig.root.join("journal.db")).unwrap();
     let mut memory = Memory::in_memory().unwrap();
-    for event in servers.take_changes() {
-        memory.apply(&journal.append(event).unwrap()).unwrap();
+    for change in servers.take_changes() {
+        memory
+            .apply(&journal.append(journaled(change)).unwrap())
+            .unwrap();
     }
     drop(servers);
 
@@ -516,7 +545,7 @@ async fn descriptions_changing_after_install_quarantine_the_server() {
     assert!(loaded.output.contains("put aside"), "{}", loaded.output);
     assert!(!later.any(), "it is no longer offered");
     let changes = later.take_changes();
-    let [Event::Uninstalled { name, why }] = changes.as_slice() else {
+    let [Change::Uninstalled { name, why }] = changes.as_slice() else {
         panic!("one Uninstalled: {changes:?}")
     };
     assert_eq!(name, NAME);

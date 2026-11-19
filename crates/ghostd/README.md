@@ -268,9 +268,9 @@ runs lives. It never lives inside a ghost directory.
 repository is the short version, the few lines needed to run one character
 on one machine; this section is all of it.
 
-`ghostd` reads the first of: `--config <file>`, `$GHOSTD_CONFIG`,
-`./ghostd.toml`, `~/.config/ghost/ghostd.toml`. With none of them,
-`ghostd run` starts on the first brain the machine has: a key in the
+Every command reads the first of: `--config <file>`, `$GHOSTD_CONFIG`,
+`./ghostd.toml`, the home's `ghostd.toml`. With none of them, `ghostd run`
+and `ghostd brains` start on the first brain the machine has: a key in the
 environment, then an installed `claude` or `codex`, then Ollama if it is
 running, with every other setting at its default.
 
@@ -280,7 +280,7 @@ exception, since any key there is a channel. A key left out takes the
 default shown. Keys themselves are never written in this file, only the name
 of the variable that holds one: they come from the environment or the
 ignored `.env`. A relative path in `[mind] prompts` is from the directory
-the daemon runs in.
+the file is in.
 
 ### `[brain]`
 
@@ -379,7 +379,7 @@ Where presences and consoles connect.
 
 | key | default | |
 |-----|---------|---|
-| `addr` | `"127.0.0.1:7437"` | listening beyond this machine without a token is refused |
+| `addr` | `"127.0.0.1:7438"` | listening beyond this machine without a token is refused |
 | `token_env` | `"GHOSTD_TOKEN"` | the variable holding the token clients must present; unset or empty, none is asked for |
 | `origins` | `[]` | web origins allowed to connect besides pages served from this machine, e.g. `"https://console.example"` |
 
@@ -436,7 +436,6 @@ The rest only matters where the channel has a feed and takes posts (X).
 | `browse_minutes` | `[45, 150]` | minutes between the times she scrolls a feed, as `[min, max]`; `[0, 0]` turns scrolling off |
 | `likes` | `false` | like posts while scrolling. X forbids automated likes |
 | `replies` | `false` | reply to posts not addressed to her. X allows automated replies only to people who wrote to the account first. Replies to mentions always work. Turn these two on only where the platform's rules, or its written approval, let you |
-| `gate` | `true` | she reads every post over before it goes out, as herself: for anything she was told in private, anything that contradicts what is true of her, and whether it is worth posting at all. One extra call to the `tick` brain per post |
 | `measure_hours` | `12` | hours between asking a channel how her posts are doing; `0` is never |
 | `review_days` | `7` | days between the times she sits down, unasked, to look at how her writing is going and decide what to try next. `0` is never. Needs a channel that reports how her posts are doing, and at least five posts |
 

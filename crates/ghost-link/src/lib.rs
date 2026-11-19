@@ -2,10 +2,12 @@
 //!
 //! The client side of the Ghost Protocol.
 //!
-//! - [`presence::run`] is everything a channel adapter needs: implement
-//!   [`presence::Platform`] for your platform, describe yourself in a
-//!   [`presence::Link`], and it keeps a connection to the daemon alive,
-//!   forwards what arrives, and routes her actions to you.
+//! - `presence`, with the feature of that name, is everything a channel
+//!   adapter needs: implement `presence::Platform` for your platform,
+//!   describe yourself in a `presence::Link`, and `presence::run` keeps a
+//!   connection to the daemon alive, forwards what arrives, and routes her
+//!   actions to you. The arguments that reach the daemon, the start every
+//!   adapter makes, and the wait between retries are there too.
 //! - [`Console`] is a small client for tools that watch her, and for whoever
 //!   runs her to speak to her from.
 //! - [`list`] asks a daemon who it runs, before saying hello to any of them.
@@ -15,6 +17,7 @@
 //! Adapters depend on this crate and nothing else from Ghost. They never see
 //! her journal, her memory, or a brain.
 
+#[cfg(feature = "presence")]
 pub mod presence;
 pub mod socket;
 pub mod text;

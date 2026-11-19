@@ -44,6 +44,12 @@ pub struct PlaceState {
 }
 
 impl PlaceState {
+    /// Whether what is unread here was said to her: everything is, in a
+    /// conversation of two; elsewhere, what names or answers her.
+    pub fn said_to_her(&self) -> bool {
+        self.kind == PlaceKind::Direct || self.unread_addressed > 0
+    }
+
     /// Whether she has agreed to be quiet here at `now`.
     pub fn quiet_at(&self, now: DateTime<Utc>) -> bool {
         self.quiet_until.is_some_and(|until| now < until)

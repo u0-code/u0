@@ -179,11 +179,7 @@ pub fn reason(why: &str) -> String {
     } else {
         // The last cause in the chain is the one that says what happened.
         let last = why.rsplit(": ").next().unwrap_or(why);
-        let mut s = sentence(last);
-        if s.chars().count() > 120 {
-            s = s.chars().take(118).collect::<String>() + "…";
-        }
-        s
+        crate::ui::fit(&sentence(last), 120)
     }
 }
 

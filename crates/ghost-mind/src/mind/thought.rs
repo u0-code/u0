@@ -6,15 +6,9 @@
 //! (see `writer`), so a look never waits on that database.
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_brain::{Call, Item, Step};
-use ghost_core::{
-    journal::Event, media, memory::PlaceState, narrate, social::PlaceKind, when::when,
-};
-use ghost_work::{
-    catalog::{self, Need},
-    steps,
-    undertaking::placeholder,
-};
+use ghost_brain::{Item, Step};
+use ghost_core::{journal::Event, media, memory::PlaceState, narrate, when::when};
+use ghost_work::{steps, undertaking::placeholder};
 use serde_json::json;
 use tracing::warn;
 
@@ -25,6 +19,7 @@ use super::{
 use crate::{
     Error, Result,
     actions::{self, Action, Deliberation, clip},
+    catalog::{self, Kind},
 };
 
 /// How many times a brain may ask to recall before it has to answer.
@@ -65,8 +60,8 @@ impl Mind {
                 };
                 let (at, mut calls) = job.out.take().unwrap_or((now, Vec::new()));
                 let mut came = Vec::with_capacity(found.len());
-                for Found { call, outcome, ms } in found {
-                    let (item, kept) = self.took_in(&place, call, outcome, sees, ms)?;
+                for found in found {
+                    let (item, kept) = self.took_in(&place, found, sees)?;
                     job.items.push(item);
                     came.push(kept);
                 }
@@ -149,11 +144,15 @@ impl Mind {
     fn took_in(
         &mut self,
         place: &PlaceState,
-        call: Call,
-        outcome: Option<ghost_work::Outcome>,
+        found: Found,
         sees: bool,
-        ms: u128,
     ) -> Result<(Item, steps::Called)> {
+        let Found {
+            call,
+            outcome,
+            ms,
+            brought,
+        } = found;
         let Some(ghost_work::Outcome {
             output,
             failed,
@@ -199,6 +198,7 @@ impl Mind {
             self.prompts.store(),
             &call,
             origin.as_deref(),
+            brought,
             output.clone(),
         );
         for picture in &pictures {
@@ -312,7 +312,7 @@ impl Mind {
             // A brain new to this writes its answer as text now and then.
             // Text is a thought, and a thought reaches nobody: say so once,
             // where someone is waiting on her.
-            let waited_on = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+            let waited_on = place.said_to_her();
             if !said.is_empty()
                 && job.took.is_empty()
                 && !job.nudged
@@ -343,11 +343,8 @@ impl Mind {
             let started = std::time::Instant::now();
             // Something that reaches beyond the conversation, which she
             // does not have here.
-            let beyond = catalog::find(&call.name).is_some_and(|e| {
-                e.needs
-                    .iter()
-                    .any(|n| matches!(n, Need::Search | Need::Web | Need::Machine))
-            });
+            let beyond =
+                catalog::find(&call.name).is_some_and(|e| matches!(e.kind, Kind::Reaching));
             let (output, failed) = match actions::from_call(&self.prompts, &call) {
                 Err(_) if beyond => {
                     again = true;
@@ -429,7 +426,13 @@ impl Mind {
                         .await
                         .ok();
                     let ms = started.elapsed().as_millis();
-                    found.push(Found { call, outcome, ms });
+                    let brought = reaching.brought(&call.name);
+                    found.push(Found {
+                        call,
+                        outcome,
+                        ms,
+                        brought,
+                    });
                 }
                 Outcome::Thought {
                     job: Box::new(job),

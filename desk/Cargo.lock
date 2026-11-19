@@ -1739,7 +1739,6 @@ name = "ghost-link"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64 0.23.1",
  "futures-util",
  "ghost-protocol",
@@ -1747,7 +1746,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
- "tracing",
 ]
 
 [[package]]
