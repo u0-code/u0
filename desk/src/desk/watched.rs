@@ -76,7 +76,7 @@ const NO_CORE_YET: &str = "Waiting for her core";
 /// one, why her images cannot be shown, in a line.
 fn core_id<'a>(status: Option<&'a Status>, kept: Option<&'a str>) -> Result<&'a str, &'static str> {
     let id = match status {
-        Some(status) => status.core.as_ref().map(|c| c.id.as_str()),
+        Some(status) => status.said.core.as_ref().map(|c| c.id.as_str()),
         None => kept,
     };
     id.filter(|id| !id.is_empty()).ok_or(NO_CORE_YET)
@@ -121,7 +121,7 @@ impl Watched {
     pub fn name(&self) -> String {
         self.status
             .as_ref()
-            .map(|s| s.name.clone())
+            .map(|s| s.said.name.clone())
             .or_else(|| self.card.as_ref().map(|c| c.name.clone()))
             .unwrap_or_else(|| self.fallback.clone())
     }
@@ -365,9 +365,14 @@ mod tests {
 
     #[test]
     fn her_images_are_kept_by_the_core_id_her_daemon_says_or_the_one_kept_until_it_does() {
-        let said = Status::from_value(&serde_json::json!({
-            "core": {"id": "5f0c", "id_file": "/srv/ghost/core-id"},
-        }));
+        let said = Status::read(ghost_link::protocol::GhostStatus {
+            core: Some(ghost_link::protocol::CoreInfo {
+                id: "5f0c".into(),
+                id_file: "/srv/ghost/core-id".into(),
+                host: None,
+            }),
+            ..Default::default()
+        });
         assert_eq!(core_id(Some(&said), Some("77aa")), Ok("5f0c"));
         assert_eq!(core_id(None, Some("77aa")), Ok("77aa"), "before it says");
         assert_eq!(core_id(None, None), Err(NO_CORE_YET));

@@ -15,14 +15,14 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use ghost_link::protocol::{LoggedStep, Look, ToolCall};
+use ghost_link::protocol::{LoggedStep, Look, ToolCall, WorkPart, WorkState};
 use gpui::{
     AnyElement, Context, Div, FontWeight, SharedString, Stateful, StyledText, TextRun, div,
     prelude::*, px,
 };
 
 use super::{
-    State, calls, drawn, kinds, live, output,
+    calls, drawn, kinds, live, output,
     style::{
         BOX_RADIUS, CARD_RADIUS, META, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL,
         WELL_RADIUS, meta,
@@ -671,33 +671,22 @@ pub(super) fn quiet(faces: &Faces, text: &'static str) -> Div {
 
 /// One part a piece of work handed out: a card inside its card, with its
 /// state and its brief, which opens to its own steps.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one part, drawn from what is known of it"
-)]
 pub(super) fn part(
     faces: &Faces,
-    id: &str,
-    brief: &str,
-    state: State,
-    brain: Option<&str>,
-    last: Option<String>,
+    part: &WorkPart,
     following: &follow::Following,
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
+    let (id, state) = (part.id.as_str(), part.state);
     let key = format!("part:{id}");
     let open = expanded.contains(&key);
     let n = id.rsplit('/').next().unwrap_or_default().to_owned();
     let toggle = key.clone();
-    // Under the title, what it is doing now or did last; a part that stands
-    // still for a reason says the reason's word in that colour.
-    let standing = matches!(state, State::Waiting | State::Blocked | State::Dropped);
-    let under = match last.filter(|l| !l.is_empty()) {
-        Some(last) if standing => format!("{} · {last}", capitalised(state.word())),
-        Some(last) => last,
-        None => capitalised(state.word()),
-    };
+    // Under the title, where it stands; a part that stands still for a
+    // reason says so in that reason's colour.
+    let standing = !super::under_way(state) && state != WorkState::Finished;
+    let under = capitalised(super::state_word(state));
     let words = div()
         .flex()
         .flex_col()
@@ -708,7 +697,7 @@ pub(super) fn part(
         .child(
             ui::one_line(ui::text(
                 faces,
-                calls::fit(&format!("Part {n} · {brief}"), 72),
+                calls::fit(&format!("Part {n} · {}", part.brief), 72),
             ))
             .whitespace_nowrap()
             .text_size(px(13.5))
@@ -721,7 +710,7 @@ pub(super) fn part(
                 .text_size(px(META))
                 .line_height(px(17.))
                 .text_color(if standing {
-                    state.color()
+                    super::state_color(state)
                 } else {
                     theme::muted()
                 }),
@@ -734,13 +723,17 @@ pub(super) fn part(
         .px(px(14.))
         .py(px(S2))
         .cursor_pointer()
-        .child(if state == State::Running {
+        .child(if super::under_way(state) {
             breathing(crate::aside::glyph(state))
         } else {
             crate::aside::glyph(state)
         })
         .child(words)
-        .children(brain.map(|brain| crate::aside::brain_tag(faces, brain)))
+        .children(
+            part.brain
+                .as_deref()
+                .map(|brain| crate::aside::brain_tag(faces, brain)),
+        )
         .child(
             ui::icon(
                 if open {
@@ -762,7 +755,7 @@ pub(super) fn part(
         .border_color(theme::border())
         .child(head);
     if open {
-        let running = state == State::Running;
+        let running = super::under_way(state);
         card = card.child(
             div()
                 .px(px(S1))

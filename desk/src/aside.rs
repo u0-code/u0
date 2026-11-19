@@ -29,7 +29,7 @@ use crate::{
     model::{LinkState, Reach, reason},
     sessions::Session,
     theme,
-    thread::{self, Output, Source, State, Task},
+    thread::{self, Output, Source, Task},
     ui,
 };
 
@@ -146,20 +146,16 @@ pub(crate) fn task_row(
 }
 
 /// How a part stands, at the right of its row: waiting its turn, how long
-/// it has run, asking the work it is part of, or how it ended. A part
-/// waits on its work, never on you, so it is never shown as waiting.
+/// it has run, or where it stands in the desk's word for it.
 pub(crate) fn part_standing(part: &Work, now: DateTime<Utc>) -> String {
     let started = part
         .started
         .as_deref()
         .and_then(|t| t.parse::<DateTime<Utc>>().ok());
-    match (part.state, started) {
-        (WorkState::Open | WorkState::Running, None) => "queued".to_owned(),
-        (WorkState::Open | WorkState::Running, Some(t)) => thread::span((now - t).num_seconds()),
-        (WorkState::Waiting, _) => "asking".to_owned(),
-        (WorkState::Finished, _) => "done".to_owned(),
-        (WorkState::Blocked | WorkState::GaveUp, _) => "blocked".to_owned(),
-        (WorkState::Dropped | WorkState::Other, _) => "stopped".to_owned(),
+    match started {
+        _ if !thread::under_way(part.state) => thread::state_word(part.state).to_owned(),
+        None => "queued".to_owned(),
+        Some(t) => thread::span((now - t).num_seconds()),
     }
 }
 
@@ -198,15 +194,16 @@ pub(crate) fn part_row(
     part: &Work,
     now: DateTime<Utc>,
 ) -> Stateful<Div> {
-    // A part waiting its turn is a quiet ring: nothing of it runs yet.
-    let lead = match (state_of(part.state), &part.started) {
-        (State::Running | State::Waiting, None) => div()
+    // A part waiting its turn is a quiet ring: nothing of it runs yet. A
+    // part waits on its work, never on you, so it is never drawn waiting.
+    let lead = match (part.state, &part.started) {
+        (state, None) if !state.ended() => div()
             .flex_none()
             .size(px(9.))
             .rounded_full()
             .border_2()
             .border_color(theme::faint()),
-        (State::Waiting, Some(_)) => glyph(State::Running),
+        (WorkState::Waiting, Some(_)) => glyph(WorkState::Running),
         (state, _) => glyph(state),
     };
     div()
@@ -238,9 +235,12 @@ pub(crate) fn running_lead() -> AnyElement {
 
 /// How a task still going stands, at the right of its row: how long it
 /// has run, or that it waits on you.
-pub(crate) fn open_standing(state: State, started: Option<DateTime<Utc>>) -> (String, gpui::Hsla) {
+pub(crate) fn open_standing(
+    state: WorkState,
+    started: Option<DateTime<Utc>>,
+) -> (String, gpui::Hsla) {
     match state {
-        State::Waiting => ("waiting".to_owned(), theme::accent()),
+        WorkState::Waiting => (thread::state_word(state).to_owned(), theme::accent()),
         _ => (
             started.map_or_else(String::new, |t| {
                 thread::span((Utc::now() - t).num_seconds())
@@ -250,19 +250,19 @@ pub(crate) fn open_standing(state: State, started: Option<DateTime<Utc>>) -> (St
     }
 }
 
-/// The ended tasks in one line: `3 finished · 1 blocked`.
-pub(crate) fn ended_summary(finished: usize, blocked: usize, dropped: usize) -> String {
-    let mut parts = Vec::new();
-    if finished > 0 {
-        parts.push(format!("{finished} finished"));
-    }
-    if blocked > 0 {
-        parts.push(format!("{blocked} blocked"));
-    }
-    if dropped > 0 {
-        parts.push(format!("{dropped} dropped"));
-    }
-    parts.join(" · ")
+/// The ended tasks in one line, by how each ended: `3 finished · 1
+/// blocked`.
+pub(crate) fn ended_summary(ended: impl IntoIterator<Item = WorkState>) -> String {
+    let words: Vec<&str> = ended.into_iter().map(thread::state_word).collect();
+    [WorkState::Finished, WorkState::Blocked, WorkState::Dropped]
+        .map(thread::state_word)
+        .into_iter()
+        .filter_map(|word| {
+            let n = words.iter().filter(|w| **w == word).count();
+            (n > 0).then(|| format!("{n} {word}"))
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 /// The row that folds the ended tasks away, and opens them.
@@ -306,22 +306,24 @@ pub(crate) fn ended_row(
 /// runs and a ring while it waits, both amber, the only places amber is
 /// used; a grey tick once it is done, a coral ring with a bar when it is
 /// blocked, a dash when it was dropped.
-pub(crate) fn glyph(state: State) -> Div {
+pub(crate) fn glyph(state: WorkState) -> Div {
     let mark = match state {
-        State::Running => ui::dot(theme::accent()).size(px(7.)).into_any_element(),
-        State::Waiting => div()
+        WorkState::Open | WorkState::Running => {
+            ui::dot(theme::accent()).size(px(7.)).into_any_element()
+        }
+        WorkState::Waiting => div()
             .size(px(9.))
             .rounded_full()
             .border_1()
             .border_color(theme::accent())
             .into_any_element(),
-        State::Finished => ui::icon("check", 16.)
+        WorkState::Finished => ui::icon("check", 16.)
             .text_color(theme::muted())
             .into_any_element(),
-        State::Blocked => ui::icon("alert", 14.)
+        WorkState::Blocked | WorkState::GaveUp => ui::icon("alert", 14.)
             .text_color(theme::coral())
             .into_any_element(),
-        State::Dropped => ui::icon("minus", 14.)
+        WorkState::Dropped | WorkState::Other => ui::icon("minus", 14.)
             .text_color(theme::quiet())
             .into_any_element(),
     };
@@ -332,18 +334,6 @@ pub(crate) fn glyph(state: State) -> Div {
         .items_center()
         .justify_center()
         .child(mark)
-}
-
-/// Where a piece of work her daemon keeps stands, in the desk's colours: a
-/// piece resting between sittings is still under way.
-pub(crate) fn state_of(state: WorkState) -> State {
-    match state {
-        WorkState::Open | WorkState::Running => State::Running,
-        WorkState::Waiting => State::Waiting,
-        WorkState::Finished => State::Finished,
-        WorkState::Blocked | WorkState::GaveUp => State::Blocked,
-        WorkState::Dropped | WorkState::Other => State::Dropped,
-    }
 }
 
 /// Whose daemon a connection card is for, so its buttons know what to do.
@@ -557,14 +547,14 @@ impl Desk {
                     faces,
                     "Background tasks",
                     None,
-                    Self::open_count(work.iter().filter(|w| state_of(w.state).open()).count()),
+                    Self::open_count(work.iter().filter(|w| !w.state.ended()).count()),
                     body,
                     cx,
                 ))
                 .into_any_element();
         }
         let session = self.session();
-        let tasks = thread::session_tasks(&self.solver.journal, &session.id);
+        let tasks = thread::session_tasks(&self.solver.journal, &self.solver.work, &session.id);
         let outputs = thread::outputs(&self.solver.journal, &session.id);
         let environment = self.environment(faces, cx);
         let place = thread::place_key(&session.id);
@@ -668,7 +658,7 @@ impl Desk {
     /// else, what the core names; before the core has said, a dash.
     fn machine_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let status = self.solver.status.as_ref();
-        let abilities = status.and_then(|s| s.abilities.as_ref());
+        let abilities = status.map(|s| &s.said.abilities);
         let dir = status
             .and_then(crate::model::Status::machine_dir)
             .filter(|_| abilities.is_some_and(Abilities::local));
@@ -691,7 +681,7 @@ impl Desk {
         if !status.here {
             // On its core's computer: named, and the path as that
             // computer has it, which means nothing to Finder here.
-            let host = status.core.as_ref().and_then(|c| c.host.clone());
+            let host = status.said.core.as_ref().and_then(|c| c.host.clone());
             return row_with(
                 Some(row_icon("laptop")),
                 label(faces, "Machine"),
@@ -724,7 +714,7 @@ impl Desk {
             .solver
             .status
             .as_ref()
-            .map(|s| s.think.clone())
+            .map(|s| s.said.think.clone())
             .filter(|t| !t.is_empty());
         let (mark, name) = match (&provider, told) {
             (Some(p), _) => (ui::mark(faces, p.mark(), 16.), p.label()),
@@ -791,7 +781,7 @@ impl Desk {
             // handed out, each of which opens in the thread inside the
             // task's card; what it asks; and a way to stop it while it is
             // open.
-            if let Some(w) = self.solver.work.iter().find(|w| w.id == t.id) {
+            if let Some(w) = t.work {
                 let now = Utc::now();
                 for p in &w.parts {
                     let keys = [format!("task:{}", t.id), format!("part:{}", p.id)];
@@ -818,12 +808,7 @@ impl Desk {
         if ended.is_empty() {
             return list;
         }
-        let count = |state: State| ended.iter().filter(|t| t.state() == state).count();
-        let summary = ended_summary(
-            count(State::Finished),
-            count(State::Blocked),
-            count(State::Dropped),
-        );
+        let summary = ended_summary(ended.iter().map(|t| t.state()));
         let key = format!("more:{}", session.id);
         let open = self.expanded.contains(&key);
         list = list.child(ended_row(faces, "work-ended", summary, open, cx, key));
@@ -931,10 +916,12 @@ impl Desk {
                     status.map_or_else(dash, crate::model::Status::hhmm),
                     theme::text(),
                 )),
-                under(faces, status.map_or_else(dash, |s| s.city.clone())),
+                under(faces, status.map_or_else(dash, |s| s.said.city.clone())),
             ))
             .child({
-                let think = status.map(|s| s.think.clone()).filter(|t| !t.is_empty());
+                let think = status
+                    .map(|s| s.said.think.clone())
+                    .filter(|t| !t.is_empty());
                 let mark = think.as_deref().map_or_else(
                     || row_icon("plug"),
                     |t| ui::mark(faces, Mark::from_words(t), 16.),
@@ -963,6 +950,19 @@ mod tests {
     }
 
     #[test]
+    fn ended_work_is_counted_by_how_it_ended_in_the_words_shown_for_it() {
+        let ended = [
+            WorkState::Dropped,
+            WorkState::Finished,
+            WorkState::GaveUp,
+            WorkState::Blocked,
+            WorkState::Finished,
+        ];
+        assert_eq!(ended_summary(ended), "2 finished · 2 blocked · 1 dropped");
+        assert_eq!(ended_summary([WorkState::Finished]), "1 finished");
+    }
+
+    #[test]
     fn a_brain_is_tagged_by_the_first_word_of_its_model_or_agent() {
         assert_eq!(brain_word("openai/deepseek-chat"), "deepseek");
         assert_eq!(brain_word("anthropic/claude-sonnet-5"), "claude");
@@ -988,16 +988,19 @@ mod tests {
         );
         assert_eq!(
             part_standing(&part(WorkState::Waiting, None), now),
-            "asking"
+            "waiting"
         );
-        assert_eq!(part_standing(&part(WorkState::Finished, None), now), "done");
+        assert_eq!(
+            part_standing(&part(WorkState::Finished, None), now),
+            "finished"
+        );
         assert_eq!(
             part_standing(&part(WorkState::GaveUp, None), now),
             "blocked"
         );
         assert_eq!(
             part_standing(&part(WorkState::Dropped, None), now),
-            "stopped"
+            "dropped"
         );
     }
 }

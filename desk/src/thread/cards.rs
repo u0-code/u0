@@ -7,12 +7,12 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{AskKind, LoggedStep, Work};
+use ghost_link::protocol::{AskKind, LoggedStep, Work, WorkState};
 use gpui::{Context, Div, SharedString, Stateful, div, prelude::*, px};
 use serde_json::Value;
 
 use super::{
-    State, Task, calls, clock, drawn, kinds, live, s, span, steps,
+    Task, calls, clock, drawn, kinds, live, s, span, steps,
     style::{
         BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta, well,
     },
@@ -109,9 +109,10 @@ pub(super) fn task(
     faces: &Faces,
     t: &Task<'_>,
     view: &super::View<'_>,
-    asks: Option<(&Work, &Whom)>,
     cx: &mut Context<Desk>,
 ) -> Div {
+    // What her core says it asks, and who answers it here.
+    let asks = t.work.map(|w| (w, &view.whom));
     let (tz, expanded, following, column) = (view.tz, view.expanded, view.following, view.column);
     // Whether the paths it gives can be opened: only on its core's computer.
     let here = view.status.is_some_and(|s| s.here);
@@ -129,27 +130,26 @@ pub(super) fn task(
     let files: Vec<String> = t
         .events
         .iter()
-        .chain(t.parts.iter().flat_map(|p| p.events.iter()))
         .filter(|e| e.kind == "reported")
         .filter_map(|e| e.data.get("files").and_then(Value::as_array))
         .flatten()
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
-    let done = summary_of(t, read.map(|r| r.steps.as_slice()), files.len());
+    let done = summary_of(t, read, files.len());
 
-    let glyph = if state == State::Running {
+    let glyph = if super::under_way(state) {
         breathing(aside::glyph(state))
     } else {
         aside::glyph(state)
     };
     // The title in text, the line under it muted; a state that stands
     // still for a reason colours that line, and a dropped work fades whole.
-    let dropped = state == State::Dropped;
+    let dropped = matches!(state, WorkState::Dropped | WorkState::Other);
     let under = match state {
-        State::Waiting => theme::accent(),
-        State::Blocked => theme::coral(),
-        State::Dropped => theme::quiet(),
+        WorkState::Waiting => theme::accent(),
+        WorkState::Blocked | WorkState::GaveUp => theme::coral(),
+        WorkState::Dropped | WorkState::Other => theme::quiet(),
         _ => theme::muted(),
     };
     // Held to the card's width, so that a long title ends in an ellipsis
@@ -180,7 +180,7 @@ pub(super) fn task(
                 .text_color(under),
         );
     // While it runs, an opened card can be stopped from its head.
-    let stop = (open && state == State::Running)
+    let stop = (open && super::under_way(state))
         .then(|| asks.map(|(w, whom)| (w.id.clone(), whom.clone())))
         .flatten()
         .map(|(work, whom)| {
@@ -300,7 +300,7 @@ pub(super) fn task(
     // What it handed over, as small cards under it, once it is done: each
     // opens where it is on the machine when that is this computer, and
     // otherwise says where it is on the core's.
-    if state != State::Finished || files.is_empty() {
+    if state != WorkState::Finished || files.is_empty() {
         return whole;
     }
     let mut chips = div().flex().flex_wrap().gap(px(S2));
@@ -426,16 +426,20 @@ const SAID_SHORT: usize = 240;
 /// What a piece of work has done, in a line: `Ran 7 commands · 42s` once
 /// it is over, `Working for 13s · 6 steps` while it goes on, and before its
 /// steps are read, where it stands and for how long.
-fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>, outputs: usize) -> String {
+fn summary_of(t: &Task<'_>, read: Option<&crate::follow::WorkSteps>, outputs: usize) -> String {
     let state = t.state();
     let time = span((t.ended().unwrap_or_else(Utc::now) - t.started).num_seconds());
-    let calls: Vec<&ghost_link::protocol::ToolCall> = steps
+    let calls: Vec<&ghost_link::protocol::ToolCall> = read
+        .map(|r| r.steps.as_slice())
         .unwrap_or_default()
         .iter()
         .flat_map(|s| s.calls.iter())
         .filter(|c| calls::shown(&c.name) && c.name != "done")
         .collect();
-    let parts = (!t.parts.is_empty()).then(|| calls::plural(t.parts.len(), "part"));
+    let parts = read
+        .map(|r| r.parts.len())
+        .filter(|n| *n > 0)
+        .map(|n| calls::plural(n, "part"));
     let line = |words: Vec<String>| {
         words
             .into_iter()
@@ -445,7 +449,7 @@ fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>, outputs: usize) -> Str
     };
     match state {
         // While it runs: what it is doing now, its parts, how long so far.
-        State::Running => {
+        WorkState::Open | WorkState::Running => {
             let now = calls.last().map_or_else(
                 || "Starting".to_owned(),
                 |c| {
@@ -455,9 +459,9 @@ fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>, outputs: usize) -> Str
             );
             line(vec![now, parts.unwrap_or_default(), time])
         }
-        State::Waiting => line(vec!["Waiting on you".to_owned(), t.last_line()]),
+        WorkState::Waiting => line(vec!["Waiting on you".to_owned(), t.last_line()]),
         // Done: what it changed, what it handed over, how long it took.
-        State::Finished => {
+        WorkState::Finished => {
             let said: Vec<calls::Said> =
                 calls.iter().map(|c| calls::say(&c.name, &c.args)).collect();
             let failed = calls.iter().filter(|c| c.failed).count();
@@ -477,8 +481,8 @@ fn summary_of(t: &Task<'_>, steps: Option<&[LoggedStep]>, outputs: usize) -> Str
                 time,
             ])
         }
-        State::Blocked => line(vec!["Blocked".to_owned(), t.last_line()]),
-        State::Dropped => line(vec!["Dropped".to_owned(), t.last_line()]),
+        WorkState::Blocked | WorkState::GaveUp => line(vec!["Blocked".to_owned(), t.last_line()]),
+        WorkState::Dropped | WorkState::Other => line(vec!["Dropped".to_owned(), t.last_line()]),
     }
 }
 
@@ -543,7 +547,7 @@ fn along_the_way(
     }
     if read.is_none() {
         rows.push(steps::quiet(faces, "Reading its steps…"));
-    } else if t.state() == State::Running {
+    } else if super::under_way(t.state()) {
         let since = live::work_since(held).unwrap_or(t.started);
         rows.push(live::row(faces, "Working", Some(since)));
     }
@@ -598,9 +602,8 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
         })
 }
 
-/// The parts a piece of work handed out, each a card of its own: as its
-/// steps list them, where they have been read, or else as the journal
-/// has them.
+/// The parts a piece of work handed out, each a card of its own, as its
+/// steps list them once they have been read.
 fn parts(
     faces: &Faces,
     t: &Task<'_>,
@@ -613,23 +616,7 @@ fn parts(
         .get(&t.id)
         .map(|w| w.parts.as_slice())
         .unwrap_or_default();
-    // What runs a part is known only from its daemon's list, not from her
-    // journal.
-    let known: Vec<(String, String, State, Option<&str>)> = if listed.is_empty() {
-        t.parts
-            .iter()
-            .map(|p| (p.id.clone(), p.brief.clone(), p.state(), None))
-            .collect()
-    } else {
-        listed
-            .iter()
-            .map(|p| {
-                let state = aside::state_of(p.state);
-                (p.id.clone(), p.brief.clone(), state, p.brain.as_deref())
-            })
-            .collect()
-    };
-    if known.is_empty() {
+    if listed.is_empty() {
         return None;
     }
     // Under the steps, 16 in from their words, each part a smaller card.
@@ -640,11 +627,8 @@ fn parts(
         .my(px(6.))
         .pl(px(10. + S4))
         .pr(px(10.));
-    for (id, brief, state, brain) in known {
-        let last = t.parts.iter().find(|p| p.id == id).map(Task::last_line);
-        column = column.child(steps::part(
-            faces, &id, &brief, state, brain, last, following, expanded, cx,
-        ));
+    for part in listed {
+        column = column.child(steps::part(faces, part, following, expanded, cx));
     }
     Some(column)
 }
@@ -745,14 +729,17 @@ mod tests {
         ));
         let steps = [step(1, &["shell", "shell"]), step(2, &["shell", "done"])];
 
-        let running = &tasks(&open)[0];
+        let mut read = crate::follow::WorkSteps::default();
+        read.steps = steps.to_vec();
+
+        let running = &tasks(&open, &[])[0];
         assert!(
-            summary_of(running, Some(&steps), 0).starts_with("Ran ls · "),
+            summary_of(running, Some(&read), 0).starts_with("Ran ls · "),
             "what it is doing now"
         );
-        let finished = &tasks(&done)[0];
+        let finished = &tasks(&done, &[])[0];
         assert_eq!(
-            summary_of(finished, Some(&steps), 2),
+            summary_of(finished, Some(&read), 2),
             "Done · ran 3 commands · 2 outputs · 42s",
             "the call that ends the work is not counted as something it did"
         );

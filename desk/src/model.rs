@@ -1,65 +1,34 @@
 //! What the desk knows about her, as read from the daemon.
 //!
-//! Everything here is shaped from the protocol's JSON. The desk does not
-//! depend on `ghost-core`: it is a client like any presence, and knows her
-//! journal only as the daemon serves it.
+//! Everything here is the protocol's, with what the desk works out from
+//! it. The desk does not depend on `ghost-core`: it is a client like any
+//! presence, and knows her journal only as the daemon serves it.
 
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use ghost_link::protocol::{
-    Abilities, Attention, CoreInfo, GhostCard, Listed, Look, Work, WorkContext, WorkLog,
+    Attention, CoreInfo, GhostCard, GhostStatus, Listed, Look, Work, WorkContext, WorkLog,
 };
 use serde_json::Value;
 
-/// One line of her journal.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Entry {
-    pub seq: i64,
-    pub at: DateTime<Utc>,
-    pub kind: String,
-    pub data: Value,
-}
+/// One line of her journal, as the protocol carries it.
+pub use ghost_link::protocol::Entry;
 
 /// The string at `key` of a JSON object, or nothing.
 pub(crate) fn s<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-impl Entry {
-    pub fn from_value(v: &Value) -> Option<Self> {
-        let event = v.get("event")?;
-        Some(Self {
-            seq: v.get("seq")?.as_i64()?,
-            at: v.get("at")?.as_str()?.parse().ok()?,
-            kind: s(event, "kind").to_owned(),
-            data: event.get("data").cloned().unwrap_or(Value::Null),
-        })
-    }
-}
-
-/// `ghost.status`, shaped.
+/// `ghost.status` as her daemon said it, with what the desk works out
+/// from it once rather than at every frame.
 #[derive(Debug, Clone)]
 pub struct Status {
-    pub name: String,
-    pub city: String,
+    pub said: GhostStatus,
+    /// Her timezone, as [`GhostStatus::timezone`] names it; UTC for a name
+    /// this desk does not know.
     pub tz: Tz,
-    pub local_time: String,
-    pub think: String,
-    /// The context window of the brain she looks with, in tokens, where
-    /// her daemon knows it.
-    pub think_window: Option<u64>,
-    /// Whether her day has her awake now, when her daemon says.
-    pub awake: Option<bool>,
-    /// What her day has her doing now, in her plan's words, when it says.
-    pub doing: Option<String>,
-    /// What she can do besides talk, as her daemon runs her; `None` when
-    /// what it said could not be read.
-    pub abilities: Option<Abilities>,
-    /// Where her daemon runs, as it says; `None` when what it said could
-    /// not be read.
-    pub core: Option<CoreInfo>,
     /// Whether her daemon runs on this computer, so that the paths she
     /// gives can be opened here: see [`on_this_computer`]. Worked out off
     /// the main thread, as the status is read.
@@ -82,16 +51,18 @@ pub fn on_this_computer(core: &CoreInfo) -> bool {
 impl Status {
     /// Her status as her daemon gave it, with whether it runs here looked
     /// up: this reads one small file, so it is not for the main thread.
-    pub fn read(v: &Value) -> Self {
-        let mut status = Self::from_value(v);
-        status.here = status.core.as_ref().is_some_and(on_this_computer);
-        status
+    pub fn read(said: GhostStatus) -> Self {
+        Self {
+            tz: said.timezone.parse().unwrap_or(chrono_tz::UTC),
+            here: said.core.as_ref().is_some_and(on_this_computer),
+            said,
+        }
     }
 
     /// The directory her machine works in, on her daemon's computer, when
     /// it says.
     pub fn machine_dir(&self) -> Option<PathBuf> {
-        let machine = self.abilities.as_ref()?.machine.as_ref()?;
+        let machine = self.said.abilities.machine.as_ref()?;
         machine.dir.as_deref().map(PathBuf::from)
     }
 
@@ -110,51 +81,10 @@ impl Status {
             .map(|dir| dir.join(named))
     }
 
-    /// Her status as her daemon gave it, read as it is: nothing looked up.
-    pub fn from_value(v: &Value) -> Self {
-        let tz: Tz = s(v, "timezone").parse().unwrap_or(chrono_tz::UTC);
-        let moment = v.get("moment");
-        Self {
-            awake: moment
-                .and_then(|m| m.get("phase"))
-                .and_then(Value::as_str)
-                .map(|phase| phase == "awake"),
-            doing: moment
-                .and_then(|m| m.get("doing"))
-                .and_then(|d| d.get("what"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|w| !w.is_empty())
-                .map(str::to_owned),
-            name: s(v, "name").to_owned(),
-            city: s(v, "city").to_owned(),
-            tz,
-            local_time: s(v, "local_time").to_owned(),
-            think: v
-                .get("brains")
-                .map(|b| s(b, "think").to_owned())
-                .unwrap_or_default(),
-            think_window: v
-                .get("windows")
-                .and_then(|w| w.get("think"))
-                .and_then(Value::as_u64),
-            abilities: v
-                .get("abilities")
-                .and_then(|a| serde_json::from_value(a.clone()).ok()),
-            core: v
-                .get("core")
-                .and_then(|c| serde_json::from_value(c.clone()).ok()),
-            here: false,
-        }
-    }
-
     /// The hour and minute of her clock.
     pub fn hhmm(&self) -> String {
-        self.local_time
-            .split(' ')
-            .nth(1)
-            .unwrap_or(&self.local_time)
-            .to_owned()
+        let clock = &self.said.local_time;
+        clock.split(' ').nth(1).unwrap_or(clock).to_owned()
     }
 }
 
@@ -373,36 +303,25 @@ pub struct Stop {
 mod tests {
     use super::*;
 
-    #[test]
-    fn her_brains_window_is_what_her_daemon_says_and_none_from_one_that_does_not() {
-        let said = serde_json::json!({
-            "brains": {"think": "main"},
-            "windows": {"think": 1_048_576, "tick": null},
-        });
-        assert_eq!(Status::from_value(&said).think_window, Some(1_048_576));
-        let older = serde_json::json!({"brains": {"think": "main"}});
-        assert_eq!(Status::from_value(&older).think_window, None);
-    }
-
-    #[test]
-    fn what_she_can_do_is_what_her_daemon_says_and_unknown_from_one_that_does_not() {
-        let said = serde_json::json!({
-            "abilities": {"work": true, "machine": {"kind": "local", "spec": "local:"}, "web": true},
-        });
-        let abilities = Status::from_value(&said).abilities.unwrap();
-        assert!(abilities.local() && abilities.web);
-        assert!(abilities.agents.is_empty());
-        let older = serde_json::json!({"brains": {"think": "main"}});
-        assert_eq!(Status::from_value(&older).abilities, None);
-    }
-
     /// A status from a daemon that keeps its id in `id_file`, as `id`.
     fn from_core(id: &str, id_file: &std::path::Path) -> Status {
-        Status::read(&serde_json::json!({
-            "abilities": {"work": true, "machine": {"kind": "local", "spec": "local:",
-                "dir": "/srv/ghost/ghosts/solver/home"}},
-            "core": {"id": id, "id_file": id_file, "host": "studio"},
-        }))
+        Status::read(GhostStatus {
+            abilities: ghost_link::protocol::Abilities {
+                work: true,
+                machine: Some(ghost_link::protocol::MachineInfo {
+                    kind: "local".into(),
+                    spec: "local:".into(),
+                    dir: Some("/srv/ghost/ghosts/solver/home".into()),
+                }),
+                ..Default::default()
+            },
+            core: Some(CoreInfo {
+                id: id.into(),
+                id_file: id_file.display().to_string(),
+                host: Some("studio".into()),
+            }),
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -431,8 +350,8 @@ mod tests {
             !from_core("aaaa", std::path::Path::new("core-id")).here,
             "a path that is not a full one is nobody's"
         );
-        let older = Status::read(&serde_json::json!({"name": "Ghost"}));
-        assert!(older.core.is_none() && !older.here, "it never said");
+        let said = Status::read(GhostStatus::default());
+        assert!(!said.here, "it never said where it runs");
     }
 
     #[test]
@@ -452,22 +371,8 @@ mod tests {
             status.locate("out/report.md", None),
             Some(PathBuf::from("/srv/ghost/ghosts/solver/home/out/report.md"))
         );
-        let older = Status::from_value(&serde_json::json!({}));
-        assert_eq!(older.locate("report.md", None), None, "nowhere to put it");
-    }
-
-    #[test]
-    fn her_moment_says_whether_she_is_awake_and_what_her_day_has_her_doing() {
-        let said = serde_json::json!({
-            "moment": {"phase": "awake", "doing": {"what": "reading the QQ group"}},
-        });
-        let status = Status::from_value(&said);
-        assert_eq!(status.awake, Some(true));
-        assert_eq!(status.doing.as_deref(), Some("reading the QQ group"));
-        let asleep = Status::from_value(&serde_json::json!({"moment": {"phase": "asleep"}}));
-        assert_eq!((asleep.awake, asleep.doing), (Some(false), None));
-        let older = Status::from_value(&serde_json::json!({}));
-        assert_eq!((older.awake, older.doing), (None, None));
+        let none = Status::read(GhostStatus::default());
+        assert_eq!(none.locate("report.md", None), None, "nowhere to put it");
     }
 
     #[test]

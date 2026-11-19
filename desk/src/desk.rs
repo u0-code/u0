@@ -540,7 +540,8 @@ impl Desk {
             &self.thread_scroll,
         ));
         ghost.follow(&wanted);
-        if let Some((work, open)) = crate::aside::context_work(&ghost.journal, &place) {
+        if let Some((work, open)) = crate::aside::context_work(&ghost.journal, &ghost.work, &place)
+        {
             ghost.follow_context(&work, open);
         }
         let looking = ghost

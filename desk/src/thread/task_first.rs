@@ -137,12 +137,7 @@ pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElem
                 (el, Before::Look)
             }
             Item::Task(t) => {
-                let asks = view
-                    .work
-                    .iter()
-                    .find(|w| w.id == t.id)
-                    .map(|w| (w, &view.whom));
-                let el = task(faces, &t, view, asks, cx);
+                let el = task(faces, &t, view, cx);
                 (el.into_any_element(), Before::Other)
             }
             Item::Failed(why) => {
@@ -494,8 +489,8 @@ fn doing_now(view: &View<'_>) -> String {
         Some(title) => Some(format!("She is at work on “{title}”")),
         None => view
             .status
-            .filter(|s| s.awake != Some(false))
-            .and_then(|s| s.doing.as_deref())
+            .filter(|s| s.said.awake)
+            .and_then(|s| s.said.doing.as_deref())
             .map(|what| format!("In her day now: {what}")),
     };
     let said = view
@@ -528,7 +523,7 @@ fn her_state(view: &View<'_>) -> String {
     if !view.connected {
         return format!("{name} is out of reach");
     }
-    match view.status.and_then(|s| s.awake) {
+    match view.status.map(|s| s.said.awake) {
         // The solver keeps no day: she is there whenever her daemon is.
         _ if view.whom == crate::answer::Whom::Solver => format!("{name} is here"),
         Some(false) => format!("{name} is asleep"),

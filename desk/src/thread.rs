@@ -33,7 +33,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use ghost_link::protocol::{CONSOLE, Look};
+use ghost_link::protocol::{CONSOLE, Look, Work, WorkState};
 use gpui::{AnyElement, Context, Hsla};
 use serde_json::Value;
 
@@ -210,78 +210,83 @@ pub fn places(journal: &[Entry]) -> Vec<Spot> {
     spots
 }
 
-/// Where a piece of work stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    Running,
-    /// It stopped to ask something and has not had an answer.
-    Waiting,
-    Finished,
-    Blocked,
-    Dropped,
+/// Whether a piece of work is under way and waits on nobody: a sitting is
+/// at it, or it rests between two. The desk draws both alike.
+pub fn under_way(state: WorkState) -> bool {
+    matches!(state, WorkState::Open | WorkState::Running)
 }
 
-impl State {
-    /// Still going: running, or waiting on an answer.
-    pub fn open(self) -> bool {
-        matches!(self, State::Running | State::Waiting)
-    }
-
-    pub fn color(self) -> Hsla {
-        match self {
-            State::Running => theme::accent(),
-            State::Waiting => theme::accent(),
-            State::Finished => theme::green(),
-            State::Blocked => theme::coral(),
-            State::Dropped => theme::muted(),
-        }
-    }
-
-    pub fn word(self) -> &'static str {
-        match self {
-            State::Running => "running",
-            State::Waiting => "waiting on you",
-            State::Finished => "finished",
-            State::Blocked => "blocked",
-            State::Dropped => "dropped",
-        }
+/// The colour a piece of work is drawn in, by where it stands.
+pub fn state_color(state: WorkState) -> Hsla {
+    match state {
+        WorkState::Open | WorkState::Running | WorkState::Waiting => theme::accent(),
+        WorkState::Finished => theme::green(),
+        WorkState::Blocked | WorkState::GaveUp => theme::coral(),
+        WorkState::Dropped | WorkState::Other => theme::muted(),
     }
 }
 
-/// One piece of work, as its entries tell it.
+/// Where a piece of work stands, in a word: the one word the desk says it
+/// in, in every place it shows work.
+pub fn state_word(state: WorkState) -> &'static str {
+    match state {
+        WorkState::Open | WorkState::Running => "running",
+        WorkState::Waiting => "waiting",
+        WorkState::Finished => "finished",
+        WorkState::Blocked | WorkState::GaveUp => "blocked",
+        WorkState::Dropped | WorkState::Other => "dropped",
+    }
+}
+
+/// One piece of work: where her journal puts it in a thread, and what
+/// its core says of it.
 pub struct Task<'a> {
     pub id: String,
     pub brief: String,
     pub started: DateTime<Utc>,
-    /// Everything after `undertook` that names it, in order.
+    /// Everything after `undertook` that names it, in order: what it told,
+    /// asked and came to, in the words the thread shows.
     pub events: Vec<&'a Entry>,
-    /// Its parts, each a task of its own: `<id>/<n>`.
-    pub parts: Vec<Task<'a>>,
     /// The folder it is done in, when it has one.
     pub dir: Option<String>,
+    /// The work as her core lists it: where it stands, what it asks, its
+    /// parts. None for work it no longer lists, which ended before the
+    /// work it does, or has not listed yet, which was just taken on.
+    pub work: Option<&'a Work>,
 }
 
-impl Task<'_> {
-    pub fn state(&self) -> State {
-        if let Some(end) = self.events.iter().rev().find(|e| e.kind == "concluded") {
-            return match s(&end.data, "outcome") {
-                "finished" => State::Finished,
-                "dropped" => State::Dropped,
-                _ => State::Blocked,
-            };
+impl<'a> Task<'a> {
+    /// Where it stands, as her core says. Work it no longer lists stands
+    /// as it ended, in the words of its `concluded` entry; work it has not
+    /// listed yet is just begun.
+    pub fn state(&self) -> WorkState {
+        if let Some(work) = self.work {
+            return work.state;
         }
-        let asked = self.events.iter().rposition(|e| e.kind == "asked");
-        let added = self.events.iter().rposition(|e| e.kind == "added");
-        match (asked, added) {
-            (Some(q), Some(a)) if a > q => State::Running,
-            (Some(_), _) => State::Waiting,
-            _ => State::Running,
-        }
+        self.concluded().map_or(WorkState::Open, |end| {
+            serde_json::from_value(end.data["outcome"].clone())
+                .ok()
+                .filter(|state: &WorkState| state.ended())
+                .unwrap_or(WorkState::Blocked)
+        })
     }
 
-    /// Whether it is still going: running, or waiting on you.
+    /// Whether it is still going: under way, or waiting on you.
     pub fn open(&self) -> bool {
-        matches!(self.state(), State::Running | State::Waiting)
+        !self.state().ended()
+    }
+
+    /// The parts it handed out, as her core lists them with it.
+    pub fn parts(&self) -> &'a [Work] {
+        self.work.map_or(&[], |w| w.parts.as_slice())
+    }
+
+    fn concluded(&self) -> Option<&'a Entry> {
+        self.events
+            .iter()
+            .rev()
+            .find(|e| e.kind == "concluded")
+            .copied()
     }
 
     /// When it last changed: its latest entry, or its start.
@@ -310,11 +315,7 @@ impl Task<'_> {
     }
 
     pub fn ended(&self) -> Option<DateTime<Utc>> {
-        self.events
-            .iter()
-            .rev()
-            .find(|e| e.kind == "concluded")
-            .map(|e| e.at)
+        self.concluded().map(|e| e.at)
     }
 
     /// The latest thing it said about itself.
@@ -335,10 +336,11 @@ impl Task<'_> {
     }
 }
 
-/// Every task in a journal, by id, parts nested under their parent.
-pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
-    let mut all: Vec<Task<'_>> = Vec::new();
-    let mut index: HashMap<String, usize> = HashMap::new();
+/// Every piece of work her journal took on, in the order it did, each
+/// with what `work`, her core's list, says of it.
+pub fn tasks<'a>(journal: &'a [Entry], work: &'a [Work]) -> Vec<Task<'a>> {
+    let mut all: Vec<Task<'a>> = Vec::new();
+    let mut index: HashMap<&str, usize> = HashMap::new();
     for e in journal {
         let id = s(&e.data, "id");
         if id.is_empty() {
@@ -346,14 +348,14 @@ pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
         }
         match e.kind.as_str() {
             "undertook" => {
-                index.insert(id.to_owned(), all.len());
+                index.insert(id, all.len());
                 all.push(Task {
                     id: id.to_owned(),
                     brief: s(&e.data, "brief").to_owned(),
                     started: e.at,
                     events: Vec::new(),
-                    parts: Vec::new(),
                     dir: e.data.get("dir").and_then(Value::as_str).map(str::to_owned),
+                    work: work.iter().find(|w| w.id == id),
                 });
             }
             "worked" | "reported" | "asked" | "added" | "concluded" => {
@@ -364,66 +366,45 @@ pub fn tasks(journal: &[Entry]) -> Vec<Task<'_>> {
             _ => {}
         }
     }
-    // Hand each part to its parent, last first so indices stay good.
-    let mut top: Vec<Task<'_>> = Vec::new();
-    let mut parts: Vec<Task<'_>> = Vec::new();
-    for t in all {
-        if t.id.contains('/') {
-            parts.push(t);
-        } else {
-            top.push(t);
-        }
-    }
-    for p in parts {
-        let parent = p.id.rsplit_once('/').map(|(a, _)| a.to_owned());
-        if let Some(t) = top.iter_mut().find(|t| Some(&t.id) == parent.as_ref()) {
-            t.parts.push(p);
-        }
-    }
-    top
+    all
 }
 
-/// The work taken on in one session, oldest first, parts under each: the
-/// work whose `undertook` names the session's place. One pass over the
-/// journal, since the sidebar asks this of every session on every tick.
-pub fn session_tasks<'a>(journal: &'a [Entry], session: &str) -> Vec<Task<'a>> {
-    place_tasks(journal, &place_key(session))
-}
-
-/// The work taken on in the place `place`, a place key; oldest first,
-/// parts under each.
-pub fn place_tasks<'a>(journal: &'a [Entry], place: &str) -> Vec<Task<'a>> {
-    let ours: HashSet<&str> = journal
+/// The ids of the work taken on in the place `place`, a place key.
+pub fn place_work<'a>(journal: &'a [Entry], place: &str) -> HashSet<&'a str> {
+    journal
         .iter()
         .filter(|e| e.kind == "undertook" && s(&e.data, "place") == place)
         .map(|e| s(&e.data, "id"))
-        .collect();
+        .collect()
+}
+
+/// The work taken on in one session, oldest first: the work whose
+/// `undertook` names the session's place. One pass over the journal,
+/// since the sidebar asks this of every session on every tick.
+pub fn session_tasks<'a>(journal: &'a [Entry], work: &'a [Work], session: &str) -> Vec<Task<'a>> {
+    place_tasks(journal, work, &place_key(session))
+}
+
+/// The work taken on in the place `place`, a place key; oldest first.
+pub fn place_tasks<'a>(journal: &'a [Entry], work: &'a [Work], place: &str) -> Vec<Task<'a>> {
+    let ours = place_work(journal, place);
     if ours.is_empty() {
         return Vec::new();
     }
-    tasks(journal)
+    tasks(journal, work)
         .into_iter()
         .filter(|t| ours.contains(t.id.as_str()))
         .collect()
 }
 
-/// The parts of a session's work still going, each with the work it is a
-/// part of, for the rows nested under the session in the sidebar.
-pub fn open_parts<'t, 'a>(tasks: &'t [Task<'a>]) -> Vec<&'t Task<'a>> {
+/// The parts of a session's work still going, for the rows nested under
+/// the session in the sidebar.
+pub fn open_parts<'a>(tasks: &[Task<'a>]) -> Vec<&'a Work> {
     tasks
         .iter()
         .filter(|t| t.open())
-        .flat_map(|t| t.parts.iter())
+        .flat_map(Task::parts)
         .collect()
-}
-
-/// How a session stands at a glance: waiting on you if any of its work
-/// asks something, running if any runs, otherwise nothing to show.
-pub fn session_state(tasks: &[Task<'_>]) -> Option<State> {
-    let states: Vec<State> = tasks.iter().map(Task::state).collect();
-    [State::Waiting, State::Running]
-        .into_iter()
-        .find(|s| states.contains(s))
 }
 
 /// How many of a list to show, and how many are held back behind a "Show
@@ -542,9 +523,9 @@ pub struct View<'a> {
     pub expanded: &'a HashSet<String>,
     /// What has been read of her steps on this ghost.
     pub following: &'a Following,
-    /// Her work as her daemon keeps it: what a piece asks, and the options
-    /// it gave to choose from, which her journal does not hold.
-    pub work: &'a [ghost_link::protocol::Work],
+    /// Her work as her daemon keeps it: where each piece stands, its
+    /// parts, what it asks and the options it gave to choose from.
+    pub work: &'a [Work],
     /// Whose thread this is, for answering what her work asks.
     pub whom: crate::answer::Whom,
     /// Where the thread is scrolled to, when it is drawn on screen.
@@ -652,7 +633,7 @@ fn items<'a>(view: &View<'a>) -> Vec<(DateTime<Utc>, i64, Item<'a>)> {
     for stop in view.stops.iter().filter(|x| place_key(&x.place) == thread) {
         items.push((stop.at, i64::MAX, Item::Stopped(stop.stopped)));
     }
-    for t in place_tasks(view.journal, view.place) {
+    for t in place_tasks(view.journal, view.work, view.place) {
         items.push((t.started, 0, Item::Task(t)));
     }
     for m in view
@@ -866,26 +847,21 @@ pub struct Wanted {
 /// What the thread `view` shows of her steps.
 pub fn wanted(view: &View<'_>) -> Wanted {
     let mut works = Vec::new();
-    for t in place_tasks(view.journal, view.place) {
+    for t in place_tasks(view.journal, view.work, view.place) {
         // Every work's steps are read, folded or not: its line says what
         // it did in them. Its parts only once it is opened.
         works.push((t.id.clone(), t.open()));
         if !view.expanded.contains(&format!("task:{}", t.id)) {
             continue;
         }
-        // Its parts as its steps list them, or else as the journal does.
-        let listed = view.following.works.get(&t.id).map(|w| &w.parts);
-        let parts: Vec<(String, bool)> = match listed {
-            Some(parts) if !parts.is_empty() => parts
-                .iter()
-                .map(|p| (p.id.clone(), !p.state.ended()))
-                .collect(),
-            _ => t.parts.iter().map(|p| (p.id.clone(), p.open())).collect(),
-        };
+        // Its parts as its steps list them.
+        let parts = view.following.works.get(&t.id).map(|w| w.parts.as_slice());
         works.extend(
             parts
-                .into_iter()
-                .filter(|(id, _)| view.expanded.contains(&format!("part:{id}"))),
+                .unwrap_or_default()
+                .iter()
+                .filter(|p| view.expanded.contains(&format!("part:{}", p.id)))
+                .map(|p| (p.id.clone(), !p.state.ended())),
         );
     }
     Wanted {
@@ -960,7 +936,9 @@ fn waiting_since(items: &[(DateTime<Utc>, i64, Item<'_>)]) -> Option<DateTime<Ut
 /// open. While she is, the composer offers to stop her.
 pub fn busy(view: &View<'_>) -> bool {
     waiting_since(&items(view)).is_some()
-        || place_tasks(view.journal, view.place).iter().any(Task::open)
+        || place_tasks(view.journal, view.work, view.place)
+            .iter()
+            .any(Task::open)
 }
 
 /// Draw the thread `view` shows task-first, as a coding agent's app

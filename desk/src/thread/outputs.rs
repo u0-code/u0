@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use super::{s, session_tasks};
+use super::{place_key, place_work, s};
 use crate::model::Entry;
 
 /// Where a file handed over by work came from.
@@ -52,11 +52,7 @@ impl Output {
 /// those its reports name, and those it kept along the way and has not
 /// let go of. Read from the journal alone.
 pub fn outputs(journal: &[Entry], session: &str) -> Vec<Output> {
-    let tasks = session_tasks(journal, session);
-    let ids: HashSet<&str> = tasks
-        .iter()
-        .flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parts.iter().map(|p| p.id.as_str())))
-        .collect();
+    let ids = place_work(journal, &place_key(session));
     let let_go: HashSet<i64> = journal
         .iter()
         .filter(|e| e.kind == "let_go")

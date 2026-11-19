@@ -279,8 +279,7 @@ impl Desk {
     /// then the rest when asked for; each with what it asks and Stop.
     pub(crate) fn her_work(&self, faces: &Faces, work: &[Work], cx: &mut Context<Self>) -> Div {
         use crate::aside::{
-            ended_row, ended_summary, glyph, open_standing, part_row, running_lead, state_of,
-            task_row,
+            ended_row, ended_summary, glyph, open_standing, part_row, running_lead, task_row,
         };
         if work.is_empty() {
             return div().child(
@@ -292,8 +291,8 @@ impl Desk {
         }
         let when = |t: &Option<String>| t.as_deref().and_then(|t| t.parse::<DateTime<Utc>>().ok());
         let mut list = div().flex().flex_col();
-        for w in work.iter().filter(|w| state_of(w.state).open()) {
-            let (right, color) = open_standing(state_of(w.state), when(&w.started));
+        for w in work.iter().filter(|w| !w.state.ended()) {
+            let (right, color) = open_standing(w.state, when(&w.started));
             list = list.child(task_row(
                 faces,
                 SharedString::from(format!("her-work-{}", w.id)),
@@ -314,17 +313,11 @@ impl Desk {
             let controls = self.ask_controls(faces, &Ask::of(Whom::Her, w), cx);
             list = list.child(controls.pl(px(26.)).pb(px(4.)));
         }
-        let ended: Vec<&Work> = work.iter().filter(|w| !state_of(w.state).open()).collect();
+        let ended: Vec<&Work> = work.iter().filter(|w| w.state.ended()).collect();
         if ended.is_empty() {
             return list;
         }
-        let count =
-            |state: thread::State| ended.iter().filter(|w| state_of(w.state) == state).count();
-        let summary = ended_summary(
-            count(thread::State::Finished),
-            count(thread::State::Blocked),
-            count(thread::State::Dropped),
-        );
+        let summary = ended_summary(ended.iter().map(|w| w.state));
         let key = "more:her".to_owned();
         let open = self.expanded.contains(&key);
         list = list.child(ended_row(faces, "her-work-ended", summary, open, cx, key));
@@ -337,7 +330,7 @@ impl Desk {
                     task_row(
                         faces,
                         SharedString::from(format!("her-work-{}", w.id)),
-                        glyph(state_of(w.state)).into_any_element(),
+                        glyph(w.state).into_any_element(),
                         w.brief.clone(),
                         ago,
                         theme::faint(),

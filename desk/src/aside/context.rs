@@ -18,7 +18,7 @@
 //! then of what was read.
 
 use chrono::{DateTime, Utc};
-use ghost_link::protocol::WorkContext;
+use ghost_link::protocol::{Work, WorkContext};
 use gpui::{AnyElement, Div, FontWeight, Hsla, SharedString, div, prelude::*, px, relative};
 
 use super::ROW;
@@ -34,8 +34,12 @@ use crate::{
 /// The work whose context the Worker block shows for the place `place`:
 /// the newest of its work still going, or else the newest, with whether it
 /// is still going.
-pub(crate) fn context_work(journal: &[Entry], place: &str) -> Option<(String, bool)> {
-    let tasks = thread::place_tasks(journal, place);
+pub(crate) fn context_work(
+    journal: &[Entry],
+    work: &[Work],
+    place: &str,
+) -> Option<(String, bool)> {
+    let tasks = thread::place_tasks(journal, work, place);
     let task = tasks
         .iter()
         .rev()
@@ -339,13 +343,13 @@ impl Desk {
     /// The Context section for the place `place` of `watched`: a block for
     /// her looks, and one for the work of this place if it has any.
     pub(super) fn context(faces: &Faces, watched: &Watched, place: &str) -> Div {
-        let window = watched.status.as_ref().and_then(|s| s.think_window);
+        let window = watched.status.as_ref().and_then(|s| s.said.think_window);
         let mut body = div().flex().flex_col();
         body = body.child(match role(watched, place, window) {
             Ok((filled, when)) => block(faces, "role", "Role", &when, &filled),
             Err(why) => quiet_block(faces, "Role", why),
         });
-        if let Some((work, _)) = context_work(&watched.journal, place) {
+        if let Some((work, _)) = context_work(&watched.journal, &watched.work, place) {
             let shown = watched
                 .following
                 .work_context(&work)
