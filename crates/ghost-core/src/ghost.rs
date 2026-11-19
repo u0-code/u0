@@ -155,9 +155,13 @@ impl Ghost {
 
     /// Write something into her life. The journal entry and the derived
     /// memory move together; this is the only way either changes.
+    ///
+    /// Memory folds from where it stopped, so an entry an earlier write
+    /// could not fold is folded first. If folding fails, the entry is still
+    /// in her journal, and the error says which entry memory stopped at.
     pub fn record_at(&mut self, at: DateTime<Utc>, event: Event) -> Result<Entry> {
         let entry = self.journal.append_at(at, event)?;
-        self.memory.apply(&entry)?;
+        self.memory.catch_up(&self.journal)?;
         Ok(entry)
     }
 
@@ -370,6 +374,119 @@ sleep = "00:30"
         assert!(Ghost::peek(d.path()).is_ok());
         drop(first);
         assert!(Ghost::open(d.path()).is_ok());
+    }
+
+    fn canon(fact: &str) -> Event {
+        Event::Canon {
+            fact: fact.into(),
+            source: "life".into(),
+        }
+    }
+
+    fn facts(g: &Ghost) -> Vec<String> {
+        let mut facts: Vec<String> = g
+            .memory()
+            .canon(10)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.fact)
+            .collect();
+        facts.sort();
+        facts
+    }
+
+    /// Another connection to her memory that makes folding `fact` fail, the
+    /// way a lock held too long or a full disk would.
+    fn refuse(d: &Path, fact: &str) -> rusqlite::Connection {
+        let other = rusqlite::Connection::open(d.join(crate::memory::MEMORY_FILE)).unwrap();
+        other
+            .execute_batch(&format!(
+                "CREATE TRIGGER refuse BEFORE INSERT ON canon WHEN NEW.fact = '{fact}'
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;"
+            ))
+            .unwrap();
+        other
+    }
+
+    #[test]
+    fn an_entry_memory_could_not_fold_is_folded_by_her_next_write() {
+        let d = dir_with_seed();
+        let mut g = Ghost::birth(d.path()).unwrap();
+        g.record(canon("has a cat")).unwrap();
+        let other = refuse(d.path(), "lives by the river");
+
+        let err = g.record(canon("lives by the river")).unwrap_err();
+        let missed = g.journal().last_seq().unwrap();
+        assert!(
+            matches!(err, Error::Unfolded { seq, kind: "canon", .. } if seq == missed),
+            "{err}"
+        );
+        // It is in her journal all the same.
+        assert_eq!(g.memory().last_seq().unwrap(), missed - 1);
+
+        other.execute_batch("DROP TRIGGER refuse").unwrap();
+        g.record(canon("drinks tea")).unwrap();
+        assert_eq!(facts(&g), ["drinks tea", "has a cat", "lives by the river"]);
+        assert_eq!(
+            g.memory().last_seq().unwrap(),
+            g.journal().last_seq().unwrap()
+        );
+    }
+
+    #[test]
+    fn a_fold_that_keeps_failing_stops_her_at_that_entry() {
+        let d = dir_with_seed();
+        let mut g = Ghost::birth(d.path()).unwrap();
+        let other = refuse(d.path(), "lives by the river");
+        g.record(canon("lives by the river")).unwrap_err();
+        let stuck = g.journal().last_seq().unwrap();
+
+        // Later writes reach her journal, and memory goes no further.
+        let err = g.record(canon("drinks tea")).unwrap_err();
+        assert!(
+            matches!(err, Error::Unfolded { seq, .. } if seq == stuck),
+            "{err}"
+        );
+        drop(g);
+        let Err(err) = Ghost::open(d.path()) else {
+            panic!("she opened with an entry her memory could not fold");
+        };
+        assert!(
+            matches!(err, Error::Unfolded { seq, .. } if seq == stuck),
+            "{err}"
+        );
+
+        other.execute_batch("DROP TRIGGER refuse").unwrap();
+        let g = Ghost::open(d.path()).unwrap();
+        assert_eq!(facts(&g), ["drinks tea", "lives by the river"]);
+    }
+
+    #[test]
+    fn a_memory_an_earlier_build_left_an_entry_out_of_is_folded_again() {
+        let d = dir_with_seed();
+        let mut g = Ghost::birth(d.path()).unwrap();
+        for fact in ["has a cat", "lives by the river", "drinks tea"] {
+            g.record(canon(fact)).unwrap();
+        }
+        drop(g);
+        // As builds before this one could leave it: an entry whose fold
+        // failed and was stepped past, and no count of what was folded.
+        {
+            let conn =
+                rusqlite::Connection::open(d.path().join(crate::memory::MEMORY_FILE)).unwrap();
+            conn.execute_batch(
+                "DELETE FROM canon WHERE fact = 'lives by the river';
+                 DELETE FROM meta WHERE key = 'folded';",
+            )
+            .unwrap();
+        }
+        let g = Ghost::open(d.path()).unwrap();
+        assert_eq!(facts(&g), ["drinks tea", "has a cat", "lives by the river"]);
+        drop(g);
+        // Once whole, opening her folds nothing again.
+        let mut memory = Memory::open(d.path()).unwrap();
+        let journal = Journal::open(&d.path().join(JOURNAL_FILE)).unwrap();
+        assert_eq!(memory.catch_up(&journal).unwrap(), 0);
     }
 
     #[test]
