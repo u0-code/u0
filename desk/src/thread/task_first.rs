@@ -20,10 +20,19 @@ use super::{
     Item, View, ago,
     cards::{task, tool},
     clock, could_not, directed, items, look_started, sent_while_working, span, steps,
-    style::{BODY, BODY_LINE, BUBBLE_RADIUS, ROW, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TURN, meta},
     waiting_since,
 };
-use crate::{desk::Desk, fonts::Faces, markdown, model::Message, theme, ui};
+use crate::{
+    desk::Desk,
+    fonts::Faces,
+    markdown,
+    model::Message,
+    style::{
+        BODY, BODY_LINE, BUBBLE_RADIUS, DISPLAY, FINE, ROW_LINE, S1, S2, S3, S4, S6, SMALL, TINY,
+        TURN, meta,
+    },
+    theme, ui,
+};
 
 /// What came before an item, for the space above it: her answer sits
 /// close under your line and under the steps that led to it; turns stand
@@ -287,7 +296,7 @@ fn note(faces: &Faces, stopped: bool, at: String) -> Div {
                     "Nothing was running."
                 },
             )
-            .text_size(px(ROW - 1.))
+            .text_size(px(SMALL))
             .text_color(theme::muted()),
         )
         .child(meta(faces, at))
@@ -360,7 +369,7 @@ fn failed(
                 .min_w(px(0.))
                 .child(
                     ui::text(faces, could_not(why))
-                        .text_size(px(ROW - 1.))
+                        .text_size(px(SMALL))
                         .line_height(px(BODY_LINE))
                         .text_color(theme::muted()),
                 )
@@ -388,7 +397,7 @@ fn working(faces: &Faces, view: &View<'_>, since: DateTime<Utc>) -> Div {
         .child(if view.connected { breathing(dot) } else { dot })
         .child(
             ui::text(faces, word)
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted()),
         )
         .child(meta(faces, since))
@@ -407,7 +416,7 @@ fn quiet_row(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .min_h(px(28.))
         .child(
             ui::text(faces, text)
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .line_height(px(ROW_LINE))
                 .text_color(theme::muted()),
         )
@@ -446,7 +455,7 @@ fn folded(
         d.child(
             ui::text(faces, text)
                 .mt(px(S1))
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .line_height(px(BODY_LINE))
                 .text_color(theme::text2()),
         )
@@ -459,7 +468,7 @@ fn rebrained(faces: &Faces, think: &str, was: &str, at: &str) -> Div {
     quiet_row(faces, "Now thinking with")
         .child(
             ui::text(faces, model_name(think).to_owned())
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .text_color(theme::text()),
         )
         .child(meta(faces, format!("· was {} · {at}", model_name(was))))
@@ -558,7 +567,7 @@ fn empty(view: &View<'_>, faces: &Faces) -> AnyElement {
                 .gap(px(10.))
                 .child(
                     ui::serif(faces, line)
-                        .text_size(px(22.))
+                        .text_size(px(DISPLAY))
                         .line_height(px(30.))
                         .text_center(),
                 )
@@ -618,7 +627,7 @@ fn theirs(
                     .rounded(px(5.))
                     .border_1()
                     .border_color(theme::purple().opacity(0.35))
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .text_color(theme::purple()),
             )
         })
@@ -635,7 +644,7 @@ fn theirs(
         .when(named, |d| {
             d.rounded_full().bg(theme::border2()).child(
                 ui::text(faces, initial)
-                    .text_size(px(11.))
+                    .text_size(px(TINY))
                     .text_color(theme::text2()),
             )
         });

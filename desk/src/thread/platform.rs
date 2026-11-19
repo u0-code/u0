@@ -32,15 +32,13 @@ use gpui::{
 };
 use serde_json::Value;
 
-use super::{
-    View, calls, from_desk, s,
-    style::{BOX_RADIUS, CARD_RADIUS, META, PROSE, PROSE_LINE, ROW, S2, S3, S4, meta},
-};
+use super::{View, calls, from_desk, s};
 use crate::{
     desk::Desk,
     fonts::Faces,
     media::{self, Shown, Source},
     model::Entry,
+    style::{BODY, BODY_LINE, CARD_RADIUS, H3, META, NAME, S2, S3, S4, SMALL, boxed, meta, row},
     theme, ui,
 };
 
@@ -640,7 +638,7 @@ fn picture(
             )
             .child(
                 ui::text(faces, why)
-                    .text_size(px(SMALL_PRINT))
+                    .text_size(px(SMALL))
                     .line_height(px(17.))
                     .text_color(theme::faint())
                     .text_center(),
@@ -683,7 +681,7 @@ fn picture(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(SMALL_PRINT))
+                        .text_size(px(SMALL))
                         .text_color(theme::faint())
                         .child(unread.clone())
                         .into_any_element()
@@ -691,9 +689,6 @@ fn picture(
         )
         .into_any_element()
 }
-
-/// The size of what is written in a placeholder.
-const SMALL_PRINT: f32 = 13.;
 
 /// About how many points a column of the interface's face takes at 14,
 /// a Chinese character counting two.
@@ -726,7 +721,7 @@ pub(super) fn render(
                     .child(muted(faces, "Said in"))
                     .child(white(faces, calls::fit(place, cols(160.)))),
             };
-            let mut b = boxed().child(head.child(right(faces, when)));
+            let mut b = boxed().gap(px(S2)).child(head.child(right(faces, when)));
             if let Some(Sent::Image(file)) = sent {
                 b = b.child(div().px(px(10.)).child(picture(
                     faces,
@@ -742,8 +737,8 @@ pub(super) fn render(
                 b = b.child(
                     ui::serif(faces, text.clone())
                         .px(px(10.))
-                        .text_size(px(PROSE))
-                        .line_height(px(PROSE_LINE)),
+                        .text_size(px(BODY))
+                        .line_height(px(BODY_LINE)),
                 );
             }
             b.into_any_element()
@@ -755,6 +750,8 @@ pub(super) fn render(
                 format!("{} · {when}", calls::fit(place, cols(300.).max(12)))
             };
             row()
+                .gap(px(6.))
+                .min_w(px(0.))
                 .child(muted(faces, "Reacted"))
                 .child(white(faces, emoji.clone()))
                 .when_some(to.clone(), |d, to| {
@@ -806,13 +803,13 @@ pub(super) fn render(
                 .border_color(theme::border())
                 .child(
                     ui::text(faces, view.name.clone())
-                        .text_size(px(13.5))
+                        .text_size(px(NAME))
                         .line_height(px(18.)),
                 )
                 .child(
                     ui::text(faces, text.clone())
-                        .text_size(px(15.))
-                        .line_height(px(21.)),
+                        .text_size(px(H3.0))
+                        .line_height(px(H3.1)),
                 )
                 .when(counts.is_some() || link.is_some(), |d| d.child(foot));
             boxed()
@@ -841,6 +838,8 @@ pub(super) fn render(
             ))
             .into_any_element(),
         What::Inner { kind, verb, what } => row()
+            .gap(px(6.))
+            .min_w(px(0.))
             .child(ui::dot(colour(kind)))
             .child(muted(faces, *verb))
             .when(!what.is_empty(), |d| {
@@ -869,7 +868,7 @@ pub(super) fn render(
                     )
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(ROW - 1.))
+                    .text_size(px(SMALL))
                     .line_height(px(22.))
                     .text_color(theme::muted()),
                 )
@@ -877,21 +876,6 @@ pub(super) fn render(
                 .into_any_element()
         }
     }
-}
-
-/// A box for what she said or posted out there: a hairline frame, as an
-/// opened step's.
-fn boxed() -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(S2))
-        .px(px(S3))
-        .pt(px(14.))
-        .pb(px(S4))
-        .rounded(px(BOX_RADIUS))
-        .border_1()
-        .border_color(theme::border())
 }
 
 /// The line a box is headed with: what was done, and where.
@@ -905,22 +889,11 @@ fn label() -> Div {
         .h(px(20.))
 }
 
-/// A quiet row, the size and inset of a step's.
-fn row() -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .h(px(30.))
-        .px(px(10.))
-        .min_w(px(0.))
-}
-
 fn muted(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .flex_none()
         .whitespace_nowrap()
-        .text_size(px(ROW - 1.))
+        .text_size(px(SMALL))
         .text_color(theme::muted())
 }
 
@@ -928,7 +901,7 @@ fn white(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .whitespace_nowrap()
         .overflow_hidden()
-        .text_size(px(ROW - 1.))
+        .text_size(px(SMALL))
         .text_color(theme::text())
 }
 

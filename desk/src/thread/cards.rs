@@ -11,15 +11,16 @@ use ghost_link::protocol::{AskKind, LoggedStep, Work, WorkState};
 use gpui::{Context, Div, SharedString, Stateful, div, prelude::*, px};
 use serde_json::Value;
 
-use super::{
-    Task, calls, clock, drawn, kinds, live, s, span, steps,
-    style::{
-        BODY_LINE, CARD_RADIUS, MONO, PROSE, PROSE_LINE, ROW, S1, S2, S3, S4, SMALL, meta, well,
-    },
-    task_first::breathing,
-};
+use super::{Task, calls, clock, drawn, kinds, live, s, span, steps, task_first::breathing};
 use crate::{
-    answer::Whom, aside, desk::Desk, follow::Following, fonts::Faces, link::Order, model::Entry,
+    answer::Whom,
+    aside,
+    desk::Desk,
+    follow::Following,
+    fonts::Faces,
+    link::Order,
+    model::Entry,
+    style::{BODY, BODY_LINE, CAPTION, CARD_RADIUS, MONO, NAME, S1, S2, S3, S4, SMALL, meta, well},
     theme, ui,
 };
 
@@ -63,7 +64,7 @@ pub(super) fn tool(
         .px(px(S4))
         .child(
             ui::text(faces, verb)
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted())
                 .flex_none(),
         )
@@ -72,7 +73,7 @@ pub(super) fn tool(
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .text_size(px(MONO + 0.5))
+                .text_size(px(NAME))
                 .text_color(theme::text()),
         )
         .child(meta(faces, clock(e.at, tz)).flex_none())
@@ -164,7 +165,7 @@ pub(super) fn task(
         .child(
             ui::one_line(ui::text(faces, calls::fit(t.title(), title_cols)))
                 .whitespace_nowrap()
-                .text_size(px(14.))
+                .text_size(px(BODY))
                 .line_height(px(20.))
                 .text_color(if dropped {
                     theme::faint()
@@ -332,12 +333,12 @@ pub(super) fn task(
                     .flex_col()
                     .child(
                         ui::text(faces, calls::fit(out.name(), 40))
-                            .text_size(px(13.5))
+                            .text_size(px(NAME))
                             .text_color(theme::text()),
                     )
                     .child(
                         ui::text(faces, second)
-                            .text_size(px(12.))
+                            .text_size(px(CAPTION))
                             .text_color(theme::muted()),
                     ),
             );
@@ -372,8 +373,8 @@ fn asking(faces: &Faces, w: &Work, question: &str, whom: &Whom, cx: &mut Context
         .pb(px(14.))
         .child(
             ui::serif(faces, question.to_owned())
-                .text_size(px(PROSE))
-                .line_height(px(PROSE_LINE)),
+                .text_size(px(BODY))
+                .line_height(px(BODY_LINE)),
         );
     let mut answers: Vec<String> = Vec::new();
     if w.kind == Some(AskKind::Choose) {
@@ -595,7 +596,7 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
                 // Cut by characters here: GPUI's own clamp with an
                 // ellipsis cuts Chinese inside a character and panics.
                 ui::text(faces, calls::one_line(text, SAID_SHORT))
-                    .text_size(px(SMALL + 1.))
+                    .text_size(px(BODY))
                     .line_height(px(BODY_LINE))
                     .text_color(theme::text2()),
             )

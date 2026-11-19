@@ -64,6 +64,7 @@ use crate::{
     settings::Settings,
     sheet::Sheet,
     solver::{Deployment, Provider},
+    style::{BODY, COLUMN},
     theme, thread,
 };
 
@@ -650,7 +651,7 @@ fn thread_view<'a>(
         work: &ghost.work,
         whom,
         scroll: Some(scroll),
-        column: thread::COLUMN,
+        column: COLUMN,
         media: ghost.media(),
         status: ghost.status.as_ref(),
     }
@@ -694,7 +695,7 @@ impl Render for Desk {
             let pane = f32::from(window.viewport_size().width)
                 - if self.panes.left { LEFT } else { 0. }
                 - if self.panes.right { RIGHT } else { 0. };
-            view.column = (pane - 64.).clamp(240., thread::COLUMN);
+            view.column = (pane - 64.).clamp(240., COLUMN);
             // Only a place on the console channel is yours to stop her in.
             let busy = place.starts_with(&thread::place_key("")) && thread::busy(&view);
             middle
@@ -708,7 +709,7 @@ impl Render for Desk {
             .size_full()
             .bg(theme::bg())
             .font_family(faces.ui.clone())
-            .text_size(px(14.))
+            .text_size(px(BODY))
             .text_color(theme::text())
             .when(self.panes.left, |d| d.child(self.left(&faces, lights, cx)))
             .child(middle)

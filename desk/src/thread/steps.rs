@@ -21,15 +21,17 @@ use gpui::{
     prelude::*, px,
 };
 
-use super::{
-    calls, drawn, kinds, live, output,
+use super::{calls, drawn, kinds, live, output, task_first::breathing};
+use crate::{
+    desk::Desk,
+    follow,
+    fonts::Faces,
     style::{
-        BOX_RADIUS, CARD_RADIUS, META, MONO, MONO_LINE, ROW, ROW_LINE, S1, S2, S3, S4, SMALL,
-        WELL_RADIUS, meta,
+        BODY, CARD_RADIUS, META, MONO, MONO_LINE, NAME, ROW_LINE, S1, S2, S3, S4, SMALL,
+        WELL_RADIUS, boxed, meta, row,
     },
-    task_first::breathing,
+    theme, ui,
 };
-use crate::{desk::Desk, follow, fonts::Faces, theme, ui};
 
 /// How many of a work's steps show before "Show earlier steps": the
 /// latest are what someone following it wants.
@@ -89,7 +91,7 @@ pub(super) fn look(
         .cursor_pointer()
         .child(
             ui::text(faces, head)
-                .text_size(px(ROW))
+                .text_size(px(BODY))
                 .text_color(theme::muted())
                 .hover(|s| s.text_color(theme::text2())),
         )
@@ -172,21 +174,17 @@ fn call_row(
     let counts = changed.as_deref().map(kinds::counted);
     let toggle = key.to_owned();
     let group = SharedString::from(format!("{key}-group"));
-    let head = div()
+    let head = row()
         .id(SharedString::from(format!("{key}-row")))
         .group(group.clone())
-        .flex()
-        .items_center()
         .gap(px(6.))
-        .h(px(30.))
-        .px(px(10.))
         .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(theme::border()))
         .child(
             ui::text(faces, said.verb.clone())
                 .flex_none()
-                .text_size(px(ROW))
+                .text_size(px(BODY))
                 .text_color(theme::muted()),
         )
         .child(
@@ -245,19 +243,11 @@ fn call_row(
         // Opened, a call is a box under its row, its edge under the row's
         // words: what it was in a line, the command in a well, and what came
         // back, all in hairline frames on the thread's ground.
-        let mut body = div()
-            .flex()
-            .flex_col()
+        let mut body = boxed()
             .gap(px(S3))
             .mt(px(S3))
             .mb(px(S3))
             .mx(px(10.))
-            .px(px(S3))
-            .pt(px(14.))
-            .pb(px(S4))
-            .rounded(px(BOX_RADIUS))
-            .border_1()
-            .border_color(theme::border())
             .child(box_label(faces, call, &said, counts));
         if let Some(command) = calls::command_of(&call.name, &call.args) {
             body = body.child(command_well(faces, key, &command, cx));
@@ -324,7 +314,7 @@ fn call_row(
                     },
                 )
                 .px(px(10.))
-                .text_size(px(ROW - 1.))
+                .text_size(px(SMALL))
                 .line_height(px(21.))
                 .text_color(theme::text2()),
             )
@@ -390,12 +380,12 @@ fn object(faces: &Faces, name: &str, what: &str) -> Div {
     if typed {
         ui::mono(faces, text)
             .truncate()
-            .text_size(px(MONO + 0.5))
+            .text_size(px(NAME))
             .text_color(theme::text())
     } else {
         ui::text(faces, text)
             .truncate()
-            .text_size(px(ROW))
+            .text_size(px(BODY))
             .text_color(theme::text())
     }
 }
@@ -415,7 +405,7 @@ fn box_label(
         .gap(px(S2))
         .px(px(10.))
         .min_w(px(0.))
-        .text_size(px(ROW - 1.))
+        .text_size(px(SMALL))
         .line_height(px(20.));
     if call.name == "shell" && calls::command_of(&call.name, &call.args).is_some() {
         return line.child(ui::text(faces, "Bash").text_color(theme::muted()));
@@ -640,12 +630,8 @@ pub(super) fn earlier(
     let all_key = format!("steps-all:{work}");
     let (shown, hidden) = super::shown(total, STEPS_SHOWN, expanded.contains(&all_key));
     let line = (hidden > 0).then(|| {
-        div()
+        row()
             .id(SharedString::from(all_key.clone()))
-            .px(px(10.))
-            .h(px(30.))
-            .flex()
-            .items_center()
             .cursor_pointer()
             .child(
                 ui::text(faces, format!("Show {hidden} earlier steps"))
@@ -700,7 +686,7 @@ pub(super) fn part(
                 calls::fit(&format!("Part {n} · {}", part.brief), 72),
             ))
             .whitespace_nowrap()
-            .text_size(px(13.5))
+            .text_size(px(NAME))
             .line_height(px(19.))
             .text_color(theme::text()),
         )

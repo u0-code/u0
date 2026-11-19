@@ -11,6 +11,7 @@ use gpui::{
 use crate::{
     brains::Mark,
     fonts::{self, Faces},
+    style::{BODY, CAPTION, META, TINY},
     theme,
 };
 
@@ -26,7 +27,7 @@ pub fn icon(name: &str, size: f32) -> Svg {
 pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
     div()
         .font_family(faces.mono.clone())
-        .text_size(px(12.))
+        .text_size(px(CAPTION))
         .text_color(theme::muted())
         .child(text.into())
 }
@@ -35,7 +36,7 @@ pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
 pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
     div()
         .font_family(faces.ui.clone())
-        .text_size(px(14.))
+        .text_size(px(BODY))
         .text_color(theme::text())
         .child(text.into())
 }
@@ -91,7 +92,7 @@ pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
 /// The quiet title over a menu's choices: "Mode", "Brain".
 pub fn menu_head(faces: &Faces, text: impl Into<SharedString>) -> Div {
     self::text(faces, text)
-        .text_size(px(12.))
+        .text_size(px(CAPTION))
         .text_color(theme::muted())
         .px(px(10.))
         .pt(px(8.))
@@ -102,7 +103,7 @@ pub fn menu_head(faces: &Faces, text: impl Into<SharedString>) -> Div {
 pub fn key(faces: &Faces, text: impl Into<SharedString>) -> Div {
     mono(faces, text)
         .flex_none()
-        .text_size(px(11.))
+        .text_size(px(TINY))
         .text_color(theme::faint())
 }
 
@@ -127,7 +128,7 @@ pub fn button(
     label: impl Into<SharedString>,
     weight: Weight,
 ) -> gpui::Stateful<Div> {
-    let word = text(faces, label).text_size(px(12.5));
+    let word = text(faces, label).text_size(px(META));
     let base = div()
         .id(id)
         .flex()
@@ -181,7 +182,7 @@ impl Render for Tip {
             .border_1()
             .border_color(theme::border2())
             .font_family(crate::fonts::faces(cx).ui.clone())
-            .text_size(px(12.))
+            .text_size(px(CAPTION))
             .text_color(theme::text2())
             .child(self.0.clone())
     }

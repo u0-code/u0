@@ -23,6 +23,7 @@ use crate::{
     input::{Cancelled, Changed, Submitted, TextInput},
     link::{BrainAnswer, BrainCall, Refused},
     solver::Provider,
+    style::{CAPTION, FINE, META, NAME},
     theme, ui,
 };
 
@@ -572,7 +573,7 @@ impl Desk {
         });
         let title: AnyElement = match &self.sheet.preset {
             None => ui::text(faces, "Add brain")
-                .text_size(px(13.5))
+                .text_size(px(NAME))
                 .font_weight(FontWeight::MEDIUM)
                 .into_any_element(),
             Some(preset) => {
@@ -589,7 +590,7 @@ impl Desk {
                     .child(ui::mark(faces, preset.mark(), 16.))
                     .child(
                         ui::text(faces, name)
-                            .text_size(px(13.5))
+                            .text_size(px(NAME))
                             .font_weight(FontWeight::MEDIUM),
                     )
                     .into_any_element()
@@ -636,7 +637,7 @@ impl Desk {
                     .child(ui::mark(faces, preset.mark(), 20.))
                     .child(
                         ui::text(faces, preset.name().to_owned())
-                            .text_size(px(12.))
+                            .text_size(px(CAPTION))
                             .text_color(theme::text2()),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -735,7 +736,7 @@ impl Desk {
                 )
                 .child(
                     ui::text(faces, "Advanced")
-                        .text_size(px(12.))
+                        .text_size(px(CAPTION))
                         .text_color(theme::muted()),
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -773,7 +774,12 @@ impl Desk {
             }),
         };
         body = body.children(line.map(|(text, color)| {
-            ui::one_line(ui::text(faces, text).text_size(px(12.)).text_color(color)).h(px(18.))
+            ui::one_line(
+                ui::text(faces, text)
+                    .text_size(px(CAPTION))
+                    .text_color(color),
+            )
+            .h(px(18.))
         }));
 
         // Remove at the left, when editing; Test, Save, Save & use at the right.
@@ -783,7 +789,7 @@ impl Desk {
                 .cursor_pointer()
                 .child(
                     ui::text(faces, "Remove")
-                        .text_size(px(12.5))
+                        .text_size(px(META))
                         .text_color(theme::coral()),
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.remove_brain(window, cx)))
@@ -841,7 +847,7 @@ impl Desk {
                             .hover(|s| s.bg(theme::hover()))
                             .child(ui::one_line(
                                 ui::mono(faces, id.clone())
-                                    .text_size(px(12.))
+                                    .text_size(px(CAPTION))
                                     .text_color(theme::text2()),
                             ))
                             .when(*id == current, |d| {
@@ -879,7 +885,7 @@ fn field_row(faces: &Faces, label: &'static str, control: Div) -> Div {
             ui::text(faces, label)
                 .w(px(LABEL))
                 .flex_none()
-                .text_size(px(12.5))
+                .text_size(px(META))
                 .text_color(theme::muted()),
         )
         .child(control)
@@ -912,18 +918,22 @@ fn status(faces: &Faces, word: &str, color: Hsla) -> Div {
         .child(ui::dot(color))
         .child(
             ui::mono(faces, word.to_owned())
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(color),
         )
 }
 
 /// A line of small print in the model list.
 fn note(faces: &Faces, text: impl Into<SharedString>, color: Hsla) -> Div {
-    ui::one_line(ui::text(faces, text).text_size(px(12.)).text_color(color))
-        .h(px(24.))
-        .px(px(7.))
-        .flex()
-        .items_center()
+    ui::one_line(
+        ui::text(faces, text)
+            .text_size(px(CAPTION))
+            .text_color(color),
+    )
+    .h(px(24.))
+    .px(px(7.))
+    .flex()
+    .items_center()
 }
 
 /// A small square control.

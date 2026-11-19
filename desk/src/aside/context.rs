@@ -26,6 +26,7 @@ use crate::{
     desk::{Desk, Watched},
     fonts::Faces,
     model::Entry,
+    style::{CAPTION, FINE, SMALL},
     theme,
     thread::{self},
     ui,
@@ -372,13 +373,13 @@ fn head(faces: &Faces, title: &'static str, when: &str) -> Div {
         .h(px(22.))
         .child(
             ui::text(faces, title)
-                .text_size(px(12.))
+                .text_size(px(CAPTION))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted()),
         )
         .child(
             ui::text(faces, when.to_owned())
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(theme::faint()),
         )
 }
@@ -392,7 +393,7 @@ fn quiet_block(faces: &Faces, title: &'static str, why: &'static str) -> Div {
         .child(head(faces, title, ""))
         .child(
             ui::text(faces, why)
-                .text_size(px(13.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted())
                 .h(px(ROW))
                 .flex()
@@ -414,12 +415,12 @@ fn block(faces: &Faces, key: &'static str, title: &'static str, when: &str, f: &
         .h(px(ROW))
         .child(
             ui::text(faces, f.headline())
-                .text_size(px(13.))
+                .text_size(px(SMALL))
                 .text_color(theme::text()),
         )
         .child(
             ui::mono(faces, numbers)
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(theme::muted()),
         );
     let whole = f.whole() as f32;
@@ -479,7 +480,7 @@ fn block(faces: &Faces, key: &'static str, title: &'static str, when: &str, f: &
 /// it is on hover, where the name does not say), its tokens, and its share.
 fn part_row(faces: &Faces, key: &str, part: &Part, tokens: u64, f: &Filled) -> Div {
     let name = ui::text(faces, part.name.clone())
-        .text_size(px(13.))
+        .text_size(px(SMALL))
         .text_color(theme::text2());
     let name: AnyElement = match part.tip {
         Some(tip) => div()
@@ -509,7 +510,7 @@ fn part_row(faces: &Faces, key: &str, part: &Part, tokens: u64, f: &Filled) -> D
         .child(div().flex_1())
         .child(
             ui::mono(faces, kilo(tokens))
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(theme::muted())
                 .flex_none()
                 .w(px(52.))
@@ -517,7 +518,7 @@ fn part_row(faces: &Faces, key: &str, part: &Part, tokens: u64, f: &Filled) -> D
         )
         .child(
             ui::mono(faces, f.percent(tokens))
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(theme::text2())
                 .flex_none()
                 .w(px(48.))

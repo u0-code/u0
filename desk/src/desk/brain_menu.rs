@@ -35,6 +35,7 @@ use crate::{
     fonts::Faces,
     link::{self, BrainAnswer, BrainCall, Refused},
     solver::Provider,
+    style::{CAPTION, FINE, META, SMALL},
     theme, ui,
 };
 
@@ -533,7 +534,7 @@ impl Desk {
                 .child(ui::icon("plus", 15.).text_color(theme::muted()))
                 .child(
                     ui::text(faces, "Add brain…")
-                        .text_size(px(13.))
+                        .text_size(px(SMALL))
                         .text_color(theme::text2()),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -576,7 +577,7 @@ impl Desk {
                 this.open_sheet(Some(edit.clone()), window, cx);
             }));
         let about = ui::one_line(ui::text(faces, p.about()))
-            .text_size(px(11.5))
+            .text_size(px(FINE))
             .line_height(px(15.))
             .text_color(if p.blocker.is_some() {
                 theme::coral()
@@ -607,7 +608,7 @@ impl Desk {
                         ui::text(faces, p.title())
                             .w_full()
                             .truncate()
-                            .text_size(px(13.))
+                            .text_size(px(SMALL))
                             .line_height(px(18.)),
                     )
                     .child(about),
@@ -647,7 +648,7 @@ impl Desk {
         else {
             return column.child(
                 ui::text(faces, "Add a brain to choose its model.")
-                    .text_size(px(12.5))
+                    .text_size(px(META))
                     .text_color(theme::muted())
                     .p(px(8.)),
             );
@@ -655,7 +656,7 @@ impl Desk {
         let head = ui::menu_head(faces, format!("Model · {}", p.title()));
         let note = |text: String| {
             ui::text(faces, text)
-                .text_size(px(12.))
+                .text_size(px(CAPTION))
                 .line_height(px(16.))
                 .text_color(theme::muted())
                 .px(px(10.))
@@ -681,7 +682,7 @@ impl Desk {
                     .hover(|s| s.bg(theme::hover()))
                     .child(ui::one_line(
                         ui::text(faces, c.label.clone())
-                            .text_size(px(13.))
+                            .text_size(px(SMALL))
                             .text_color(if on { theme::text() } else { theme::text2() }),
                     ))
                     .child(div().flex_none().w(px(14.)).when(on, |d| {

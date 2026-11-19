@@ -21,7 +21,7 @@ mod output;
 mod outputs;
 mod platform;
 mod steps;
-pub mod style;
+
 mod task_first;
 #[cfg(test)]
 mod tests;
@@ -37,10 +37,7 @@ use ghost_link::protocol::{CONSOLE, Look, Work, WorkState};
 use gpui::{AnyElement, Context, Hsla};
 use serde_json::Value;
 
-pub use self::{
-    outputs::{Output, Source, outputs},
-    style::COLUMN,
-};
+pub use self::outputs::{Output, Source, outputs};
 use crate::{
     desk::Desk,
     follow::{Following, PlaceLooks},

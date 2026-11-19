@@ -27,6 +27,7 @@ use crate::{
     model::LinkState,
     sessions::{self, Session},
     solver::Provider,
+    style::{CAPTION, FINE, META, NAME, SMALL, TINY},
     theme,
     thread::{self, Task},
     ui,
@@ -38,9 +39,6 @@ const ROW: f32 = 32.;
 const SESSION_ROW: f32 = 32.;
 /// Between two rows that light up, so two pills never touch.
 const ROW_GAP: f32 = 2.;
-const TEXT: f32 = 13.5;
-/// A group's head: its text, and the room above it that sets groups apart.
-const HEAD_TEXT: f32 = 12.;
 const HEAD_ABOVE: f32 = 22.;
 /// A part's row under its session: a little shorter, so that it reads as
 /// belonging to the row above.
@@ -79,7 +77,7 @@ fn menu_row(
         .child(ui::icon(icon, 16.).text_color(theme::text2()))
         .child(
             ui::text(faces, label)
-                .text_size(px(TEXT))
+                .text_size(px(NAME))
                 .text_color(theme::text()),
         )
 }
@@ -100,7 +98,7 @@ fn menu_item(
         .rounded(px(7.))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
-        .child(ui::text(faces, word).text_size(px(13.)).text_color(color))
+        .child(ui::text(faces, word).text_size(px(SMALL)).text_color(color))
 }
 
 /// The thin └ that ties a part to the session above it: a 1-pixel line
@@ -202,7 +200,7 @@ impl Desk {
                         .bg(theme::purple().opacity(0.18))
                         .child(
                             ui::mono(faces, count.to_string())
-                                .text_size(px(11.))
+                                .text_size(px(TINY))
                                 .text_color(theme::purple()),
                         ),
                 )
@@ -291,7 +289,7 @@ impl Desk {
                         .py(px(6.))
                         .child(
                             ui::text(faces, why)
-                                .text_size(px(12.5))
+                                .text_size(px(META))
                                 .line_height(px(17.))
                                 .text_color(theme::muted())
                                 .flex_1()
@@ -305,7 +303,7 @@ impl Desk {
                                     .cursor_pointer()
                                     .child(
                                         ui::text(faces, "Retry")
-                                            .text_size(px(12.5))
+                                            .text_size(px(META))
                                             .line_height(px(17.))
                                             .text_color(theme::text2()),
                                     )
@@ -344,7 +342,7 @@ impl Desk {
         if found.is_empty() {
             list = list.child(
                 ui::text(faces, "No session is called that.")
-                    .text_size(px(13.))
+                    .text_size(px(SMALL))
                     .text_color(theme::muted())
                     .px(px(10.))
                     .py(px(8.)),
@@ -405,7 +403,7 @@ impl Desk {
         } else {
             ui::one_line(
                 ui::text(faces, s.label())
-                    .text_size(px(TEXT))
+                    .text_size(px(NAME))
                     .text_color(label_color),
             )
             .into_any_element()
@@ -549,13 +547,13 @@ impl Desk {
             .hover(|s| s.bg(theme::hover()))
             .child(
                 ui::text(faces, self.solver.name())
-                    .text_size(px(13.5))
+                    .text_size(px(NAME))
                     .font_weight(FontWeight::MEDIUM)
                     .flex_none(),
             )
             .child(ui::one_line(
                 ui::mono(faces, format!("· {brain}"))
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .text_color(theme::muted()),
             ))
             .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
@@ -607,7 +605,7 @@ fn part_row(
         .child(ui::dot(thread::state_color(part.state)))
         .child(ui::one_line(
             ui::text(faces, part.brief.clone())
-                .text_size(px(13.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted()),
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.choose(&session, cx)))
@@ -639,7 +637,7 @@ impl Desk {
             .cursor_pointer()
             .child(
                 ui::text(faces, group.host.label().to_owned())
-                    .text_size(px(HEAD_TEXT))
+                    .text_size(px(CAPTION))
                     .text_color(theme::muted()),
             )
             .child(
@@ -763,7 +761,7 @@ impl Desk {
             .child(ui::dot(dot))
             .child(ui::one_line(
                 ui::text(faces, her.card.name.clone())
-                    .text_size(px(TEXT))
+                    .text_size(px(NAME))
                     .text_color(theme::text()),
             ))
             .on_click(cx.listener(move |this, _, _, cx| this.open_character(&host, &id, cx)))
@@ -787,7 +785,7 @@ impl Desk {
                     ui::text(faces, label)
                         .flex_none()
                         .w(px(40.))
-                        .text_size(px(11.5))
+                        .text_size(px(FINE))
                         .text_color(theme::faint()),
                 )
                 .child(
@@ -827,7 +825,7 @@ impl Desk {
             .children(self.form.refused.as_ref().map(|why| {
                 ui::text(faces, why.clone())
                     .px(px(4.))
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .line_height(px(16.))
                     .text_color(theme::muted())
             }))
@@ -864,7 +862,7 @@ fn add_connection_row(faces: &Faces, cx: &mut Context<Desk>) -> Stateful<Div> {
         .child(ui::icon("plus", 15.).text_color(theme::muted()))
         .child(
             ui::text(faces, "Add connection")
-                .text_size(px(TEXT))
+                .text_size(px(NAME))
                 .text_color(theme::muted()),
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_adding(window, cx)))

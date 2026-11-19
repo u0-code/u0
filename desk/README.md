@@ -303,10 +303,12 @@ line on an empty page: Inter, JetBrains Mono and Source Serif 4, the
 open fonts in `assets/fonts/`, built into the binary (a face added there
 is listed in `src/fonts.rs`, and a test says so if it is not). None of
 them has Chinese, so each falls back to PingFang SC for it,
-rather than to whatever the system's cascade finds first. The thread is
-set from a few sizes kept in `src/thread/style.rs`: body text at 14 px on
-22.5 px lines, secondary text at 12.5, commands and output in mono at 12,
-small print at 11, and space in steps of four.
+rather than to whatever the system's cascade finds first. Every line of
+text, in the thread and in the columns beside it, is set at one of a few
+sizes kept in `src/style.rs`: body text at 14 px on 21 px lines, names in
+a list at 13.5, secondary text and commands and output in mono at 13,
+small print at 12.5 in the thread and 11.5 beside it, and space in steps
+of four.
 The app's icon is the ghost of the repository's own mark, on the body
 macOS app icons sit on: `assets/app/icon.svg`, rendered to
 `assets/app/icon.png`. The brands' marks and where they came from are in

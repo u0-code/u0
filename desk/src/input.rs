@@ -20,6 +20,7 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::style::{BODY, SMALL};
 use crate::theme;
 
 actions!(
@@ -831,7 +832,7 @@ impl Render for TextInput {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .line_height(px(if self.keep { 20. } else { 22. }))
-            .text_size(px(if self.keep { 13. } else { 14. }))
+            .text_size(px(if self.keep { SMALL } else { BODY }))
             .text_color(theme::text())
             .child(
                 div()

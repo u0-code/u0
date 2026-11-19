@@ -5,7 +5,11 @@
 use gpui::{AnyElement, Context, Corner, Div, FontWeight, anchored, deferred, div, prelude::*, px};
 
 use super::{Desk, Open, Popup, TOPBAR, draggable};
-use crate::{fonts::Faces, theme, ui};
+use crate::{
+    fonts::Faces,
+    style::{CAPTION, SMALL},
+    theme, ui,
+};
 
 impl Desk {
     /// A small square control in the row beside the window's lights.
@@ -74,7 +78,7 @@ impl Desk {
         } else {
             let t = ui::text(faces, title)
                 .font_weight(FontWeight::MEDIUM)
-                .text_size(px(13.));
+                .text_size(px(SMALL));
             // Beside a picker her name keeps its width; alone, a name
             // trails off.
             if picker.is_some() {
@@ -134,7 +138,7 @@ impl Desk {
             .child(ui::one_line(
                 ui::text(faces, title)
                     .font_weight(FontWeight::MEDIUM)
-                    .text_size(px(13.)),
+                    .text_size(px(SMALL)),
             ))
             .child(
                 ui::icon("chevron-down", 12.)
@@ -180,7 +184,7 @@ impl Desk {
             .hover(|s| s.bg(theme::hover()))
             .child(ui::one_line(
                 ui::mono(faces, label)
-                    .text_size(px(12.))
+                    .text_size(px(CAPTION))
                     .text_color(theme::text2()),
             ))
             .child(ui::icon("chevron-down", 12.).text_color(theme::muted()))
@@ -228,7 +232,7 @@ impl Desk {
                         .when(here, |d| d.bg(theme::panel2()))
                         .hover(|s| s.bg(theme::hover()))
                         .child(ui::one_line(
-                            ui::text(faces, place.label).text_size(px(13.)),
+                            ui::text(faces, place.label).text_size(px(SMALL)),
                         ))
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.choose_place(key.clone(), cx)),

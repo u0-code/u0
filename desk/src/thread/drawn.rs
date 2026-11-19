@@ -7,10 +7,14 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{
     kinds::{Hit, Line, Memory, Status},
-    style::{MONO, MONO_LINE, S1, S2, SMALL, WELL_RADIUS, meta},
     task_first::breathing,
 };
-use crate::{desk::Desk, fonts::Faces, theme, ui};
+use crate::{
+    desk::Desk,
+    fonts::Faces,
+    style::{BODY, CAPTION, MONO, MONO_LINE, S1, S2, WELL_RADIUS, meta},
+    theme, ui,
+};
 
 /// A diff in a well: a line taken away on a faint coral, one put in on a
 /// faint green, the sign in the stronger colour, the words left as they
@@ -89,7 +93,7 @@ pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> 
                     ui::text(faces, super::calls::fit(&hit.title, 84))
                         .w_full()
                         .truncate()
-                        .text_size(px(14.))
+                        .text_size(px(BODY))
                         .line_height(px(20.))
                         .text_color(theme::link())
                         .hover(Styled::underline),
@@ -116,7 +120,7 @@ pub fn memories(faces: &Faces, found: &[Memory]) -> Div {
                 .child(
                     ui::mono(faces, format!("#{}", memory.n))
                         .flex_none()
-                        .text_size(px(12.))
+                        .text_size(px(CAPTION))
                         .line_height(px(21.))
                         .text_color(theme::faint()),
                 )
@@ -124,7 +128,7 @@ pub fn memories(faces: &Faces, found: &[Memory]) -> Div {
                     ui::text(faces, memory.text.clone())
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(14.))
+                        .text_size(px(BODY))
                         .line_height(px(21.))
                         .text_color(theme::text2()),
                 ),
@@ -184,7 +188,7 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
                     ui::text(faces, text.clone())
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(SMALL + 1.))
+                        .text_size(px(BODY))
                         .line_height(px(21.))
                         .text_color(match status {
                             Status::Doing => theme::text(),

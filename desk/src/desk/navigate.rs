@@ -8,7 +8,9 @@ use super::{Desk, Notice, Open, Page, Popup, Watched};
 use crate::{
     daemons::Host,
     link::{self, Order},
-    sessions, thread,
+    sessions,
+    style::COLUMN,
+    thread,
 };
 
 impl Desk {
@@ -161,7 +163,7 @@ impl Desk {
             work: &self.solver.work,
             whom: crate::answer::Whom::Solver,
             scroll: None,
-            column: thread::COLUMN,
+            column: COLUMN,
             media: self.solver.media(),
             status: self.solver.status.as_ref(),
         };

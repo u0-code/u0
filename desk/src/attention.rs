@@ -29,6 +29,7 @@ use crate::{
     daemons::{self, Host},
     desk::{Desk, Page},
     fonts::Faces,
+    style::{BODY, COLUMN, FINE, META, NAME, SMALL},
     theme, thread, ui,
 };
 
@@ -272,7 +273,7 @@ impl Desk {
                     faces,
                     "What every ghost the desk follows is waiting on you for, newest first.",
                 )
-                .text_size(px(13.))
+                .text_size(px(SMALL))
                 .text_color(theme::muted())
                 .flex_1()
                 .min_w(px(0.)),
@@ -289,14 +290,14 @@ impl Desk {
             .flex_col()
             .gap(px(12.))
             .w_full()
-            .max_w(px(thread::COLUMN))
+            .max_w(px(COLUMN))
             .mx_auto()
             .child(head)
             .children(self.notice_line(faces, cx));
         if items.is_empty() {
             column = column.child(
                 ui::text(faces, "Nothing is waiting on you.")
-                    .text_size(px(14.))
+                    .text_size(px(BODY))
                     .text_color(theme::muted())
                     .py(px(24.))
                     .text_center(),
@@ -347,13 +348,13 @@ impl Desk {
             .child(ui::dot(if seen { theme::faint() } else { color }).size(px(7.)))
             .child(
                 ui::mono(faces, word)
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .text_color(color)
                     .flex_none(),
             )
             .child(ui::one_line(
                 ui::mono(faces, format!("{} · {}{ago}", item.name, item.host.label()))
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .text_color(theme::muted()),
             ))
             .child(open)
@@ -381,7 +382,7 @@ impl Desk {
             .children(it.brief.as_ref().map(|b| {
                 ui::one_line(
                     ui::text(faces, b.clone())
-                        .text_size(px(12.5))
+                        .text_size(px(META))
                         .text_color(theme::muted()),
                 )
             }));
@@ -403,7 +404,7 @@ impl Desk {
         } else {
             body = body.child(
                 ui::text(faces, it.text.clone())
-                    .text_size(px(13.5))
+                    .text_size(px(NAME))
                     .line_height(px(20.))
                     .text_color(if seen { theme::text2() } else { theme::text() }),
             );
@@ -411,7 +412,7 @@ impl Desk {
         for file in &it.files {
             body = body.child(
                 ui::mono(faces, file.clone())
-                    .text_size(px(11.5))
+                    .text_size(px(FINE))
                     .text_color(theme::muted()),
             );
         }
@@ -433,7 +434,7 @@ fn small(faces: &Faces, id: impl Into<SharedString>, text: &'static str) -> Stat
         .hover(|s| s.bg(theme::hover()))
         .child(
             ui::text(faces, text)
-                .text_size(px(12.5))
+                .text_size(px(META))
                 .text_color(theme::muted()),
         )
 }

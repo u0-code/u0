@@ -1,4 +1,5 @@
 use super::*;
+use crate::style::COLUMN;
 use serde_json::json;
 
 /// A ghost of whose steps nothing has been read.

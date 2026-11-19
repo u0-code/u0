@@ -377,9 +377,7 @@ mod tests {
                 d.core.clone().into_os_string()
             ]
         );
-        assert!(args.contains(&OsString::from(
-            ghost_link::protocol::DEFAULT_ADDR
-        )));
+        assert!(args.contains(&OsString::from(ghost_link::protocol::DEFAULT_ADDR)));
     }
 
     /// One brain as a core describes it, read the way the desk reads it.

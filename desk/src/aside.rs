@@ -28,6 +28,7 @@ use crate::{
     media::{self, Shown},
     model::{LinkState, Reach, reason},
     sessions::Session,
+    style::{FINE, META, NAME, SMALL, TINY},
     theme,
     thread::{self, Output, Source, Task},
     ui,
@@ -41,14 +42,14 @@ const ICON_ROOM: f32 = 26.;
 /// A label in a row.
 fn label(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
-        .text_size(px(13.))
+        .text_size(px(SMALL))
         .text_color(theme::text2())
 }
 
 /// A value at the right of a row.
 fn value(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> AnyElement {
     ui::mono(faces, text)
-        .text_size(px(11.5))
+        .text_size(px(FINE))
         .text_color(color)
         .flex_none()
         .into_any_element()
@@ -68,7 +69,7 @@ fn action(faces: &Faces, id: impl Into<gpui::ElementId>, text: &'static str) -> 
         .hover(|s| s.bg(theme::hover()))
         .child(
             ui::text(faces, text)
-                .text_size(px(12.5))
+                .text_size(px(META))
                 .text_color(theme::muted()),
         )
 }
@@ -105,7 +106,7 @@ fn row_with(icon: Option<AnyElement>, label: Div, right: Option<AnyElement>, und
 fn under(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::one_line(
         ui::mono(faces, text)
-            .text_size(px(11.5))
+            .text_size(px(FINE))
             .text_color(theme::faint()),
     )
 }
@@ -136,10 +137,10 @@ pub(crate) fn task_row(
         .gap(px(10.))
         .h(px(28.))
         .child(lead)
-        .child(ui::one_line(ui::text(faces, brief).text_size(px(13.))))
+        .child(ui::one_line(ui::text(faces, brief).text_size(px(SMALL))))
         .child(
             ui::mono(faces, right)
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(right_color)
                 .flex_none(),
         )
@@ -181,7 +182,7 @@ pub(crate) fn brain_tag(faces: &Faces, brain: &str) -> Div {
         .rounded(px(5.))
         .border_1()
         .border_color(theme::tag_line())
-        .text_size(px(11.5))
+        .text_size(px(FINE))
         .text_color(theme::faint())
 }
 
@@ -216,13 +217,13 @@ pub(crate) fn part_row(
         .child(lead)
         .child(ui::one_line(
             ui::text(faces, part.brief.clone())
-                .text_size(px(12.5))
+                .text_size(px(META))
                 .text_color(theme::text2()),
         ))
         .children(part.brain.as_deref().map(|brain| brain_tag(faces, brain)))
         .child(
             ui::mono(faces, part_standing(part, now))
-                .text_size(px(11.5))
+                .text_size(px(FINE))
                 .text_color(theme::faint())
                 .flex_none(),
         )
@@ -284,7 +285,7 @@ pub(crate) fn ended_row(
         .child(row_icon("check"))
         .child(ui::one_line(
             ui::text(faces, summary)
-                .text_size(px(13.5))
+                .text_size(px(NAME))
                 .text_color(theme::text2()),
         ))
         .child(
@@ -374,7 +375,7 @@ fn pill(faces: &Faces, word: &'static str, color: gpui::Hsla, up: bool) -> AnyEl
         .border_color(theme::border())
         .bg(theme::well())
         .child(mark)
-        .child(ui::mono(faces, word).text_size(px(11.)).text_color(if up {
+        .child(ui::mono(faces, word).text_size(px(TINY)).text_color(if up {
             theme::text2()
         } else {
             theme::muted()
@@ -483,7 +484,7 @@ impl Desk {
                 .pb(px(2.))
                 .child(
                     ui::text(faces, reason(why))
-                        .text_size(px(13.))
+                        .text_size(px(SMALL))
                         .line_height(px(18.))
                         .text_color(theme::text2()),
                 )
@@ -503,7 +504,7 @@ impl Desk {
                 .when(open, |d| {
                     d.child(
                         ui::mono(faces, why.clone())
-                            .text_size(px(11.))
+                            .text_size(px(TINY))
                             .line_height(px(16.))
                             .text_color(theme::muted())
                             .mt(px(2.))
@@ -592,7 +593,7 @@ impl Desk {
             .h(px(24.))
             .child(
                 ui::text(faces, title)
-                    .text_size(px(13.5))
+                    .text_size(px(NAME))
                     .font_weight(FontWeight::MEDIUM),
             )
             .children(fold.map(|_| {
@@ -607,7 +608,7 @@ impl Desk {
                 .text_color(theme::faint())
             }))
             .child(div().flex_1())
-            .children(aside.map(|a| ui::mono(faces, a).text_size(px(11.5))));
+            .children(aside.map(|a| ui::mono(faces, a).text_size(px(FINE))));
         let head: AnyElement = match fold {
             Some(key) => head
                 .id(key)
@@ -750,7 +751,7 @@ impl Desk {
         if tasks.is_empty() {
             return div().child(
                 ui::text(faces, "Nothing running in the background.")
-                    .text_size(px(13.))
+                    .text_size(px(SMALL))
                     .text_color(theme::muted())
                     .py(px(4.)),
             );
