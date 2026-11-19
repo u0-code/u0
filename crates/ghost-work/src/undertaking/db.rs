@@ -176,59 +176,19 @@ pub(super) fn load(conn: &Connection, id: &str) -> rusqlite::Result<Option<State
     .transpose()
 }
 
-/// The state saved as `text`, if this build can write it back whole.
-///
-/// A build that does not know a field would drop it the next time it
-/// wrote the record, and nothing would say so: serde passes over what it
-/// does not know. So a record holding a field this build does not have is
-/// refused, read or written, and the work is left to the newer build that
-/// wrote it. A field this build does not have that holds nothing (`null`,
-/// `[]`, `{}`) loses nothing when it is dropped, and is let through.
+/// The state saved as `text`. A record in a shape this build does not
+/// write, such as one with a field a newer build added, is refused rather
+/// than written back without what it does not know.
 pub(super) fn parse(text: &str) -> io::Result<State> {
-    let saved: serde_json::Value = serde_json::from_str(text).map_err(other)?;
-    let state: State = serde_json::from_value(saved.clone()).map_err(other)?;
-    let back = serde_json::to_value(&state).map_err(other)?;
-    match unknown(&saved, &back, "") {
-        None => Ok(state),
-        Some(field) => Err(io::Error::new(
+    serde_json::from_str(text).map_err(|e| {
+        io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
-                "this record of work has `{field}`, which this ghost-work does not know: a \
-                 newer one wrote it, and this one would lose it by writing the record back"
+                "this record of work is not in the shape this ghost-work writes ({e}): another \
+                 build wrote it. It is left as it is; move work.db aside to start her work afresh"
             ),
-        )),
-    }
-}
-
-/// The first field in `saved` that holds something and is not in `back`,
-/// by its path.
-fn unknown(saved: &serde_json::Value, back: &serde_json::Value, at: &str) -> Option<String> {
-    use serde_json::Value;
-    match (saved, back) {
-        (Value::Object(saved), Value::Object(back)) => saved.iter().find_map(|(key, value)| {
-            let path = if at.is_empty() {
-                key.clone()
-            } else {
-                format!("{at}.{key}")
-            };
-            if let Some(kept) = back.get(key) {
-                return unknown(value, kept, &path);
-            }
-            let empty = match value {
-                Value::Null => true,
-                Value::Array(a) => a.is_empty(),
-                Value::Object(o) => o.is_empty(),
-                _ => false,
-            };
-            (!empty).then_some(path)
-        }),
-        (Value::Array(saved), Value::Array(back)) => saved
-            .iter()
-            .zip(back)
-            .enumerate()
-            .find_map(|(i, (value, kept))| unknown(value, kept, &format!("{at}[{i}]"))),
-        _ => None,
-    }
+        )
+    })
 }
 
 pub(super) fn store(conn: &Connection, id: &str, state: &State) -> rusqlite::Result<()> {
