@@ -3,7 +3,7 @@
 
 use ghost_core::journal::Event;
 use ghost_link::Console;
-use ghost_protocol::{RpcError, SayMode};
+use ghost_protocol::RpcError;
 
 use super::*;
 use crate::cast::tests::{Rig, Spec};
@@ -30,13 +30,9 @@ async fn every_console_lists_the_sessions_she_keeps_by_the_names_an_operator_giv
     assert!(other.sessions().await.unwrap().is_empty());
 
     // A session is kept from its first line, and goes by it.
-    fox.say(
-        Some("s1".into()),
-        "free some disk space\nplease",
-        SayMode::Say,
-    )
-    .await
-    .unwrap();
+    fox.say(Some("s1".into()), "free some disk space\nplease")
+        .await
+        .unwrap();
     assert_eq!(
         listed(&other.sessions().await.unwrap()),
         [("s1", "free some disk space")]
@@ -89,9 +85,7 @@ async fn every_console_lists_the_sessions_she_keeps_by_the_names_an_operator_giv
         Event::SessionNamed { place, title, .. } if place == "console:s1" && title == "Disk space")));
 
     // Said in again, it is back.
-    fox.say(Some("s1".into()), "and the logs", SayMode::Say)
-        .await
-        .unwrap();
+    fox.say(Some("s1".into()), "and the logs").await.unwrap();
     assert_eq!(other.sessions().await.unwrap().len(), 2);
 }
 

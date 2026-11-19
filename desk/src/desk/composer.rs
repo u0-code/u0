@@ -16,7 +16,6 @@
 //! Under the box, a line says what the desk just did or could not: short,
 //! with the whole of a long error under Details.
 
-use ghost_link::protocol::SayMode;
 use gpui::{
     AnyElement, ClipboardItem, Context, Corner, Div, Focusable as _, SharedString, Window, div,
     prelude::*, px,
@@ -82,12 +81,6 @@ impl Notice {
 }
 
 impl Desk {
-    /// Say what was typed. At a console every line of yours is an
-    /// operator's: her daemon treats it so without being told.
-    pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
-        self.speak(text, SayMode::Say, cx);
-    }
-
     /// Take a line of yours back, to put it another way: it goes back in
     /// the box as it was, and that line and everything said after it leave
     /// the conversation, as rewinding a coding agent to before a turn
@@ -117,14 +110,15 @@ impl Desk {
         self.prefill(text, window, cx);
     }
 
-    /// Say `text` to whoever is on screen, as `mode` has it.
-    pub(crate) fn speak(&mut self, text: String, mode: SayMode, cx: &mut Context<Self>) {
+    /// Say what was typed to whoever is on screen. At a console every line
+    /// of yours is an operator's: her daemon treats it so without being told.
+    pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
         // To a character you speak in your own place with her on the
         // console channel, and her thread turns to it.
         if let Some(open) = &mut self.open {
             let place = self.settings.who.to_lowercase();
             open.place = Some(thread::place_key(&place));
-            open.her.say(place, text, mode);
+            open.her.say(place, text);
             cx.notify();
             return;
         }
@@ -132,7 +126,7 @@ impl Desk {
         // it; the list shows it so at once.
         let place = self.session().id;
         self.sessions.said(&text);
-        self.solver.say(place, text, mode);
+        self.solver.say(place, text);
         // What you send is where you read on from.
         self.thread_scroll.scroll_to_bottom();
         cx.notify();

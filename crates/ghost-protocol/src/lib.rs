@@ -126,8 +126,8 @@ pub mod method {
     /// result [`ConsoleSaid`](super::ConsoleSaid). Whoever is at the
     /// console, as its hello names them in [`Hello::who`](super::Hello::who),
     /// says something to her, as an operator of hers, in a place on the
-    /// channel [`CONSOLE`](super::CONSOLE), where every line is a
-    /// directive (see [`SayMode`](super::SayMode)). What she says back
+    /// channel [`CONSOLE`](super::CONSOLE), a terminal: every line there
+    /// is looked at and answered at once, whatever her day. What she says back
     /// there is written in her journal and nowhere else: a console reads
     /// it as a `said` entry, from [`JOURNAL_SUBSCRIBE`] or [`JOURNAL_PLACE`].
     pub const SAY: &str = "console.say";
@@ -792,23 +792,6 @@ pub struct ConsoleSay {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
     pub text: String,
-    #[serde(default)]
-    pub mode: SayMode,
-}
-
-/// How something said from a console asked to reach her, once. It no
-/// longer changes anything: the [`CONSOLE`] channel is a terminal, where
-/// whoever is at it runs her, and every line there is looked at and
-/// answered at once, whatever her day. The field stays because the wire
-/// format does, and clients send it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SayMode {
-    /// The default.
-    #[default]
-    Say,
-    /// Taken as `say`.
-    Directive,
 }
 
 /// The result of [`method::SAY`]: where it was said, and the id it was
@@ -1893,17 +1876,16 @@ mod tests {
     }
 
     #[test]
-    fn something_said_from_a_console_says_say_unless_it_names_a_directive_on_the_wire() {
+    fn something_said_from_a_console_names_its_place_only_when_it_has_one() {
         let said: ConsoleSay = serde_json::from_str(r#"{"text":"hi"}"#).unwrap();
-        assert_eq!((said.place, said.mode), (None, SayMode::Say));
-        let directed = ConsoleSay {
+        assert_eq!(said.place, None);
+        let placed = ConsoleSay {
             place: Some("desk-1".into()),
             text: "send the rota".into(),
-            mode: SayMode::Directive,
         };
         assert_eq!(
-            serde_json::to_string(&Frame::request(4, method::SAY, &directed)).unwrap(),
-            r#"{"jsonrpc":"2.0","id":4,"method":"console.say","params":{"mode":"directive","place":"desk-1","text":"send the rota"}}"#
+            serde_json::to_string(&Frame::request(4, method::SAY, &placed)).unwrap(),
+            r#"{"jsonrpc":"2.0","id":4,"method":"console.say","params":{"place":"desk-1","text":"send the rota"}}"#
         );
         // A hello from a console that only watches says nothing of who is at it.
         let hello: Hello = serde_json::from_str(r#"{"protocol":1,"role":"console"}"#).unwrap();
