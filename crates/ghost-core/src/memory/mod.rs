@@ -24,7 +24,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
 use crate::{
-    Result,
+    Error, Result,
     journal::{Entry, Journal, Sources, parse_stamp, stamp},
     social,
 };
@@ -98,13 +98,20 @@ impl Memory {
             Connection::open(&path)?.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version != SCHEMA_VERSION && version != 0 {
             // An older shape. It is only a view: throw all of it away.
-            for suffix in ["", "-journal", "-wal", "-shm"] {
-                let file = dir.join(format!("{MEMORY_FILE}{suffix}"));
-                if file.exists() {
-                    std::fs::remove_file(file)?;
-                }
-            }
+            discard(dir)?;
         }
+        let memory = Self::prepare(Connection::open(&path)?)?;
+        if memory.folded()? == memory.last_seq()? {
+            return Ok(memory);
+        }
+        // Her journal's seqs run 1, 2, 3 without a gap, so a store that
+        // folded each entry once has folded exactly `last_seq` of them.
+        // Fewer means one may have been passed over: by a build from before
+        // entries were folded strictly in order, whose failed fold the next
+        // one stepped past, or by such a build opening this store since.
+        // Which entries is not known, so all of them are folded again.
+        drop(memory);
+        discard(dir)?;
         Self::prepare(Connection::open(&path)?)
     }
 
@@ -157,16 +164,24 @@ impl Memory {
 
     /// The seq of the last journal entry folded in.
     pub fn last_seq(&self) -> Result<i64> {
+        self.meta("last_seq")
+    }
+
+    /// How many journal entries have been folded in.
+    fn folded(&self) -> Result<i64> {
+        self.meta("folded")
+    }
+
+    fn meta(&self, key: &str) -> Result<i64> {
         Ok(self
             .conn
-            .query_row("SELECT value FROM meta WHERE key = 'last_seq'", [], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
             .optional()?
             .unwrap_or(0))
     }
 
-    /// Fold in every journal entry not yet seen. Returns how many.
+    /// Fold in every journal entry not yet seen, in order, from the one
+    /// after the last folded. Returns how many.
     pub fn catch_up(&mut self, journal: &Journal) -> Result<u64> {
         let mut applied = 0;
         loop {
@@ -184,21 +199,51 @@ impl Memory {
     /// Fold one journal entry in, unless it already has been. Every feature
     /// folds it in one transaction with the note of how far the journal has
     /// been read, so an entry is kept whole or not at all, and only once.
+    ///
+    /// Entries are folded in the order of the journal and none is passed
+    /// over: one that comes after an entry not yet folded is refused, so a
+    /// fold that failed is tried again by [`Memory::catch_up`] rather than
+    /// left behind.
     pub fn apply(&mut self, entry: &Entry) -> Result<()> {
-        if entry.seq <= self.last_seq()? {
+        let last = self.last_seq()?;
+        if entry.seq <= last {
             return Ok(());
         }
+        let unfolded = |reason: String| Error::Unfolded {
+            seq: entry.seq,
+            kind: entry.event.kind(),
+            reason,
+        };
+        if entry.seq != last + 1 {
+            return Err(unfolded(format!("it comes after {last}, not yet folded")));
+        }
+        self.fold_in(entry).map_err(|e| unfolded(e.to_string()))
+    }
+
+    fn fold_in(&mut self, entry: &Entry) -> Result<()> {
         let tx = self.conn.transaction()?;
         let at = stamp(&entry.at);
         fold(&tx, entry, &at)?;
         tx.execute(
-            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = ?1",
+            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1), ('folded', 1)
+             ON CONFLICT(key) DO UPDATE SET value =
+                 CASE key WHEN 'last_seq' THEN excluded.value ELSE value + 1 END",
             [entry.seq],
         )?;
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Throw the store under `dir` away. It is only a view.
+fn discard(dir: &Path) -> Result<()> {
+    for suffix in ["", "-journal", "-wal", "-shm"] {
+        let file = dir.join(format!("{MEMORY_FILE}{suffix}"));
+        if file.exists() {
+            std::fs::remove_file(file)?;
+        }
+    }
+    Ok(())
 }
 
 /// Every feature's fold of one entry. `at` is the entry's time as it is kept.
@@ -428,6 +473,28 @@ mod tests {
         assert_eq!(m.person("t:a").unwrap().unwrap().heard, 1);
         assert_eq!(m.search("t", "hi", 5).unwrap().len(), 1);
         assert_eq!(m.last_seq().unwrap(), 1);
+    }
+
+    #[test]
+    fn an_entry_is_not_folded_past_one_that_was_not() {
+        let mut j = Journal::in_memory();
+        let mut m = Memory::in_memory().unwrap();
+        let first = j
+            .append(heard("a", PlaceKind::Direct, "a", "1", "hi", true))
+            .unwrap();
+        let second = j.append(said("a", "hey")).unwrap();
+        assert!(matches!(
+            m.apply(&second),
+            Err(crate::Error::Unfolded {
+                seq: 2,
+                kind: "said",
+                ..
+            })
+        ));
+        assert_eq!(m.last_seq().unwrap(), 0);
+        assert_eq!(m.catch_up(&j).unwrap(), 2);
+        m.apply(&first).unwrap();
+        assert_eq!(m.thread("t:a", 10).unwrap().len(), 2);
     }
 
     #[test]

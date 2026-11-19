@@ -26,6 +26,16 @@ pub enum Error {
     #[error("journal chain broken at seq {seq}: {reason}")]
     BrokenChain { seq: i64, reason: String },
 
+    /// An entry is in her journal but her derived memory could not fold it
+    /// in. It is still hers. Memory folds nothing after it until it is, and
+    /// tries again at her next write and whenever she is opened.
+    #[error("her memory could not fold entry {seq} ({kind}) of her journal: {reason}")]
+    Unfolded {
+        seq: i64,
+        kind: &'static str,
+        reason: String,
+    },
+
     #[error("journal at {0} does not exist")]
     NoJournal(PathBuf),
 
