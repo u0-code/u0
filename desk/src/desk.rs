@@ -23,9 +23,8 @@
 //! between sessions and characters in `desk/navigate.rs`; the top bar in
 //! `desk/topbar.rs`; the line you type into in `desk/composer.rs`; the
 //! brain menu in `desk/brain_menu.rs`; and what the desk does to its
-//! connections and the core it runs in `desk/actions.rs`. Giving a task is
-//! in `task.rs`, answering and stopping work in `answer.rs`, and Attention
-//! in `attention.rs`.
+//! connections and the core it runs in `desk/actions.rs`. Answering and
+//! stopping work is in `answer.rs`, and Attention in `attention.rs`.
 
 mod actions;
 mod brain_menu;
@@ -61,7 +60,7 @@ use crate::{
     link,
     model::LinkState,
     sessions::{Session, Sessions},
-    settings::{SOLVER_URL, Settings},
+    settings::Settings,
     sheet::Sheet,
     solver::{Deployment, Provider},
     theme, thread,
@@ -285,7 +284,7 @@ impl Desk {
         // done, the deployment the desk holds is one with nothing started
         // and nothing read.
         let deployment = Deployment::find();
-        let start = settings.solver_url == SOLVER_URL;
+        let start = settings.solver_url == crate::solver::url();
         let url = settings.solver_url.clone();
         let core = link::runtime().spawn_blocking(move || {
             let mut deployment = Deployment::find();
@@ -647,7 +646,6 @@ fn thread_view<'a>(
         work: &ghost.work,
         whom,
         scroll: Some(scroll),
-        rendering: thread::Rendering::Task,
         column: thread::COLUMN,
         media: ghost.media(),
         status: ghost.status.as_ref(),

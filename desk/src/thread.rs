@@ -8,10 +8,9 @@
 //! so what shows here is what is on record; what was said a moment ago
 //! and not yet written follows at the end.
 //!
-//! This file finds what is in the stream. How it is drawn is a
-//! [`Rendering`]: task-first, the way a coding agent's app shows its work
-//! (`thread/task_first.rs`, with the cards in `thread/cards.rs` and the
-//! steps in `thread/steps.rs`), is the one there is.
+//! This file finds what is in the stream. It is drawn task-first, the way a
+//! coding agent's app shows its work: `thread/task_first.rs`, with the
+//! cards in `thread/cards.rs` and the steps in `thread/steps.rs`.
 
 mod calls;
 mod cards;
@@ -46,19 +45,9 @@ use crate::{
     desk::Desk,
     follow::{Following, PlaceLooks},
     fonts::Faces,
-    model::{Entry, Message},
+    model::{Entry, Message, s},
     theme,
 };
-
-/// How a thread is drawn. Task-first shows what she did as a coding
-/// agent's app does: each command and file and search, under a line
-/// saying how long it took. A thread read as a story would be drawn
-/// another way from the same stream.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Rendering {
-    #[default]
-    Task,
-}
 
 /// A time of day in the solver's clock.
 pub fn clock(at: DateTime<Utc>, tz: Tz) -> String {
@@ -91,10 +80,6 @@ pub fn span(secs: i64) -> String {
         s if s < 3600 => format!("{}m {:02}s", s / 60, s % 60),
         s => format!("{}h {}m", s / 3600, (s % 3600) / 60),
     }
-}
-
-fn s<'a>(d: &'a Value, key: &str) -> &'a str {
-    d.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
 /// The key of the place you speak to her in from the desk, by its id: a
@@ -564,7 +549,6 @@ pub struct View<'a> {
     pub whom: crate::answer::Whom,
     /// Where the thread is scrolled to, when it is drawn on screen.
     pub scroll: Option<&'a gpui::ScrollHandle>,
-    pub rendering: Rendering,
     /// How wide the reading column is drawn, in points: 680 where the
     /// pane has room, less in a narrow window. What must end in an
     /// ellipsis on one line is cut to it, since GPUI's own ellipsis is not
@@ -979,9 +963,9 @@ pub fn busy(view: &View<'_>) -> bool {
         || place_tasks(view.journal, view.place).iter().any(Task::open)
 }
 
-/// Draw the thread `view` shows, the way it is to be read.
+/// Draw the thread `view` shows task-first, as a coding agent's app
+/// does: each command and file and search, under a line saying how long
+/// it took.
 pub fn render(view: &View<'_>, faces: &Faces, cx: &mut Context<Desk>) -> AnyElement {
-    match view.rendering {
-        Rendering::Task => task_first::render(view, faces, cx),
-    }
+    task_first::render(view, faces, cx)
 }

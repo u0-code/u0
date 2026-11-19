@@ -15,7 +15,6 @@ publish = false
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
 ghost-link = { path = "../crates/ghost-link" }
 anyhow = "1.0.104"
-async-trait = "0.1.92"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 dotenvy = "0.15"

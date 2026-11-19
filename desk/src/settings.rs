@@ -1,8 +1,11 @@
-//! What the desk remembers between runs: where the solver's daemon is, who
-//! you are to it, which of your sessions with it was on screen, the other
-//! daemons you connect to, and which of what waits on you you have seen. A
-//! small JSON file in your home directory. The sessions themselves are the
-//! solver's core's to keep.
+//! What the desk remembers between runs: which of your sessions with the
+//! solver was on screen, the other daemons you connect to, and which of
+//! what waits on you you have seen. A small JSON file in your home
+//! directory. The sessions themselves are the solver's core's to keep.
+//!
+//! Who you are and where the solver's daemon is are read from the
+//! environment each run, `USER` and `GHOSTD_URL`, and never kept: a file
+//! that held them would hold whatever they were the first time.
 //!
 //! No token is ever written here. The solver's comes from `GHOSTD_TOKEN`,
 //! and a connection names the variable its token is in, read when the desk
@@ -13,8 +16,8 @@
 //! has looked at is theirs to remember.
 //!
 //! It is written whole (see `whole.rs`). A file that cannot be read as
-//! JSON is not written over: it is moved aside, with the time in its name,
-//! and said so, and the desk starts as if it had none.
+//! these settings is not written over: it is moved aside, with the time in
+//! its name, and said so, and the desk starts as if it had none.
 
 use std::{
     collections::BTreeSet,
@@ -23,10 +26,7 @@ use std::{
 };
 
 use chrono::Utc;
-use serde_json::{Value, json};
-
-/// The port the solver's deployment listens on, apart from characters'.
-pub const SOLVER_URL: &str = "ws://127.0.0.1:7438";
+use serde::{Deserialize, Serialize};
 
 /// What the desk calls the daemon it runs itself, the first group down the
 /// left. No connection may take the name.
@@ -34,13 +34,14 @@ pub const THIS_MACHINE: &str = "This machine";
 
 /// A daemon somewhere else that the desk connects to. It only connects:
 /// whoever runs that daemon starts and stops it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connection {
     /// What the desk calls it. No two share one.
     pub name: String,
     /// `ws://` or `wss://`.
     pub url: String,
     /// The environment variable its token is in, if it needs one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_env: Option<String>,
 }
 
@@ -136,11 +137,20 @@ fn is_variable(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What the desk is set to. What the file leaves out is as it is by
+/// default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
+    /// Who sits at the desk: `USER`, read each run.
+    #[serde(skip)]
     pub who: String,
+    /// The solver's daemon: `GHOSTD_URL`, or else the core the desk runs
+    /// itself. Read each run.
+    #[serde(skip)]
     pub solver_url: String,
     /// The session on screen when the desk last showed one, by id.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub open: Option<String>,
     /// The daemons it connects to besides its own, in the order added.
     pub connections: Vec<Connection>,
@@ -150,24 +160,15 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
+        let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
         Self {
-            who: whoami(),
-            solver_url: std::env::var("GHOSTD_URL")
-                .ok()
-                .filter(|u| !u.is_empty())
-                .unwrap_or_else(|| SOLVER_URL.to_owned()),
+            who: var("USER").unwrap_or_else(|| "you".to_owned()),
+            solver_url: var("GHOSTD_URL").unwrap_or_else(crate::solver::url),
             open: None,
             connections: Vec::new(),
             seen: BTreeSet::new(),
         }
     }
-}
-
-fn whoami() -> String {
-    std::env::var("USER")
-        .ok()
-        .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| "you".to_owned())
 }
 
 pub fn path() -> Option<PathBuf> {
@@ -185,8 +186,8 @@ impl Settings {
         path().map_or_else(Self::default, |path| Self::load_from(&path))
     }
 
-    /// The settings in the file at `path`; a file that is not JSON is
-    /// moved aside first.
+    /// The settings in the file at `path`; a file that is not these
+    /// settings is moved aside first.
     fn load_from(path: &Path) -> Self {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
@@ -197,19 +198,19 @@ impl Settings {
                 return Self::default();
             }
         };
-        match serde_json::from_str::<Value>(&text) {
-            Ok(v) => Self::read(&v),
+        match serde_json::from_str(&text) {
+            Ok(settings) => settings,
             Err(e) => {
                 let aside =
                     path.with_extension(format!("json.unreadable-{}", Utc::now().timestamp()));
                 match std::fs::rename(path, &aside) {
                     Ok(()) => tracing::warn!(
-                        "{} is not JSON ({e}); kept as {} and started without it",
+                        "{} cannot be read ({e}); kept as {} and started without it",
                         path.display(),
                         aside.display()
                     ),
                     Err(moved) => tracing::warn!(
-                        "{} is not JSON ({e}) and could not be moved aside ({moved}); \
+                        "{} cannot be read ({e}) and could not be moved aside ({moved}); \
                          it is written over when the desk next saves",
                         path.display()
                     ),
@@ -225,76 +226,32 @@ impl Settings {
     }
 
     fn save_to(&self, path: &Path) {
-        if let Ok(text) = serde_json::to_string_pretty(&self.written())
+        if let Ok(text) = serde_json::to_string_pretty(self)
             && let Err(e) = crate::whole::write(path, text.as_bytes())
         {
             tracing::warn!("{} could not be written: {e}", path.display());
         }
     }
-
-    /// The settings a file holds. Whatever it leaves out is as it is by
-    /// default; an entry that cannot be read is passed over.
-    fn read(v: &Value) -> Self {
-        let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
-        let list = |k: &str| {
-            v.get(k)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        };
-        let default = Self::default();
-        let connections = list("connections")
-            .iter()
-            .filter_map(|x| {
-                Some(Connection {
-                    name: s(x, "name")?,
-                    url: s(x, "url")?,
-                    token_env: s(x, "token_env").filter(|t| !t.is_empty()),
-                })
-            })
-            .collect();
-        let seen = list("seen")
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect();
-        Self {
-            who: s(v, "who").unwrap_or(default.who),
-            solver_url: s(v, "solver_url").unwrap_or(default.solver_url),
-            open: s(v, "open").filter(|o| !o.is_empty()),
-            connections,
-            seen,
-        }
-    }
-
-    /// What is written to the file: everything but a token, which is never
-    /// the desk's to keep.
-    fn written(&self) -> Value {
-        let mut v = json!({
-            "who": self.who,
-            "solver_url": self.solver_url,
-            "connections": self.connections.iter().map(|c| {
-                let mut v = json!({"name": c.name, "url": c.url});
-                if let Some(var) = &c.token_env {
-                    v["token_env"] = json!(var);
-                }
-                v
-            }).collect::<Vec<_>>(),
-            "seen": self.seen,
-        });
-        if let Some(open) = &self.open {
-            v["open"] = json!(open);
-        }
-        v
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+
     use super::*;
 
+    /// What is written to the file.
+    fn written(settings: &Settings) -> Value {
+        serde_json::to_value(settings).unwrap()
+    }
+
+    /// The settings a file holds.
+    fn read(v: Value) -> Settings {
+        serde_json::from_value(v).unwrap()
+    }
+
     #[test]
-    fn a_file_that_is_not_json_is_kept_aside_and_never_written_over() {
+    fn a_file_that_cannot_be_read_is_kept_aside_and_never_written_over() {
         let dir = std::env::temp_dir().join(format!("ghost-desk-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -319,9 +276,9 @@ mod tests {
 
         // What is saved next is a file of its own, read back whole.
         let mut next = settings;
-        next.who = "me".to_owned();
+        next.open = Some("s1".to_owned());
         next.save_to(&path);
-        assert_eq!(Settings::load_from(&path).who, "me");
+        assert_eq!(Settings::load_from(&path).open.as_deref(), Some("s1"));
         assert_eq!(std::fs::read_to_string(&aside[0]).unwrap(), torn);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -330,19 +287,31 @@ mod tests {
     fn the_file_keeps_which_session_was_open_and_none_of_the_sessions() {
         let settings = Settings {
             open: Some("s1".to_owned()),
-            ..Settings::read(&json!({"who": "fox"}))
+            ..read(json!({}))
         };
-        let written = settings.written();
+        let written = written(&settings);
         assert!(written.get("sessions").is_none());
         assert_eq!(written["open"], "s1");
-        assert_eq!(Settings::read(&written), settings);
+        assert_eq!(read(written), settings);
+    }
+
+    #[test]
+    fn who_you_are_and_where_the_solver_is_are_never_kept() {
+        let settings = Settings {
+            who: "fox".to_owned(),
+            solver_url: "ws://elsewhere:7438".to_owned(),
+            ..Settings::default()
+        };
+        let written = written(&settings);
+        assert!(written.get("who").is_none() && written.get("solver_url").is_none());
+        // A file that names them does not change them.
+        let named = read(json!({"who": "fox", "solver_url": "ws://elsewhere:7438"}));
+        assert_eq!(named, Settings::default());
     }
 
     #[test]
     fn what_was_seen_in_attention_survives_a_round_trip() {
         let settings = Settings {
-            who: "fox".to_owned(),
-            solver_url: SOLVER_URL.to_owned(),
             open: None,
             connections: Vec::new(),
             seen: [
@@ -351,17 +320,16 @@ mod tests {
             ]
             .map(str::to_owned)
             .into(),
+            ..Settings::default()
         };
-        let written = settings.written();
-        assert_eq!(Settings::read(&written), settings);
+        let written = written(&settings);
+        assert_eq!(read(written.clone()), settings);
         assert_eq!(written["seen"][0], "group:machine/solver/asked-12");
     }
 
     #[test]
     fn connections_survive_a_round_trip_and_no_token_is_written() {
         let settings = Settings {
-            who: "fox".to_owned(),
-            solver_url: SOLVER_URL.to_owned(),
             open: None,
             connections: vec![
                 Connection {
@@ -376,10 +344,11 @@ mod tests {
                 },
             ],
             seen: BTreeSet::new(),
+            ..Settings::default()
         };
 
-        let written = settings.written();
-        let back = Settings::read(&written);
+        let written = written(&settings);
+        let back = read(written.clone());
         assert_eq!(back, settings);
         assert!(
             !written["connections"][1]

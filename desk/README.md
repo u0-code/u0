@@ -46,8 +46,9 @@ The window opens on what it showed last time: a copy of each daemon's
 journal tail and work is kept under `~/.config/ghost-desk/cache/`, drawn
 at once, and replaced by the daemon's own answer within a few seconds
 of connecting. A task given on the command line opens a new session
-with it. The desk reaches the solver at `ws://127.0.0.1:7438`, or at `GHOSTD_URL` on a first
-run; a token comes from `GHOSTD_TOKEN` in the environment or `.env`. Your
+with it. The desk reaches the solver at `ws://127.0.0.1:7438`, or at
+`GHOSTD_URL` when it is set, and calls you by `USER`, each read every run;
+a token comes from `GHOSTD_TOKEN` in the environment or `.env`. Your
 sessions are kept by the solver's core; of them `~/.config/ghost-desk/desk.json`
 keeps only which one was open. The desk writes its files whole, so a crash never
 leaves half of one; a `desk.json` it cannot read is moved aside as

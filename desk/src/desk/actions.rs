@@ -8,7 +8,7 @@ use super::{Desk, Notice, Popup, listening};
 use crate::{
     attention,
     daemons::{Daemon, Host},
-    settings::{Connection, SOLVER_URL},
+    settings::Connection,
 };
 
 impl Desk {
@@ -61,7 +61,7 @@ impl Desk {
     /// Whether the solver's daemon is the core on this machine, which the
     /// desk looks after and can start.
     pub(crate) fn core_is_local(&self) -> bool {
-        self.settings.solver_url == SOLVER_URL
+        self.settings.solver_url == crate::solver::url()
     }
 
     /// Try the solver's daemon again now, and ask the core who it runs.

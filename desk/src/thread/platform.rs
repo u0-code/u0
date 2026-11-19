@@ -161,7 +161,7 @@ fn platform(channel: &str) -> String {
 /// What her journal says of a place: what kind it is, and its name or,
 /// for a private one, who it is with.
 #[derive(Debug, Clone, Default)]
-struct Spot {
+struct PlaceSaid {
     kind: String,
     name: Option<String>,
 }
@@ -169,7 +169,7 @@ struct Spot {
 /// What the journal says of places and people, to name them; and, for
 /// her inner entries, which place each was written in.
 pub(super) struct Known<'a> {
-    spots: HashMap<String, Spot>,
+    spots: HashMap<String, PlaceSaid>,
     /// Who sent a message, by its place's key and the channel's id for it.
     lines: HashMap<(String, &'a str), &'a str>,
     /// A person's name, by their key: `channel:id`.
