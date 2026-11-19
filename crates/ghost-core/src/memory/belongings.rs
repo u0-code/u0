@@ -103,18 +103,6 @@ impl Memory {
             .optional()?)
     }
 
-    /// The newest `limit` things she holds, oldest first.
-    pub fn belongings(&self, limit: usize) -> Result<Vec<Belonging>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM belongings WHERE held = 1 ORDER BY seq DESC LIMIT ?1"
-        ))?;
-        let mut held = stmt
-            .query_map([as_i64(limit)], row_to_belonging)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        held.reverse();
-        Ok(held)
-    }
-
     /// What she got from `from` and still holds, the newest `limit`,
     /// oldest first: from one place, or from one piece of work.
     pub fn kept_from(&self, from: &str, limit: usize) -> Result<Vec<Belonging>> {
@@ -166,13 +154,10 @@ mod tests {
             ),
             kept("a.png", "A heron standing in the rain. For grey mornings."),
         ]);
-        let held = m.belongings(5).unwrap();
-        assert_eq!(held.len(), 1);
-        assert_eq!(held[0].seq, 2);
-        assert_eq!(held[0].file, "a.png");
-        assert_eq!(held[0].from.as_deref(), Some("qq:b"));
-        assert_eq!(m.belonging(2).unwrap().unwrap(), held[0]);
-        assert_eq!(m.holding("a.png").unwrap().unwrap().seq, 2);
+        let held = m.belonging(2).unwrap().unwrap();
+        assert_eq!(held.file, "a.png");
+        assert_eq!(held.from.as_deref(), Some("qq:b"));
+        assert_eq!(m.holding("a.png").unwrap().unwrap(), held);
         // Her memory, whole: found from a platform it was not sent on.
         for channel in ["qq", "telegram"] {
             let hits = m.search(channel, "heron", 5).unwrap();
@@ -192,13 +177,8 @@ mod tests {
                 "The heron again. For when someone is waiting on something.",
             ),
         ]);
-        let held: Vec<(i64, String)> = m
-            .belongings(5)
-            .unwrap()
-            .into_iter()
-            .map(|b| (b.seq, b.file))
-            .collect();
-        assert_eq!(held, [(2, "b.png".into()), (3, "a.png".into())]);
+        assert_eq!(m.holding("a.png").unwrap().unwrap().seq, 3);
+        assert_eq!(m.holding("b.png").unwrap().unwrap().seq, 2);
         assert!(m.belonging(1).unwrap().is_none());
         // Only the note that holds is found.
         let found: Vec<i64> = m
@@ -245,14 +225,13 @@ mod tests {
             // Letting go of a note already replaced changes nothing.
             Event::LetGo { kept: 1 },
         ]);
-        assert_eq!(m.belongings(5).unwrap().len(), 1);
+        assert_eq!(m.holding("a.png").unwrap().unwrap().seq, 2);
         assert_eq!(m.search("t", "heron", 5).unwrap().len(), 1);
 
         let (_, m) = fold(vec![
             kept("a.png", "A heron in the rain."),
             Event::LetGo { kept: 1 },
         ]);
-        assert!(m.belongings(5).unwrap().is_empty());
         assert!(m.holding("a.png").unwrap().is_none());
         assert!(m.search("t", "heron", 5).unwrap().is_empty());
         // That she once kept it is still known.

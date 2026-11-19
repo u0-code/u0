@@ -751,12 +751,7 @@ async fn avatar(id: u64, dir: &Path) -> Frame {
     let Some(path) = ghost_core::ghost::avatar(dir) else {
         return Frame::ok(id, &None::<Avatar>);
     };
-    let mime = match path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("webp") => "image/webp",
-        Some("gif") => "image/gif",
-        _ => "image/jpeg",
-    };
+    let mime = ghost_core::media::mime(&path.to_string_lossy());
     match read_at_most(&path, AVATAR_MOST).await {
         Ok(data) => Frame::ok(
             id,

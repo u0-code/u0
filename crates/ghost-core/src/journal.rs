@@ -157,8 +157,10 @@ pub enum Event {
         /// is not chasing.
         #[serde(default, skip_serializing_if = "is_false")]
         owed: bool,
-        /// It comes of work an operator directed. Like the directive, it
-        /// does not wait on her day: not on sleep, not on being busy.
+        /// It comes of work asked for at a terminal, a channel where someone
+        /// waits on her answer. It does not wait on her day: not on sleep,
+        /// not on being busy. (Journals before #132 also set it for work an
+        /// operator directed.)
         #[serde(default, skip_serializing_if = "is_false")]
         directed: bool,
         /// It is her daily report to an operator, `about`, of what she has
@@ -202,8 +204,10 @@ pub enum Event {
         /// Where they asked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         place: Option<String>,
-        /// An operator directed it. It goes ahead of other work, and what
-        /// she means to do because of it does not wait on her day.
+        /// It was asked for at a terminal, a channel where someone waits on
+        /// her answer. It goes ahead of other work, and what she means to
+        /// do because of it does not wait on her day. (Journals before #132
+        /// also set it for work an operator directed.)
         #[serde(default, skip_serializing_if = "is_false")]
         directed: bool,
         /// The folder it is done in on this computer: the one whoever asked
@@ -251,7 +255,8 @@ pub enum Event {
     },
     /// Someone said they are a person she knows on another platform, and
     /// she asked for proof: a word she made up, to be sent to her from the
-    /// account she already knows.
+    /// account she already knows. Nothing writes it, or `Linked`, since
+    /// account linking was taken out (#11); older journals have them.
     Challenged {
         /// Who says so.
         claimant: String,
@@ -402,7 +407,9 @@ pub enum Event {
     /// A message she heard was a directive: it came from an account the
     /// body is configured to take directives from, and began with the
     /// prefix it is configured with. She carries a directive out rather
-    /// than deciding whether to, so each one is on the record.
+    /// than deciding whether to, so each one is on the record. Nothing
+    /// writes it since operators became a matter of permission (#132);
+    /// older journals have it.
     Directed {
         /// The seq of the `Heard` entry the directive came in.
         message: i64,
@@ -618,7 +625,6 @@ pub struct PostStats {
     pub views: u64,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1054,7 +1060,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
 }
 
 /// The time in column `idx` of a row.
-fn time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<DateTime<Utc>> {
+pub(crate) fn time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<DateTime<Utc>> {
     parse_stamp(text(row, idx)?).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
     })

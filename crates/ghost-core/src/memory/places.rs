@@ -39,8 +39,6 @@ pub struct PlaceState {
     pub last_out_at: Option<DateTime<Utc>>,
     pub unread: i64,
     pub unread_addressed: i64,
-    /// Unread messages that are directives from an operator of hers.
-    pub unread_directed: i64,
     /// She was asked to be quiet here, and agreed to, until then.
     pub quiet_until: Option<DateTime<Utc>>,
 }
@@ -310,10 +308,7 @@ SELECT p.key, p.channel, p.id, p.kind, p.name, p.read_upto,
        (SELECT COUNT(*) FROM messages m
          WHERE m.place = p.key AND m.dir = 'in' AND m.seq > p.read_upto),
        (SELECT COUNT(*) FROM messages m
-         WHERE m.place = p.key AND m.dir = 'in' AND m.seq > p.read_upto AND m.addressed = 1),
-       (SELECT COUNT(*) FROM messages m
-         WHERE m.place = p.key AND m.dir = 'in' AND m.seq > p.read_upto
-           AND m.directive IS NOT NULL)
+         WHERE m.place = p.key AND m.dir = 'in' AND m.seq > p.read_upto AND m.addressed = 1)
 FROM places p";
 
 fn row_to_place(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaceState> {
@@ -332,7 +327,6 @@ fn row_to_place(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaceState> {
         quiet_until: opt_time_at(r, 10)?,
         unread: r.get(11)?,
         unread_addressed: r.get(12)?,
-        unread_directed: r.get(13)?,
     })
 }
 
@@ -415,42 +409,6 @@ mod tests {
         let thread = m.thread("t:a", 10).unwrap();
         assert_eq!(thread.len(), 4);
         assert!(!thread[2].incoming);
-    }
-
-    #[test]
-    fn a_directive_is_marked_on_its_line_and_waits_until_she_reads_it() {
-        let (_, m) = fold(vec![
-            heard("a", PlaceKind::Direct, "a", "1", "hi", true),
-            heard("a", PlaceKind::Direct, "a", "2", "fox: say hi", true),
-            Event::Directed {
-                message: 2,
-                from: "t:a".into(),
-                text: "say hi".into(),
-            },
-        ]);
-        let p = m.place("t:a").unwrap().unwrap();
-        assert_eq!((p.unread, p.unread_directed), (2, 1));
-        assert_eq!(m.directives("t:a", 0).unwrap(), ["say hi"]);
-        let thread = m.thread("t:a", 5).unwrap();
-        assert_eq!(thread[0].directive, None);
-        assert_eq!(thread[1].text, "fox: say hi");
-        assert_eq!(thread[1].directive.as_deref(), Some("say hi"));
-
-        let (_, m) = fold(vec![
-            heard("a", PlaceKind::Direct, "a", "1", "fox: say hi", true),
-            Event::Directed {
-                message: 1,
-                from: "t:a".into(),
-                text: "say hi".into(),
-            },
-            Event::Read {
-                channel: "t".into(),
-                place: "a".into(),
-                upto: 1,
-            },
-        ]);
-        assert_eq!(m.place("t:a").unwrap().unwrap().unread_directed, 0);
-        assert!(m.directives("t:a", 1).unwrap().is_empty());
     }
 
     #[test]

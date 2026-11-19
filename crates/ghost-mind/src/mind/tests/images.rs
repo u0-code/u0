@@ -245,12 +245,8 @@ async fn keeping_the_same_image_again_replaces_the_note() {
     ));
     rig.until(|r| r.kinds().contains(&"decided")).await;
     assert_eq!(kept(&rig).len(), 2);
-    let held = rig.mind.ghost.memory().belongings(5).unwrap();
-    assert_eq!(held.len(), 1);
-    assert_eq!(
-        (held[0].file.as_str(), held[0].note.as_str()),
-        (file.as_str(), "The cross heron, for grey mornings.")
-    );
+    let held = rig.mind.ghost.memory().holding(&file).unwrap().unwrap();
+    assert_eq!(held.note, "The cross heron, for grey mornings.");
 }
 
 #[tokio::test]
@@ -278,7 +274,7 @@ async fn something_let_go_is_no_longer_found() {
     rig.hear(dm("wen", "2", "do you still have that heron?"), later);
     rig.until(|r| r.kinds().contains(&"let_go")).await;
     assert_eq!(rig.kinds().iter().filter(|k| **k == "let_go").count(), 1);
-    assert!(rig.mind.ghost.memory().belongings(5).unwrap().is_empty());
+    assert!(rig.mind.ghost.memory().belonging(seq).unwrap().is_none());
     assert!(
         !rig.mind
             .ghost

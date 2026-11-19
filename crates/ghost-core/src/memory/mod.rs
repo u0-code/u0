@@ -25,7 +25,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{
     Error, Result,
-    journal::{Entry, Journal, Sources, parse_stamp, stamp},
+    journal::{Entry, Journal, Sources, parse_stamp, stamp, time_at},
     social,
 };
 
@@ -35,7 +35,6 @@ mod craft;
 mod digests;
 mod installed;
 mod intentions;
-mod links;
 mod messages;
 mod notes;
 mod people;
@@ -53,7 +52,6 @@ pub use craft::Lesson;
 pub use digests::Digest;
 pub use installed::Installed;
 pub use intentions::Intention;
-pub use links::Challenge;
 pub use messages::{Aside, Line, Share, Unprompted};
 pub use notes::{Note, Profile};
 pub use people::{Feeling, Person};
@@ -113,7 +111,7 @@ macro_rules! feature {
 }
 
 /// Every feature, in the order each entry is folded into them.
-const FEATURES: [Feature; 17] = [
+const FEATURES: [Feature; 16] = [
     // First, so that it reads a line, and what was said in a place, as they
     // were before this entry changes them.
     feature!(recall, reads messages, people, work, belongings),
@@ -127,7 +125,6 @@ const FEATURES: [Feature; 17] = [
     feature!(work),
     feature!(craft),
     feature!(public),
-    feature!(links),
     feature!(belongings),
     feature!(installed),
     feature!(skills),
@@ -419,13 +416,6 @@ fn channel_of(key: &str) -> Option<&str> {
 
 fn as_i64(n: usize) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
-}
-
-fn time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<DateTime<Utc>> {
-    let text: String = row.get(idx)?;
-    parse_stamp(&text).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
-    })
 }
 
 fn opt_time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<Option<DateTime<Utc>>> {

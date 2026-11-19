@@ -122,7 +122,7 @@ pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 pub fn mime(name: &str) -> &'static str {
     match Path::new(name).extension().and_then(|e| e.to_str()) {
         Some("png") => "image/png",
-        Some("jpg") => "image/jpeg",
+        Some("jpg" | "jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
         Some("webp") => "image/webp",
         Some("bmp") => "image/bmp",
