@@ -54,7 +54,7 @@ pub(crate) use self::{
 use crate::{
     answer::{Replies, Whom},
     attention,
-    daemons::Daemon,
+    daemons::{Daemon, Host},
     follow::PlaceLooks,
     fonts,
     input::{Cancelled, Changed, Submitted, TextInput},
@@ -243,7 +243,7 @@ fn listening(url: &str) -> bool {
 
 impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let settings = Settings::load();
+        let mut settings = Settings::load();
         let sessions = Sessions::new(settings.open.clone());
         let input = cx.new(|cx| TextInput::new(cx, ASK).wrapping(6).padded(5.));
         cx.subscribe(&input, |this, _, Submitted(text), cx| {
@@ -318,6 +318,10 @@ impl Desk {
         );
         let mut daemons = vec![Daemon::local(&settings.solver_url, token())];
         daemons.extend(settings.connections.iter().map(Daemon::remote));
+        let followed: Vec<&Host> = daemons.iter().map(|d| &d.host).collect();
+        if attention::forget_unfollowed(&mut settings.seen, &followed) {
+            settings.save();
+        }
         let connection_fields = [
             cx.new(|cx| TextInput::new(cx, "studio").field()),
             cx.new(|cx| TextInput::new(cx, "wss://host:7437").field()),
@@ -431,8 +435,12 @@ impl Desk {
     fn pump(&mut self, cx: &mut Context<Self>) {
         let mut changed = self.solver.pump() | crate::media::arrived();
         let mut forgot = false;
+        let mut rostered = Vec::new();
         for daemon in &mut self.daemons {
             changed |= daemon.pump();
+            if std::mem::take(&mut daemon.rostered) {
+                rostered.push(daemon.host.clone());
+            }
             for ghost in std::mem::take(&mut daemon.attended) {
                 if let Some(items) = daemon.attention.get(&ghost) {
                     forgot |= attention::forget_gone(
@@ -445,6 +453,17 @@ impl Desk {
             }
             if let Some(why) = daemon.refused.take() {
                 self.notice = Some(Notice::trouble(why));
+            }
+        }
+        if !rostered.is_empty() {
+            let followed: Vec<&Host> = self.daemons.iter().map(|d| &d.host).collect();
+            for host in &rostered {
+                let Some(daemon) = self.daemons.iter().find(|d| d.host == *host) else {
+                    continue;
+                };
+                let running: Vec<&str> = daemon.cast.ghosts.iter().map(|g| g.id.as_str()).collect();
+                forgot |=
+                    attention::forget_unrun(&mut self.settings.seen, &followed, host, &running);
             }
         }
         if forgot {

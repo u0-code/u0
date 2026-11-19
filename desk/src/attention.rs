@@ -10,6 +10,13 @@
 //! belongs to), and marked seen. Which items you have seen is kept in the
 //! desk's settings, by a key made of the daemon, the character and the
 //! item's own id; the count in the sidebar is what you have not.
+//!
+//! A key is kept only while its item can still be listed again: by a
+//! daemon the desk follows, for a character it runs, among what she lists
+//! now. Her list holds work still waiting on an answer and what happened
+//! in the last few days, and an item's id is never another's, so an item
+//! that has left the list, or whose character or daemon has, never comes
+//! back to be seen again.
 
 use std::collections::BTreeSet;
 
@@ -93,6 +100,45 @@ pub fn forget_gone(
             .is_none_or(|id| listed.iter().any(|it| it.id == id))
     });
     seen.len() != before
+}
+
+/// Forget what was seen on every daemon not among `followed`: a
+/// connection that was removed lists nothing any more. Says whether
+/// anything was forgotten.
+pub fn forget_unfollowed(seen: &mut BTreeSet<String>, followed: &[&Host]) -> bool {
+    let before = seen.len();
+    seen.retain(|k| owner(k, followed).is_some());
+    seen.len() != before
+}
+
+/// Forget what was seen of every character the daemon on `host`, one of
+/// `followed`, no longer runs, now that it has said who it runs:
+/// `running`, by id. Says whether anything was forgotten.
+pub fn forget_unrun(
+    seen: &mut BTreeSet<String>,
+    followed: &[&Host],
+    host: &Host,
+    running: &[&str],
+) -> bool {
+    let before = seen.len();
+    seen.retain(|k| match owner(k, followed) {
+        Some((of, rest)) if of == host => running.contains(&rest.split('/').next().unwrap_or("")),
+        _ => true,
+    });
+    seen.len() != before
+}
+
+/// The daemon among `followed` the key `k` is of, with what follows it
+/// there, `<ghost>/<id>`. A connection's name may hold a `/`, so where
+/// more than one fits, the longest is the one.
+fn owner<'k, 'h>(k: &'k str, followed: &[&'h Host]) -> Option<(&'h Host, &'k str)> {
+    followed
+        .iter()
+        .filter_map(|host| {
+            let rest = k.strip_prefix(host.key().as_str())?.strip_prefix('/')?;
+            Some((*host, rest))
+        })
+        .min_by_key(|(_, rest)| rest.len())
 }
 
 /// What an item is, in a word or two, and its colour.
@@ -492,5 +538,40 @@ mod tests {
         // Another character's, or another daemon's, are not hers to forget.
         assert!(!forget_gone(&mut seen, &hk, "lin", &[]));
         assert!(!forget_gone(&mut seen, &here, "solver", &still));
+    }
+
+    #[test]
+    fn what_was_seen_goes_with_a_daemon_no_longer_followed_or_a_character_no_longer_run() {
+        let (here, hk, hkg, sg) = (
+            Host::Local,
+            Host::Remote("hk".into()),
+            // A name that begins with another's.
+            Host::Remote("hk/g".into()),
+            Host::Remote("sg".into()),
+        );
+        let followed = [&here, &hk, &hkg];
+        let mut seen: BTreeSet<String> = [
+            key(&here, "solver", "asked-12"),
+            key(&hk, "weiwei", "report-40"),
+            key(&hk, "lin", "told-3"),
+            key(&hkg, "weiwei", "report-41"),
+            key(&sg, "weiwei", "report-5"),
+        ]
+        .into();
+        // The connection sg was removed.
+        assert!(forget_unfollowed(&mut seen, &followed));
+        assert!(!seen.contains(&key(&sg, "weiwei", "report-5")));
+        assert!(!forget_unfollowed(&mut seen, &followed));
+        // hk no longer runs lin; what is hk/g's is not hk's to forget.
+        assert!(forget_unrun(&mut seen, &followed, &hk, &["weiwei"]));
+        assert_eq!(
+            seen,
+            [
+                key(&here, "solver", "asked-12"),
+                key(&hk, "weiwei", "report-40"),
+                key(&hkg, "weiwei", "report-41"),
+            ]
+            .into()
+        );
     }
 }
