@@ -8,9 +8,12 @@
 //! undertaking of one ghost by id, and any sitting can be picked up from it.
 //!
 //! ```text
-//! undertakings   brief, plan, notes, outcome, running totals
-//! transcript     what the model is shown now, saved after every step
-//! history        every item the transcript ever held; append-only
+//! undertakings      brief, plan, notes, outcome, running totals
+//! transcript_items  what the model is shown now, an item a row, saved
+//!                   with every step; an item as the history has it is
+//!                   kept there and only pointed to
+//! transcript        the same, as one row, as versions before wrote it
+//! history           every item the transcript ever held; append-only
 //! log            one line per step: what the model said, what it called
 //!                with what, the head of what came back, what it cost
 //! inbox          what reached it from outside while it ran, of what kind,
@@ -95,6 +98,10 @@ pub struct Undertaking {
     /// The state as last read or written: what is shown if the database
     /// cannot be read, so that work goes on without its record.
     state: Mutex<State>,
+    /// The transcript as this handle last read or saved it, item by item,
+    /// which is what is on disk: a save writes only the items that differ.
+    /// `None` until it is known.
+    saved: Mutex<Option<Vec<ghost_brain::Item>>>,
 }
 
 impl Undertaking {
@@ -139,6 +146,7 @@ impl Undertaking {
             id: id.to_owned(),
             conn: Mutex::new(conn),
             state: Mutex::new(state),
+            saved: Mutex::new(None),
         })
     }
 

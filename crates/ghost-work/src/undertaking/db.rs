@@ -13,10 +13,15 @@ pub const WORK_DB: &str = "work.db";
 /// The version of the schema below. Raised, with a way forward from the
 /// last one, when a table changes: this is state nothing else can rebuild.
 /// Schema 3 added `looks` and `look_rounds`, which are made where missing.
-pub(super) const SCHEMA_VERSION: i64 = 3;
+/// Schema 4 added `transcript_items`, the transcript an item a row; a
+/// transcript saved before it, in `transcript`, is still read.
+pub(super) const SCHEMA_VERSION: i64 = 4;
 
 /// Every undertaking in one database, keyed by id. `history` is append-only
 /// the way the journal is: triggers abort any change to what is written.
+/// A row of `transcript_items` holds its item, or, when the item is as the
+/// history keeps it, the number of its row there: a step writes what is
+/// new in it, not the transcript again.
 /// The others are bookkeeping and may be replaced; `inbox` keeps what
 /// reached the work, and marks it once it has been taken.
 ///
@@ -32,6 +37,13 @@ CREATE TABLE IF NOT EXISTS undertakings (
 CREATE TABLE IF NOT EXISTS transcript (
     id    TEXT PRIMARY KEY,
     items TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS transcript_items (
+    id      TEXT    NOT NULL,
+    n       INTEGER NOT NULL,
+    item    TEXT,
+    history INTEGER,
+    PRIMARY KEY (id, n)
 );
 CREATE TABLE IF NOT EXISTS history (
     id   TEXT    NOT NULL,

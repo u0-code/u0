@@ -257,15 +257,13 @@ pub(crate) fn preview(text: &str, max: usize) -> String {
 }
 
 impl Worker {
-    /// Save the transcript, and add whatever in it is new to the history.
+    /// Save the transcript, and add whatever in it is new to the history,
+    /// as a sitting stops.
     fn save(&self, items: &[Item], recorded: &mut usize) {
-        if let Some(new) = items.get(*recorded..)
-            && !new.is_empty()
-        {
-            self.undertaking.remember(new);
+        match self.undertaking.save(items, *recorded) {
+            Ok(()) => *recorded = items.len(),
+            Err(e) => tracing::warn!("could not save the transcript: {e}"),
         }
-        *recorded = items.len();
-        self.undertaking.save_transcript(items);
     }
 
     fn report(&self, ended: Ended) -> Report {
@@ -552,19 +550,7 @@ impl Worker {
                 }
             }
 
-            let finish = match self.undertaking.update(|state| {
-                state.steps += 1;
-                state.usage.add(usage);
-                state.seconds += asked.elapsed().as_secs_f64();
-                state.finish.clone()
-            }) {
-                Ok(finish) => finish,
-                Err(e) => {
-                    self.save(&items, &mut recorded);
-                    return unwritten(&e);
-                }
-            };
-            self.undertaking.log(&json!({
+            let line = json!({
                 "at": chrono::Utc::now().to_rfc3339(),
                 "step": n,
                 "read": usage.input,
@@ -577,8 +563,23 @@ impl Worker {
                 "context": context,
                 "window": self.brain.window(),
                 "folds_at": folds_at,
-            }));
-            self.save(&items, &mut recorded);
+            });
+            // The step is written whole, or not at all.
+            let finish = match self.undertaking.step(
+                |state| {
+                    state.steps += 1;
+                    state.usage.add(usage);
+                    state.seconds += asked.elapsed().as_secs_f64();
+                    state.finish.clone()
+                },
+                &line,
+                &items,
+                recorded,
+            ) {
+                Ok(finish) => finish,
+                Err(e) => return unwritten(&e),
+            };
+            recorded = items.len();
 
             if let Some(finish) = finish {
                 return finish.outcome.into();

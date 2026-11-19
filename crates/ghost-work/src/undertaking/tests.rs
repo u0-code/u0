@@ -100,8 +100,8 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
             });
         })
         .unwrap();
-    first.save_transcript(&[Item::user("build the thing")]);
-    first.remember(&[Item::user("build the thing"), Item::user("and test it")]);
+    first.save(&[Item::user("build the thing")], 0).unwrap();
+    first.remember(&[Item::user("and test it")]);
     first.log(&serde_json::json!({"step": 1}));
     drop(first);
 
@@ -186,6 +186,86 @@ fn a_transcript_saved_before_tools_returned_pictures_still_loads() {
     assert_eq!(items[2], Item::result("c1", "shell", "a.txt", false));
 }
 
+#[test]
+fn a_transcript_saved_whole_by_an_earlier_version_is_picked_up_and_saved_on() {
+    let dir = tempfile::tempdir().unwrap();
+    // A database as schema 3 had it, with a transcript in it.
+    let old = r#"[{"is":"user","text":"list the files"},{"is":"assistant","text":"","calls":[{"id":"c1","name":"shell","args":{"command":"ls"}}]},{"is":"result","id":"c1","name":"shell","output":"a.txt","failed":false}]"#;
+    let conn = Connection::open(db(&dir)).unwrap();
+    conn.execute_batch(SCHEMA).unwrap();
+    conn.execute_batch(
+        "DROP TABLE transcript_items;
+         PRAGMA user_version = 3;
+         INSERT INTO undertakings (id, state) VALUES ('u1', '{\"brief\":\"list\",\"plan\":[],\"notes\":[],\"finish\":null,\"sittings\":0,\"steps\":2,\"usage\":{\"input\":0,\"cached\":0,\"output\":0,\"thought\":0},\"seconds\":0.0}');",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO transcript (id, items) VALUES ('u1', ?1)",
+        [old],
+    )
+    .unwrap();
+    drop(conn);
+
+    let u = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    let mut items = u.transcript().unwrap();
+    assert_eq!(items.len(), 3);
+    items.push(Item::user("now count them"));
+    u.save(&items, 3).unwrap();
+
+    let again = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    assert_eq!(again.transcript().unwrap(), items);
+    let left: i64 = Connection::open(db(&dir))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM transcript", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(left, 0, "the old row is not read again");
+}
+
+/// The rows of the transcript of `u1`: what each holds of its own, and
+/// which row of the history it is instead.
+fn transcript_rows(dir: &tempfile::TempDir) -> Vec<(Option<String>, Option<i64>)> {
+    Connection::open(db(dir))
+        .unwrap()
+        .prepare("SELECT item, history FROM transcript_items WHERE id = 'u1' ORDER BY n")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
+#[test]
+fn a_saved_transcript_points_into_the_history_and_is_written_again_only_where_it_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+    let items = vec![Item::user("task"), Item::user("a"), Item::user("b")];
+    u.save(&items, 0).unwrap();
+    assert_eq!(
+        transcript_rows(&dir),
+        [(None, Some(1)), (None, Some(2)), (None, Some(3))],
+        "each item is the history's, and only pointed to"
+    );
+
+    // An earlier item changed, as when a picture is shed, and a new one.
+    let mut more = items.clone();
+    more[1] = Item::user("a, shortened");
+    more.push(Item::user("c"));
+    u.save(&more, 3).unwrap();
+    let rows = transcript_rows(&dir);
+    assert_eq!(rows[0], (None, Some(1)), "what did not change stays");
+    assert!(rows[1].0.as_deref().unwrap().contains("a, shortened"));
+    assert_eq!(rows[2], (None, Some(3)));
+    assert_eq!(rows[3], (None, Some(4)));
+    assert_eq!(u.history().len(), 4);
+    let again = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    assert_eq!(again.transcript().unwrap(), more);
+
+    // Folded down, the rows past its end go.
+    let folded = vec![Item::user("task, and where it got to")];
+    again.save(&folded, 1).unwrap();
+    assert_eq!(u.transcript().unwrap(), folded);
+}
+
 fn seen(bytes: &[u8]) -> Item {
     Item::Result {
         id: "c1".into(),
@@ -199,10 +279,15 @@ fn seen(bytes: &[u8]) -> Item {
     }
 }
 
-fn saved_row(dir: &tempfile::TempDir) -> String {
+/// The `n`th item of the transcript as its row holds it.
+fn saved_row(dir: &tempfile::TempDir, n: i64) -> String {
     Connection::open(db(dir))
         .unwrap()
-        .query_row("SELECT items FROM transcript", [], |row| row.get(0))
+        .query_row(
+            "SELECT item FROM transcript_items WHERE n = ?1",
+            [n],
+            |row| row.get(0),
+        )
         .unwrap()
 }
 
@@ -212,12 +297,12 @@ fn a_saved_transcript_names_a_picture_by_its_file_and_holds_no_bytes() {
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let bytes = b"\x89PNG\r\n\x1a\n and the rest";
     // Never handed to `keep`: saving keeps it first.
-    u.save_transcript(&[Item::user("look"), seen(bytes)]);
+    u.save(&[Item::user("look"), seen(bytes)], 0).unwrap();
     let file = media::name(bytes, "image/png");
-    let row = saved_row(&dir);
+    let row = saved_row(&dir, 2);
     let written: Value = serde_json::from_str(&row).unwrap();
     assert_eq!(
-        written[1]["pictures"],
+        written["pictures"],
         json!([{"mime": "image/png", "file": file}])
     );
     assert!(!row.contains("\"data\""), "{row}");
@@ -231,7 +316,7 @@ fn a_picture_whose_file_is_gone_comes_back_as_a_line_of_text() {
     let dir = tempfile::tempdir().unwrap();
     let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
     let bytes = b"GIF89a gone";
-    u.save_transcript(&[seen(bytes)]);
+    u.save(&[seen(bytes)], 0).unwrap();
     let file = media::name(bytes, "image/png");
     fs::remove_file(dir.path().join(media::MEDIA_DIR).join(&file)).unwrap();
     let items = u.transcript().expect("the rest still loads");
@@ -322,8 +407,7 @@ fn two_undertakings_in_one_database_do_not_see_each_others_state() {
     let a = Undertaking::open(&db(&dir), "a", Some("paint the fence")).unwrap();
     let b = Undertaking::open(&db(&dir), "b", Some("mend the gate")).unwrap();
     a.update(|s| s.steps = 7).unwrap();
-    a.save_transcript(&[Item::user("fence")]);
-    a.remember(&[Item::user("fence")]);
+    a.save(&[Item::user("fence")], 0).unwrap();
     a.log(&serde_json::json!({"step": 1}));
     a.add("white").unwrap();
 
