@@ -1,5 +1,5 @@
-//! Her public life: how her posts are doing, what she has learned from
-//! that, and reading a post over before it goes out.
+//! Her public life: how her posts are doing, and what she has learned from
+//! that.
 //!
 //! Wanting to be read is hers, written into who she is or not. Nothing here
 //! optimises her. A channel reports numbers; she sees them when she scrolls
@@ -8,16 +8,12 @@
 //! touches her persona. What changes is her craft.
 
 use chrono::{DateTime, Duration, Utc};
-use ghost_brain::{Brain, Completion};
 use ghost_core::{journal::Event, narrate, when::when};
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use super::{Mind, Outcome, Purpose};
-use crate::{
-    Act, Acted, Can, Prompts, Result,
-    actions::{self, clip},
-};
+use crate::{Act, Acted, Can, Prompts, Result, actions::clip};
 
 /// The start of the id of an undertaking that is a review of her own
 /// public writing.
@@ -42,49 +38,6 @@ pub(super) fn conclusions(words: &Prompts, summary: &str) -> Vec<(String, Option
         .filter(|text| text.len() > 12)
         .map(|text| (text, None))
         .collect()
-}
-
-/// How a draft came out of being read over.
-pub(super) enum Verdict {
-    /// Send this text. It may have been revised.
-    Post(String),
-    /// Do not send it.
-    Drop(String),
-}
-
-/// Read a draft over. A draft that could not be read over is held:
-/// saying nothing is safer than letting something private out.
-pub(super) async fn gate(brain: &dyn Brain, request: &Completion, draft: String) -> Verdict {
-    let reply = match brain.complete(request).await {
-        Ok(reply) => reply,
-        Err(e) => return Verdict::Drop(format!("could not be read over: {e}")),
-    };
-    let Some(v) = actions::object(&reply.text) else {
-        return Verdict::Drop("the read-over came back unreadable".into());
-    };
-    let why = v["why"].as_str().unwrap_or_default().trim().to_owned();
-    match v["verdict"]
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "post" => Verdict::Post(draft),
-        "revise" => match v["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
-            Some(revised) => Verdict::Post(revised.to_owned()),
-            None => Verdict::Drop(if why.is_empty() {
-                "nothing left after revising".into()
-            } else {
-                why
-            }),
-        },
-        _ => Verdict::Drop(if why.is_empty() {
-            "not worth posting".into()
-        } else {
-            why
-        }),
-    }
 }
 
 impl Mind {
@@ -213,56 +166,6 @@ impl Mind {
             channel: channel.to_owned(),
             followers: measure.followers,
             posts: measure.posts,
-        })?;
-        Ok(())
-    }
-
-    /// The request that reads a draft over before it is posted.
-    pub(super) fn gate_request(
-        &self,
-        channel: &str,
-        draft: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Completion> {
-        let memory = self.ghost.memory();
-        // What she was told in private lately: the things a post must not
-        // carry out into the open. A post is in no private conversation, so
-        // by `private_elsewhere` all of it is kept from one.
-        let private: Vec<String> = memory
-            .private_notes(30)?
-            .into_iter()
-            .map(|(name, note)| {
-                self.prompts.fill(
-                    "gate_private",
-                    &[("name", name), ("note", clip(&note.text, 200))],
-                )
-            })
-            .collect();
-        let canon: Vec<String> = memory
-            .canon(30)?
-            .iter()
-            .map(|f| format!("- {}", f.fact))
-            .collect();
-        let or_none = |lines: String| self.prompts.or(lines, "nothing");
-        let prompt = narrate::fill(
-            &self.prompts.gate,
-            &[
-                ("channel", channel.to_owned()),
-                ("draft", draft.to_owned()),
-                ("private", or_none(private.join("\n"))),
-                ("canon", or_none(canon.join("\n"))),
-                ("craft", or_none(self.craft_lines()?)),
-            ],
-        );
-        Ok(self.framed(now, &prompt)?.expecting_json())
-    }
-
-    pub(super) fn on_held(&mut self, channel: &str, text: &str, why: &str) -> Result<()> {
-        debug!("{channel}: held back a post: {why}");
-        self.record(Event::Decided {
-            about: channel.to_owned(),
-            decision: "did not post".into(),
-            reason: format!("{why} (the draft: {})", clip(text, 160)),
         })?;
         Ok(())
     }

@@ -70,7 +70,9 @@ whatever her day, with no reading or typing time, on a page of its own
 asked for there goes first and is not held to her floors.
 
 In public she posts, is shown how her posts did, and writes down what that
-taught her. Every post is read over before it goes out. What a platform does
+taught her. What she must not say in public (anything told her in private,
+anything untrue of her life) is said once, where every public message is
+written, and what was private is never put in front of her there. What a platform does
 not allow an automated account is off unless it is turned on.
 
 **Is not:** aware of any platform or wire format. It acts through the `Body`

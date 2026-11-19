@@ -15,11 +15,7 @@ use ghost_core::{
 };
 use tracing::{debug, warn};
 
-use super::{
-    Mind, Outcome, Purpose,
-    public::{Verdict, gate},
-    speak::Bubble,
-};
+use super::{Mind, Outcome, Purpose, speak::Bubble};
 use crate::{
     Act, Acted, Can, Error, Feed, Incoming, Result,
     actions::{self, Action, Deliberation, clip},
@@ -310,25 +306,8 @@ impl Mind {
                     }
                     posted += 1;
                     let body = self.body.clone();
-                    // Read it over first, as herself, for what must not go out.
-                    let check = if set.gate {
-                        Some((self.tick.clone(), self.gate_request(channel, &text, now)?))
-                    } else {
-                        None
-                    };
                     let channel = channel.to_owned();
                     self.jobs.spawn(async move {
-                        let text = match check {
-                            Some((brain, request)) => {
-                                match gate(brain.as_ref(), &request, text.clone()).await {
-                                    Verdict::Post(text) => text,
-                                    Verdict::Drop(why) => {
-                                        return Outcome::Held { channel, text, why };
-                                    }
-                                }
-                            }
-                            None => text,
-                        };
                         let result = body.act(&channel, Act::Post { text: text.clone() }).await;
                         Outcome::Posted {
                             channel,

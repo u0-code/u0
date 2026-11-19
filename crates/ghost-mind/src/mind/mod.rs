@@ -420,12 +420,6 @@ enum Outcome {
         channel: String,
         result: std::result::Result<Acted, String>,
     },
-    /// A post was read over and not sent.
-    Held {
-        channel: String,
-        text: String,
-        why: String,
-    },
     /// A sitting of work ended.
     Worked { id: String, sat: Box<work::Sat> },
     /// A sitting of work did not start: see [`work::Unseated`].
@@ -1166,7 +1160,6 @@ impl Mind {
                 result,
             } => self.on_posted(channel, text, result),
             Outcome::Measured { channel, result } => self.on_measured(&channel, result),
-            Outcome::Held { channel, text, why } => self.on_held(&channel, &text, &why),
             Outcome::Worked { id, sat } => {
                 // A sitting is never called off: it is stopped, and comes
                 // back, so what it was for is always there.

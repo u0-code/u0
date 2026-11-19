@@ -75,7 +75,6 @@ pub const FILES: &[File] = &[
     prompt!("system/logic/reflect.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/reflect_on.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/browse.md", Kind::Whole, Layer::Logic),
-    prompt!("system/logic/gate.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/view.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/report.md", Kind::Whole, Layer::Logic),
     prompt!("system/logic/review.md", Kind::Whole, Layer::Logic),
@@ -230,8 +229,6 @@ pub struct Prompts {
     pub reflect_on: String,
     /// `browse.md`: scrolling a feed.
     pub browse: String,
-    /// `gate.md`: reading a post over before it goes out.
-    pub gate: String,
     /// `view.md`: glancing at an image someone sent.
     pub view: String,
     /// `report.md`: telling an operator what she has been doing.
@@ -283,7 +280,6 @@ impl Prompts {
             reflect: text("system/logic/reflect.md"),
             reflect_on: text("system/logic/reflect_on.md"),
             browse: text("system/logic/browse.md"),
-            gate: text("system/logic/gate.md"),
             view: text("system/logic/view.md"),
             report: text("system/logic/report.md"),
             review: text("system/logic/review.md"),
@@ -754,8 +750,8 @@ mod tests {",
     fn the_deployments_prompts_win_over_the_built_in_file_by_file_and_entry_by_entry() {
         let dir = tempfile::tempdir().unwrap();
         write_at(
-            &dir.path().join("system/logic/gate.md"),
-            "the deployment's gate",
+            &dir.path().join("system/logic/browse.md"),
+            "the deployment's scrolling",
             1,
         );
         write_at(
@@ -769,7 +765,7 @@ mod tests {",
             1,
         );
         let p = Prompts::load(Some(dir.path()));
-        assert_eq!(p.gate, "the deployment's gate");
+        assert_eq!(p.browse, "the deployment's scrolling");
         assert_eq!(p.persona, "Call me {{name}}.");
         assert_eq!(p.page("chat"), Prompts::shipped().page("chat"));
         assert_eq!(p.text("last_turn"), "the deployment's");
@@ -785,7 +781,7 @@ mod tests {",
                 .map(|l| (l.path.is_some(), l.differs))
                 .unwrap()
         };
-        assert_eq!(origin("system/logic/gate.md", None), (true, true));
+        assert_eq!(origin("system/logic/browse.md", None), (true, true));
         assert_eq!(origin("character/persona.md", None), (true, true));
         assert_eq!(origin("system/channels/chat.md", None), (false, false));
         assert_eq!(origin(LOOK, Some("last_turn")), (true, true));

@@ -1,5 +1,5 @@
-# Her public life (gate.md, review.md, and the night's look back): how her
-# posts are doing, and what a draft is read over against.
+# Her public life (review.md, and the night's look back): how her posts
+# are doing.
 
 # One of the files of the mind's short texts, read with the others in this
 # directory and character/texts.toml as one table: see prompts/README.md.
@@ -15,10 +15,6 @@ post_standing = "- {{when}} \"{{text}}\": {{likes}} likes, {{replies}} replies, 
 post_views = ", seen {{views}} times"
 # A post measured before she kept what she posted.
 post_untracked = "(a post from before you kept track)"
-
-# Something she was told in private, which a post must not carry out into
-# the open.
-gate_private = "- about {{name}}: {{note}}"
 
 # A `TRY:` line of a review of her public writing, kept as a lesson.
 try_this_week = "This week, try: {{what}}"
