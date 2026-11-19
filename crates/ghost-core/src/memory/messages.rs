@@ -27,9 +27,6 @@ pub struct Line {
     pub reply_to: Option<String>,
     pub addressed: bool,
     pub text: String,
-    /// When it was a directive from an operator of hers: the directive,
-    /// without its prefix. `text` is still the message as it was written.
-    pub directive: Option<String>,
 }
 
 /// How much of what was said lately in a place was hers.
@@ -65,15 +62,14 @@ pub struct Unprompted {
 
 /// Bumped when `SCHEMA`, or what `fold` writes, changes: see
 /// [`super::Feature`].
-pub(super) const VERSION: i64 = 1;
+pub(super) const VERSION: i64 = 2;
 
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS messages (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, channel TEXT NOT NULL,
     place TEXT NOT NULL, dir TEXT NOT NULL,
     person TEXT, name TEXT NOT NULL, platform_id TEXT, reply_to TEXT,
-    addressed INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL,
-    directive TEXT
+    addressed INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_channel ON messages (channel, seq);
 CREATE INDEX IF NOT EXISTS messages_place ON messages (place, seq);
@@ -163,13 +159,6 @@ pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> 
                     params![seen, message],
                 )?;
             }
-        }
-        // A directive is marked on the message it came in.
-        Event::Directed { message, text, .. } => {
-            tx.execute(
-                "UPDATE messages SET directive = ?1 WHERE seq = ?2 AND dir = 'in'",
-                params![text, message],
-            )?;
         }
         _ => {}
     }
@@ -403,17 +392,6 @@ impl Memory {
         Ok(last_unprompted(&self.thread(place, window)?, within))
     }
 
-    /// The directives in a place after entry `after`, oldest first.
-    pub fn directives(&self, place: &str, after: i64) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT directive FROM messages
-             WHERE place = ?1 AND seq > ?2 AND dir = 'in' AND directive IS NOT NULL ORDER BY seq",
-        )?;
-        Ok(stmt
-            .query_map(params![place, after], |r| r.get(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
     /// Whether a query about a place and a message's id finds a row.
     fn exists(&self, sql: &str, place: &str, platform_id: &str) -> Result<bool> {
         Ok(self
@@ -473,9 +451,9 @@ fn last_unprompted(lines: &[Line], within: Duration) -> Option<Unprompted> {
     })
 }
 
-const LINE_COLUMNS: &str =
-    "seq, at, dir, person, name, platform_id, reply_to, addressed, text, directive";
-const LINE_SELECT: &str = "SELECT seq, at, dir, person, name, platform_id, reply_to, addressed, text, directive FROM messages";
+const LINE_COLUMNS: &str = "seq, at, dir, person, name, platform_id, reply_to, addressed, text";
+const LINE_SELECT: &str =
+    "SELECT seq, at, dir, person, name, platform_id, reply_to, addressed, text FROM messages";
 
 fn row_to_line(r: &rusqlite::Row<'_>) -> rusqlite::Result<Line> {
     line_at(r, 0)
@@ -493,7 +471,6 @@ fn line_at(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<Line> {
         reply_to: r.get(o + 6)?,
         addressed: r.get(o + 7)?,
         text: r.get(o + 8)?,
-        directive: r.get(o + 9)?,
     })
 }
 
@@ -585,7 +562,6 @@ mod tests {
             reply_to: None,
             addressed,
             text: text.to_owned(),
-            directive: None,
         }
     }
 

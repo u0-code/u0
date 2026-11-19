@@ -160,9 +160,8 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let line = &again.memory().thread("qq:c2c:E4F2A9", 1).unwrap()[0];
     assert_eq!(line.text, "哈哈 [image: A cartoon cat lying flat.]");
     // Of the two things she kept she let one go, and holds the other.
-    let held = again.memory().belongings(5).unwrap();
-    assert_eq!(held.len(), 1);
-    assert_eq!(held[0].seq, 59);
+    assert!(again.memory().belonging(58).unwrap().is_none());
+    assert!(again.memory().belonging(59).unwrap().is_some());
     // An image she sent reads, in her own line, as what it was.
     let line = &again.memory().thread("t:wen", 1).unwrap()[0];
     assert!(!line.incoming);
@@ -170,11 +169,9 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
         line.text,
         "[image: The cat lying flat. For when someone has had enough of a day.] same"
     );
-    // A directive is marked on the line it came in, and that line is read
-    // as it was written.
+    // A line that was once a directive is read as it was written.
     let line = &again.memory().thread("qq:c2c:B7D1C0", 1).unwrap()[0];
     assert_eq!(line.text, "fox：send me the weather");
-    assert_eq!(line.directive.as_deref(), Some("send me the weather"));
     // Work an operator directed, and what she means to do because of it,
     // are remembered as directed.
     let work = again

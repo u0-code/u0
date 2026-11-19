@@ -380,7 +380,6 @@ mod tests {
             reply_to: None,
             addressed,
             text: String::new(),
-            directive: None,
         }
     }
 

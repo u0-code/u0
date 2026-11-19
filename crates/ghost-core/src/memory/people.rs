@@ -3,7 +3,7 @@
 //! An account is someone on one platform: what they are called there, when
 //! she first and last heard from them, how warm she is toward them, and
 //! whether she has left them. The same person on two platforms is two
-//! accounts until she is shown otherwise (see `links`).
+//! accounts.
 
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Transaction, params};

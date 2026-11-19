@@ -18,7 +18,6 @@ fn at_the_console() -> ghost_core::memory::PlaceState {
         last_out_at: None,
         unread: 0,
         unread_addressed: 0,
-        unread_directed: 0,
         quiet_until: None,
     }
 }

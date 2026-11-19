@@ -89,9 +89,6 @@ pub(crate) fn status(dir: &Path) -> anyhow::Result<()> {
         if place.unread_addressed > 0 {
             let _ = write!(detail, ", {} to her", place.unread_addressed);
         }
-        if place.unread_directed > 0 {
-            let _ = write!(detail, ", {} from an operator", place.unread_directed);
-        }
         let name = place
             .name
             .as_ref()
