@@ -26,11 +26,7 @@
 //! only for placeholders it lacks, and [`update`] records it once it is the
 //! same as the built-in.
 //!
-//! The record names each file by its path in the tree. A record written
-//! when the copies were flat names them by their old names, and is still
-//! read that way, so that copies moved into the tree keep their dates. Only
-//! copies at their place in the tree are looked at here: a flat directory
-//! is warned about where it is read, and is moved before it is kept up.
+//! The record names each file by its path in the tree.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -60,12 +56,9 @@ struct Record {
 }
 
 impl Record {
-    /// What `file` was copied from: under its path, or, in a record made
-    /// before the tree, its flat name.
+    /// What `file` was copied from.
     fn of(&self, file: &File) -> Option<&Copied> {
-        self.files
-            .get(file.path)
-            .or_else(|| self.files.get(file.flat))
+        self.files.get(file.path)
     }
 }
 
@@ -307,14 +300,12 @@ mod tests {
             built_in: "Plan {{day}}.",
             kind: Kind::Whole,
             layer: Layer::Logic,
-            flat: "plan.md",
         },
         File {
             path: TEXTS,
             built_in: "look = \"Look at {{place}}.\"\nother = \"Other.\"\n",
             kind: Kind::Texts("mind"),
             layer: Layer::Logic,
-            flat: "texts.toml",
         },
     ];
 
@@ -325,14 +316,12 @@ mod tests {
             built_in: "Plan {{day}} around {{weather}}.",
             kind: Kind::Whole,
             layer: Layer::Logic,
-            flat: "plan.md",
         },
         File {
             path: TEXTS,
             built_in: "look = \"Look at {{place}} with {{who}}.\"\nother = \"Other.\"\nnew = \"New.\"\n",
             kind: Kind::Texts("mind"),
             layer: Layer::Logic,
-            flat: "texts.toml",
         },
     ];
 
@@ -405,39 +394,5 @@ mod tests {
         // Nothing is replaced that cannot be dated.
         let done = update(NOW, dir.path(), &[]).unwrap();
         assert!(done.iter().all(|(_, what)| *what == Updated::LeftAlone));
-    }
-
-    #[test]
-    fn a_record_made_when_the_copies_were_flat_still_dates_them_once_moved_into_the_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        // As an export before the tree wrote it: the copies at the top, and
-        // the record under their flat names.
-        fs::write(dir.path().join("plan.md"), THEN[0].built_in).unwrap();
-        fs::write(
-            dir.path().join(RECORD),
-            format!(
-                "[files.\"plan.md\"]\nbuilt_in = \"{}\"\n\n[files.\"texts.toml\"]\nbuilt_in = \"0\"\n\n\
-                 [files.\"texts.toml\".entries]\nlook = \"{}\"\n",
-                hash(THEN[0].built_in),
-                hash("\"Look at {{place}}.\""),
-            ),
-        )
-        .unwrap();
-        // Moved into the tree by hand.
-        fs::create_dir_all(dir.path().join("system/logic/texts")).unwrap();
-        fs::rename(dir.path().join("plan.md"), dir.path().join(PLAN)).unwrap();
-        fs::write(dir.path().join(TEXTS), "look = \"Look at {{place}}.\"\n").unwrap();
-
-        let found = stale(NOW, dir.path());
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert!(found.iter().all(|s| s.changed), "{found:?}");
-        // The template nobody edited is brought up to date, as it would have
-        // been where it was.
-        let done = update(NOW, dir.path(), &[]).unwrap();
-        assert_eq!(done[0].1, Updated::Replaced);
-        assert_eq!(
-            fs::read_to_string(dir.path().join(PLAN)).unwrap(),
-            NOW[0].built_in
-        );
     }
 }

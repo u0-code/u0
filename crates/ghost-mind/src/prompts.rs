@@ -34,14 +34,12 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-pub use ghost_core::prompts::{DIR, File, Kind, Layer, Listed, Loop, Origin};
+pub use ghost_core::prompts::{File, Kind, Layer, Listed, Loop, Origin};
 use ghost_core::{prompt, prompts::Store};
 
 /// The mind's table of texts: `system/logic/texts/` and
 /// `character/texts.toml`, read as one.
 pub const TEXTS: &str = "mind";
-/// Where each of the mind's texts was before there was a tree.
-const FLAT_TEXTS: &str = "texts.toml";
 
 /// The channels that have a page of their own in `system/channels/`. A
 /// channel by any other name reads `chat`'s, unless its settings name
@@ -51,187 +49,94 @@ pub const PAGES: &[&str] = &["chat", "console", "qq", "discord", "telegram", "x"
 /// The files the mind reads, with what is built in. The work loop's are in
 /// [`ghost_work::prompts::FILES`], and are read beside them.
 pub const FILES: &[File] = &[
-    prompt!(
-        "character/persona.md",
-        Kind::Whole,
-        Layer::Persona,
-        "persona.md"
-    ),
-    prompt!(
-        "character/texts.toml",
-        Kind::Texts(TEXTS),
-        Layer::Persona,
-        FLAT_TEXTS
-    ),
-    prompt!("system/being.md", Kind::Whole, Layer::Being, "being.md"),
-    prompt!("system/logic/now.md", Kind::Whole, Layer::Logic, "now.md"),
-    prompt!(
-        "system/logic/digest.md",
-        Kind::Whole,
-        Layer::Logic,
-        "digest.md"
-    ),
-    prompt!(
-        "system/logic/reply_json.md",
-        Kind::Whole,
-        Layer::Logic,
-        "reply_json.md"
-    ),
-    prompt!(
-        "system/logic/reply_tools.md",
-        Kind::Whole,
-        Layer::Logic,
-        "reply_tools.md"
-    ),
-    prompt!(
-        "system/channels/chat.md",
-        Kind::Whole,
-        Layer::Logic,
-        "chat.md"
-    ),
-    prompt!(
-        "system/channels/console.md",
-        Kind::Whole,
-        Layer::Logic,
-        "console.md"
-    ),
-    prompt!("system/channels/qq.md", Kind::Whole, Layer::Logic, "qq.md"),
-    prompt!(
-        "system/channels/discord.md",
-        Kind::Whole,
-        Layer::Logic,
-        "discord.md"
-    ),
-    prompt!(
-        "system/channels/telegram.md",
-        Kind::Whole,
-        Layer::Logic,
-        "telegram.md"
-    ),
-    prompt!("system/channels/x.md", Kind::Whole, Layer::Logic, "x.md"),
-    prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic, "plan.md"),
-    prompt!(
-        "system/logic/lived.md",
-        Kind::Whole,
-        Layer::Logic,
-        "lived.md"
-    ),
-    prompt!(
-        "system/logic/reflect.md",
-        Kind::Whole,
-        Layer::Logic,
-        "reflect.md"
-    ),
-    prompt!(
-        "system/logic/reflect_on.md",
-        Kind::Whole,
-        Layer::Logic,
-        "reflect_on.md"
-    ),
-    prompt!(
-        "system/logic/browse.md",
-        Kind::Whole,
-        Layer::Logic,
-        "browse.md"
-    ),
-    prompt!("system/logic/gate.md", Kind::Whole, Layer::Logic, "gate.md"),
-    prompt!("system/logic/view.md", Kind::Whole, Layer::Logic, "view.md"),
-    prompt!(
-        "system/logic/report.md",
-        Kind::Whole,
-        Layer::Logic,
-        "report.md"
-    ),
-    prompt!(
-        "system/logic/review.md",
-        Kind::Whole,
-        Layer::Logic,
-        "review.md"
-    ),
+    prompt!("character/persona.md", Kind::Whole, Layer::Persona),
+    prompt!("character/texts.toml", Kind::Texts(TEXTS), Layer::Persona),
+    prompt!("system/being.md", Kind::Whole, Layer::Being),
+    prompt!("system/logic/now.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/digest.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/reply_json.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/reply_tools.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/chat.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/console.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/qq.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/discord.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/telegram.md", Kind::Whole, Layer::Logic),
+    prompt!("system/channels/x.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/plan.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/lived.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/reflect.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/reflect_on.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/browse.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/gate.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/view.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/report.md", Kind::Whole, Layer::Logic),
+    prompt!("system/logic/review.md", Kind::Whole, Layer::Logic),
     prompt!(
         "system/logic/texts/look.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/moment.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/place.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/addressed.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/right_now.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/elsewhere.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/abilities.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/keep.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/view.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/browse.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/day.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/report.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
     prompt!(
         "system/logic/texts/working.toml",
         Kind::Texts(TEXTS),
-        Layer::Logic,
-        FLAT_TEXTS
+        Layer::Logic
     ),
-    prompt!(
-        "system/work/working.md",
-        Kind::Whole,
-        Layer::Work,
-        "working.md"
-    ),
+    prompt!("system/work/working.md", Kind::Whole, Layer::Work),
 ];
 
 /// Every file a prompts directory can hold: the mind's, then the work
@@ -672,44 +577,6 @@ mod tests {
     }
 
     #[test]
-    fn an_old_flat_directory_still_loads_and_is_told_where_each_file_goes() {
-        let dir = tempfile::tempdir().unwrap();
-        write_at(&dir.path().join("plan.md"), "a flat plan", 1);
-        write_at(
-            &dir.path().join("texts.toml"),
-            "weather = \"Flat weather: {{weather}}.\"\nexamples = \"Flat.\\n\\n{{examples}}\"\n",
-            1,
-        );
-        write_at(
-            &dir.path().join("work_texts.toml"),
-            "no_call = \"Call one.\"\n",
-            1,
-        );
-        write_at(
-            &dir.path().join("tools.toml"),
-            "[say]\ndescription = \"Talk.\"\n",
-            1,
-        );
-        let p = Prompts::load(Some(dir.path()));
-        assert_eq!(p.plan, "a flat plan");
-        assert_eq!(p.text("weather"), "Flat weather: {{weather}}.");
-        assert_eq!(p.section("examples", "examples", "x"), "Flat.\n\nx");
-        assert_eq!(p.tool("say"), "Talk.");
-        assert_eq!(p.for_work().text("no_call"), "Call one.");
-
-        let said = ghost_core::prompts::flat(&all_files(), dir.path()).unwrap();
-        for moved in [
-            "plan.md goes to system/logic/plan.md",
-            "texts.toml goes to a file per feature: examples to character/texts.toml; \
-             weather to system/logic/texts/day.toml",
-            "work_texts.toml goes to system/work/texts.toml",
-            "tools.toml goes to system/tools.toml",
-        ] {
-            assert!(said.contains(moved), "{moved:?} is not in {said:?}");
-        }
-    }
-
-    #[test]
     fn the_desks_directory_replaces_her_persona_and_being_and_nothing_else() {
         let desk = tree().join("system/desk");
         let p = Prompts::load(Some(&desk));
@@ -724,7 +591,6 @@ mod tests {
             p.persona,
             fs::read_to_string(desk.join("character/persona.md")).unwrap()
         );
-        assert!(ghost_core::prompts::flat(&all_files(), &desk).is_none());
     }
 
     #[test]
