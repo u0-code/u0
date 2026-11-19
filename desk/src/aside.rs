@@ -336,15 +336,6 @@ pub(crate) fn glyph(state: WorkState) -> Div {
         .child(mark)
 }
 
-/// Whose daemon a connection card is for, so its buttons know what to do.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Whose {
-    /// The solver's: on this machine, the core the desk looks after.
-    Solver,
-    /// The open character's.
-    Hers,
-}
-
 /// How a link stands, in a few words and a colour, and whether it is up.
 /// Down is grey, not red: it is a state to act on, and the card says why
 /// and what to do. A core the desk has just started is starting, not down.
@@ -414,7 +405,7 @@ impl Desk {
     fn daemon_card(
         &self,
         faces: &Faces,
-        whose: Whose,
+        whom: &Whom,
         name: &str,
         url: &str,
         watched: &Watched,
@@ -426,7 +417,10 @@ impl Desk {
             .trim_end_matches('/')
             .to_owned();
         let (link, reach) = (&watched.link, &watched.reach);
-        let starting = whose == Whose::Solver && self.core_starting();
+        // The solver's daemon is the core on this machine the desk looks
+        // after; any other card is the open character's.
+        let solver = *whom == Whom::Solver;
+        let starting = solver && self.core_starting();
         let (word, color, up) = standing(link, reach, starting);
         let card = row_with(
             Some(row_icon("server")),
@@ -437,10 +431,7 @@ impl Desk {
         let Some(why) = reach.why.as_ref().filter(|_| !up && !starting) else {
             return card;
         };
-        let tag = match whose {
-            Whose::Solver => "solver",
-            Whose::Hers => "hers",
-        };
+        let tag = if solver { "solver" } else { "hers" };
         let key = format!("link:{url}");
         let open = self.expanded.contains(&key);
         let retry = action(
@@ -448,11 +439,14 @@ impl Desk {
             SharedString::from(format!("{tag}-retry")),
             "Retry now",
         )
-        .on_click(cx.listener(move |this, _, _, cx| match whose {
-            Whose::Solver => this.retry_solver(cx),
-            Whose::Hers => this.retry_her(cx),
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if solver {
+                this.retry_solver(cx);
+            } else {
+                this.retry_her(cx);
+            }
         }));
-        let start = (whose == Whose::Solver && self.core_is_local()).then(|| {
+        let start = (solver && self.core_is_local()).then(|| {
             let word = if self.deployment.started() {
                 "Restart core"
             } else {
@@ -643,7 +637,7 @@ impl Desk {
             .child(self.machine_row(faces, cx))
             .child(self.daemon_card(
                 faces,
-                Whose::Solver,
+                &Whom::Solver,
                 "Daemon",
                 &self.settings.solver_url,
                 &self.solver,
@@ -902,7 +896,7 @@ impl Desk {
             .flex_col()
             .child(self.daemon_card(
                 faces,
-                Whose::Hers,
+                &Whom::Her,
                 open.host.label(),
                 &open.url,
                 &open.her,
