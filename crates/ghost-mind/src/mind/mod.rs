@@ -582,8 +582,10 @@ pub struct Mind {
     /// database, opened the first time a look keeps one.
     kept_looks: Option<ghost_work::looks::Looks>,
     /// Her work database opened to read, the first time it is there to be
-    /// read: every look at her work goes through it, so that looking never
-    /// writes, never makes a record, and never waits on the work.
+    /// read: every question a console asks of her work, and of the rounds
+    /// of her looks, is answered on this one connection, so that looking
+    /// never writes, never makes a record, never waits on the work, and
+    /// does not open the file again each time it is asked.
     records: std::cell::OnceCell<ghost_work::undertaking::Records>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,

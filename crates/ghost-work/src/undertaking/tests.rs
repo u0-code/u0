@@ -629,3 +629,72 @@ fn work_on_record_is_opened_and_looked_at_while_a_worker_holds_the_lock() {
     assert!(records.look(&["u2".into()]).unwrap().is_empty());
     assert_eq!(glance(&db(&dir)).unwrap().len(), 1);
 }
+
+#[test]
+fn a_record_a_newer_build_wrote_is_refused_rather_than_written_back_without_what_it_added() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
+    work.update(|s| {
+        s.plan.push(PlanStep {
+            text: "start".into(),
+            ..PlanStep::default()
+        });
+    })
+    .unwrap();
+    let conn = Connection::open(db(&dir)).unwrap();
+    let saved = |conn: &Connection| -> String {
+        conn.query_row("SELECT state FROM undertakings WHERE id = 'u1'", [], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    };
+    // A newer build added a field to a step of the plan.
+    let mut newer: Value = serde_json::from_str(&saved(&conn)).unwrap();
+    newer["plan"][0]["weight"] = json!(3);
+    let newer = newer.to_string();
+    conn.execute(
+        "UPDATE undertakings SET state = ?1 WHERE id = 'u1'",
+        [&newer],
+    )
+    .unwrap();
+
+    let refused = work.update(|s| s.steps = 9).unwrap_err().to_string();
+    assert!(
+        refused.contains("plan[0].weight"),
+        "it says what: {refused}"
+    );
+    assert!(Undertaking::open(&db(&dir), "u1", None).is_err());
+    assert_eq!(
+        saved(&conn),
+        newer,
+        "the record is as the newer build left it"
+    );
+}
+
+#[test]
+fn a_field_this_build_does_not_have_that_holds_nothing_does_not_stop_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = Undertaking::open(&db(&dir), "u1", Some("build the thing")).unwrap();
+    Connection::open(db(&dir))
+        .unwrap()
+        .execute(
+            "UPDATE undertakings
+             SET state = json_set(state, '$.gone', json('null'), '$.none', json('[]'))",
+            [],
+        )
+        .unwrap();
+    work.update(|s| s.steps = 2).unwrap();
+    assert_eq!(work.state().steps, 2);
+}
+
+#[test]
+fn a_database_of_another_schema_is_not_read_either() {
+    let dir = tempfile::tempdir().unwrap();
+    Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+    Connection::open(db(&dir))
+        .unwrap()
+        .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .unwrap();
+    let refused = Records::open(&db(&dir)).err().unwrap().to_string();
+    assert!(refused.contains("schema"), "{refused}");
+}
