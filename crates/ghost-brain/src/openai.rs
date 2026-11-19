@@ -11,7 +11,7 @@ use crate::{
 
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
-pub struct OpenAi {
+pub(crate) struct OpenAi {
     client: reqwest::Client,
     api_key: String,
     model: String,

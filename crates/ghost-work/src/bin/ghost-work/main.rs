@@ -18,7 +18,7 @@ use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicBool, time::Duration};
 
 use anyhow::{Context, bail};
 use clap::Parser;
-use ghost_brain::{Brain, CliAgent, CliKind, Effort, anthropic::Anthropic, openai::OpenAi};
+use ghost_brain::{CliAgent, CliKind, Effort, config::ProviderConfig};
 use ghost_work::{
     Docker, Limits, Local, Machine, Prompts, Undertaking, WORK_DB, Worker, prompts, tools,
 };
@@ -87,8 +87,8 @@ struct Args {
     #[arg(long, default_value = "openai")]
     kind: String,
     /// The model.
-    #[arg(long)]
-    model: Option<String>,
+    #[arg(long, default_value = "deepseek-flash")]
+    model: String,
     #[arg(long, default_value = "https://api.deepseek.com")]
     base_url: String,
     /// The environment variable holding the API key.
@@ -233,25 +233,15 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let report = {
-        let key = std::env::var(&args.api_key_env)
-            .ok()
-            .filter(|k| !k.trim().is_empty())
-            .with_context(|| format!("set {} to the API key", args.api_key_env))?;
-        let model = args
-            .model
-            .clone()
-            .unwrap_or_else(|| "deepseek-flash".to_owned());
-        let brain: Arc<dyn Brain> = match args.kind.as_str() {
-            "openai" => Arc::new(
-                OpenAi::new(key, model, Some(args.base_url.clone()), None, false)
-                    .with_window(args.context_window),
-            ),
-            "anthropic" => Arc::new(
-                Anthropic::new(key, model, Some(args.base_url.clone()))
-                    .with_window(args.context_window),
-            ),
-            other => bail!("unknown kind {other:?}: use openai or anthropic"),
-        };
+        // A provider as ghostd.toml would give it, read the same way.
+        let brain = serde_json::from_value::<ProviderConfig>(serde_json::json!({
+            "kind": args.kind,
+            "model": args.model,
+            "base_url": args.base_url,
+            "api_key_env": args.api_key_env,
+            "context_window": args.context_window,
+        }))?
+        .build()?;
         Worker {
             brain,
             tools: toolbox,

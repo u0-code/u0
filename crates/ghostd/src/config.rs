@@ -335,8 +335,7 @@ impl Config {
     pub fn agents(&self) -> Vec<(String, ghost_brain::CliAgent)> {
         self.providers
             .iter()
-            .filter(|(_, p)| matches!(p.kind(), "claude-code" | "codex"))
-            .filter_map(|(name, p)| Some((name.clone(), p.build().ok()?.cli()?)))
+            .filter_map(|(name, p)| Some((name.clone(), p.agent()?)))
             .collect()
     }
 

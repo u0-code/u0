@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::{Brain, Error, Result, anthropic::Anthropic, cli, openai::OpenAi};
+use crate::{Brain, CliAgent, CliKind, Error, Result, anthropic::Anthropic, cli, openai::OpenAi};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -163,28 +163,70 @@ impl ProviderConfig {
                 model,
                 timeout_secs,
                 args,
-            } => std::sync::Arc::new(
-                cli::ClaudeCode::new(
-                    program.clone(),
-                    model.clone(),
-                    timeout_secs.map(Duration::from_secs),
-                )
-                .with_args(args.clone()),
-            ),
+            } => std::sync::Arc::new(cli::ClaudeCode::new(
+                cli_agent(CliKind::Claude, program.as_deref(), model.as_deref(), args),
+                timeout_secs.map(Duration::from_secs),
+            )),
             Self::Codex {
                 program,
                 model,
                 timeout_secs,
                 args,
-            } => std::sync::Arc::new(
-                cli::Codex::new(
-                    program.clone(),
-                    model.clone(),
-                    timeout_secs.map(Duration::from_secs),
-                )
-                .with_args(args.clone()),
-            ),
+            } => std::sync::Arc::new(cli::Codex::new(
+                cli_agent(CliKind::Codex, program.as_deref(), model.as_deref(), args),
+                timeout_secs.map(Duration::from_secs),
+            )),
         })
+    }
+
+    /// The command-line agent this provider is, if it is one: what a piece
+    /// of work can hand a part to.
+    pub fn agent(&self) -> Option<CliAgent> {
+        match self {
+            Self::ClaudeCode {
+                program,
+                model,
+                args,
+                ..
+            } => Some(cli_agent(
+                CliKind::Claude,
+                program.as_deref(),
+                model.as_deref(),
+                args,
+            )),
+            Self::Codex {
+                program,
+                model,
+                args,
+                ..
+            } => Some(cli_agent(
+                CliKind::Codex,
+                program.as_deref(),
+                model.as_deref(),
+                args,
+            )),
+            Self::Anthropic { .. } | Self::Openai { .. } => None,
+        }
+    }
+}
+
+/// An agent of `kind` as configured, run as the program it installs as
+/// unless another is named.
+fn cli_agent(
+    kind: CliKind,
+    program: Option<&str>,
+    model: Option<&str>,
+    args: &[String],
+) -> CliAgent {
+    let installed_as = match kind {
+        CliKind::Claude => "claude",
+        CliKind::Codex => "codex",
+    };
+    CliAgent {
+        kind,
+        program: program.unwrap_or(installed_as).to_owned(),
+        model: model.map(str::to_owned),
+        args: args.to_vec(),
     }
 }
 
@@ -219,6 +261,30 @@ model = "gpt-5-codex"
         assert_eq!(m["d"].kind(), "codex");
         assert_eq!(m["b"].build().unwrap().label(), "openai/x");
         assert_eq!(m["c"].build().unwrap().label(), "claude-code/default");
+    }
+
+    #[test]
+    fn only_a_command_line_provider_is_an_agent_and_it_runs_as_what_it_installs_as() {
+        let text = r#"
+[api]
+kind = "openai"
+model = "x"
+
+[claude]
+kind = "claude-code"
+
+[codex]
+kind = "codex"
+program = "/opt/codex"
+args = ["-c", "x=1"]
+"#;
+        let m: std::collections::BTreeMap<String, ProviderConfig> = toml::from_str(text).unwrap();
+        assert!(m["api"].agent().is_none());
+        assert_eq!(m["claude"].agent().unwrap().program, "claude");
+        let codex = m["codex"].agent().unwrap();
+        assert_eq!(codex.kind, CliKind::Codex);
+        assert_eq!(codex.program, "/opt/codex");
+        assert_eq!(codex.args, ["-c", "x=1"]);
     }
 
     #[test]

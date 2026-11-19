@@ -5,7 +5,7 @@
 //! ghost is.
 
 pub mod anthropic;
-pub mod cli;
+mod cli;
 pub mod config;
 pub mod discover;
 mod http;
@@ -289,13 +289,6 @@ pub trait Brain: Send + Sync {
     /// The most this model can write in one answer, thinking included, if
     /// that is known. A caller that does not know asks for little.
     fn max_output(&self) -> Option<u32> {
-        None
-    }
-
-    /// If this brain is a command-line agent, how to start it. Such an
-    /// agent cannot take a [`Turn`], but it can be given our tools and left
-    /// to step through a piece of work itself.
-    fn cli(&self) -> Option<CliAgent> {
         None
     }
 }
