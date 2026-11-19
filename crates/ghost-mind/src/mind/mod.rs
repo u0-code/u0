@@ -874,12 +874,51 @@ impl Mind {
     /// back, so a sitting that installs something has it on the record
     /// within one glance.
     fn installs_changed(&mut self) -> Result<()> {
+        use ghost_work::{servers, skills};
         let mut changes = Vec::new();
         if let Some(servers) = &self.workshop.servers {
-            changes.extend(servers.take_changes());
+            changes.extend(servers.take_changes().into_iter().map(|c| match c {
+                servers::Change::Installed {
+                    name,
+                    version,
+                    description,
+                    source,
+                    owner,
+                    how,
+                    tools,
+                    hash,
+                } => Event::Installed {
+                    name,
+                    version,
+                    description,
+                    source,
+                    owner,
+                    how,
+                    tools,
+                    hash,
+                },
+                servers::Change::Uninstalled { name, why } => Event::Uninstalled { name, why },
+            }));
         }
         if let Some(skills) = &self.workshop.skills {
-            changes.extend(skills.take_changes());
+            changes.extend(skills.take_changes().into_iter().map(|c| match c {
+                skills::Change::Installed {
+                    name,
+                    source,
+                    path,
+                    sha,
+                    hash,
+                    description,
+                } => Event::SkillInstalled {
+                    name,
+                    source,
+                    path,
+                    sha,
+                    hash,
+                    description,
+                },
+                skills::Change::Uninstalled { name, why } => Event::SkillUninstalled { name, why },
+            }));
         }
         for event in changes {
             info!("tools: {}", event.kind());

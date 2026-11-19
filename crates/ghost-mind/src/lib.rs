@@ -12,6 +12,7 @@
 
 pub mod actions;
 pub mod body;
+mod catalog;
 pub mod config;
 pub mod mind;
 mod narrate;

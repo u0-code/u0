@@ -10,9 +10,10 @@
 //!
 //! **Hers, on the record.** What she installs is in her journal, as an
 //! `Installed` entry with exactly what was run, and a body started later
-//! runs exactly that and nothing newer. This module does not write her
-//! journal: it queues what happened, and the mind, which is the one
-//! writer, takes it with [`Servers::take_changes`] and records it.
+//! runs exactly that and nothing newer. This module knows nothing of her
+//! journal: it queues what happened as a [`Change`], and the mind, which
+//! is the one writer, takes it with [`Servers::take_changes`] and says it
+//! there.
 //!
 //! **Loaded when wanted.** One server's tool descriptions cost thousands
 //! of tokens at every step. So her toolbox shows each server as one line,
@@ -44,10 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ghost_core::{
-    journal::{Event, Launch},
-    memory,
-};
+use ghost_core::{journal::Launch, memory};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -197,7 +195,30 @@ pub struct Servers {
     registry: Registry,
     slots: Mutex<BTreeMap<String, Arc<Slot>>>,
     /// What happened that her journal should say, oldest first.
-    changes: Mutex<Vec<Event>>,
+    changes: Mutex<Vec<Change>>,
+}
+
+/// What happened to her servers that her journal should say.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a change happens a few times in her life and is moved once"
+)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    /// She installed one, and it ran and said what it offers: all it takes
+    /// to run the same again.
+    Installed {
+        name: String,
+        version: String,
+        description: String,
+        source: String,
+        owner: Option<String>,
+        how: Launch,
+        tools: Vec<String>,
+        hash: String,
+    },
+    /// One she had installed is gone, and why.
+    Uninstalled { name: String, why: String },
 }
 
 fn hold<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -266,12 +287,12 @@ impl Servers {
 
     /// What her journal should say that it does not yet: servers she
     /// installed, and servers that are gone and why. Taken once.
-    pub fn take_changes(&self) -> Vec<Event> {
+    pub fn take_changes(&self) -> Vec<Change> {
         std::mem::take(&mut *hold(&self.changes))
     }
 
-    fn record(&self, event: Event) {
-        hold(&self.changes).push(event);
+    fn record(&self, change: Change) {
+        hold(&self.changes).push(change);
     }
 
     /// Every server she has, as her toolbox lists it.
@@ -472,7 +493,7 @@ impl Servers {
             }),
             name: name.clone(),
         });
-        self.record(Event::Installed {
+        self.record(Change::Installed {
             name: name.clone(),
             version: version.clone(),
             description,
@@ -524,7 +545,7 @@ impl Servers {
             c.kill();
         }
         if slot.installed() {
-            self.record(Event::Uninstalled {
+            self.record(Change::Uninstalled {
                 name: slot.name.clone(),
                 why: why.to_owned(),
             });

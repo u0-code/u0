@@ -22,8 +22,9 @@
 //! **Hers, on the record.** What she installs is in her journal, as a
 //! `SkillInstalled` entry with the repository, the commit and a hash of
 //! the folder, and it lives under `skills/` in her directory. This module
-//! does not write her journal: it queues what happened, and the mind,
-//! which is the one writer, takes it with [`Skills::take_changes`].
+//! knows nothing of her journal: it queues what happened as a [`Change`],
+//! and the mind, which is the one writer, takes it with
+//! [`Skills::take_changes`] and says it there.
 //!
 //! **Safe by shape, not by asking.** A skill is instructions, and what
 //! instructions say is what matters; so everything a skill says reaches
@@ -47,7 +48,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 
-use ghost_core::{journal::Event, memory};
+use ghost_core::memory;
 use serde::Deserialize;
 
 use self::{
@@ -58,6 +59,23 @@ use crate::prompts::{Store, TEXTS};
 
 /// How many skills `find_skills` shows.
 const SHOWN: usize = 10;
+
+/// What happened to her skills that her journal should say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    /// She installed one: where it came from, the commit, and a hash of
+    /// its folder as it was written.
+    Installed {
+        name: String,
+        source: String,
+        path: String,
+        sha: String,
+        hash: String,
+        description: String,
+    },
+    /// One she had installed is gone, and why.
+    Uninstalled { name: String, why: String },
+}
 /// The most characters of a skill's body she is given: about the five
 /// thousand tokens the format asks a skill to stay under.
 const BODY: usize = 20_000;
@@ -141,7 +159,7 @@ pub struct Skills {
     github: GitHub,
     had: Mutex<BTreeMap<String, Had>>,
     /// What happened that her journal should say, oldest first.
-    changes: Mutex<Vec<Event>>,
+    changes: Mutex<Vec<Change>>,
 }
 
 fn hold<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -195,7 +213,7 @@ impl Skills {
                 }
                 Some(why) => {
                     self.put_aside(&skill.name);
-                    self.record(Event::SkillUninstalled {
+                    self.record(Change::Uninstalled {
                         name: skill.name,
                         why: why.to_owned(),
                     });
@@ -221,12 +239,12 @@ impl Skills {
     }
 
     /// What her journal should say that it does not yet. Taken once.
-    pub fn take_changes(&self) -> Vec<Event> {
+    pub fn take_changes(&self) -> Vec<Change> {
         std::mem::take(&mut *hold(&self.changes))
     }
 
-    fn record(&self, event: Event) {
-        hold(&self.changes).push(event);
+    fn record(&self, change: Change) {
+        hold(&self.changes).push(change);
     }
 
     /// Every skill she has, by name.
@@ -480,7 +498,7 @@ impl Skills {
         };
         let origin = had.origin(words);
         hold(&self.had).insert(front.name.clone(), had);
-        self.record(Event::SkillInstalled {
+        self.record(Change::Installed {
             name: front.name.clone(),
             source,
             path: folder.path,
@@ -535,7 +553,7 @@ impl Skills {
             return Err(self.none_called(words, name));
         }
         let _ = std::fs::remove_dir_all(self.dir.join(name));
-        self.record(Event::SkillUninstalled {
+        self.record(Change::Uninstalled {
             name: name.to_owned(),
             why: why.to_owned(),
         });

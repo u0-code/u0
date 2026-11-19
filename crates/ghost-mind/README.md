@@ -37,8 +37,8 @@ as a job's outcome, and her journal says so then. A sitting holding the
 database's lock never holds her up.
 
 In a conversation she has the same abilities as at work, at a conversation's
-pace. `ghost-work`'s catalog says which loops each tool belongs to and what it
-needs; where her brain takes tools, `search`, `fetch` and, in private with a
+pace. Her catalogue (`src/catalog.rs`) says what each tool of a conversation
+is and what a place needs before it is offered there; where her brain takes tools, `search`, `fetch` and, in private with a
 friend or an operator, her machine (`shell`, `read`, `write`, `edit`) run off
 to the side, each for at most `[mind] talk_tool_seconds`, within `talk_steps`
 turns. A page or picture she opens is in her journal as `Opened`, so that she

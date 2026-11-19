@@ -160,6 +160,16 @@ impl Toolbox {
         self.all().iter().any(|t| t.name() == name)
     }
 
+    /// Whether the tool called `name` was brought by another rather than
+    /// carried: installed from elsewhere, and so outside (see
+    /// [`crate::outside`]).
+    pub fn brought(&self, name: &str) -> bool {
+        self.tools
+            .iter()
+            .flat_map(|t| t.brings())
+            .any(|t| t.name() == name)
+    }
+
     /// Only the named tools.
     #[must_use]
     pub fn only(&self, names: &[&str]) -> Self {

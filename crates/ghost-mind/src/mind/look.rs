@@ -4,10 +4,7 @@
 use chrono::{DateTime, Utc};
 use ghost_brain::{Brain, Completion, Effort, Item, Turn};
 use ghost_core::{memory::PlaceState, narrate, prompts::Loop, social::PlaceKind, when::when, will};
-use ghost_work::{
-    Toolbox,
-    catalog::{self, Need},
-};
+use ghost_work::Toolbox;
 
 use super::{
     Mind, Outcome, Purpose,
@@ -16,22 +13,9 @@ use super::{
 use crate::{
     Act, Can, Error, Result,
     actions::{self, Deliberation, Offer},
+    catalog::{self, Kind, Need},
 };
 
-/// The tools that bring something back and so ask for another turn. None of
-/// them is offered on a look's last turn.
-const BRINGS_BACK: &[&str] = &[
-    "recall",
-    "reread",
-    "search",
-    "fetch",
-    "read",
-    "write",
-    "edit",
-    "shell",
-    "load_tools",
-    "use_skill",
-];
 /// How many of the latest messages are read for words that bring back a
 /// piece of her past.
 const PAST_SCAN: usize = 3;
@@ -57,10 +41,7 @@ impl Mind {
         // of turns must still end in an answer, never in silence.
         let last = with_tools && job.round > 0 && job.round + 1 >= self.cfg.talk_steps;
         if last {
-            // A tool of a server she loaded brings something back too.
-            tools.retain(|t| {
-                !BRINGS_BACK.contains(&t.name.as_str()) && catalog::find(&t.name).is_some()
-            });
+            tools.retain(|t| !catalog::brings_back(&t.name));
             job.items.push(Item::user(self.prompts.text("last_turn")));
         }
         // What she sees is put together once for a look made of tool
@@ -476,7 +457,7 @@ impl Mind {
             .filter(|e| {
                 offered.contains(&e.name)
                     || (at_work
-                        && !e.loops.contains(&Loop::Conversation)
+                        && matches!(e.kind, Kind::Work)
                         && e.needs.iter().all(|n| self.at_work_has(*n)))
             })
             .filter_map(|e| self.prompts.store().ability(e.name))

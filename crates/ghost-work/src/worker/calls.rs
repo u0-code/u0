@@ -105,7 +105,8 @@ impl Worker {
             // A call to a tool the worker does not carry was answered by
             // the toolbox, not by anything outside.
             let ran = tools.has(&call.name);
-            items.push(self.take_in(words, call, outcome, ran));
+            let brought = tools.brought(&call.name);
+            items.push(self.take_in(words, call, outcome, ran, brought));
         }
         (logged, signature)
     }
@@ -116,7 +117,14 @@ impl Worker {
     /// mark. Its pictures are kept on disk and named in its output; a
     /// brain that cannot see them is told how many there were, and the
     /// bytes go no further.
-    fn take_in(&self, words: &Prompts, call: &Call, outcome: tool::Outcome, ran: bool) -> Item {
+    fn take_in(
+        &self,
+        words: &Prompts,
+        call: &Call,
+        outcome: tool::Outcome,
+        ran: bool,
+        brought: bool,
+    ) -> Item {
         let tool::Outcome {
             output,
             failed,
@@ -124,7 +132,7 @@ impl Worker {
             origin,
         } = outcome;
         let mut output = if ran {
-            outside::mark(words, call, origin.as_deref(), output)
+            outside::mark(words, call, origin.as_deref(), brought, output)
         } else {
             output
         };

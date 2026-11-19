@@ -135,6 +135,9 @@ pub(super) struct Found {
     pub outcome: Option<ghost_work::Outcome>,
     /// How long it took, in milliseconds, or was waited for.
     pub ms: u128,
+    /// Whether another tool brought it, such as a tool of a server she
+    /// loaded: installed from elsewhere.
+    pub brought: bool,
 }
 
 /// What made her look.
