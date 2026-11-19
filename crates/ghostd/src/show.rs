@@ -1,7 +1,7 @@
 //! Printing her journal and the people in it for a terminal.
 
 use chrono_tz::Tz;
-use ghost_core::journal::{Entry, Event};
+use ghost_core::journal::{Entry, Event, Line};
 use serde_json::Value;
 
 /// One journal entry on one line, in her local time.
@@ -13,6 +13,18 @@ pub fn entry(e: &Entry, tz: Tz) -> String {
         e.event.kind(),
         describe(&e.event, tz)
     )
+}
+
+/// One line of a journal on one line: an entry as [`entry`] shows it, or
+/// one this build cannot read, by its kind.
+pub fn line(l: &Line, tz: Tz) -> String {
+    match l {
+        Line::Entry(e) => entry(e, tz),
+        Line::Unknown { seq, at, kind } => format!(
+            "#{seq:<5} {}  {kind:<9} (a kind this version does not know: a newer one wrote it)",
+            at.with_timezone(&tz).format("%m-%d %H:%M:%S"),
+        ),
+    }
 }
 
 fn describe(event: &Event, tz: Tz) -> String {

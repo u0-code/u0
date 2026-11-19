@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 
 use ghost_core::{
     Ghost,
-    journal::{Event, Journal},
+    journal::{Event, Journal, Line},
 };
 use serde_json::Value;
 
@@ -202,4 +202,86 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
         room.quiet_until.map(|t| t.to_rfc3339()).as_deref(),
         Some("2026-11-15T06:30:00+00:00")
     );
+}
+
+/// An entry as a newer version might write it: of a kind this one does not
+/// know. No version will ever give an event this kind, so it stays unknown.
+const NEWER: &str = include_str!("fixtures/newer.jsonl");
+
+/// Append `line`, as it is, to the journal in `dir`, the way a newer
+/// version would: the next seq, chained on to the last entry.
+fn written_by_a_newer_version(dir: &std::path::Path, line: &str) {
+    let conn = rusqlite::Connection::open(dir.join("journal.db")).unwrap();
+    let (last, prev): (i64, String) = conn
+        .query_row(
+            "SELECT seq, hash FROM events ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let kind = serde_json::from_str::<Value>(line).unwrap()["kind"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (seq, at) = (last + 1, "2026-11-19T08:00:00.000000Z");
+    let hash = ghost_core::journal::hash_entry(&prev, seq, at, &kind, line);
+    conn.execute(
+        "INSERT INTO events (seq, at, kind, payload, prev_hash, hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![seq, at, kind, line, prev, hash],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_journal_a_newer_version_wrote_to_is_not_lived_in_by_this_one_but_can_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("ghost.toml"), PERSONA).unwrap();
+    drop(Ghost::birth(dir.path()).unwrap());
+    let line = NEWER.trim();
+    written_by_a_newer_version(dir.path(), line);
+    let before = Ghost::peek(dir.path()).unwrap().entries;
+
+    let Err(err) = Ghost::open(dir.path()) else {
+        panic!("she was opened to live with an entry this version cannot read");
+    };
+    assert!(
+        matches!(&err, ghost_core::Error::Newer(kinds) if kinds == &["never_a_kind_of_ours"]),
+        "{err}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "her journal has entries of kinds this version of Ghost does not know \
+         (never_a_kind_of_ours): a newer version wrote them; run her with that one"
+    );
+
+    // Nothing was written, and nothing she has is lost: the entry is there
+    // as it was written, the chain holds, and she can be looked at.
+    let peek = Ghost::peek(dir.path()).unwrap();
+    assert_eq!(peek.entries, before);
+    assert_eq!(peek.unknown, ["never_a_kind_of_ours"]);
+    let lines = peek.journal.tail_lines(2).unwrap();
+    assert!(matches!(&lines[0], Line::Entry(e) if e.event.kind() == "described"));
+    assert!(
+        matches!(&lines[1], Line::Unknown { seq, kind, .. }
+            if *seq == before && kind == "never_a_kind_of_ours"),
+        "{lines:?}"
+    );
+    let payload: String = rusqlite::Connection::open(dir.path().join("journal.db"))
+        .unwrap()
+        .query_row("SELECT payload FROM events WHERE seq = ?1", [before], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(payload, line);
+}
+
+#[test]
+fn a_journal_of_kinds_this_version_knows_has_none_unknown() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("ghost.toml"), PERSONA).unwrap();
+    let mut ghost = Ghost::birth(dir.path()).unwrap();
+    for event in [Event::Woke, Event::Slept, Event::Woke] {
+        ghost.record(event).unwrap();
+    }
+    assert!(ghost.journal().unknown_kinds().unwrap().is_empty());
 }

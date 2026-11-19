@@ -700,6 +700,18 @@ pub struct Entry {
     pub hash: String,
 }
 
+/// One line of her journal as someone looking at it finds it: an entry, or
+/// one of a kind this build does not know, which a newer version wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Line {
+    Entry(Box<Entry>),
+    Unknown {
+        seq: i64,
+        at: DateTime<Utc>,
+        kind: String,
+    },
+}
+
 pub struct Journal {
     conn: Connection,
 }
@@ -901,6 +913,52 @@ impl Journal {
         self.read(from, usize::try_from(n).unwrap_or(usize::MAX))
     }
 
+    /// The last `n` lines, oldest first, as [`Journal::tail`] reads them,
+    /// except that an entry of a kind this build does not know comes back
+    /// as [`Line::Unknown`] instead of failing the read: for looking at a
+    /// journal a newer version has written to. An entry of a kind it does
+    /// know that does not read is an error still.
+    pub fn tail_lines(&self, n: usize) -> Result<Vec<Line>> {
+        let n = i64::try_from(n).unwrap_or(i64::MAX);
+        let from = (self.last_seq()? - n + 1).max(1);
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM events WHERE seq >= ?1 ORDER BY seq ASC"
+        ))?;
+        let rows = stmt.query_map([from], |row| {
+            let kind: String = row.get(2)?;
+            if Event::KINDS.contains(&kind.as_str()) {
+                return row_to_entry(row).map(|e| Line::Entry(Box::new(e)));
+            }
+            Ok(Line::Unknown {
+                seq: row.get(0)?,
+                at: time_at(row, 1)?,
+                kind,
+            })
+        })?;
+        rows.map(|r| r.map_err(Error::from)).collect()
+    }
+
+    /// The kinds of entry in her journal that this build does not know, in
+    /// the order of their names: a newer version wrote them. Found along
+    /// the index of kinds, one step for each kind there is, however long
+    /// her journal is.
+    pub fn unknown_kinds(&self) -> Result<Vec<String>> {
+        let mut next = self
+            .conn
+            .prepare("SELECT kind FROM events WHERE kind > ?1 ORDER BY kind LIMIT 1")?;
+        let (mut after, mut unknown) = (String::new(), Vec::new());
+        while let Some(kind) = next
+            .query_row([&after], |r| r.get::<_, String>(0))
+            .optional()?
+        {
+            if !Event::KINDS.contains(&kind.as_str()) {
+                unknown.push(kind.clone());
+            }
+            after = kind;
+        }
+        Ok(unknown)
+    }
+
     /// Walk the whole chain and recompute every hash. Returns the length.
     pub fn verify(&self) -> Result<i64> {
         let mut stmt = self
@@ -955,11 +1013,8 @@ impl Journal {
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
-    let at: String = row.get(1)?;
+    let at = time_at(row, 1)?;
     let payload: String = row.get(3)?;
-    let at = parse_stamp(&at).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
-    })?;
     let event: Event = serde_json::from_str(&payload).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
     })?;
@@ -969,6 +1024,13 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
         event,
         prev_hash: row.get(4)?,
         hash: row.get(5)?,
+    })
+}
+
+/// The time in column `idx` of a row.
+fn time_at(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<DateTime<Utc>> {
+    parse_stamp(text(row, idx)?).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
     })
 }
 
