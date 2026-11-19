@@ -40,9 +40,10 @@ impl Mind {
     /// What memory `n` came from, as she would be shown it in `here`.
     pub(super) fn reread(&self, n: i64, here: &PlaceState, now: DateTime<Utc>) -> Result<String> {
         let memory = self.ghost.memory();
+        let number = ("n", n.to_string());
         // A message she remembers: the conversation around it.
         if let Some((place, _)) = memory.line(n)? {
-            if let Some(elsewhere) = not_here(&place, here) {
+            if let Some(elsewhere) = self.not_here(&place, here) {
                 return Ok(elsewhere);
             }
             let lines = memory
@@ -51,14 +52,14 @@ impl Mind {
                 .map(|l| (place.clone(), l))
                 .collect();
             return self.as_shown(
-                &format!("The conversation around message #{n}:"),
+                &self.prompts.fill("reread_around", &[number]),
                 lines,
                 here,
                 now,
             );
         }
         let Some(entry) = self.ghost.journal().entry(n)? else {
-            return Ok(format!("You have no memory numbered {n}."));
+            return Ok(self.prompts.fill("no_memory", &[number]));
         };
         let (sources, behind) = match entry.event {
             Event::Noted {
@@ -92,21 +93,17 @@ impl Mind {
                 ..
             } => return self.own_day(n, s, now),
             Event::LookedUp { query, found, .. } => {
-                return Ok(format!(
-                    "Memory #{n} came from the web, when you looked up \"{query}\". What came back:\n{found}"
-                ));
+                return Ok(self
+                    .prompts
+                    .fill("reread_web", &[number, ("query", query), ("found", found)]));
             }
-            _ => {
-                return Ok(format!(
-                    "Memory #{n} was not kept with what it came from. What you have of it is what you remember."
-                ));
-            }
+            _ => return Ok(self.prompts.fill("reread_unkept", &[number])),
         };
         let key = match &behind {
             Behind::Place(key) | Behind::Person(key) => key.clone(),
             Behind::Channel(channel) => format!("{channel}:"),
         };
-        if let Some(elsewhere) = not_here(&key, here) {
+        if let Some(elsewhere) = self.not_here(&key, here) {
             return Ok(elsewhere);
         }
         let lines: Vec<(String, Line)> = match &behind {
@@ -133,10 +130,13 @@ impl Mind {
         };
         let clock = self.life.clock();
         self.as_shown(
-            &format!(
-                "What memory #{n} came from, {} until {}:",
-                when(sources.since, now, clock),
-                when(sources.until, now, clock)
+            &self.prompts.fill(
+                "reread_from",
+                &[
+                    number,
+                    ("since", when(sources.since, now, clock)),
+                    ("until", when(sources.until, now, clock)),
+                ],
             ),
             lines,
             here,
@@ -170,16 +170,22 @@ impl Mind {
         let skipped = kept.len().saturating_sub(SHOWN);
         kept.drain(..skipped);
         if kept.is_empty() {
-            return Ok(if withheld > 0 {
-                "What that came from was said in private conversations with other people, and none of it is for here.".to_owned()
-            } else {
-                "Nothing of what that came from is left to read.".to_owned()
-            });
+            return Ok(self
+                .prompts
+                .text(if withheld > 0 {
+                    "reread_all_private"
+                } else {
+                    "reread_gone"
+                })
+                .to_owned());
         }
         let clock = self.life.clock();
         let mut out = vec![header.to_owned()];
         if skipped > 0 {
-            out.push(format!("({skipped} earlier messages are not shown.)"));
+            out.push(
+                self.prompts
+                    .fill("reread_skipped", &[("count", skipped.to_string())]),
+            );
         }
         let mut i = 0;
         while i < kept.len() {
@@ -192,14 +198,24 @@ impl Mind {
             if place != here.key
                 && let Some(state) = memory.place(&place)?
             {
-                out.push(format!("In {}:", self.place_words(&state, &[])?));
+                out.push(self.prompts.fill(
+                    "reread_in",
+                    &[("place", self.place_words(&state, &[], false)?)],
+                ));
             }
-            out.push(narrate::transcript(&run, i64::MAX, clock, now));
+            out.push(crate::narrate::transcript(
+                &self.prompts,
+                &run,
+                i64::MAX,
+                clock,
+                now,
+            ));
         }
         if withheld > 0 {
-            out.push(format!(
-                "({withheld} messages from private conversations with other people are left out: they are not for here.)"
-            ));
+            out.push(
+                self.prompts
+                    .fill("reread_withheld", &[("count", withheld.to_string())]),
+            );
         }
         Ok(out.join("\n"))
     }
@@ -217,31 +233,28 @@ impl Mind {
             .filter_map(|e| {
                 let text = match e.event {
                     Event::Lived { text, .. } => text,
-                    Event::Posted { text, .. } => format!("you posted: {text}"),
+                    Event::Posted { text, .. } => crate::narrate::posted(&self.prompts, &text),
                     _ => return None,
                 };
                 Some((when(e.at, now, clock), text))
             })
             .collect();
+        let number = ("n", n.to_string());
         if rows.is_empty() {
-            return Ok(format!(
-                "Memory #{n} was a look back on a day with nothing else written down."
-            ));
+            return Ok(self.prompts.fill("reread_day_empty", &[number]));
         }
-        Ok(format!(
-            "The day memory #{n} looked back on:\n{}",
-            narrate::grouped(rows)
-        ))
+        Ok(self
+            .prompts
+            .fill("reread_day", &[number, ("day", narrate::grouped(rows))]))
     }
-}
 
-/// Why she cannot reread something from another platform here, or
-/// nothing if she can.
-fn not_here(key: &str, here: &PlaceState) -> Option<String> {
-    let channel = split_key(key).map_or(key.trim_end_matches(':'), |(c, _)| c);
-    (channel != here.channel).then(|| {
-        format!(
-            "That was on {channel}. Its messages are kept with {channel} and are not in front of you here: what you have of it is what you remember."
-        )
-    })
+    /// Why she cannot reread something from another platform here, or
+    /// nothing if she can.
+    fn not_here(&self, key: &str, here: &PlaceState) -> Option<String> {
+        let channel = split_key(key).map_or(key.trim_end_matches(':'), |(c, _)| c);
+        (channel != here.channel).then(|| {
+            self.prompts
+                .fill("reread_elsewhere", &[("channel", channel.to_owned())])
+        })
+    }
 }

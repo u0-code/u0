@@ -114,9 +114,9 @@ impl Mind {
     fn remembered(&self, query: &str, place: &PlaceState, now: DateTime<Utc>) -> Result<String> {
         let hits = self.ghost.memory().search(&place.channel, query, 8)?;
         if hits.is_empty() {
-            return Ok(format!(
-                "You searched your memory for \"{query}\" and found nothing."
-            ));
+            return Ok(self
+                .prompts
+                .fill("recall_nothing", &[("query", query.to_owned())]));
         }
         let clock = self.life.clock();
         let mut found = Vec::with_capacity(hits.len());
@@ -128,10 +128,9 @@ impl Mind {
                 _ => None,
             };
             let text = match kept {
-                Some(kept) => format!(
-                    "you kept an image ({}): {}",
-                    kept.file,
-                    clip(&kept.note, 300)
+                Some(kept) => self.prompts.fill(
+                    "recall_kept",
+                    &[("file", kept.file), ("note", clip(&kept.note, 300))],
                 ),
                 None => clip(&h.text, 300),
             };
@@ -358,7 +357,7 @@ impl Mind {
                     .iter()
                     .any(|n| matches!(n, Need::Search | Need::Web | Need::Machine))
             });
-            let (output, failed) = match actions::from_call(&call) {
+            let (output, failed) = match actions::from_call(&self.prompts, &call) {
                 Err(_) if beyond => {
                     again = true;
                     (self.prompts.text("cannot_here").to_owned(), true)

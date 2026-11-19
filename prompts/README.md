@@ -7,12 +7,14 @@ deployment changes them without a rebuild.
 ```
 system/                 Ghost's own: the same for every character
   being.md              what she is, whose word counts, the ground rules
-  channels/             the page she reads a place on, one per channel:
-                        console, qq, discord, telegram, x, and chat for any other
+  channels/             the page she reads a place on: console, x, and chat
+                        for every chat platform; texts.toml is what chat.md
+                        says of QQ, Discord and Telegram in particular
   logic/                how her day goes, and what every page shares: a template each
-  logic/texts/          the short framings, nudges and refusals, a file per feature
+  logic/texts/          the short framings, headings, placeholders, nudges and
+                        refusals, a file per feature
   work/                 how a piece of work goes: working.md (handed over),
-                        work.md and texts.toml (the work loop's)
+                        work.md and texts/ (the work loop's, a file per feature)
   tools.toml            what every tool is, in a conversation and at work
   desk/                 Ghost, the mascot the desktop app runs
 character/              how a character's own ghost.toml is turned into prose
@@ -41,13 +43,16 @@ in. Everything else is put into a request by the code that needs it.
 ## Texts
 
 The `.toml` files of texts are tables of named pieces. The code asks for a
-text by its name, never by its file: the files of `system/logic/texts/` and
-`character/texts.toml` are read as one table, and `system/work/texts.toml`
-is the work loop's. So a name is in one file of its table and no other; a
-test holds the built-ins to that, and a deployment that has one name in two
-files is warned about it. A `{{name}}` is filled in by that code, once:
-what goes in is never read again for placeholders. A text said to be "only
-when" is left out altogether, framing and all, when what fills it is empty.
+text by its name, never by its file: the files of `system/logic/texts/`,
+`system/channels/texts.toml` and `character/texts.toml` are read as one
+table, and the files of `system/work/texts/` are the work loop's. So a
+name is in one file of its table and no other; a test holds the built-ins
+to that, and to every name being one the code asks for, and a deployment
+that has one name in two files is warned about it. A `{{name}}` is filled
+in by that code, once: what goes in is never read again for placeholders.
+A text said to be "only when" is left out altogether, framing and all,
+when what fills it is empty; a slot under a heading of its own says so
+instead, in the words of `system/logic/texts/empty.toml`.
 Mind the newlines at the start and end of some of them: they are what keeps
 a piece apart from its neighbours.
 

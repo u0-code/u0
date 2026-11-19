@@ -263,7 +263,8 @@ impl Mind {
         }
 
         if !facts.is_empty() {
-            let stage = will::standing(&person, now).stage.word().to_owned();
+            let stage =
+                crate::narrate::stage(&self.prompts, will::standing(&person, now).stage).to_owned();
             facts.insert(
                 0,
                 self.prompts.fill("them_stage", &[name(), ("stage", stage)]),

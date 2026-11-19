@@ -173,22 +173,17 @@ impl Deliberation {
 }
 
 /// One thing she does, from a tool call. A call that cannot be read comes
-/// back as a sentence saying why, for the brain to put right.
-pub fn from_call(call: &Call) -> Result<Action, String> {
+/// back as a sentence saying why, in the words of `words`, for the brain
+/// to put right.
+pub fn from_call(words: &Prompts, call: &Call) -> Result<Action, String> {
+    let tool = ("tool", call.name.clone());
     let Value::Object(args) = &call.args else {
-        return Err(format!(
-            "`{}` was called with something that is not a JSON object. Call it again with well-formed arguments.",
-            call.name
-        ));
+        return Err(words.fill("call_not_object", &[tool]));
     };
     let mut tagged = args.clone();
     tagged.insert("do".into(), Value::String(call.name.clone()));
-    serde_json::from_value(Value::Object(tagged)).map_err(|e| {
-        format!(
-            "`{}` could not be used: {e}. Nothing was done. Check its arguments and call it again.",
-            call.name
-        )
-    })
+    serde_json::from_value(Value::Object(tagged))
+        .map_err(|e| words.fill("call_unusable", &[tool, ("why", e.to_string())]))
 }
 
 /// What a look at a place offers beyond what is always there.

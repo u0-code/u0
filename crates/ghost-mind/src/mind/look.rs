@@ -3,14 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use ghost_brain::{Brain, Completion, Effort, Item, Turn};
-use ghost_core::{
-    memory::{Person, PlaceState},
-    narrate,
-    prompts::Loop,
-    social::PlaceKind,
-    when::when,
-    will,
-};
+use ghost_core::{memory::PlaceState, narrate, prompts::Loop, social::PlaceKind, when::when, will};
 use ghost_work::{
     Toolbox,
     catalog::{self, Need},
@@ -194,7 +187,6 @@ impl Mind {
         actions: &str,
     ) -> Result<(String, String)> {
         let memory = self.ghost.memory();
-        let tz = self.life.clock().tz();
         // The recent messages as they were written. Of what came before
         // them she has her own note, if the conversation is that long; then
         // everything since the note is shown, so that nothing falls between.
@@ -229,7 +221,14 @@ impl Mind {
         for person in &people {
             let standing = will::standing(person, now);
             let (account, notes) = self.known_of(person, place, 8, now)?;
-            let mut card = narrate::person_card(person, &standing, &[], now, self.life.clock());
+            let mut card = crate::narrate::person_card(
+                &self.prompts,
+                person,
+                &standing,
+                &[],
+                now,
+                self.life.clock(),
+            );
             card.push_str(&account);
             for note in &notes {
                 card.push_str(&format!("\n  · {}", note.text));
@@ -242,20 +241,16 @@ impl Mind {
             Why::Intention(intention) => Some(intention.seq),
             Why::Unread => None,
         };
-        let meant: Vec<String> = self
+        let meant: Vec<_> = self
             .intentions_about(&place.key, &keys)?
             .into_iter()
             .filter(|i| Some(i.seq) != pursuing)
-            .map(|i| {
-                format!(
-                    "- by {}: {}",
-                    i.due.with_timezone(&tz).format("%m-%d %H:%M"),
-                    i.what
-                )
-            })
             .collect();
+        let meant = self
+            .prompts
+            .section("meant", "lines", &self.meant_lines(&meant));
         if !meant.is_empty() {
-            cards.push(format!("\nYou already mean to:\n{}", meant.join("\n")));
+            cards.push(meant);
         }
 
         let addressed = match (place.kind, place.unread_addressed > 0) {
@@ -265,8 +260,10 @@ impl Mind {
         };
         let why = match &job.why {
             Why::Unread => match place.unread {
-                1 => "There is 1 new message here since you last looked.".to_owned(),
-                n => format!("There are {n} new messages here since you last looked."),
+                1 => self.prompts.text("unread_one").to_owned(),
+                n => self
+                    .prompts
+                    .fill("unread_many", &[("count", n.to_string())]),
             },
             Why::Intention(intention) if intention.report => {
                 self.report_brief(intention, place, now)?
@@ -308,26 +305,35 @@ impl Mind {
         } else {
             narrate::fill(&self.prompts.reply_json, &[("actions", actions.to_owned())])
         };
-        let people_text = if cards.is_empty() {
-            "(nobody you know yet)".to_owned()
-        } else {
-            cards.join("\n")
-        };
+        let people_text = self.prompts.or(cards.join("\n"), "nobody_known");
         let transcript = format!(
             "{}{}{}",
-            kept.map_or_else(String::new, |d| format!(
-                "What you kept of this conversation{} before the messages below:\n{}\n\n",
-                d.sources.map_or_else(String::new, |s| {
-                    let clock = self.life.clock();
-                    format!(
-                        ", from {} until {},",
-                        when(s.since, now, clock),
-                        when(s.until, now, clock)
-                    )
-                }),
-                d.text
+            kept.map_or_else(String::new, |d| self.prompts.fill(
+                "kept_before",
+                &[
+                    (
+                        "span",
+                        d.sources.map_or_else(String::new, |s| {
+                            let clock = self.life.clock();
+                            self.prompts.fill(
+                                "kept_span",
+                                &[
+                                    ("since", when(s.since, now, clock)),
+                                    ("until", when(s.until, now, clock)),
+                                ],
+                            )
+                        })
+                    ),
+                    ("text", d.text),
+                ]
             )),
-            narrate::transcript(&lines, place.read_upto, self.life.clock(), now),
+            crate::narrate::transcript(
+                &self.prompts,
+                &lines,
+                place.read_upto,
+                self.life.clock(),
+                now
+            ),
             // Being stopped here goes with the conversation it
             // happened in, for as long as it is in front of her.
             stopped_here
@@ -348,7 +354,7 @@ impl Mind {
                 ("platform", self.prompts.platform(&page).to_owned()),
                 (
                     "where",
-                    self.describe_place(place, &people) + &self.allowed_here(place),
+                    self.place_words(place, &people, true)? + &self.allowed_here(place),
                 ),
                 ("elsewhere", self.elsewhere(place, &people, now)?),
                 ("now", right_now),
@@ -388,57 +394,6 @@ impl Mind {
         }
         if !facts.writes_first {
             out.push_str(self.prompts.text("place_not_first"));
-        }
-        out
-    }
-
-    pub(super) fn describe_place(&self, place: &PlaceState, people: &[Person]) -> String {
-        let channel = ("channel", place.channel.clone());
-        let mut out = match place.kind {
-            PlaceKind::Direct => self.prompts.fill(
-                "place_direct",
-                &[
-                    channel,
-                    (
-                        "who",
-                        people
-                            .first()
-                            .map_or("someone", |p| p.name.as_str())
-                            .to_owned(),
-                    ),
-                ],
-            ),
-            PlaceKind::Group => self.prompts.fill(
-                "place_group",
-                &[
-                    channel,
-                    (
-                        "name",
-                        place
-                            .name
-                            .as_deref()
-                            .map_or_else(|| "(unnamed)".to_owned(), |n| format!("\"{n}\"")),
-                    ),
-                ],
-            ),
-            PlaceKind::Public => self.prompts.fill("place_public", &[channel]),
-        };
-        if let Some(me) = self
-            .channels
-            .get(&place.channel)
-            .and_then(|c| c.me.as_ref())
-        {
-            out.push_str(
-                &self.prompts.fill(
-                    "place_me",
-                    &[(
-                        "me",
-                        me.handle
-                            .as_deref()
-                            .map_or_else(|| me.name.clone(), |h| format!("@{h}")),
-                    )],
-                ),
-            );
         }
         out
     }

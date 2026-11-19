@@ -119,7 +119,7 @@ impl Mind {
         }
         let unsaid = match self.agenda.speaking.get_mut(key) {
             Some(speaking) => {
-                let unsaid = speaking.cut();
+                let unsaid = speaking.cut(self.prompts.text("a_file"));
                 if speaking.is_empty() {
                     self.agenda.speaking.remove(key);
                 }

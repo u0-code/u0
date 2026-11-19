@@ -1,0 +1,38 @@
+# Searching her memory (recall) and going back to what a memory came from
+# (reread): what she is told she found.
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# What recall found, a line each, is what she wrote down then; these are
+# the rest.
+recall_nothing = "You searched your memory for \"{{query}}\" and found nothing."
+# Something she keeps, shown as what it is, so that she can hand it over or
+# let it go by its number.
+recall_kept = "you kept an image ({{file}}): {{note}}"
+# After a memory, where it was said or learned, from where she is now:
+# what was told to her alone is marked as such wherever it comes up.
+learned_here = " (here)"
+learned_in = " (in {{place}})"
+learned_private = " (in {{place}}; told to you privately)"
+
+# What reread shows. {{n}} is the number of the memory she asked for.
+reread_around = "The conversation around message #{{n}}:"
+reread_from = "What memory #{{n}} came from, {{since}} until {{until}}:"
+reread_web = "Memory #{{n}} came from the web, when you looked up \"{{query}}\". What came back:\n{{found}}"
+reread_day = "The day memory #{{n}} looked back on:\n{{day}}"
+# Before the messages of a conversation other than the one she is in.
+reread_in = "In {{place}}:"
+# When there is more than she is shown at once.
+reread_skipped = "({{count}} earlier messages are not shown.)"
+# What she is not shown, and why. Someone else's private conversation is
+# theirs, wherever she is when she goes back to it; another platform's
+# messages are kept with that platform.
+reread_withheld = "({{count}} messages from private conversations with other people are left out: they are not for here.)"
+reread_all_private = "What that came from was said in private conversations with other people, and none of it is for here."
+reread_elsewhere = "That was on {{channel}}. Its messages are kept with {{channel}} and are not in front of you here: what you have of it is what you remember."
+# When there is nothing to go back to.
+no_memory = "You have no memory numbered {{n}}."
+reread_unkept = "Memory #{{n}} was not kept with what it came from. What you have of it is what you remember."
+reread_gone = "Nothing of what that came from is left to read."
+reread_day_empty = "Memory #{{n}} was a look back on a day with nothing else written down."

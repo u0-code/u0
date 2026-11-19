@@ -12,7 +12,7 @@ use ghost_brain::{Brain, Completion};
 use ghost_core::{
     journal::{Event, Sources},
     life::{Block, Day, Phase, Reach},
-    memory::Person,
+    memory::{Intention, Person},
     narrate, will,
 };
 use serde_json::Value;
@@ -117,7 +117,11 @@ impl Mind {
                     text,
                     channel: Some(channel),
                     ..
-                } => Some((true, format!("On {channel}: {text}"))),
+                } => Some((
+                    true,
+                    self.prompts
+                        .fill("looked_back_there", &[("channel", channel), ("text", text)]),
+                )),
                 _ => None,
             })
             .collect();
@@ -137,14 +141,7 @@ impl Mind {
             ("date", local.format("%A %Y-%m-%d").to_string()),
             ("time", local.format("%H:%M").to_string()),
             ("sleep", clock.sleep().format("%H:%M").to_string()),
-            (
-                "yesterday",
-                if yesterday.is_empty() {
-                    "(nothing yet)".to_owned()
-                } else {
-                    yesterday
-                },
-            ),
+            ("yesterday", self.prompts.or(yesterday, "nothing_yet")),
         ];
         let (system, right_now) = self.portrait(now)?;
         let (city, country) = {
@@ -152,13 +149,16 @@ impl Mind {
             (home.city.clone(), home.country.clone())
         };
         let (brain, senses) = (self.tick.clone(), self.senses.clone());
-        let about_weather = self.prompts.text("weather").to_owned();
+        let words = self.prompts.clone();
         let (want_weather, max_tokens) = (self.cfg.weather, self.cfg.max_tokens);
         self.planning = true;
         self.budget.spend(now);
         self.jobs.spawn(async move {
             let weather = if want_weather {
-                senses.weather(&city, &country).await
+                senses
+                    .weather(&city, &country)
+                    .await
+                    .map(|forecast| forecast.words(&words))
             } else {
                 None
             };
@@ -167,7 +167,7 @@ impl Mind {
                 "weather",
                 weather
                     .as_ref()
-                    .map(|w| narrate::fill(&about_weather, &[("weather", w.clone())]))
+                    .map(|w| words.fill("weather", &[("weather", w.clone())]))
                     .unwrap_or_default(),
             ));
             let prompt = format!("{right_now}\n{}", narrate::fill(&template, &pairs));
@@ -302,7 +302,7 @@ impl Mind {
                 warn!("could not write up a part of the day: {e}");
                 // Mark it passed so one bad block does not stall the rest.
                 self.record(Event::Lived {
-                    text: "(nothing written down for this part of the day)".into(),
+                    text: self.prompts.text("lived_unwritten").to_owned(),
                     block: Some(block),
                 })?;
             }
@@ -349,22 +349,29 @@ impl Mind {
     /// What she means to do, for a night's look back, so she does not
     /// resolve to do it twice.
     fn meant(&self) -> Result<String> {
-        let tz = self.life.clock().tz();
         let open = self.ghost.memory().open_intentions()?;
-        Ok(if open.is_empty() {
-            "(nothing)".to_owned()
-        } else {
-            open.iter()
-                .map(|i| {
-                    format!(
-                        "- by {}: {}",
-                        i.due.with_timezone(&tz).format("%m-%d %H:%M"),
-                        i.what
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
+        Ok(self.prompts.or(self.meant_lines(&open), "nothing"))
+    }
+
+    /// What she means to do, a line each, with when by.
+    pub(super) fn meant_lines(&self, intentions: &[Intention]) -> String {
+        let tz = self.life.clock().tz();
+        intentions
+            .iter()
+            .map(|i| {
+                self.prompts.fill(
+                    "meant_line",
+                    &[
+                        (
+                            "due",
+                            i.due.with_timezone(&tz).format("%m-%d %H:%M").to_string(),
+                        ),
+                        ("what", i.what.clone()),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Her own day: what she did, what she is after, her work and her craft.
@@ -388,7 +395,7 @@ impl Mind {
             .filter_map(|e| {
                 let text = match &e.event {
                     Event::Lived { text, .. } => text.clone(),
-                    Event::Posted { text, .. } => format!("you posted: {text}"),
+                    Event::Posted { text, .. } => crate::narrate::posted(&self.prompts, text),
                     _ => return None,
                 };
                 Some(format!(
@@ -406,11 +413,7 @@ impl Mind {
                 ("time", now.with_timezone(&tz).format("%H:%M").to_string()),
                 (
                     "today",
-                    if today.is_empty() {
-                        "(nothing written down)".to_owned()
-                    } else {
-                        today.join("\n")
-                    },
+                    self.prompts.or(today.join("\n"), "nothing_written"),
                 ),
                 ("intentions", self.meant()?),
                 ("talked", talked),
@@ -460,7 +463,8 @@ impl Mind {
             // Alone with her thoughts, she sees all of what she knows.
             let profile = memory.profile(&person.key)?;
             let since = profile.as_ref().map_or(0, |p| p.seq);
-            let mut card = narrate::person_card(
+            let mut card = crate::narrate::person_card(
+                &self.prompts,
                 person,
                 &standing,
                 &memory.notes_after(&person.key, since, 12)?,
@@ -468,14 +472,19 @@ impl Mind {
                 clock,
             );
             if let Some(profile) = profile {
-                card.push_str(&format!(
-                    "\n  your account of them so far: {}{}",
-                    profile.shared.trim(),
-                    if profile.private.trim().is_empty() {
-                        String::new()
-                    } else {
-                        format!("\n  told to you in private: {}", profile.private.trim())
-                    }
+                card.push_str(&self.prompts.fill(
+                    "account_so_far",
+                    &[
+                        ("shared", profile.shared.trim().to_owned()),
+                        (
+                            "private",
+                            self.prompts.section(
+                                "account_private",
+                                "private",
+                                profile.private.trim(),
+                            ),
+                        ),
+                    ],
                 ));
             }
             if let Some(direct) = &person.direct {
@@ -485,9 +494,21 @@ impl Mind {
                     .filter(|l| l.at >= sources.since)
                     .collect();
                 if !lines.is_empty() {
-                    card.push_str("\n  today:\n    ");
                     card.push_str(
-                        &narrate::transcript(&lines, i64::MAX, clock, now).replace('\n', "\n    "),
+                        &self.prompts.fill(
+                            "today_with_them",
+                            &[(
+                                "transcript",
+                                crate::narrate::transcript(
+                                    &self.prompts,
+                                    &lines,
+                                    i64::MAX,
+                                    clock,
+                                    now,
+                                )
+                                .replace('\n', "\n    "),
+                            )],
+                        ),
                     );
                 }
             }
@@ -499,14 +520,7 @@ impl Mind {
                 ("time", now.with_timezone(&tz).format("%H:%M").to_string()),
                 ("channel", channel.to_owned()),
                 ("people", cards.join("\n")),
-                (
-                    "said",
-                    if said.is_empty() {
-                        "(nothing)".to_owned()
-                    } else {
-                        said.join("\n")
-                    },
-                ),
+                ("said", self.prompts.or(said.join("\n"), "nothing")),
                 ("intentions", self.meant()?),
             ],
         );

@@ -1,0 +1,15 @@
+# What a slot under a heading of its own says when there is nothing to put
+# in it. The heading stays, so that she knows there was a place for it and
+# it is empty, rather than wondering whether it was left out.
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+nothing = "(nothing)"
+nothing_yet = "(nothing yet)"
+nothing_new = "(nothing new)"
+nothing_written = "(nothing written down)"
+# What she cares about, when her persona does not say.
+not_said = "(you have not said)"
+# The people of a conversation, when she knows nobody in it.
+nobody_known = "(nobody you know yet)"

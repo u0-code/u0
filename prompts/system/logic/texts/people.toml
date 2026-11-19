@@ -1,0 +1,58 @@
+# The people in front of her: who they are to her, and what she knows of
+# them.
+
+# One of the files of the mind's short texts, read with the others in this
+# directory and character/texts.toml as one table: see prompts/README.md.
+
+# Where she stands with someone, in her words. It follows from how long
+# they have known each other, how often they talk and how she has felt.
+stage_gone = "someone you have cut off"
+stage_estranged = "someone you have pulled far away from"
+stage_cooling = "someone you are cooling toward"
+stage_stranger = "a stranger"
+stage_acquaintance = "an acquaintance"
+stage_friend = "a friend"
+stage_close = "someone close to you"
+
+# A person, a line: {{handle}} is `card_handle` or nothing, {{stage}} one
+# of the above, {{first}} when she first heard from them and {{talked}}
+# `card_day` or `card_days`.
+card = "- {{name}}{{handle}}: {{stage}}. You first heard from them {{first}}, and have talked on {{talked}}."
+card_handle = " (@{{handle}})"
+card_day = "{{days}} day"
+card_days = "{{days}} days"
+# After it, how she feels about them, when it has gone far enough either
+# way to colour how she reads them.
+card_fond = " You are fond of them."
+card_like = " You like them."
+card_little = " You want little to do with them."
+card_wearing = " They have been wearing on you."
+# An account that is not a person, so that she does not take a bot's
+# answers for someone's.
+card_automated = " This account is automated: a bot, or another ghost."
+# Whoever a private conversation is with, when she does not know them.
+someone = "someone"
+
+# Under a person, in a conversation: her standing account of them, and the
+# part they told her alone. Outside the private conversation with them,
+# that part is left out and she is told only that there is one, so that it
+# cannot slip out in front of others. {{as_of}} is `as_of`, when it is
+# known what the account was made from.
+known_shared = "\n  What you know of them: {{text}}{{as_of}}"
+known_private = "\n  What they have told you in private: {{text}}{{as_of}}"
+known_more = "\n  (They have told you more in private. None of it is for here.)"
+as_of = " (as of {{when}})"
+# After a note she made in someone else's private conversation, wherever
+# else it is shown.
+told_in_private = " (they told you this in private)"
+
+# Why she pulled away from someone she wanted to leave but may not yet: it
+# is kept as a feeling, and she is reminded of it in her words.
+wanted_to_leave = "wanted to leave: {{why}}"
+
+# Under a person, alone with her thoughts at night, where nothing is held
+# back: all of her account, and what they said today. {{private}} is
+# `account_private`, only when they told her something alone.
+account_so_far = "\n  your account of them so far: {{shared}}{{private}}"
+account_private = "\n  told to you in private: {{private}}"
+today_with_them = "\n  today:\n    {{transcript}}"

@@ -247,7 +247,7 @@ impl Mind {
                 return Ok(Some(format!(
                     "{} is {} to her, which is not enough for this",
                     person.name,
-                    stage.word()
+                    crate::narrate::stage(&self.prompts, stage)
                 )));
             }
         }
@@ -430,7 +430,9 @@ impl Mind {
                 self.record(Event::Concluded {
                     id: next.id,
                     outcome: "blocked".into(),
-                    summary: format!("Its record could not be opened: {e}"),
+                    summary: self
+                        .prompts
+                        .fill("record_unopened", &[("why", e.to_string())]),
                 })?;
                 return Ok(true);
             }
@@ -872,7 +874,9 @@ impl Mind {
                 warn!("the sitting on {id} failed: {why}");
                 self.record(Event::Worked {
                     id: id.to_owned(),
-                    summary: format!("Could not think: {}", clip(why, 200)),
+                    summary: self
+                        .prompts
+                        .fill("could_not_think", &[("why", clip(why, 200))]),
                     steps,
                 })?;
                 self.rest(id, now + Duration::minutes(10).max(rest));
@@ -1038,7 +1042,7 @@ impl Mind {
         }
         // What a review of her own writing came to becomes part of her craft.
         if id.starts_with(super::public::REVIEW) && outcome == "finished" {
-            self.learn(super::public::conclusions(summary))?;
+            self.learn(super::public::conclusions(&self.prompts, summary))?;
         }
         // If someone asked, she means to tell them. How and whether is
         // decided when the moment comes, like any other intention.

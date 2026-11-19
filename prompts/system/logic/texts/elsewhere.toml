@@ -18,6 +18,26 @@ What someone told you in private is not repeated here, and you do not let on tha
 # is how she names it to `steer` and `stop`; {{whom}} is " for <name>" or
 # nothing, and {{state}} where it stands.
 work_open = "- [work #{{work}}] You have taken something on{{whom}}: \"{{brief}}\". {{state}}"
+work_for = " for {{name}}"
+# Where it stands, when it is not running or waiting on an answer:
+# {{summary}} is where the last sitting left it.
+work_not_started = "You have not started yet."
+work_sitting = "{{sittings}} sitting so far. {{summary}}"
+work_sittings = "{{sittings}} sittings so far. {{summary}}"
+# Work that ended lately, a line each while it is still on her mind, by how
+# it ended. {{when}} is when, {{summary}} what came of it.
+work_finished = "- {{when}} you finished what you took on{{whom}} (\"{{brief}}\"): {{summary}}"
+work_blocked = "- {{when}} you got stuck on what you took on{{whom}} (\"{{brief}}\"): {{summary}}"
+work_let_go = "- {{when}} you let go of what you took on{{whom}} (\"{{brief}}\"): {{summary}}"
+
+# Another place where something has been going on lately, a line each:
+# {{said}} is one of `other_heard`, `other_said` or `other_both`, and
+# {{unread}} is `other_unread` when some of it is unread.
+other_place = "- {{place}}: {{said}}, latest {{latest}}{{unread}}."
+other_heard = "{{heard}} to read, nothing from you"
+other_said = "{{said}} from you"
+other_both = "{{heard}} from them, {{said}} from you"
+other_unread = ", {{count}} you have not read"
 # Under it, when the work has a plan, how far it has got: {{done}} of
 # {{steps}}, the steps not dropped, and {{now}} the step it is on, if any.
 work_plan = "\n  Its plan: {{done}} of {{steps}} steps done{{now}}."

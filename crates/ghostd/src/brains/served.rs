@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 
-use ghost_brain::{Completion, config::ProviderConfig};
+use ghost_brain::config::ProviderConfig;
 use ghost_protocol::{
     BrainAsk, BrainInfo, BrainList, BrainModels, BrainRemove, BrainSave, BrainUse, Frame, code,
     method,
@@ -528,7 +528,7 @@ async fn think_once(p: &ProviderConfig) -> Result<(), Refusal> {
         ghost_brain::Error::MissingKey(var) => (code::NO_KEY, format!("{var} is not set")),
         e => (code::BRAIN_FAILED, e.to_string()),
     })?;
-    let ask = Completion::ask("Reply with exactly one word.", "Say hello.", 16);
+    let ask = super::hello();
     match tokio::time::timeout(THINK_WITHIN, brain.complete(&ask)).await {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => Err((code::BRAIN_FAILED, e.to_string())),

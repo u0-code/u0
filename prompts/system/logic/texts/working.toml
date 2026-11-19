@@ -25,6 +25,10 @@ stalled = "It stopped getting anywhere: it kept answering without doing anything
 # After telling them about work that did not get done: what happens next is
 # hers to decide with them, not the work's.
 unfinished_next = " Then decide with them what to do: take it on again, a different way or with what you now know, or leave it."
+# The summary of a sitting that could not be held: its record could not be
+# opened, or the brain could not be asked. {{why}} is the error.
+record_unopened = "Its record could not be opened: {{why}}"
+could_not_think = "Could not think: {{why}}"
 # The summary of work she stopped herself.
 stopped = "You stopped it before it was done. Where it had got to: {{progress}}"
 # The summary of work someone who runs her stopped from a console, without
@@ -37,3 +41,7 @@ share_found = "show them what has come so far of what you took on (\"{{brief}}\"
 made = " What you made is in: {{files}}. {{send}}"
 made_send = "Hand it over with `send_file`."
 made_tell = "It cannot be sent as a file here, so tell them what is in it."
+# Under her own account of what is wanted, when she takes something on in
+# a conversation: what they wrote lately, word for word, so that the work
+# starts from what was asked and not only from how she put it.
+their_words = "\n\nWhat {{name}} wrote, word for word:\n{{said}}"

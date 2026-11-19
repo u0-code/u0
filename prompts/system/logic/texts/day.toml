@@ -5,6 +5,30 @@
 
 # Only when her persona has a past.
 plan_past = "\nWhat you carry with you from before:\n{{past}}\n"
+# What she looked back on last night, for planning: her own day first,
+# then each platform as this.
+looked_back_there = "On {{channel}}: {{text}}"
+# What is written for a part of the day that could not be written up, so
+# that one bad part does not hold up the rest of her day.
+lived_unwritten = "(nothing written down for this part of the day)"
+# The day's forecast where she lives, the way a glance out of the window
+# says it: she and the people in her city are under the same sky. {{sky}}
+# is one of the `sky_` texts below, by the forecast's WMO weather code;
+# {{low}} and {{high}} are in °C; {{rain}} is `rain_chance`, only when
+# rain is likely enough to mention.
+forecast = "{{sky}}, {{low}} to {{high}}°C{{rain}}"
+rain_chance = ", {{chance}}% chance of rain"
+sky_clear = "clear"
+sky_partly_cloudy = "partly cloudy"
+sky_overcast = "overcast"
+sky_foggy = "foggy"
+sky_drizzle = "drizzle"
+sky_rain = "rain"
+sky_snow = "snow"
+sky_showers = "showers"
+sky_snow_showers = "snow showers"
+sky_thunderstorms = "thunderstorms"
+sky_unsettled = "unsettled"
 # Only when the weather is known.
 weather = "The weather today: {{weather}}."
 # Only when she talked with people on some platform today.

@@ -9,10 +9,56 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tracing::debug;
 
+use crate::Prompts;
+
 #[async_trait]
 pub trait Senses: Send + Sync + 'static {
-    /// Today's weather in a city, in a few words, or nothing if unknown.
-    async fn weather(&self, city: &str, country: &str) -> Option<String>;
+    /// Today's weather in a city, or nothing if unknown.
+    async fn weather(&self, city: &str, country: &str) -> Option<Forecast>;
+}
+
+/// A day's forecast: its WMO weather code, the low and the high in °C, and
+/// the chance of rain in percent, if known.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Forecast {
+    pub code: i64,
+    pub low: f64,
+    pub high: f64,
+    pub rain_chance: Option<i64>,
+}
+
+impl Forecast {
+    /// The forecast in a few words, the way a glance out of the window
+    /// says it, in the words of `words`.
+    pub fn words(&self, words: &Prompts) -> String {
+        let sky = words.text(match self.code {
+            0 => "sky_clear",
+            1 | 2 => "sky_partly_cloudy",
+            3 => "sky_overcast",
+            45 | 48 => "sky_foggy",
+            51..=57 => "sky_drizzle",
+            61..=67 => "sky_rain",
+            71..=77 => "sky_snow",
+            80..=82 => "sky_showers",
+            85 | 86 => "sky_snow_showers",
+            95..=99 => "sky_thunderstorms",
+            _ => "sky_unsettled",
+        });
+        let rain = self
+            .rain_chance
+            .filter(|p| *p >= 30)
+            .map(|p| words.fill("rain_chance", &[("chance", p.to_string())]))
+            .unwrap_or_default();
+        words.fill(
+            "forecast",
+            &[
+                ("sky", sky.to_owned()),
+                ("low", format!("{:.0}", self.low)),
+                ("high", format!("{:.0}", self.high)),
+                ("rain", rain),
+            ],
+        )
+    }
 }
 
 /// No senses at all.
@@ -20,7 +66,7 @@ pub struct Numb;
 
 #[async_trait]
 impl Senses for Numb {
-    async fn weather(&self, _city: &str, _country: &str) -> Option<String> {
+    async fn weather(&self, _city: &str, _country: &str) -> Option<Forecast> {
         None
     }
 }
@@ -77,7 +123,7 @@ impl OpenMeteo {
 
 #[async_trait]
 impl Senses for OpenMeteo {
-    async fn weather(&self, city: &str, country: &str) -> Option<String> {
+    async fn weather(&self, city: &str, country: &str) -> Option<Forecast> {
         let (lat, lon) = self.locate(city, country).await?;
         let v: Value = self
             .client
@@ -100,50 +146,38 @@ impl Senses for OpenMeteo {
             .await
             .ok()?;
         let daily = &v["daily"];
-        let described = describe(
-            daily["weather_code"][0].as_i64()?,
-            daily["temperature_2m_min"][0].as_f64()?,
-            daily["temperature_2m_max"][0].as_f64()?,
-            daily["precipitation_probability_max"][0].as_i64(),
-        );
-        debug!("weather in {city}: {described}");
-        Some(described)
+        let forecast = Forecast {
+            code: daily["weather_code"][0].as_i64()?,
+            low: daily["temperature_2m_min"][0].as_f64()?,
+            high: daily["temperature_2m_max"][0].as_f64()?,
+            rain_chance: daily["precipitation_probability_max"][0].as_i64(),
+        };
+        debug!("weather in {city}: {forecast:?}");
+        Some(forecast)
     }
-}
-
-/// Put a day's forecast into words.
-pub fn describe(code: i64, low: f64, high: f64, rain_chance: Option<i64>) -> String {
-    let sky = match code {
-        0 => "clear",
-        1 | 2 => "partly cloudy",
-        3 => "overcast",
-        45 | 48 => "foggy",
-        51..=57 => "drizzle",
-        61..=67 => "rain",
-        71..=77 => "snow",
-        80..=82 => "showers",
-        85 | 86 => "snow showers",
-        95..=99 => "thunderstorms",
-        _ => "unsettled",
-    };
-    let mut out = format!("{sky}, {low:.0} to {high:.0}°C");
-    if let Some(p) = rain_chance.filter(|p| *p >= 30) {
-        out.push_str(&format!(", {p}% chance of rain"));
-    }
-    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn said(code: i64, low: f64, high: f64, rain_chance: Option<i64>) -> String {
+        Forecast {
+            code,
+            low,
+            high,
+            rain_chance,
+        }
+        .words(&Prompts::shipped())
+    }
+
     #[test]
     fn forecasts_read_like_a_glance_out_the_window() {
         assert_eq!(
-            describe(61, 9.4, 13.6, Some(80)),
+            said(61, 9.4, 13.6, Some(80)),
             "rain, 9 to 14°C, 80% chance of rain"
         );
-        assert_eq!(describe(0, 2.0, 11.0, Some(5)), "clear, 2 to 11°C");
-        assert_eq!(describe(1234, 0.0, 1.0, None), "unsettled, 0 to 1°C");
+        assert_eq!(said(0, 2.0, 11.0, Some(5)), "clear, 2 to 11°C");
+        assert_eq!(said(1234, 0.0, 1.0, None), "unsettled, 0 to 1°C");
     }
 }
