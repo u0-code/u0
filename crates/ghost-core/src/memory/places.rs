@@ -274,8 +274,10 @@ impl Memory {
     /// was said after entry `after`, and how much each way: the busiest
     /// first, and no more than `limit` of them.
     pub fn talked_after(&self, after: i64, except: &str, limit: usize) -> Result<Vec<Talked>> {
+        // Only what came after `after`, found by seq. Through an index on
+        // the place, grouping would read every message there ever was.
         let mut stmt = self.conn.prepare(
-            "SELECT place, SUM(dir = 'in'), SUM(dir = 'out') FROM messages
+            "SELECT place, SUM(dir = 'in'), SUM(dir = 'out') FROM messages NOT INDEXED
              WHERE seq > ?1 AND place != ?2
              GROUP BY place ORDER BY COUNT(*) DESC, MAX(seq) DESC LIMIT ?3",
         )?;
@@ -570,6 +572,40 @@ mod tests {
         assert!(
             long < short * 2,
             "{short} steps after 20 messages each, {long} after 400"
+        );
+    }
+
+    #[test]
+    fn what_was_said_after_an_entry_costs_the_same_however_much_was_said_before() {
+        let cost = |n: usize| {
+            let mut events = Vec::new();
+            for i in 0..n {
+                let id = i.to_string();
+                events.push(heard("g", PlaceKind::Group, "a", &id, "hello", false));
+                events.push(said("h", "hi"));
+            }
+            // She has read it all: what is unread is counted one by one.
+            events.extend([read("g", 1_000_000), read("h", 1_000_000)]);
+            let (mut j, mut m) = fold(events);
+            let after = j.last_seq().unwrap();
+            for event in [
+                heard("g", PlaceKind::Group, "b", "new", "hey", false),
+                said("h", "yo"),
+            ] {
+                m.apply(&j.append(event).unwrap()).unwrap();
+            }
+            let (talked, steps) = steps(&mut m, |m| m.talked_after(after, "t:x", 5).unwrap());
+            let counted: Vec<(&str, i64, i64)> = talked
+                .iter()
+                .map(|t| (t.place.key.as_str(), t.heard, t.said))
+                .collect();
+            assert_eq!(counted, [("t:h", 0, 1), ("t:g", 1, 0)]);
+            steps
+        };
+        let (short, long) = (cost(20), cost(1000));
+        assert!(
+            long < short * 2,
+            "{short} steps after 20 messages each, {long} after 1000"
         );
     }
 

@@ -258,8 +258,9 @@ impl Memory {
 
     /// Everyone heard from since `since`, on every platform, most recent first.
     pub fn people_since(&self, since: DateTime<Utc>) -> Result<Vec<Person>> {
-        // A platform at a time, then by when each was last heard: those heard
-        // at the same moment stay in that order.
+        // Only the messages since, found by when they came in. A platform
+        // at a time, then by when each was last heard: those heard at the
+        // same moment stay in that order.
         let mut stmt = self.conn.prepare(
             "SELECT person FROM messages WHERE dir = 'in' AND person IS NOT NULL AND at >= ?1
              GROUP BY person ORDER BY MIN(channel), MAX(seq) DESC",
@@ -298,10 +299,16 @@ impl Memory {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
-    use super::super::testing::{fold, heard, on, said, steps};
-    use crate::{journal::Event, social::PlaceKind};
+    use super::super::{
+        Memory,
+        testing::{fold, heard, on, said, steps},
+    };
+    use crate::{
+        journal::{Event, Journal},
+        social::PlaceKind,
+    };
 
     #[test]
     fn people_accumulate() {
@@ -367,6 +374,40 @@ mod tests {
         );
         assert!(m.feelings_toward("t:a", since, 5).unwrap().is_empty());
         assert_eq!(m.people().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn who_she_heard_lately_costs_the_same_however_long_she_has_lived() {
+        let cost = |n: i64| {
+            let mut j = Journal::in_memory();
+            let mut m = Memory::in_memory().unwrap();
+            let now = Utc::now();
+            let mut hear = |at, who: &str, id: i64| {
+                let event = heard("g", PlaceKind::Group, who, &id.to_string(), "hi", false);
+                m.apply(&j.append_at(at, event).unwrap()).unwrap();
+            };
+            // A month of others, then two people this last hour.
+            for i in 0..n {
+                hear(
+                    now - Duration::days(30) + Duration::minutes(i),
+                    &format!("old{i}"),
+                    i,
+                );
+            }
+            hear(now - Duration::minutes(10), "a", n);
+            hear(now - Duration::minutes(5), "b", n + 1);
+            let (people, steps) = steps(&mut m, |m| {
+                m.people_since(now - Duration::hours(1)).unwrap()
+            });
+            let keys: Vec<String> = people.into_iter().map(|p| p.key).collect();
+            assert_eq!(keys, ["t:b", "t:a"]);
+            steps
+        };
+        let (short, long) = (cost(20), cost(1000));
+        assert!(
+            long < short * 2,
+            "{short} steps after 20 others, {long} after 1000"
+        );
     }
 
     #[test]
