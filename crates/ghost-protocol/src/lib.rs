@@ -37,8 +37,10 @@ use serde_json::Value;
 /// Version of the protocol spoken by this crate.
 pub const PROTOCOL: u32 = 1;
 
-/// Where a daemon listens unless told otherwise.
-pub const DEFAULT_ADDR: &str = "127.0.0.1:7437";
+/// Where a daemon listens unless told otherwise, and where everything that
+/// reaches one looks first: the core this machine runs for itself, a
+/// `ghostd run` from a directory, the desk's own, the CLI and every adapter.
+pub const DEFAULT_ADDR: &str = "127.0.0.1:7438";
 
 /// Method names.
 pub mod method {

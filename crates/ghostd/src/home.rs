@@ -17,7 +17,7 @@
 //! the prompts are not written into it at all, and so follow the binary
 //! that runs it rather than going stale in a copy nobody asked for.
 
-use std::{fmt::Write as _, fs, path::Path};
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use ghost_brain::presets::Preset;
@@ -89,25 +89,23 @@ pub fn ready(home: &Path) -> anyhow::Result<Made> {
 
 /// The brains of a new home's configuration, each as its preset has it.
 fn brains() -> String {
-    let mut text = format!(
+    let presets: Vec<(&Preset, Vec<String>)> = BRAINS
+        .iter()
+        .filter_map(|id| Preset::by_id(id))
+        .map(|p| (p, p.lines(None)))
+        .collect();
+    let brains: Vec<(&str, &str, &[String])> = presets
+        .iter()
+        .map(|(p, lines)| (p.id, p.name, lines.as_slice()))
+        .collect();
+    format!(
         "# The brains it can think with. Whoever runs it picks among these and adds\n\
          # to them over the Ghost Protocol (the desk does, from the line you type\n\
          # into), and ghostd edits this file for them, keeping your comments. A key\n\
          # is never written here, only the variable it is read from: given with a\n\
-         # brain, it goes into .env.\n\
-         [brain]\nthink = \"{0}\"\ntick = \"{0}\"\n",
-        BRAINS[0]
-    );
-    for p in BRAINS.iter().filter_map(|id| Preset::by_id(id)) {
-        let _ = write!(
-            text,
-            "\n# {}\n[providers.{}]\n{}\n",
-            p.name,
-            p.id,
-            p.lines(None).join("\n")
-        );
-    }
-    text
+         # brain, it goes into .env.\n{}",
+        crate::config::brains(&brains)
+    )
 }
 
 /// Say what [`ready`] did, if it did anything.

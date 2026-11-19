@@ -152,7 +152,7 @@ desk takes one only with a token named. Better is to reach the daemon over
 an ssh tunnel and connect to the tunnel's end on this machine:
 
 ```bash
-ssh -N -L 7537:127.0.0.1:7437 you@server   # then add ws://127.0.0.1:7537
+ssh -N -L 7537:127.0.0.1:7438 you@server   # then add ws://127.0.0.1:7537
 ```
 
 ## The thread

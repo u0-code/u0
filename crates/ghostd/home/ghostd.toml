@@ -9,9 +9,6 @@
 # prompts/system/desk; `prompts` under [mind] lays a directory of your own
 # over them, and is read relative to this directory.
 
-[listen]
-addr = "127.0.0.1:7438"
-
 [mind]
 # No day of its own and no weather: it waits for tasks.
 live = false

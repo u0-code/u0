@@ -187,10 +187,10 @@ impl PromptsDir {
         if let Some(dir) = &self.dir {
             return Ok(Some(dir.clone()));
         }
-        if !Config::exists(self.config.as_deref()) {
-            return Ok(None);
+        match Config::file(self.config.as_deref()) {
+            Some(path) => Config::load(&path)?.prompts(),
+            None => Ok(None),
         }
-        Config::load(self.config.as_deref())?.0.prompts()
     }
 
     /// The directory, which has to be given or configured.

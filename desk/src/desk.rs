@@ -330,7 +330,7 @@ impl Desk {
         }
         let connection_fields = [
             cx.new(|cx| TextInput::new(cx, "studio").field()),
-            cx.new(|cx| TextInput::new(cx, "wss://host:7437").field()),
+            cx.new(|cx| TextInput::new(cx, "wss://host:7438").field()),
             cx.new(|cx| TextInput::new(cx, "STUDIO_TOKEN · optional").field()),
         ];
         for field in &connection_fields {

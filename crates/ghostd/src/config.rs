@@ -2,8 +2,11 @@
 //! she paces herself. This is body configuration and lives outside the ghost
 //! directory, because none of it is her.
 //!
-//! Search order: `--config`, `$GHOSTD_CONFIG`, `./ghostd.toml`,
-//! `~/.config/ghost/ghostd.toml`.
+//! The file is the first of `--config`, `$GHOSTD_CONFIG`, `./ghostd.toml`
+//! and the core home's (`ghost_link::home()`), so that every command reads
+//! the one the daemon runs with. With none, one is made from what the
+//! machine has to think with ([`Config::settle`]). A relative path in it is
+//! from the directory the file is in.
 //!
 //! One file serves every character a daemon runs. Most of it is the
 //! deployment's alone: the brains, where it listens, the network, the
@@ -16,6 +19,7 @@
 
 use std::{
     collections::BTreeMap,
+    fmt::Write as _,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -25,6 +29,7 @@ use anyhow::{Context, bail};
 use ghost_brain::{Brain, config::ProviderConfig};
 use ghost_mind::{ChannelConfig, MindConfig, Operators, PlaceConfig};
 use serde::Deserialize;
+use tracing::info;
 
 pub const FILE: &str = "ghostd.toml";
 
@@ -67,6 +72,10 @@ pub struct Config {
     /// and being newer than anything it started with, it wins.
     #[serde(skip)]
     pub(crate) keys: BTreeMap<String, String>,
+    /// The directory of the file it was read from, which a relative path in
+    /// it is from.
+    #[serde(skip)]
+    dir: PathBuf,
 }
 
 /// How one character lives: the deployment's settings with hers laid over
@@ -162,25 +171,39 @@ impl Listen {
 }
 
 impl Config {
-    /// Whether there is a configuration file to load: one named explicitly,
-    /// or one in the usual places.
-    pub fn exists(explicit: Option<&Path>) -> bool {
-        explicit.is_some() || candidates().iter().any(|p| p.exists())
+    /// The configuration this process runs with, and the file it was read
+    /// from: the first there is (see the module), or else one made from what
+    /// this machine has to think with. `[network]` is made the way requests
+    /// leave first, since looking for brains is one.
+    pub async fn settle(explicit: Option<&Path>) -> anyhow::Result<(Self, Option<PathBuf>)> {
+        if let Some(path) = Self::file(explicit) {
+            let cfg = Self::load(&path)?;
+            crate::run::network(&cfg.network)?;
+            return Ok((cfg, Some(path)));
+        }
+        crate::run::network(&ghost_net::Setting::default())?;
+        let (cfg, what) = Self::from_found(&ghost_brain::discover::discover().await)?;
+        info!("no {FILE}: {what}");
+        Ok((cfg, None))
+    }
+
+    /// The file to read: `explicit`, or the first of the others there is.
+    pub fn file(explicit: Option<&Path>) -> Option<PathBuf> {
+        match explicit {
+            Some(path) => Some(path.to_path_buf()),
+            None => candidates().into_iter().find(|p| p.exists()),
+        }
     }
 
     /// A configuration for a machine with no configuration file: every
     /// default, and the first thing found here that she can think with.
     /// Returns the configuration and what it settled on.
-    pub fn from_found(found: &[ghost_brain::discover::Found]) -> anyhow::Result<(Self, String)> {
+    fn from_found(found: &[ghost_brain::discover::Found]) -> anyhow::Result<(Self, String)> {
         let usable = found.first().context(
             "no ghostd.toml, and nothing here to think with: set DEEPSEEK_API_KEY or \
                  ANTHROPIC_API_KEY, install the claude or codex CLI, or start Ollama",
         )?;
-        let text = format!(
-            "[brain]\nthink = \"{0}\"\ntick = \"{0}\"\n\n{1}",
-            usable.name,
-            usable.toml()
-        );
+        let text = brains(&[(&usable.name, &usable.what, &usable.config)]);
         let cfg = Self::parse(&text).context("build a configuration from what was found")?;
         Ok((cfg, usable.what.clone()))
     }
@@ -198,7 +221,7 @@ impl Config {
 
     /// The deployment's directory of prompts, shared by every character.
     pub fn prompts(&self) -> anyhow::Result<Option<PathBuf>> {
-        Ok(self.deployment()?.mind.prompts)
+        Ok(self.deployment()?.mind.prompts.map(|p| self.dir.join(p)))
     }
 
     /// The settings as the top level of the file has them, for a character
@@ -264,23 +287,14 @@ impl Config {
         Ok(())
     }
 
-    pub fn load(explicit: Option<&Path>) -> anyhow::Result<(Self, PathBuf)> {
-        let path = match explicit {
-            Some(p) => p.to_path_buf(),
-            None => candidates()
-                .into_iter()
-                .find(|p| p.exists())
-                .with_context(|| {
-                    format!(
-                        "no {FILE} found; pass --config, set GHOSTD_CONFIG, or copy ghostd.example.toml"
-                    )
-                })?,
-        };
+    /// Read the file at `path`.
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
         let text =
-            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let cfg = Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let mut cfg = Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
         cfg.tiers_named()?;
-        Ok((cfg, path))
+        cfg.dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        Ok(cfg)
     }
 
     /// Refuse a `[brain]` that names a brain the providers do not have.
@@ -357,15 +371,31 @@ pub(crate) fn lay_over(base: &mut toml::Table, over: &toml::Table) {
     }
 }
 
+/// The `[brain]` and `[providers]` of a configuration: each of `brains`
+/// (its name, what it is, and the lines of its table) in turn, thinking and
+/// ticking with the first. A new home's is written with it, and a machine
+/// with no file runs on one.
+pub(crate) fn brains(brains: &[(&str, &str, &[String])]) -> String {
+    let first = brains.first().map_or("", |(name, ..)| *name);
+    let mut text = format!("[brain]\nthink = \"{first}\"\ntick = \"{first}\"\n");
+    for (name, what, lines) in brains {
+        let _ = write!(
+            text,
+            "\n# {what}\n[providers.{name}]\n{}\n",
+            lines.join("\n")
+        );
+    }
+    text
+}
+
+/// Where a file is looked for when none is named, in order.
 fn candidates() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(p) = std::env::var("GHOSTD_CONFIG") {
         v.push(PathBuf::from(p));
     }
     v.push(PathBuf::from(FILE));
-    if let Ok(home) = std::env::var("HOME") {
-        v.push(Path::new(&home).join(".config/ghost").join(FILE));
-    }
+    v.push(ghost_link::home().join(FILE));
     v
 }
 
@@ -641,6 +671,32 @@ mod example_tests {
         let all = Config::parse(&uncommented(EXAMPLE)).unwrap();
         assert!(all.network.proxy.is_some(), "the commented lines were read");
         assert!(!all.hers("her").unwrap().operators.accounts.is_empty());
+    }
+
+    #[test]
+    fn the_published_example_writes_its_brain_as_the_list_of_providers_does() {
+        let example: toml::Table = toml::from_str(EXAMPLE).unwrap();
+        let preset = ghost_brain::presets::Preset::by_id("deepseek").unwrap();
+        assert_eq!(
+            example["providers"]["deepseek"],
+            toml::Value::Table(preset.table())
+        );
+    }
+
+    #[test]
+    fn a_relative_directory_of_prompts_is_from_the_directory_of_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        let text = "[brain]\nthink = \"a\"\ntick = \"a\"\n[providers.a]\nkind = \"codex\"\n\
+                    [mind]\nprompts = \"mine\"\n";
+        std::fs::write(&path, text).unwrap();
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.prompts().unwrap(), Some(dir.path().join("mine")));
+        // Read from its text alone, it is as written.
+        assert_eq!(
+            Config::parse(text).unwrap().prompts().unwrap(),
+            Some(PathBuf::from("mine"))
+        );
     }
 
     #[test]
