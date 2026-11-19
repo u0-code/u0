@@ -22,7 +22,7 @@
 //! keeps running for whoever loads it next.
 //!
 //! **Safe by shape, not by asking.** Nothing here asks anyone. What keeps
-//! a server in its place is in [`guard`] and in [`registry`]: it is the
+//! a server in its place is in `guard.rs` and `registry.rs`: it is the
 //! current listing of a name whose repository is its owner's; its
 //! version is pinned and its install scripts are not run; it starts with
 //! an environment that holds nothing of hers; a remote is on the public
@@ -34,8 +34,8 @@
 //! as such (see [`crate::outside`]).
 
 mod client;
-pub mod guard;
-pub mod registry;
+pub(crate) mod guard;
+mod registry;
 
 use std::{
     collections::BTreeMap,

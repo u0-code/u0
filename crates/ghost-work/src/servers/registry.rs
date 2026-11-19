@@ -197,9 +197,6 @@ pub struct Plan {
     pub source: String,
     pub owner: Option<String>,
     pub launch: Launch,
-    /// What it reads from its environment that would be given to it,
-    /// by name.
-    pub given: Vec<String>,
 }
 
 /// What a listing needs from whoever runs her body, as she is shown it in
@@ -251,7 +248,7 @@ pub fn plan(
     let mut why = Vec::new();
     for package in &server.packages {
         match from_package(words, package, given) {
-            Ok((source, launch, passed)) => {
+            Ok((source, launch)) => {
                 return Ok(Plan {
                     name: server.name.clone(),
                     version: server.version.clone(),
@@ -259,7 +256,6 @@ pub fn plan(
                     source,
                     owner,
                     launch,
-                    given: passed,
                 });
             }
             Err(e) => why.push(e),
@@ -275,7 +271,6 @@ pub fn plan(
                     source: remote.url.clone(),
                     owner,
                     launch,
-                    given: Vec::new(),
                 });
             }
             Err(e) => why.push(e),
@@ -334,7 +329,7 @@ fn from_package(
     words: &Store,
     package: &Package,
     given: &dyn Fn(&str) -> bool,
-) -> Result<(String, Launch, Vec<String>), String> {
+) -> Result<(String, Launch), String> {
     let said = |key: &str, what: &str| words.fill(TEXTS, key, &[("what", what.to_owned())]);
     let Some(kind) = runner(package) else {
         return Err(said("package_not_run", &package.registry_type));
@@ -381,11 +376,9 @@ fn from_package(
         }
     }
     let mut launch = Launch::default();
-    let mut passed = Vec::new();
     for variable in &package.environment_variables {
         if given(&variable.name) {
             launch.pass.push(variable.name.clone());
-            passed.push(variable.name.clone());
             continue;
         }
         if !variable.is_required {
@@ -435,7 +428,7 @@ fn from_package(
     };
     command.extend(args);
     launch.command = command;
-    Ok((source, launch, passed))
+    Ok((source, launch))
 }
 
 /// A remote, if it is one that can be reached as it stands.

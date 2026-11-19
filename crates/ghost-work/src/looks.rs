@@ -12,7 +12,7 @@
 //! a look that never reached a brain leaves nothing here.
 //!
 //! This is working state: neither forever, like the journal, nor rebuilt
-//! from it, like her memory. A look is kept for [`KEPT_DAYS`] days, and
+//! from it, like her memory. A look is kept for `KEPT_DAYS` days, and
 //! older ones are let go each time a new look begins. Only her mind writes
 //! here; anyone may read.
 
@@ -28,9 +28,9 @@ use crate::undertaking::{
 };
 
 /// How long a look's rounds are kept.
-pub const KEPT_DAYS: i64 = 14;
+const KEPT_DAYS: i64 = 14;
 /// The most looks one read returns: the newest of those asked for.
-pub const READ_MOST: usize = 50;
+const READ_MOST: usize = 50;
 
 /// The record of her looks, open for writing.
 pub struct Looks {
@@ -57,7 +57,7 @@ impl Looks {
     }
 
     /// Number a new look at `place`, begun `at`, and let go of every look
-    /// that began more than [`KEPT_DAYS`] days before it.
+    /// that began more than `KEPT_DAYS` days before it.
     pub fn begin(&self, place: &str, at: DateTime<Utc>) -> io::Result<i64> {
         let gone = (at - Duration::days(KEPT_DAYS)).timestamp_millis();
         self.conn
@@ -114,7 +114,7 @@ pub fn read(db: &Path, place: &str, after: i64, open: Option<i64>) -> io::Result
 impl Records {
     /// The looks at `place` that ended after the journal entry `after`,
     /// with the look `open` if it is one of them and has not ended: oldest
-    /// first, at most the newest [`READ_MOST`]. Read without writing, on
+    /// first, at most the newest `READ_MOST`. Read without writing, on
     /// the connection these records hold: a console asks this once a
     /// second while she thinks.
     pub fn looks(&self, place: &str, after: i64, open: Option<i64>) -> io::Result<Vec<Kept>> {

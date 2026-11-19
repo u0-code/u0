@@ -15,15 +15,15 @@ use std::path::{Component, Path};
 use crate::prompts::{Store, TEXTS};
 
 /// The most files one skill may have.
-pub const MAX_FILES: usize = 100;
+pub(crate) const MAX_FILES: usize = 100;
 /// The most bytes all of a skill's files may come to.
-pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// The most bytes one file under `assets/` may be.
-pub const MAX_ASSET: u64 = 1024 * 1024;
+pub(crate) const MAX_ASSET: u64 = 1024 * 1024;
 /// The longest name the format allows.
 const NAME: usize = 64;
 /// The longest description the format allows.
-pub const DESCRIPTION: usize = 1024;
+pub(crate) const DESCRIPTION: usize = 1024;
 /// The longest `compatibility` the format allows.
 const COMPATIBILITY: usize = 500;
 

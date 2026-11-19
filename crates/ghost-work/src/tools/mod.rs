@@ -177,7 +177,7 @@ pub fn standard(machine: Arc<dyn Machine>, undertaking: &Arc<Undertaking>) -> To
 
 /// The record of `undertaking` and nothing else: for work that needs no
 /// machine, such as finding something out.
-pub fn desk(undertaking: &Arc<Undertaking>) -> Toolbox {
+pub fn without_machine(undertaking: &Arc<Undertaking>) -> Toolbox {
     record(Toolbox::new(), undertaking)
 }
 

@@ -37,9 +37,9 @@
 //! assets (see [`guard`]). A folder that changes on disk after she
 //! installed it is put aside when her body next starts, with why.
 
-pub mod github;
+mod github;
 pub mod guard;
-pub mod index;
+mod index;
 
 use std::{
     collections::BTreeMap,
