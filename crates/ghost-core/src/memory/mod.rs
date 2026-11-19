@@ -136,6 +136,12 @@ impl Memory {
     }
 
     fn prepare(conn: Connection) -> Result<Self> {
+        // It can be rebuilt from her journal, so it does not need to survive
+        // a power cut whole: what NORMAL may lose is the last few folds, and
+        // `catch_up` folds them again. WAL lets a reader in another process
+        // look while she writes, instead of holding her writes up.
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get::<_, String>(0))?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         for tables in [
             META,
             places::SCHEMA,
@@ -182,16 +188,17 @@ impl Memory {
 
     /// Fold in every journal entry not yet seen, in order, from the one
     /// after the last folded. Returns how many.
+    ///
+    /// They are folded 500 to a transaction: a rebuild then commits a few
+    /// hundred times, not once an entry.
     pub fn catch_up(&mut self, journal: &Journal) -> Result<u64> {
         let mut applied = 0;
         loop {
-            let batch = journal.read(self.last_seq()? + 1, 500)?;
-            if batch.is_empty() {
+            let batch = journal.read(self.last_seq()? + 1, BATCH)?;
+            self.fold_in(&batch)?;
+            applied += batch.len() as u64;
+            if batch.len() < BATCH {
                 return Ok(applied);
-            }
-            for entry in &batch {
-                self.apply(entry)?;
-                applied += 1;
             }
         }
     }
@@ -209,29 +216,49 @@ impl Memory {
         if entry.seq <= last {
             return Ok(());
         }
-        let unfolded = |reason: String| Error::Unfolded {
-            seq: entry.seq,
-            kind: entry.event.kind(),
-            reason,
-        };
         if entry.seq != last + 1 {
-            return Err(unfolded(format!("it comes after {last}, not yet folded")));
+            return Err(unfolded(
+                entry,
+                format!("it comes after {last}, not yet folded"),
+            ));
         }
-        self.fold_in(entry).map_err(|e| unfolded(e.to_string()))
+        self.fold_in(std::slice::from_ref(entry))
     }
 
-    fn fold_in(&mut self, entry: &Entry) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        let at = stamp(&entry.at);
-        fold(&tx, entry, &at)?;
+    /// Fold `entries`, which follow on from the last folded and from each
+    /// other, in one transaction. If any fails, none is kept, and the error
+    /// names the one that failed.
+    fn fold_in(&mut self, entries: &[Entry]) -> Result<()> {
+        let (Some(first), Some(last)) = (entries.first(), entries.last()) else {
+            return Ok(());
+        };
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| unfolded(first, e.to_string()))?;
+        for entry in entries {
+            fold(&tx, entry, &stamp(&entry.at)).map_err(|e| unfolded(entry, e.to_string()))?;
+        }
         tx.execute(
-            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1), ('folded', 1)
+            "INSERT INTO meta (key, value) VALUES ('last_seq', ?1), ('folded', ?2)
              ON CONFLICT(key) DO UPDATE SET value =
-                 CASE key WHEN 'last_seq' THEN excluded.value ELSE value + 1 END",
-            [entry.seq],
-        )?;
-        tx.commit()?;
-        Ok(())
+                 CASE key WHEN 'last_seq' THEN excluded.value ELSE value + excluded.value END",
+            [last.seq, as_i64(entries.len())],
+        )
+        .and_then(|_| tx.commit())
+        .map_err(|e| unfolded(first, e.to_string()))
+    }
+}
+
+/// How many entries `catch_up` folds in one transaction.
+const BATCH: usize = 500;
+
+/// Memory stopped before `entry`, for `reason`.
+fn unfolded(entry: &Entry, reason: String) -> Error {
+    Error::Unfolded {
+        seq: entry.seq,
+        kind: entry.event.kind(),
+        reason,
     }
 }
 
@@ -495,6 +522,74 @@ mod tests {
         assert_eq!(m.catch_up(&j).unwrap(), 2);
         m.apply(&first).unwrap();
         assert_eq!(m.thread("t:a", 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_reader_in_another_process_does_not_hold_up_her_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::in_memory();
+        let mut m = Memory::open(dir.path()).unwrap();
+        m.apply(&j.append(said("a", "one")).unwrap()).unwrap();
+
+        // Looking, in the middle of a read, the way `ghostd status` does.
+        let look = Memory::glance(dir.path()).unwrap().unwrap();
+        look.conn
+            .execute_batch("BEGIN; SELECT count(*) FROM messages;")
+            .unwrap();
+        let begun = std::time::Instant::now();
+        m.apply(&j.append(said("a", "two")).unwrap()).unwrap();
+        // Behind a rollback journal this waited out the busy timeout, five
+        // seconds, and failed.
+        assert!(begun.elapsed() < std::time::Duration::from_secs(1));
+        // The reader goes on seeing what was there when it began.
+        assert_eq!(look.last_seq().unwrap(), 1);
+        look.conn.execute_batch("COMMIT").unwrap();
+        assert_eq!(look.last_seq().unwrap(), 2);
+    }
+
+    #[test]
+    fn her_memory_can_be_looked_at_when_nobody_has_it_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::in_memory();
+        let mut m = Memory::open(dir.path()).unwrap();
+        m.apply(&j.append(said("a", "one")).unwrap()).unwrap();
+        drop(m);
+        let look = Memory::glance(dir.path()).unwrap().unwrap();
+        assert_eq!(look.last_seq().unwrap(), 1);
+        assert_eq!(look.thread("t:a", 5).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_batch_that_fails_keeps_none_of_it_and_names_the_entry() {
+        let mut j = Journal::in_memory();
+        let mut m = Memory::in_memory().unwrap();
+        for i in 0..5 {
+            j.append(Event::Canon {
+                fact: format!("fact {i}"),
+                source: "life".into(),
+            })
+            .unwrap();
+        }
+        m.conn
+            .execute_batch(
+                "CREATE TRIGGER refuse BEFORE INSERT ON canon WHEN NEW.fact = 'fact 3'
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+            )
+            .unwrap();
+        assert!(matches!(
+            m.catch_up(&j),
+            Err(crate::Error::Unfolded {
+                seq: 4,
+                kind: "canon",
+                ..
+            })
+        ));
+        assert_eq!(m.last_seq().unwrap(), 0);
+        assert!(m.canon(10).unwrap().is_empty());
+
+        m.conn.execute_batch("DROP TRIGGER refuse").unwrap();
+        assert_eq!(m.catch_up(&j).unwrap(), 5);
+        assert_eq!(m.canon(10).unwrap().len(), 5);
     }
 
     #[test]
