@@ -25,6 +25,8 @@
 //!   showed the last one is needed: told the rule and shown that her line
 //!   had gone unanswered, she still answered the next message too.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
     journal::Event,
@@ -54,7 +56,7 @@ const ANSWERED_WITHIN: Duration = Duration::minutes(10);
 const BOT_TURNS: usize = 2;
 /// How many of the latest messages are read to tell whether she is in a
 /// loop with bots.
-const BOT_WINDOW: usize = 60;
+pub(super) const BOT_WINDOW: usize = 60;
 /// How long, at human pace, she leaves a group's chatter alone after
 /// speaking up unasked when nobody has answered her or turned to her.
 const UNANSWERED_PAUSE_MINUTES: f64 = 30.0;
@@ -156,18 +158,25 @@ impl Mind {
     /// Whether she and automated accounts have been answering each other in
     /// a group with no person in between: her last two turns there were
     /// each answered only by bots, and no person has written since.
-    pub(super) fn in_a_loop_with_bots(&self, place: &PlaceState) -> Result<bool> {
+    /// `lines` are the latest of the conversation, at least [`BOT_WINDOW`]
+    /// of them where there are that many; `bots` is who is known to be one.
+    pub(super) fn in_a_loop_with_bots(
+        &self,
+        place: &PlaceState,
+        lines: &[Line],
+        bots: &mut HashMap<String, bool>,
+    ) -> Result<bool> {
         if place.kind != PlaceKind::Group {
             return Ok(false);
         }
-        let memory = self.ghost.memory();
         let mut turns = 0;
         let mut answered = false;
         let mut in_her_turn = false;
-        for line in memory.thread(&place.key, BOT_WINDOW)?.iter().rev() {
+        let lines = &lines[lines.len().saturating_sub(BOT_WINDOW)..];
+        for line in lines.iter().rev() {
             if line.incoming {
                 let automated = match &line.person {
-                    Some(key) => memory.person(key)?.is_some_and(|p| p.automated),
+                    Some(key) => self.automated(key, bots)?,
                     None => false,
                 };
                 if !automated {
@@ -190,6 +199,21 @@ impl Mind {
             in_her_turn = true;
         }
         Ok(false)
+    }
+
+    /// Whether the person `key` is an automated account, read once per
+    /// look and kept in `bots` after.
+    pub(super) fn automated(&self, key: &str, bots: &mut HashMap<String, bool>) -> Result<bool> {
+        if let Some(automated) = bots.get(key) {
+            return Ok(*automated);
+        }
+        let automated = self
+            .ghost
+            .memory()
+            .person(key)?
+            .is_some_and(|p| p.automated);
+        bots.insert(key.to_owned(), automated);
+        Ok(automated)
     }
 
     /// Until when what the others say in a group is left unlooked at

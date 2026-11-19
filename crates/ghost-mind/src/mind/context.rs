@@ -6,10 +6,12 @@
 //! and each memory says where that was, so that what was told to her in
 //! private is marked as such wherever it comes up.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, Utc};
 use ghost_core::{
     journal::Sources,
-    memory::{Note, PlaceState},
+    memory::{Note, Person, PlaceState},
     narrate::capital,
     social::PlaceKind,
     when::when,
@@ -31,14 +33,20 @@ const PARTS_SHOWN: usize = 6;
 
 impl Mind {
     /// A place in a few words, as she would refer to it from elsewhere.
-    pub(super) fn place_words(&self, place: &PlaceState) -> Result<String> {
+    /// `people` are those already read for what she is looking at: whoever
+    /// a private place is with is found among them before it is read.
+    pub(super) fn place_words(&self, place: &PlaceState, people: &[Person]) -> Result<String> {
         Ok(match place.kind {
             PlaceKind::Direct => {
-                let who = self
-                    .ghost
-                    .memory()
-                    .person_of_direct(&place.key)?
-                    .map_or_else(|| "someone".to_owned(), |p| p.name);
+                let known = people
+                    .iter()
+                    .find(|p| p.direct.as_deref() == Some(place.key.as_str()))
+                    .cloned();
+                let who = match known {
+                    Some(person) => Some(person),
+                    None => self.ghost.memory().person_of_direct(&place.key)?,
+                }
+                .map_or_else(|| "someone".to_owned(), |p| p.name);
                 format!("a private chat with {who} on {}", place.channel)
             }
             PlaceKind::Group => format!(
@@ -67,25 +75,46 @@ impl Mind {
         };
         Ok(match place.kind {
             PlaceKind::Direct => {
-                format!(" (in {}; told to you privately)", self.place_words(&place)?)
+                format!(
+                    " (in {}; told to you privately)",
+                    self.place_words(&place, &[])?
+                )
             }
-            _ => format!(" (in {})", self.place_words(&place)?),
+            _ => format!(" (in {})", self.place_words(&place, &[])?),
         })
     }
 
     /// Mark the notes that came from a private conversation other than this
-    /// one, so she knows not to bring them up here.
-    pub(super) fn with_provenance(&self, notes: Vec<Note>, here: &str) -> Result<Vec<Note>> {
+    /// one, so she knows not to bring them up here. A place that is private
+    /// with one of `people` is known to be without reading it, and each
+    /// other place is read once, however many notes were made there.
+    pub(super) fn with_provenance(
+        &self,
+        notes: Vec<Note>,
+        here: &str,
+        people: &[Person],
+    ) -> Result<Vec<Note>> {
         let memory = self.ghost.memory();
+        let mut private: HashMap<String, bool> = people
+            .iter()
+            .filter_map(|p| Some((p.direct.clone()?, true)))
+            .collect();
         notes
             .into_iter()
             .map(|mut note| {
-                if let Some(key) = note.place.as_deref()
-                    && key != here
-                    && memory
+                let Some(key) = note.place.as_deref().filter(|key| *key != here) else {
+                    return Ok(note);
+                };
+                let told_alone = if let Some(alone) = private.get(key) {
+                    *alone
+                } else {
+                    let alone = memory
                         .place(key)?
-                        .is_some_and(|p| p.kind == PlaceKind::Direct)
-                {
+                        .is_some_and(|p| p.kind == PlaceKind::Direct);
+                    private.insert(key.to_owned(), alone);
+                    alone
+                };
+                if told_alone {
                     note.text.push_str(" (they told you this in private)");
                 }
                 Ok(note)
@@ -99,7 +128,7 @@ impl Mind {
     /// is told only that there is one.
     pub(super) fn known_of(
         &self,
-        person: &ghost_core::memory::Person,
+        person: &Person,
         here: &PlaceState,
         limit: usize,
         now: DateTime<Utc>,
@@ -111,7 +140,11 @@ impl Mind {
         let since = profile.as_ref().map_or(0, |p| p.seq);
         let mut notes = memory.notes_after(&person.key, since, limit)?;
         let skip = notes.len().saturating_sub(limit);
-        let notes = self.with_provenance(notes.split_off(skip), &here.key)?;
+        let notes = self.with_provenance(
+            notes.split_off(skip),
+            &here.key,
+            std::slice::from_ref(person),
+        )?;
         let mut text = String::new();
         let Some(profile) = profile else {
             return Ok((text, notes));
@@ -140,8 +173,14 @@ impl Mind {
 
     /// The rest of her life at this moment, for the top of a conversation:
     /// what she has taken on, and what has been going on in other places.
-    /// Empty when there is nothing to say.
-    pub(super) fn elsewhere(&self, here: &PlaceState, now: DateTime<Utc>) -> Result<String> {
+    /// Empty when there is nothing to say. `people` are those already read
+    /// for the conversation: whoever is among them is not read again.
+    pub(super) fn elsewhere(
+        &self,
+        here: &PlaceState,
+        people: &[Person],
+        now: DateTime<Utc>,
+    ) -> Result<String> {
         let memory = self.ghost.memory();
         let mut lines = Vec::new();
 
@@ -153,9 +192,15 @@ impl Mind {
             .collect();
         let records = self.records_of(&open);
         for u in taken {
-            let whom = match u.asked_by.as_deref().map(|key| memory.person(key)) {
-                Some(Ok(Some(person))) => format!(" for {}", person.name),
-                _ => String::new(),
+            let whom = match u.asked_by.as_deref() {
+                Some(key) => match people.iter().find(|p| p.key == key) {
+                    Some(person) => format!(" for {}", person.name),
+                    None => match memory.person(key) {
+                        Ok(Some(person)) => format!(" for {}", person.name),
+                        _ => String::new(),
+                    },
+                },
+                None => String::new(),
             };
             match u.outcome.as_deref() {
                 None => {
@@ -247,7 +292,7 @@ impl Mind {
             };
             lines.push(format!(
                 "- {}: {said}, latest {}{unread}.",
-                capital(&self.place_words(&other.place)?),
+                capital(&self.place_words(&other.place, people)?),
                 when(other.last.at, now, self.life.clock())
             ));
         }
@@ -347,11 +392,7 @@ impl Mind {
     /// What someone here wrote lately, word for word: so that work taken
     /// on from a conversation starts from what was asked and not only from
     /// her own account of it.
-    pub(super) fn their_words(
-        &self,
-        place: &PlaceState,
-        person: &ghost_core::memory::Person,
-    ) -> Result<String> {
+    pub(super) fn their_words(&self, place: &PlaceState, person: &Person) -> Result<String> {
         let mut said: Vec<String> = self
             .ghost
             .memory()

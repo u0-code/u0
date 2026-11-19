@@ -345,3 +345,35 @@ async fn her_past_comes_up_only_when_the_conversation_touches_it() {
     let seen = rig.think.seen.lock().unwrap();
     assert!(format!("{:?}", seen.last().unwrap().messages).contains(grandmother));
 }
+
+#[tokio::test]
+async fn what_was_told_in_someone_elses_private_chat_is_marked_private_like_their_own() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("bo", "1", "between us"), t0);
+    rig.hear(group("g", "ann", "2", "hello all", false), t0);
+    let note = |seq, place: &str| ghost_core::memory::Note {
+        seq,
+        at: t0,
+        text: format!("note {seq}"),
+        place: Some(place.to_owned()),
+        sources: None,
+    };
+    // About ann: two learned from bo in private, one in the group.
+    let notes = vec![note(1, "t:bo"), note(2, "t:g"), note(3, "t:bo")];
+    let marked: Vec<String> = rig
+        .mind
+        .with_provenance(notes, "t:g", &[])
+        .unwrap()
+        .into_iter()
+        .map(|n| n.text)
+        .collect();
+    assert_eq!(
+        marked,
+        [
+            "note 1 (they told you this in private)",
+            "note 2",
+            "note 3 (they told you this in private)",
+        ]
+    );
+}

@@ -606,7 +606,7 @@ async fn looking_at_work_she_has_ended_makes_no_record_of_it() {
 
     let place = rig.mind.ghost.memory().place("t:wen").unwrap().unwrap();
     assert!(rig.mind.deliverables(&place).unwrap().is_empty());
-    rig.mind.elsewhere(&place, t0).unwrap();
+    rig.mind.elsewhere(&place, &[], t0).unwrap();
 
     assert!(
         ghost_work::undertaking::look(&db, std::slice::from_ref(&u.id))

@@ -22,7 +22,7 @@ use ghost_core::{
     identity::Seal,
     journal::Event,
     life::Phase,
-    memory::{Line, PlaceState},
+    memory::{Line, Person, PlaceState},
     narrate::capital,
     social::PlaceKind,
     when::when,
@@ -86,13 +86,14 @@ impl Mind {
         &self,
         place: &PlaceState,
         lines: &[Line],
+        people: &[Person],
         now: DateTime<Utc>,
     ) -> Result<String> {
         let mut facts = self.the_hour(now);
         if let Some(facet) = self.todays_lean(now)? {
             facts.push(self.prompts.fill("lean", &[("facet", facet)]));
         }
-        facts.extend(self.with_them(place, lines, now)?);
+        facts.extend(self.with_them(place, lines, people, now)?);
         if facts.is_empty() {
             return Ok(String::new());
         }
@@ -154,19 +155,25 @@ impl Mind {
     /// for: where she stands with them, what she last felt toward them, and
     /// in a private conversation how long they kept her waiting. Where she
     /// stands is said only with something else, since who is here already
-    /// says it.
+    /// says it. `people` are those already read for the conversation, and
+    /// whoever this is is found among them before being read.
     fn with_them(
         &self,
         place: &PlaceState,
         lines: &[Line],
+        people: &[Person],
         now: DateTime<Utc>,
     ) -> Result<Vec<String>> {
         let memory = self.ghost.memory();
         let clock = self.life.clock();
         let first_new = lines.iter().find(|l| l.incoming && l.seq > place.read_upto);
         let alone_with_them = place.kind == PlaceKind::Direct;
+        let known = |pick: &dyn Fn(&Person) -> bool| people.iter().find(|p| pick(p)).cloned();
         let person = if alone_with_them {
-            memory.person_of_direct(&place.key)?
+            match known(&|p| p.direct.as_deref() == Some(place.key.as_str())) {
+                Some(person) => Some(person),
+                None => memory.person_of_direct(&place.key)?,
+            }
         } else {
             match lines
                 .iter()
@@ -174,7 +181,10 @@ impl Mind {
                 .find(|l| l.incoming && l.seq > place.read_upto)
                 .and_then(|l| l.person.as_deref())
             {
-                Some(key) => memory.person(key)?,
+                Some(key) => match known(&|p| p.key == key) {
+                    Some(person) => Some(person),
+                    None => memory.person(key)?,
+                },
                 None => None,
             }
         };
