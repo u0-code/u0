@@ -164,7 +164,7 @@ impl Console {
     }
 
     /// Who she is and what she is in the middle of.
-    pub async fn status(&mut self) -> anyhow::Result<Value> {
+    pub async fn status(&mut self) -> anyhow::Result<ghost_protocol::GhostStatus> {
         self.conn.call(method::STATUS, &()).await
     }
 
@@ -271,7 +271,11 @@ impl Console {
     }
 
     /// The journal entries that belong to one place, oldest first.
-    pub async fn thread(&mut self, place: &str, limit: u32) -> anyhow::Result<Vec<Value>> {
+    pub async fn thread(
+        &mut self,
+        place: &str,
+        limit: u32,
+    ) -> anyhow::Result<Vec<ghost_protocol::Entry>> {
         let params = ghost_protocol::PlaceRead {
             place: place.to_owned(),
             limit,
@@ -280,7 +284,11 @@ impl Console {
     }
 
     /// Journal entries starting at `from`. Negative counts back from the end.
-    pub async fn journal(&mut self, from: i64, limit: u32) -> anyhow::Result<Vec<Value>> {
+    pub async fn journal(
+        &mut self,
+        from: i64,
+        limit: u32,
+    ) -> anyhow::Result<Vec<ghost_protocol::Entry>> {
         self.conn
             .call(method::JOURNAL_READ, &JournalRead { from, limit })
             .await
@@ -438,13 +446,15 @@ impl Console {
     }
 
     /// The next journal entry, once subscribed. `None` when the daemon is gone.
-    pub async fn next_entry(&mut self) -> anyhow::Result<Option<Value>> {
+    pub async fn next_entry(&mut self) -> anyhow::Result<Option<ghost_protocol::Entry>> {
         loop {
             let Some(frame) = self.conn.recv().await? else {
                 return Ok(None);
             };
             if frame.method.as_deref() == Some(method::JOURNAL_ENTRY) {
-                return Ok(Some(frame.params.unwrap_or(Value::Null)));
+                return Ok(Some(serde_json::from_value(
+                    frame.params.unwrap_or(Value::Null),
+                )?));
             }
         }
     }

@@ -41,7 +41,7 @@ use ghost_core::{
     social::{Actor, Place, PlaceKind},
 };
 
-use super::{Mind, Parts, Question, Signal, Workshop, living};
+use super::{Mind, Parts, Signal, Workshop, living};
 use crate::{Act, Acted, Body, Can, Incoming, MindConfig, Numb, Prompts};
 
 const SEED: &str = r#"
@@ -340,6 +340,9 @@ impl Body for Recorder {
 
 struct Rig {
     mind: Mind,
+    /// Her handle, as her daemon holds it. Her mind is never run here, so
+    /// nothing sent to it is answered: only what is read off it.
+    handle: super::MindHandle,
     think: Arc<Script>,
     tick: Arc<Script>,
     body: Arc<Recorder>,
@@ -445,7 +448,7 @@ impl Rig {
             Arc::new(Script::default()),
             Arc::new(Recorder::default()),
         );
-        let (mut mind, _handle) = Mind::new(Parts {
+        let (mut mind, handle) = Mind::new(Parts {
             ghost,
             think: think.clone(),
             tick: tick.clone(),
@@ -473,6 +476,7 @@ impl Rig {
         .unwrap();
         Self {
             mind,
+            handle,
             think,
             tick,
             body,
@@ -620,6 +624,16 @@ impl Rig {
             }
         }
         panic!("never happened");
+    }
+
+    /// A reader of her, as a console's questions are answered: off her
+    /// mind, from what she has written and what it last said is under way.
+    fn reader(&self) -> super::Reader {
+        super::Reader::new(
+            self.mind.ghost.dir().to_path_buf(),
+            self.mind.cfg.operators.clone(),
+            self.mind.live.subscribe(),
+        )
     }
 
     fn kinds(&self) -> Vec<&'static str> {

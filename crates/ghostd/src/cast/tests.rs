@@ -14,12 +14,9 @@ use std::{
 use async_trait::async_trait;
 use base64::Engine as _;
 use ghost_brain::{Brain, Completion, Reply};
-use ghost_core::{
-    Ghost,
-    journal::{Entry, Event},
-};
+use ghost_core::{Ghost, journal::Event};
 use ghost_link::Conn;
-use ghost_mind::{Mind, MindConfig, Numb, Parts, Prompts, Question, WorkConfig, Workshop};
+use ghost_mind::{Mind, MindConfig, Numb, Parts, Prompts, WorkConfig, Workshop};
 use ghost_protocol::{
     Acted, Action, Actor, Capability, Frame, GhostCard, Hello, Inbound, ListGhosts, PROTOCOL,
     Place, PlaceKind, PresenceHello, Role, Roster, RpcError, Welcome, code, method,
@@ -218,15 +215,10 @@ impl Rig {
     /// text: every entry carries two hashes, and in a few dozen of them
     /// any short marker turns up sooner or later.
     pub(crate) async fn events(&self, n: usize) -> Vec<Event> {
-        let entries = self.cast[n]
+        self.cast[n]
             .mind()
-            .ask(Question::Journal {
-                from: 1,
-                limit: 10_000,
-            })
+            .read(|r| r.journal(1, usize::MAX))
             .await
-            .unwrap();
-        serde_json::from_value::<Vec<Entry>>(entries)
             .unwrap()
             .into_iter()
             .map(|entry| entry.event)
@@ -714,10 +706,8 @@ async fn every_character_a_daemon_runs_says_the_same_core_and_where_its_id_is_ke
             .unwrap();
         let status = console.status().await.unwrap();
         // What her mind says is all still there beside it.
-        assert!(status["abilities"].is_object(), "{status}");
-        let core: ghost_protocol::CoreInfo =
-            serde_json::from_value(status["core"].clone()).unwrap();
-        cores.push(core);
+        assert!(!status.name.is_empty(), "{status:?}");
+        cores.push(status.core.expect("the daemon says where it runs"));
     }
     assert_eq!(cores[0], cores[1], "one daemon, one core");
     let kept = std::fs::read_to_string(&cores[0].id_file).unwrap();
@@ -750,15 +740,6 @@ async fn a_daemon_with_a_token_names_nobody_to_a_client_without_it() {
         .err()
         .unwrap();
     assert_eq!(refused_with(&e), Some(code::UNAUTHORIZED));
-}
-
-#[test]
-fn her_status_says_whether_she_is_awake_and_what_her_day_has_her_doing() {
-    let busy = serde_json::json!({"moment": {"phase": "awake", "doing": {"what": "rounds"}}});
-    assert_eq!(phase(&busy), (Some(true), Some("rounds".to_owned())));
-    let asleep = serde_json::json!({"moment": {"phase": "asleep", "doing": null}});
-    assert_eq!(phase(&asleep), (Some(false), None));
-    assert_eq!(phase(&serde_json::json!({})), (None, None));
 }
 
 #[test]

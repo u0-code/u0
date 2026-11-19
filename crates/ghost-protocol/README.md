@@ -33,6 +33,12 @@ against its replacement.
 
 There is no method that edits her identity or removes a journal entry.
 
+Every answer a client reads has a type here, and the daemon builds it in
+that type: `ghost.status` is a `GhostStatus`, journal entries
+(`journal.read`, `journal.place`, `journal.entry`) are an `Entry` of `seq`,
+`at`, `kind` and `data`, where `data` is what her journal says for that
+kind, in the journal's own vocabulary.
+
 `ghost.status` says, under `abilities`, what she can do besides talk, as
 her daemon runs her: whether she takes things on as work, the machine it
 runs on (`local`, her daemon's own computer, with the directory it works

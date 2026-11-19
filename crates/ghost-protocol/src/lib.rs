@@ -63,11 +63,10 @@ pub mod method {
     /// registered this channel; this one has been replaced and should stop.
     pub const DISPLACED: &str = "presence.displaced";
 
-    /// Console → daemon request. No params. Result: who she is and what
-    /// she is in the middle of, as a JSON object; among it, what she can do
-    /// besides talk, under `abilities`, as [`Abilities`](super::Abilities),
-    /// and where her daemon runs, under `core`, as
-    /// [`CoreInfo`](super::CoreInfo).
+    /// Console → daemon request. No params. Result
+    /// [`GhostStatus`](super::GhostStatus): who she is and what she is in
+    /// the middle of, what she can do besides talk, and where her daemon
+    /// runs.
     pub const STATUS: &str = "ghost.status";
     /// Console → daemon request. No params.
     pub const AGENDA: &str = "mind.agenda";
@@ -95,9 +94,10 @@ pub mod method {
     pub const CANON: &str = "memory.canon";
     /// Console → daemon request. No params. Every place she is in.
     pub const PLACES: &str = "memory.places";
-    /// Console → daemon request. Params [`PlaceRead`](super::PlaceRead). The
-    /// journal entries that belong to one place: what was said there and
-    /// what she made of it.
+    /// Console → daemon request. Params [`PlaceRead`](super::PlaceRead),
+    /// result: a list of [`Entry`](super::Entry), oldest first. The journal
+    /// entries that belong to one place: what was said there and what she
+    /// made of it.
     pub const JOURNAL_PLACE: &str = "journal.place";
     /// Console → daemon request. No params. Result: a list of
     /// [`Work`](super::Work), what she has in hand and what ended lately,
@@ -115,12 +115,13 @@ pub mod method {
     /// round: the looks that ended after a journal entry, and the one she
     /// is in the middle of. Kept for a fortnight.
     pub const LOOK_STEPS: &str = "look.steps";
-    /// Console → daemon request. Params [`JournalRead`](super::JournalRead).
+    /// Console → daemon request. Params [`JournalRead`](super::JournalRead),
+    /// result: a list of [`Entry`](super::Entry), oldest first.
     pub const JOURNAL_READ: &str = "journal.read";
     /// Console → daemon request. No params. Afterwards the daemon sends a
     /// [`JOURNAL_ENTRY`] notification for every entry as it is written.
     pub const JOURNAL_SUBSCRIBE: &str = "journal.subscribe";
-    /// Daemon → console notification. Params: one journal entry.
+    /// Daemon → console notification. Params: one [`Entry`](super::Entry).
     pub const JOURNAL_ENTRY: &str = "journal.entry";
     /// Console → daemon request. Params [`ConsoleSay`](super::ConsoleSay),
     /// result [`ConsoleSaid`](super::ConsoleSaid). Whoever is at the
@@ -1366,6 +1367,70 @@ pub struct CoreInfo {
     /// saying where it is. Never for telling whether it is here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+}
+
+/// The result of [`method::STATUS`]: who she is, what she is in the middle
+/// of, and what she can do besides talk.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GhostStatus {
+    pub name: String,
+    pub pronouns: String,
+    pub city: String,
+    pub country: String,
+    /// The seal of her persona as she lives it.
+    pub seal: String,
+    /// Her timezone, as the tz database names it: `Asia/Shanghai`.
+    pub timezone: String,
+    /// Her clock, `YYYY-MM-DD HH:MM`.
+    pub local_time: String,
+    /// Whether her day has her awake now.
+    pub awake: bool,
+    /// What her day has her doing now, in her plan's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
+    /// The seq of the newest entry in her journal.
+    pub journal: i64,
+    /// The channels she can be reached on now, by name.
+    #[serde(default)]
+    pub channels: Vec<String>,
+    /// How fast her day goes: 1 is a person's pace.
+    pub tempo: f32,
+    /// The brain she thinks with, in conversation and reflection, by its
+    /// label (`openai/deepseek-flash`).
+    pub think: String,
+    /// The brain she ticks with, the routine of her day, by its label.
+    pub tick: String,
+    /// The context window of the brain she thinks with, in tokens, where
+    /// it is known: a console shows how full her looks keep it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub think_window: Option<u64>,
+    /// The same, of the brain she ticks with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tick_window: Option<u64>,
+    /// How many brain calls she made in the last hour.
+    pub calls_this_hour: u32,
+    /// What she can do besides talk.
+    pub abilities: Abilities,
+    /// Where her daemon runs: the daemon's to say, beside what she is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core: Option<CoreInfo>,
+}
+
+/// One entry of her journal, as [`method::JOURNAL_READ`],
+/// [`method::JOURNAL_PLACE`] and [`method::JOURNAL_ENTRY`] carry it. What
+/// happened is as her journal keeps it: its `kind`, and its `data`, whose
+/// shape is the journal's for that kind. The journal's vocabulary is her
+/// core's, a format kept for ever, and a console reads the kinds it shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    pub seq: i64,
+    /// When it was written.
+    pub at: chrono::DateTime<chrono::Utc>,
+    /// The name it is written under: `heard`, `said`, `undertook`.
+    pub kind: String,
+    /// What it says. `null` for a kind that says nothing more.
+    #[serde(default)]
+    pub data: Value,
 }
 
 /// The result of [`method::BRAINS`], and of every request that changes

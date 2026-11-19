@@ -773,7 +773,7 @@ fn her_status_says_what_she_can_do_as_her_daemon_runs_her() {
     use ghost_protocol::{Abilities, MachineInfo};
     let t0 = at(14, 0);
     let abilities = |rig: &Rig| -> Abilities {
-        let status = rig.mind.answer(&Question::Status, t0).unwrap();
+        let status = serde_json::to_value(rig.mind.status(t0).unwrap()).unwrap();
         serde_json::from_value(status["abilities"].clone()).unwrap()
     };
 

@@ -9,6 +9,31 @@ use ghost_core::social;
 use ghost_mind::{Act, Acted, Can, ChannelFacts, Feed, Incoming};
 use ghost_protocol as wire;
 
+/// An entry of her journal as the protocol carries it: what happened, as
+/// her journal keeps it, under its kind.
+pub fn entry(e: &ghost_core::journal::Entry) -> wire::Entry {
+    let data = match serde_json::to_value(&e.event) {
+        Ok(serde_json::Value::Object(mut event)) => event.remove("data"),
+        _ => None,
+    };
+    wire::Entry {
+        seq: e.seq,
+        at: e.at,
+        kind: e.event.kind().to_owned(),
+        data: data.unwrap_or_default(),
+    }
+}
+
+/// What happened in an entry the protocol carried, as her journal keeps
+/// it; an error for a kind or a shape this build does not know.
+pub fn event(e: wire::Entry) -> serde_json::Result<ghost_core::journal::Event> {
+    let event = serde_json::Map::from_iter([
+        ("kind".to_owned(), serde_json::Value::String(e.kind)),
+        ("data".to_owned(), e.data),
+    ]);
+    serde_json::from_value(serde_json::Value::Object(event))
+}
+
 pub fn actor(a: wire::Actor) -> social::Actor {
     social::Actor {
         id: a.id,

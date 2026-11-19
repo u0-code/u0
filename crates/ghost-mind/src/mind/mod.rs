@@ -21,6 +21,8 @@ mod look;
 mod public;
 mod pursuit;
 mod reach;
+mod reader;
+pub use reader::Reader;
 mod report;
 mod reread;
 mod sessions;
@@ -114,49 +116,15 @@ pub struct Workshop {
     pub folders: Option<std::path::PathBuf>,
 }
 
-/// Something an observer can ask a running mind.
+/// Something an observer can ask a running mind, of what only it knows.
+/// What is read from her journal, memory and work is asked of her
+/// [`Reader`] instead, off her mind.
 #[derive(Debug, Clone)]
 pub enum Question {
-    /// Who she is and what she is in the middle of.
-    Status,
     /// What is scheduled, and when.
     Agenda,
-    /// Everyone she knows and where she stands with them.
-    People,
     /// Her persona and its seal.
     Identity,
-    /// What is true about her life, oldest first.
-    Canon,
-    /// Every place she is in, most recently active first.
-    Places,
-    /// What she has in hand and what ended lately, most recently active
-    /// first, each with the parts it handed out: read from her work's own
-    /// record, which has what her journal does not.
-    Work,
-    /// The steps the work `work`, or a part of it, has taken after the
-    /// `after`th, at most `limit` of them, with the parts it handed out;
-    /// `null` if she has no work by that id.
-    WorkSteps {
-        work: String,
-        after: u64,
-        limit: usize,
-    },
-    /// What she called while she looked at `place`, round by round: in the
-    /// looks that ended after the journal entry `after`, and in the one
-    /// she is in the middle of there.
-    LookSteps { place: String, after: i64 },
-    /// The journal entries that belong to one place, oldest first.
-    Thread { place: String, limit: usize },
-    /// Journal entries from seq `from` on. Zero or less counts back from the
-    /// newest entry.
-    Journal { from: i64, limit: usize },
-    /// What is waiting on the people who run her, newest first: work
-    /// waiting on an answer, work that ended blocked or given up lately,
-    /// what work done for them told her lately, and her reports to them.
-    Waiting,
-    /// Her conversations on the console channel, the sessions a console
-    /// lists, newest first, those set aside among them and marked so.
-    Sessions,
 }
 
 /// Someone who runs her body, acting on her from a console.
@@ -230,6 +198,9 @@ enum Signal {
         question: Question,
         answer: oneshot::Sender<Value>,
     },
+    Status {
+        answer: oneshot::Sender<ghost_protocol::GhostStatus>,
+    },
     Order {
         order: Order,
         by: Operator,
@@ -259,6 +230,7 @@ enum Signal {
 pub struct MindHandle {
     tx: mpsc::Sender<Signal>,
     entries: broadcast::Sender<Entry>,
+    reader: Arc<std::sync::Mutex<Reader>>,
 }
 
 impl MindHandle {
@@ -309,6 +281,28 @@ impl MindHandle {
         let (answer, rx) = oneshot::channel();
         self.send(Signal::Ask { question, answer }).await?;
         rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// Who she is and what she is in the middle of, this moment.
+    pub async fn status(&self) -> Result<ghost_protocol::GhostStatus> {
+        let (answer, rx) = oneshot::channel();
+        self.send(Signal::Status { answer }).await?;
+        rx.await.map_err(|_| Error::Stopped)
+    }
+
+    /// Read something of her with `read`, off her mind and off the
+    /// runtime's threads: on her [`Reader`], one question at a time.
+    pub async fn read<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&mut Reader) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let reader = self.reader.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut reader = reader.lock().map_err(|_| Error::Stopped)?;
+            read(&mut reader)
+        })
+        .await
+        .map_err(|_| Error::Stopped)?
     }
 
     /// An operator, `by`, does `order` to her work from a console.
@@ -684,6 +678,8 @@ pub struct Mind {
     senses: Arc<dyn Senses>,
     rx: mpsc::Receiver<Signal>,
     entries: broadcast::Sender<Entry>,
+    /// What she is in the middle of, for her [`Reader`].
+    live: tokio::sync::watch::Sender<reader::Live>,
     channels: HashMap<String, Channel>,
     agenda: Agenda,
     jobs: Jobs,
@@ -699,10 +695,10 @@ pub struct Mind {
     /// database, opened the first time a look keeps one.
     kept_looks: Option<ghost_work::looks::Looks>,
     /// Her work database opened to read, the first time it is there to be
-    /// read: every question a console asks of her work, and of the rounds
-    /// of her looks, is answered on this one connection, so that looking
-    /// never writes, never makes a record, never waits on the work, and
-    /// does not open the file again each time it is asked.
+    /// read: what she reads of her work as she thinks is read on this one
+    /// connection, so that looking never writes, never makes a record,
+    /// never waits on the work, and does not open the file again each
+    /// time. A console's questions are her [`Reader`]'s.
     records: std::cell::OnceCell<ghost_work::undertaking::Records>,
     /// Consecutive failed deliberations per place.
     retries: HashMap<String, u8>,
@@ -734,6 +730,7 @@ impl Mind {
             senses: parts.senses,
             rx,
             entries: entries.clone(),
+            live: tokio::sync::watch::Sender::new(reader::Live::default()),
             channels: HashMap::new(),
             agenda: Agenda::default(),
             jobs: Jobs::default(),
@@ -748,7 +745,17 @@ impl Mind {
             plan_failures: 0,
             scrolled: HashMap::new(),
         };
-        (mind, MindHandle { tx, entries })
+        let reader = Reader::new(
+            mind.ghost.dir().to_path_buf(),
+            mind.cfg.operators.clone(),
+            mind.live.subscribe(),
+        );
+        let handle = MindHandle {
+            tx,
+            entries,
+            reader: Arc::new(std::sync::Mutex::new(reader)),
+        };
+        (mind, handle)
     }
 
     /// Live until told to stop. Returns only on `stop` or a storage failure.
@@ -886,7 +893,10 @@ impl Mind {
                 self.channels.remove(&channel);
             }
             Signal::Ask { question, answer } => {
-                let _ = answer.send(self.answer(&question, now)?);
+                let _ = answer.send(self.answer(&question));
+            }
+            Signal::Status { answer } => {
+                let _ = answer.send(self.status(now)?);
             }
             Signal::Order { order, by, answer } => {
                 let _ = answer.send(self.on_order(order, &by, now)?);
@@ -907,6 +917,7 @@ impl Mind {
             }
             Signal::Stop => {}
         }
+        self.publish();
         Ok(())
     }
 
@@ -950,13 +961,14 @@ impl Mind {
         if due(self.agenda.work) {
             self.work(now)?;
         }
+        self.publish();
         Ok(())
     }
 
     /// A job came back, with what it brought or having fallen over. What
     /// it was for is no longer under way either way.
     fn on_done(&mut self, done: Done, now: DateTime<Utc>) -> Result<()> {
-        match done.result {
+        let handled = match done.result {
             Ok(outcome) => self.on_outcome(outcome, done.purpose, now),
             // Called off: she was stopped in the middle of it.
             Err(e) if e.is_cancelled() => Ok(()),
@@ -964,7 +976,34 @@ impl Mind {
                 warn!("a job fell over: {e}");
                 self.on_fell(done.purpose, now)
             }
-        }
+        };
+        self.publish();
+        handled
+    }
+
+    /// Say what she is in the middle of, for her reader, if it changed.
+    /// Called once each thing she handles is handled: what is under way
+    /// changes only there.
+    fn publish(&self) {
+        let live = reader::Live {
+            sittings: self
+                .jobs
+                .sittings()
+                .into_iter()
+                .map(|(id, _)| id.clone())
+                .collect(),
+            looks: self
+                .jobs
+                .looks()
+                .map(|(place, looking)| (place.clone(), looking.kept))
+                .collect(),
+            online: self.channels.keys().cloned().collect(),
+        };
+        self.live.send_if_modified(|was| {
+            let changed = *was != live;
+            *was = live;
+            changed
+        });
     }
 
     /// A job for `purpose` fell over before it brought anything back. What

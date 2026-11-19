@@ -66,11 +66,26 @@ async fn something_the_work_tells_her_reaches_her_journal_while_it_is_still_runn
     assert!(told < kinds.iter().position(|k| *k == "concluded").unwrap());
 }
 
-/// What she answers a console asking after her work, read as a console
-/// reads it.
-fn work_seen(rig: &Rig, now: DateTime<Utc>) -> Vec<ghost_protocol::Work> {
-    let answer = rig.mind.answer(&super::Question::Work, now).unwrap();
-    serde_json::from_value(answer).expect("it reads as the protocol's work")
+/// What she answers a console asking after her work.
+fn work_seen(rig: &Rig) -> Vec<ghost_protocol::Work> {
+    rig.reader().work().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_console_reads_her_journal_and_work_without_her_mind_answering() {
+    let t0 = at(14, 0);
+    let mut rig = Rig::quiet(t0);
+    rig.hear(dm("haoran", "1", "are you around?"), t0);
+    let newest = rig.mind.ghost.journal().last_seq().unwrap();
+    // Her mind is never run here: a question sent to it would never be
+    // answered, and these are.
+    let read = rig.handle.read(|r| Ok((r.journal(0, 5)?, r.work()?)));
+    let (entries, work) = tokio::time::timeout(std::time::Duration::from_secs(5), read)
+        .await
+        .expect("read without waiting on her mind")
+        .unwrap();
+    assert_eq!(entries.last().map(|e| e.seq), Some(newest));
+    assert!(work.is_empty());
 }
 
 #[tokio::test]
@@ -94,7 +109,7 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
         .await;
 
     let written = rig.mind.ghost.journal().last_seq().unwrap();
-    let seen = work_seen(&rig, t0);
+    let seen = work_seen(&rig);
     assert_eq!(rig.mind.ghost.journal().last_seq().unwrap(), written);
     assert_eq!(seen.len(), 1);
     let work = &seen[0];
@@ -128,7 +143,7 @@ async fn a_console_sees_the_work_in_hand_with_the_part_it_handed_out_and_nothing
     first.notify_one();
     second.notify_one();
     rig.until(|r| r.mind.jobs.sittings().is_empty()).await;
-    let seen = work_seen(&rig, t0);
+    let seen = work_seen(&rig);
     assert_eq!(seen.len(), 1, "work that ended is still shown");
     assert_eq!(seen[0].state, WorkState::Blocked);
     assert_eq!(seen[0].summary.as_deref(), Some("The page is down."));
@@ -612,7 +627,7 @@ async fn an_operator_answers_what_her_work_asked_and_her_journal_says_it_was_the
 
     // A console is shown what answering takes, and she means to give Wen
     // the choices along with the question.
-    let shown = rig.mind.answer(&Question::Work, asked).unwrap();
+    let shown = serde_json::to_value(rig.reader().work().unwrap()).unwrap();
     assert_eq!(shown[0]["question"], "weekdays or weekends?");
     assert_eq!(shown[0]["kind"], "choose");
     assert_eq!(

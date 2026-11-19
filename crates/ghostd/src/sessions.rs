@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{SecondsFormat, Utc};
 use ghost_core::{memory, social};
-use ghost_mind::{Operator, Question, SessionChange};
+use ghost_mind::{Operator, SessionChange};
 use ghost_protocol::{
     CONSOLE, Frame, Session, SessionDelete, SessionNew, SessionRename, code, method,
 };
@@ -91,12 +91,10 @@ type Refusal = (i64, String);
 /// Every conversation of hers on the console channel, those set aside
 /// among them.
 async fn all(her: &Character) -> Result<Vec<memory::Session>, String> {
-    let value = her
-        .mind()
-        .ask(Question::Sessions)
+    her.mind()
+        .read(|r| r.sessions(ghost_mind::CONSOLE))
         .await
-        .map_err(|e| e.to_string())?;
-    serde_json::from_value(value).map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())
 }
 
 async fn begin(

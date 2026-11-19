@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use ghost_core::journal::{Entry, Event};
+use ghost_core::journal::Event;
 use ghost_link::{Conn, Console};
 use ghost_protocol::{Capability, Hello, PROTOCOL, PresenceHello, Role, RpcError};
 
@@ -31,9 +31,8 @@ fn a_console_without_a_token_is_the_owner_s_only_from_this_machine() {
 async fn next_where<T>(stream: &mut Console, pick: impl Fn(Event) -> Option<T>) -> T {
     let wait = async {
         loop {
-            let value = stream.next_entry().await.unwrap().expect("the daemon went");
-            let entry: Entry = serde_json::from_value(value).unwrap();
-            if let Some(found) = pick(entry.event) {
+            let entry = stream.next_entry().await.unwrap().expect("the daemon went");
+            if let Some(found) = pick(crate::wire::event(entry).unwrap()) {
                 return found;
             }
         }
@@ -115,17 +114,14 @@ async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_bef
         next_where(&mut stream, said_on_console).await,
         ("fox".to_owned(), "lin here".to_owned())
     );
-    let kinds = |thread: &[serde_json::Value]| -> Vec<String> {
-        thread
-            .iter()
-            .map(|e| e["event"]["kind"].as_str().unwrap_or("?").to_owned())
-            .collect()
+    let kinds = |thread: &[ghost_protocol::Entry]| -> Vec<String> {
+        thread.iter().map(|e| e.kind.clone()).collect()
     };
     let thread = fox.thread(&said.place, 20).await.unwrap();
     let line = thread
         .iter()
-        .find(|e| e["event"]["kind"] == "heard")
-        .and_then(|e| e["seq"].as_i64())
+        .find(|e| e.kind == "heard")
+        .map(|e| e.seq)
         .unwrap();
     assert!(kinds(&thread).contains(&"said".to_owned()));
 
@@ -155,7 +151,7 @@ async fn an_operator_takes_a_line_back_and_the_conversation_stands_as_it_did_bef
         "{thread:?}"
     );
     let rewound = thread.last().unwrap();
-    assert_eq!(rewound["event"]["data"]["to"].as_i64(), Some(line));
+    assert_eq!(rewound.data["to"].as_i64(), Some(line));
 }
 
 #[tokio::test]
