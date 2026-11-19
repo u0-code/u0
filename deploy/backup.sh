@@ -4,24 +4,30 @@
 #   deploy/backup.sh /var/lib/ghost/weiwei /var/backups/ghost [DAYS_KEPT]
 #
 # Each run makes /var/backups/ghost/weiwei/<time>/ holding journal.db,
-# work.db and files.tar, and removes runs older than DAYS_KEPT (14 by
-# default). Copy the backup directory off this machine as well: a backup on
-# the disk it backs up survives everything but losing the disk.
+# work.db, files.tar and, if she has servers of tools, tools.tar, and
+# removes runs older than DAYS_KEPT (14 by default). Copy the backup
+# directory off this machine as well: a backup on the disk it backs up
+# survives everything but losing the disk.
 #
 # What is in it, and why:
 #   journal.db  her life. It is append-only and forever, and nothing can
 #               rebuild it. This is the one file that must never be lost.
 #   work.db     the state of what she has taken on: plans, notes, transcripts.
-#   files.tar   ghost.toml, assets/ and media/: who she is as last written,
-#               how she looks to others, and the images she was sent. The
-#               words her brain is given are shared by every character and
-#               are not in her directory: back up the deployment's prompts
-#               directory with the rest of /etc/ghost.
-# What is not: derived/, which is rebuilt from the journal when she starts.
+#   files.tar   ghost.toml, assets/, media/ and skills/: who she is as last
+#               written, how she looks to others, the images she was sent,
+#               and the skills she installed. The words her brain is given
+#               are shared by every character and are not in her
+#               directory: back up the deployment's prompts directory with
+#               the rest of /etc/ghost.
+#   tools.tar   tools/: the servers of tools she installed, each with what
+#               it keeps in its folder.
+# What is not: derived/, which is rebuilt from the journal when she starts;
+# and home/, the folder her shell works in when her machine is `local:`,
+# which is a working directory like any other and is backed up as one.
 #
 # Needs sqlite3 and tar. To restore: stop her, put journal.db and work.db
-# back in her directory, unpack files.tar there, and run `ghostd verify DIR`
-# before starting her again.
+# back in her directory, unpack files.tar and tools.tar there, and run
+# `ghostd verify DIR` before starting her again.
 set -eu
 
 usage="usage: backup.sh GHOST_DIR BACKUP_DIR [DAYS_KEPT]"
@@ -68,12 +74,19 @@ fi
 # These files are written whole and not changed afterwards, so an archive
 # taken while she runs is consistent.
 set --
-for part in ghost.toml assets media; do
+for part in ghost.toml assets media skills; do
     if [ -e "$ghost/$part" ]; then
         set -- "$@" "$part"
     fi
 done
 tar -C "$ghost" -cf "$dest/files.tar" "$@"
+
+# What a server of tools keeps in its folder can change while it runs. A
+# file caught changing is archived as it was read, which tar says and exits
+# 1 for; anything worse still stops the backup.
+if [ -d "$ghost/tools" ]; then
+    tar -C "$ghost" -cf "$dest/tools.tar" tools || [ $? -eq 1 ]
+fi
 
 # Only directories this script made are removed: one per run, named by its
 # time, under this ghost's own directory of backups.
