@@ -21,7 +21,7 @@
 //!   without its steps.
 //!
 //! One ask is in flight per place and per work at a time. An ask that is
-//! refused (a daemon from before these methods, a work it no longer has)
+//! refused (a work it no longer has, a place with nothing to say)
 //! is not repeated for a while; one that never comes back is given up on.
 
 use std::{

@@ -28,9 +28,7 @@ her (`console.say`, `work.answer`, `work.stop`). Holding the daemon's
 token, or being on this machine when it has none, is what makes you her
 operator; nobody is listed in its configuration for it. Every session is
 a place of its own on the console channel, so the journal keeps the
-threads apart; what was said in a session before the desk spoke through
-the console, on the `desk` channel it used to register, is in the same
-thread. The list of sessions is the core's too (`sessions.list`,
+threads apart. The list of sessions is the core's too (`sessions.list`,
 `sessions.rename`, `sessions.delete`): what each is called, and which were
 deleted, are in her journal, so a second desk on the same core, or this
 one after its settings are lost, lists the same ones. It holds no key.
@@ -120,8 +118,7 @@ text, and the machine row names the core's host. It knows by the core's
 of the `core-id` file it keeps it in. When that file is here and holds
 that id, the core is on this computer. Two cores on this computer each
 find their own; one elsewhere finds nothing, or another id, even under
-the same host name or with a home at the same path. A core from before it
-said so is taken to be elsewhere.
+the same host name or with a home at the same path.
 
 ## Other daemons
 
@@ -178,8 +175,7 @@ the head of what came back, with how much more there was when it was cut.
 A call that failed is marked, calmly. The desk reads this with
 `look.steps`: once for the place on screen, again whenever a look there
 may have ended, and about once a second while she thinks there, so the
-rows come in as she calls. A daemon from before steps were kept shows
-what it looked up or opened as a line that opens to what it found.
+rows come in as she calls.
 
 A piece of work she took on is a card that says where it stands at a
 glance (running, waiting on you, finished, blocked) and opens to what it

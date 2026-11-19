@@ -71,9 +71,6 @@ pub struct Watched {
 /// What a thread draws of her images with while her core has not said
 /// which core it is.
 const NO_CORE_YET: &str = "Waiting for her core";
-/// What it draws when her core never will: one from before it said.
-const OLD_CORE: &str = "Her core is older than this desk and does not hand out her images";
-
 /// Her core's id, which her images are kept here by: as her daemon said
 /// it in `status`, or, until it has, as it was `kept` last time. Without
 /// one, why her images cannot be shown, in a line.
@@ -82,11 +79,7 @@ fn core_id<'a>(status: Option<&'a Status>, kept: Option<&'a str>) -> Result<&'a 
         Some(status) => status.core.as_ref().map(|c| c.id.as_str()),
         None => kept,
     };
-    match id.filter(|id| !id.is_empty()) {
-        Some(id) => Ok(id),
-        None if status.is_some() => Err(OLD_CORE),
-        None => Err(NO_CORE_YET),
-    }
+    id.filter(|id| !id.is_empty()).ok_or(NO_CORE_YET)
 }
 
 impl Watched {
@@ -378,11 +371,5 @@ mod tests {
         assert_eq!(core_id(Some(&said), Some("77aa")), Ok("5f0c"));
         assert_eq!(core_id(None, Some("77aa")), Ok("77aa"), "before it says");
         assert_eq!(core_id(None, None), Err(NO_CORE_YET));
-        let older = Status::from_value(&serde_json::json!({"brains": {"think": "main"}}));
-        assert_eq!(
-            core_id(Some(&older), Some("77aa")),
-            Err(OLD_CORE),
-            "a daemon that answered without one never will"
-        );
     }
 }

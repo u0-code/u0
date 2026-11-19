@@ -545,8 +545,7 @@ pub struct View<'a> {
     pub journal: &'a [Entry],
     /// What you said that the journal has not shown yet.
     pub pending: &'a [Message],
-    /// The place, by its key: `console:<session>` for a session. What was
-    /// said in its place on the old desk channel is in its thread too.
+    /// The place, by its key: `console:<session>` for a session.
     pub place: &'a str,
     /// The stops asked for from the desk, in whatever place.
     pub stops: &'a [crate::model::Stop],

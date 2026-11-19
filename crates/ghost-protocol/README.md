@@ -39,7 +39,7 @@ runs on (`local`, her daemon's own computer, with the directory it works
 in, or `docker`, with the spec her configuration writes), whether she may
 use the web, and the agents installed there that she can hand a part to.
 A console offers that, and reads nothing of her daemon's configuration to
-know it. A daemon from before it said so leaves it out.
+know it.
 
 Under `core` it says where her daemon runs: an id the daemon made once
 and keeps, the full path of the file it keeps it in, and the computer's
@@ -223,8 +223,7 @@ Both give each call in one shape:
 ```
 
 - `args` is what it was called with, as JSON, with any string in it longer
-  than 400 characters cut to its head and ending in `…`. A step logged
-  before this was kept has a string here.
+  than 400 characters cut to its head and ending in `…`.
 - `out` is the head of what came back, as it came back: at most 1,500
   characters. `cut` says there was more, and `chars` how much in all.
 - `ms` is how long the call took; `pictures` how many images came back.
@@ -268,7 +267,7 @@ Both give each call in one shape:
   calls brought back), the model's `window` where the daemon knows it, and
   `folds_at`, the size past which the work folds its transcript into a
   handoff. Asked for `after` its last step, an answer holds this and no
-  steps. Left out before the first step and from a daemon from before it.
+  steps. Left out before the first step.
 
 An id she has no work by is refused with `-32005`.
 
