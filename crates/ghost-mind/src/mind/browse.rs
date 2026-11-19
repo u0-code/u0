@@ -60,7 +60,7 @@ impl Mind {
     pub(super) fn browse(&mut self, now: DateTime<Utc>) -> Result<()> {
         self.agenda.phone = self.next_phone(now);
         let moment = self.life.moment(self.ghost.journal(), now)?;
-        if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy || !self.budget.allow(now) {
+        if moment.phase == Phase::Asleep || moment.reach >= Reach::Busy {
             return Ok(());
         }
         let feeds: Vec<String> = self
@@ -116,7 +116,9 @@ impl Mind {
         let may_post = posted < set.posts_per_day as usize;
         let nothing_new = self.prompts.text("nothing_new").to_owned();
         let handle = self.prompts.text("card_handle").to_owned();
-        self.budget.spend(now);
+        if !self.budget.take(now, 1) {
+            return Ok(());
+        }
         self.jobs
             .spawn_for(Purpose::Browse(channel.clone()), async move {
                 let fetched = body

@@ -95,10 +95,7 @@ impl Mind {
 
     /// Ask a brain what the rest of today holds.
     fn plan(&mut self, now: DateTime<Utc>) -> Result<()> {
-        if self.jobs.any(|p| matches!(p, Purpose::Plan))
-            || self.plan_failures >= PLAN_RETRIES
-            || !self.budget.allow(now)
-        {
+        if self.jobs.any(|p| matches!(p, Purpose::Plan)) || self.plan_failures >= PLAN_RETRIES {
             return Ok(());
         }
         let clock = self.life.clock();
@@ -154,7 +151,9 @@ impl Mind {
         let (brain, senses) = (self.tick.clone(), self.senses.clone());
         let words = self.prompts.clone();
         let (want_weather, max_tokens) = (self.cfg.weather, self.cfg.max_tokens);
-        self.budget.spend(now);
+        if !self.budget.take(now, 1) {
+            return Ok(());
+        }
         self.jobs.spawn_for(Purpose::Plan, async move {
             let weather = if want_weather {
                 senses
@@ -231,7 +230,7 @@ impl Mind {
 
     /// Write up any block of today's plan that has ended while she was running.
     fn live_through(&mut self, day: &Day, now: DateTime<Utc>) -> Result<()> {
-        if self.jobs.any(|p| matches!(p, Purpose::Live)) || !self.budget.allow(now) {
+        if self.jobs.any(|p| matches!(p, Purpose::Live)) {
             return Ok(());
         }
         let lived: Vec<u32> = self
@@ -270,7 +269,9 @@ impl Mind {
         let request = self.framed(now, &prompt)?.expecting_json();
         let brain = self.tick.clone();
         let index = block.index;
-        self.budget.spend(now);
+        if !self.budget.take(now, 1) {
+            return Ok(());
+        }
         self.jobs.spawn_for(Purpose::Live, async move {
             let result = ask(brain.as_ref(), &request)
                 .await

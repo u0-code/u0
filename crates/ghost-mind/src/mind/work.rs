@@ -285,13 +285,7 @@ impl Mind {
     ) -> Option<String> {
         let root = self.workshop.folders.as_ref()?;
         if let Some(named) = named.map(str::trim).filter(|d| !d.is_empty()) {
-            return Some(match named.strip_prefix("~/") {
-                Some(rest) => std::env::var_os("HOME").map_or_else(
-                    || named.to_owned(),
-                    |h| std::path::Path::new(&h).join(rest).display().to_string(),
-                ),
-                None => named.to_owned(),
-            });
+            return Some(ghost_work::folder::expand(named).display().to_string());
         }
         let tail = id.rsplit('-').next().unwrap_or(id);
         let name = format!("{}-{tail}", folder_name(brief));
@@ -408,12 +402,11 @@ impl Mind {
         // A sitting is one call from the body's budget: its steps are
         // bounded by the sitting's own limits, and the budget bounds how
         // many sittings start.
-        if !self.budget.allow(now) {
+        if !self.budget.take(now, 1) {
             warn!("brain budget for this hour is spent; work waits");
             self.work_at(now + Duration::minutes(10));
             return Ok(false);
         }
-        self.budget.spend(now);
         self.sit(&next, brain, now)?;
         Ok(true)
     }
@@ -587,7 +580,7 @@ impl Mind {
                 warn!("cannot open the undertaking {id}: {why}");
                 self.record(Event::Concluded {
                     id,
-                    outcome: "blocked".into(),
+                    outcome: undertaking::Outcome::Blocked.word().into(),
                     summary: self.prompts.fill("record_unopened", &[("why", why)]),
                 })?;
                 self.work_at(now);
@@ -664,24 +657,12 @@ impl Mind {
         if u.asked_by.is_none() && u.place.is_none() {
             return Ok(());
         }
-        // A kept image is read from her own directory; a file made is read
-        // off her machine, so it can only be sent where she has one.
-        let can_send = (!made || self.workshop.machine.is_some())
-            && u.place
-                .as_deref()
-                .and_then(ghost_core::social::split_key)
-                .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
         let share = self.prompts.fill(
             "share_found",
             &[
                 ("brief", clip(&u.brief, 160)),
                 ("found", to_hand_over.join("; ")),
-                (
-                    "send",
-                    self.prompts
-                        .text(if can_send { "made_send" } else { "made_tell" })
-                        .to_owned(),
-                ),
+                ("send", self.send_or_tell(u.place.as_deref(), made)),
             ],
         );
         self.intend_as(
@@ -920,7 +901,7 @@ impl Mind {
         now: DateTime<Utc>,
     ) -> Result<()> {
         if self.still_open(id)? {
-            self.end_work(id, "blocked", summary, None, files, now)?;
+            self.end_work(id, undertaking::Outcome::Blocked, summary, None, files, now)?;
         }
         Ok(())
     }
@@ -967,7 +948,7 @@ impl Mind {
         };
         self.record(Event::Concluded {
             id: id.to_owned(),
-            outcome: "dropped".into(),
+            outcome: undertaking::Outcome::Dropped.word().into(),
             summary,
         })?;
         Ok(())
@@ -995,9 +976,9 @@ impl Mind {
         // A slot is free: look at what is next now, whatever this work does.
         self.work_at(now);
         let outcome = match &report.ended {
-            Ended::Finished => "finished",
-            Ended::Blocked => "blocked",
-            Ended::GaveUp => "gave_up",
+            Ended::Finished => undertaking::Outcome::Finished,
+            Ended::Blocked => undertaking::Outcome::Blocked,
+            Ended::GaveUp => undertaking::Outcome::GaveUp,
             Ended::Dropped => {
                 info!("{id} stopped after {} steps", report.steps);
                 self.dropped(id, &progress, working.stopped_by.as_deref())?;
@@ -1081,7 +1062,7 @@ impl Mind {
                 return Ok(());
             }
         };
-        info!("{id} {outcome} after {} steps", report.steps);
+        info!("{id} {} after {} steps", outcome.word(), report.steps);
         let summary = if report.summary.trim().is_empty() {
             progress
         } else {
@@ -1133,7 +1114,7 @@ impl Mind {
                     };
                     self.end_work(
                         id,
-                        outcome.word(),
+                        outcome,
                         &summary,
                         finish.lesson.as_deref(),
                         &finish.files,
@@ -1152,7 +1133,7 @@ impl Mind {
     fn end_work(
         &mut self,
         id: &str,
-        outcome: &str,
+        outcome: undertaking::Outcome,
         summary: &str,
         lesson: Option<&str>,
         files: &[String],
@@ -1161,14 +1142,14 @@ impl Mind {
         let undertaking = self.ghost.memory().undertaking(id)?;
         self.record(Event::Concluded {
             id: id.to_owned(),
-            outcome: outcome.to_owned(),
+            outcome: outcome.word().to_owned(),
             summary: summary.to_owned(),
         })?;
         if let Some(lesson) = lesson {
             self.on_practice(lesson)?;
         }
         // What a review of her own writing came to becomes part of her craft.
-        if id.starts_with(super::public::REVIEW) && outcome == "finished" {
+        if id.starts_with(super::public::REVIEW) && outcome == undertaking::Outcome::Finished {
             self.learn(super::public::conclusions(&self.prompts, summary))?;
         }
         // If someone asked, she means to tell them. How and whether is
@@ -1176,31 +1157,17 @@ impl Mind {
         if let Some(u) = undertaking
             && (u.asked_by.is_some() || u.place.is_some())
         {
-            let how = self.prompts.text(match outcome {
-                "finished" => "how_finished",
-                "blocked" => "how_blocked",
-                _ => "how_gave_up",
-            });
+            let how = self.prompts.text(how_it_went(outcome));
             // What she made, if it is files, and whether this place can
             // take a file at all.
             let made = if files.is_empty() {
                 String::new()
             } else {
-                let can_send = self.workshop.machine.is_some()
-                    && u.place
-                        .as_deref()
-                        .and_then(ghost_core::social::split_key)
-                        .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
                 self.prompts.fill(
                     "made",
                     &[
                         ("files", files.join(", ")),
-                        (
-                            "send",
-                            self.prompts
-                                .text(if can_send { "made_send" } else { "made_tell" })
-                                .to_owned(),
-                        ),
+                        ("send", self.send_or_tell(u.place.as_deref(), true)),
                     ],
                 )
             };
@@ -1213,7 +1180,7 @@ impl Mind {
                     ("made", made),
                 ],
             );
-            if outcome != "finished" {
+            if outcome != undertaking::Outcome::Finished {
                 tell.push_str(self.prompts.text("unfinished_next"));
             }
             // Whoever waits at a terminal hears as soon as it is done;
@@ -1235,6 +1202,20 @@ impl Mind {
         Ok(())
     }
 
+    /// Whether what came of her work can be sent into `place` or only told
+    /// of there, as she is told it. A kept image is read from her own
+    /// directory; a file she `made` is read off her machine, so it can only
+    /// be sent where she has one.
+    fn send_or_tell(&self, place: Option<&str>, made: bool) -> String {
+        let sends = (!made || self.workshop.machine.is_some())
+            && place
+                .and_then(ghost_core::social::split_key)
+                .is_some_and(|(channel, _)| self.can(channel, crate::Can::Files));
+        self.prompts
+            .text(if sends { "made_send" } else { "made_tell" })
+            .to_owned()
+    }
+
     /// The work `id` is not sat down to again before `until`.
     fn rest(&mut self, id: &str, until: DateTime<Utc>) {
         self.resting.insert(id.to_owned(), until);
@@ -1245,6 +1226,16 @@ impl Mind {
 /// A folder's name from a brief: its first line, in at most 24 letters or
 /// figures of any script, the rest made single dashes; `work` if nothing
 /// is left.
+/// The text that says how a piece of work ended, by its key: anything
+/// that did not get done reads as given up, unless something was in the way.
+pub(super) fn how_it_went(outcome: undertaking::Outcome) -> &'static str {
+    match outcome {
+        undertaking::Outcome::Finished => "how_finished",
+        undertaking::Outcome::Blocked => "how_blocked",
+        undertaking::Outcome::GaveUp | undertaking::Outcome::Dropped => "how_gave_up",
+    }
+}
+
 pub(super) fn folder_name(brief: &str) -> String {
     let line = brief
         .lines()

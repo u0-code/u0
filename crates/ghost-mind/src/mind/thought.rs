@@ -7,9 +7,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use ghost_brain::{Item, Step};
-use ghost_core::{
-    journal::Event, media, memory::PlaceState, narrate, social::PlaceKind, when::when,
-};
+use ghost_core::{journal::Event, media, memory::PlaceState, narrate, when::when};
 use ghost_work::{steps, undertaking::placeholder};
 use serde_json::json;
 use tracing::warn;
@@ -314,7 +312,7 @@ impl Mind {
             // A brain new to this writes its answer as text now and then.
             // Text is a thought, and a thought reaches nobody: say so once,
             // where someone is waiting on her.
-            let waited_on = place.kind == PlaceKind::Direct || place.unread_addressed > 0;
+            let waited_on = place.said_to_her();
             if !said.is_empty()
                 && job.took.is_empty()
                 && !job.nudged

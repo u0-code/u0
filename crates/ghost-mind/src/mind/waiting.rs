@@ -21,6 +21,7 @@ use ghost_core::{
     social,
 };
 use ghost_protocol::{Attention, AttentionKind};
+use ghost_work::undertaking::Outcome;
 
 use super::reader::{Open, stamp};
 use crate::Result;
@@ -120,7 +121,11 @@ impl Open<'_> {
                     id,
                     outcome,
                     summary,
-                } if outcome == "blocked" || outcome == "gave_up" => {
+                } if matches!(
+                    Outcome::from_word(&outcome),
+                    Some(Outcome::Blocked | Outcome::GaveUp)
+                ) =>
+                {
                     let brief = memory.undertaking(&id)?.map(|u| u.brief);
                     items.push((
                         entry.at,

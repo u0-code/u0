@@ -61,13 +61,11 @@ impl Fence {
 /// `path` as an absolute path with no `.` or `..` in it: `~/` read as the
 /// home directory, and a relative path read from `from`.
 pub(crate) fn resolve(path: &str, from: &Path) -> PathBuf {
-    let path = path.trim();
-    let full = match path.strip_prefix("~/") {
-        Some(rest) => {
-            std::env::var_os("HOME").map_or_else(|| from.join(path), |h| Path::new(&h).join(rest))
-        }
-        None if Path::new(path).is_absolute() => PathBuf::from(path),
-        None => from.join(path),
+    let path = crate::folder::expand(path.trim());
+    let full = if path.is_absolute() {
+        path
+    } else {
+        from.join(path)
     };
     let mut out = PathBuf::new();
     for part in full.components() {

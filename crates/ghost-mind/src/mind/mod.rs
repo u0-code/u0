@@ -697,6 +697,16 @@ impl Budget {
     fn spend(&mut self, now: DateTime<Utc>) {
         self.spent.push_back(now);
     }
+
+    /// Spend `calls` if there is room for one more call this hour, and say
+    /// whether there was: what is about to ask a brain asks this, once.
+    fn take(&mut self, now: DateTime<Utc>, calls: usize) -> bool {
+        let room = self.allow(now);
+        if room {
+            self.spent.extend(std::iter::repeat_n(now, calls));
+        }
+        room
+    }
 }
 
 pub struct Mind {
@@ -718,6 +728,8 @@ pub struct Mind {
     jobs: Jobs,
     rng: Rng,
     budget: Budget,
+    /// The client every image she is sent is fetched with.
+    images: reqwest::Client,
     workshop: Workshop,
     /// Work that is not to be sat down to again before the time given: it
     /// is resting after a sitting.
@@ -755,6 +767,7 @@ impl Mind {
                 cap: parts.config.calls_per_hour,
                 spent: VecDeque::new(),
             },
+            images: view::client(),
             ghost: parts.ghost,
             cfg: parts.config,
             prompts: parts.prompts,

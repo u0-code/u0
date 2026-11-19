@@ -227,10 +227,10 @@ impl Mind {
             cards.push(meant);
         }
 
-        let addressed = match (place.kind, place.unread_addressed > 0) {
-            (PlaceKind::Direct, _) => self.prompts.text("addressed_direct").to_owned(),
-            (_, true) => self.prompts.text("addressed_you").to_owned(),
-            (_, false) => self.unaddressed(place, now)?,
+        let addressed = match (place.said_to_her(), place.kind) {
+            (false, _) => self.unaddressed(place, now)?,
+            (true, PlaceKind::Direct) => self.prompts.text("addressed_direct").to_owned(),
+            (true, _) => self.prompts.text("addressed_you").to_owned(),
         };
         let why = match &job.why {
             Why::Unread => match place.unread {

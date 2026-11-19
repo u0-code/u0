@@ -26,7 +26,9 @@ use ghost_core::{
 };
 use tracing::info;
 
-use super::Mind;
+use ghost_work::undertaking::Outcome;
+
+use super::{Mind, work::how_it_went};
 use crate::{Result, actions::clip};
 
 /// How many of each kind of thing she did are put in front of her: the
@@ -200,12 +202,8 @@ impl Mind {
                     id,
                     outcome,
                     summary,
-                } if outcome != "dropped" => {
-                    let how = match outcome.as_str() {
-                        "finished" => "how_finished",
-                        "blocked" => "how_blocked",
-                        _ => "how_gave_up",
-                    };
+                } if Outcome::from_word(&outcome) != Some(Outcome::Dropped) => {
+                    let how = Outcome::from_word(&outcome).map_or("how_gave_up", how_it_went);
                     let line = p.fill(
                         "report_concluded",
                         &[

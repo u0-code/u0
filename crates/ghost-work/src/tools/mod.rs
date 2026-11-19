@@ -17,7 +17,7 @@ use std::{io, sync::Arc, sync::Mutex, sync::atomic::AtomicU32, time::Duration};
 
 pub use files::{Edit, Read, Write};
 pub use record::{Ask, Done, Handoff, Keep, Note, Plan, Tell};
-pub(crate) use record::{list, outcome_of, step_number};
+pub(crate) use record::{list, step_number};
 pub use servers::{FindTools, Install, LoadTools, Loaded, Uninstall};
 pub use shell::Shell;
 pub use skills::{FindSkills, InstallSkill, UninstallSkill, UseSkill};

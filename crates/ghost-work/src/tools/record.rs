@@ -554,7 +554,7 @@ impl Tool for Tell {
 }
 
 /// The outcome a worker means by `word`, in any of the ways models put it.
-pub(crate) fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
+fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
     match word.trim().to_lowercase().as_str() {
         "finished" | "done" | "success" | "completed" => Some(undertaking::Outcome::Finished),
         "blocked" => Some(undertaking::Outcome::Blocked),
@@ -565,7 +565,10 @@ pub(crate) fn outcome_of(word: &str) -> Option<undertaking::Outcome> {
 
 /// The end of the work. `finished` is not taken while a step of the plan
 /// is open: the plan is the standard the work set itself up front, and
-/// each step of it is either shown done or dropped for a reason.
+/// each step of it is either shown done or dropped for a reason. Nor while
+/// a part handed to a helper has not ended: its results are not in.
+/// Ending it any other way ends the parts with it, when the sitting
+/// settles.
 pub struct Done {
     undertaking: Arc<Undertaking>,
 }
@@ -610,6 +613,24 @@ impl Tool for Done {
                 &[("outcome", outcome.trim().to_lowercase())],
             ));
         };
+        // Finished means the results are in: a part of the work handed to
+        // a helper that has not ended has not brought its own in.
+        if outcome == undertaking::Outcome::Finished {
+            let open: Vec<String> = self
+                .undertaking
+                .parts()
+                .into_iter()
+                .filter(|(_, state)| state.finish.is_none())
+                .map(|(n, _)| n.to_string())
+                .collect();
+            if !open.is_empty() {
+                return Outcome::fail(words.fill(
+                    TEXTS,
+                    "parts_open",
+                    &[("parts", open.join(", "))],
+                ));
+            }
+        }
         let refused = self.undertaking.update(|state| {
             let open = state.open_steps();
             if outcome == undertaking::Outcome::Finished && !open.is_empty() {
