@@ -4,20 +4,12 @@
 *.db-shm
 /ghosts/*
 !/ghosts/_template
-# Where the desk's core was kept before it had a home of its own. Nothing
-# reads them now; a checkout may still have them, and they are never to be
-# committed.
-/desk/core/
-/solver/ghostd.toml
-/derived
 .env
 .DS_Store
 /ghostd.toml
 .claude/
-# Local runtime files and existing private configuration.
+# Local runtime scripts.
 /run
-/models.json
-/keeper.json
 # Design documents and write-ups stay on the machine they were written on.
 # Only READMEs are published.
 /docs/
