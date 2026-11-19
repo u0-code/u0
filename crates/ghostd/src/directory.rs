@@ -62,8 +62,15 @@ pub(crate) fn status(dir: &Path) -> anyhow::Result<()> {
         }
     );
     println!("journal   {} entries", peek.entries);
-    if let Some(last) = peek.journal.last()? {
-        println!("last      {}", show::entry(&last, life.clock().tz()));
+    if !peek.unknown.is_empty() {
+        println!(
+            "newer     entries of kinds this version does not know ({}): a newer one wrote them; \
+             this one will not run her",
+            peek.unknown.join(", ")
+        );
+    }
+    if let Some(last) = peek.journal.tail_lines(1)?.pop() {
+        println!("last      {}", show::line(&last, life.clock().tz()));
     }
     // What a running body keeps on disk, read without disturbing it. What
     // only the live process knows, such as which sitting is running this
@@ -126,8 +133,10 @@ pub(crate) fn status(dir: &Path) -> anyhow::Result<()> {
 pub(crate) fn journal(dir: &Path, last: usize) -> anyhow::Result<()> {
     let peek = Ghost::peek(dir)?;
     let tz = peek.identity.tz();
-    for entry in peek.journal.tail(last)? {
-        println!("{}", show::entry(&entry, tz));
+    // Read whatever wrote it: an entry this build does not know is shown
+    // by its kind, so that what a newer version wrote can still be seen.
+    for line in peek.journal.tail_lines(last)? {
+        println!("{}", show::line(&line, tz));
     }
     Ok(())
 }

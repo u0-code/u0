@@ -53,6 +53,10 @@ pub struct Peek {
     /// `ghost.toml` has been revised since the version in her journal. The
     /// revision is written there the next time she is opened to live.
     pub revised: bool,
+    /// Kinds of entry in her journal that this build does not know: a
+    /// newer version wrote them. She can be looked at, and is not opened
+    /// to live by this build.
+    pub unknown: Vec<String>,
 }
 
 impl Ghost {
@@ -90,13 +94,20 @@ impl Ghost {
     /// If `ghost.toml` has been revised since the version in her journal, the
     /// new version is written there first; from then on it is who she is.
     /// Then her derived memory is brought up to date.
+    ///
+    /// A journal with entries of a kind this build does not know is
+    /// refused before anything is written: a newer version wrote them.
     pub fn open(dir: &Path) -> Result<Self> {
         let Peek {
             identity,
             journal,
             revised,
+            unknown,
             ..
         } = Self::peek(dir)?;
+        if !unknown.is_empty() {
+            return Err(Error::Newer(unknown));
+        }
         fs::create_dir_all(dir.join("derived"))?;
         let lock = lock(dir)?;
         let mut memory = Memory::open(dir)?;
@@ -130,11 +141,13 @@ impl Ghost {
         }
         let entries = journal.verify()?;
         let revised = recorded_seal(&journal)?.as_ref() != Some(identity.seal());
+        let unknown = journal.unknown_kinds()?;
         Ok(Peek {
             identity,
             journal,
             entries,
             revised,
+            unknown,
         })
     }
 

@@ -36,6 +36,17 @@ pub enum Error {
         reason: String,
     },
 
+    /// Her journal has entries of kinds this build does not know, which a
+    /// newer version wrote. She is not opened to live: her memory is made
+    /// from every entry, and these it cannot read. Nothing of them is
+    /// passed over or changed, and she can still be looked at.
+    #[error(
+        "her journal has entries of kinds this version of Ghost does not know ({}): \
+         a newer version wrote them; run her with that one",
+        .0.join(", ")
+    )]
+    Newer(Vec<String>),
+
     #[error("journal at {0} does not exist")]
     NoJournal(PathBuf),
 
