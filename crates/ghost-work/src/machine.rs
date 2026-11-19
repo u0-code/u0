@@ -129,12 +129,8 @@ async fn run(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = command.spawn()?;
-    let pid = child.id();
+        .stderr(Stdio::piped());
+    let mut child = ghost_net::spawn(&mut command)?;
 
     if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
         tokio::spawn(async move {
@@ -151,14 +147,8 @@ async fn run(
     } else {
         // Take the whole group down: the script's children hold the pipes
         // open, and reading would never end.
-        #[cfg(unix)]
-        if let Some(pid) = pid {
-            let _ = Command::new("kill")
-                .args(["-KILL", &format!("-{pid}")])
-                .status()
-                .await;
-        }
-        let _ = child.kill().await;
+        child.stop();
+        let _ = child.wait().await;
         (None, true)
     };
 
@@ -206,10 +196,6 @@ impl Machine for Local {
             .arg("-c")
             .arg(format!("exec 2>&1\n{script}"))
             .current_dir(&self.root);
-        // What she installs and runs here reaches the web the way the rest
-        // of her does. A container has a network of its own, and its proxy
-        // is set where the container is.
-        ghost_net::pass_on(&mut command);
         run(command, stdin, timeout).await
     }
 

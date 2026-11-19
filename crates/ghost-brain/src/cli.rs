@@ -78,16 +78,7 @@ impl Brain for ClaudeCode {
         .transcript("them", "you");
         args.push(prompt.into());
 
-        // `claude` refuses to start inside another `claude`; this relay is not
-        // that, so drop the marker for the child.
-        let out = run(
-            &self.agent.program,
-            &args,
-            None,
-            self.timeout,
-            &["CLAUDECODE"],
-        )
-        .await?;
+        let out = run(&self.agent.program, &args, None, self.timeout).await?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         // `claude` reports API failures as a JSON result with `is_error`, and
         // may exit non-zero while doing so. Read the JSON first.
@@ -185,7 +176,6 @@ impl Brain for Codex {
             &args,
             Some(scratch.path()),
             self.timeout,
-            &[],
         )
         .await?;
         let text = tokio::fs::read_to_string(&last)
@@ -212,18 +202,12 @@ async fn run(
     args: &[OsString],
     cwd: Option<&Path>,
     timeout: Duration,
-    env_remove: &[&str],
 ) -> Result<std::process::Output> {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    ghost_net::pass_on(&mut cmd);
-    for key in env_remove {
-        cmd.env_remove(key);
-    }
+        .stderr(Stdio::piped());
     // Whoever runs her keeps notes and instructions for their own sessions.
     // Those are theirs, not hers, and must not leak into who she is.
     cmd.env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1")
@@ -231,14 +215,14 @@ async fn run(
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let child = cmd.spawn().map_err(|e| {
+    let child = ghost_net::spawn(&mut cmd).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             Error::NotInstalled(program.to_owned())
         } else {
             Error::Io(e)
         }
     })?;
-    let out = tokio::time::timeout(timeout, child.wait_with_output())
+    let out = tokio::time::timeout(timeout, child.output())
         .await
         .map_err(|_| Error::Timeout(timeout))??;
     Ok(out)
