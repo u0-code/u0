@@ -55,7 +55,9 @@ keeps only which one was open. A `desk.json` from before the core kept
 them hands its sessions over once, the first time the core lists its own:
 each is named on the core as the desk listed it, any the core has that
 were deleted here are set aside there, and the file lets them go once
-the core lists them so.
+the core lists them so. The desk writes its files whole, so a crash never
+leaves half of one; a `desk.json` it cannot read is moved aside as
+`desk.json.unreadable-<time>`, said so in its log, and not written over.
 
 To have it as an app, with the ghost in Finder, Launchpad and the Dock:
 
