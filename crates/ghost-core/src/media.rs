@@ -34,11 +34,8 @@ pub fn store(dir: &Path, bytes: &[u8], mime: &str) -> Result<String> {
         return Ok(name);
     }
     fs::create_dir_all(&media)?;
-    // Written aside and moved into place, so that a file under its final
-    // name is always whole.
-    let partial = media.join(format!(".{name}.partial"));
-    fs::write(&partial, bytes)?;
-    fs::rename(&partial, &path)?;
+    // On the disk before the entry that names it is written.
+    crate::whole::write(&path, bytes)?;
     Ok(name)
 }
 
