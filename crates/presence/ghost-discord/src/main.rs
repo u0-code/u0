@@ -26,24 +26,18 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 #[derive(Parser)]
-#[command(name = "ghost-discord", version, about = "Carries a ghost on Discord.")]
+#[command(
+    name = "ghost-discord",
+    version,
+    about = "Carries a ghost on Discord.",
+    mut_arg("channel", |a| a.default_value("discord"))
+)]
 struct Args {
     /// The bot token from the Discord developer portal.
     #[arg(long, env = "DISCORD_BOT_TOKEN", hide_env_values = true)]
     bot_token: String,
-    /// The daemon's address.
-    #[arg(long, default_value_t = ghost_link::default_url())]
-    url: String,
-    /// The daemon's token, if it has one.
-    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    /// The character this bot is: the name of her directory. Needed when
-    /// the daemon runs more than one.
-    #[arg(long, env = "GHOST_NAME")]
-    ghost: Option<String>,
-    /// The channel name to register as.
-    #[arg(long, default_value = "discord")]
-    channel: String,
+    #[command(flatten)]
+    daemon: presence::Daemon,
 }
 
 struct Discord {
@@ -221,28 +215,13 @@ fn channel_id(place: &str) -> anyhow::Result<ChannelId> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Keys and settings may sit in an ignored `.env` file in the directory
-    // this runs from or one above it. Anything already set in the
-    // environment wins.
-    dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,serenity=warn".into()),
-        )
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
-    let args = Args::parse();
+    let args: Args = presence::init("info,serenity=warn");
 
     let http = Arc::new(http(&args.bot_token)?);
     let me = http.get_current_user().await.context("log in to discord")?;
     info!("on discord as {}", me.name);
     let link = Link {
-        url: args.url,
-        token: args.token,
-        ghost: args.ghost,
-        channel: args.channel,
+        daemon: args.daemon,
         me: Some(convert::actor(&me, None)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],
         allows: ghost_link::protocol::Allows::default(),

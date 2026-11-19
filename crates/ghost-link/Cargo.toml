@@ -1,6 +1,6 @@
 [package]
 name = "ghost-link"
-description = "The client side of the Ghost Protocol: a runner for presence adapters and a client for consoles."
+description = "The client side of the Ghost Protocol: what presence adapters are built from, and a client for consoles."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,17 +8,25 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# `presence`: what a channel adapter is built from. A console, such as the
+# desk, goes without it and without what it brings.
+presence = ["dep:async-trait", "dep:clap", "dep:dotenvy", "dep:tracing", "dep:tracing-subscriber"]
+
 [dependencies]
 anyhow = "1.0.104"
-async-trait = "0.1.92"
+async-trait = { version = "0.1.92", optional = true }
 base64 = "0.23.1"
+clap = { version = "4.6.7", features = ["derive", "env"], optional = true }
+dotenvy = { version = "0.15", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 ghost-protocol = { path = "../ghost-protocol" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["rt", "sync", "time", "macros", "net"] }
 tokio-tungstenite = "0.30.0"
-tracing = "0.1.44"
+tracing = { version = "0.1.44", optional = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"], optional = true }
 
 [lints]
 workspace = true

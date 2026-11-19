@@ -6,11 +6,15 @@
 //! incoming messages while the daemon is away so a restart loses nothing,
 //! and answers each action request with what the platform said.
 //!
-//! A presence carries one character, named in [`Link::ghost`]: one daemon
+//! A presence carries one character, named in [`Daemon::ghost`]: one daemon
 //! can run several, and a platform account belongs to one of them. Once it
 //! knows who she is, [`Platform::appear`] makes the account look like her
 //! where the platform lets a program do that, and [`set_by_hand`] says what
 //! is left for a person to set.
+//!
+//! What every adapter does besides is here once too: the arguments that
+//! reach the daemon ([`Daemon`]), the start ([`init`]), and the wait
+//! between tries that fail ([`Backoff`]).
 
 use std::{sync::Arc, time::Duration};
 
@@ -33,6 +37,76 @@ use crate::{
 const HELD: usize = 2048;
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const SLOWEST_RETRY: Duration = Duration::from_secs(30);
+
+/// How a presence reaches the daemon: the arguments every adapter takes,
+/// flattened into its own with `#[command(flatten)]`. Each adapter gives
+/// `--channel` its own default, its platform's name, with
+/// `#[command(mut_arg("channel", |a| a.default_value("…")))]`; without one
+/// it is asked for.
+#[derive(Debug, Clone, clap::Args)]
+pub struct Daemon {
+    /// The daemon's address.
+    #[arg(long, default_value_t = crate::default_url())]
+    pub url: String,
+    /// The daemon's token, if it has one.
+    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
+    pub token: Option<String>,
+    /// The character this presence carries: the name of her directory.
+    /// Needed when the daemon runs more than one.
+    #[arg(long, env = "GHOST_NAME")]
+    pub ghost: Option<String>,
+    /// The channel name to register as.
+    #[arg(long, required = false)]
+    pub channel: String,
+}
+
+/// What every presence does first, in this order: take keys and settings
+/// from an ignored `.env` file in the directory it runs from or one above
+/// it (anything already set in the environment wins), log to stderr at
+/// `filter` unless `RUST_LOG` says otherwise, and read its arguments, some
+/// of which come from that file.
+pub fn init<A: clap::Parser>(filter: &str) -> A {
+    dotenvy::dotenv().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
+        )
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+    A::parse()
+}
+
+/// The wait between tries in a row that fail: twice as long each time, up
+/// to the slowest, and from the first again once one succeeds.
+#[derive(Debug, Clone)]
+pub struct Backoff {
+    first: Duration,
+    slowest: Duration,
+    next: Duration,
+}
+
+impl Backoff {
+    pub const fn new(first: Duration, slowest: Duration) -> Self {
+        Self {
+            first,
+            slowest,
+            next: first,
+        }
+    }
+
+    /// How long to wait before the next try.
+    pub fn wait(&mut self) -> Duration {
+        let wait = self.next;
+        self.next = (self.next * 2).min(self.slowest);
+        wait
+    }
+
+    /// A try succeeded.
+    pub fn reset(&mut self) {
+        self.next = self.first;
+    }
+}
 
 /// One messaging platform, as seen from Ghost.
 #[async_trait]
@@ -102,14 +176,9 @@ fn by_hand(card: &GhostCard, fields: &[Field], place: &str) -> Option<String> {
 /// How an adapter is known to the daemon.
 #[derive(Debug, Clone)]
 pub struct Link {
-    /// `ws://host:port` of the daemon.
-    pub url: String,
-    pub token: Option<String>,
-    /// The character this presence carries: the name of her directory.
-    /// `None` is whoever the daemon runs, when it runs only one.
-    pub ghost: Option<String>,
-    /// The channel name this adapter carries. One adapter per name.
-    pub channel: String,
+    /// Where the daemon is, who she is, and the channel this adapter
+    /// carries: one adapter per name.
+    pub daemon: Daemon,
     /// Who she is on this platform, so her own messages can be recognized.
     pub me: Option<Actor>,
     pub can: Vec<Capability>,
@@ -155,13 +224,14 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
         let platform = platform.clone();
         async move { platform.listen(Uplink { tx: up_tx }).await }
     });
+    let daemon = &link.daemon;
     let hello = Hello {
         protocol: PROTOCOL,
         role: Role::Presence,
-        token: link.token.clone(),
-        ghost: link.ghost.clone(),
+        token: daemon.token.clone(),
+        ghost: daemon.ghost.clone(),
         presence: Some(PresenceHello {
-            channel: link.channel.clone(),
+            channel: daemon.channel.clone(),
             me: link.me.clone(),
             can: link.can.clone(),
             allows: link.allows,
@@ -170,14 +240,14 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
     };
     // A frame taken off the queue that the daemon never received.
     let mut undelivered: Option<Frame> = None;
-    let mut retry = FIRST_RETRY;
+    let mut retry = Backoff::new(FIRST_RETRY, SLOWEST_RETRY);
     // Who she was the last time the account was made to look like her.
     let mut appeared: Option<GhostCard> = None;
     loop {
-        match Conn::open(&link.url, &hello).await {
+        match Conn::open(&daemon.url, &hello).await {
             Ok((conn, welcome)) => {
-                info!("carrying {} on {}", welcome.ghost.name, link.channel);
-                retry = FIRST_RETRY;
+                info!("carrying {} on {}", welcome.ghost.name, daemon.channel);
+                retry.reset();
                 if appeared.as_ref() != Some(&welcome.ghost) {
                     appeared = Some(welcome.ghost.clone());
                     let (platform, card) = (platform.clone(), welcome.ghost.clone());
@@ -204,7 +274,7 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
                                 // A newer presence carries this channel now.
                                 // Reconnecting would only take it back.
                                 listener.abort();
-                                anyhow::bail!("a newer presence took over the {} channel", link.channel);
+                                anyhow::bail!("a newer presence took over the {} channel", daemon.channel);
                             }
                             Ok(Some(frame)) => answer(&frame, &platform, &done_tx),
                             Ok(None) => break 'connected anyhow!("it closed the connection"),
@@ -230,10 +300,9 @@ pub async fn run<P: Platform>(platform: Arc<P>, link: Link) -> anyhow::Result<()
             }
         }
         tokio::select! {
-            () = tokio::time::sleep(retry) => {}
+            () = tokio::time::sleep(retry.wait()) => {}
             ended = &mut listener => return ended?,
         }
-        retry = (retry * 2).min(SLOWEST_RETRY);
     }
 }
 
@@ -284,6 +353,36 @@ mod tests {
             seal: "s".into(),
             bio: bio.map(Into::into),
         }
+    }
+
+    #[test]
+    fn an_adapter_names_its_own_channel_and_shares_the_rest() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(mut_arg("channel", |a| a.default_value("qq")))]
+        struct Adapter {
+            #[command(flatten)]
+            daemon: Daemon,
+        }
+        let Adapter { daemon } = Adapter::try_parse_from(["ghost-qq"]).unwrap();
+        assert_eq!(daemon.channel, "qq");
+        assert_eq!(daemon.url, crate::default_url());
+        let Adapter { daemon } =
+            Adapter::try_parse_from(["ghost-qq", "--channel", "qq2", "--ghost", "weiwei"]).unwrap();
+        assert_eq!(
+            (daemon.channel.as_str(), daemon.ghost.as_deref()),
+            ("qq2", Some("weiwei"))
+        );
+    }
+
+    #[test]
+    fn each_wait_is_twice_the_last_up_to_the_slowest_until_a_try_succeeds() {
+        let mut backoff = Backoff::new(Duration::from_secs(2), Duration::from_secs(20));
+        let waits: Vec<u64> = (0..6).map(|_| backoff.wait().as_secs()).collect();
+        assert_eq!(waits, [2, 4, 8, 16, 20, 20]);
+        backoff.reset();
+        assert_eq!(backoff.wait(), Duration::from_secs(2));
     }
 
     #[test]

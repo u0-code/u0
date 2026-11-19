@@ -8,6 +8,7 @@
 use std::{future::Future, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
+use ghost_link::presence::Backoff;
 use serde_json::{Value, json};
 use tokio::{
     sync::mpsc,
@@ -20,8 +21,9 @@ use tracing::{info, warn};
 /// intent the bot has not been granted closes the socket.
 pub const INTENTS: u64 = 1 << 25;
 
-/// Seconds to wait before each reconnection in a row that fails.
-const BACKOFF: [u64; 6] = [1, 2, 5, 10, 30, 60];
+/// The first and the longest wait between reconnections in a row that fail.
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+const SLOWEST_RETRY: Duration = Duration::from_secs(60);
 const RATE_LIMITED: Duration = Duration::from_secs(60);
 const INVALID_SESSION: Duration = Duration::from_secs(3);
 /// What the gateway's heartbeat interval is when it does not say.
@@ -67,14 +69,25 @@ pub enum Closed {
 }
 
 /// One gateway session, across however many sockets it takes.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Session {
     id: Option<String>,
     seq: Option<u64>,
     /// The token was refused or the session is gone: fetch a new token
     /// before the next connection.
     pub stale_token: bool,
-    failures: usize,
+    retry: Backoff,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            id: None,
+            seq: None,
+            stale_token: false,
+            retry: Backoff::new(FIRST_RETRY, SLOWEST_RETRY),
+        }
+    }
 }
 
 impl Session {
@@ -99,11 +112,11 @@ impl Session {
                 match kind {
                     "READY" => {
                         self.id = data["session_id"].as_str().map(str::to_owned);
-                        self.failures = 0;
+                        self.retry.reset();
                         vec![Step::Emit(Event::Ready(data["user"].clone()))]
                     }
                     "RESUMED" => {
-                        self.failures = 0;
+                        self.retry.reset();
                         Vec::new()
                     }
                     _ => vec![Step::Emit(Event::Dispatch {
@@ -176,9 +189,7 @@ impl Session {
 
     /// How long to wait before the next try, longer each time in a row.
     pub fn backoff(&mut self) -> Duration {
-        let seconds = BACKOFF[self.failures.min(BACKOFF.len() - 1)];
-        self.failures += 1;
-        Duration::from_secs(seconds)
+        self.retry.wait()
     }
 }
 
@@ -408,7 +419,7 @@ mod tests {
     fn retries_wait_longer_each_time_until_a_session_is_ready() {
         let mut session = Session::default();
         let waits: Vec<u64> = (0..8).map(|_| session.backoff().as_secs()).collect();
-        assert_eq!(waits, [1, 2, 5, 10, 30, 60, 60, 60]);
+        assert_eq!(waits, [1, 2, 4, 8, 16, 32, 60, 60]);
         session.on_payload(&ready(1), "t0");
         assert_eq!(session.backoff(), Duration::from_secs(1));
     }

@@ -35,28 +35,18 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[command(
     name = "ghost-term",
     version,
-    about = "Talk to a running ghost from your terminal."
+    about = "Talk to a running ghost from your terminal.",
+    mut_arg("channel", |a| a.default_value("term"))
 )]
 struct Args {
-    /// The daemon's address.
-    #[arg(long, default_value_t = ghost_link::default_url())]
-    url: String,
-    /// The daemon's token, if it has one.
-    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    /// Which character to talk to: the name of her directory. Needed when
-    /// the daemon runs more than one.
-    #[arg(long, env = "GHOST_NAME")]
-    ghost: Option<String>,
+    #[command(flatten)]
+    daemon: presence::Daemon,
     /// Who you are.
     #[arg(long = "as", default_value = "you")]
     who: String,
     /// Talk in a group of this name instead of privately.
     #[arg(long)]
     group: Option<String>,
-    /// The channel name to register as.
-    #[arg(long, default_value = "term")]
-    channel: String,
     /// After input ends, stay this many seconds to hear what she says.
     #[arg(long, default_value_t = 0)]
     linger: u64,
@@ -208,21 +198,15 @@ impl Platform for Term {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Keys and settings may sit in an ignored `.env` file in the directory
-    // this runs from or one above it. Anything already set in the
-    // environment wins.
-    dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
-        )
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
-    let args = Args::parse();
+    let args: Args = presence::init("warn");
 
     // Ask who is there before settling in.
-    let (_, welcome) = Console::connect(&args.url, args.token.clone(), args.ghost.clone()).await?;
+    let (_, welcome) = Console::connect(
+        &args.daemon.url,
+        args.daemon.token.clone(),
+        args.daemon.ghost.clone(),
+    )
+    .await?;
     let her = welcome.ghost.name;
     eprintln!(
         "{her} is in {}. She answers when she gets to it. Ctrl-D to leave.",
@@ -241,10 +225,7 @@ async fn main() -> anyhow::Result<()> {
     presence::run(
         term,
         Link {
-            url: args.url,
-            token: args.token,
-            ghost: args.ghost,
-            channel: args.channel,
+            daemon: args.daemon,
             me: Some(Actor {
                 id: "ghost".into(),
                 name: her,

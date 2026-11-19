@@ -27,7 +27,8 @@ use crate::{convert::Me, wire::Wire};
 #[command(
     name = "ghost-onebot",
     version,
-    about = "Carries a ghost on QQ through OneBot v11."
+    about = "Carries a ghost on QQ through OneBot v11.",
+    mut_arg("channel", |a| a.default_value("qq"))
 )]
 struct Args {
     /// The OneBot implementation's forward WebSocket address.
@@ -36,19 +37,8 @@ struct Args {
     /// The OneBot access token, if the implementation requires one.
     #[arg(long, env = "ONEBOT_ACCESS_TOKEN", hide_env_values = true)]
     access_token: Option<String>,
-    /// The daemon's address.
-    #[arg(long, default_value_t = ghost_link::default_url())]
-    url: String,
-    /// The daemon's token, if it has one.
-    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    /// The character this account is: the name of her directory. Needed
-    /// when the daemon runs more than one.
-    #[arg(long, env = "GHOST_NAME")]
-    ghost: Option<String>,
-    /// The channel name to register as.
-    #[arg(long, default_value = "qq")]
-    channel: String,
+    #[command(flatten)]
+    daemon: presence::Daemon,
 }
 
 struct OneBot {
@@ -150,27 +140,13 @@ async fn login(wire: &Wire) -> anyhow::Result<Me> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Keys and settings may sit in an ignored `.env` file in the directory
-    // this runs from or one above it. Anything already set in the
-    // environment wins.
-    dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
-    let args = Args::parse();
+    let args: Args = presence::init("info");
 
     let (wire, events) = Wire::open(args.endpoint, args.access_token);
     let me = login(&wire).await?;
     info!("on qq as {} ({})", me.name, me.id);
     let link = Link {
-        url: args.url,
-        token: args.token,
-        ghost: args.ghost,
-        channel: args.channel,
+        daemon: args.daemon,
         me: Some(Actor {
             id: me.id.clone(),
             name: me.name.clone(),

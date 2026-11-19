@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use futures_util::{SinkExt, StreamExt};
+use ghost_link::presence::Backoff;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
@@ -103,12 +104,12 @@ async fn keep_alive(
     events: mpsc::Sender<Value>,
     pending: Pending,
 ) {
-    let mut retry = Duration::from_secs(1);
+    let mut retry = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
         match connect(&endpoint, access_token.as_deref()).await {
             Ok(socket) => {
                 info!("connected to onebot at {endpoint}");
-                retry = Duration::from_secs(1);
+                retry.reset();
                 let (mut sink, mut stream) = socket.split();
                 loop {
                     tokio::select! {
@@ -140,8 +141,7 @@ async fn keep_alive(
             }
             Err(e) => warn!("cannot reach onebot: {e:#}"),
         }
-        tokio::time::sleep(retry).await;
-        retry = (retry * 2).min(Duration::from_secs(30));
+        tokio::time::sleep(retry.wait()).await;
     }
 }
 

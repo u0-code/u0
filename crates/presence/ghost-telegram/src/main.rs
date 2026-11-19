@@ -13,7 +13,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use clap::Parser;
 use ghost_link::{
-    presence::{self, Field, Link, Platform, Uplink},
+    presence::{self, Backoff, Field, Link, Platform, Uplink},
     protocol::{Acted, Action, Capability, GhostCard},
     text,
 };
@@ -31,25 +31,15 @@ const SHORT_DESCRIPTION: usize = 120;
 #[command(
     name = "ghost-telegram",
     version,
-    about = "Carries a ghost on Telegram."
+    about = "Carries a ghost on Telegram.",
+    mut_arg("channel", |a| a.default_value("telegram"))
 )]
 struct Args {
     /// The bot token from `@BotFather`.
     #[arg(long, env = "TELEGRAM_BOT_TOKEN", hide_env_values = true)]
     bot_token: String,
-    /// The daemon's address.
-    #[arg(long, default_value_t = ghost_link::default_url())]
-    url: String,
-    /// The daemon's token, if it has one.
-    #[arg(long, env = "GHOSTD_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    /// The character this bot is: the name of her directory. Needed when
-    /// the daemon runs more than one.
-    #[arg(long, env = "GHOST_NAME")]
-    ghost: Option<String>,
-    /// The channel name to register as.
-    #[arg(long, default_value = "telegram")]
-    channel: String,
+    #[command(flatten)]
+    daemon: presence::Daemon,
     /// Base URL of the Bot API, for a self-hosted server.
     #[arg(long, default_value = "https://api.telegram.org")]
     api_base: String,
@@ -64,7 +54,7 @@ struct Telegram {
 impl Platform for Telegram {
     async fn listen(&self, up: Uplink) -> anyhow::Result<()> {
         let mut offset = 0i64;
-        let mut stumbles = 0u32;
+        let mut retry = Backoff::new(Duration::from_secs(2), Duration::from_secs(64));
         loop {
             let params = json!({
                 "offset": offset,
@@ -73,7 +63,7 @@ impl Platform for Telegram {
             });
             match self.bot.call::<Vec<Update>>("getUpdates", &params).await {
                 Ok(updates) => {
-                    stumbles = 0;
+                    retry.reset();
                     for update in updates {
                         offset = offset.max(update.update_id + 1);
                         if let Some(inbound) = update
@@ -96,8 +86,7 @@ impl Platform for Telegram {
                     } else {
                         warn!("{e:#}");
                     }
-                    stumbles = (stumbles + 1).min(6);
-                    tokio::time::sleep(Duration::from_secs(1 << stumbles)).await;
+                    tokio::time::sleep(retry.wait()).await;
                 }
             }
         }
@@ -203,18 +192,7 @@ fn chat_id(place: &str) -> anyhow::Result<i64> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Keys and settings may sit in an ignored `.env` file in the directory
-    // this runs from or one above it. Anything already set in the
-    // environment wins.
-    dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
-    let args = Args::parse();
+    let args: Args = presence::init("info");
 
     let bot = Bot::new(&args.api_base, &args.bot_token)?;
     let me: User = bot
@@ -226,10 +204,7 @@ async fn main() -> anyhow::Result<()> {
         me.username.as_deref().unwrap_or(&me.first_name)
     );
     let link = Link {
-        url: args.url,
-        token: args.token,
-        ghost: args.ghost,
-        channel: args.channel,
+        daemon: args.daemon,
         me: Some(convert::actor(&me)),
         can: vec![Capability::Send, Capability::Typing, Capability::React],
         allows: ghost_link::protocol::Allows::default(),

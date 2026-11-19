@@ -730,13 +730,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "ghost-link",
  "ghost-net",
  "serenity",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -746,6 +744,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.23.1",
+ "clap",
+ "dotenvy",
  "futures-util",
  "ghost-protocol",
  "serde",
@@ -753,6 +753,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -798,7 +799,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "futures-util",
  "ghost-link",
  "ghost-net",
@@ -806,7 +806,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -826,7 +825,6 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "futures-util",
  "ghost-link",
  "ghost-net",
@@ -835,7 +833,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -845,7 +842,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "dotenvy",
  "ghost-link",
  "ghost-net",
  "reqwest",
@@ -853,7 +849,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -864,10 +859,8 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "ghost-link",
  "tokio",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -903,7 +896,6 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "clap",
- "dotenvy",
  "fastrand",
  "ghost-link",
  "ghost-net",
@@ -915,7 +907,6 @@ dependencies = [
  "sha1 0.11.0",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
