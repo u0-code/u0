@@ -277,6 +277,7 @@ fn describe(event: &Event, tz: Tz) -> String {
             format!("{place} called \"{}\" by {by}", flat(title))
         }
         Event::SessionSetAside { place, by } => format!("{place} set aside by {by}"),
+        Event::Moved { to } => format!("moved to {to}; this journal ends here"),
     }
 }
 

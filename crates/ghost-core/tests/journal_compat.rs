@@ -140,8 +140,9 @@ fn a_life_written_by_earlier_versions_still_makes_a_memory() {
     let mut lived = 0;
     for (at, line) in written() {
         let event: Event = serde_json::from_str(line).unwrap();
-        // She is born once, and already has been.
-        if matches!(event, Event::Born { .. }) {
+        // She is born once, and already has been. Moving out is the last
+        // thing written where she was: after it she is not opened there.
+        if matches!(event, Event::Born { .. } | Event::Moved { .. }) {
             continue;
         }
         ghost

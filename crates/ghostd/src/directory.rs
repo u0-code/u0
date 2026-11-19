@@ -62,6 +62,11 @@ pub(crate) fn status(dir: &Path) -> anyhow::Result<()> {
         }
     );
     println!("journal   {} entries", peek.entries);
+    if let Some(to) = &peek.moved {
+        println!(
+            "moved     to {to}: this directory is the one she left, to be read, never run again"
+        );
+    }
     if !peek.unknown.is_empty() {
         println!(
             "newer     entries of kinds this version does not know ({}): a newer one wrote them; \

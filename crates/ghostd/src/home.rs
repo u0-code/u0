@@ -21,8 +21,14 @@
 //! checkout. Given that checkout ([`ready`]'s `adopt`), a home with no ghost
 //! yet takes that core in, once: her journal and her work as SQLite copies
 //! them, the rest of her directory but what is rebuilt from the journal,
-//! the brains and operators of its configuration, and its `.env`. Nothing
-//! in the checkout is changed.
+//! the brains and operators of its configuration, and its `.env`. Her
+//! journal in the checkout is closed with an entry saying where she lives
+//! now ([`ghost_core::Ghost::leave`]), written while her lock there is
+//! held from before the copy, so that nothing runs her there again: not
+//! this build, nor an older desk, which does not know the entry and so
+//! refuses her too. The rest of the checkout is not changed. A home that
+//! took her in before that entry was written writes it the next time it
+//! is given the checkout.
 
 use std::{
     fs,
@@ -77,6 +83,9 @@ pub struct Made {
     pub born: bool,
     /// The old core taken in, by its directory.
     pub adopted: Option<PathBuf>,
+    /// The old core this home took in earlier, by its directory, marked
+    /// only now as the one she left.
+    pub marked: Option<PathBuf>,
 }
 
 /// Make the home at `home` ready to run, as the module says, taking in the
@@ -94,6 +103,8 @@ pub fn ready(home: &Path, adopt: Option<&Path>) -> anyhow::Result<Made> {
     {
         take_in(&old, home)?;
         made.adopted = Some(old.ghost);
+    } else if let Some(checkout) = adopt {
+        made.marked = mark_left(home, checkout);
     }
     if !config.is_file() {
         write_whole(&config, &format!("{SETTINGS}{BRAINS}"))?;
@@ -114,9 +125,18 @@ pub fn ready(home: &Path, adopt: Option<&Path>) -> anyhow::Result<Made> {
 pub fn say(home: &Path, made: &Made) {
     if let Some(old) = &made.adopted {
         info!(
-            "{} took in the core from {}; that one is left as it was",
+            "{} took in the core from {}; that one is marked as the one she left, \
+             to be read and never run again",
             home.display(),
             old.display()
+        );
+    }
+    if let Some(old) = &made.marked {
+        info!(
+            "{} is the core {} took in earlier; it is marked now as the one she left, \
+             to be read and never run again",
+            old.display(),
+            home.display()
         );
     }
     if made.config && made.adopted.is_none() {
@@ -162,10 +182,10 @@ impl Old {
     /// where it was kept last, or where it was kept before that.
     fn find(checkout: &Path) -> Option<Self> {
         let first = |paths: &[&str]| paths.iter().map(|p| checkout.join(p)).find(|p| p.is_file());
-        let ghost = ["desk/core/ghosts/solver", "ghosts/solver"]
+        let ghost = OLD_PLACES
             .iter()
             .map(|p| checkout.join(p))
-            .find(|p| p.join(ghost_core::journal::JOURNAL_FILE).is_file())?;
+            .find(|p| unmoved(p))?;
         Some(Self {
             ghost,
             config: first(&["desk/core/ghostd.toml", "solver/ghostd.toml"]),
@@ -174,8 +194,56 @@ impl Old {
     }
 }
 
+/// Where a checkout kept its core, the last place first.
+const OLD_PLACES: [&str; 2] = ["desk/core/ghosts/solver", "ghosts/solver"];
+
+/// Whether a ghost was born in `dir` and has not moved out of it.
+fn unmoved(dir: &Path) -> bool {
+    dir.join(ghost_core::journal::JOURNAL_FILE).is_file()
+        && matches!(ghost_core::ghost::moved(dir), Ok(None))
+}
+
+/// Her birth in `dir`, by the hash of its entry: the same in every copy of
+/// her journal, and in no other.
+fn birth(dir: &Path) -> Option<String> {
+    let journal = ghost_core::journal::Journal::open(&dir.join(ghost_core::journal::JOURNAL_FILE));
+    Some(journal.ok()?.first().ok()??.hash)
+}
+
+/// Mark the core in `checkout` as the one she left, if this home took it
+/// in before taking one in marked what it left: the mascot here was born
+/// in the same entry as a core there that has not moved out. Until it is,
+/// whatever runs it (an older desk, `ghostd run` on the checkout) goes on
+/// as a second her. Its directory, if it was marked.
+fn mark_left(home: &Path, checkout: &Path) -> Option<PathBuf> {
+    let solver = home.join(GHOSTS).join(SOLVER);
+    let born = birth(&solver)?;
+    let old = OLD_PLACES
+        .iter()
+        .map(|p| checkout.join(p))
+        .find(|p| unmoved(p) && birth(p).as_ref() == Some(&born))?;
+    let marked = std::path::absolute(&solver)
+        .map_err(ghost_core::Error::from)
+        .and_then(|to| Ghost::leave(&old)?.to(&to));
+    match marked {
+        Ok(_) => Some(old),
+        Err(e) => {
+            warn!(
+                "{} is the core this home took in, and could not be marked as the one she \
+                 left: {e}; run there, she would go on as a second her",
+                old.display()
+            );
+            None
+        }
+    }
+}
+
 /// Take `old` into `home`, which has no ghost born.
 fn take_in(old: &Old, home: &Path) -> anyhow::Result<()> {
+    // Held from before she is copied until after: nothing is written to
+    // her there in between, and then what is written is that she moved.
+    let leaving = Ghost::leave(&old.ghost)
+        .with_context(|| format!("take in the core in {}", old.ghost.display()))?;
     let staging = home.join(ADOPTING);
     if staging.exists() {
         fs::remove_dir_all(&staging)?;
@@ -206,6 +274,18 @@ fn take_in(old: &Old, home: &Path) -> anyhow::Result<()> {
     if let Some(from) = old.env.as_deref().filter(|_| !env.exists()) {
         let keys = fs::read(from).with_context(|| format!("read {}", from.display()))?;
         private_file(&env)?.write_all(&keys)?;
+    }
+    // Last, since she is hers here whether or not it is written: if it is
+    // not, the next time this home is given the checkout writes it.
+    if let Err(e) = std::path::absolute(&solver)
+        .map_err(ghost_core::Error::from)
+        .and_then(|to| leaving.to(&to))
+    {
+        warn!(
+            "{} could not be marked as the core she left: {e}; run there, she would go on \
+             as a second her",
+            old.ghost.display()
+        );
     }
     Ok(())
 }

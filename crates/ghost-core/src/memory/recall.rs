@@ -193,7 +193,10 @@ fn kept(event: &Event) -> Option<Kept<'_>> {
         // how its operator finds it again; what was said in it is kept
         // as it was said.
         | Event::SessionNamed { .. }
-        | Event::SessionSetAside { .. } => return None,
+        | Event::SessionSetAside { .. }
+        // Which directory she is kept in is her body's; and this is the
+        // last entry of a journal nothing lives in again.
+        | Event::Moved { .. } => return None,
     })
 }
 
