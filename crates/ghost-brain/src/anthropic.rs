@@ -10,7 +10,7 @@ use crate::{
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const VERSION: &str = "2023-06-01";
 
-pub struct Anthropic {
+pub(crate) struct Anthropic {
     client: reqwest::Client,
     api_key: String,
     model: String,

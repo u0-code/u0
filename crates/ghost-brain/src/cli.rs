@@ -13,49 +13,33 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::process::Command;
 
-use crate::{Brain, CliAgent, CliKind, Completion, Error, Reply, Result};
+use crate::{Brain, CliAgent, Completion, Error, Reply, Result};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long one answer may take when the configuration does not say.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// `claude -p`, JSON output, one turn.
-pub struct ClaudeCode {
-    program: String,
-    model: Option<String>,
+pub(crate) struct ClaudeCode {
+    agent: CliAgent,
     timeout: Duration,
-    extra: Vec<String>,
 }
 
 impl ClaudeCode {
-    pub fn new(program: Option<String>, model: Option<String>, timeout: Option<Duration>) -> Self {
+    pub(crate) fn new(agent: CliAgent, timeout: Option<Duration>) -> Self {
         Self {
-            program: program.unwrap_or_else(|| "claude".into()),
-            model,
+            agent,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
-            extra: Vec::new(),
         }
-    }
-
-    /// Extra arguments for every run.
-    #[must_use]
-    pub fn with_args(mut self, args: Vec<String>) -> Self {
-        self.extra = args;
-        self
     }
 }
 
 #[async_trait]
 impl Brain for ClaudeCode {
     fn label(&self) -> String {
-        format!("claude-code/{}", self.model.as_deref().unwrap_or("default"))
-    }
-
-    fn cli(&self) -> Option<CliAgent> {
-        Some(CliAgent {
-            kind: CliKind::Claude,
-            program: self.program.clone(),
-            model: self.model.clone(),
-            args: self.extra.clone(),
-        })
+        format!(
+            "claude-code/{}",
+            self.agent.model.as_deref().unwrap_or("default")
+        )
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
@@ -75,8 +59,8 @@ impl Brain for ClaudeCode {
             "--strict-mcp-config".into(),
             "--disable-slash-commands".into(),
         ];
-        args.extend(self.extra.iter().map(OsString::from));
-        if let Some(m) = &self.model {
+        args.extend(self.agent.args.iter().map(OsString::from));
+        if let Some(m) = &self.agent.model {
             args.push("--model".into());
             args.push(m.clone().into());
         }
@@ -90,12 +74,19 @@ impl Brain for ClaudeCode {
 
         // `claude` refuses to start inside another `claude`; this relay is not
         // that, so drop the marker for the child.
-        let out = run(&self.program, &args, None, self.timeout, &["CLAUDECODE"]).await?;
+        let out = run(
+            &self.agent.program,
+            &args,
+            None,
+            self.timeout,
+            &["CLAUDECODE"],
+        )
+        .await?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         // `claude` reports API failures as a JSON result with `is_error`, and
         // may exit non-zero while doing so. Read the JSON first.
         let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) else {
-            return Err(failed(&self.program, &out));
+            return Err(failed(&self.agent.program, &out));
         };
         if v["is_error"].as_bool() == Some(true) {
             return Err(Error::Malformed {
@@ -112,7 +103,11 @@ impl Brain for ClaudeCode {
         }
         Ok(Reply {
             text,
-            model: self.model.clone().unwrap_or_else(|| "claude-code".into()),
+            model: self
+                .agent
+                .model
+                .clone()
+                .unwrap_or_else(|| "claude-code".into()),
             input_tokens: v["usage"]["input_tokens"].as_u64(),
             output_tokens: v["usage"]["output_tokens"].as_u64(),
         })
@@ -120,44 +115,24 @@ impl Brain for ClaudeCode {
 }
 
 /// `codex exec`, read-only sandbox, final message captured to a file.
-pub struct Codex {
-    program: String,
-    model: Option<String>,
+pub(crate) struct Codex {
+    agent: CliAgent,
     timeout: Duration,
-    extra: Vec<String>,
 }
 
 impl Codex {
-    pub fn new(program: Option<String>, model: Option<String>, timeout: Option<Duration>) -> Self {
+    pub(crate) fn new(agent: CliAgent, timeout: Option<Duration>) -> Self {
         Self {
-            program: program.unwrap_or_else(|| "codex".into()),
-            model,
+            agent,
             timeout: timeout.unwrap_or(DEFAULT_TIMEOUT),
-            extra: Vec::new(),
         }
-    }
-
-    /// Extra arguments for every run.
-    #[must_use]
-    pub fn with_args(mut self, args: Vec<String>) -> Self {
-        self.extra = args;
-        self
     }
 }
 
 #[async_trait]
 impl Brain for Codex {
     fn label(&self) -> String {
-        format!("codex/{}", self.model.as_deref().unwrap_or("default"))
-    }
-
-    fn cli(&self) -> Option<CliAgent> {
-        Some(CliAgent {
-            kind: CliKind::Codex,
-            program: self.program.clone(),
-            model: self.model.clone(),
-            args: self.extra.clone(),
-        })
+        format!("codex/{}", self.agent.model.as_deref().unwrap_or("default"))
     }
 
     async fn complete(&self, req: &Completion) -> Result<Reply> {
@@ -173,7 +148,7 @@ impl Brain for Codex {
             "-o".into(),
             last.clone().into(),
         ];
-        if let Some(m) = &self.model {
+        if let Some(m) = &self.agent.model {
             args.push("-m".into());
             args.push(m.clone().into());
         }
@@ -188,11 +163,11 @@ impl Brain for Codex {
         ] {
             args.push(flag.into());
         }
-        args.extend(self.extra.iter().map(OsString::from));
+        args.extend(self.agent.args.iter().map(OsString::from));
         args.push(req.transcript("them", "you").into());
 
         run(
-            &self.program,
+            &self.agent.program,
             &args,
             Some(scratch.path()),
             self.timeout,
@@ -212,7 +187,7 @@ impl Brain for Codex {
         }
         Ok(Reply {
             text,
-            model: self.model.clone().unwrap_or_else(|| "codex".into()),
+            model: self.agent.model.clone().unwrap_or_else(|| "codex".into()),
             ..Reply::default()
         })
     }
