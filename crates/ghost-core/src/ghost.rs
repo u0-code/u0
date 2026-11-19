@@ -7,6 +7,9 @@
 //! ├── journal.db   append-only, hash-chained; every version of ghost.toml is in it
 //! ├── work.db      the state of what she has taken on: plans, notes, transcripts
 //! ├── media/       images she was sent and looked at, named by their hash
+//! ├── skills/      the skills she installed, a folder each
+//! ├── tools/       the servers of tools she installed, a folder each
+//! ├── home/        where her shell works, when her machine is `local:` alone
 //! └── derived/     anything that can be rebuilt from the journal
 //! ```
 //!
