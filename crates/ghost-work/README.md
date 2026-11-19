@@ -24,6 +24,8 @@ What makes it hold up over hours:
   One database holds any number of undertakings by id: a ghost keeps all of
   hers in `<ghost>/work.db`, beside her journal. Only the bookkeeping is
   there; the files the work produces are wherever its machine put them.
+  An addition checks that the work is open in the same transaction that
+  appends it to the inbox. A sender hears if the work ended while it waited.
 - The transcript may fill most of the model's context window. When it nears
   that, long tool output is trimmed to its head and tail, then old output is
   dropped. If that is not enough the worker writes itself a handoff and goes

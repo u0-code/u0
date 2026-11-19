@@ -7,8 +7,8 @@ use ghost_core::{memory::PlaceState, narrate, prompts::Loop, social::PlaceKind, 
 use ghost_work::Toolbox;
 
 use super::{
-    Mind, Outcome, Purpose,
-    attend::{Looking, Thinking, Thought, Why},
+    Mind, Outcome,
+    attend::{Thinking, Thought, Why},
 };
 use crate::{
     Act, Can, Error, Result,
@@ -79,13 +79,7 @@ impl Mind {
                 },
             );
         }
-        let purpose = Purpose::Look {
-            place: place.key.clone(),
-            looking: Looking {
-                intention: job.intention(),
-                kept: job.kept,
-            },
-        };
+        let purpose = job.purpose();
         if with_tools {
             let system = match request {
                 Some((system, prompt)) => {

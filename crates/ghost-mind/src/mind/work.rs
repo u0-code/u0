@@ -93,6 +93,18 @@ use tracing::{info, warn};
 use super::{Mind, Operator, Order, Outcome, Purpose, Refused};
 use crate::{Result, actions::clip};
 
+/// A conversational update awaiting the same receipt as a console answer.
+pub(super) struct Addition {
+    pub number: i64,
+    pub receipt: oneshot::Receiver<std::result::Result<(), Refused>>,
+}
+
+pub(super) enum Taking {
+    Started,
+    Adding(Addition),
+    Refused(String),
+}
+
 /// A sitting in progress.
 pub(super) struct Working {
     /// Set to stop the sitting after the step it is on.
@@ -178,7 +190,8 @@ impl Mind {
         self.cfg.work.enabled && self.working_brain().is_some()
     }
 
-    /// She decided to take something on. Returns why not, if it is refused.
+    /// She decided to take something on. Adding to existing work returns
+    /// its receipt, since only a new undertaking is on record immediately.
     /// Asked for at a terminal, it is a piece of work of its own, whatever
     /// she has already taken on today or for whom, and it goes first. Asked
     /// for by an account of whoever runs her, on any channel, it is not held
@@ -191,13 +204,13 @@ impl Mind {
         place: Option<&PlaceState>,
         dir: Option<&str>,
         now: DateTime<Utc>,
-    ) -> Result<Option<String>> {
+    ) -> Result<Taking> {
         let brief = brief.trim();
         if brief.is_empty() {
-            return Ok(Some("there was nothing to take on".into()));
+            return Ok(Taking::Refused("there was nothing to take on".into()));
         }
         if !self.can_work() {
-            return Ok(Some("this body has nothing to work with".into()));
+            return Ok(Taking::Refused("this body has nothing to work with".into()));
         }
         // Asked at a terminal, it is not hers to weigh: whoever runs her
         // asked for it, and is waiting.
@@ -222,8 +235,7 @@ impl Mind {
                     None => String::new(),
                 }
             );
-            self.pass_on(open, &added, None, None);
-            return Ok(None);
+            return Ok(Taking::Adding(self.addition(open, &added)));
         }
         // How much she takes on, and for whom, is hers to decide, except
         // for whoever runs her.
@@ -231,7 +243,9 @@ impl Mind {
             && memory.undertaken_since(now - Duration::hours(24))?
                 >= i64::from(self.cfg.work.per_day)
         {
-            return Ok(Some("she has taken on enough for one day".into()));
+            return Ok(Taking::Refused(
+                "she has taken on enough for one day".into(),
+            ));
         }
         // Her will decides what she agrees to. This is only the floor under
         // it: a stranger does not get her hands on a shell.
@@ -243,7 +257,7 @@ impl Mind {
                 Stage::Stranger
             };
             if stage < needed {
-                return Ok(Some(format!(
+                return Ok(Taking::Refused(format!(
                     "{} is {} to her, which is not enough for this",
                     person.name,
                     crate::narrate::stage(&self.prompts, stage)
@@ -269,7 +283,7 @@ impl Mind {
             dir,
         })?;
         self.work_at(now);
-        Ok(None)
+        Ok(Taking::Started)
     }
 
     /// The folder the work `id` is done in: the one whoever asked named,
@@ -691,25 +705,29 @@ impl Mind {
     }
 
     /// She passes something on to work she has under way. It reaches the
-    /// worker before its next step, in this sitting or the next. Returns
-    /// why not, if she cannot; that its record could not be written to
-    /// comes back later, and leaves only a warning.
-    pub(super) fn steer(&mut self, number: i64, text: &str) -> Result<Option<String>> {
+    /// worker before its next step, in this sitting or the next.
+    pub(super) fn steer(
+        &mut self,
+        number: i64,
+        text: &str,
+    ) -> Result<std::result::Result<Addition, String>> {
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Some(self.prompts.text("steer_nothing").to_owned()));
+            return Ok(Err(self.prompts.text("steer_nothing").to_owned()));
         }
-        let u = match self.open_work(number)? {
-            Ok(u) => u,
-            Err(why) => return Ok(Some(why)),
-        };
-        self.pass_on(u, text, None, None);
-        Ok(None)
+        Ok(self.open_work(number)?.map(|u| self.addition(u, text)))
+    }
+
+    fn addition(&mut self, u: ghost_core::memory::Undertaking, text: &str) -> Addition {
+        let number = u.seq;
+        let (answer, receipt) = oneshot::channel();
+        self.pass_on(u, text, None, Some(answer));
+        Addition { number, receipt }
     }
 
     /// Put `text` in the inbox of the open work `u`, from `by` if it was
     /// not she who passed it on: her journal says so once its record has
-    /// it, and `answer`, a console's order, is told whether it could.
+    /// it, and the conversation or console waiting on `answer` hears the result.
     fn pass_on(
         &mut self,
         u: ghost_core::memory::Undertaking,

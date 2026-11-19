@@ -41,7 +41,7 @@ use ghost_core::{
     social::{Actor, Place, PlaceKind},
 };
 
-use super::{Mind, Parts, Signal, Workshop, living};
+use super::{Mind, Parts, Signal, Workshop, living, work::Taking};
 use crate::{Act, Acted, Body, Can, Incoming, MindConfig, Numb, Prompts};
 
 const SEED: &str = r#"
@@ -621,6 +621,27 @@ impl Rig {
         ghost_work::Undertaking::open(&db, id, Some(brief)).unwrap()
     }
 
+    /// A sitting holds a real write transaction until the sender is released.
+    fn hold_work_write(
+        &self,
+        id: &str,
+        brief: &str,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let record = self.record(id, brief);
+        let (locked, ready) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let sitting = std::thread::spawn(move || {
+            record
+                .update(|_| {
+                    locked.send(()).unwrap();
+                    let _ = wait.recv();
+                })
+                .unwrap();
+        });
+        ready.recv().unwrap();
+        (release, sitting)
+    }
+
     /// Keep stepping beside a running sitting until `done`.
     async fn beside_until(&mut self, done: impl Fn(&Self) -> bool) -> DateTime<Utc> {
         for _ in 0..200 {
@@ -905,12 +926,12 @@ fn at_work_for_wen(rig: &mut Rig, brief: &str, now: DateTime<Utc>) -> i64 {
     let memory = rig.mind.ghost.memory();
     let wen = memory.person("t:wen").unwrap().unwrap();
     let place = memory.place("t:wen").unwrap().unwrap();
-    assert_eq!(
+    assert!(matches!(
         rig.mind
             .undertake(brief, Some(&wen), Some(&place), None, now)
             .unwrap(),
-        None
-    );
+        Taking::Started
+    ));
     rig.mind.ghost.memory().undertakings(true, 1).unwrap()[0].seq
 }
 

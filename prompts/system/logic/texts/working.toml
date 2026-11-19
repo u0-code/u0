@@ -45,3 +45,8 @@ made_tell = "It cannot be sent as a file here, so tell them what is in it."
 # a conversation: what they wrote lately, word for word, so that the work
 # starts from what was asked and not only from how she put it.
 their_words = "\n\nWhat {{name}} wrote, word for word:\n{{said}}"
+
+# A tool call can be accepted before the look ends and the inbox is written.
+work_requested = "Requested for the end of this look. Delivery is still pending."
+# Only the conversation that requested the update is owed its write result.
+tell_undelivered = "tell them why delivery of these updates to the work inbox could not be confirmed. They need to know which instructions the worker can rely on.\n{{updates}}"

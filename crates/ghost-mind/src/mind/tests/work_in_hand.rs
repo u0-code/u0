@@ -254,6 +254,118 @@ async fn a_picture_kept_by_running_work_can_be_sent_in_the_conversation_before_t
 }
 
 #[tokio::test]
+async fn a_steer_that_cannot_be_written_is_reported_to_the_conversation_that_sent_it() {
+    let now = at(14, 0);
+    let mut rig = Rig::quiet(now);
+    let number = at_work_for_wen(&mut rig, "List the opening hours.", now);
+    rig.online(crate::CONSOLE, now);
+    // Only the temporary work database fails. The conversation and journal still work.
+    std::fs::write(
+        rig.mind.ghost.dir().join(ghost_work::WORK_DB),
+        b"not a database",
+    )
+    .unwrap();
+    rig.mind.agenda.work = None;
+    rig.think.then(&format!(
+        r#"{{"thought":"","actions":[{{"do":"say","text":"I passed that on."}},{{"do":"steer","work":{number},"text":"Weekdays only."}}]}}"#
+    ));
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "Only count weekdays."), now);
+    rig.mind.attend("console:fox", now).unwrap();
+    rig.settle(now).await;
+
+    assert_eq!(count(&rig, "added"), 0);
+    assert!(
+        !rig.decisions()
+            .iter()
+            .any(|d| d.contains("passed something on")),
+        "the journal claimed a failed delivery: {:?}",
+        rig.decisions()
+    );
+    let news = rig.mind.ghost.memory().open_intentions().unwrap();
+    let failure = news
+        .iter()
+        .find(|i| i.place.as_deref() == Some("console:fox"))
+        .expect("the person who sent the instruction is owed its failure");
+    assert!(
+        failure.what.contains(&format!("#{number}")) && failure.what.contains("not a database"),
+        "{}",
+        failure.what
+    );
+    assert!(news.iter().all(|i| i.place.as_deref() != Some("t:wen")));
+
+    rig.think.then(r#"{"thought":"","actions":[{"do":"say","text":"The work inbox couldn't save your change."}]}"#);
+    rig.until(|r| !r.body.sent().is_empty()).await;
+    assert_eq!(
+        rig.body.sent(),
+        ["The work inbox couldn't save your change."]
+    );
+    assert!(rig.think.last_prompt().contains(&failure.what));
+    assert_eq!(
+        rig.body
+            .count(|a| matches!(a, Act::Send { place, .. } if place == "fox")),
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_steer_waits_for_its_inbox_while_another_conversation_can_be_answered() {
+    let now = at(14, 0);
+    let mut rig = Rig::with_tools(now);
+    let number = at_work_for_wen(&mut rig, "List the opening hours.", now);
+    let work = rig
+        .mind
+        .ghost
+        .memory()
+        .undertaking_numbered(number)
+        .unwrap()
+        .unwrap();
+    let record = rig.record(&work.id, &work.brief);
+    rig.mind.agenda.work = None;
+    rig.online(crate::CONSOLE, now);
+    let (release, sitting) = rig.hold_work_write(&work.id, &work.brief);
+    rig.think.then_turn(
+        "",
+        &[
+            (
+                "steer",
+                serde_json::json!({"work": number, "text": "Weekdays only."}),
+            ),
+            ("say", serde_json::json!({"text": "I passed that on."})),
+        ],
+    );
+    rig.hear_on(crate::CONSOLE, dm("fox", "1", "Only count weekdays."), now);
+    rig.mind.attend("console:fox", now).unwrap();
+    let done = rig.mind.jobs.join_next().await.unwrap();
+    rig.outcome(done, now);
+    assert!(
+        rig.decisions()
+            .iter()
+            .all(|d| !d.contains("passed something on"))
+    );
+    assert_eq!(record.pending(), 0);
+    rig.think
+        .then_call("say", serde_json::json!({"text":"I'm here."}));
+    rig.hear_on(crate::CONSOLE, dm("mei", "2", "Anyone there?"), now);
+    let replied = rig.beside_until(|r| !r.body.sent().is_empty()).await;
+    assert_eq!(rig.body.sent(), ["I'm here."]);
+    assert_eq!(count(&rig, "added"), 0);
+
+    release.send(()).unwrap();
+    sitting.join().unwrap();
+    rig.settle(replied).await;
+    assert_eq!(record.pending(), 1);
+    assert_eq!(count(&rig, "added"), 1);
+    // Check the pending reply without starting a sitting on this work.
+    rig.mind.speak("console:fox", replied).unwrap();
+    rig.settle(replied).await;
+    assert_eq!(rig.body.sent(), ["I'm here.", "I passed that on."]);
+    let mail = record.take_inbox();
+    assert_eq!(mail.len(), 1);
+    assert_eq!(mail[0].text, "Weekdays only.");
+    assert!(record.take_inbox().is_empty());
+}
+
+#[tokio::test]
 async fn steer_reaches_the_running_worker_at_its_next_step() {
     let t0 = at(14, 0);
     let mut rig = Rig::quiet(t0);

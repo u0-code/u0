@@ -119,9 +119,23 @@ async fn she_stops_to_ask_and_goes_on_when_they_answer() {
     );
     rig.hear(dm("wen", "2", "weekdays please"), answered);
     rig.until(|r| r.kinds().contains(&"concluded")).await;
-    let kinds = rig.kinds();
-    let added = kinds.iter().position(|k| *k == "added").unwrap();
-    assert!(added < kinds.iter().position(|k| *k == "concluded").unwrap());
+    let journal = rig.mind.ghost.journal();
+    let added = journal.last_of(&["added"]).unwrap().unwrap();
+    let after = journal
+        .of_kinds_after(&["decided", "concluded"], added.seq)
+        .unwrap();
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e.event, Event::Concluded { .. }))
+    );
+    assert!(
+        after.iter().any(
+            |e| matches!(&e.event, Event::Decided { about, decision, .. }
+        if about == "t:wen" && decision.contains("passed something on"))
+        ),
+        "adding to existing work through undertake confirms its inbox write"
+    );
     let turns = rig.think.turns.lock().unwrap();
     assert!(turns.last().unwrap().items.iter().any(|item| matches!(item,
         ghost_brain::Item::User { text }
