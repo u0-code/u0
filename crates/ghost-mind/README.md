@@ -33,8 +33,10 @@ The actor does not write `work.db` either. The rounds of her looks, and what
 she changes in the records of her work (a word passed on, a stop, an end, the
 record a sitting opens on), go to one writer thread of hers, which makes them
 in order and on its own connections; what she has to know of one comes back
-as a job's outcome, and her journal says so then. A sitting holding the
-database's lock never holds her up.
+as a job's outcome. A conversation that adds instructions to ongoing work
+waits for the inbox commit before confirming delivery. If it fails, she
+reports the reason in the conversation that requested the change. Other
+conversations continue while a sitting holds the database lock.
 
 In a conversation she has the same abilities as at work, at a conversation's
 pace. Her catalogue (`src/catalog.rs`) says what each tool of a conversation

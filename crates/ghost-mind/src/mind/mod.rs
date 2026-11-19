@@ -425,8 +425,8 @@ enum Outcome {
     /// A sitting of work did not start: see [`work::Unseated`].
     Unseated { id: String, why: work::Unseated },
     /// `text` was put in the inbox of the work `id`, from `by` if it was
-    /// not she who passed it on, or could not be: `answer` is told which,
-    /// if it is a console's order.
+    /// not she who passed it on, or could not be. A waiting conversation
+    /// or console gets its receipt after the journal records the addition.
     Added {
         id: String,
         text: String,

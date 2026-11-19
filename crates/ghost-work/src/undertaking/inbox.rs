@@ -63,21 +63,28 @@ impl Undertaking {
     /// Put something in the inbox, to be taken before the next step of
     /// whoever works on this.
     pub fn post(&self, kind: MailKind, text: &str) -> io::Result<()> {
-        let posted = (|| -> rusqlite::Result<()> {
-            let mut conn = self.conn();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let last: i64 = tx.query_row(
-                "SELECT COALESCE(MAX(n), 0) FROM inbox WHERE id = ?1",
-                [&self.id],
-                |row| row.get(0),
-            )?;
-            tx.execute(
-                "INSERT INTO inbox (id, n, text, kind) VALUES (?1, ?2, ?3, ?4)",
-                params![self.id, last + 1, text.trim(), kind.word()],
-            )?;
-            tx.commit()
-        })();
-        posted.map_err(other)
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(other)?;
+        // Work can end on another connection while an instruction waits for the lock.
+        if kind == MailKind::Added
+            && load(&tx, &self.id)
+                .map_err(other)?
+                .is_none_or(|state| state.finish.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the work is no longer open",
+            ));
+        }
+        tx.execute(
+            "INSERT INTO inbox (id, n, text, kind)
+             SELECT ?1, COALESCE(MAX(n), 0) + 1, ?2, ?3 FROM inbox WHERE id = ?1",
+            params![self.id, text.trim(), kind.word()],
+        )
+        .map_err(other)?;
+        tx.commit().map_err(other)
     }
 
     /// How many things in the inbox have not been taken yet.

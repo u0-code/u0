@@ -13,8 +13,8 @@ use serde_json::json;
 use tracing::warn;
 
 use super::{
-    Attend, Mind, Outcome, Purpose,
-    attend::{Found, Looking, Thinking, Thought, Why},
+    Attend, Mind, Outcome,
+    attend::{Found, Thinking, Thought, Why},
 };
 use crate::{
     Error, Result,
@@ -51,6 +51,7 @@ impl Mind {
         self.retries.remove(&job.place);
         let deliberation = match thought {
             Thought::Whole(deliberation) => deliberation,
+            Thought::Decided(decision) => return self.finish_decision(&place, &job, decision, now),
             Thought::Step(step) => return self.on_turn(job, step, &place, now),
             Thought::Looked(found) => {
                 let sees = if job.cheap {
@@ -93,7 +94,7 @@ impl Mind {
                 return self.ponder(job, &place, now);
             }
         }
-        self.apply(&place, &job, deliberation, now)
+        self.apply(&place, job, deliberation, now)
     }
 
     /// What a search of her memory turns up, as she would be told it.
@@ -364,24 +365,20 @@ impl Mind {
                 }
                 // Told at once when it cannot be done, so that she can
                 // put it right, as with a call she got wrong.
-                Ok(
-                    action @ (Action::Keep { .. }
-                    | Action::LetGo { .. }
-                    | Action::SendFile { .. }
-                    | Action::Steer { .. }
-                    | Action::Stop { .. }),
-                ) => {
+                Ok(action) => {
                     if let Some(why) = self.refusal(place, &action)? {
                         again = true;
                         (why, true)
                     } else {
+                        let reply =
+                            if matches!(action, Action::Steer { .. } | Action::Undertake { .. }) {
+                                self.prompts.text("work_requested")
+                            } else {
+                                "ok"
+                            };
                         job.took.push(action);
-                        ("ok".to_owned(), false)
+                        (reply.to_owned(), false)
                     }
-                }
-                Ok(action) => {
-                    job.took.push(action);
-                    ("ok".to_owned(), false)
                 }
             };
             kept.push(Some(steps::call(
@@ -409,15 +406,8 @@ impl Mind {
                     clip(&call.args.to_string(), 80)
                 );
             }
-            let looking = Looking {
-                intention: job.intention(),
-                kept: job.kept,
-            };
             let words = self.prompts.store().clone();
-            let purpose = Purpose::Look {
-                place: place.key.clone(),
-                looking,
-            };
+            let purpose = job.purpose();
             self.jobs.spawn_for(purpose, async move {
                 let mut found = Vec::with_capacity(outside.len());
                 for call in outside {
@@ -475,7 +465,7 @@ impl Mind {
             thought: std::mem::take(&mut job.thought),
             actions: std::mem::take(&mut job.took),
         };
-        self.apply(place, &job, deliberation, now)
+        self.apply(place, job, deliberation, now)
     }
 
     fn could_not_think(

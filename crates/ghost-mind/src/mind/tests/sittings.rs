@@ -30,10 +30,10 @@ fn take_on(rig: &mut Rig, brief: &str, at_terminal: bool, now: DateTime<Utc>) ->
         .store(true, std::sync::atomic::Ordering::Relaxed);
     let console = at_the_console();
     let place = at_terminal.then_some(&console);
-    assert_eq!(
+    assert!(matches!(
         rig.mind.undertake(brief, None, place, None, now).unwrap(),
-        None
-    );
+        Taking::Started
+    ));
     let mut open = rig.mind.ghost.memory().undertakings(true, 20).unwrap();
     open.sort_by_key(|u| u.seq);
     open.last().unwrap().id.clone()
@@ -274,7 +274,7 @@ async fn what_work_asked_for_at_a_terminal_comes_back_with_is_taken_there_in_her
     let memory = rig.mind.ghost.memory();
     let fox = memory.person("console:fox").unwrap().unwrap();
     let place = memory.place("console:fox").unwrap().unwrap();
-    assert_eq!(
+    assert!(matches!(
         rig.mind
             .undertake(
                 "Write today's date down.",
@@ -284,8 +284,8 @@ async fn what_work_asked_for_at_a_terminal_comes_back_with_is_taken_there_in_her
                 t0
             )
             .unwrap(),
-        None
-    );
+        Taking::Started
+    ));
     rig.think.then_call(
         "done",
         serde_json::json!({"outcome": "finished", "summary": "It is the twelfth."}),

@@ -406,6 +406,18 @@ fn changes_made_through_different_handles_at_once_are_all_kept() {
 }
 
 #[test]
+fn an_inbox_refuses_new_instructions_if_another_handle_has_ended_the_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Undertaking::open(&db(&dir), "u1", Some("find when it closes")).unwrap();
+    let sender = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    worker.stop().unwrap();
+
+    let error = sender.add("weekends too").unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(worker.pending(), 0);
+}
+
+#[test]
 fn items_added_from_another_connection_are_taken_exactly_once() {
     let dir = tempfile::tempdir().unwrap();
     Undertaking::open(&db(&dir), "u1", Some("find when it closes")).unwrap();

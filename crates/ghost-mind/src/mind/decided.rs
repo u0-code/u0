@@ -13,22 +13,49 @@ use ghost_core::{
 use tracing::debug;
 
 use super::{
-    Mind,
-    attend::{Thinking, Why},
+    Mind, Outcome,
+    attend::{Thinking, Thought, Why},
     give::Gift,
     speak::Bubble,
+    work::{Addition, Taking},
 };
 use crate::{
     Act, Can, Result,
     actions::{Action, Deliberation},
 };
 
+/// The reply and the account of a look are published together, once any
+/// additions they describe have actually reached the worker's inbox.
+pub(super) struct Decision {
+    bubbles: VecDeque<Bubble>,
+    did: Vec<String>,
+    thought: String,
+    undelivered: Vec<(i64, String)>,
+}
+
+impl Decision {
+    async fn confirmed(mut self, additions: Vec<Addition>) -> Self {
+        for Addition { number, receipt } in additions {
+            let why = match receipt.await {
+                Ok(Ok(())) => {
+                    self.did.push("passed something on to her work".into());
+                    continue;
+                }
+                Ok(Err(why)) => why.to_string(),
+                Err(closed) => closed.to_string(),
+            };
+            self.undelivered.push((number, why));
+        }
+        self
+    }
+}
+
 impl Mind {
     /// Turn what she decided into journal entries and things in motion.
     pub(super) fn apply(
         &mut self,
         place: &PlaceState,
-        job: &Thinking,
+        job: Thinking,
         deliberation: Deliberation,
         now: DateTime<Utc>,
     ) -> Result<()> {
@@ -41,6 +68,8 @@ impl Mind {
         }
         let mut bubbles = VecDeque::new();
         let mut did: Vec<String> = Vec::new();
+        let mut additions = Vec::new();
+        let mut undelivered = Vec::new();
         for action in deliberation.actions {
             match action {
                 Action::Say { text, reply_to } => {
@@ -140,8 +169,9 @@ impl Mind {
                     let asker = self.resolve(place, for_whom.as_deref())?;
                     let dir = dir.as_deref();
                     match self.undertake(&brief, asker.as_ref(), Some(place), dir, now)? {
-                        None => did.push("took something on".to_owned()),
-                        Some(why) => {
+                        Taking::Started => did.push("took something on".to_owned()),
+                        Taking::Adding(addition) => additions.push(addition),
+                        Taking::Refused(why) => {
                             self.record(Event::Decided {
                                 about: place.key.clone(),
                                 decision: "did not take it on".into(),
@@ -151,14 +181,8 @@ impl Mind {
                     }
                 }
                 Action::Steer { work, text } => match self.steer(work, &text)? {
-                    None => did.push("passed something on to her work".to_owned()),
-                    Some(why) => {
-                        self.record(Event::Decided {
-                            about: place.key.clone(),
-                            decision: "did not pass it on to her work".into(),
-                            reason: why,
-                        })?;
-                    }
+                    Ok(addition) => additions.push(addition),
+                    Err(why) => undelivered.push((work, why)),
                 },
                 Action::Stop { work } => match self.stop_work(work)? {
                     None => did.push("stopped a piece of work".to_owned()),
@@ -247,6 +271,55 @@ impl Mind {
                 Action::Recall { .. } | Action::Reread { .. } | Action::Post { .. } => {}
             }
         }
+        let decision = Decision {
+            bubbles,
+            did,
+            thought: deliberation.thought,
+            undelivered,
+        };
+        if additions.is_empty() {
+            return self.finish_decision(place, &job, decision, now);
+        }
+        self.jobs.spawn_for(job.purpose(), async move {
+            Outcome::Thought {
+                job: Box::new(job),
+                result: Ok(Thought::Decided(decision.confirmed(additions).await)),
+            }
+        });
+        Ok(())
+    }
+
+    pub(super) fn finish_decision(
+        &mut self,
+        place: &PlaceState,
+        job: &Thinking,
+        decision: Decision,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let Decision {
+            mut bubbles,
+            mut did,
+            thought,
+            undelivered,
+        } = decision;
+        if !undelivered.is_empty() {
+            // Her drafted words may say the change went through. Keep any
+            // independent file delivery, and let her explain in her own words.
+            bubbles.retain(|b| b.file.is_some());
+            for bubble in &mut bubbles {
+                bubble.text.clear();
+            }
+            let updates = undelivered
+                .into_iter()
+                .map(|(number, why)| format!("#{number}: {why}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let tell = self
+                .prompts
+                .fill("tell_undelivered", &[("updates", updates)]);
+            self.intend_as(now, tell, None, Some(place.key.clone()), true, false)?;
+            did.push("could not confirm a work update".into());
+        }
         if !bubbles.is_empty() {
             did.insert(
                 0,
@@ -264,7 +337,7 @@ impl Mind {
         let decided = self.record(Event::Decided {
             about: place.key.clone(),
             decision: decision.clone(),
-            reason: deliberation.thought,
+            reason: thought,
         })?;
         // Whoever watched her rounds of this look can find where it ended.
         self.end_look(job, decided.seq);

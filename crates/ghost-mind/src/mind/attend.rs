@@ -20,7 +20,7 @@ use ghost_core::{
 };
 use tracing::{debug, warn};
 
-use super::{Attend, Mind, after, group::BOT_WINDOW};
+use super::{Attend, Mind, Purpose, after, decided::Decision, group::BOT_WINDOW};
 use crate::{
     Incoming, Result,
     actions::{Action, Deliberation},
@@ -77,11 +77,16 @@ pub(super) struct Thinking {
 }
 
 impl Thinking {
-    /// The intention this look pursues, if that is why she looked.
-    pub fn intention(&self) -> Option<i64> {
-        match &self.why {
-            Why::Intention(intention) => Some(intention.seq),
-            Why::Unread => None,
+    pub(super) fn purpose(&self) -> Purpose {
+        Purpose::Look {
+            place: self.place.clone(),
+            looking: Looking {
+                intention: match &self.why {
+                    Why::Intention(intention) => Some(intention.seq),
+                    Why::Unread => None,
+                },
+                kept: self.kept,
+            },
         }
     }
 }
@@ -126,6 +131,8 @@ pub(super) enum Thought {
     Step(Step),
     /// What came back from beyond the conversation: the web, her machine.
     Looked(Vec<Found>),
+    /// The inbox writes this decision depended on have returned.
+    Decided(Decision),
 }
 
 /// One call that reached beyond the conversation, and what came of it:

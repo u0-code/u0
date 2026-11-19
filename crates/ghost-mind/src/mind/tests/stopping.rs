@@ -259,12 +259,12 @@ async fn work_directed_where_she_was_stopped_goes_on_and_is_stopped_only_from_it
             memory.place("console:fox").unwrap().unwrap(),
         )
     };
-    assert_eq!(
+    assert!(matches!(
         rig.mind
             .undertake("Draw the east gate.", Some(&person), Some(&place), None, t0)
             .unwrap(),
-        None
-    );
+        Taking::Started
+    ));
     let open = rig.mind.ghost.memory().undertakings(true, 5).unwrap();
     let gate = open
         .iter()

@@ -565,18 +565,7 @@ async fn a_look_does_not_wait_on_a_sitting_holding_work_db_and_its_rounds_are_ke
     befriend(&mut rig, "wen", t0);
     // A sitting in the middle of a write: it holds the database's lock
     // until it is let go.
-    let record = rig.record("w1", "Count the tea houses.");
-    let (held, holding) = std::sync::mpsc::channel();
-    let (let_go, waiting) = std::sync::mpsc::channel::<()>();
-    let sitting = std::thread::spawn(move || {
-        record
-            .update(|_| {
-                held.send(()).unwrap();
-                let _ = waiting.recv();
-            })
-            .unwrap();
-    });
-    holding.recv().unwrap();
+    let (let_go, sitting) = rig.hold_work_write("w1", "Count the tea houses.");
 
     rig.think.then_turn(
         "let me think",
