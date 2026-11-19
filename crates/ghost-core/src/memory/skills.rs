@@ -30,6 +30,10 @@ pub struct Skill {
     pub description: String,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS skills (
     name TEXT PRIMARY KEY, seq INTEGER NOT NULL, at TEXT NOT NULL, source TEXT NOT NULL,

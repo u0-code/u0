@@ -25,6 +25,10 @@ pub struct Digest {
     pub sources: Option<Sources>,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS digests (
     place TEXT PRIMARY KEY, upto INTEGER NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL,

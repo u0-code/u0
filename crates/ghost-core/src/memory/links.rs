@@ -26,6 +26,10 @@ pub struct Challenge {
     pub word: String,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS challenges (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, claimant TEXT NOT NULL,

@@ -29,6 +29,10 @@ pub struct Intention {
     pub report: bool,
 }
 
+/// Bumped when `SCHEMA`, or what `fold` writes, changes: see
+/// [`super::Feature`].
+pub(super) const VERSION: i64 = 1;
+
 pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS intentions (
     seq INTEGER PRIMARY KEY, due TEXT NOT NULL, what TEXT NOT NULL,
