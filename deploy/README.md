@@ -25,7 +25,7 @@ Docker, or keep her on `local:` under this account.
 ## Layout
 
 ```
-/opt/ghost/bin/          ghostd, ghost-work, ghost-qqbot, ...   root's; she cannot change them
+/opt/ghost/bin/          ghostd, ghost-qqbot, ...               root's; she cannot change them
 /etc/ghost/ghostd.toml   which brains, where to listen, [network]   root:ghost, 640
 /etc/ghost/ghost.env     keys and tokens (the .env)              root:root, 600
 /etc/ghost/prompts/      prompts you changed, for every character   root:ghost, optional
@@ -47,8 +47,8 @@ directory, and does not use them.
 ```bash
 cargo build --release
 sudo install -d /opt/ghost/bin /etc/ghost
-sudo install -m 755 target/release/ghostd target/release/ghost-work \
-  target/release/ghost-qqbot /opt/ghost/bin/
+sudo install -m 755 target/release/ghostd target/release/ghost-qqbot \
+  /opt/ghost/bin/
 sudo install -m 640 -g ghost ghostd.toml /etc/ghost/ghostd.toml
 sudo install -m 600 .env /etc/ghost/ghost.env
 # Her directory: an existing one, moved with her journal...
@@ -58,11 +58,10 @@ sudo chown -R ghost:ghost /var/lib/ghost/weiwei
 sudo -u ghost /opt/ghost/bin/ghostd birth /var/lib/ghost/weiwei
 ```
 
-`ghost-work` goes beside `ghostd`: that is where `ghostd` looks for it when a
-command-line brain is given her tools. systemd reads `ghost.env` before it
-drops to her account, so the file can stay root's alone. What `ghostd` is
-given, the programs her shell starts inherit, keys included; a container for
-her machine is what keeps them apart.
+systemd reads `ghost.env` before it drops to her account, so the file can
+stay root's alone. What `ghostd` is given, the programs her shell starts
+inherit, keys included; a container for her machine is what keeps them
+apart.
 
 ## systemd
 

@@ -230,8 +230,8 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A command-line agent that brings its own loop, and can be handed tools
-/// of ours to run it with.
+/// A command-line agent that brings its own loop and its own tools: it is
+/// handed a part of a piece of work, not stepped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliAgent {
     pub kind: CliKind,

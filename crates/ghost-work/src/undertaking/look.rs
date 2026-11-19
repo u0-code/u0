@@ -6,14 +6,15 @@
 use std::{collections::BTreeMap, io, path::Path};
 
 use chrono::{DateTime, Utc};
+use ghost_brain::Usage;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
-use serde_json::Value;
 
 use super::{
     State,
     db::{load, other, parse, read_only},
 };
+use crate::steps::{Called, Line};
 
 /// How one undertaking stands, as another process sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,15 +170,14 @@ pub struct Step {
     /// Its place in the log, from 1: steps over every sitting, in order.
     pub n: u64,
     /// When it was taken, RFC 3339.
-    pub at: Option<String>,
-    /// What the model said at that step, if anything. A command-line agent
-    /// stepping the work through a server of tools says nothing here.
+    pub at: String,
+    /// What the model said at that step, if anything.
     pub said: String,
     /// How long the model took to answer, where the work's own loop asked
     /// it.
     pub ms: Option<u64>,
-    /// What it called, in order, each as [`crate::steps::shown`] has it.
-    pub calls: Vec<Value>,
+    /// What it called, in order.
+    pub calls: Vec<Called>,
 }
 
 /// Steps of one piece of work, whether there are more after them, and what
@@ -195,10 +195,9 @@ pub struct Logged {
 pub struct StepContext {
     /// The step, as [`Step::n`] has it.
     pub n: u64,
-    pub at: Option<String>,
-    /// Tokens: what the model read (`input`), how much of that came from
-    /// the provider's cache (`cached`), and what it wrote (`output`).
-    pub usage: StepUsage,
+    pub at: String,
+    /// Tokens, as the provider counted them.
+    pub usage: Usage,
     /// What it was given, in characters, by part.
     pub parts: BTreeMap<String, u64>,
     /// The model's context window in tokens, where it is known.
@@ -209,26 +208,9 @@ pub struct StepContext {
     pub folds_at: Option<u64>,
 }
 
-/// Tokens one step cost, as the provider counted them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct StepUsage {
-    pub input: u64,
-    pub cached: u64,
-    pub output: u64,
-}
-
-/// How many of the newest lines are looked through for the newest step
-/// that says what it was given: calls a server of tools logged come
-/// between, and say nothing of it.
-const CONTEXT_LOOKED: i64 = 50;
-
 /// The steps of the undertaking `id` in the database at `db` after the
 /// `after`th, at most `limit` of them, oldest first; `None` if there is no
 /// undertaking by that id. Opened read-only, as [`glance`] opens it.
-///
-/// A line the work's own loop wrote is one step. A line a server of tools
-/// wrote is one call a command-line agent made, and is shown as a step of
-/// its own with that one call.
 pub fn steps(db: &Path, id: &str, after: u64, limit: usize) -> io::Result<Option<Logged>> {
     Records::open(db)?.steps(id, after, limit)
 }
@@ -252,57 +234,37 @@ fn steps_in(conn: &Connection, id: &str, after: u64, limit: usize) -> io::Result
     let steps = rows
         .into_iter()
         .take(limit)
-        .map(|(n, line)| {
-            let line: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-            let calls = match line["calls"].as_array() {
-                Some(calls) => calls.iter().map(crate::steps::shown).collect(),
-                None if line.get("name").is_some() => vec![crate::steps::shown(&line)],
-                None => Vec::new(),
-            };
-            Step {
+        .filter_map(|(n, line)| {
+            let line: Line = serde_json::from_str(&line).ok()?;
+            Some(Step {
                 n: u64::try_from(n).unwrap_or_default(),
-                at: line["at"].as_str().map(str::to_owned),
-                said: line["said"].as_str().unwrap_or_default().to_owned(),
-                ms: line["model_ms"].as_u64(),
-                calls,
-            }
+                at: line.at,
+                said: line.said,
+                ms: line.asked.map(|asked| asked.model_ms),
+                calls: line.calls,
+            })
         })
         .collect();
-    let context = newest_context(conn, id)?;
     Ok(Some(Logged {
         steps,
         more,
-        context,
+        context: newest_context(conn, id)?,
     }))
 }
 
-/// What the newest step of undertaking `id` that says so put in front of
-/// the model.
+/// What the newest step of undertaking `id` put in front of the model, if
+/// the work's own loop took it.
 fn newest_context(conn: &Connection, id: &str) -> io::Result<Option<StepContext>> {
-    let rows: Vec<(i64, String)> = conn
-        .prepare("SELECT n, line FROM log WHERE id = ?1 ORDER BY n DESC LIMIT ?2")
-        .and_then(|mut stmt| {
-            stmt.query_map(rusqlite::params![id, CONTEXT_LOOKED], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
-            .collect()
-        })
-        .map_err(other)?;
-    Ok(rows.into_iter().find_map(|(n, line)| {
-        let line: Value = serde_json::from_str(&line).ok()?;
-        let parts = serde_json::from_value(line.get("context")?.clone()).ok()?;
-        Some(StepContext {
-            n: u64::try_from(n).unwrap_or_default(),
-            at: line["at"].as_str().map(str::to_owned),
-            usage: StepUsage {
-                input: line["read"].as_u64().unwrap_or(0),
-                cached: line["cached"].as_u64().unwrap_or(0),
-                output: line["wrote"].as_u64().unwrap_or(0),
-            },
-            parts,
-            window: line["window"].as_u64(),
-            folds_at: line["folds_at"].as_u64(),
-        })
+    let Some((n, line)) = end_of_log(conn, id, Which::Last)? else {
+        return Ok(None);
+    };
+    Ok(line.asked.map(|asked| StepContext {
+        n,
+        at: line.at,
+        usage: asked.usage,
+        parts: asked.context,
+        window: asked.window,
+        folds_at: asked.folds_at,
     }))
 }
 
@@ -312,20 +274,24 @@ enum Which {
     Last,
 }
 
-/// When undertaking `id` took its first or its latest step, by its log.
-fn step_at(conn: &Connection, id: &str, which: Which) -> io::Result<Option<DateTime<Utc>>> {
+/// The first or the latest line of undertaking `id`'s log, with its place.
+fn end_of_log(conn: &Connection, id: &str, which: Which) -> io::Result<Option<(u64, Line)>> {
     let order = match which {
         Which::First => "ASC",
         Which::Last => "DESC",
     };
     Ok(conn
         .query_row(
-            &format!("SELECT line FROM log WHERE id = ?1 ORDER BY n {order} LIMIT 1"),
+            &format!("SELECT n, line FROM log WHERE id = ?1 ORDER BY n {order} LIMIT 1"),
             [id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
         .map_err(other)?
-        .and_then(|line| serde_json::from_str::<Value>(&line).ok())
-        .and_then(|line| line["at"].as_str().and_then(|at| at.parse().ok())))
+        .and_then(|(n, line)| Some((u64::try_from(n).ok()?, serde_json::from_str(&line).ok()?))))
+}
+
+/// When undertaking `id` took its first or its latest step, by its log.
+fn step_at(conn: &Connection, id: &str, which: Which) -> io::Result<Option<DateTime<Utc>>> {
+    Ok(end_of_log(conn, id, which)?.and_then(|(_, line)| line.at.parse().ok()))
 }

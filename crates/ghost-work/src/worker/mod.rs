@@ -50,13 +50,13 @@ use std::{
 
 use ghost_brain::{Brain, Effort, Item, Stop, Turn, Usage};
 use serde::Serialize;
-use serde_json::json;
 
 use self::context::{Gauge, PICTURES_KEPT, chars, unsee};
 
 use crate::{
     parts::Parts,
     prompts::{self, Prompts, Shared},
+    steps::{Asked, Line},
     tool::Toolbox,
     tools::Handoff,
     undertaking::{MailKind, Outcome, State, Undertaking},
@@ -553,20 +553,22 @@ impl Worker {
                 }
             }
 
-            let line = json!({
-                "at": chrono::Utc::now().to_rfc3339(),
-                "step": n,
-                "read": usage.input,
-                "cached": usage.cached,
-                "wrote": usage.output,
-                "thought": usage.thought,
-                "model_ms": model_ms,
-                "said": as_written(&said, SAID_KEPT),
-                "calls": logged,
-                "context": context,
-                "window": self.brain.window(),
-                "folds_at": folds_at,
-            });
+            let line = Line {
+                at: chrono::Utc::now().to_rfc3339(),
+                step: n.into(),
+                said: as_written(&said, SAID_KEPT),
+                calls: logged,
+                asked: Some(Asked {
+                    usage,
+                    model_ms: u64::try_from(model_ms).unwrap_or(u64::MAX),
+                    context: context
+                        .into_iter()
+                        .map(|(part, size)| (part.to_owned(), size))
+                        .collect(),
+                    window: self.brain.window(),
+                    folds_at: Some(folds_at),
+                }),
+            };
             // The step is written whole, or not at all.
             let finish = match self.undertaking.step(
                 &shown.words,

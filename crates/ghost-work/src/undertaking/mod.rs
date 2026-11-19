@@ -79,7 +79,7 @@ use self::db::{load, other, store};
 pub use self::{
     db::WORK_DB,
     inbox::{Mail, MailKind},
-    look::{Glance, Logged, Look, Records, Step, StepContext, StepUsage, glance, look, steps},
+    look::{Glance, Logged, Look, Records, Step, StepContext, glance, look, steps},
     state::{AskKind, Checkout, Finish, Kept, Note, Outcome, PlanStep, Progress, State, Told},
     transcript::placeholder,
 };

@@ -12,7 +12,10 @@ use ghost_core::media;
 use rusqlite::{TransactionBehavior, params};
 use serde_json::{Value, json};
 
-use crate::prompts::{Store, TEXTS};
+use crate::{
+    prompts::{Store, TEXTS},
+    steps::Line,
+};
 
 use super::{
     State, Undertaking,
@@ -163,7 +166,7 @@ impl Undertaking {
     /// sitting stops, so that it can be picked up from there. An image
     /// that cannot be kept is said to be gone, in `words`.
     pub fn save(&self, words: &Store, items: &[Item], remembered: usize) -> io::Result<()> {
-        self.write_step(words, None::<(fn(&mut State), &Value)>, items, remembered)
+        self.write_step(words, None::<(fn(&mut State), &Line)>, items, remembered)
             .map(|_| ())
     }
 
@@ -176,7 +179,7 @@ impl Undertaking {
         &self,
         words: &Store,
         change: impl FnOnce(&mut State) -> T,
-        line: &Value,
+        line: &Line,
         items: &[Item],
         remembered: usize,
     ) -> io::Result<T> {
@@ -195,7 +198,7 @@ impl Undertaking {
     fn write_step<T, F: FnOnce(&mut State) -> T>(
         &self,
         words: &Store,
-        step: Option<(F, &Value)>,
+        step: Option<(F, &Line)>,
         items: &[Item],
         remembered: usize,
     ) -> io::Result<Option<T>> {
@@ -236,7 +239,14 @@ impl Undertaking {
                     .unwrap_or_else(|| self.cached().clone());
                 let out = change(&mut state);
                 store(&tx, &self.id, &state).map_err(other)?;
-                append(&tx, "log", "line", &self.id, [line.to_string()]).map_err(other)?;
+                append(
+                    &tx,
+                    "log",
+                    "line",
+                    &self.id,
+                    [serde_json::to_string(line).map_err(other)?],
+                )
+                .map_err(other)?;
                 Some((out, state))
             }
             None => None,
@@ -404,14 +414,17 @@ impl Undertaking {
     }
 
     /// Append one line to the step log.
-    pub fn log(&self, line: &serde_json::Value) {
-        if let Err(e) = self.appending("log", "line", [line.to_string()]) {
+    pub fn log(&self, line: &Line) {
+        let written = serde_json::to_string(line)
+            .map_err(other)
+            .and_then(|line| self.appending("log", "line", [line]).map_err(other));
+        if let Err(e) = written {
             tracing::warn!("could not write the step log: {e}");
         }
     }
 
     /// The step log, oldest line first.
-    pub fn logged(&self) -> Vec<serde_json::Value> {
+    pub fn logged(&self) -> Vec<Line> {
         self.column("SELECT line FROM log WHERE id = ?1 ORDER BY n")
             .iter()
             .filter_map(|text| serde_json::from_str(text).ok())

@@ -14,7 +14,18 @@ use super::{
     db::{SCHEMA, SCHEMA_VERSION},
     *,
 };
-use crate::prompts::Prompts;
+use crate::{prompts::Prompts, steps::Line};
+
+/// A step that said `said`, taken at `at`.
+fn line(at: &str, said: &str) -> Line {
+    Line {
+        at: at.into(),
+        step: 1,
+        said: said.into(),
+        calls: Vec::new(),
+        asked: None,
+    }
+}
 
 impl Undertaking {
     /// The words of what was taken from the inbox, whatever their kind.
@@ -37,7 +48,7 @@ fn work_under_way_can_be_looked_at_from_outside_without_writing() {
         s.waiting = Some("which colour?".into());
     })
     .unwrap();
-    work.log(&serde_json::json!({"at": "2026-11-15T08:30:00+00:00", "step": 7}));
+    work.log(&line("2026-11-15T08:30:00+00:00", ""));
     let part = work.open_part("one half").unwrap();
     drop(part);
     Undertaking::open(&db(&dir), "u2", Some("another")).unwrap();
@@ -85,7 +96,7 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
         )
         .unwrap();
     first.remember(&[Item::user("and test it")]);
-    first.log(&serde_json::json!({"step": 1}));
+    first.log(&line("2026-11-15T08:30:00+00:00", "looked"));
     drop(first);
 
     let again = Undertaking::open(&db(&dir), "u1", Some("something else")).unwrap();
@@ -101,7 +112,10 @@ fn an_undertaking_is_picked_up_from_the_database_after_its_handle_is_dropped() {
         1
     );
     assert_eq!(again.history().len(), 2);
-    assert_eq!(again.logged(), [serde_json::json!({"step": 1})]);
+    assert_eq!(
+        again.logged(),
+        [line("2026-11-15T08:30:00+00:00", "looked")]
+    );
 }
 
 #[test]
@@ -355,7 +369,7 @@ fn two_undertakings_in_one_database_do_not_see_each_others_state() {
     a.update(|s| s.steps = 7).unwrap();
     a.save(&crate::Prompts::shipped(), &[Item::user("fence")], 0)
         .unwrap();
-    a.log(&serde_json::json!({"step": 1}));
+    a.log(&line("2026-11-15T08:30:00+00:00", ""));
     a.add("white").unwrap();
 
     assert_eq!(b.state().brief, "mend the gate");
@@ -745,7 +759,7 @@ fn work_that_has_ended_keeps_its_history_and_not_its_transcript() {
                 at: Utc::now(),
             });
         },
-        &json!({"said": "done"}),
+        &line("2026-11-15T08:30:00+00:00", "done"),
         &last,
         3,
     )

@@ -33,6 +33,7 @@ use tokio::{
 
 use crate::{
     prompts::{Store, TEXTS},
+    steps::{self, Called, Line},
     undertaking::{MailKind, Outcome, Undertaking},
     worker::{Ended, preview},
 };
@@ -342,7 +343,7 @@ fn command(agent: &Agent, dir: &Path, prompt: &str, session: Option<&str>) -> Co
 struct Heard {
     session: Option<String>,
     /// A step: what it said, and the call it made.
-    step: Option<(String, Value)>,
+    step: Option<(String, Vec<Called>)>,
     usage: Option<Usage>,
     answer: Option<String>,
     failed: Option<String>,
@@ -365,14 +366,19 @@ fn claude_line(event: &Value) -> Heard {
                 .filter_map(|b| (b["type"] == "text").then(|| b["text"].as_str()).flatten())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let calls: Vec<Value> = blocks
+            // What a call brought back comes on a later line, and is the
+            // agent's to read, not the log's.
+            let calls: Vec<Called> = blocks
                 .into_iter()
                 .flatten()
                 .filter(|b| b["type"] == "tool_use")
-                .map(|b| json!({"name": b["name"], "args": b["input"]}))
+                .map(|b| {
+                    let name = b["name"].as_str().unwrap_or_default();
+                    steps::call(name, &b["input"], "", false, 0, 0)
+                })
                 .collect();
             if !calls.is_empty() || !said.is_empty() {
-                heard.step = Some((said, Value::Array(calls)));
+                heard.step = Some((said, calls));
             }
         }
         Some("result") => {
@@ -414,17 +420,19 @@ fn codex_line(event: &Value, last_said: &mut String) -> Heard {
                         .clone_into(last_said);
                 }
                 Some("command_execution") => {
-                    let call = json!({
-                        "name": "shell",
-                        "args": {"command": item["command"]},
-                        "out": preview(item["aggregated_output"].as_str().unwrap_or_default(), 400),
-                        "failed": item["exit_code"].as_i64().is_some_and(|c| c != 0),
-                    });
-                    heard.step = Some((String::new(), Value::Array(vec![call])));
+                    let call = steps::call(
+                        "shell",
+                        &json!({"command": item["command"]}),
+                        item["aggregated_output"].as_str().unwrap_or_default(),
+                        item["exit_code"].as_i64().is_some_and(|c| c != 0),
+                        0,
+                        0,
+                    );
+                    heard.step = Some((String::new(), vec![call]));
                 }
                 Some(kind @ ("file_change" | "mcp_tool_call" | "web_search")) => {
-                    let call = json!({"name": kind, "args": item});
-                    heard.step = Some((String::new(), Value::Array(vec![call])));
+                    let call = steps::call(kind, item, "", false, 0, 0);
+                    heard.step = Some((String::new(), vec![call]));
                 }
                 _ => {}
             }
@@ -535,12 +543,13 @@ async fn once(
         }
         if let Some((said, calls)) = heard.step {
             steps += 1;
-            part.log(&json!({
-                "at": Utc::now().to_rfc3339(),
-                "step": steps,
-                "said": crate::worker::as_written(&said, crate::worker::SAID_KEPT),
-                "calls": calls,
-            }));
+            part.log(&Line {
+                at: Utc::now().to_rfc3339(),
+                step: steps,
+                said: crate::worker::as_written(&said, crate::worker::SAID_KEPT),
+                calls,
+                asked: None,
+            });
         }
         if let Some(u) = heard.usage {
             usage.add(u);
@@ -605,7 +614,7 @@ mod tests {
         ]}}));
         let (said, calls) = step.step.unwrap();
         assert_eq!(said, "Reading it.");
-        assert_eq!(calls[0]["name"], "Bash");
+        assert_eq!(calls[0].name, "Bash");
         let done = claude_line(
             &json!({"type": "result", "result": "Done: 3 files.", "is_error": false,
             "usage": {"input_tokens": 10, "cache_read_input_tokens": 90, "output_tokens": 5}}),
@@ -630,8 +639,8 @@ mod tests {
             &mut last,
         );
         let (_, calls) = ran.step.unwrap();
-        assert_eq!(calls[0]["args"]["command"], "cargo test");
-        assert_eq!(calls[0]["failed"], true);
+        assert_eq!(calls[0].args["command"], "cargo test");
+        assert!(calls[0].failed);
         codex_line(
             &json!({"type": "item.completed", "item": {"type": "agent_message", "text": "Fixed it."}}),
             &mut last,

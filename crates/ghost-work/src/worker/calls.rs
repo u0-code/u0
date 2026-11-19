@@ -8,7 +8,6 @@
 use std::time::Instant;
 
 use ghost_brain::{Call, Item};
-use serde_json::Value;
 
 use super::{Worker, preview};
 use crate::{
@@ -30,7 +29,7 @@ impl Worker {
         words: &Prompts,
         calls: &[Call],
         items: &mut Vec<Item>,
-    ) -> (Vec<Value>, String) {
+    ) -> (Vec<steps::Called>, String) {
         let mut logged = Vec::new();
         let mut signature = String::new();
         // Several calls that only look are run side by side; anything

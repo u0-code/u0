@@ -62,17 +62,17 @@ async fn each_step_is_logged_with_what_was_said_called_and_returned_and_reads_ba
         steps[0].said,
         "writing it first:\n\n| file | lines |\n|---|---|\n| hi.txt | 1 |"
     );
-    assert!(steps[0].ms.is_some() && steps[0].at.is_some());
+    assert!(steps[0].ms.is_some() && !steps[0].at.is_empty());
     let write = &steps[0].calls[0];
-    assert_eq!(write["name"], "write");
-    assert_eq!(write["args"]["path"], "hi.txt");
-    assert_eq!(write["failed"], false);
+    assert_eq!(write.name, "write");
+    assert_eq!(write.args["path"], "hi.txt");
+    assert!(!write.failed);
     // A long output keeps its head, and says how long it was.
     let shell = &steps[1].calls[0];
-    let out = shell["out"].as_str().unwrap();
+    let out = &shell.out;
     assert!(out.starts_with("line 1\n"), "{out}");
-    assert_eq!(shell["cut"], true);
-    assert!(shell["chars"].as_u64().unwrap() > out.chars().count() as u64);
+    assert!(shell.cut);
+    assert!(shell.chars > out.chars().count() as u64);
 
     // After a step, and a step at a time.
     let rest = crate::undertaking::steps(&db, "main", 1, 1)

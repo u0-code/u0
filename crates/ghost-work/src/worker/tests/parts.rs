@@ -630,7 +630,7 @@ async fn what_a_part_spends_is_counted_in_its_parents_totals() {
         .undertaking
         .logged()
         .iter()
-        .map(|line| line["read"].as_u64().unwrap())
+        .map(|line| line.asked.as_ref().unwrap().usage.input)
         .sum();
     let part = part_record(dir.path(), 1).state().usage;
     assert!(part.input >= 200 && part.output == 20);
@@ -846,8 +846,8 @@ async fn a_part_handed_to_an_installed_agent_is_done_by_it_step_by_step_and_repo
     );
     // What it did is the part's steps, for whoever follows the work.
     let logged = part.logged();
-    assert_eq!(logged[0]["calls"][0]["name"], "Bash");
-    assert_eq!(logged[0]["calls"][0]["args"]["command"], "make test");
+    assert_eq!(logged[0].calls[0].name, "Bash");
+    assert_eq!(logged[0].calls[0].args["command"], "make test");
 }
 
 #[tokio::test]
