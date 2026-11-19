@@ -32,7 +32,7 @@ use gpui::{
 };
 use serde_json::Value;
 
-use super::{View, calls, from_desk, s};
+use super::{View, from_desk, s};
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -413,7 +413,7 @@ pub(super) fn did(e: &Entry, thread: &str, known: &Known<'_>) -> Option<Did> {
                 here,
                 what: What::Refused {
                     place: known.place_of(about),
-                    reason: calls::one_line(s(d, "reason"), 200),
+                    reason: ui::fit(s(d, "reason"), 200),
                 },
             });
         }
@@ -690,10 +690,6 @@ fn picture(
         .into_any_element()
 }
 
-/// About how many points a column of the interface's face takes at 14,
-/// a Chinese character counting two.
-const POINTS_PER_COL: f32 = 7.;
-
 /// Draw what she did, `seq` being its entry's, at `at`.
 pub(super) fn render(
     faces: &Faces,
@@ -707,19 +703,19 @@ pub(super) fn render(
     let media = view.media.as_ref().map_err(|why| *why);
     // Room for words in a label or a row: the column less its insets, the
     // verb before them and the time after.
-    let cols = |less: f32| ((view.column - less).max(60.) / POINTS_PER_COL) as usize;
+    let cols = |less: f32| ui::cols((view.column - less).max(60.));
     match &did.what {
         What::Said { place, text, sent } => {
             let mut head = label();
             head = match sent {
                 Some(Sent::Image(file) | Sent::File(file)) => head
                     .child(muted(faces, "Sent"))
-                    .child(white(faces, calls::fit(file, cols(420.).max(12))))
+                    .child(white(faces, ui::fit(file, cols(420.).max(12))))
                     .child(muted(faces, "to"))
-                    .child(white(faces, calls::fit(place, cols(360.).max(12)))),
+                    .child(white(faces, ui::fit(place, cols(360.).max(12)))),
                 None => head
                     .child(muted(faces, "Said in"))
-                    .child(white(faces, calls::fit(place, cols(160.)))),
+                    .child(white(faces, ui::fit(place, cols(160.)))),
             };
             let mut b = boxed().gap(px(S2)).child(head.child(right(faces, when)));
             if let Some(Sent::Image(file)) = sent {
@@ -747,7 +743,7 @@ pub(super) fn render(
             let right_words = if did.here {
                 when
             } else {
-                format!("{} · {when}", calls::fit(place, cols(300.).max(12)))
+                format!("{} · {when}", ui::fit(place, cols(300.).max(12)))
             };
             row()
                 .gap(px(6.))
@@ -756,7 +752,7 @@ pub(super) fn render(
                 .child(white(faces, emoji.clone()))
                 .when_some(to.clone(), |d, to| {
                     d.child(muted(faces, "to"))
-                        .child(white(faces, calls::fit(&to, 24)))
+                        .child(white(faces, ui::fit(&to, 24)))
                 })
                 .child(div().flex_1())
                 .child(meta(faces, right_words).flex_none().pl(px(S4)))
@@ -784,7 +780,7 @@ pub(super) fn render(
                             .id(SharedString::from(format!("post-{seq}")))
                             .cursor_pointer()
                             .child(
-                                ui::text(faces, calls::fit(&link, 40))
+                                ui::text(faces, ui::fit(&link, 40))
                                     .text_size(px(META))
                                     .text_color(theme::link()),
                             )
@@ -834,7 +830,7 @@ pub(super) fn render(
             ))
             .child(meta(
                 faces,
-                calls::fit(&format!("{file} · sent to {place} · {when}"), cols(0.)),
+                ui::fit(&format!("{file} · sent to {place} · {when}"), cols(0.)),
             ))
             .into_any_element(),
         What::Inner { kind, verb, what } => row()
@@ -843,7 +839,7 @@ pub(super) fn render(
             .child(ui::dot(colour(kind)))
             .child(muted(faces, *verb))
             .when(!what.is_empty(), |d| {
-                d.child(white(faces, calls::fit(what, cols(170.))).min_w(px(0.)))
+                d.child(white(faces, ui::fit(what, cols(170.))).min_w(px(0.)))
             })
             .child(div().flex_1())
             .child(meta(faces, when).flex_none().pl(px(S4)))

@@ -69,10 +69,11 @@ pub(super) fn tool(
                 .flex_none(),
         )
         .child(
-            ui::mono(faces, calls::fit(what, 60))
+            ui::mono(faces, ui::fit(what, 60))
                 .flex_1()
                 .min_w(px(0.))
-                .truncate()
+                .overflow_hidden()
+                .whitespace_nowrap()
                 .text_size(px(NAME))
                 .text_color(theme::text()),
         )
@@ -119,11 +120,8 @@ pub(super) fn task(
     let here = view.status.is_some_and(|s| s.here);
     let key = format!("task:{}", t.id);
     // How many columns of words the head has room for: the column less
-    // the card's margins, its mark, its chevron and the gaps between,
-    // at about 7 points a column for the title and 6.6 for the line
-    // under it (a Chinese character takes two).
-    let room = (column - 92.).max(80.);
-    let (title_cols, under_cols) = ((room / 7.0) as usize, (room / 6.6) as usize);
+    // the card's margins, its mark, its chevron and the gaps between.
+    let cols = ui::cols((column - 92.).max(80.));
     let open = expanded.contains(&key);
     let state = t.state();
     let read = following.works.get(&t.id).filter(|r| r.read());
@@ -163,8 +161,7 @@ pub(super) fn task(
         .overflow_hidden()
         .gap(px(2.))
         .child(
-            ui::one_line(ui::text(faces, calls::fit(t.title(), title_cols)))
-                .whitespace_nowrap()
+            ui::one_line(ui::text(faces, ui::fit(t.title(), cols)))
                 .text_size(px(BODY))
                 .line_height(px(20.))
                 .text_color(if dropped {
@@ -174,8 +171,7 @@ pub(super) fn task(
                 }),
         )
         .child(
-            ui::one_line(ui::text(faces, calls::fit(&done, under_cols)))
-                .whitespace_nowrap()
+            ui::one_line(ui::text(faces, ui::fit(&done, cols)))
                 .text_size(px(SMALL))
                 .line_height(px(18.))
                 .text_color(under),
@@ -312,7 +308,7 @@ pub(super) fn task(
             source: super::Source::Report,
         };
         let second = match (&path, here) {
-            (Some(path), false) => calls::fit(&path.display().to_string(), 48),
+            (Some(path), false) => ui::fit(&path.display().to_string(), 48),
             _ => out.kind(),
         };
         let chip = div()
@@ -332,7 +328,7 @@ pub(super) fn task(
                     .flex()
                     .flex_col()
                     .child(
-                        ui::text(faces, calls::fit(out.name(), 40))
+                        ui::text(faces, ui::fit(out.name(), 40))
                             .text_size(px(NAME))
                             .text_color(theme::text()),
                     )
@@ -593,9 +589,9 @@ fn milestone(faces: &Faces, e: &Entry, tz: Tz) -> Div {
         .child(meta(faces, format!("{tag} · {}", clock(e.at, tz))))
         .when(!text.trim().is_empty(), |d| {
             d.child(
-                // Cut by characters here: GPUI's own clamp with an
-                // ellipsis cuts Chinese inside a character and panics.
-                ui::text(faces, calls::one_line(text, SAID_SHORT))
+                // Cut here, not by GPUI's clamp with an ellipsis, which
+                // can cut Chinese inside a character and panic.
+                ui::text(faces, ui::fit(text, SAID_SHORT))
                     .text_size(px(BODY))
                     .line_height(px(BODY_LINE))
                     .text_color(theme::text2()),
@@ -664,7 +660,8 @@ fn folder(faces: &Faces, id: &str, dir: &str, here: bool, cx: &mut Context<Desk>
             ui::mono(faces, shown)
                 .flex_1()
                 .min_w(px(0.))
-                .truncate()
+                .overflow_hidden()
+                .whitespace_nowrap()
                 .text_size(px(MONO))
                 .text_color(theme::muted()),
         );

@@ -38,12 +38,19 @@ use crate::{
 const ROW: f32 = 22.5;
 /// Room an icon and its gap take, for a second line to start under the label.
 const ICON_ROOM: f32 = 26.;
+/// The room a section's rows have: the column less its insets.
+const ROOM: f32 = RIGHT - 32.;
+/// Room a value or a small action takes at a row's right.
+const RIGHT_ROOM: f32 = 80.;
 
-/// A label in a row.
-fn label(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::text(faces, text)
-        .text_size(px(SMALL))
-        .text_color(theme::text2())
+/// A label in a row, cut to what its row leaves it.
+fn label(faces: &Faces, text: &str) -> Div {
+    ui::text(
+        faces,
+        ui::fit(text, ui::cols(ROOM - ICON_ROOM - RIGHT_ROOM)),
+    )
+    .text_size(px(SMALL))
+    .text_color(theme::text2())
 }
 
 /// A value at the right of a row.
@@ -103,9 +110,9 @@ fn row_with(icon: Option<AnyElement>, label: Div, right: Option<AnyElement>, und
 }
 
 /// Small print under a label.
-fn under(faces: &Faces, text: impl Into<SharedString>) -> Div {
+fn under(faces: &Faces, text: &str) -> Div {
     ui::one_line(
-        ui::mono(faces, text)
+        ui::mono(faces, ui::fit(text, ui::cols(ROOM - ICON_ROOM)))
             .text_size(px(FINE))
             .text_color(theme::faint()),
     )
@@ -126,7 +133,7 @@ pub(crate) fn task_row(
     faces: &Faces,
     id: impl Into<gpui::ElementId>,
     lead: AnyElement,
-    brief: String,
+    brief: &str,
     right: String,
     right_color: gpui::Hsla,
 ) -> Stateful<Div> {
@@ -137,7 +144,13 @@ pub(crate) fn task_row(
         .gap(px(10.))
         .h(px(28.))
         .child(lead)
-        .child(ui::one_line(ui::text(faces, brief).text_size(px(SMALL))))
+        .child(ui::one_line(
+            ui::text(
+                faces,
+                ui::fit(brief, ui::cols(ROOM - ICON_ROOM - RIGHT_ROOM)),
+            )
+            .text_size(px(SMALL)),
+        ))
         .child(
             ui::mono(faces, right)
                 .text_size(px(FINE))
@@ -216,9 +229,12 @@ pub(crate) fn part_row(
         .pl(px(ICON_ROOM))
         .child(lead)
         .child(ui::one_line(
-            ui::text(faces, part.brief.clone())
-                .text_size(px(META))
-                .text_color(theme::text2()),
+            ui::text(
+                faces,
+                ui::fit(&part.brief, ui::cols(ROOM - 2. * ICON_ROOM - RIGHT_ROOM)),
+            )
+            .text_size(px(META))
+            .text_color(theme::text2()),
         ))
         .children(part.brain.as_deref().map(|brain| brain_tag(faces, brain)))
         .child(
@@ -270,7 +286,7 @@ pub(crate) fn ended_summary(ended: impl IntoIterator<Item = WorkState>) -> Strin
 pub(crate) fn ended_row(
     faces: &Faces,
     id: &'static str,
-    summary: String,
+    summary: &str,
     open: bool,
     cx: &mut Context<Desk>,
     key: String,
@@ -284,7 +300,7 @@ pub(crate) fn ended_row(
         .cursor_pointer()
         .child(row_icon("check"))
         .child(ui::one_line(
-            ui::text(faces, summary)
+            ui::text(faces, ui::fit(summary, ui::cols(ROOM - 2. * ICON_ROOM)))
                 .text_size(px(NAME))
                 .text_color(theme::text2()),
         ))
@@ -425,9 +441,9 @@ impl Desk {
         let (word, color, up) = standing(link, reach, starting);
         let card = row_with(
             Some(row_icon("server")),
-            label(faces, name.to_owned()),
+            label(faces, name),
             Some(pill(faces, word, color, up)),
-            under(faces, reach_line(&host, link, reach, starting)),
+            under(faces, &reach_line(&host, link, reach, starting)),
         );
         let Some(why) = reach.why.as_ref().filter(|_| !up && !starting) else {
             return card;
@@ -685,7 +701,7 @@ impl Desk {
                     host.unwrap_or_else(|| "elsewhere".to_owned()),
                     theme::muted(),
                 )),
-                under(faces, home.display().to_string()),
+                under(faces, &home.display().to_string()),
             );
         }
         let you = std::env::var_os("HOME").map(PathBuf::from);
@@ -696,7 +712,7 @@ impl Desk {
             Some(row_icon("laptop")),
             label(faces, "This machine"),
             Some(open.into_any_element()),
-            under(faces, shown),
+            under(faces, &shown),
         )
     }
 
@@ -722,7 +738,7 @@ impl Desk {
             }));
         row(
             Some(mark),
-            label(faces, name),
+            label(faces, &name),
             Some(change.into_any_element()),
         )
         .relative()
@@ -765,7 +781,7 @@ impl Desk {
                     faces,
                     SharedString::from(format!("work-{}", t.id)),
                     running_lead(),
-                    t.brief.clone(),
+                    &t.brief,
                     right,
                     color,
                 )
@@ -806,7 +822,7 @@ impl Desk {
         let summary = ended_summary(ended.iter().map(|t| t.state()));
         let key = format!("more:{}", session.id);
         let open = self.expanded.contains(&key);
-        list = list.child(ended_row(faces, "work-ended", summary, open, cx, key));
+        list = list.child(ended_row(faces, "work-ended", &summary, open, cx, key));
         if open {
             for t in ended {
                 let ago = format!(
@@ -819,7 +835,7 @@ impl Desk {
                         faces,
                         SharedString::from(format!("work-{}", t.id)),
                         glyph(t.state()).into_any_element(),
-                        t.brief.clone(),
+                        &t.brief,
                         ago,
                         theme::faint(),
                     )
@@ -861,7 +877,7 @@ impl Desk {
             };
             let (icon, name, kind) = (
                 Some(row_icon("file")),
-                label(faces, o.name().to_owned()),
+                label(faces, o.name()),
                 Some(value(faces, o.kind(), theme::faint())),
             );
             list = list.child(match (click, note) {
@@ -877,7 +893,7 @@ impl Desk {
                     }))
                     .into_any_element(),
                 (None, Some(note)) => {
-                    row_with(icon, name, kind, under(faces, note)).into_any_element()
+                    row_with(icon, name, kind, under(faces, &note)).into_any_element()
                 }
                 (None, None) => row(icon, name, kind).into_any_element(),
             });
@@ -911,7 +927,7 @@ impl Desk {
                     status.map_or_else(dash, crate::model::Status::hhmm),
                     theme::text(),
                 )),
-                under(faces, status.map_or_else(dash, |s| s.said.city.clone())),
+                under(faces, &status.map_or_else(dash, |s| s.said.city.clone())),
             ))
             .child({
                 let think = status

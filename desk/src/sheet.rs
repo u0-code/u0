@@ -538,7 +538,7 @@ impl Desk {
             .occlude()
             .flex()
             .flex_col()
-            .w(px(440.))
+            .w(px(WIDE))
             .bg(theme::panel())
             .border_1()
             .border_color(theme::border2())
@@ -775,7 +775,7 @@ impl Desk {
         };
         body = body.children(line.map(|(text, color)| {
             ui::one_line(
-                ui::text(faces, text)
+                ui::text(faces, ui::fit(&text, ui::cols(ROOM)))
                     .text_size(px(CAPTION))
                     .text_color(color),
             )
@@ -846,7 +846,7 @@ impl Desk {
                             .cursor_pointer()
                             .hover(|s| s.bg(theme::hover()))
                             .child(ui::one_line(
-                                ui::mono(faces, id.clone())
+                                ui::mono(faces, ui::fit(id, ui::cols(ROOM - LABEL - 20.)))
                                     .text_size(px(CAPTION))
                                     .text_color(theme::text2()),
                             ))
@@ -865,7 +865,7 @@ impl Desk {
                 list = list.child(note(faces, "asking…", theme::muted()));
             }
             Models::Failed(why) => {
-                list = list.child(note(faces, why.clone(), theme::coral()));
+                list = list.child(note(faces, why, theme::coral()));
             }
             Models::Unasked => {}
         }
@@ -875,6 +875,9 @@ impl Desk {
 
 /// The width of a field's label.
 const LABEL: f32 = 92.;
+/// The sheet's width, and the room its lines have inside its insets.
+const WIDE: f32 = 440.;
+const ROOM: f32 = WIDE - 32.;
 
 /// A label and its control, on one line.
 fn field_row(faces: &Faces, label: &'static str, control: Div) -> Div {
@@ -924,9 +927,9 @@ fn status(faces: &Faces, word: &str, color: Hsla) -> Div {
 }
 
 /// A line of small print in the model list.
-fn note(faces: &Faces, text: impl Into<SharedString>, color: Hsla) -> Div {
+fn note(faces: &Faces, text: &str, color: Hsla) -> Div {
     ui::one_line(
-        ui::text(faces, text)
+        ui::text(faces, ui::fit(text, ui::cols(ROOM - LABEL - 20.)))
             .text_size(px(CAPTION))
             .text_color(color),
     )

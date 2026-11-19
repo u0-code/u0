@@ -576,7 +576,9 @@ impl Desk {
                 this.menu = Menu::Closed;
                 this.open_sheet(Some(edit.clone()), window, cx);
             }));
-        let about = ui::one_line(ui::text(faces, p.about()))
+        // The left column less its insets, the mark, the pencil and the check.
+        let room = ui::cols(250. - 90.);
+        let about = ui::one_line(ui::text(faces, ui::fit(&p.about(), room)))
             .text_size(px(FINE))
             .line_height(px(15.))
             .text_color(if p.blocker.is_some() {
@@ -605,9 +607,7 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .child(
-                        ui::text(faces, p.title())
-                            .w_full()
-                            .truncate()
+                        ui::one_line(ui::text(faces, ui::fit(&p.title(), room)))
                             .text_size(px(SMALL))
                             .line_height(px(18.)),
                     )
@@ -680,8 +680,10 @@ impl Desk {
                     .cursor_pointer()
                     .when(on, |d| d.bg(theme::panel2()))
                     .hover(|s| s.bg(theme::hover()))
+                    // The menu less the brains' column, the insets, the
+                    // check and the key.
                     .child(ui::one_line(
-                        ui::text(faces, c.label.clone())
+                        ui::text(faces, ui::fit(&c.label, ui::cols(540. - 250. - 70.)))
                             .text_size(px(SMALL))
                             .text_color(if on { theme::text() } else { theme::text2() }),
                     ))

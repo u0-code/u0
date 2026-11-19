@@ -45,6 +45,9 @@ const HEAD_ABOVE: f32 = 22.;
 const PART_ROW: f32 = 26.;
 /// How far a part's row is indented from its session's.
 const INDENT: f32 = 18.;
+/// The room a row's words have: the column less its insets, a row's own
+/// and its dot's, and the `…` at a session's right.
+const ROOM: f32 = LEFT - 16. - 20. - 40.;
 
 /// The colour of the daemon link's dot: green when connected, grey while
 /// connecting, coral when lost.
@@ -402,7 +405,7 @@ impl Desk {
                 .into_any_element()
         } else {
             ui::one_line(
-                ui::text(faces, s.label())
+                ui::text(faces, ui::fit(&s.label(), ui::cols(ROOM)))
                     .text_size(px(NAME))
                     .text_color(label_color),
             )
@@ -551,8 +554,9 @@ impl Desk {
                     .font_weight(FontWeight::MEDIUM)
                     .flex_none(),
             )
+            // What the name and the controls beside it leave.
             .child(ui::one_line(
-                ui::mono(faces, format!("· {brain}"))
+                ui::mono(faces, ui::fit(&format!("· {brain}"), ui::cols(ROOM / 2.)))
                     .text_size(px(FINE))
                     .text_color(theme::muted()),
             ))
@@ -604,7 +608,7 @@ fn part_row(
         .child(connector(last))
         .child(ui::dot(thread::state_color(part.state)))
         .child(ui::one_line(
-            ui::text(faces, part.brief.clone())
+            ui::text(faces, ui::fit(&part.brief, ui::cols(ROOM - INDENT)))
                 .text_size(px(SMALL))
                 .text_color(theme::muted()),
         ))
@@ -760,7 +764,7 @@ impl Desk {
             .when(!on, |d| d.hover(|x| x.bg(theme::hover())))
             .child(ui::dot(dot))
             .child(ui::one_line(
-                ui::text(faces, her.card.name.clone())
+                ui::text(faces, ui::fit(&her.card.name, ui::cols(ROOM)))
                     .text_size(px(NAME))
                     .text_color(theme::text()),
             ))

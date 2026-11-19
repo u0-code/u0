@@ -43,6 +43,10 @@ pub(crate) struct Notice {
     pub open: bool,
 }
 
+/// How much of the brain's name the chip under the line you type into
+/// shows, in columns.
+const BRAIN_COLS: usize = 34;
+
 /// How long a notice's line may be before it is cut to its gist, in
 /// characters: about one line of the composer's width.
 const LONG: usize = 120;
@@ -210,7 +214,7 @@ impl Desk {
                 .hover(|s| s.bg(theme::hover()))
                 .children(provider.map(|p| ui::mark(faces, p.mark(), 13.)))
                 .child(ui::one_line(
-                    ui::text(faces, label)
+                    ui::text(faces, ui::fit(&label, BRAIN_COLS))
                         .text_size(px(META))
                         .text_color(theme::muted()),
                 ))

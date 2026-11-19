@@ -11,6 +11,12 @@ use crate::{
     theme, ui,
 };
 
+/// How much of a session's name or her name the top bar shows, in
+/// columns: its chip is at most 420 wide.
+const TITLE_COLS: usize = 55;
+/// How much of a place's name its chip and its menu show, in columns.
+const PLACE_COLS: usize = 38;
+
 impl Desk {
     /// A small square control in the row beside the window's lights.
     fn control(id: &'static str, icon: &'static str, enabled: bool) -> gpui::Stateful<gpui::Div> {
@@ -74,9 +80,10 @@ impl Desk {
         };
         let session = (self.open.is_none() && !self.attending()).then(|| self.session().id);
         let title: AnyElement = if let Some(id) = session {
-            self.session_title(faces, title, &id, cx).into_any_element()
+            self.session_title(faces, &title, &id, cx)
+                .into_any_element()
         } else {
-            let t = ui::text(faces, title)
+            let t = ui::text(faces, ui::fit(&title, TITLE_COLS))
                 .font_weight(FontWeight::MEDIUM)
                 .text_size(px(SMALL));
             // Beside a picker her name keeps its width; alone, a name
@@ -119,7 +126,7 @@ impl Desk {
 
     /// The session's name with a chevron, which opens the session's menu
     /// under it: the same one as in the sidebar.
-    fn session_title(&self, faces: &Faces, title: String, id: &str, cx: &mut Context<Self>) -> Div {
+    fn session_title(&self, faces: &Faces, title: &str, id: &str, cx: &mut Context<Self>) -> Div {
         let open = self.popup == Popup::Title(id.to_owned());
         let for_click = id.to_owned();
         let chip = div()
@@ -136,7 +143,7 @@ impl Desk {
             .when(open, |d| d.bg(theme::panel2()))
             .hover(|s| s.bg(theme::hover()))
             .child(ui::one_line(
-                ui::text(faces, title)
+                ui::text(faces, ui::fit(title, TITLE_COLS))
                     .font_weight(FontWeight::MEDIUM)
                     .text_size(px(SMALL)),
             ))
@@ -183,7 +190,7 @@ impl Desk {
             .when(self.popup == Popup::Places, |d| d.bg(theme::panel2()))
             .hover(|s| s.bg(theme::hover()))
             .child(ui::one_line(
-                ui::mono(faces, label)
+                ui::mono(faces, ui::fit(&label, PLACE_COLS))
                     .text_size(px(CAPTION))
                     .text_color(theme::text2()),
             ))
@@ -232,7 +239,7 @@ impl Desk {
                         .when(here, |d| d.bg(theme::panel2()))
                         .hover(|s| s.bg(theme::hover()))
                         .child(ui::one_line(
-                            ui::text(faces, place.label).text_size(px(SMALL)),
+                            ui::text(faces, ui::fit(&place.label, PLACE_COLS)).text_size(px(SMALL)),
                         ))
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.choose_place(key.clone(), cx)),

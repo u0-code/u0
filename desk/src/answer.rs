@@ -302,7 +302,7 @@ impl Desk {
                 faces,
                 SharedString::from(format!("her-work-{}", w.id)),
                 running_lead(),
-                w.brief.clone(),
+                &w.brief,
                 right,
                 color,
             ));
@@ -325,7 +325,7 @@ impl Desk {
         let summary = ended_summary(ended.iter().map(|w| w.state));
         let key = "more:her".to_owned();
         let open = self.expanded.contains(&key);
-        list = list.child(ended_row(faces, "her-work-ended", summary, open, cx, key));
+        list = list.child(ended_row(faces, "her-work-ended", &summary, open, cx, key));
         if open {
             for w in ended {
                 let ago = when(&w.last).map_or_else(String::new, |t| {
@@ -336,7 +336,7 @@ impl Desk {
                         faces,
                         SharedString::from(format!("her-work-{}", w.id)),
                         glyph(w.state).into_any_element(),
-                        w.brief.clone(),
+                        &w.brief,
                         ago,
                         theme::faint(),
                     )

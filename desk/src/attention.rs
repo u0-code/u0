@@ -352,10 +352,18 @@ impl Desk {
                     .text_color(color)
                     .flex_none(),
             )
+            // The card's width less its insets, the word before and the
+            // buttons after.
             .child(ui::one_line(
-                ui::mono(faces, format!("{} · {}{ago}", item.name, item.host.label()))
-                    .text_size(px(FINE))
-                    .text_color(theme::muted()),
+                ui::mono(
+                    faces,
+                    ui::fit(
+                        &format!("{} · {}{ago}", item.name, item.host.label()),
+                        ui::cols(COLUMN - 230.),
+                    ),
+                )
+                .text_size(px(FINE))
+                .text_color(theme::muted()),
             ))
             .child(open)
             .when(!seen, |d| {
@@ -381,7 +389,7 @@ impl Desk {
             .child(head)
             .children(it.brief.as_ref().map(|b| {
                 ui::one_line(
-                    ui::text(faces, b.clone())
+                    ui::text(faces, ui::fit(b, ui::cols(COLUMN - 30.)))
                         .text_size(px(META))
                         .text_color(theme::muted()),
                 )

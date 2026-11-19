@@ -90,9 +90,7 @@ pub fn hits(faces: &Faces, key: &str, found: &[Hit], cx: &mut Context<Desk>) -> 
                 .gap(px(1.))
                 .cursor_pointer()
                 .child(
-                    ui::text(faces, super::calls::fit(&hit.title, 84))
-                        .w_full()
-                        .truncate()
+                    ui::one_line(ui::text(faces, ui::fit(&hit.title, 84)))
                         .text_size(px(BODY))
                         .line_height(px(20.))
                         .text_color(theme::link())

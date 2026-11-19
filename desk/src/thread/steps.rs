@@ -310,7 +310,7 @@ fn call_row(
                     if all {
                         out.text.clone()
                     } else {
-                        calls::one_line(&out.text, PAGE_CHARS)
+                        ui::fit(&out.text, PAGE_CHARS)
                     },
                 )
                 .px(px(10.))
@@ -331,7 +331,7 @@ fn call_row(
         };
         let lines = output::count(&out.text);
         let long = if call.name == "fetch" {
-            out.text.chars().count() > PAGE_CHARS
+            ui::fit(&out.text, PAGE_CHARS) != ui::fit(&out.text, usize::MAX)
         } else {
             output::folds(&call.name, &out.text)
         };
@@ -376,15 +376,17 @@ const ROW_COLS: usize = 60;
 /// typed; anything else, a query, a page, a name, in words.
 fn object(faces: &Faces, name: &str, what: &str) -> Div {
     let typed = matches!(name, "shell" | "read" | "write" | "edit");
-    let text = calls::fit(what, ROW_COLS);
+    let text = ui::fit(what, ROW_COLS);
     if typed {
         ui::mono(faces, text)
-            .truncate()
+            .overflow_hidden()
+            .whitespace_nowrap()
             .text_size(px(NAME))
             .text_color(theme::text())
     } else {
         ui::text(faces, text)
-            .truncate()
+            .overflow_hidden()
+            .whitespace_nowrap()
             .text_size(px(BODY))
             .text_color(theme::text())
     }
@@ -411,7 +413,7 @@ fn box_label(
         return line.child(ui::text(faces, "Bash").text_color(theme::muted()));
     }
     let typed = matches!(call.name.as_str(), "read" | "write" | "edit");
-    let what = calls::fit(&said.what, ROW_COLS);
+    let what = ui::fit(&said.what, ROW_COLS);
     let found = (call.name == "search" && !call.failed)
         .then(|| kinds::hits(&call.out).len())
         .filter(|n| *n > 0);
@@ -423,13 +425,15 @@ fn box_label(
     .when(!what.is_empty(), |d| {
         d.child(if typed {
             ui::mono(faces, what)
-                .truncate()
+                .overflow_hidden()
+                .whitespace_nowrap()
                 .min_w(px(0.))
                 .text_size(px(MONO))
                 .text_color(theme::text())
         } else {
             ui::text(faces, what)
-                .truncate()
+                .overflow_hidden()
+                .whitespace_nowrap()
                 .min_w(px(0.))
                 .text_color(theme::text())
         })
@@ -683,16 +687,14 @@ pub(super) fn part(
         .child(
             ui::one_line(ui::text(
                 faces,
-                calls::fit(&format!("Part {n} · {}", part.brief), 72),
+                ui::fit(&format!("Part {n} · {}", part.brief), 72),
             ))
-            .whitespace_nowrap()
             .text_size(px(NAME))
             .line_height(px(19.))
             .text_color(theme::text()),
         )
         .child(
-            ui::one_line(ui::text(faces, calls::fit(&under, 80)))
-                .whitespace_nowrap()
+            ui::one_line(ui::text(faces, ui::fit(&under, 80)))
                 .text_size(px(META))
                 .line_height(px(17.))
                 .text_color(if standing {

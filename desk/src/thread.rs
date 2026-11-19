@@ -898,12 +898,8 @@ pub fn could_not(reason: &str) -> String {
     ]) {
         return "Couldn't think: the brain did not accept its key or its login".to_owned();
     }
-    let first = reason.lines().next().unwrap_or_default().trim();
-    let mut line: String = first.chars().take(160).collect();
-    if first.chars().count() > 160 {
-        line.push('…');
-    }
-    format!("Couldn't think: {line}")
+    let first = reason.lines().next().unwrap_or_default();
+    format!("Couldn't think: {}", crate::ui::fit(first, 160))
 }
 
 /// Since when what you said last in this place has waited on her: nothing

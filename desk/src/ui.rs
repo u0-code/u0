@@ -7,6 +7,7 @@ use gpui::{
     AnyElement, AnyView, App, Context, Div, Hsla, Render, SharedString, Svg, Window, div,
     prelude::*, px, svg,
 };
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
     brains::Mark,
@@ -193,14 +194,70 @@ pub fn dot(color: Hsla) -> Div {
     div().size(px(6.)).rounded_full().bg(color).flex_none()
 }
 
-/// A piece of text that stays on one line and trails off. It is as wide
-/// as it may be: in a row, what its siblings leave; in a column, the
-/// column. Hiding the overflow is what lets it shrink below its text; a
-/// minimum width of zero, or a flex basis of zero, would do that too, but
-/// in a column either has the text measured without a width and cut to a
-/// few characters.
+/// A piece of text that stays on one line. It is as wide as it may be: in
+/// a row, what its siblings leave; in a column, the column. Hiding the
+/// overflow is what lets it shrink below its text; a minimum width of
+/// zero, or a flex basis of zero, would do that too, but in a column
+/// either has the text measured without a width and cut to a few
+/// characters. What is wider than that is clipped at its edge: text that
+/// can be is cut to its room with [`fit`] first, so that it trails off.
 pub fn one_line(d: Div) -> Div {
-    d.w_full().overflow_hidden().text_ellipsis()
+    d.w_full().overflow_hidden().whitespace_nowrap()
+}
+
+/// About how many points a column of one-line text takes at the sizes it
+/// is set in (11.5 to 14): a Latin letter is a column, a Chinese
+/// character two.
+const POINTS_PER_COL: f32 = 7.;
+
+/// How many columns of text `points` of room hold.
+pub fn cols(points: f32) -> usize {
+    (points.max(0.) / POINTS_PER_COL) as usize
+}
+
+/// `text` on one line in at most `cols` columns, a wide character
+/// (Chinese, Japanese, Korean, an emoji) taking two: its runs of space and
+/// its line breaks each one space, and ending in "…" when it is cut.
+///
+/// Every line the desk lets trail off is cut here, between graphemes, so
+/// that no character is ever split. GPUI's own ellipsis is not used: it
+/// measures a line before it knows its width, and measured again it can
+/// cut Chinese inside a character and panic.
+pub fn fit(text: &str, cols: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let width = |g: &str| if g.chars().any(wide) { 2 } else { 1 };
+    if flat.graphemes(true).map(width).sum::<usize>() <= cols {
+        return flat;
+    }
+    let mut out = String::new();
+    // The ellipsis takes a column of its own.
+    let mut used = 1;
+    for g in flat.graphemes(true) {
+        if used + width(g) > cols {
+            break;
+        }
+        used += width(g);
+        out.push_str(g);
+    }
+    out.push('…');
+    out
+}
+
+/// Whether `c` takes two columns: the East Asian scripts and their
+/// full-width forms, and the emoji.
+fn wide(c: char) -> bool {
+    matches!(
+        c,
+        '\u{1100}'..='\u{115F}'
+            | '\u{2E80}'..='\u{A4CF}'
+            | '\u{AC00}'..='\u{D7A3}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{FE30}'..='\u{FE4F}'
+            | '\u{FF00}'..='\u{FF60}'
+            | '\u{FFE0}'..='\u{FFE6}'
+            | '\u{1F300}'..='\u{1FAFF}'
+            | '\u{20000}'..='\u{3FFFD}'
+    )
 }
 
 /// A box that scrolls sideways, for what is wider than the column it sits
@@ -245,6 +302,58 @@ pub fn short_path(path: &Path, home: Option<&Path>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How many columns `s` takes, as `fit` counts them.
+    fn width(s: &str) -> usize {
+        s.graphemes(true)
+            .map(|g| if g.chars().any(wide) { 2 } else { 1 })
+            .sum()
+    }
+
+    #[test]
+    fn a_line_too_long_is_cut_with_an_ellipsis_counting_chinese_as_two() {
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit("abcdefghijkl", 6), "abcde…");
+        assert_eq!(fit("一二三四五六", 7), "一二三…");
+        assert_eq!(fit("一二三", 6), "一二三");
+        assert_eq!(fit("短 的\n句子", 10), "短 的 句子");
+    }
+
+    #[test]
+    fn chinese_and_mixed_text_is_never_cut_inside_a_character_and_fits() {
+        let lines = [
+            "修复 bug：把 GPUI 的省略号换成我们自己的",
+            "a修b复c",
+            "整理一下 ~/Downloads 里的 PDF 和截图 🙂👍🏽 然后发给我",
+            "café crème brûlée 和 naïve 的 résumé",
+            "e\u{301}e\u{301}e\u{301}一二",
+        ];
+        for line in lines {
+            for cols in 0..=width(line) + 2 {
+                let cut = fit(line, cols);
+                // Every grapheme of what is kept is one of the line's:
+                // nothing is split, an accent stays on its letter and a
+                // skin tone on its hand.
+                let kept = cut.strip_suffix('…').unwrap_or(&cut);
+                let n = kept.graphemes(true).count();
+                assert!(
+                    kept.graphemes(true).eq(line.graphemes(true).take(n)),
+                    "{line:?} at {cols}: {cut:?}"
+                );
+                assert!(
+                    width(&cut) <= cols.max(1),
+                    "{line:?} at {cols}: {cut:?} is {} wide",
+                    width(&cut)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_room_in_points_holds_a_column_every_seven() {
+        assert_eq!(cols(70.), 10);
+        assert_eq!(cols(-5.), 0);
+    }
 
     #[test]
     fn a_long_path_keeps_its_home_its_head_and_its_end() {
