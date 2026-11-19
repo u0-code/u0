@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::{
     State,
-    db::{load, other, read_only},
+    db::{load, other, parse, read_only},
 };
 
 /// How one undertaking stands, as another process sees it.
@@ -33,7 +33,7 @@ pub struct Glance {
 /// at work from outside while it goes on and looks often: one connection,
 /// held as long as they like, that takes no lock a writer waits on.
 pub struct Records {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Records {
@@ -79,7 +79,7 @@ fn glance_in(conn: &Connection) -> io::Result<Vec<Glance>> {
         .map_err(other)?;
     let states: Vec<(String, State)> = rows
         .into_iter()
-        .filter_map(|(id, text)| Some((id, serde_json::from_str(&text).ok()?)))
+        .filter_map(|(id, text)| Some((id, parse(&text).ok()?)))
         .collect();
     let mut seen = Vec::new();
     for (id, state) in states.iter().filter(|(_, s)| s.parent.is_none()) {
@@ -149,7 +149,7 @@ fn look_in(conn: &Connection, ids: &[String]) -> io::Result<Vec<Look>> {
             .map_err(other)?;
         for (rest, text) in rows {
             let Ok(n) = rest.parse::<u64>() else { continue };
-            let Ok(state) = serde_json::from_str::<State>(&text) else {
+            let Ok(state) = parse(&text) else {
                 continue;
             };
             if state.parent.as_deref() == Some(id.as_str()) {

@@ -19,10 +19,13 @@
 use std::{io, path::Path};
 
 use chrono::{DateTime, Duration, Utc};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use serde_json::Value;
 
-use crate::undertaking::db::{self, other};
+use crate::undertaking::{
+    Records,
+    db::{self, other},
+};
 
 /// How long a look's rounds are kept.
 pub const KEPT_DAYS: i64 = 14;
@@ -99,58 +102,55 @@ impl Looks {
     }
 }
 
-/// The looks at `place` in the work database at `db` that ended after the
-/// journal entry `after`, with the look `open` if it is one of them and
-/// has not ended: oldest first, at most the newest [`READ_MOST`]. Read
-/// without writing; a database that is not there, or has never kept a
-/// look, has none.
+/// The looks at `place` in the work database at `db`, as
+/// [`Records::looks`] reads them. A database that is not there has none.
 pub fn read(db: &Path, place: &str, after: i64, open: Option<i64>) -> io::Result<Vec<Kept>> {
     if !db.exists() {
         return Ok(Vec::new());
     }
-    let conn = db::read_only(db)?;
-    let kept: Option<String> = conn
-        .query_row(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'looks'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(other)?;
-    if kept.is_none() {
-        return Ok(Vec::new());
-    }
-    let most = i64::try_from(READ_MOST).unwrap_or(i64::MAX);
-    let mut looks: Vec<(i64, Option<i64>)> = conn
-        .prepare(
-            "SELECT id, seq FROM looks
-             WHERE place = ?1 AND (seq > ?2 OR (seq IS NULL AND id = ?3))
-             ORDER BY id DESC LIMIT ?4",
-        )
-        .and_then(|mut stmt| {
-            stmt.query_map(params![place, after, open, most], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
+    Records::open(db)?.looks(place, after, open)
+}
+
+impl Records {
+    /// The looks at `place` that ended after the journal entry `after`,
+    /// with the look `open` if it is one of them and has not ended: oldest
+    /// first, at most the newest [`READ_MOST`]. Read without writing, on
+    /// the connection these records hold: a console asks this once a
+    /// second while she thinks.
+    pub fn looks(&self, place: &str, after: i64, open: Option<i64>) -> io::Result<Vec<Kept>> {
+        let conn = &self.conn;
+        let most = i64::try_from(READ_MOST).unwrap_or(i64::MAX);
+        let mut looks: Vec<(i64, Option<i64>)> = conn
+            .prepare_cached(
+                "SELECT id, seq FROM looks
+                 WHERE place = ?1 AND (seq > ?2 OR (seq IS NULL AND id = ?3))
+                 ORDER BY id DESC LIMIT ?4",
+            )
+            .and_then(|mut stmt| {
+                stmt.query_map(params![place, after, open, most], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .collect()
+            })
+            .map_err(other)?;
+        looks.reverse();
+        let mut rounds = conn
+            .prepare_cached("SELECT round FROM look_rounds WHERE look = ?1 ORDER BY n")
+            .map_err(other)?;
+        looks
+            .into_iter()
+            .map(|(id, seq)| {
+                let rounds = rounds
+                    .query_map([id], |row| row.get::<_, String>(0))
+                    .and_then(Iterator::collect::<rusqlite::Result<Vec<String>>>)
+                    .map_err(other)?
+                    .iter()
+                    .filter_map(|text| serde_json::from_str(text).ok())
+                    .collect();
+                Ok(Kept { id, seq, rounds })
+            })
             .collect()
-        })
-        .map_err(other)?;
-    looks.reverse();
-    let mut rounds = conn
-        .prepare("SELECT round FROM look_rounds WHERE look = ?1 ORDER BY n")
-        .map_err(other)?;
-    looks
-        .into_iter()
-        .map(|(id, seq)| {
-            let rounds = rounds
-                .query_map([id], |row| row.get::<_, String>(0))
-                .and_then(Iterator::collect::<rusqlite::Result<Vec<String>>>)
-                .map_err(other)?
-                .iter()
-                .filter_map(|text| serde_json::from_str(text).ok())
-                .collect();
-            Ok(Kept { id, seq, rounds })
-        })
-        .collect()
+    }
 }
 
 #[cfg(test)]

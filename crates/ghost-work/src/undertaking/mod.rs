@@ -262,7 +262,7 @@ impl Undertaking {
             .into_iter()
             .filter_map(|(rest, state)| {
                 let n = rest.parse::<u64>().ok()?;
-                let state: State = serde_json::from_str(&state).ok()?;
+                let state = db::parse(&state).ok()?;
                 (state.parent.as_deref() == Some(self.id.as_str())).then_some((n, state))
             })
             .collect();

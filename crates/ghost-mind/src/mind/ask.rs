@@ -2,10 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use ghost_core::{memory::Undertaking, will};
-use ghost_work::{
-    WORK_DB, looks,
-    undertaking::{Look, Outcome},
-};
+use ghost_work::undertaking::{Look, Outcome};
 use serde_json::{Value, json};
 use tracing::warn;
 
@@ -234,13 +231,14 @@ impl Mind {
     /// The looks at `place` that ended after the journal entry `after`,
     /// and the one going on there, each with its rounds.
     fn looks_view(&self, place: &str, after: i64) -> Value {
-        let db = self.ghost.dir().join(WORK_DB);
         // The look in flight there, as the record knows it: the same look
         // her mind is waiting on, numbered where its rounds are kept.
         let open = self.thinking.get(place).and_then(|looking| looking.kept);
-        let kept = looks::read(&db, place, after, open).unwrap_or_else(|e| {
-            warn!("could not read her looks at {place}: {e}");
-            Vec::new()
+        let kept = self.records().map_or_else(Vec::new, |records| {
+            records.looks(place, after, open).unwrap_or_else(|e| {
+                warn!("could not read her looks at {place}: {e}");
+                Vec::new()
+            })
         });
         json!(
             kept.into_iter()
