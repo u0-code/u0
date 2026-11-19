@@ -5,7 +5,7 @@
 //! key never goes into it, only the name of the variable it is read from;
 //! the key itself goes into `.env`, which only its owner may read.
 
-use std::{fs, io::Write as _, path::Path};
+use std::path::Path;
 
 use anyhow::{Context as _, anyhow, bail};
 use toml_edit::{DocumentMut, Item, Table, Value};
@@ -257,27 +257,17 @@ pub(crate) fn with_key(text: &str, var: &str, key: &str) -> anyhow::Result<Strin
     Ok(out.join("\n") + "\n")
 }
 
-/// Write `text` as the `.env` at `path`, which only its owner may read:
-/// beside it first, then renamed, so that a write cut short never leaves
-/// half of one.
+/// Write `text` as the `.env` at `path`, whole, and only its owner's to
+/// read.
 pub(crate) fn write_env(path: &Path, text: &str) -> anyhow::Result<()> {
-    let part = path.with_extension("part");
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options
-        .open(&part)
-        .with_context(|| format!("write {}", part.display()))?;
-    file.write_all(text.as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&part, path).with_context(|| format!("write {}", path.display()))
+    ghost_core::whole::write_private(path, text.as_bytes())
+        .with_context(|| format!("write {}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     const FILE: &str = "# how it thinks\n[brain]\nthink = \"main\" # the one\ntick = \"main\"\n\n\
         # the API\n[providers.main]\nkind = \"openai\"\nmodel = \"deepseek-chat\" # fast\n\

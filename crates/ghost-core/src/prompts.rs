@@ -574,7 +574,7 @@ impl Store {
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                fs::write(&path, file.built_in)?;
+                crate::whole::write(&path, file.built_in.as_bytes())?;
                 written.push(*file);
             }
             done.push((path, write));

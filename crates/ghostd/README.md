@@ -69,7 +69,10 @@ work's folders, the files it hands over) are on that computer, and a
 console can open them only there: it knows it is there when it reads the
 same id at that path, which a host name could not tell it. A daemon run
 without a home keeps `core-id` beside the `ghostd.toml` it read, or in its
-first character's directory when it read none.
+first character's directory when it read none. The id is made once: a
+`core-id` that holds anything else stops the daemon, saying where it is,
+rather than being replaced with an id no console knows. Put the id back,
+or remove the file to have a new one made.
 
 A daemon running a home changes its own brains when an operator asks,
 over the Ghost Protocol (`brains.save`, `brains.remove`, `brains.use`; the

@@ -204,7 +204,7 @@ pub fn update(
         } else if looked_at.contains(&file.path) {
             Updated::Marked
         } else if unedited {
-            fs::write(&path, file.built_in)?;
+            crate::whole::write(&path, file.built_in.as_bytes())?;
             Updated::Replaced
         } else {
             Updated::LeftAlone
@@ -241,7 +241,7 @@ fn read(dir: &Path) -> Record {
 
 fn write(dir: &Path, record: &Record) -> io::Result<()> {
     let text = toml::to_string(record).map_err(io::Error::other)?;
-    fs::write(dir.join(RECORD), format!("{HEADER}{text}"))
+    crate::whole::write(&dir.join(RECORD), format!("{HEADER}{text}").as_bytes())
 }
 
 /// Short, because it only has to tell one version of a file from another.

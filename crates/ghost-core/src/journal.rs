@@ -734,6 +734,7 @@ impl Journal {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        durable(&conn)?;
         Ok(Self { conn })
     }
 
@@ -744,6 +745,7 @@ impl Journal {
         }
         let conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        durable(&conn)?;
         Ok(Self { conn })
     }
 
@@ -1022,6 +1024,21 @@ impl Journal {
     }
 }
 
+/// Have an entry on the disk itself when its append returns. FULL syncs
+/// the WAL at every commit, but on macOS an fsync only hands the bytes to
+/// the drive, whose cache a power cut can still lose; `fullfsync` has
+/// `SQLite` ask for `F_FULLFSYNC`, which empties that cache, at every commit
+/// and at every checkpoint. Elsewhere both are ignored. This is the one
+/// store that is never rebuilt from anything, and she writes it a few times
+/// a minute at most, so it alone pays for it: memory.db is derived from it,
+/// and work.db's last step, if lost, is taken up again from the step before.
+fn durable(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "synchronous", "FULL")?;
+    conn.pragma_update(None, "fullfsync", true)?;
+    conn.pragma_update(None, "checkpoint_fullfsync", true)?;
+    Ok(())
+}
+
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
     let at = time_at(row, 1)?;
     let payload: String = row.get(3)?;
@@ -1100,6 +1117,19 @@ mod tests {
             text: text.into(),
             block: None,
         }
+    }
+
+    #[test]
+    fn a_journal_on_disk_has_every_commit_reach_the_drive_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(JOURNAL_FILE);
+        let pragmas = |j: &Journal| -> [i64; 3] {
+            ["synchronous", "fullfsync", "checkpoint_fullfsync"]
+                .map(|p| j.conn.pragma_query_value(None, p, |r| r.get(0)).unwrap())
+        };
+        // FULL is 2; the other two are on or off.
+        assert_eq!(pragmas(&Journal::create(&path).unwrap()), [2, 1, 1], "born");
+        assert_eq!(pragmas(&Journal::open(&path).unwrap()), [2, 1, 1], "opened");
     }
 
     #[test]

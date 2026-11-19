@@ -81,6 +81,15 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         .map(|id| cfg.hers(id))
         .collect::<anyhow::Result<_>>()?;
     no_shared_machine(&ids, &hers)?;
+    // Before any of them is started: a core that does not know which it
+    // is stops here.
+    let core = crate::host::core(&crate::host::keeps_in(
+        home,
+        from_file.then_some(cfg_path.as_path()),
+        found
+            .first()
+            .map_or(Path::new("."), |(_, dir)| dir.as_path()),
+    ))?;
 
     // The prompts are the deployment's, read by every character's mind for
     // itself; what there is to say about them is said once.
@@ -152,14 +161,6 @@ pub(crate) async fn run(paths: &[PathBuf], how: How<'_>) -> anyhow::Result<()> {
         cast.push(who.clone());
         lives.push((who, life, make, span));
     }
-    let first = cast
-        .first()
-        .map_or_else(|| PathBuf::from("."), |c| c.dir.clone());
-    let core = crate::host::core(&crate::host::keeps_in(
-        home,
-        from_file.then_some(cfg_path.as_path()),
-        &first,
-    ));
     info!(
         "core {} on {}",
         core.id,
