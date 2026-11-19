@@ -50,6 +50,24 @@ fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     all
 }
 
+/// Every file under the checkout `dir` but her journal and the lock taken
+/// while she was copied, with what is in it.
+fn snapshot_but_her_journal(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let ghost = dir.join("ghosts/solver");
+    snapshot(dir)
+        .into_iter()
+        .filter(|(path, _)| {
+            !path.starts_with(ghost.join("journal.db")) && *path != ghost.join("derived/lock")
+        })
+        .collect()
+}
+
+/// Where the journal in `dir` says she moved to, read the way any ghostd
+/// reads it.
+fn moved_to(dir: &Path) -> Option<String> {
+    ghost_core::ghost::moved(dir).unwrap()
+}
+
 #[test]
 fn an_empty_home_is_made_ready_once_with_its_configuration_and_the_mascot_born() {
     let dir = tempfile::tempdir().unwrap();
@@ -60,7 +78,7 @@ fn an_empty_home_is_made_ready_once_with_its_configuration_and_the_mascot_born()
         Made {
             config: true,
             born: true,
-            adopted: None
+            ..Made::default()
         }
     );
     let cfg = config(&home);
@@ -87,21 +105,27 @@ fn a_home_already_set_up_is_left_alone_and_takes_nothing_in() {
     fs::write(home.join(CONFIG), format!("# mine\n{SETTINGS}{BRAINS}")).unwrap();
     let before = snapshot(home);
     let checkout = old_checkout();
+    let left = snapshot(checkout.path());
     assert_eq!(ready(home, Some(checkout.path())).unwrap(), Made::default());
     assert_eq!(
         snapshot(home),
         before,
         "a home with a ghost takes in no other"
     );
+    assert_eq!(
+        snapshot(checkout.path()),
+        left,
+        "nor marks one that is not hers"
+    );
 }
 
 #[test]
-fn a_home_takes_in_the_old_core_its_brains_and_its_keys_and_leaves_the_checkout_as_it_was() {
+fn a_home_takes_in_the_old_core_its_brains_and_its_keys_and_marks_the_one_she_left() {
     let checkout = old_checkout();
     let old = Ghost::peek(&checkout.path().join("ghosts/solver")).unwrap();
     let (seal, entries) = (old.identity.seal().to_string(), old.entries);
     drop(old);
-    let before = snapshot(checkout.path());
+    let before = snapshot_but_her_journal(checkout.path());
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("Ghost");
     let made = ready(&home, Some(checkout.path())).unwrap();
@@ -155,10 +179,20 @@ fn a_home_takes_in_the_old_core_its_brains_and_its_keys_and_leaves_the_checkout_
         );
     }
 
+    // Where she was, her journal ends saying where she is, and she is not
+    // run there again; the rest of the checkout is as it was.
+    let left = checkout.path().join("ghosts/solver");
+    let lives = std::path::absolute(&solver).unwrap();
+    assert_eq!(moved_to(&left), Some(lives.display().to_string()));
+    let Err(e) = Ghost::open(&left) else {
+        panic!("she was run again in the checkout she moved out of");
+    };
+    assert!(matches!(e, ghost_core::Error::Moved(_)), "{e}");
+    assert_eq!(Ghost::peek(&left).unwrap().entries, entries + 1);
     assert_eq!(
-        snapshot(checkout.path()),
+        snapshot_but_her_journal(checkout.path()),
         before,
-        "the checkout is as it was"
+        "the rest of the checkout is as it was"
     );
     // Once taken in, never again.
     assert_eq!(
@@ -168,19 +202,73 @@ fn a_home_takes_in_the_old_core_its_brains_and_its_keys_and_leaves_the_checkout_
 }
 
 #[test]
-fn a_core_still_running_in_the_checkout_is_copied_whole() {
+fn a_core_its_daemon_is_letting_go_of_is_waited_for_and_copied_whole() {
     let checkout = old_checkout();
     let dir = checkout.path().join("ghosts/solver");
     fs::remove_file(dir.join("derived/memory.db")).unwrap();
-    // Her daemon has her open, with what it wrote still in its log.
+    // Her daemon has her open, with what it wrote still in its log, and is
+    // stopping.
     let mut running = Ghost::open(&dir).unwrap();
     running.record(ghost_core::journal::Event::Woke).unwrap();
     assert!(dir.join("journal.db-wal").exists());
+    let written = running.journal().len().unwrap();
+    let stopping = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(running);
+    });
     let home = tempfile::tempdir().unwrap();
     ready(home.path(), Some(checkout.path())).unwrap();
+    stopping.join().unwrap();
     let copy = Ghost::peek(&home.path().join(GHOSTS).join(SOLVER)).unwrap();
-    assert_eq!(copy.entries, Ghost::peek(&dir).unwrap().entries);
-    drop(running);
+    assert_eq!(copy.entries, written, "everything it wrote");
+    assert_eq!(Ghost::peek(&dir).unwrap().entries, written + 1, "and moved");
+}
+
+#[test]
+fn a_core_a_home_took_in_before_is_marked_as_left_the_next_time_it_is_given_the_checkout() {
+    let checkout = old_checkout();
+    let left = checkout.path().join("ghosts/solver");
+    // As a home took her in before it marked what it left: a copy of her,
+    // and nothing written in the checkout.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("Ghost");
+    let solver = home.join(GHOSTS).join(SOLVER);
+    fs::create_dir_all(&solver).unwrap();
+    for file in ["ghost.toml", "journal.db"] {
+        fs::copy(left.join(file), solver.join(file)).unwrap();
+    }
+    let before = snapshot_but_her_journal(checkout.path());
+
+    let made = ready(&home, Some(checkout.path())).unwrap();
+    assert_eq!(made.marked.as_deref(), Some(left.as_path()));
+    assert!(made.adopted.is_none());
+    let lives = std::path::absolute(&solver).unwrap();
+    assert_eq!(moved_to(&left), Some(lives.display().to_string()));
+    assert!(
+        moved_to(&solver).is_none(),
+        "where she lives, nothing is written"
+    );
+    assert_eq!(snapshot_but_her_journal(checkout.path()), before);
+
+    // Marked once: given the checkout again, nothing is done.
+    let marked = snapshot(checkout.path());
+    assert_eq!(
+        ready(&home, Some(checkout.path())).unwrap(),
+        Made::default()
+    );
+    assert_eq!(snapshot(checkout.path()), marked);
+}
+
+#[test]
+fn a_checkout_whose_core_moved_out_gives_a_new_home_the_mascot_new() {
+    let checkout = old_checkout();
+    let first = tempfile::tempdir().unwrap();
+    ready(first.path(), Some(checkout.path())).unwrap();
+    // That home is gone, and another is made from the same checkout: what
+    // she left there is not taken in again as her.
+    let second = tempfile::tempdir().unwrap();
+    let made = ready(second.path(), Some(checkout.path())).unwrap();
+    assert!(made.born && made.adopted.is_none(), "{made:?}");
 }
 
 #[test]

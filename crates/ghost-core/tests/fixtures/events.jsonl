@@ -81,3 +81,4 @@
 {"kind":"brain_changed","data":{"think":"anthropic/claude-opus-5-5","was":"openai/deepseek-v4"}}
 {"kind":"session_named","data":{"place":"console:s1763452800000","by":"console:fox","title":"Free some disk space"}}
 {"kind":"session_set_aside","data":{"place":"console:s1763452800000","by":"console:fox"}}
+{"kind":"moved","data":{"to":"/Users/fox/Library/Application Support/Ghost/ghosts/solver"}}

@@ -561,6 +561,15 @@ pub enum Event {
         /// Who set it aside, as a person key.
         by: String,
     },
+    /// She moved out of the directory this journal is in, and lives in
+    /// `to` from now on, in a copy of it taken whole just before. This is
+    /// the last entry of the journal she left, and is in that one alone:
+    /// the copy goes on from the entry before it. Nothing runs her from
+    /// here again, so there are never two of her writing on from one past.
+    Moved {
+        /// Her directory now, as a path on the computer she moved on.
+        to: String,
+    },
 }
 
 /// How a server of tools is run, exactly. One that runs on her body's
@@ -688,6 +697,7 @@ kinds! {
     BrainChanged => "brain_changed",
     SessionNamed => "session_named",
     SessionSetAside => "session_set_aside",
+    Moved => "moved",
 }
 
 /// One line of her journal.
