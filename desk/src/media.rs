@@ -9,15 +9,21 @@
 //! and shows while her core cannot be reached. It is the same for the
 //! desk's own core and for every connection; the desk reads nothing in a
 //! core's home.
+//!
+//! What is kept here is a copy, and her core keeps every file for good, so
+//! the copies are let go when there are too many: past [`KEPT_MOST`]
+//! bytes, the files shown least lately go first, and come back from her
+//! core the next time they are shown.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    fs,
     path::{Path, PathBuf},
     sync::{
         LazyLock, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use ghost_link::{Console, protocol::code};
@@ -67,6 +73,22 @@ static ASKED: LazyLock<Mutex<HashMap<PathBuf, Asked>>> = LazyLock::new(Mutex::de
 /// Set when a file arrives or fails, for the desk to draw again.
 static ARRIVED: AtomicBool = AtomicBool::new(false);
 
+/// The most the desk keeps of her images on this machine, every core's
+/// together. A picture in a chat is a few hundred KB to a few MB, so this
+/// holds thousands of them: every image in months of threads, at a small
+/// part of a disk. Past it nothing is lost, only fetched again.
+const KEPT_MOST: u64 = 512 * 1024 * 1024;
+/// What is left once the least lately shown have gone: room for many more
+/// before the files are counted through again.
+const KEPT_AFTER: u64 = KEPT_MOST / 4 * 3;
+
+/// How many bytes the desk keeps, once it has counted them this run.
+static KEPT: Mutex<Option<u64>> = Mutex::new(None);
+
+/// The kept files shown this run, each marked as used the first time:
+/// when the files are let go, the least lately used go first.
+static USED: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Mutex::default);
+
 /// Where the file `name` from the core `core` is kept under `root`, if
 /// both are names the desk keeps anything under: a core's id is letters,
 /// digits and dashes, and a file's name is a bare name, never a path.
@@ -93,6 +115,9 @@ pub fn shown(source: &Source, name: &str) -> Shown {
         return Shown::Failed(format!("{name} is not a name her core keeps a file by"));
     };
     if path.is_file() {
+        if USED.lock().is_ok_and(|mut used| used.insert(path.clone())) {
+            used_now(&path);
+        }
         return Shown::Here(path);
     }
     let Ok(mut asked) = ASKED.lock() else {
@@ -112,9 +137,18 @@ pub fn shown(source: &Source, name: &str) -> Shown {
             Ok(_turn) => fetch(&source, &name, &path).await,
             Err(e) => Err(e.to_string()),
         };
+        if let (Ok(size), Some(root)) = (&got, path.parent().and_then(Path::parent)) {
+            let (size, root) = (*size, root.to_path_buf());
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(mut kept) = KEPT.lock() {
+                    *kept = Some(keep_within(&root, *kept, size, KEPT_MOST, KEPT_AFTER));
+                }
+            })
+            .await;
+        }
         if let Ok(mut asked) = ASKED.lock() {
             match got {
-                Ok(()) => asked.remove(&path),
+                Ok(_) => asked.remove(&path),
                 Err(why) => asked.insert(path, Asked::Failed(why, Instant::now())),
             };
         }
@@ -128,8 +162,65 @@ pub fn arrived() -> bool {
     ARRIVED.swap(false, Ordering::Relaxed)
 }
 
-/// Ask her core for `name` and keep it at `path`, or say why not.
-async fn fetch(source: &Source, name: &str, path: &Path) -> Result<(), String> {
+/// Mark the kept file at `path` as used now, by its time: what was shown
+/// lately is what is kept longest. A file that cannot be marked is only
+/// let go sooner.
+fn used_now(path: &Path) {
+    let _ = fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.set_modified(SystemTime::now()));
+}
+
+/// What is kept under `root` once `added` more bytes have been: `kept` is
+/// what was there before, if it has been counted. Past `most`, the files
+/// used least lately go until no more than `after` is left.
+fn keep_within(root: &Path, kept: Option<u64>, added: u64, most: u64, after: u64) -> u64 {
+    let total = match kept {
+        Some(kept) => kept + added,
+        None => files(root).iter().map(|(_, len, _)| len).sum(),
+    };
+    if total <= most {
+        return total;
+    }
+    let mut files = files(root);
+    files.sort_by_key(|(used, _, _)| *used);
+    let mut left: u64 = files.iter().map(|(_, len, _)| len).sum();
+    for (_, len, path) in files {
+        if left <= after {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            left -= len;
+        }
+    }
+    left
+}
+
+/// Every file kept under `root`, one directory a core: when it was last
+/// used, its size, and where it is.
+fn files(root: &Path) -> Vec<(SystemTime, u64, PathBuf)> {
+    let Ok(cores) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    cores
+        .flatten()
+        .filter_map(|core| fs::read_dir(core.path()).ok())
+        .flat_map(Iterator::flatten)
+        .filter_map(|file| {
+            let meta = file.metadata().ok().filter(fs::Metadata::is_file)?;
+            Some((
+                meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                meta.len(),
+                file.path(),
+            ))
+        })
+        .collect()
+}
+
+/// Ask her core for `name` and keep it at `path`, or say why not. Returns
+/// how many bytes were kept.
+async fn fetch(source: &Source, name: &str, path: &Path) -> Result<u64, String> {
     let asked = async {
         let (mut console, _) =
             Console::connect(&source.url, source.token.clone(), source.ghost.clone()).await?;
@@ -148,7 +239,8 @@ async fn fetch(source: &Source, name: &str, path: &Path) -> Result<(), String> {
                 }
             },
         )?;
-    crate::whole::write(path, &bytes).map_err(|e| format!("{name} could not be kept here: {e}"))
+    crate::whole::write(path, &bytes).map_err(|e| format!("{name} could not be kept here: {e}"))?;
+    Ok(bytes.len() as u64)
 }
 
 #[cfg(test)]
@@ -203,5 +295,38 @@ mod tests {
             .collect();
         assert_eq!(names, ["a.png"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn past_the_most_kept_the_files_used_least_lately_go_first_on_every_core() {
+        let root = std::env::temp_dir().join(format!("ghost-desk-kept-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let day = Duration::from_secs(86_400);
+        let long_ago = SystemTime::now() - day * 10;
+        // Five files of 100 bytes on two cores, each used a day after the last.
+        let kept: Vec<PathBuf> = (0..5u32)
+            .map(|n| {
+                let path = root
+                    .join(["5f0c", "77aa"][n as usize % 2])
+                    .join(format!("{n}.png"));
+                crate::whole::write(&path, &[0; 100]).unwrap();
+                fs::File::options()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_modified(long_ago + day * n)
+                    .unwrap();
+                path
+            })
+            .collect();
+        // The oldest is shown again, and so is used now.
+        used_now(&kept[0]);
+
+        assert_eq!(keep_within(&root, None, 0, 500, 300), 500, "not past it");
+        let left = keep_within(&root, Some(500), 100, 500, 300);
+        assert_eq!(left, 300);
+        let there: Vec<bool> = kept.iter().map(|p| p.is_file()).collect();
+        assert_eq!(there, [true, false, false, true, true]);
+        fs::remove_dir_all(&root).unwrap();
     }
 }

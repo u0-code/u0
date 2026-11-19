@@ -75,6 +75,9 @@ pub struct Daemon {
     /// The characters whose answer to that came in since the desk last
     /// looked, so that it can forget what was seen of theirs and is gone.
     pub attended: Vec<String>,
+    /// Whether it has said who it runs since the desk last looked, so
+    /// that what was seen of a character it no longer runs is forgotten.
+    pub rostered: bool,
     /// Why the last thing done to one of its characters from Attention
     /// could not be done, until the desk has said so.
     pub refused: Option<String>,
@@ -115,6 +118,7 @@ impl Daemon {
             cast,
             attention: HashMap::new(),
             attended: Vec::new(),
+            rostered: false,
             refused: None,
             listing,
         }
@@ -155,6 +159,7 @@ impl Daemon {
                     self.attention
                         .retain(|id, _| ghosts.iter().any(|g| g.id == *id));
                     self.cast.ghosts = ghosts;
+                    self.rostered = true;
                 }
                 Update::Attention { ghost, items } => {
                     self.attention.insert(ghost.clone(), items);
@@ -247,6 +252,7 @@ mod tests {
             },
             attention: HashMap::new(),
             attended: Vec::new(),
+            rostered: false,
             refused: None,
             listing: None,
         }

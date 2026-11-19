@@ -6,6 +6,7 @@ use gpui::{Context, Focusable as _, Window};
 
 use super::{Desk, Notice, Popup, listening};
 use crate::{
+    attention,
     daemons::{Daemon, Host},
     settings::{Connection, SOLVER_URL},
 };
@@ -46,8 +47,10 @@ impl Desk {
     pub(crate) fn remove_connection(&mut self, name: &str, cx: &mut Context<Self>) {
         let host = Host::Remote(name.to_owned());
         self.settings.connections.retain(|c| c.name != name);
-        self.settings.save();
         self.daemons.retain(|d| d.host != host);
+        let followed: Vec<&Host> = self.daemons.iter().map(|d| &d.host).collect();
+        attention::forget_unfollowed(&mut self.settings.seen, &followed);
+        self.settings.save();
         if self.open.as_ref().is_some_and(|o| o.host == host) {
             self.close_character(cx);
         }
