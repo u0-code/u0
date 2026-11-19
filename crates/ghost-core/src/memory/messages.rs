@@ -76,6 +76,7 @@ CREATE INDEX IF NOT EXISTS messages_place ON messages (place, seq);
 CREATE INDEX IF NOT EXISTS messages_person ON messages (person, seq);
 CREATE INDEX IF NOT EXISTS messages_platform ON messages (place, platform_id);
 CREATE INDEX IF NOT EXISTS messages_at ON messages (channel, at);
+CREATE INDEX IF NOT EXISTS messages_dir_at ON messages (dir, at);
 ";
 
 pub(super) fn fold(tx: &Transaction<'_>, entry: &Entry, at: &str) -> Result<()> {
