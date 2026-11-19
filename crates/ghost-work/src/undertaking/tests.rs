@@ -698,3 +698,76 @@ fn a_database_of_another_schema_is_not_read_either() {
     let refused = Records::open(&db(&dir)).err().unwrap().to_string();
     assert!(refused.contains("schema"), "{refused}");
 }
+
+#[test]
+fn work_that_has_ended_keeps_its_history_and_not_its_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+    let items = vec![Item::user("task"), Item::user("a"), Item::user("b")];
+    u.save(&items, 0).unwrap();
+    assert_eq!(transcript_rows(&dir).len(), 3);
+
+    // Ended by its own last step, which still adds to the history.
+    let mut last = items.clone();
+    last.push(Item::user("done"));
+    u.step(
+        |s| {
+            s.finish = Some(Finish {
+                outcome: Outcome::Finished,
+                summary: "done".into(),
+                files: Vec::new(),
+                lesson: None,
+                at: Utc::now(),
+            });
+        },
+        &json!({"said": "done"}),
+        &last,
+        3,
+    )
+    .unwrap();
+    assert!(transcript_rows(&dir).is_empty());
+    assert_eq!(u.history(), last, "everything it held is in its history");
+    // A sitting stopping after it saves nothing back.
+    u.save(&last, 4).unwrap();
+    assert!(transcript_rows(&dir).is_empty());
+    assert!(u.transcript().is_none());
+    assert_eq!(u.history().len(), 4);
+}
+
+#[test]
+fn work_ended_from_outside_lets_its_transcript_go() {
+    let dir = tempfile::tempdir().unwrap();
+    let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+    u.save(&[Item::user("task"), Item::user("a")], 0).unwrap();
+    let other = Undertaking::open(&db(&dir), "u1", None).unwrap();
+    assert!(other.stop().unwrap());
+    assert!(transcript_rows(&dir).is_empty());
+    assert_eq!(u.history().len(), 2);
+}
+
+#[test]
+fn room_freed_in_a_new_database_is_given_back_to_the_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let u = Undertaking::open(&db(&dir), "u1", Some("anything")).unwrap();
+    let pages = |dir: &tempfile::TempDir| -> (i64, i64) {
+        let conn = Connection::open(db(dir)).unwrap();
+        (
+            conn.pragma_query_value(None, "page_count", |r| r.get(0))
+                .unwrap(),
+            conn.pragma_query_value(None, "freelist_count", |r| r.get(0))
+                .unwrap(),
+        )
+    };
+    let before = pages(&dir).0;
+    // A long transcript of items the history does not have word for word.
+    let long: Vec<Item> = (0..200)
+        .map(|n| Item::user(format!("{n} {}", "x".repeat(2000))))
+        .collect();
+    u.save(&long, 200).unwrap();
+    let grown = pages(&dir).0;
+    assert!(grown > before + 50, "{before} pages, then {grown}");
+    u.stop().unwrap();
+    let (after, free) = pages(&dir);
+    assert_eq!(free, 0, "no page is kept free inside the file");
+    assert!(after < grown - 50, "{grown} pages, then {after}");
+}
