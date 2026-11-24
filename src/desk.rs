@@ -1567,14 +1567,13 @@ impl Desk {
         cx.notify();
     }
 
-    /// Keep the newest line in sight while the thread grows, unless you
-    /// scrolled up to read.
-    /// How wide the right column stands: wider for a diff side by side.
+    /// How wide the right column stands: wider for a file read in it, and
+    /// wider again for its diff side by side.
     pub fn right_width(&self) -> f32 {
-        if self.side_by_side && matches!(self.aside, Aside::File(_)) {
-            720.
-        } else {
-            RIGHT
+        match self.aside {
+            Aside::File(_) if self.side_by_side => 720.,
+            Aside::File(_) => 560.,
+            _ => RIGHT,
         }
     }
 
@@ -1593,22 +1592,22 @@ impl Render for Desk {
         self.sync_lines();
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
+        let pane = f32::from(window.viewport_size().width)
+            - if self.panes.left { LEFT } else { 0. }
+            - if self.panes.right && self.page == Page::Thread {
+                self.right_width()
+            } else {
+                0.
+            };
         let middle = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .child(self.topbar(&faces, lights, cx));
+            .child(self.topbar(&faces, lights, pane, cx));
         let middle = match self.page.clone() {
             Page::Thread => {
-                let pane = f32::from(window.viewport_size().width)
-                    - if self.panes.left { LEFT } else { 0. }
-                    - if self.panes.right {
-                        self.right_width()
-                    } else {
-                        0.
-                    };
                 let column = (pane - 64.).clamp(240., crate::style::COLUMN);
                 middle
                     .child(self.thread(&faces, column, cx))

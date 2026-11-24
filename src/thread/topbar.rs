@@ -15,7 +15,14 @@ use crate::{
 };
 
 impl Desk {
-    pub(crate) fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
+    /// The bar over the middle, `pane` points wide.
+    pub(crate) fn topbar(
+        &self,
+        faces: &Faces,
+        lights: f32,
+        pane: f32,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let mut bar = draggable()
             .flex()
             .flex_none()
@@ -62,9 +69,14 @@ impl Desk {
                     } else {
                         s.title.clone()
                     };
+                    // The title first, then where it works in what room is
+                    // left: beside them the mark, the state and the buttons.
+                    let room = ui::cols(pane - 240.);
+                    let shown = ui::fit(&shown, 48.min(room * 3 / 5));
+                    let place = ui::fit(&place, room.saturating_sub(ui::width(&shown) + 2));
                     bar = bar
                         .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
-                        .child(title(ui::fit(&shown, 48)).flex_none())
+                        .child(title(shown).flex_none())
                         .child(
                             ui::one_line(meta(faces, place))
                                 .w_auto()

@@ -301,8 +301,7 @@ pub fn cols(points: f32) -> usize {
 /// cut Chinese inside a character and panic.
 pub fn fit(text: &str, cols: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let width = |g: &str| if g.chars().any(wide) { 2 } else { 1 };
-    if flat.graphemes(true).map(width).sum::<usize>() <= cols {
+    if width(&flat) <= cols {
         return flat;
     }
     let mut out = String::new();
@@ -319,6 +318,13 @@ pub fn fit(text: &str, cols: usize) -> String {
     let mut out = out.trim_end().to_owned();
     out.push('…');
     out
+}
+
+/// How many columns `text` takes on one line, a wide character two.
+pub fn width(text: &str) -> usize {
+    text.graphemes(true)
+        .map(|g| if g.chars().any(wide) { 2 } else { 1 })
+        .sum()
 }
 
 /// Whether `c` takes two columns: the East Asian scripts and their
