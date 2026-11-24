@@ -4,7 +4,8 @@ server.svg, plug.svg, file.svg, check.svg, pencil.svg, x.svg,
 retry.svg, power.svg, bell.svg, terminal.svg, book.svg, user.svg,
 panel-right.svg, copy.svg, alert.svg, minus.svg, image-off.svg,
 arrow-right.svg, folder.svg, settings.svg, list.svg, file-plus.svg,
-trash.svg, globe.svg, bulb.svg, square.svg, arrow-up.svg
+trash.svg, globe.svg, bulb.svg, square.svg, arrow-up.svg, dots.svg,
+pin.svg, archive.svg, clock.svg, branch.svg
                Line icons drawn for the desk.
 
 An agent's logo is not here: it is the one the ACP registry publishes for

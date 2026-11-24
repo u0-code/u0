@@ -34,6 +34,25 @@ fn local(t: SystemTime) -> libc::tm {
     }
 }
 
+/// `days` days after `t`, at `hour` o'clock in this computer's time zone.
+pub fn at_hour(t: SystemTime, days: i32, hour: i32) -> SystemTime {
+    let mut tm = local(t);
+    tm.tm_mday += days;
+    tm.tm_hour = hour;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1;
+    // SAFETY: mktime reads and normalizes only the `tm` it is given.
+    let secs = unsafe { libc::mktime(&raw mut tm) };
+    u64::try_from(secs).map_or(t, |s| UNIX_EPOCH + Duration::from_secs(s))
+}
+
+/// Days from `t` to the next Monday (1 to 7).
+pub fn to_monday(t: SystemTime) -> i32 {
+    let wday = local(t).tm_wday;
+    (8 - wday) % 7 + if wday == 1 { 7 } else { 0 }
+}
+
 /// The time of day of `t`: "10:42".
 pub fn clock(t: SystemTime) -> String {
     let tm = local(t);
@@ -107,6 +126,18 @@ pub fn parse(text: &str) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_snooze_lands_on_the_hour_asked_and_next_monday_is_ahead() {
+        let now = SystemTime::now();
+        let t = at_hour(now, 1, 9);
+        assert!(t > now);
+        let tm = local(t);
+        assert_eq!((tm.tm_hour, tm.tm_min), (9, 0));
+        let days = to_monday(now);
+        assert!((1..=7).contains(&days));
+        assert_eq!(local(at_hour(now, days, 9)).tm_wday, 1);
+    }
 
     #[test]
     fn an_rfc_3339_time_is_read_with_its_fraction_and_offset() {

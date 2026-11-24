@@ -80,6 +80,11 @@ pub enum Msg {
         agent: String,
         result: Result<Box<NewSessionResponse>, Failure>,
     },
+    /// The sessions whose records hold `query`.
+    Found {
+        query: String,
+        keys: Vec<u64>,
+    },
     /// A session was deleted from its agent, or could not be.
     Deleted {
         key: u64,
@@ -465,6 +470,20 @@ pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close:
             agent: name,
             result: result.map(Box::new),
         });
+    });
+}
+
+/// Look for `query` (lower case) in the records at `paths`.
+pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let keys = paths
+            .into_iter()
+            .filter(|(_, p)| {
+                std::fs::read_to_string(p).is_ok_and(|t| t.to_lowercase().contains(&query))
+            })
+            .map(|(k, _)| k)
+            .collect();
+        let _ = tx.send(Msg::Found { query, keys });
     });
 }
 

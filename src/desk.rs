@@ -29,6 +29,9 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 mod kept;
+mod lists;
+
+pub use lists::Later;
 mod replies;
 mod turns;
 
@@ -40,7 +43,7 @@ use crate::{
     session::{Item, Session, State},
     settings::{self, Settings},
     style::BODY,
-    theme, ui,
+    theme,
 };
 
 /// The side columns' widths, the top bar's height.
@@ -88,6 +91,8 @@ pub enum Popup {
     Option(String),
     /// The agent a draft is begun with.
     Agent,
+    /// What can be done with a session in the sidebar, by key.
+    Session(u64),
 }
 
 /// Which side columns show.
@@ -106,6 +111,15 @@ pub struct Desk {
     /// Why the sessions kept from before could not be read, while that is
     /// so: nothing is saved over them.
     pub store_refused: Option<String>,
+    /// The session being renamed in the sidebar, and the line for it.
+    pub renaming: Option<u64>,
+    pub rename: Entity<TextInput>,
+    /// What was just deleted or archived, while it can be taken back.
+    pub undo: Option<lists::Undo>,
+    /// The sessions whose records hold what is searched for.
+    pub found: HashSet<u64>,
+    /// The settings page's tab.
+    pub settings_tab: crate::pages::Tab,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -170,8 +184,20 @@ impl Desk {
             .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
-        cx.subscribe(&search, |_, _, _: &crate::input::Changed, cx| cx.notify())
-            .detach();
+        let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        cx.subscribe(&rename, |this, _, Submitted(text), cx| {
+            this.finish_rename(text, cx);
+        })
+        .detach();
+        cx.subscribe(&rename, |this, _, _: &crate::input::Cancelled, cx| {
+            this.cancel_rename(cx);
+        })
+        .detach();
+        cx.subscribe(&search, |this, _, _: &crate::input::Changed, cx| {
+            this.search_records(cx);
+            cx.notify();
+        })
+        .detach();
         cx.subscribe(&search, |this, _, _: &crate::input::Cancelled, cx| {
             this.searching = false;
             cx.notify();
@@ -212,6 +238,11 @@ impl Desk {
             settings,
             settings_refused,
             store_refused: None,
+            renaming: None,
+            rename,
+            undo: None,
+            found: HashSet::new(),
+            settings_tab: crate::pages::Tab::Agents,
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -239,6 +270,7 @@ impl Desk {
             tx,
         };
         desk.keep_from(crate::store::load(&desk.home));
+        desk.settle_idle();
         Self::keep_on_quit(cx);
         desk.fill_slots();
         desk
@@ -485,6 +517,12 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
+        if let Some(s) = self.session_mut(key)
+            && s.flags.unread
+        {
+            s.flags.unread = false;
+            self.save_index();
+        }
         let closed = self
             .sessions
             .iter()
@@ -597,44 +635,6 @@ impl Desk {
                         this.list_sessions(&agent);
                     }
                     cx.notify();
-                });
-            }
-        })
-        .detach();
-    }
-
-    /// Delete the session `key`: one its agent keeps is deleted there too,
-    /// once you say so, and the worktree made for it is removed.
-    pub fn delete_session(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
-            return;
-        };
-        let Some(id) = s.id.clone() else {
-            self.forget_session(key, cx);
-            return;
-        };
-        let name = self.name_of(&s.agent);
-        let detail = match &s.worktree {
-            Some(w) => format!(
-                "{name} deletes it and what was said in it. Its worktree on {} is removed too, unless it has changes not committed.",
-                w.branch
-            ),
-            None => format!("{name} deletes it and what was said in it."),
-        };
-        let agent = s.agent.clone();
-        let answer = window.prompt(
-            gpui::PromptLevel::Warning,
-            &format!("Delete “{}”?", ui::fit(&s.title, 60)),
-            Some(&detail),
-            &["Delete", "Cancel"],
-            cx,
-        );
-        cx.spawn(async move |this, cx| {
-            if answer.await == Ok(0) {
-                let _ = this.update(cx, |this, _| {
-                    if let Some(running) = this.slot(&agent).and_then(Slot::running) {
-                        hub::delete(running.clone(), key, id, this.tx.clone());
-                    }
                 });
             }
         })
@@ -759,6 +759,9 @@ impl Desk {
             return;
         }
         let session = self.session_mut(key).expect("the session on screen");
+        // Something new said in a session done for now brings it back.
+        session.flags.settled = None;
+        session.flags.snoozed = None;
         session.said(&text);
         let (agent, folder, id) = (
             session.agent.clone(),
@@ -1085,5 +1088,6 @@ impl Render for Desk {
             })
             .child(middle)
             .children(right)
+            .children(self.undo_toast(&faces, cx))
     }
 }

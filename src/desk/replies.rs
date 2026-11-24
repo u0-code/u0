@@ -148,6 +148,11 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
+            Msg::Found { query, keys } => {
+                if self.searching && self.search.read(cx).text().to_lowercase() == query {
+                    self.found = keys.into_iter().collect();
+                }
+            }
             Msg::Loaded {
                 key,
                 resumed,
@@ -193,8 +198,11 @@ impl Desk {
                         Err(_) => slot.auth.clone(),
                     };
                 }
+                let away = self.current != Some(key);
                 if let Some(s) = self.session_mut(key) {
                     s.ended(result.map_err(|f| f.message));
+                    // A turn that ended while you looked elsewhere is unread.
+                    s.flags.unread |= away;
                 }
                 self.end_turn(key);
             }
@@ -399,6 +407,7 @@ impl Desk {
             self.sessions
                 .push(Session::listed(key, agent, info, project));
         }
+        self.settle_idle();
         self.save_index();
     }
 
@@ -515,6 +524,12 @@ impl Desk {
                     .find(|s| s.agent == agent && s.id.as_ref() == Some(&request.session_id))
                 {
                     s.asked(id, request);
+                    let key = s.key;
+                    if self.current != Some(key)
+                        && let Some(s) = self.session_mut(key)
+                    {
+                        s.flags.unread = true;
+                    }
                     self.thread_scroll_follow();
                 } else if let Some(running) = self.slot(agent).and_then(Slot::running) {
                     hub::answer(running, &id, None);

@@ -18,6 +18,11 @@ macro_rules! icons {
 
 const FILES: &[(&str, &[u8])] = icons![
     "ghost",
+    "dots",
+    "pin",
+    "archive",
+    "clock",
+    "branch",
     "sidebar",
     "chevron-left",
     "chevron-right",

@@ -28,6 +28,33 @@ impl Desk {
             return div();
         };
         let name = self.name_of(&s.agent);
+        // Archived: read only until it is restored.
+        if s.flags.archived {
+            let key = s.key;
+            return div().flex().flex_none().justify_center().pb(px(18.)).child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .w(px(column.min(COLUMN)))
+                    .px(px(14.))
+                    .py(px(10.))
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(ui::icon("archive", 16.).text_color(theme::faint()))
+                    .child(
+                        ui::text(faces, "Archived. Restore it to write in it again.")
+                            .flex_1()
+                            .text_size(px(13.))
+                            .text_color(theme::text2()),
+                    )
+                    .child(
+                        ui::button(faces, "restore", "Restore", ui::Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
+                    ),
+            );
+        }
         self.input.update(cx, |i, cx| {
             i.set_placeholder(&format!("Reply to {name}, or tell it what to do next…"), cx);
         });
@@ -274,7 +301,7 @@ impl Desk {
             Popup::Mode => "chip-mode".to_owned(),
             Popup::Option(o) => format!("chip-{o}"),
             Popup::Agent => "chip-agent".to_owned(),
-            Popup::Closed => "chip".to_owned(),
+            Popup::Closed | Popup::Session(_) => "chip".to_owned(),
         };
         let for_click = popup.clone();
         let mut chip: Stateful<Div> = div()
@@ -339,7 +366,7 @@ impl Desk {
                                 this.set_option(config.clone(), value.clone(), cx);
                             }
                             Popup::Agent => this.switch_agent(&value, cx),
-                            Popup::Closed => {}
+                            Popup::Closed | Popup::Session(_) => {}
                         })),
                 );
             }

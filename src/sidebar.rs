@@ -10,7 +10,7 @@ use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, LEFT, Page, TOPBAR, draggable},
+    desk::{Desk, LEFT, Later, Page, Popup, TOPBAR, draggable},
     fonts::Faces,
     hub::{Slot, Stage},
     session::{Session, State},
@@ -69,28 +69,38 @@ impl Desk {
             .then(|| self.search.read(cx).text().to_lowercase());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
         for folder in self.projects() {
-            let mut sessions: Vec<&Session> = self
+            let now = crate::store::secs(SystemTime::now());
+            let snoozed = self
                 .sessions
                 .iter()
-                .filter(|s| s.project == folder)
-                .filter(|s| {
-                    query
-                        .as_ref()
-                        .is_none_or(|q| s.title.to_lowercase().contains(q))
-                })
-                .collect();
-            if query.is_some() && sessions.is_empty() {
+                .filter(|s| s.project == folder && !s.flags.archived)
+                .filter(|s| s.flags.snoozed.is_some_and(|t| t > now))
+                .count();
+            let (done, mut sessions): (Vec<&Session>, Vec<&Session>) = self
+                .sessions
+                .iter()
+                .filter(|s| s.project == folder && self.listed_now(s))
+                .filter(|s| query.as_ref().is_none_or(|q| self.matches(s, q)))
+                .partition(|s| s.flags.settled.is_some());
+            if query.is_some() && sessions.is_empty() && done.is_empty() {
                 continue;
             }
-            // The latest first; one not begun yet on top.
-            sessions
-                .sort_by_key(|s| std::cmp::Reverse((s.state == State::Draft, s.updated, s.key)));
+            // Pinned on top in their order; then each where it was put as
+            // it began. What goes on in a session does not move it.
+            sessions.sort_by_key(|s| {
+                (
+                    s.flags.pinned.is_none(),
+                    s.flags.pinned,
+                    s.flags.order,
+                    s.key,
+                )
+            });
             let open = query.is_some() || !self.closed.contains(&folder);
             projects = projects.child(Self::project_row(faces, &folder, sessions.len(), open, cx));
             if !open {
                 continue;
             }
-            if sessions.is_empty() {
+            if sessions.is_empty() && done.is_empty() {
                 projects = projects.child(
                     session_shell(
                         SharedString::from(format!("none-{}", folder.display())),
@@ -105,6 +115,35 @@ impl Desk {
             }
             for s in sessions {
                 projects = projects.child(self.session_row(faces, s, cx));
+            }
+            // Done for now, and out of the way until later: folded.
+            if !done.is_empty() {
+                let key = format!("done-{}", folder.display());
+                let shown = query.is_some() || self.expanded.contains(&key);
+                projects =
+                    projects.child(Self::shelf_row(faces, key, "Done", done.len(), shown, cx));
+                if shown {
+                    let mut done = done;
+                    done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
+                    for s in done {
+                        projects = projects.child(self.session_row(faces, s, cx));
+                    }
+                }
+            }
+            if snoozed > 0 && query.is_none() {
+                let key = format!("snoozed-{}", folder.display());
+                let shown = self.expanded.contains(&key);
+                projects =
+                    projects.child(Self::shelf_row(faces, key, "Snoozed", snoozed, shown, cx));
+                if shown {
+                    for s in self.sessions.iter().filter(|s| {
+                        s.project == folder
+                            && !s.flags.archived
+                            && s.flags.snoozed.is_some_and(|t| t > now)
+                    }) {
+                        projects = projects.child(self.session_row(faces, s, cx));
+                    }
+                }
             }
         }
         if self.projects().is_empty() {
@@ -390,12 +429,7 @@ impl Desk {
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&toggle, cx)))
     }
 
-    fn session_row(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
+    fn session_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> AnyElement {
         let key = s.key;
         let on = self.page == Page::Thread && self.current == Some(key);
         let title = if s.state == State::Draft && s.items.is_empty() {
@@ -417,18 +451,56 @@ impl Desk {
             .entry(&s.agent)
             .map_or_else(|| s.agent.clone(), |e| e.name.clone());
         let group = SharedString::from(format!("session-{key}"));
-        let deletable = s.id.is_none() || self.can_delete(&s.agent);
-        let busy = matches!(s.state, State::Working | State::Opening);
-        session_shell(group.clone(), on)
+        let done = s.flags.settled.is_some();
+        let menu_open = self.popup == Popup::Session(key);
+        let name: AnyElement = if self.renaming == Some(key) {
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .h(px(22.))
+                .px(px(4.))
+                .rounded(px(5.))
+                .bg(theme::well())
+                .border_1()
+                .border_color(theme::border2())
+                .child(self.rename.clone())
+                .into_any_element()
+        } else {
+            ui::one_line(
+                ui::text(faces, ui::fit(&title, ui::cols(LEFT - 124.)))
+                    .text_size(px(13.))
+                    .text_color(if on {
+                        theme::text()
+                    } else if done {
+                        theme::faint()
+                    } else {
+                        theme::text2()
+                    }),
+            )
+            .into_any_element()
+        };
+        let row = session_shell(group.clone(), on)
             .group(group.clone())
             .cursor_pointer()
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-            .child(ui::mark(faces, &Mark::of(&s.agent, &agent), 14.))
-            .child(ui::one_line(
-                ui::text(faces, ui::fit(&title, ui::cols(LEFT - 112.)))
-                    .text_size(px(13.))
-                    .text_color(if on { theme::text() } else { theme::text2() }),
-            ))
+            .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
+                faces,
+                &Mark::of(&s.agent, &agent),
+                14.,
+            )))
+            .child(name)
+            .when(s.flags.pinned.is_some(), |d| {
+                d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
+            })
+            .when(s.flags.unread && !on, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .size(px(6.))
+                        .rounded_full()
+                        .bg(theme::link()),
+                )
+            })
             .child(fine(faces, when).text_color(if live {
                 theme::accent()
             } else if trouble {
@@ -436,30 +508,167 @@ impl Desk {
             } else {
                 theme::faint()
             }))
-            .when(deletable && !busy, |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .invisible()
-                        .group_hover(group, Styled::visible)
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("delete-{key}")),
-                                "trash",
-                                "Delete session",
-                            )
+            .child(
+                div()
+                    .flex_none()
+                    .when(!menu_open, |d| {
+                        d.invisible().group_hover(group, Styled::visible)
+                    })
+                    .child(
+                        ui::icon_button(SharedString::from(format!("more-{key}")), "dots", "More")
                             .size(px(20.))
                             .text_color(theme::faint())
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.delete_session(key, window, cx);
-                                },
-                            )),
-                        ),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_popup(Popup::Session(key), cx);
+                            })),
+                    ),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)));
+        let mut wrap = div().relative().child(row);
+        if menu_open {
+            wrap = wrap.child(gpui::deferred(
+                gpui::anchored()
+                    .anchor(gpui::Corner::TopRight)
+                    .child(self.session_menu(faces, s, cx)),
+            ));
+        }
+        wrap.into_any_element()
+    }
+
+    /// What can be done with a session: name it, pin it, mark it, put it
+    /// away, branch it off, delete it.
+    fn session_menu(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let key = s.key;
+        let now = crate::store::secs(SystemTime::now());
+        let busy = matches!(s.state, State::Working | State::Opening);
+        let item = |n: usize, icon: &'static str, label: String| {
+            div()
+                .id(SharedString::from(format!("smenu-{key}-{n}")))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(8.))
+                .h(px(30.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+        };
+        let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
+        menu =
+            menu.child(item(0, "pencil", "Rename".into()).on_click(
+                cx.listener(move |this, _, window, cx| this.begin_rename(key, window, cx)),
+            ));
+        menu = menu.child(
+            item(
+                1,
+                "pin",
+                if s.flags.pinned.is_some() {
+                    "Unpin"
+                } else {
+                    "Pin"
+                }
+                .into(),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(key, cx))),
+        );
+        if !s.flags.unread {
+            menu = menu.child(
+                item(2, "bell", "Mark as unread".into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.mark_unread(key, cx))),
+            );
+        }
+        menu = menu.child(
+            item(
+                3,
+                "check",
+                if s.flags.settled.is_some() {
+                    "Not done"
+                } else {
+                    "Mark as done"
+                }
+                .into(),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_settled(key, cx))),
+        );
+        if s.flags.snoozed.is_some_and(|t| t > now) {
+            menu = menu.child(
+                item(4, "clock", "Bring back now".into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.wake(key, cx))),
+            );
+        } else {
+            for (n, (label, later)) in [
+                ("Snooze for an hour", Later::Hour),
+                ("Snooze until tomorrow", Later::Tomorrow),
+                ("Snooze until next week", Later::NextWeek),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                menu = menu.child(
+                    item(5 + n, "clock", label.into())
+                        .on_click(cx.listener(move |this, _, _, cx| this.snooze(key, later, cx))),
+                );
+            }
+        }
+        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
+        if !busy {
+            menu = menu.child(
+                item(9, "archive", "Archive".into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),
+            );
+            if s.id.is_none() || self.can_delete(&s.agent) {
+                menu = menu.child(
+                    item(10, "trash", "Delete".into())
+                        .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
+                );
+            }
+        }
+        div()
+            .mt(px(4.))
+            .child(ui::menu(SharedString::from(format!("session-menu-{key}"))).child(menu))
+    }
+
+    /// A folded shelf under a project: its sessions done for now, or
+    /// snoozed, and how many.
+    fn shelf_row(
+        faces: &Faces,
+        key: String,
+        label: &str,
+        count: usize,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let toggle = key.clone();
+        session_shell(SharedString::from(key), false)
+            .cursor_pointer()
+            .hover(|st| st.bg(theme::hover()))
+            .child(
+                ui::icon(
+                    if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    },
+                    12.,
                 )
-            })
-            .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
+                .text_color(theme::faint()),
+            )
+            .child(
+                ui::text(faces, format!("{label} · {count}"))
+                    .flex_1()
+                    .text_size(px(12.5))
+                    .text_color(theme::faint()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
+    }
+
+    /// Whether the session `s` answers the search `query`: by its title,
+    /// or by what was said in it.
+    fn matches(&self, s: &Session, query: &str) -> bool {
+        s.title.to_lowercase().contains(query) || self.found.contains(&s.key)
     }
 }
 
