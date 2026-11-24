@@ -11,6 +11,7 @@
 mod acp;
 mod aside;
 mod assets;
+mod base64;
 mod desk;
 mod fonts;
 mod git;

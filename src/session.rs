@@ -88,6 +88,8 @@ pub enum Item {
         text: String,
         trouble: bool,
     },
+    /// An image the agent showed.
+    Image(std::sync::Arc<gpui::Image>),
     /// A turn ended, why, and after how long.
     Ended {
         reason: StopReason,
@@ -224,6 +226,18 @@ pub fn text_of(block: &ContentBlock) -> String {
     }
 }
 
+/// The image format of the MIME type `mime`, where GPUI draws it.
+fn image_format(mime: &str) -> Option<gpui::ImageFormat> {
+    Some(match mime {
+        "image/png" => gpui::ImageFormat::Png,
+        "image/jpeg" | "image/jpg" => gpui::ImageFormat::Jpeg,
+        "image/gif" => gpui::ImageFormat::Gif,
+        "image/webp" => gpui::ImageFormat::Webp,
+        "image/svg+xml" => gpui::ImageFormat::Svg,
+        _ => return None,
+    })
+}
+
 /// The line of `file` that `text` starts on, counting from one.
 fn line_of(file: &Path, text: &str) -> Option<usize> {
     if text.is_empty() {
@@ -341,6 +355,21 @@ impl Session {
             }
         }
         self.replaying = false;
+    }
+
+    /// Whether it is in a mode that only plans (its mode, or an option of
+    /// the kind, is one named for planning).
+    pub fn planning(&self) -> bool {
+        let plan = |s: &str| s.to_lowercase().contains("plan");
+        self.modes
+            .as_ref()
+            .is_some_and(|m| plan(&m.current_mode_id.0))
+            || self.options.iter().any(|o| match &o.kind {
+                agent_client_protocol_schema::v1::SessionConfigKind::Select(sel) => {
+                    plan(&sel.current_value.0)
+                }
+                _ => false,
+            })
     }
 
     /// A note in the thread, kept in its record.
@@ -501,6 +530,17 @@ impl Session {
                 }
             }
             SessionUpdate::AgentMessageChunk(c) => {
+                // An image shown is an item of its own, drawn as itself.
+                if let ContentBlock::Image(image) = &c.content
+                    && let Some(format) = image_format(&image.mime_type)
+                    && let Some(bytes) = crate::base64::decode(&image.data)
+                {
+                    self.items
+                        .push(Item::Image(std::sync::Arc::new(gpui::Image::from_bytes(
+                            format, bytes,
+                        ))));
+                    return;
+                }
                 let text = text_of(&c.content);
                 match self.items.last_mut() {
                     Some(Item::Agent(t)) => t.push_str(&text),

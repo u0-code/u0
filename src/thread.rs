@@ -131,6 +131,17 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
             short_url(&bare(&call.title)),
             Object::Link,
         ),
+        // A call to think with a task given is a subagent sent off with it.
+        ToolKind::Think if !call.content.is_empty() => (
+            "user",
+            if running {
+                "Running a subagent"
+            } else {
+                "Ran a subagent"
+            },
+            call.title.clone(),
+            Object::Plain,
+        ),
         ToolKind::Think => ("bulb", "Thought about", call.title.clone(), Object::Plain),
         ToolKind::SwitchMode => ("list", "Switched mode", call.title.clone(), Object::Plain),
         _ => ("plug", "Called", call.title.clone(), Object::Plain),
@@ -640,10 +651,38 @@ impl Desk {
                         .line_height(px(21.)),
                 )
                 .into_any_element(),
-            Item::Agent(text) => div()
-                .px(px(10.))
-                .child(markdown::render(faces, &key, text, &self.expanded, cx))
-                .into_any_element(),
+            Item::Agent(text) => {
+                // What the agent said, copied whole from beside it on hover.
+                let group = SharedString::from(format!("{key}-said"));
+                let copy = text.clone();
+                div()
+                    .relative()
+                    .group(group.clone())
+                    .px(px(10.))
+                    .child(markdown::render(faces, &key, text, &self.expanded, cx))
+                    .child(
+                        div()
+                            .absolute()
+                            .bottom(px(-22.))
+                            .left(px(6.))
+                            .invisible()
+                            .group_hover(group, Styled::visible)
+                            .child(
+                                ui::icon_button(
+                                    SharedString::from(format!("{key}-copy")),
+                                    "copy",
+                                    "Copy",
+                                )
+                                .size(px(22.))
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        copy.clone(),
+                                    ));
+                                }),
+                            ),
+                    )
+                    .into_any_element()
+            }
             Item::Thought { text, secs } => {
                 let open = self.expanded.contains(&key);
                 let toggle = key.clone();
@@ -709,6 +748,15 @@ impl Desk {
                     .child(div().px(px(4.)).child(drawn::plan(faces, &steps)))
                     .into_any_element()
             }
+            Item::Image(image) => div()
+                .px(px(10.))
+                .child(
+                    gpui::img(image.clone())
+                        .max_w(px(480.))
+                        .max_h(px(360.))
+                        .rounded(px(8.)),
+                )
+                .into_any_element(),
             Item::Note { text, trouble } => ui::text(faces, text.clone())
                 .px(px(10.))
                 .text_size(px(13.))
@@ -852,6 +900,23 @@ impl Desk {
             None
         };
 
+        // An edit opens its file's diff in the column beside, as it stands.
+        let diff_of = call.content.iter().find_map(|c| match c {
+            ToolCallContent::Diff(d) => Some(d.path.clone()),
+            _ => None,
+        });
+        let open_diff = diff_of.filter(|_| !running).map(|path| {
+            ui::button(
+                faces,
+                SharedString::from(format!("{key}-open-diff")),
+                "Open diff",
+                ui::Weight::Quiet,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.show_aside(crate::desk::Aside::File(path.clone()), cx);
+            }))
+        });
         let toggle = key.clone();
         let mut line = step()
             .id(SharedString::from(format!("{key}-row")))
@@ -862,7 +927,8 @@ impl Desk {
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
                 d.child(counts(faces, added, gone))
             })
-            .children(tail);
+            .children(tail)
+            .children(open_diff.map(|b| div().ml_auto().child(b)));
         if has_body(tool) {
             line = line
                 .cursor_pointer()

@@ -357,6 +357,53 @@ impl Desk {
         cx.notify();
     }
 
+    /// Carry out the plan the session `key` made: out of the mode that only
+    /// plans (to its default, or the first that does not plan), then on.
+    pub fn run_plan(&mut self, key: u64, cx: &mut Context<Self>) {
+        let plan = |s: &str| s.to_lowercase().contains("plan");
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let mode = s
+            .modes
+            .as_ref()
+            .filter(|m| plan(&m.current_mode_id.0))
+            .and_then(|m| {
+                m.available_modes
+                    .iter()
+                    .find(|x| &*x.id.0 == "default")
+                    .or_else(|| m.available_modes.iter().find(|x| !plan(&x.id.0)))
+                    .map(|x| x.id.0.to_string())
+            });
+        // An option that plans (a way of working) goes back to its first value
+        // that does not.
+        let option = s.options.iter().find_map(|o| match &o.kind {
+            agent_client_protocol_schema::v1::SessionConfigKind::Select(sel)
+                if plan(&sel.current_value.0) =>
+            {
+                let values: Vec<_> = match &sel.options {
+                    agent_client_protocol_schema::v1::SessionConfigSelectOptions::Ungrouped(v) => {
+                        v.iter().map(|x| x.value.0.to_string()).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                values
+                    .into_iter()
+                    .find(|v| !plan(v))
+                    .map(|v| (o.id.0.to_string(), v))
+            }
+            _ => None,
+        });
+        self.current = Some(key);
+        if let Some(m) = mode {
+            self.set_mode(m, cx);
+        }
+        if let Some((config, value)) = option {
+            self.set_option(config, value, cx);
+        }
+        self.send_in(key, "Carry out the plan.", cx);
+    }
+
     /// List sessions by where they stand, or by project.
     pub fn toggle_grouping(&mut self, cx: &mut Context<Self>) {
         self.settings.by_status = !self.settings.by_status;

@@ -815,27 +815,54 @@ fn table(
 /// A fenced block: its text in mono, coloured by its language, in a
 /// hairline well that scrolls sideways so that a long line keeps its shape.
 fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
-    div().w_full().child(
-        div()
-            .id(SharedString::from(format!("{key}-code")))
-            .flex()
-            .rounded(px(WELL_RADIUS))
-            .border_1()
-            .border_color(theme::border())
-            .overflow_x_scroll()
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(14.))
-                    .py(px(10.))
-                    .font_family(faces.mono.clone())
-                    .text_size(px(MONO))
-                    .line_height(px(MONO_LINE))
-                    .text_color(theme::text2())
-                    .whitespace_nowrap()
-                    .child(crate::syntax::styled(faces, text, lang)),
-            ),
-    )
+    let group = SharedString::from(format!("{key}-code-group"));
+    let copy = text.to_owned();
+    div()
+        .w_full()
+        .relative()
+        .group(group.clone())
+        .child(
+            // Its text copied with a click, from the corner, on hover.
+            div()
+                .absolute()
+                .top(px(6.))
+                .right(px(6.))
+                .invisible()
+                .group_hover(group, gpui::Styled::visible)
+                .child(
+                    crate::ui::icon_button(
+                        SharedString::from(format!("{key}-copy")),
+                        "copy",
+                        "Copy",
+                    )
+                    .size(px(24.))
+                    .bg(theme::panel())
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                    }),
+                ),
+        )
+        .child(
+            div()
+                .id(SharedString::from(format!("{key}-code")))
+                .flex()
+                .rounded(px(WELL_RADIUS))
+                .border_1()
+                .border_color(theme::border())
+                .overflow_x_scroll()
+                .child(
+                    div()
+                        .flex_none()
+                        .px(px(14.))
+                        .py(px(10.))
+                        .font_family(faces.mono.clone())
+                        .text_size(px(MONO))
+                        .line_height(px(MONO_LINE))
+                        .text_color(theme::text2())
+                        .whitespace_nowrap()
+                        .child(crate::syntax::styled(faces, text, lang)),
+                ),
+        )
 }
 
 #[cfg(test)]

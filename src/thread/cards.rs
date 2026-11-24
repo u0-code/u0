@@ -212,7 +212,21 @@ impl Desk {
                     1 => " · 1 file changed".into(),
                     n => format!(" · {n} files changed"),
                 };
-                meta(faces, format!("{name} · {took}{changed}")).px(px(10.))
+                // The last turn, in a mode that only plans, with a plan:
+                // it can be carried out from here.
+                let last = !s.items[i + 1..].iter().any(|x| matches!(x, Item::You(_)));
+                let ready = last && s.plan.is_some() && s.planning();
+                let key = s.key;
+                meta(faces, format!("{name} · {took}{changed}"))
+                    .px(px(10.))
+                    .when(ready, |d| {
+                        d.flex().items_center().gap(px(10.)).child(
+                            ui::button(faces, "run-plan", "Carry out the plan", Weight::Secondary)
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.run_plan(key, cx)),
+                                ),
+                        )
+                    })
             }
             StopReason::Cancelled => step()
                 .child(icon("square"))

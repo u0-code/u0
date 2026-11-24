@@ -239,7 +239,9 @@ impl Desk {
         let mut blocks: Vec<ContentBlock> = self
             .pictures
             .drain(..)
-            .map(|p| ContentBlock::Image(ImageContent::new(base64(&p.bytes), p.mime)))
+            .map(|p| {
+                ContentBlock::Image(ImageContent::new(crate::base64::encode(&p.bytes), p.mime))
+            })
             .collect();
         let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
             return blocks;
@@ -305,38 +307,4 @@ fn said_in(s: &Session) -> String {
     }
     let from = out.len().saturating_sub(30);
     out[from..].join("\n\n")
-}
-
-/// `bytes` in base64, as ACP carries an image.
-pub fn base64(bytes: &[u8]) -> String {
-    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(char::from(ABC[(n >> (18 - 6 * i) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bytes_go_to_base64_with_their_padding() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"a"), "YQ==");
-        assert_eq!(base64(b"ab"), "YWI=");
-        assert_eq!(base64(b"abc"), "YWJj");
-        assert_eq!(base64(b"abcdef"), "YWJjZGVm");
-    }
 }
