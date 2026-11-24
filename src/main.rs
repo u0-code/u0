@@ -77,6 +77,7 @@ fn main() {
                 KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
                 KeyBinding::new("cmd-enter", input::SubmitAside, Some(input::CONTEXT)),
                 KeyBinding::new("shift-enter", input::Newline, Some(input::CONTEXT)),
+                KeyBinding::new("tab", input::Tab, Some(input::CONTEXT)),
                 KeyBinding::new("up", input::Up, Some(input::CONTEXT)),
                 KeyBinding::new("down", input::Down, Some(input::CONTEXT)),
                 KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),

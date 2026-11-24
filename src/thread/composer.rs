@@ -206,6 +206,17 @@ impl Desk {
                     .tooltip(ui::tip("Context used")),
             );
         }
+        // macOS dictation, typed into the line as you speak.
+        let input = self.input.clone();
+        bar = bar.child(
+            ui::icon_button("dictate", "mic", "Dictate")
+                .size(px(26.))
+                .text_color(theme::faint())
+                .on_click(move |_, window, cx| {
+                    window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx));
+                    crate::icon::dictate();
+                }),
+        );
         let button = div()
             .size(px(30.))
             .flex()
@@ -298,6 +309,101 @@ impl Desk {
             }
             _ => None,
         };
+
+        // What is offered for the word being typed: the agent's commands
+        // after `/`, after `@` files, sessions and pull requests. Tab takes
+        // the first.
+        let typed = self.input.read(cx).text();
+        let offers = self
+            .offers(&typed)
+            .filter(|(_, o)| !o.is_empty())
+            .map(|(_, list)| {
+                use crate::desk::mention::Offer;
+                let mut menu = div().flex().flex_col().p(px(6.)).w(px(column.min(COLUMN)));
+                for (n, offer) in list.into_iter().enumerate() {
+                    let (icon, name, about) = match offer {
+                        Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
+                        Offer::File(f) => ("file", f, String::new()),
+                        Offer::Session { title, .. } => ("list", title, "session".into()),
+                        Offer::Pr { number, title } => (
+                            "branch",
+                            format!("#{number} {title}"),
+                            "pull request".into(),
+                        ),
+                    };
+                    menu = menu.child(
+                        div()
+                            .id(SharedString::from(format!("offer-{n}")))
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .px(px(8.))
+                            .h(px(30.))
+                            .rounded(px(7.))
+                            .cursor_pointer()
+                            .when(n == 0, |d| d.bg(theme::panel2()))
+                            .hover(|st| st.bg(theme::hover()))
+                            .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                            .child(
+                                ui::one_line(
+                                    ui::mono(faces, name)
+                                        .text_size(px(12.5))
+                                        .text_color(theme::text()),
+                                )
+                                .w_auto()
+                                .max_w(px(360.)),
+                            )
+                            .child(
+                                ui::one_line(
+                                    ui::text(faces, about)
+                                        .text_size(px(12.))
+                                        .text_color(theme::faint()),
+                                )
+                                .flex_1(),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.take_offer(n, cx))),
+                    );
+                }
+                div().mb(px(8.)).child(ui::menu("offers").child(menu))
+            });
+
+        // Images waiting to go with what is said.
+        let pictures = (!self.pictures.is_empty()).then(|| {
+            let mut row = div().flex().flex_wrap().gap(px(6.));
+            for (n, p) in self.pictures.iter().enumerate() {
+                row = row.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(26.))
+                        .pl(px(8.))
+                        .pr(px(2.))
+                        .rounded(px(7.))
+                        .border_1()
+                        .border_color(theme::tag_line())
+                        .child(ui::icon("file", 12.).text_color(theme::faint()))
+                        .child(
+                            ui::text(
+                                faces,
+                                format!("Image {} · {} KB", n + 1, p.bytes.len() / 1024),
+                            )
+                            .text_size(px(12.))
+                            .text_color(theme::text2()),
+                        )
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("drop-pic-{n}")),
+                                "x",
+                                "Take it out",
+                            )
+                            .size(px(20.))
+                            .on_click(cx.listener(move |this, _, _, cx| this.drop_picture(n, cx))),
+                        ),
+                );
+            }
+            row
+        });
 
         // What was said while the turn goes on, waiting its turn: each can
         // be said now (the turn is stopped first) or taken back to edit.
@@ -431,12 +537,17 @@ impl Desk {
             .pb(px(18.))
             .children(sign_in)
             .children(approval)
+            .children(offers)
             .child(
                 div()
+                    .id("composer")
                     .flex()
                     .flex_col()
                     .gap(px(10.))
                     .w(px(column.min(COLUMN)))
+                    .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+                        this.drop_files(paths.paths(), cx);
+                    }))
                     .pl(px(14.))
                     .pr(px(12.))
                     .pt(px(12.))
@@ -450,6 +561,7 @@ impl Desk {
                         theme::border2()
                     })
                     .children(queued)
+                    .children(pictures)
                     .child(div().min_h(px(42.)).child(self.input.clone()))
                     .child(bar),
             )

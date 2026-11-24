@@ -151,6 +151,20 @@ impl Desk {
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
             Msg::Forked { from, result } => self.forked(from, result, cx),
+            Msg::Files { folder, files } => {
+                self.files.insert(folder, files);
+            }
+            Msg::Prs { folder, prs } => {
+                self.prs.insert(folder, prs);
+            }
+            Msg::PrText { number, text } => {
+                for m in &mut self.mentions {
+                    if matches!(m.what, crate::desk::mention::Offer::Pr { number: n, .. } if n == number)
+                    {
+                        m.text.clone_from(&text);
+                    }
+                }
+            }
             Msg::Found { query, keys } => {
                 if self.searching && self.search.read(cx).text().to_lowercase() == query {
                     self.found = keys.into_iter().collect();
@@ -524,6 +538,12 @@ impl Desk {
                     .iter_mut()
                     .find(|s| s.agent == agent && s.id.as_ref() == Some(&n.session_id))
                 else {
+                    // The probe's session lists the commands the agent takes.
+                    if let SessionUpdate::AvailableCommandsUpdate(c) = n.update
+                        && let Some(slot) = self.slot_mut(agent)
+                    {
+                        slot.commands = c.available_commands;
+                    }
                     return;
                 };
                 let title = matches!(n.update, SessionUpdate::SessionInfoUpdate(_));

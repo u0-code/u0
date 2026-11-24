@@ -429,6 +429,46 @@ pub fn pull_request(dir: &Path) -> Result<String, String> {
         .to_owned())
 }
 
+/// The files git sees in `dir`: tracked, and new ones not ignored; paths
+/// from `dir`. At most a few thousand, which is enough to name one.
+pub fn files(dir: &Path) -> Vec<String> {
+    let mut out: Vec<String> = git(
+        dir,
+        &["ls-files", "--cached", "--others", "--exclude-standard"],
+        None,
+    )
+    .map(|t| t.lines().take(20_000).map(str::to_owned).collect())
+    .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The open pull requests of the repository at `dir`, by number and title,
+/// as `gh` lists them; none where it is not installed or signed in.
+pub fn pull_requests(dir: &Path) -> Vec<(u64, String)> {
+    let mut gh = Command::new("gh");
+    gh.current_dir(dir)
+        .args(["pr", "list", "--limit", "30", "--json", "number,title"]);
+    run(&mut gh)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+        .map(|list| {
+            list.iter()
+                .filter_map(|p| Some((p["number"].as_u64()?, p["title"].as_str()?.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What `gh` says of the pull request `number`: its title, body and state.
+pub fn pull_request_text(dir: &Path, number: u64) -> Option<String> {
+    let mut gh = Command::new("gh");
+    gh.current_dir(dir)
+        .args(["pr", "view", &number.to_string()]);
+    run(&mut gh).ok()
+}
+
 /// Run a command as you, with your git and gh configuration; its output.
 fn run(command: &mut Command) -> Result<String, String> {
     let program = command.get_program().to_string_lossy().into_owned();

@@ -201,6 +201,11 @@ pub struct Session {
     /// What you were writing in it and had not sent, kept while another
     /// session is on screen.
     pub unsent: String,
+    /// The commands the agent takes in it, typed after `/`.
+    pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
+    /// What goes with the next thing said: images, files and sessions
+    /// mentioned.
+    pub attached: Vec<ContentBlock>,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -408,6 +413,8 @@ impl Session {
             trusted: Vec::new(),
             queued: Vec::new(),
             unsent: String::new(),
+            commands: Vec::new(),
+            attached: Vec::new(),
         }
     }
 
@@ -538,11 +545,12 @@ impl Session {
             }
             SessionUpdate::ConfigOptionUpdate(o) => self.options = o.config_options,
             SessionUpdate::SessionInfoUpdate(info) => {
-                if let Some(title) = info.title.take().filter(|t| !t.is_empty()) {
+                if let Some(title) = info.title.take().filter(|t| !t.is_empty() && !self.renamed) {
                     self.title = title;
                 }
             }
             SessionUpdate::UsageUpdate(u) => self.usage = Some(u),
+            SessionUpdate::AvailableCommandsUpdate(c) => self.commands = c.available_commands,
             SessionUpdate::Notice(n) => self.items.push(Item::Note {
                 text: match n.description {
                     Some(d) => format!("{} — {d}", n.title),

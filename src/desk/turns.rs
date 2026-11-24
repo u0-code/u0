@@ -84,8 +84,14 @@ impl Desk {
             return;
         };
         let (agent, id) = (s.agent.clone(), s.id.clone());
+        let attached = self
+            .session_mut(key)
+            .map(|s| std::mem::take(&mut s.attached))
+            .unwrap_or_default();
         match (self.slot(&agent).and_then(Slot::running).cloned(), id) {
-            (Some(running), Some(id)) => hub::prompt(running, key, id, text, self.tx.clone()),
+            (Some(running), Some(id)) => {
+                hub::prompt(running, key, id, text, attached, self.tx.clone());
+            }
             _ => {
                 if let Some(s) = self.session_mut(key) {
                     s.ended(Err(

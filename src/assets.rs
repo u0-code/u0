@@ -23,6 +23,7 @@ const FILES: &[(&str, &[u8])] = icons![
     "archive",
     "clock",
     "branch",
+    "mic",
     "sidebar",
     "chevron-left",
     "chevron-right",

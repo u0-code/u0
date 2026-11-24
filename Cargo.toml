@@ -22,10 +22,15 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-segmentation = "1"
 
-# To give the running app its icon in the Dock: AppKit, by way of the same
-# crate GPUI uses for it.
+# To give the running app its icon in the Dock, and begin dictation: AppKit,
+# by way of the same crates GPUI uses for it.
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
+objc = "0.2"
+
+[lints.rust]
+# objc's msg_send! (macOS dictation, `icon::dictate`) checks this feature.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

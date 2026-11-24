@@ -45,6 +45,7 @@ actions!(
         Newline,
         Up,
         Down,
+        Tab,
         Cancel,
     ]
 );
@@ -64,6 +65,12 @@ pub struct Changed;
 
 /// Esc was pressed in the line.
 pub struct Cancelled;
+
+/// Tab was pressed: what is offered for the word being typed is taken.
+pub struct Complete;
+
+/// An image was pasted, not text.
+pub struct PastedImage(pub gpui::Image);
 
 pub struct TextInput {
     focus_handle: FocusHandle,
@@ -94,6 +101,8 @@ impl EventEmitter<Submitted> for TextInput {}
 impl EventEmitter<SubmittedAside> for TextInput {}
 impl EventEmitter<Changed> for TextInput {}
 impl EventEmitter<Cancelled> for TextInput {}
+impl EventEmitter<Complete> for TextInput {}
+impl EventEmitter<PastedImage> for TextInput {}
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
@@ -129,6 +138,10 @@ impl TextInput {
     pub fn padded(mut self, pad_y: f32) -> Self {
         self.pad_y = pad_y;
         self
+    }
+
+    fn tab(_: &mut Self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(Complete);
     }
 
     /// A new paragraph, where the line wraps (⇧Return).
@@ -300,7 +313,20 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let item = cx.read_from_clipboard();
+        if let Some(image) = item.as_ref().and_then(|item| {
+            item.entries().iter().find_map(|e| {
+                if let gpui::ClipboardEntry::Image(i) = e {
+                    Some(i.clone())
+                } else {
+                    None
+                }
+            })
+        }) {
+            cx.emit(PastedImage(image));
+            return;
+        }
+        if let Some(text) = item.and_then(|item| item.text()) {
             let text = if self.most > 1 {
                 text
             } else {
@@ -935,6 +961,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::submit))
             .on_action(cx.listener(Self::submit_aside))
             .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(Self::tab))
             .on_action(cx.listener(Self::up))
             .on_action(cx.listener(Self::down))
             .on_action(cx.listener(Self::cancel))

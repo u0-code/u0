@@ -86,6 +86,21 @@ pub enum Msg {
         from: u64,
         result: Result<Box<ForkSessionResponse>, Failure>,
     },
+    /// The files of a project, for `@` to name.
+    Files {
+        folder: PathBuf,
+        files: Vec<String>,
+    },
+    /// The open pull requests of a project, for `@` to name.
+    Prs {
+        folder: PathBuf,
+        prs: Vec<(u64, String)>,
+    },
+    /// What `gh` says of the pull request `number`, named with `@`.
+    PrText {
+        number: u64,
+        text: Option<String>,
+    },
     /// The sessions whose records hold `query`.
     Found {
         query: String,
@@ -191,6 +206,8 @@ pub struct Slot {
     /// When it last did anything: one idle long enough is let go, and
     /// started again when it is wanted.
     pub used: std::time::Instant,
+    /// The commands its sessions take, as the probe's session listed them.
+    pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -224,6 +241,7 @@ impl Slot {
             probe: None,
             auth: Auth::Unknown,
             used: std::time::Instant::now(),
+            commands: Vec::new(),
         }
     }
 
@@ -495,6 +513,23 @@ pub fn fork(agent: Arc<Agent>, from: u64, id: SessionId, folder: PathBuf, tx: Se
     });
 }
 
+/// Read the files of `folder` that git sees (tracked, and new ones not
+/// ignored), for `@` to name.
+pub fn list_files(folder: PathBuf, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let files = git::files(&folder);
+        let _ = tx.send(Msg::Files { folder, files });
+    });
+}
+
+/// Read the open pull requests of `folder` with `gh`, for `@` to name.
+pub fn list_prs(folder: PathBuf, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let prs = git::pull_requests(&folder);
+        let _ = tx.send(Msg::Prs { folder, prs });
+    });
+}
+
 /// Look for `query` (lower case) in the records at `paths`.
 pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
@@ -532,9 +567,18 @@ pub fn delete(agent: Arc<Agent>, key: u64, id: SessionId, tx: Sender) {
 }
 
 /// Say `text` in the session `id`, and wait for the turn to end.
-pub fn prompt(agent: Arc<Agent>, key: u64, id: SessionId, text: String, tx: Sender) {
+pub fn prompt(
+    agent: Arc<Agent>,
+    key: u64,
+    id: SessionId,
+    text: String,
+    attached: Vec<ContentBlock>,
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
-        let request = PromptRequest::new(id, vec![ContentBlock::Text(TextContent::new(text))]);
+        let mut content = vec![ContentBlock::Text(TextContent::new(text))];
+        content.extend(attached);
+        let request = PromptRequest::new(id, content);
         let result = agent
             .request::<_, PromptResponse>("session/prompt", request)
             .await

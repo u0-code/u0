@@ -35,6 +35,26 @@ pub fn set() {
     }
 }
 
+/// Begin macOS dictation into the field that has the focus: what is said
+/// is typed there, as by the keyboard.
+#[cfg(target_os = "macos")]
+pub fn dictate() {
+    use cocoa::{
+        appkit::NSApp,
+        base::{id, nil},
+    };
+    use objc::{msg_send, sel, sel_impl};
+    // SAFETY: called on the main thread; `startDictation:` is a standard
+    // NSApplication action that takes a sender, which may be nil.
+    unsafe {
+        let app: id = NSApp();
+        let _: () = msg_send![app, startDictation: nil];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn dictate() {}
+
 /// Elsewhere the window manager's own icon stands.
 #[cfg(not(target_os = "macos"))]
 pub fn set() {}

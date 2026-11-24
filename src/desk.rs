@@ -16,7 +16,7 @@
 //! for the settings in `pages.rs`.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -30,6 +30,7 @@ use tracing::warn;
 
 mod kept;
 mod lists;
+pub(crate) mod mention;
 
 pub use lists::Later;
 mod replies;
@@ -130,6 +131,13 @@ pub struct Desk {
     pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
+    /// What `@` can name: each folder's files, each project's open pull
+    /// requests, read once when first wanted.
+    pub files: HashMap<PathBuf, Vec<String>>,
+    pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
+    /// What was named with `@` and images put in, waiting to be sent.
+    pub mentions: Vec<mention::Mention>,
+    pub pictures: Vec<mention::Picture>,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -199,6 +207,34 @@ impl Desk {
                 this.send_aside(text, window, cx);
             },
         )
+        .detach();
+        cx.subscribe(&input, |this, input, _: &crate::input::Changed, cx| {
+            if input.read(cx).text().contains('@') {
+                this.want_offers();
+            }
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, _: &crate::input::Complete, cx| {
+            this.take_offer(0, cx);
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, crate::input::PastedImage(image), cx| {
+            let mime = match image.format {
+                gpui::ImageFormat::Png => "image/png",
+                gpui::ImageFormat::Jpeg => "image/jpeg",
+                gpui::ImageFormat::Gif => "image/gif",
+                gpui::ImageFormat::Webp => "image/webp",
+                _ => return,
+            };
+            this.add_picture(
+                mention::Picture {
+                    mime: mime.into(),
+                    bytes: image.bytes.clone(),
+                },
+                cx,
+            );
+        })
         .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
@@ -276,6 +312,10 @@ impl Desk {
             settings_tab: crate::pages::Tab::Agents,
             fanout: false,
             behind: false,
+            files: HashMap::new(),
+            prs: HashMap::new(),
+            mentions: Vec::new(),
+            pictures: Vec::new(),
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -864,8 +904,14 @@ impl Desk {
             cx.notify();
             return;
         }
+        let attached = if on_screen {
+            self.attach(key, &text)
+        } else {
+            Vec::new()
+        };
         let session = self.session_mut(key).expect("found above");
         session.unsent.clear();
+        session.attached.extend(attached);
         // Something new said in a session done for now brings it back.
         session.flags.settled = None;
         session.flags.snoozed = None;
