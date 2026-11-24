@@ -23,6 +23,7 @@ mod markdown;
 mod pages;
 mod path;
 mod registry;
+mod remote;
 mod session;
 mod settings;
 mod sidebar;

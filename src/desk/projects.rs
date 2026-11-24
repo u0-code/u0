@@ -131,6 +131,24 @@ impl Desk {
         cx.notify();
     }
 
+    /// Add the project typed as `host:/path`, on a machine reached over
+    /// SSH; its sessions are those of the agents there.
+    pub fn add_remote(&mut self, cx: &mut Context<Self>) {
+        let typed = self.remote_at.read(cx).text();
+        match typed.trim().split_once(':') {
+            Some((host, path)) if !host.is_empty() && path.starts_with('/') => {
+                self.remote_at.update(cx, |i, cx| i.set_text("", cx));
+                self.adding_trouble = None;
+                self.adopt(&crate::remote::project(host, path));
+            }
+            _ => {
+                self.adding_trouble =
+                    Some("Write the machine and the folder on it as host:/path.".into());
+            }
+        }
+        cx.notify();
+    }
+
     /// Ask for the folder new and cloned projects go in.
     pub fn choose_parent(cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(gpui::PathPromptOptions {

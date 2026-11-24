@@ -1,6 +1,7 @@
 //! Adding a project, as t3code adds one: a folder already here, a
 //! repository cloned from its address (its progress shown, and stoppable),
-//! a new one made, or a scratch session in a folder of its own.
+//! a new one made, a folder on another machine reached over SSH, or a
+//! scratch session in a folder of its own.
 
 use gpui::{Context, Div, div, prelude::*, px};
 
@@ -108,6 +109,30 @@ impl Desk {
                     .child(fine(faces, "a repository with a README, in")),
             );
 
+        let remote = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .p(px(16.))
+            .border_t_1()
+            .border_color(theme::border())
+            .child(heading("On another machine"))
+            .child(field(self.remote_at.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        ui::button(faces, "do-remote", "Add", Weight::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.add_remote(cx))),
+                    )
+                    .child(fine(
+                        faces,
+                        "over SSH with your key; the agent runs there by npx or uvx",
+                    )),
+            );
+
         let elsewhere = div()
             .flex()
             .flex_col()
@@ -157,7 +182,13 @@ impl Desk {
                         .clone()
                         .map(|why| fine(faces, why).text_color(theme::coral())),
                 )
-                .child(card().child(clone).child(create).child(elsewhere)),
+                .child(
+                    card()
+                        .child(clone)
+                        .child(create)
+                        .child(remote)
+                        .child(elsewhere),
+                ),
         )
     }
 }

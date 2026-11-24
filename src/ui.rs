@@ -62,6 +62,8 @@ impl Mark {
     /// The mark of the agent `id` called `name`: its logo when the home
     /// holds one.
     pub fn of(id: &str, name: &str) -> Self {
+        // An agent on another machine shows its own logo.
+        let id = crate::remote::split(id).0;
         if crate::registry::icon_path(&crate::settings::home(), id).is_file() {
             Self::Logo(SharedString::from(id.to_owned()))
         } else {

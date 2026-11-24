@@ -460,17 +460,28 @@ const PAGES: usize = 50;
 
 /// The sessions `agent` keeps in each of `projects` and in Ghost's
 /// worktrees of them (under `home`), each with the project it belongs to.
-pub fn list(agent: Arc<Agent>, name: String, projects: Vec<PathBuf>, home: PathBuf, tx: Sender) {
+pub fn list(
+    agent: Arc<Agent>,
+    name: String,
+    projects: Vec<(PathBuf, PathBuf)>,
+    home: PathBuf,
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
         let under = home.join("worktrees");
         let mut places: Vec<(PathBuf, PathBuf)> = Vec::new();
-        for project in projects {
+        // Each project's folder (on another machine, its path there), and
+        // here, Ghost's worktrees of it.
+        for (cwd, project) in projects {
+            places.push((cwd.clone(), project.clone()));
+            if cwd != project {
+                continue;
+            }
             let p = project.clone();
             let u = under.clone();
             let worktrees = tokio::task::spawn_blocking(move || git::worktrees(&p, &u))
                 .await
                 .unwrap_or_default();
-            places.push((project.clone(), project.clone()));
             places.extend(worktrees.into_iter().map(|w| (w.path, project.clone())));
         }
         let mut found = Vec::new();

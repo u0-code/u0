@@ -147,6 +147,8 @@ pub struct Desk {
     /// the folder either goes in, a clone going on and what went wrong.
     pub clone_url: Entity<TextInput>,
     pub new_name: Entity<TextInput>,
+    /// A project on another machine, typed as `host:/path`.
+    pub remote_at: Entity<TextInput>,
     pub parent: PathBuf,
     pub cloning: Option<hub::Install>,
     pub adding_trouble: Option<String>,
@@ -365,6 +367,13 @@ impl Desk {
             this.create_project(cx);
         })
         .detach();
+        let remote_at = cx.new(|cx| {
+            TextInput::new(cx, "devbox:/home/me/app")
+                .padded(6.)
+                .keeping()
+        });
+        cx.subscribe(&remote_at, |this, _, Submitted(_), cx| this.add_remote(cx))
+            .detach();
         let find = cx.new(|cx| {
             TextInput::new(cx, "Find in this session")
                 .padded(2.)
@@ -466,6 +475,7 @@ impl Desk {
             settings_tab: crate::pages::Tab::Agents,
             clone_url,
             new_name,
+            remote_at,
             parent: settings::home()
                 .parent()
                 .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
@@ -548,6 +558,10 @@ impl Desk {
     /// there as they are.
     fn fill_slots(&mut self) {
         let mut old: Vec<Slot> = std::mem::take(&mut self.slots);
+        // The slots on other machines stay as they are.
+        let remote: Vec<Slot> = old
+            .extract_if(.., |s| crate::remote::split(&s.entry.id).1.is_some())
+            .collect();
         for id in &self.settings.enabled {
             if let Some(at) = old.iter().position(|s| &s.entry.id == id) {
                 self.slots.push(old.remove(at));
@@ -559,6 +573,7 @@ impl Desk {
                 ));
             }
         }
+        self.slots.extend(remote);
         self.start_ready();
     }
 
@@ -566,8 +581,11 @@ impl Desk {
     /// that the sessions it keeps are listed.
     fn start_ready(&mut self) {
         let home = self.home.clone();
+        // One on another machine starts when it is wanted.
         for slot in &mut self.slots {
-            if matches!(slot.stage, Stage::Ready) {
+            if matches!(slot.stage, Stage::Ready)
+                && crate::remote::split(&slot.entry.id).1.is_none()
+            {
                 slot.stage = Stage::Starting;
                 hub::start(slot, &home, self.tx.clone());
             }
@@ -587,10 +605,23 @@ impl Desk {
         if init.agent_capabilities.session_capabilities.list.is_none() {
             return;
         }
+        // An agent here lists the projects here; one on another machine,
+        // the projects there, by their paths there.
+        let host = crate::remote::split(agent).1;
+        let places = self
+            .settings
+            .folders
+            .iter()
+            .filter_map(|f| match (crate::remote::parse(f), host) {
+                (None, None) => Some((f.clone(), f.clone())),
+                (Some((h, path)), Some(on)) if h == on => Some((path, f.clone())),
+                _ => None,
+            })
+            .collect();
         hub::list(
             running.clone(),
             agent.to_owned(),
-            self.settings.folders.clone(),
+            places,
             self.home.clone(),
             self.tx.clone(),
         );
@@ -608,10 +639,17 @@ impl Desk {
             return;
         };
         let caps = &init.agent_capabilities.session_capabilities;
+        // Opened in a folder that is there: Ghost's home here, /tmp on
+        // another machine.
+        let dir = if crate::remote::split(agent).1.is_some() {
+            PathBuf::from("/tmp")
+        } else {
+            self.home.clone()
+        };
         hub::probe(
             running.clone(),
             agent.to_owned(),
-            self.home.clone(),
+            dir,
             caps.delete.is_some(),
             caps.close.is_some(),
             self.tx.clone(),
@@ -677,7 +715,27 @@ impl Desk {
     }
 
     pub fn entry(&self, id: &str) -> Option<&Entry> {
-        self.registry.agents.iter().find(|e| e.id == id)
+        self.registry
+            .agents
+            .iter()
+            .find(|e| e.id == id)
+            .or_else(|| self.slot(id).map(|s| &s.entry))
+    }
+
+    /// The slot of `agent` on the host of a project on another machine,
+    /// made the first time it is wanted; its id.
+    pub(crate) fn remote_slot(&mut self, agent: &str, host: &str) -> Option<String> {
+        let id = crate::remote::agent_on(agent, host);
+        if self.slot(&id).is_none() {
+            let base = self.registry.agents.iter().find(|e| e.id == agent)?.clone();
+            let command = crate::remote::command(&base, host)?;
+            let mut entry = base;
+            entry.name = format!("{} on {host}", self.name_of(agent));
+            entry.id.clone_from(&id);
+            let slot = Slot::new(entry, &self.home, Some(command));
+            self.slots.push(slot);
+        }
+        Some(id)
     }
 
     pub fn slot(&self, id: &str) -> Option<&Slot> {
@@ -740,9 +798,13 @@ impl Desk {
     /// The name the project `folder` shows by.
     pub fn project_name(&self, folder: &Path) -> String {
         self.prefs(folder).name.unwrap_or_else(|| {
-            folder
+            let name = folder
                 .file_name()
-                .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned())
+                .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned());
+            match crate::remote::parse(folder) {
+                Some((host, _)) => format!("{name} · {host}"),
+                None => name,
+            }
         })
     }
 
@@ -778,7 +840,15 @@ impl Desk {
                 .prefs(&folder)
                 .worktree
                 .unwrap_or(self.settings.worktree);
+            let there = crate::remote::parse(&folder);
             let mut s = Session::new(key, agent, folder);
+            // On another machine it works in the path there, whose git the
+            // desk does not read.
+            if let Some((_, path)) = there {
+                s.folder = path;
+                s.repo = false;
+                s.branch = None;
+            }
             s.wants_worktree = s.repo && worktree;
             if let Some(slot) = self.slot(agent) {
                 slot.seed(&mut s);
@@ -855,6 +925,29 @@ impl Desk {
     /// Begin a session in `folder`, with the agent of the session on screen
     /// if it can run, else the first that can.
     pub fn new_in(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        // A project on another machine: the agent there, started over SSH.
+        if let Some((host, _)) = crate::remote::parse(&folder) {
+            let shown = self
+                .session()
+                .map(|s| crate::remote::split(&s.agent).0.to_owned());
+            let base = self
+                .prefs(&folder)
+                .agent
+                .into_iter()
+                .chain(shown)
+                .chain(self.settings.enabled.clone())
+                .find(|a| {
+                    self.registry
+                        .agents
+                        .iter()
+                        .any(|e| &e.id == a && crate::remote::command(e, &host).is_some())
+                });
+            match base.and_then(|a| self.remote_slot(&a, &host)) {
+                Some(id) => self.new_session(&id, folder, window, cx),
+                None => self.open_page(Page::Settings, cx),
+            }
+            return;
+        }
         let usable = |s: &Slot| {
             matches!(
                 s.stage,

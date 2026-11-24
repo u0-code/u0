@@ -156,10 +156,16 @@ impl Desk {
 
     /// The command typed in the drawer, run in the session's folder.
     pub(crate) fn run_typed(&mut self, text: &str, cx: &mut Context<Self>) {
-        let Some(dir) = self.session().map(|s| s.folder.clone()) else {
-            return;
+        let Some(s) = self.session() else { return };
+        // On another machine it runs there, over SSH.
+        let (dir, line) = match crate::remote::parse(&s.project) {
+            Some((host, _)) => (
+                self.home.clone(),
+                crate::remote::run_in(&host, &s.folder, text),
+            ),
+            None => (s.folder.clone(), text.to_owned()),
         };
-        self.run_command(dir, text.to_owned(), cx);
+        self.run_command(dir, line, cx);
     }
 
     /// The scripts of a new worktree's repository marked to run in each new

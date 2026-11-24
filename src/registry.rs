@@ -320,14 +320,19 @@ pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<
 }
 
 /// A command line split into words as a shell splits it: on spaces, but
-/// not within quotes.
+/// not within quotes, nor after a backslash outside them.
 fn words(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut word = String::new();
     let mut quote: Option<char> = None;
     let mut any = false;
-    for c in line.chars() {
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
         match (quote, c) {
+            (None, '\\') => {
+                word.extend(chars.next());
+                any = true;
+            }
             (Some(q), c) if c == q => quote = None,
             (Some(_), c) => word.push(c),
             (None, '"' | '\'') => {
@@ -768,6 +773,7 @@ mod tests {
             words(r#"agent --flag "two words" 'x y'"#),
             ["agent", "--flag", "two words", "x y"]
         );
+        assert_eq!(words(r"a\ b 'c'\''d'"), ["a b", "c'd"]);
         let e = entry(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#);
         let home = Path::new("/nowhere");
         assert_eq!(

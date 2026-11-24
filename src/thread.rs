@@ -330,8 +330,13 @@ fn select_choices(kind: &SessionConfigKind) -> Option<(String, Choices)> {
 impl Desk {
     /// An agent's name as the desk shows it.
     pub(crate) fn name_of(&self, id: &str) -> String {
-        let registry = self.entry(id).map_or(id, |e| e.name.as_str());
-        theme::agent_name(id, registry).into_owned()
+        let (agent, host) = crate::remote::split(id);
+        let registry = self.entry(agent).map_or(agent, |e| e.name.as_str());
+        let name = theme::agent_name(agent, registry).into_owned();
+        match host {
+            Some(host) => format!("{name} on {host}"),
+            None => name,
+        }
     }
 
     /// The name of the value chosen for the session's option in `category`.
