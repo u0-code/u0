@@ -147,19 +147,20 @@ impl Agent {
             }
         });
 
-        let tail = Arc::new(Mutex::new(VecDeque::new()));
+        // The last of what it writes to its standard error, handed over
+        // when that closes: it says why the agent stopped.
         let stderr = child.stderr.take().expect("piped stderr");
-        let kept = tail.clone();
-        runtime().spawn(async move {
+        let tail = runtime().spawn(async move {
+            let mut kept = VecDeque::new();
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 debug!(target: "ghost_desk::agent", "{line}");
-                let mut kept = kept.lock().expect("stderr tail");
                 if kept.len() == STDERR_KEPT {
                     kept.pop_front();
                 }
                 kept.push_back(line);
             }
+            kept
         });
 
         let stdout = child.stdout.take().expect("piped stdout");
@@ -237,7 +238,7 @@ async fn read(
     waiting: Waiting,
     out: mpsc::UnboundedSender<String>,
     events: mpsc::UnboundedSender<Event>,
-    tail: Arc<Mutex<VecDeque<String>>>,
+    tail: tokio::task::JoinHandle<VecDeque<String>>,
 ) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -276,12 +277,14 @@ async fn read(
     }
     let status = child.wait().await.ok();
     waiting.lock().expect("waiting").clear();
-    let said = tail
-        .lock()
-        .expect("stderr tail")
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    // A program it left behind may hold its standard error open: the reason
+    // is waited for a moment, not for ever.
+    let said: Vec<String> = tokio::time::timeout(std::time::Duration::from_secs(2), tail)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .map(Vec::from)
+        .unwrap_or_default();
     let mut why = said.join("\n");
     if why.trim().is_empty() {
         why = match status.and_then(|s| s.code()) {

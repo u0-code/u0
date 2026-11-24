@@ -13,6 +13,7 @@ mod aside;
 mod assets;
 mod desk;
 mod fonts;
+mod git;
 mod hub;
 mod icon;
 mod input;

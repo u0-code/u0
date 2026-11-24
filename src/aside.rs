@@ -10,8 +10,9 @@ use agent_client_protocol_schema::v1::{ToolCallContent, ToolCallStatus};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
+    desk::{Aside, Desk, RIGHT, Scope, TOPBAR, draggable},
     fonts::Faces,
+    git, hub,
     hub::Stage,
     registry::{self, Way},
     session::{Change, Session, State},
@@ -138,7 +139,7 @@ impl Desk {
             return frame(top());
         };
         if let Aside::File(path) = &self.aside {
-            return Self::file_view(faces, s, path, cx);
+            return self.file_view(faces, s, path, cx);
         }
         let tab = |id: &'static str, label: &'static str, on: bool, to: Aside| {
             div()
@@ -183,10 +184,13 @@ impl Desk {
         let body = if self.aside == Aside::Files {
             body.child(Self::files(faces, s, cx))
         } else {
-            body.child(Self::changes(faces, s, cx))
-                .child(Self::plan(faces, s))
-                .child(Self::terminals(faces, s))
-                .child(self.context(faces, s))
+            body.child(
+                self.git_changes(faces, s, cx)
+                    .unwrap_or_else(|| Self::changes(faces, s, cx)),
+            )
+            .child(Self::plan(faces, s))
+            .child(Self::terminals(faces, s))
+            .child(self.context(faces, s, cx))
         };
         frame(head).child(body)
     }
@@ -269,6 +273,204 @@ impl Desk {
                 ),
         );
         sec
+    }
+
+    /// The changes the scope asks for, as git read them, when it has.
+    fn scoped<'a>(&self, s: &'a Session) -> Option<&'a Vec<git::FileDiff>> {
+        match self.scope {
+            Scope::All => s.total.as_ref(),
+            Scope::Turn(n) => s.turns.get(n).and_then(|t| t.diff.as_ref()),
+        }
+    }
+
+    /// The changes as git reads them between the session's checkpoints:
+    /// all of them or one turn's, each file with how it changed; then what
+    /// can be done with them. `None` before git has read anything.
+    fn git_changes(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        let last = s.turns.iter().rposition(|t| t.diff.is_some())?;
+        let files = self.scoped(s).cloned().unwrap_or_default();
+        let (added, gone) = files
+            .iter()
+            .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
+        let scope_tab = |id: &'static str, label: String, on: bool, to: Scope| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .h(px(22.))
+                .px(px(7.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::hover()))
+                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                .child(ui::text(faces, label).text_size(px(12.)).text_color(if on {
+                    theme::text()
+                } else {
+                    theme::muted()
+                }))
+                .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to, cx)))
+        };
+        let turn = match self.scope {
+            Scope::Turn(n) => n,
+            Scope::All => last,
+        };
+        let mut sec = section(
+            faces,
+            "Changes",
+            (!files.is_empty()).then(|| added_gone(faces, added, gone)),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(2.))
+                .ml(px(-7.))
+                .child(scope_tab(
+                    "scope-all",
+                    "All".into(),
+                    self.scope == Scope::All,
+                    Scope::All,
+                ))
+                .child(scope_tab(
+                    "scope-turn",
+                    format!("Turn {}", turn + 1),
+                    self.scope != Scope::All,
+                    Scope::Turn(turn),
+                )),
+        );
+        if files.is_empty() {
+            sec = sec.child(empty(faces, "Nothing changed here."));
+        }
+        let mut rows = div().flex().flex_col();
+        for (n, f) in files.iter().enumerate() {
+            let tail = match f.status {
+                git::Status::Added => fine(faces, "new"),
+                git::Status::Deleted => fine(faces, "deleted").text_color(theme::coral()),
+                git::Status::Renamed if f.added + f.gone == 0 => fine(faces, "renamed"),
+                _ => added_gone(faces, f.added, f.gone),
+            };
+            let path = std::path::PathBuf::from(&f.path);
+            rows = rows.child(
+                frow()
+                    .id(SharedString::from(format!("gchange-{n}")))
+                    .px(px(6.))
+                    .mx(px(-6.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(path_text(faces, &f.path))
+                    .child(tail)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.show_aside(Aside::File(path.clone()), cx);
+                    })),
+            );
+        }
+        sec = sec.child(rows);
+        let idle = !matches!(s.state, State::Working | State::Opening);
+        let first = files.first().map(|f| std::path::PathBuf::from(&f.path));
+        sec = sec.child(
+            div()
+                .flex()
+                .gap(px(6.))
+                .children(first.map(|first| {
+                    ui::button(
+                        faces,
+                        "review",
+                        "Review diff",
+                        if idle {
+                            Weight::Primary
+                        } else {
+                            Weight::Secondary
+                        },
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.show_aside(Aside::File(first.clone()), cx);
+                    }))
+                }))
+                .child(
+                    ui::button(faces, "commit", "Commit…", Weight::Secondary).on_click(
+                        cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
+                    ),
+                ),
+        );
+        if self.committing {
+            sec = sec.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .h(px(32.))
+                            .px(px(8.))
+                            .rounded(px(8.))
+                            .bg(theme::well())
+                            .border_1()
+                            .border_color(theme::border2())
+                            .child(div().flex_1().child(self.message.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(6.))
+                            .child(git_button(
+                                faces,
+                                "do-commit",
+                                "Commit",
+                                Weight::Primary,
+                                cx,
+                                hub::GitAction::Commit,
+                            ))
+                            .child(git_button(
+                                faces,
+                                "do-push",
+                                "Commit & push",
+                                Weight::Secondary,
+                                cx,
+                                hub::GitAction::CommitPush,
+                            ))
+                            .child(git_button(
+                                faces,
+                                "do-pr",
+                                "Create PR",
+                                Weight::Quiet,
+                                cx,
+                                hub::GitAction::PullRequest,
+                            )),
+                    )
+                    .child(fine(
+                        faces,
+                        format!(
+                            "Commits everything in {} on {}, as you.",
+                            Desk::shown(&s.folder),
+                            s.branch.as_deref().unwrap_or("its branch")
+                        ),
+                    )),
+            );
+        }
+        if let Some(note) = &s.git_note {
+            let line = fine(faces, note.text.clone()).text_color(if note.trouble {
+                theme::coral()
+            } else {
+                theme::text2()
+            });
+            sec = sec.child(match note.url.clone() {
+                Some(url) => div()
+                    .id("git-url")
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .cursor_pointer()
+                    .child(line)
+                    .child(fine(faces, url.clone()).text_color(theme::link()))
+                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
+                    .into_any_element(),
+                None => line.into_any_element(),
+            });
+        }
+        Some(sec)
     }
 
     fn plan(faces: &Faces, s: &Session) -> Div {
@@ -358,7 +560,7 @@ impl Desk {
         sec
     }
 
-    fn context(&self, faces: &Faces, s: &Session) -> Div {
+    fn context(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let note = s
             .usage
             .as_ref()
@@ -413,6 +615,33 @@ impl Desk {
                 "Working directory",
                 fine_mono(faces, Desk::shown(&s.folder)),
             ));
+        if let Some(wt) = &s.worktree {
+            let removable = !matches!(s.state, State::Working | State::Opening);
+            let wt_for_click = wt.clone();
+            sec = sec.child(key_value(
+                faces,
+                "Worktree",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(fine_mono(faces, ui::fit(&wt.branch, 24)))
+                    .when(removable, |d| {
+                        d.child(
+                            div()
+                                .id("remove-worktree")
+                                .cursor_pointer()
+                                .child(fine(faces, "Remove").text_color(theme::link()))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.git_action(
+                                        hub::GitAction::RemoveWorktree(wt_for_click.clone()),
+                                        cx,
+                                    );
+                                })),
+                        )
+                    }),
+            ));
+        }
         if let Some(mode) = Desk::mode_name(s) {
             sec = sec.child(key_value(faces, "Mode", fine(faces, mode)));
         }
@@ -420,7 +649,7 @@ impl Desk {
             let since = SystemTime::now()
                 .duration_since(s.begun)
                 .unwrap_or_default();
-            let turns = s.turns();
+            let turns = s.turn_count();
             let words = format!(
                 "{} · {} · {turns} {}",
                 when::clock(s.begun),
@@ -485,6 +714,7 @@ impl Desk {
 
     /// One file's changes, every edit to it, whole.
     fn file_view(
+        &self,
         faces: &Faces,
         s: &Session,
         path: &std::path::Path,
@@ -495,7 +725,15 @@ impl Desk {
             .unwrap_or(path)
             .display()
             .to_string();
-        let total = s.changed().into_iter().find(|c| c.path == path);
+        let from_git = self
+            .scoped(s)
+            .and_then(|files| files.iter().find(|f| std::path::Path::new(&f.path) == path));
+        let total = s
+            .changed()
+            .into_iter()
+            .find(|c| c.path == path)
+            .map(|c| (c.added, c.gone))
+            .or_else(|| from_git.map(|f| (f.added, f.gone)));
         let head = top()
             .gap(px(8.))
             .child(
@@ -503,7 +741,7 @@ impl Desk {
                     .on_click(cx.listener(|this, _, _, cx| this.show_aside(Aside::Session, cx))),
             )
             .child(path_text(faces, &name))
-            .children(total.map(|c| added_gone(faces, c.added, c.gone)));
+            .children(total.map(|(a, g)| added_gone(faces, a, g)));
         let mut body = div()
             .id("aside-file")
             .flex()
@@ -512,6 +750,9 @@ impl Desk {
             .min_h(px(0.))
             .overflow_y_scroll()
             .py(px(6.));
+        if let Some(file) = from_git {
+            return frame(head).child(body.child(drawn::hunks(faces, file, drawn::Fit::Column)));
+        }
         for t in s.tools() {
             let mut n = 0;
             for c in &t.call.content {
@@ -608,4 +849,20 @@ impl Desk {
             );
         frame(head).child(about_rows).child(what)
     }
+}
+
+/// A button that does a git action with the commit message typed.
+fn git_button(
+    faces: &Faces,
+    id: &'static str,
+    label: &'static str,
+    weight: Weight,
+    cx: &mut Context<Desk>,
+    make: fn(String) -> hub::GitAction,
+) -> gpui::Stateful<Div> {
+    ui::button(faces, id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
+        let message = this.commit_message(cx);
+        this.committing = false;
+        this.git_action(make(message), cx);
+    }))
 }

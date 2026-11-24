@@ -118,6 +118,59 @@ impl Desk {
     }
 
     /// How a turn ended.
+    /// What can be done with a turn whose files were checkpointed: see its
+    /// diff, put the files back as they were before it, or after undoing,
+    /// put it back again.
+    fn turn_tools(faces: &Faces, s: &Session, i: usize, cx: &mut Context<Self>) -> Option<Div> {
+        let turn = s.turn_of(i)?;
+        let marks = s.turns.get(turn)?;
+        marks.before.as_ref()?;
+        let idle = !matches!(
+            s.state,
+            crate::session::State::Working | crate::session::State::Opening
+        );
+        let undone = s.redo.as_ref().is_some_and(|(t, _)| *t == turn);
+        let last = s.turns.iter().rposition(|t| t.before.is_some()) == Some(turn);
+        let label = if undone {
+            "Redo"
+        } else if last {
+            "Undo"
+        } else {
+            "Restore to before"
+        };
+        let mut tools = div().flex().flex_none().gap(px(2.));
+        if marks.diff.as_ref().is_some_and(|d| !d.is_empty()) {
+            tools = tools.child(
+                ui::button(
+                    faces,
+                    SharedString::from(format!("diff-{i}")),
+                    "Diff",
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.show_changes(crate::desk::Scope::Turn(turn), cx);
+                })),
+            );
+        }
+        if idle {
+            tools = tools.child(
+                ui::button(
+                    faces,
+                    SharedString::from(format!("undo-{i}")),
+                    label,
+                    Weight::Quiet,
+                )
+                .tooltip(ui::tip(if undone {
+                    "Put this turn's changes back in the files"
+                } else {
+                    "Put the files back as they were before this turn"
+                }))
+                .on_click(cx.listener(move |this, _, _, cx| this.undo(turn, cx))),
+            );
+        }
+        Some(tools)
+    }
+
     pub(super) fn ended(
         &self,
         faces: &Faces,
@@ -129,7 +182,7 @@ impl Desk {
     ) -> Div {
         let took = when::took(std::time::Duration::from_secs(secs));
         let name = self.name_of(&s.agent);
-        match reason {
+        let body = match reason {
             StopReason::EndTurn => {
                 // The files changed since what you last said.
                 let start = s.items[..i]
@@ -180,7 +233,12 @@ impl Desk {
                     ),
                 )
             }
-        }
+        };
+        div()
+            .flex()
+            .items_center()
+            .child(div().flex_1().min_w(px(0.)).child(body))
+            .children(Self::turn_tools(faces, s, i, cx))
     }
 
     /// The agent stopped, or the session could not be opened.

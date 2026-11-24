@@ -36,6 +36,10 @@ pub struct Settings {
     pub enabled: Vec<String>,
     /// Folders sessions were started in, the latest first.
     pub folders: Vec<PathBuf>,
+    /// Whether a new session in a git repository works in a worktree of
+    /// its own: the choice last made.
+    #[serde(default)]
+    pub worktree: bool,
 }
 
 impl Default for Settings {
@@ -43,6 +47,7 @@ impl Default for Settings {
         Self {
             enabled: FIRST.iter().map(|s| (*s).to_owned()).collect(),
             folders: Vec::new(),
+            worktree: false,
         }
     }
 }

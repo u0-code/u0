@@ -509,6 +509,61 @@ impl Desk {
                     .tooltip(ui::tip("The folder it works in"))
                     .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
             )
+            .when(s.repo, |d| {
+                d.child(Self::where_toggle(faces, s.wants_worktree, cx))
+            })
+    }
+
+    /// Whether the session works in the folder itself or in a worktree of
+    /// its own, on a new branch: two halves of one control.
+    fn where_toggle(faces: &Faces, worktree: bool, cx: &mut Context<Self>) -> Div {
+        let half = |id: &'static str, label: &'static str, on: bool, to: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(24.))
+                .px(px(10.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::panel2()))
+                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                .child(
+                    ui::text(faces, label)
+                        .text_size(px(12.5))
+                        .text_color(if on { theme::text() } else { theme::muted() }),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_worktree(to, cx)))
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .p(px(2.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(theme::tag_line())
+                    .child(half("where-local", "In this folder", !worktree, false))
+                    .child(half("where-worktree", "New worktree", worktree, true)),
+            )
+            .child(
+                ui::text(
+                    faces,
+                    if worktree {
+                        "A worktree of its own on a new branch: your folder is left as it is."
+                    } else {
+                        "It works in your folder as it is. Each turn is checkpointed and can be undone."
+                    },
+                )
+                .text_size(px(12.5))
+                .text_color(theme::faint()),
+            )
     }
 
     fn item(

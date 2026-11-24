@@ -34,7 +34,10 @@ folder and a task, and follow it the way you would in its own app.
 | **One thread for every agent** | What you said, what the agent said, each tool call as a row that opens to its diff or its output, the questions it asks before it acts, its plan. The same rendering whichever agent it is. |
 | **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own sessions. Ghost offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
 | **Their own choices under your hand** | The agent's modes (read-only, ask first, auto), its models and how hard it thinks, as the agent itself lists them. |
-| **What the session came to** | Down the right: the files it changed with lines added and removed, its plan, how full its context is. |
+| **What the session came to** | Down the right: the files it changed with lines added and removed, its plan, the commands it ran, how full its context is. |
+| **A worktree of its own** | In a git repository a session can work in its own worktree, on a new branch, and leave your folder as it is. |
+| **Every turn can be undone** | Before and after each turn the files are checkpointed (in an index of Ghost's own, under `refs/ghost/`, never touching yours). Undo puts the files back as they were before a turn; Redo puts it back. |
+| **Review, commit, pull request** | What changed in the last turn or in all of them, as git reads it, file by file with numbered hunks; then commit, commit and push, or open a pull request with `gh`. |
 
 ## How it works
 
@@ -63,6 +66,7 @@ src/
   registry.rs   the ACP registry; installing an agent from it
   hub.rs        the agents switched on, and their work off the window's thread
   session.rs    a session's thread, built from the agent's updates
+  git.rs        worktrees, checkpoints, diffs, commit / push / pull request
   desk.rs       the window: its state and what happens when you or an agent act
   sidebar.rs, thread.rs, aside.rs, pages.rs    the three columns and the pages
 ```

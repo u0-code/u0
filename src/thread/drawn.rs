@@ -153,3 +153,91 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
     }
     list
 }
+
+/// A file's changes as git gives them: each hunk under its head, every line
+/// numbered on the side it is on.
+pub fn hunks(faces: &Faces, file: &crate::git::FileDiff, fit: Fit) -> Div {
+    use crate::git::Line as G;
+    let (size, line, num) = match fit {
+        Fit::Thread => (12.5, 19., 44.),
+        Fit::Column => (11.5, 18., 36.),
+    };
+    let mut well = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .overflow_hidden()
+        .font_family(faces.mono.clone())
+        .text_size(px(size))
+        .line_height(px(line))
+        .text_color(theme::code_text())
+        .when(fit == Fit::Thread, |d| {
+            d.rounded(px(12.)).border_1().border_color(theme::border())
+        });
+    if file.binary {
+        return well.child(
+            div()
+                .px(px(12.))
+                .py(px(6.))
+                .text_color(theme::faint())
+                .child("A binary file: no lines to show."),
+        );
+    }
+    for hunk in &file.hunks {
+        well = well.child(
+            div()
+                .pl(px(num + 16.))
+                .py(px(2.))
+                .text_size(px(12.))
+                .text_color(theme::quiet())
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .child(hunk.head.clone()),
+        );
+        for l in &hunk.lines {
+            let (n, sign, text, ground, mark) = match l {
+                G::Same { new, text, .. } => (*new, " ", text, None, theme::quiet()),
+                G::Gone { old, text } => (
+                    *old,
+                    "−",
+                    text,
+                    Some(theme::coral().opacity(0.09)),
+                    theme::coral(),
+                ),
+                G::Added { new, text } => (
+                    *new,
+                    "+",
+                    text,
+                    Some(theme::ok().opacity(0.09)),
+                    theme::ok(),
+                ),
+            };
+            well = well.child(
+                div()
+                    .flex()
+                    .w_full()
+                    .when_some(ground, Styled::bg)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .justify_end()
+                            .w(px(num))
+                            .pr(px(10.))
+                            .text_color(theme::quiet())
+                            .child(n.to_string()),
+                    )
+                    .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(text.clone()),
+                    ),
+            );
+        }
+    }
+    well
+}

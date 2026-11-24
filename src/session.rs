@@ -19,6 +19,8 @@ use agent_client_protocol_schema::v1::{
 };
 use serde_json::Value;
 
+use crate::git;
+
 /// What a session is doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
@@ -105,6 +107,24 @@ pub struct Changed {
     pub gone: usize,
 }
 
+/// The checkpoints of one turn, and what changed in it, once known.
+#[derive(Debug, Clone, Default)]
+pub struct Turn {
+    pub before: Option<String>,
+    pub after: Option<String>,
+    /// What changed from before to after.
+    pub diff: Option<Vec<git::FileDiff>>,
+}
+
+/// What the last git action said: a commit, a push, a pull request.
+#[derive(Debug, Clone)]
+pub struct GitNote {
+    pub text: String,
+    pub trouble: bool,
+    /// An address to open: a pull request.
+    pub url: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Session {
     /// The desk's own key for it, stable from before the agent names it.
@@ -116,6 +136,20 @@ pub struct Session {
     pub folder: PathBuf,
     /// The git branch the folder was on when the session began.
     pub branch: Option<String>,
+    /// Whether the folder is in a git repository: then each turn is
+    /// checkpointed, and can be undone.
+    pub repo: bool,
+    /// For a draft: whether it is to work in a worktree of its own.
+    pub wants_worktree: bool,
+    /// The worktree it works in, when it has one.
+    pub worktree: Option<git::Worktree>,
+    /// Each turn's checkpoints, by turn, the first turn first.
+    pub turns: Vec<Turn>,
+    /// What changed from before the first turn to after the latest.
+    pub total: Option<Vec<git::FileDiff>>,
+    /// A turn undone, and the checkpoint that puts it back.
+    pub redo: Option<(usize, String)>,
+    pub git_note: Option<GitNote>,
     pub title: String,
     pub state: State,
     pub items: Vec<Item>,
@@ -150,19 +184,6 @@ pub fn text_of(block: &ContentBlock) -> String {
     }
 }
 
-/// The branch `folder` is on, asked of git; `None` outside a repository.
-pub fn branch_of(folder: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(folder)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    let name = String::from_utf8(out.stdout).ok()?.trim().to_owned();
-    (out.status.success() && !name.is_empty()).then_some(name)
-}
-
 /// The line of `file` that `text` starts on, counting from one.
 fn line_of(file: &Path, text: &str) -> Option<usize> {
     if text.is_empty() {
@@ -184,7 +205,14 @@ impl Session {
             key,
             agent: agent.to_owned(),
             id: None,
-            branch: branch_of(&folder),
+            branch: git::branch(&folder),
+            repo: git::root(&folder).is_some(),
+            wants_worktree: false,
+            worktree: None,
+            turns: Vec::new(),
+            total: None,
+            redo: None,
+            git_note: None,
             folder,
             title,
             state: State::Draft,
@@ -493,11 +521,35 @@ impl Session {
     }
 
     /// How many turns there have been.
-    pub fn turns(&self) -> usize {
+    pub fn turn_count(&self) -> usize {
         self.items
             .iter()
             .filter(|i| matches!(i, Item::You(_)))
             .count()
+    }
+
+    /// The name its checkpoints are kept under: unique across runs.
+    pub fn uid(&self) -> String {
+        let secs = self
+            .begun
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        format!("{secs}-{}", self.key)
+    }
+
+    /// The turn the item at `i` belongs to, counting from zero.
+    pub fn turn_of(&self, i: usize) -> Option<usize> {
+        self.items
+            .iter()
+            .take(i + 1)
+            .filter(|x| matches!(x, Item::You(_)))
+            .count()
+            .checked_sub(1)
+    }
+
+    /// The checkpoint before the first turn.
+    pub fn first(&self) -> Option<&str> {
+        self.turns.first().and_then(|t| t.before.as_deref())
     }
 }
 

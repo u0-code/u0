@@ -44,8 +44,11 @@ impl Desk {
             Page::Thread => {
                 if let Some(s) = self.session() {
                     let name = self.name_of(&s.agent);
-                    let folder = s.folder.file_name().map_or_else(
-                        || s.folder.display().to_string(),
+                    // A worktree is named for its repository: its own folder
+                    // is named for its branch, which follows.
+                    let dir = s.worktree.as_ref().map_or(&s.folder, |w| &w.repo);
+                    let folder = dir.file_name().map_or_else(
+                        || dir.display().to_string(),
                         |n| n.to_string_lossy().into_owned(),
                     );
                     let mut place = format!("{name} · {folder}");
@@ -60,8 +63,13 @@ impl Desk {
                     };
                     bar = bar
                         .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
-                        .child(title(ui::fit(&shown, 64)))
-                        .child(meta(faces, place).flex_none())
+                        .child(title(ui::fit(&shown, 48)).flex_none())
+                        .child(
+                            ui::one_line(meta(faces, place))
+                                .w_auto()
+                                .min_w(px(0.))
+                                .flex_shrink(),
+                        )
                         .child(div().flex_1());
                     if let (State::Working, Some(since)) = (&s.state, s.since) {
                         bar = bar.child(

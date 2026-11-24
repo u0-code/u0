@@ -57,7 +57,8 @@ change is held to these rules.
 src/acp.rs        one agent process and its JSON-RPC; the ACP runtime
 src/registry.rs   the ACP registry, installing an agent, starting one
 src/hub.rs        the agents switched on; async work, back to the window as Msg
-src/session.rs    a session: its thread built from session/update
+src/session.rs    a session: its thread built from session/update; its turns' checkpoints
+src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
 src/desk.rs       the window's state, actions and layout
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
@@ -76,6 +77,7 @@ assets/           fonts and the desk's own icons, built into the binary
 | Where Ghost keeps its files | `settings::home()` |
 | A program on the PATH | `registry::which` |
 | An agent's logo | `ui::Mark::of` and `ui::mark` |
+| Anything git | `git.rs`, called off the window's thread through `hub` |
 
 ## Data
 
@@ -85,6 +87,10 @@ assets/           fonts and the desk's own icons, built into the binary
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry.
 - Sessions belong to each agent. Ghost keeps none of their history.
+- In a repository Ghost writes commits no branch points at, under
+  `refs/ghost/checkpoints/<session>/`, and worktrees under
+  `~/.ghost/worktrees/`. It never changes your index or branch except when
+  you press Commit.
 
 ## Local environment
 

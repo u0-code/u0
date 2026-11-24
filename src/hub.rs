@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     acp::{self, Agent, Failure},
+    git,
     registry::{self, Entry, Missing},
 };
 
@@ -73,6 +74,34 @@ pub enum Msg {
         key: u64,
         why: String,
     },
+    /// A worktree was made for the session, or could not be.
+    Worktree {
+        key: u64,
+        result: Result<git::Worktree, String>,
+    },
+    /// A turn's checkpoint was taken; after it, what changed. `then` is
+    /// what to say once the checkpoint before a turn is taken.
+    Checkpoint {
+        key: u64,
+        turn: usize,
+        after: bool,
+        result: Result<Snapshot, String>,
+        then: Option<String>,
+    },
+    /// A turn was undone (or put back): the checkpoint that reverses it,
+    /// and what changed in all now.
+    Restored {
+        key: u64,
+        turn: usize,
+        undo: bool,
+        result: Result<(String, Option<Vec<git::FileDiff>>), String>,
+    },
+    /// A commit, a push, a pull request or a worktree removed: what it said.
+    Git {
+        key: u64,
+        action: GitAction,
+        result: Result<String, String>,
+    },
 }
 
 /// Where an agent stands.
@@ -116,6 +145,25 @@ impl Slot {
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
+
+/// A checkpoint, and what changed up to it.
+pub struct Snapshot {
+    pub commit: String,
+    /// From the turn's checkpoint before to this one.
+    pub turn: Option<Vec<git::FileDiff>>,
+    /// From the session's first checkpoint to this one.
+    pub total: Option<Vec<git::FileDiff>>,
+}
+
+/// What you ask of git from the desk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitAction {
+    Commit(String),
+    CommitPush(String),
+    /// Commit what is left with this message, push, and open a pull request.
+    PullRequest(String),
+    RemoveWorktree(git::Worktree),
+}
 
 /// Read the newest registry.
 pub fn fetch(home: PathBuf, tx: Sender) {
@@ -325,4 +373,102 @@ pub fn in_terminal(
         .arg(script)
         .spawn()
         .map(|_| ())
+}
+
+/// Make a worktree for the session `key`, about `about`.
+pub fn make_worktree(dir: PathBuf, about: String, home: PathBuf, key: u64, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let result = git::worktree(&dir, &about, &home);
+        let _ = tx.send(Msg::Worktree { key, result });
+    });
+}
+
+/// What a checkpoint is to take, and what to compare it with.
+pub struct Take {
+    pub dir: PathBuf,
+    pub name: String,
+    pub key: u64,
+    pub turn: usize,
+    pub after: bool,
+    /// The turn's checkpoint before, and the session's first.
+    pub before: Option<String>,
+    pub first: Option<String>,
+    pub then: Option<String>,
+}
+
+/// Take a checkpoint; after a turn, read what changed in it and in all.
+pub fn checkpoint(take: Take, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let result = git::checkpoint(&take.dir, &take.name).map(|commit| {
+            let diff = |from: &Option<String>| {
+                from.as_deref()
+                    .filter(|_| take.after)
+                    .and_then(|f| git::diff(&take.dir, f, &commit).ok())
+            };
+            Snapshot {
+                turn: diff(&take.before),
+                total: diff(&take.first),
+                commit,
+            }
+        });
+        let _ = tx.send(Msg::Checkpoint {
+            key: take.key,
+            turn: take.turn,
+            after: take.after,
+            result,
+            then: take.then,
+        });
+    });
+}
+
+/// Put the session's files back as `target` had them.
+#[allow(clippy::too_many_arguments, reason = "each is one fact of the restore")]
+pub fn restore(
+    dir: PathBuf,
+    target: String,
+    name: String,
+    first: Option<String>,
+    key: u64,
+    turn: usize,
+    undo: bool,
+    tx: Sender,
+) {
+    acp::runtime().spawn_blocking(move || {
+        let result = git::restore(&dir, &target, &name).map(|back| {
+            let total = first.and_then(|f| {
+                let now = git::checkpoint(&dir, &format!("{name}-now")).ok()?;
+                git::diff(&dir, &f, &now).ok()
+            });
+            (back, total)
+        });
+        let _ = tx.send(Msg::Restored {
+            key,
+            turn,
+            undo,
+            result,
+        });
+    });
+}
+
+/// Do `action` in `dir`.
+pub fn git_action(dir: PathBuf, action: GitAction, key: u64, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let result = match &action {
+            GitAction::Commit(m) => git::commit(&dir, m).map(|id| format!("Committed {id}")),
+            GitAction::CommitPush(m) => git::commit(&dir, m)
+                .and_then(|id| git::push(&dir).map(|_| format!("Committed {id} and pushed"))),
+            GitAction::PullRequest(m) => {
+                // Nothing left to commit is no reason to stop.
+                let _ = git::commit(&dir, m);
+                git::push(&dir).and_then(|_| git::pull_request(&dir))
+            }
+            GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
+                .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),
+        };
+        let _ = tx.send(Msg::Git {
+            key,
+            action,
+            result,
+        });
+    });
 }
