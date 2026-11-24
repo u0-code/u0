@@ -76,6 +76,9 @@ fn main() {
                 KeyBinding::new("end", input::End, Some(input::CONTEXT)),
                 KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
                 KeyBinding::new("cmd-enter", input::SubmitAside, Some(input::CONTEXT)),
+                KeyBinding::new("shift-enter", input::Newline, Some(input::CONTEXT)),
+                KeyBinding::new("up", input::Up, Some(input::CONTEXT)),
+                KeyBinding::new("down", input::Down, Some(input::CONTEXT)),
                 KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());

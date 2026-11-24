@@ -198,6 +198,9 @@ pub struct Session {
     pub trusted: Vec<ToolKind>,
     /// What you said while a turn went on, said in order as each ends.
     pub queued: Vec<String>,
+    /// What you were writing in it and had not sent, kept while another
+    /// session is on screen.
+    pub unsent: String,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -293,6 +296,7 @@ impl Session {
         s.worktree = meta.worktree;
         s.flags = meta.flags;
         s.queued = meta.queued;
+        s.unsent = meta.unsent;
         s.state = State::Closed;
         s
     }
@@ -311,6 +315,7 @@ impl Session {
             updated: store::secs(self.updated),
             flags: self.flags.clone(),
             queued: self.queued.clone(),
+            unsent: self.unsent.clone(),
         })
     }
 
@@ -402,6 +407,7 @@ impl Session {
             recorded: false,
             trusted: Vec::new(),
             queued: Vec::new(),
+            unsent: String::new(),
         }
     }
 

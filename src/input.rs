@@ -5,9 +5,11 @@
 //! as [`Cancelled`], so that a field which filters as you type can follow
 //! it and close itself.
 //!
-//! It holds one paragraph: a pasted newline becomes a space. By default it
-//! is one line; [`TextInput::wrapping`] lets it wrap and grow with what is
-//! typed, up to a number of lines, and scroll past them.
+//! By default it is one line, and a pasted newline becomes a space;
+//! [`TextInput::wrapping`] lets it hold paragraphs (⇧Return begins one),
+//! wrap and grow with what is typed up to a number of lines, and scroll
+//! past them. With the line empty, ↑ and ↓ go back through what was handed
+//! over before.
 
 use std::ops::Range;
 
@@ -40,6 +42,9 @@ actions!(
         Copy,
         Submit,
         SubmitAside,
+        Newline,
+        Up,
+        Down,
         Cancel,
     ]
 );
@@ -79,6 +84,10 @@ pub struct TextInput {
     /// Room above and below the text: a prompt breathes, a field in a
     /// list row sits as tall as its neighbours.
     pad_y: f32,
+    /// What was handed over before, the latest last, and which of it is in
+    /// the line while you go back through it with the arrows.
+    history: Vec<String>,
+    recalled: Option<usize>,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
@@ -102,6 +111,8 @@ impl TextInput {
             scroll: 0,
             is_selecting: false,
             pad_y: 12.,
+            history: Vec::new(),
+            recalled: None,
         }
     }
 
@@ -120,6 +131,39 @@ impl TextInput {
         self
     }
 
+    /// A new paragraph, where the line wraps (⇧Return).
+    fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
+        if self.most > 1 {
+            self.replace_text_in_range(None, "\n", window, cx);
+        }
+    }
+
+    /// Back through what was handed over before, while the line is empty
+    /// or holds one of those.
+    fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        if self.history.is_empty() || (!self.content.is_empty() && self.recalled.is_none()) {
+            return;
+        }
+        let at = self
+            .recalled
+            .map_or(self.history.len() - 1, |n| n.saturating_sub(1));
+        self.recalled = Some(at);
+        let text = self.history[at].clone();
+        self.set_text(&text, cx);
+        self.recalled = Some(at);
+    }
+
+    fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(at) = self.recalled else { return };
+        if at + 1 < self.history.len() {
+            let text = self.history[at + 1].clone();
+            self.set_text(&text, cx);
+            self.recalled = Some(at + 1);
+        } else {
+            self.set_text("", cx);
+        }
+    }
+
     fn cancel(_: &mut Self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(Cancelled);
     }
@@ -133,6 +177,9 @@ impl TextInput {
         if text.is_empty() {
             return;
         }
+        if self.history.last() != Some(&text) {
+            self.history.push(text.clone());
+        }
         self.reset();
         cx.emit(SubmittedAside(text));
         cx.notify();
@@ -143,6 +190,9 @@ impl TextInput {
         let text = self.content.trim().to_owned();
         if text.is_empty() {
             return;
+        }
+        if self.history.last() != Some(&text) {
+            self.history.push(text.clone());
         }
         self.reset();
         cx.emit(Submitted(text));
@@ -251,7 +301,12 @@ impl TextInput {
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
+            let text = if self.most > 1 {
+                text
+            } else {
+                text.replace('\n', " ")
+            };
+            self.replace_text_in_range(None, &text, window, cx);
         }
     }
 
@@ -379,6 +434,7 @@ impl TextInput {
     }
 
     fn reset(&mut self) {
+        self.recalled = None;
         self.content = "".into();
         self.selected_range = 0..0;
         self.selection_reversed = false;
@@ -510,10 +566,11 @@ impl EntityInputHandler for TextInput {
     }
 }
 
-/// What is typed, shaped: on one line, or wrapped to the input's width.
+/// What is typed, shaped: on one line, or in paragraphs, each wrapped to
+/// the input's width and starting at its byte in the text.
 enum Shaped {
-    Line(ShapedLine, Pixels),
-    Wrapped(WrappedLine, Pixels),
+    Line(Box<ShapedLine>, Pixels),
+    Wrapped(Vec<(usize, WrappedLine)>, Pixels),
 }
 
 impl Shaped {
@@ -528,17 +585,37 @@ impl Shaped {
     fn lines(&self) -> usize {
         match self {
             Self::Line(..) => 1,
-            Self::Wrapped(w, _) => w.wrap_boundaries().len() + 1,
+            Self::Wrapped(ps, _) => ps.iter().map(|(_, w)| w.wrap_boundaries().len() + 1).sum(),
         }
+    }
+
+    /// The paragraph `index` is in, and how many lines come before it.
+    fn paragraph(ps: &[(usize, WrappedLine)], index: usize) -> (usize, usize) {
+        let mut rows = 0;
+        for (n, (start, w)) in ps.iter().enumerate() {
+            let last = n + 1 == ps.len();
+            if last || index < ps[n + 1].0 {
+                let _ = start;
+                return (n, rows);
+            }
+            rows += w.wrap_boundaries().len() + 1;
+        }
+        (0, 0)
     }
 
     /// Where the character at `index` starts, from the top left of the text.
     fn at(&self, index: usize) -> Point<Pixels> {
         match self {
             Self::Line(l, _) => point(l.x_for_index(index), px(0.)),
-            Self::Wrapped(w, h) => w
-                .position_for_index(index, *h)
-                .unwrap_or_else(|| point(w.width(), *h * (self.lines() - 1) as f32)),
+            Self::Wrapped(ps, h) => {
+                let (n, rows) = Self::paragraph(ps, index);
+                let (start, w) = &ps[n];
+                let local = index.saturating_sub(*start);
+                let p = w
+                    .position_for_index(local, *h)
+                    .unwrap_or_else(|| point(w.width(), *h * w.wrap_boundaries().len() as f32));
+                point(p.x, p.y + *h * rows as f32)
+            }
         }
     }
 
@@ -546,20 +623,45 @@ impl Shaped {
     fn index_at(&self, p: Point<Pixels>) -> usize {
         match self {
             Self::Line(l, _) => l.closest_index_for_x(p.x),
-            Self::Wrapped(w, h) => {
-                let row = (p.y / *h).floor().clamp(0., (self.lines() - 1) as f32);
-                let p = point(p.x.max(px(0.)), *h * row + *h / 2.);
-                w.closest_index_for_position(p, *h)
-                    .unwrap_or_else(|edge| edge)
+            Self::Wrapped(ps, h) => {
+                let row = (p.y / *h).floor().clamp(0., (self.lines() - 1) as f32) as usize;
+                let mut rows = 0;
+                for (start, w) in ps {
+                    let here = w.wrap_boundaries().len() + 1;
+                    if row < rows + here {
+                        let local = row - rows;
+                        let q = point(p.x.max(px(0.)), *h * local as f32 + *h / 2.);
+                        return start
+                            + w.closest_index_for_position(q, *h)
+                                .unwrap_or_else(|edge| edge);
+                    }
+                    rows += here;
+                }
+                ps.last().map_or(0, |(start, w)| start + w.len())
             }
         }
     }
 
     fn paint(&self, origin: Point<Pixels>, window: &mut Window, cx: &mut App) {
-        let _ = match self {
-            Self::Line(l, h) => l.paint(origin, *h, window, cx),
-            Self::Wrapped(w, h) => w.paint(origin, *h, gpui::TextAlign::Left, None, window, cx),
-        };
+        match self {
+            Self::Line(l, h) => {
+                let _ = l.paint(origin, *h, window, cx);
+            }
+            Self::Wrapped(ps, h) => {
+                let mut y = origin.y;
+                for (_, w) in ps {
+                    let _ = w.paint(
+                        point(origin.x, y),
+                        *h,
+                        gpui::TextAlign::Left,
+                        None,
+                        window,
+                        cx,
+                    );
+                    y += *h * (w.wrap_boundaries().len() + 1) as f32;
+                }
+            }
+        }
     }
 }
 
@@ -671,6 +773,13 @@ impl Element for TextElement {
         let height = window.line_height();
         let most = input.most;
         let line = if most > 1 {
+            // One wrapped line for each paragraph, each where it starts.
+            let starts = std::iter::once(0).chain(
+                display_text
+                    .char_indices()
+                    .filter(|(_, c)| *c == '\n')
+                    .map(|(i, _)| i + 1),
+            );
             let wrapped = window
                 .text_system()
                 .shape_text(
@@ -681,21 +790,26 @@ impl Element for TextElement {
                     None,
                 )
                 .ok()
-                .and_then(|lines| lines.into_iter().next());
+                .filter(|lines| !lines.is_empty())
+                .map(|lines| starts.zip(lines).collect::<Vec<_>>());
             match wrapped {
-                Some(w) => Shaped::Wrapped(w, height),
+                Some(w) => Shaped::Wrapped(w.into_iter().collect(), height),
                 None => Shaped::Line(
-                    window
-                        .text_system()
-                        .shape_line(display_text, font_size, &runs, None),
+                    Box::new(
+                        window
+                            .text_system()
+                            .shape_line(display_text, font_size, &runs, None),
+                    ),
                     height,
                 ),
             }
         } else {
             Shaped::Line(
-                window
-                    .text_system()
-                    .shape_line(display_text, font_size, &runs, None),
+                Box::new(
+                    window
+                        .text_system()
+                        .shape_line(display_text, font_size, &runs, None),
+                ),
                 height,
             )
         };
@@ -820,6 +934,9 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::submit))
             .on_action(cx.listener(Self::submit_aside))
+            .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(Self::up))
+            .on_action(cx.listener(Self::down))
             .on_action(cx.listener(Self::cancel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))

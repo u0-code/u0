@@ -53,6 +53,9 @@ pub struct Meta {
     /// What you said while a turn went on, not said yet.
     #[serde(default)]
     pub queued: Vec<String>,
+    /// What you were writing in it and had not sent.
+    #[serde(default)]
+    pub unsent: String,
 }
 
 /// Where a session stands in your lists.

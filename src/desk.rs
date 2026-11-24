@@ -543,6 +543,21 @@ impl Desk {
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.current != Some(key) {
+            // What was being written stays with its session, and the
+            // session shown brings back what was being written in it.
+            let typed = self.input.read(cx).text();
+            if let Some(old) = self.current
+                && let Some(s) = self.session_mut(old)
+            {
+                s.unsent = typed;
+            }
+            let unsent = self
+                .sessions
+                .iter()
+                .find(|s| s.key == key)
+                .map(|s| s.unsent.clone())
+                .unwrap_or_default();
+            self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
             self.aside = Aside::Session;
             self.scope = Scope::All;
             self.committing = false;
@@ -850,6 +865,7 @@ impl Desk {
             return;
         }
         let session = self.session_mut(key).expect("found above");
+        session.unsent.clear();
         // Something new said in a session done for now brings it back.
         session.flags.settled = None;
         session.flags.snoozed = None;
