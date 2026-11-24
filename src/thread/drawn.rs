@@ -15,7 +15,9 @@ pub enum Fit {
 }
 
 /// A diff: each line with its number in the file where it is known, a sign,
-/// and a faint ground of green or coral for what came and went.
+/// and a faint ground of green or coral for what came and went. A line
+/// longer than its room wraps, here and in the diffs below, so that its end
+/// is not cut off.
 pub fn diff(faces: &Faces, lines: &[Line], start: Option<usize>, fit: Fit) -> Div {
     let (size, line, num) = match fit {
         Fit::Thread => (12.5, 19., 44.),
@@ -105,14 +107,7 @@ pub fn diff(faces: &Faces, lines: &[Line], start: Option<usize>, fit: Fit) -> Di
                         }),
                 )
                 .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .child(words),
-                ),
+                .child(div().flex_1().min_w(px(0.)).child(words)),
         );
     }
     well
@@ -232,14 +227,7 @@ pub fn hunks(
                         .child(n.to_string()),
                 )
                 .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .child(text.clone()),
-                );
+                .child(div().flex_1().min_w(px(0.)).child(text.clone()));
             // A line can be clicked, to say something of it.
             well = match on_line {
                 Some(on) => {
@@ -294,8 +282,6 @@ pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .whitespace_nowrap()
-                    .overflow_hidden()
                     .child(text.cloned().unwrap_or_default()),
             )
     };
