@@ -216,6 +216,9 @@ impl Desk {
 
     /// The name typed for the session being renamed: it sticks.
     pub fn finish_rename(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.finish_rename_project(text, cx) {
+            return;
+        }
         let Some(key) = self.renaming.take() else {
             return;
         };
@@ -232,6 +235,7 @@ impl Desk {
 
     pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         self.renaming = None;
+        self.renaming_project = None;
         cx.notify();
     }
 
@@ -488,6 +492,9 @@ impl Desk {
     /// deleted, not snoozed until later.
     pub fn listed_now(&self, s: &Session) -> bool {
         let now = store::secs(SystemTime::now());
-        !s.flags.archived && !self.deleting(s.key) && s.flags.snoozed.is_none_or(|t| t <= now)
+        !s.flags.archived
+            && !self.deleting(s.key)
+            && s.flags.snoozed.is_none_or(|t| t <= now)
+            && !self.prefs(&s.project).archived
     }
 }

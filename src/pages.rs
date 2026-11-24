@@ -2,6 +2,7 @@
 //! them: an agent's own, which gets it ready to run in three steps, and the
 //! settings (`settings`), where agents are switched on and off.
 
+mod new_project;
 mod settings;
 
 pub use settings::Tab;

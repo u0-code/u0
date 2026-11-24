@@ -96,7 +96,7 @@ impl Desk {
                 )
             });
             let open = query.is_some() || !self.closed.contains(&folder);
-            projects = projects.child(Self::project_row(faces, &folder, sessions.len(), open, cx));
+            projects = projects.child(self.project_row(faces, &folder, sessions.len(), open, cx));
             if !open {
                 continue;
             }
@@ -156,7 +156,7 @@ impl Desk {
                             .text_size(px(13.))
                             .text_color(theme::muted()),
                     )
-                    .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::NewProject, cx))),
             );
         }
 
@@ -270,10 +270,12 @@ impl Desk {
                                 .on_click(cx.listener(|this, _, _, cx| this.toggle_grouping(cx))),
                             )
                             .child(
-                                ui::icon_button("add-project", "plus", "Add project")
+                                ui::icon_button("add-project", "plus", "Add a project")
                                     .size(px(20.))
                                     .text_color(theme::faint())
-                                    .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_page(Page::NewProject, cx);
+                                    })),
                             ),
                     )
                     .child(if self.settings.by_status {
@@ -387,31 +389,49 @@ impl Desk {
     /// folded shut, and on hover a new session in it, or, with none, taking
     /// it off the list.
     fn project_row(
+        &self,
         faces: &Faces,
         folder: &Path,
         count: usize,
         open: bool,
         cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
-        let name = folder.file_name().map_or_else(
-            || Desk::shown(folder),
-            |n: &std::ffi::OsStr| n.to_string_lossy().into_owned(),
-        );
+    ) -> gpui::AnyElement {
         let group = SharedString::from(format!("project-{}", folder.display()));
         let toggle = folder.to_path_buf();
         let new = folder.to_path_buf();
-        let forget = folder.to_path_buf();
-        agent_shell(group.clone(), false)
+        let menu_open = self.popup == Popup::Project(folder.to_path_buf());
+        let pinned = self.prefs(folder).pinned;
+        let name: gpui::AnyElement = if self.renaming_project.as_deref() == Some(folder) {
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .h(px(24.))
+                .px(px(4.))
+                .rounded(px(5.))
+                .bg(theme::well())
+                .border_1()
+                .border_color(theme::border2())
+                .child(self.rename.clone())
+                .into_any_element()
+        } else {
+            ui::one_line(
+                ui::text(faces, self.project_name(folder))
+                    .text_size(px(13.5))
+                    .text_color(theme::text()),
+            )
+            .into_any_element()
+        };
+        let menu_for = folder.to_path_buf();
+        let row = agent_shell(group.clone(), false)
             .group(group.clone())
             .child(
                 ui::icon(if open { "folder" } else { "chevron-right" }, 16.)
                     .text_color(theme::faint()),
             )
-            .child(ui::one_line(
-                ui::text(faces, name)
-                    .text_size(px(13.5))
-                    .text_color(theme::text()),
-            ))
+            .child(name)
+            .when(pinned, |d| {
+                d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
+            })
             .tooltip(ui::tip(Desk::shown(folder)))
             .when(!open && count > 0, |d| {
                 d.child(fine(faces, count.to_string()))
@@ -420,25 +440,22 @@ impl Desk {
                 div()
                     .flex()
                     .flex_none()
-                    .invisible()
-                    .group_hover(group, Styled::visible)
-                    .when(count == 0 && open, |d| {
-                        d.child(
-                            ui::icon_button(
-                                SharedString::from(format!("forget-{}", folder.display())),
-                                "x",
-                                "Remove from the list",
-                            )
-                            .size(px(22.))
-                            .text_color(theme::faint())
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.forget_project(&forget, cx);
-                                },
-                            )),
-                        )
+                    .when(!menu_open, |d| {
+                        d.invisible().group_hover(group, Styled::visible)
                     })
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("pmore-{}", folder.display())),
+                            "dots",
+                            "More",
+                        )
+                        .size(px(22.))
+                        .text_color(theme::faint())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.toggle_popup(Popup::Project(menu_for.clone()), cx);
+                        })),
+                    )
                     .child(
                         ui::icon_button(
                             SharedString::from(format!("new-in-{}", folder.display())),
@@ -455,7 +472,122 @@ impl Desk {
                         )),
                     ),
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&toggle, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&toggle, cx)));
+        let mut wrap = div().relative().child(row);
+        if menu_open {
+            wrap = wrap.child(gpui::deferred(
+                gpui::anchored()
+                    .anchor(gpui::Corner::TopRight)
+                    .child(self.project_menu(faces, folder, count, cx)),
+            ));
+        }
+        wrap.into_any_element()
+    }
+
+    /// What can be done with a project: name it, pin it, the agent and the
+    /// way of working its new sessions take, find it, put it away.
+    fn project_menu(
+        &self,
+        faces: &Faces,
+        folder: &Path,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let prefs = self.prefs(folder);
+        let id = folder.display().to_string();
+        let item = |n: usize, icon: &'static str, label: String| {
+            div()
+                .id(SharedString::from(format!("pmenu-{id}-{n}")))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(8.))
+                .h(px(30.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+        };
+        let head = |label: &str| {
+            ui::text(faces, label.to_owned())
+                .px(px(8.))
+                .pt(px(6.))
+                .pb(px(2.))
+                .text_size(px(11.5))
+                .text_color(theme::faint())
+        };
+        let dir = folder.to_path_buf();
+        let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.));
+        let (rename_dir, pin_dir, show_dir, archive_dir) =
+            (dir.clone(), dir.clone(), dir.clone(), dir.clone());
+        menu = menu
+            .child(item(0, "pencil", "Rename".into()).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    this.begin_rename_project(&rename_dir, window, cx);
+                },
+            )))
+            .child(
+                item(1, "pin", if prefs.pinned { "Unpin" } else { "Pin" }.into()).on_click(
+                    cx.listener(move |this, _, _, cx| this.toggle_project_pin(&pin_dir, cx)),
+                ),
+            )
+            .child(
+                item(2, "folder", "Show in Finder".into()).on_click(move |_, _, _| {
+                    let _ = std::process::Command::new("open").arg(&show_dir).spawn();
+                }),
+            );
+        if crate::git::root(folder).is_some() {
+            let on = prefs.worktree.unwrap_or(self.settings.worktree);
+            let wt_dir = dir.clone();
+            menu = menu.child(
+                item(
+                    3,
+                    "branch",
+                    if on {
+                        "New sessions: own worktree ✓".into()
+                    } else {
+                        "New sessions: own worktree".into()
+                    },
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.set_project_worktree(&wt_dir, !on, cx)),
+                ),
+            );
+        }
+        menu = menu.child(head("New sessions begin with"));
+        let agents: Vec<(Option<String>, String)> =
+            std::iter::once((None, "The one on screen".to_owned()))
+                .chain(
+                    self.slots
+                        .iter()
+                        .map(|s| (Some(s.entry.id.clone()), self.name_of(&s.entry.id))),
+                )
+                .collect();
+        for (n, (agent, name)) in agents.into_iter().enumerate() {
+            let on = prefs.agent == agent;
+            let agent_dir = dir.clone();
+            menu = menu.child(
+                item(10 + n, if on { "check" } else { "minus" }, name).on_click(cx.listener(
+                    move |this, _, _, cx| this.set_project_agent(&agent_dir, agent.clone(), cx),
+                )),
+            );
+        }
+        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
+        menu =
+            menu.child(item(8, "archive", "Archive".into()).on_click(
+                cx.listener(move |this, _, _, cx| this.archive_project(&archive_dir, cx)),
+            ));
+        if count == 0 {
+            let forget_dir = dir.clone();
+            menu =
+                menu.child(item(9, "x", "Remove from the list".into()).on_click(
+                    cx.listener(move |this, _, _, cx| this.forget_project(&forget_dir, cx)),
+                ));
+        }
+        div()
+            .mt(px(4.))
+            .child(ui::menu(SharedString::from(format!("project-menu-{id}"))).child(menu))
     }
 
     fn session_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> AnyElement {
@@ -477,16 +609,15 @@ impl Desk {
             State::Idle | State::Closed => (when::ago(s.updated, SystemTime::now()), false, false),
         };
         // Listed by status, a row says which project it is in.
-        let when = match s.project.file_name() {
-            Some(p) if self.settings.by_status => {
-                let p = ui::fit(&p.to_string_lossy(), 12);
-                if when.is_empty() {
-                    p
-                } else {
-                    format!("{p} · {when}")
-                }
+        let when = if self.settings.by_status {
+            let p = ui::fit(&self.project_name(&s.project), 12);
+            if when.is_empty() {
+                p
+            } else {
+                format!("{p} · {when}")
             }
-            _ => when,
+        } else {
+            when
         };
         let agent = self
             .entry(&s.agent)

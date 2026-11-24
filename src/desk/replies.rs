@@ -165,6 +165,20 @@ impl Desk {
                     }
                 }
             }
+            Msg::Cloning { what, share } => {
+                if let Some(c) = &mut self.cloning {
+                    c.what = what;
+                    c.share = share.or(c.share);
+                }
+            }
+            Msg::Cloned { dir, result } => {
+                self.cloning = None;
+                match result {
+                    Ok(()) => self.adopt(&dir),
+                    Err(why) if why == crate::registry::CANCELLED => {}
+                    Err(why) => self.adding_trouble = Some(why),
+                }
+            }
             Msg::Found { query, keys } => {
                 if self.searching && self.search.read(cx).text().to_lowercase() == query {
                     self.found = keys.into_iter().collect();

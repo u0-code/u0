@@ -1,0 +1,194 @@
+//! What you set for a project, from its menu in the sidebar: its name,
+//! pinned on top or archived out of the list, the agent and the way of
+//! working its new sessions take; and the scratch sessions that have no
+//! project yet, each in a folder of its own until it becomes one.
+
+use std::path::{Path, PathBuf};
+
+use gpui::{Context, Focusable as _, Window};
+
+use super::{Desk, Popup};
+use crate::settings::Prefs;
+
+impl Desk {
+    /// Change what is set for the project `folder`, and keep it.
+    fn set_prefs(&mut self, folder: &Path, cx: &mut Context<Self>, f: impl FnOnce(&mut Prefs)) {
+        let mut prefs = self.prefs(folder);
+        f(&mut prefs);
+        if prefs == Prefs::default() {
+            self.settings.prefs.remove(folder);
+        } else {
+            self.settings.prefs.insert(folder.to_path_buf(), prefs);
+        }
+        self.popup = Popup::Closed;
+        self.save_settings();
+        cx.notify();
+    }
+
+    pub fn toggle_project_pin(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        self.set_prefs(folder, cx, |p| p.pinned = !p.pinned);
+    }
+
+    /// Archive the project `folder`: out of the list, its sessions with it,
+    /// until it is restored from the settings.
+    pub fn archive_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        self.set_prefs(folder, cx, |p| p.archived = true);
+    }
+
+    pub fn restore_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        self.set_prefs(folder, cx, |p| p.archived = false);
+    }
+
+    /// The agent new sessions in the project begin with; `None`, the one
+    /// on screen or the first that can run.
+    pub fn set_project_agent(
+        &mut self,
+        folder: &Path,
+        agent: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_prefs(folder, cx, |p| p.agent = agent);
+    }
+
+    /// Whether new sessions in the project work in a worktree of their own.
+    pub fn set_project_worktree(&mut self, folder: &Path, on: bool, cx: &mut Context<Self>) {
+        self.set_prefs(folder, cx, |p| p.worktree = Some(on));
+    }
+
+    /// Begin renaming the project `folder` in the sidebar.
+    pub fn begin_rename_project(
+        &mut self,
+        folder: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = self.project_name(folder);
+        self.popup = Popup::Closed;
+        self.renaming = None;
+        self.renaming_project = Some(folder.to_path_buf());
+        self.rename.update(cx, |i, cx| i.set_text(&name, cx));
+        window.focus(&self.rename.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// The name typed for the project being renamed; an empty one gives it
+    /// back its folder's.
+    pub(crate) fn finish_rename_project(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
+        let Some(folder) = self.renaming_project.take() else {
+            return false;
+        };
+        let text = text.trim().to_owned();
+        self.set_prefs(&folder, cx, |p| p.name = (!text.is_empty()).then_some(text));
+        true
+    }
+
+    /// Clone the address typed into a folder of its name under the folder
+    /// chosen, with its progress shown; it becomes a project once cloned.
+    pub fn start_clone(&mut self, cx: &mut Context<Self>) {
+        let url = self.clone_url.read(cx).text().trim().to_owned();
+        let name = url
+            .trim_end_matches('/')
+            .rsplit(['/', ':'])
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(".git")
+            .to_owned();
+        if url.is_empty() || name.is_empty() || self.cloning.is_some() {
+            return;
+        }
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.cloning = Some(crate::hub::Install {
+            what: "Starting".into(),
+            share: None,
+            stop: stop.clone(),
+        });
+        self.adding_trouble = None;
+        crate::hub::clone(url, self.parent.join(name), stop, self.tx.clone());
+        cx.notify();
+    }
+
+    pub fn cancel_clone(&mut self, cx: &mut Context<Self>) {
+        if let Some(c) = &self.cloning {
+            c.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        cx.notify();
+    }
+
+    /// Make a new project of the name typed under the folder chosen.
+    pub fn create_project(&mut self, cx: &mut Context<Self>) {
+        let name = self.new_name.read(cx).text().trim().to_owned();
+        if name.is_empty() {
+            return;
+        }
+        let dir = self.parent.join(&name);
+        match crate::git::create(&dir, &name) {
+            Ok(()) => {
+                self.new_name.update(cx, |i, cx| i.set_text("", cx));
+                self.adopt(&dir);
+            }
+            Err(why) => self.adding_trouble = Some(why),
+        }
+        cx.notify();
+    }
+
+    /// Ask for the folder new and cloned projects go in.
+    pub fn choose_parent(cx: &mut Context<Self>) {
+        let answer = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Put it here".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = answer.await
+                && let Some(folder) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    this.parent = folder;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Make `dir` a project, listed with the agents' sessions in it.
+    pub(crate) fn adopt(&mut self, dir: &Path) {
+        self.settings.used(dir);
+        self.save_settings();
+        let agents: Vec<String> = self.slots.iter().map(|s| s.entry.id.clone()).collect();
+        for agent in agents {
+            self.list_sessions(&agent);
+        }
+        self.page = super::Page::Thread;
+        self.current = None;
+    }
+
+    /// Where scratch sessions are begun: one folder each, under the home.
+    pub fn scratch_dir(&self) -> PathBuf {
+        self.home.join("scratch")
+    }
+
+    /// Begin a session in a folder of its own, with no project yet: it is
+    /// listed as Scratch until you name it, which makes it a project where
+    /// it is, as t3code does.
+    pub fn new_scratch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let at = crate::when::stamp(std::time::SystemTime::now());
+        let folder = self.scratch_dir().join(&at);
+        if let Err(e) = std::fs::create_dir_all(&folder) {
+            tracing::warn!("a scratch folder could not be made: {e}");
+            return;
+        }
+        self.settings.used(&folder);
+        self.settings.prefs.insert(
+            folder.clone(),
+            Prefs {
+                name: Some(format!("Scratch {at}")),
+                ..Prefs::default()
+            },
+        );
+        self.popup = Popup::Closed;
+        self.save_settings();
+        self.new_in(folder, window, cx);
+    }
+}

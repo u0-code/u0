@@ -101,6 +101,15 @@ pub enum Msg {
         number: u64,
         text: Option<String>,
     },
+    /// How a clone goes, and how it ended.
+    Cloning {
+        what: String,
+        share: Option<f32>,
+    },
+    Cloned {
+        dir: PathBuf,
+        result: Result<(), String>,
+    },
     /// The sessions whose records hold `query`.
     Found {
         query: String,
@@ -527,6 +536,20 @@ pub fn list_prs(folder: PathBuf, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
         let prs = git::pull_requests(&folder);
         let _ = tx.send(Msg::Prs { folder, prs });
+    });
+}
+
+/// Clone `url` into `dir`, until `stop` is set.
+pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let say = |what: &str, share: Option<f32>| {
+            let _ = tx.send(Msg::Cloning {
+                what: what.to_owned(),
+                share,
+            });
+        };
+        let result = git::clone(&url, &dir, &say, &stop);
+        let _ = tx.send(Msg::Cloned { dir, result });
     });
 }
 

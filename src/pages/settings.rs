@@ -275,6 +275,65 @@ impl Desk {
             .into_any_element()
     }
 
+    /// Projects archived: out of the list until restored here.
+    fn archived_projects(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let archived: Vec<_> = self
+            .settings
+            .prefs
+            .iter()
+            .filter(|(_, p)| p.archived)
+            .map(|(f, _)| f.clone())
+            .collect();
+        if archived.is_empty() {
+            return None;
+        }
+        let mut list = card().overflow_hidden();
+        for (n, folder) in archived.into_iter().enumerate() {
+            let name = self.project_name(&folder);
+            let f = folder.clone();
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                    .child(ui::icon("folder", 16.).text_color(theme::faint()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(ui::text(faces, name).text_size(px(13.5)))
+                            .child(fine(faces, Desk::shown(&folder))),
+                    )
+                    .child(
+                        ui::button(
+                            faces,
+                            SharedString::from(format!("restore-p-{n}")),
+                            "Restore",
+                            Weight::Secondary,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| this.restore_project(&f, cx))),
+                    ),
+            );
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(
+                    ui::text(faces, "Archived projects")
+                        .text_size(px(16.))
+                        .weight(gpui::FontWeight::SEMIBOLD),
+                )
+                .child(list),
+        )
+    }
+
     /// Sessions put away: archived ones, restored or deleted here; and what
     /// Ghost keeps of them on this machine.
     fn sessions_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
@@ -356,6 +415,7 @@ impl Desk {
                     .weight(gpui::FontWeight::SEMIBOLD),
             )
             .child(list)
+            .children(self.archived_projects(faces, cx))
             .children(
                 self.store_refused
                     .clone()

@@ -34,6 +34,20 @@ fn local(t: SystemTime) -> libc::tm {
     }
 }
 
+/// `t` as a name for a folder, in this computer's time zone:
+/// "2026-11-25 0142".
+pub fn stamp(t: SystemTime) -> String {
+    let tm = local(t);
+    format!(
+        "{}-{:02}-{:02} {:02}{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min
+    )
+}
+
 /// `days` days after `t`, at `hour` o'clock in this computer's time zone.
 pub fn at_hour(t: SystemTime, days: i32, hour: i32) -> SystemTime {
     let mut tm = local(t);

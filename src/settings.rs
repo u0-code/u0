@@ -45,6 +45,30 @@ pub struct Settings {
     /// The one project the sidebar shows by status, if it shows one.
     #[serde(default)]
     pub only: Option<PathBuf>,
+    /// What you set for each project: its name, whether it is pinned or
+    /// archived, the agent and the way of working its new sessions take.
+    #[serde(default)]
+    pub prefs: std::collections::BTreeMap<PathBuf, Prefs>,
+}
+
+/// What you set for one project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Prefs {
+    /// The name it shows by, if not its folder's.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub archived: bool,
+    /// The agent its new sessions begin with.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Whether its new sessions work in a worktree of their own, when it
+    /// is a repository; unset, the last choice made anywhere.
+    #[serde(default)]
+    pub worktree: Option<bool>,
 }
 
 impl Default for Settings {
@@ -55,6 +79,7 @@ impl Default for Settings {
             worktree: false,
             by_status: false,
             only: None,
+            prefs: std::collections::BTreeMap::new(),
         }
     }
 }

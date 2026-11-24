@@ -30,6 +30,7 @@ use tracing::warn;
 mod kept;
 mod lists;
 pub(crate) mod mention;
+mod projects;
 
 pub use lists::Later;
 mod replies;
@@ -60,6 +61,8 @@ pub enum Page {
     Thread,
     /// An agent's page: what it is, what it needs, how to install it.
     Agent(String),
+    /// Adding a project: cloned from an address, or made new.
+    NewProject,
     Settings,
 }
 
@@ -93,6 +96,8 @@ pub enum Popup {
     Agent,
     /// What can be done with a session in the sidebar, by key.
     Session(u64),
+    /// What can be done with a project in the sidebar.
+    Project(PathBuf),
     /// The project the sidebar shows, when it lists by status.
     Only,
 }
@@ -117,8 +122,10 @@ pub struct Desk {
     /// Why the sessions kept from before could not be read, while that is
     /// so: nothing is saved over them.
     pub store_refused: Option<String>,
-    /// The session being renamed in the sidebar, and the line for it.
+    /// The session (or the project) being renamed in the sidebar, and the
+    /// line for it.
     pub renaming: Option<u64>,
+    pub renaming_project: Option<PathBuf>,
     pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
@@ -126,6 +133,13 @@ pub struct Desk {
     pub found: HashSet<u64>,
     /// The settings page's tab.
     pub settings_tab: crate::pages::Tab,
+    /// Adding a project: the address to clone, the name of one to make,
+    /// the folder either goes in, a clone going on and what went wrong.
+    pub clone_url: Entity<TextInput>,
+    pub new_name: Entity<TextInput>,
+    pub parent: PathBuf,
+    pub cloning: Option<hub::Install>,
+    pub adding_trouble: Option<String>,
     /// The draft on screen goes to every agent that can run, once sent.
     pub fanout: bool,
     /// No window of Ghost's is in front.
@@ -248,6 +262,18 @@ impl Desk {
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        let clone_url = cx.new(|cx| {
+            TextInput::new(cx, "https://github.com/owner/repo.git")
+                .padded(6.)
+                .keeping()
+        });
+        cx.subscribe(&clone_url, |this, _, Submitted(_), cx| this.start_clone(cx))
+            .detach();
+        let new_name = cx.new(|cx| TextInput::new(cx, "my-project").padded(6.).keeping());
+        cx.subscribe(&new_name, |this, _, Submitted(_), cx| {
+            this.create_project(cx);
+        })
+        .detach();
         let find = cx.new(|cx| {
             TextInput::new(cx, "Find in this session")
                 .padded(2.)
@@ -335,10 +361,18 @@ impl Desk {
             settings_refused,
             store_refused: None,
             renaming: None,
+            renaming_project: None,
             rename,
             undo: None,
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::Agents,
+            clone_url,
+            new_name,
+            parent: settings::home()
+                .parent()
+                .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
+            cloning: None,
+            adding_trouble: None,
             fanout: false,
             behind: false,
             files: HashMap::new(),
@@ -573,7 +607,24 @@ impl Desk {
                 out.push(s.project.clone());
             }
         }
+        // Archived ones are out of the list; pinned ones lead it.
+        out.retain(|p| !self.prefs(p).archived);
+        out.sort_by_key(|p| !self.prefs(p).pinned);
         out
+    }
+
+    /// What you set for the project `folder`.
+    pub fn prefs(&self, folder: &Path) -> settings::Prefs {
+        self.settings.prefs.get(folder).cloned().unwrap_or_default()
+    }
+
+    /// The name the project `folder` shows by.
+    pub fn project_name(&self, folder: &Path) -> String {
+        self.prefs(folder).name.unwrap_or_else(|| {
+            folder
+                .file_name()
+                .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned())
+        })
     }
 
     // What you do.
@@ -604,8 +655,12 @@ impl Desk {
             s.key
         } else {
             let key = self.take_key();
+            let worktree = self
+                .prefs(&folder)
+                .worktree
+                .unwrap_or(self.settings.worktree);
             let mut s = Session::new(key, agent, folder);
-            s.wants_worktree = s.repo && self.settings.worktree;
+            s.wants_worktree = s.repo && worktree;
             if let Some(slot) = self.slot(agent) {
                 slot.seed(&mut s);
             }
@@ -686,9 +741,14 @@ impl Desk {
                 Stage::Ready | Stage::Starting | Stage::Running { .. }
             )
         };
+        // The project's own agent, else that of the session on screen, else
+        // the first that can run.
         let agent = self
-            .session()
-            .and_then(|s| self.slot(&s.agent))
+            .prefs(&folder)
+            .agent
+            .and_then(|a| self.slot(&a))
+            .filter(|s| usable(s))
+            .or_else(|| self.session().and_then(|s| self.slot(&s.agent)))
             .filter(|s| usable(s))
             .or_else(|| self.slots.iter().find(|s| usable(s)))
             .or_else(|| self.slots.first())
@@ -1308,6 +1368,7 @@ impl Render for Desk {
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
             Page::Settings => middle.child(self.settings_page(&faces, cx)),
+            Page::NewProject => middle.child(self.new_project_page(&faces, cx)),
         };
         let right = match (&self.page, self.panes.right) {
             (Page::Thread, true) if self.session().is_some() => Some(self.aside(&faces, cx)),

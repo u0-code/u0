@@ -429,6 +429,96 @@ pub fn pull_request(dir: &Path) -> Result<String, String> {
         .to_owned())
 }
 
+/// Make a new project at `dir`: the folder, a repository on `main`, a
+/// README with its name, committed as you (your git identity).
+pub fn create(dir: &Path, name: &str) -> Result<(), String> {
+    if dir.exists() {
+        return Err(format!("{} is there already", dir.display()));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("README.md"), format!("# {name}\n")).map_err(|e| e.to_string())?;
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-q", "-b", "main"]))?;
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["add", "README.md"]))?;
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["commit", "-q", "-m", "First commit"]))?;
+    Ok(())
+}
+
+/// Clone `url` into `dir`, saying how far it is from what git prints
+/// ("Receiving objects:  45% ..."), until it is done or `stop` is set; a
+/// clone stopped leaves nothing.
+pub fn clone(
+    url: &str,
+    dir: &Path,
+    say: &dyn Fn(&str, Option<f32>),
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    use std::io::Read as _;
+    if dir.exists() {
+        return Err(format!("{} is there already", dir.display()));
+    }
+    let mut child = Command::new("git")
+        .args(["clone", "--progress", url])
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("git could not be started: {e}"))?;
+    let mut err = child.stderr.take().expect("piped");
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        let mut line = String::new();
+        while let Ok(n) = err.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            for c in String::from_utf8_lossy(&buf[..n]).chars() {
+                if c == '\r' || c == '\n' {
+                    if !line.trim().is_empty() {
+                        let _ = tx.send(std::mem::take(&mut line));
+                    }
+                    line.clear();
+                } else {
+                    line.push(c);
+                }
+            }
+        }
+    });
+    let mut last = String::new();
+    loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(dir);
+            return Err(crate::registry::CANCELLED.into());
+        }
+        while let Ok(l) = rx.try_recv() {
+            let share = l
+                .split_once('%')
+                .and_then(|(a, _)| a.rsplit(' ').next()?.trim().parse::<f32>().ok())
+                .map(|p| p / 100.);
+            say(l.trim(), share);
+            last = l;
+        }
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return if status.success() {
+                Ok(())
+            } else {
+                let _ = std::fs::remove_dir_all(dir);
+                Err(format!("git clone failed: {}", last.trim()))
+            };
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+}
+
 /// The files git sees in `dir`: tracked, and new ones not ignored; paths
 /// from `dir`. At most a few thousand, which is enough to name one.
 pub fn files(dir: &Path) -> Vec<String> {
@@ -503,6 +593,37 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_new_project_is_a_repository_with_its_readme_and_a_clone_says_how_far_it_is() {
+        let base = std::env::temp_dir().join(format!("ghost-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let made = base.join("made");
+        if create(&made, "made").is_ok() {
+            assert_eq!(
+                std::fs::read_to_string(made.join("README.md")).unwrap(),
+                "# made\n"
+            );
+            assert!(branch(&made).is_some());
+        }
+        assert!(create(&made, "again").is_err() || !made.exists());
+
+        let from = repo("clone-from");
+        let to = base.join("cloned");
+        let said = std::cell::RefCell::new(Vec::new());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        clone(
+            &format!("file://{}", from.display()),
+            &to,
+            &|what, _| said.borrow_mut().push(what.to_owned()),
+            &stop,
+        )
+        .unwrap();
+        assert!(to.join("a.txt").is_file());
+        assert!(!said.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&from);
     }
 
     #[test]

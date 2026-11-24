@@ -122,6 +122,9 @@ impl Desk {
             Page::Settings => {
                 bar = bar.child(title("Settings".into()));
             }
+            Page::NewProject => {
+                bar = bar.child(title("Add a project".into()));
+            }
         }
         bar
     }
