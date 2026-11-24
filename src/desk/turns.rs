@@ -26,6 +26,7 @@ impl Desk {
 
     /// Show `scope`'s changes in the right column, and its first file.
     pub fn show_changes(&mut self, scope: Scope, cx: &mut Context<Self>) {
+        self.ask_scope(&scope);
         self.scope = scope;
         self.aside = Aside::Session;
         self.panes.right = true;
@@ -290,6 +291,22 @@ impl Desk {
         let Some(s) = self.session_mut(key) else {
             return;
         };
+        s.git_step = None;
+        // A branch renamed, or another checked out, is the session's now.
+        match (action, &result) {
+            (hub::GitAction::RenameBranch(name), Ok(_)) => {
+                s.branch = Some(name.clone());
+                if let Some(wt) = &mut s.worktree {
+                    wt.branch.clone_from(name);
+                }
+                self.save_index();
+                return;
+            }
+            (hub::GitAction::RenameBranch(_), Err(_)) => return,
+            (hub::GitAction::Switch(_), Ok(_)) => s.look(),
+            _ => {}
+        }
+        let s = self.session_mut(key).expect("found above");
         let removed = matches!(action, hub::GitAction::RemoveWorktree(_)) && result.is_ok();
         // With no turn of its own taken here, what it shows is what is
         // not committed: read again after a commit.
@@ -321,5 +338,6 @@ impl Desk {
             s.state =
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
         }
+        self.refresh_git(key);
     }
 }

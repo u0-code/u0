@@ -4,15 +4,17 @@
 //! changed file opens here whole. For an agent's page: what it is and how
 //! Ghost runs it.
 
+mod repo;
+
 use std::time::SystemTime;
 
 use agent_client_protocol_schema::v1::{ToolCallContent, ToolCallStatus};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Aside, Desk, RIGHT, Scope, TOPBAR, draggable},
+    desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
-    git, hub,
+    hub,
     hub::Stage,
     registry::{self, Way},
     session::{Change, Session, State},
@@ -173,7 +175,11 @@ impl Desk {
                 Aside::Files,
             ))
             .child(div().flex_1())
-            .children(s.branch.clone().map(|b| fine_mono(faces, b)));
+            .children(
+                s.branch
+                    .as_deref()
+                    .map(|b| self.branch_chip(faces, s, b, cx)),
+            );
         let body = div()
             .id("aside")
             .flex()
@@ -188,11 +194,73 @@ impl Desk {
                 self.git_changes(faces, s, cx)
                     .unwrap_or_else(|| Self::changes(faces, s, cx)),
             )
+            .children(Self::pull_request(faces, s, cx))
+            .children(self.commits(faces, s, cx))
             .child(Self::plan(faces, s))
             .child(Self::terminals(faces, s))
             .child(self.context(faces, s, cx))
         };
         frame(head).child(body)
+    }
+
+    /// The branch where the session works; a click lists the others, to
+    /// check one out.
+    fn branch_chip(&self, faces: &Faces, s: &Session, branch: &str, cx: &mut Context<Self>) -> Div {
+        let open = self.popup == crate::desk::Popup::Branch;
+        let mut chip = div().relative().child(
+            div()
+                .id("branch-chip")
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .px(px(6.))
+                .h(px(22.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(fine_mono(faces, ui::fit(branch, 22)))
+                .when(s.branches.len() > 1, |d| {
+                    d.child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_popup(crate::desk::Popup::Branch, cx);
+                })),
+        );
+        if open && s.branches.len() > 1 {
+            let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.)).child(
+                ui::text(faces, "Check out")
+                    .px(px(8.))
+                    .pt(px(6.))
+                    .pb(px(2.))
+                    .text_size(px(11.5))
+                    .text_color(theme::faint()),
+            );
+            for (n, b) in s.branches.iter().enumerate() {
+                let (on, name) = (b == branch, b.clone());
+                menu = menu.child(
+                    div()
+                        .id(SharedString::from(format!("branch-{n}")))
+                        .flex()
+                        .items_center()
+                        .px(px(8.))
+                        .h(px(28.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .when(on, |d| d.bg(theme::panel2()))
+                        .hover(|st| st.bg(theme::hover()))
+                        .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.switch_branch(name.clone(), cx)),
+                        ),
+                );
+            }
+            chip = chip.child(gpui::deferred(
+                gpui::anchored()
+                    .anchor(gpui::Corner::TopRight)
+                    .child(div().mt(px(24.)).child(ui::menu("branch-menu").child(menu))),
+            ));
+        }
+        chip
     }
 
     fn changes(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
@@ -273,211 +341,6 @@ impl Desk {
                 ),
         );
         sec
-    }
-
-    /// The changes the scope asks for, as git read them, when it has.
-    fn scoped<'a>(&self, s: &'a Session) -> Option<&'a Vec<git::FileDiff>> {
-        match self.scope {
-            Scope::All => s.total.as_ref(),
-            Scope::Turn(n) => s.turns.get(n).and_then(|t| t.diff.as_ref()),
-        }
-    }
-
-    /// The changes as git reads them between the session's checkpoints:
-    /// all of them or one turn's, each file with how it changed; then what
-    /// can be done with them. A session loaded, with no turn taken here
-    /// yet, shows what is not committed. `None` before git has read
-    /// anything.
-    fn git_changes(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
-        let last = s.turns.iter().rposition(|t| t.diff.is_some());
-        if last.is_none() && s.total.is_none() {
-            return None;
-        }
-        let files = self.scoped(s).cloned().unwrap_or_default();
-        let (added, gone) = files
-            .iter()
-            .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
-        let scope_tab = |id: &'static str, label: String, on: bool, to: Scope| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .h(px(22.))
-                .px(px(7.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(ui::text(faces, label).text_size(px(12.)).text_color(if on {
-                    theme::text()
-                } else {
-                    theme::muted()
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to, cx)))
-        };
-        let turn = match self.scope {
-            Scope::Turn(n) => Some(n),
-            Scope::All => last,
-        };
-        let mut sec = section(
-            faces,
-            "Changes",
-            (!files.is_empty()).then(|| added_gone(faces, added, gone)),
-        )
-        .child(
-            div()
-                .flex()
-                .gap(px(2.))
-                .ml(px(-7.))
-                .child(scope_tab(
-                    "scope-all",
-                    if last.is_some() { "All" } else { "Uncommitted" }.into(),
-                    self.scope == Scope::All,
-                    Scope::All,
-                ))
-                .children(turn.map(|turn| {
-                    scope_tab(
-                        "scope-turn",
-                        format!("Turn {}", turn + 1),
-                        self.scope != Scope::All,
-                        Scope::Turn(turn),
-                    )
-                })),
-        );
-        if files.is_empty() {
-            sec = sec.child(empty(faces, "Nothing changed here."));
-        }
-        let mut rows = div().flex().flex_col();
-        for (n, f) in files.iter().enumerate() {
-            let tail = match f.status {
-                git::Status::Added => fine(faces, "new"),
-                git::Status::Deleted => fine(faces, "deleted").text_color(theme::coral()),
-                git::Status::Renamed if f.added + f.gone == 0 => fine(faces, "renamed"),
-                _ => added_gone(faces, f.added, f.gone),
-            };
-            let path = std::path::PathBuf::from(&f.path);
-            rows = rows.child(
-                frow()
-                    .id(SharedString::from(format!("gchange-{n}")))
-                    .px(px(6.))
-                    .mx(px(-6.))
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(path_text(faces, &f.path))
-                    .child(tail)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(path.clone()), cx);
-                    })),
-            );
-        }
-        sec = sec.child(rows);
-        let idle = !matches!(s.state, State::Working | State::Opening);
-        let first = files.first().map(|f| std::path::PathBuf::from(&f.path));
-        sec = sec.child(
-            div()
-                .flex()
-                .gap(px(6.))
-                .children(first.map(|first| {
-                    ui::button(
-                        faces,
-                        "review",
-                        "Review diff",
-                        if idle {
-                            Weight::Primary
-                        } else {
-                            Weight::Secondary
-                        },
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(first.clone()), cx);
-                    }))
-                }))
-                .child(
-                    ui::button(faces, "commit", "Commit…", Weight::Secondary).on_click(
-                        cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
-                    ),
-                ),
-        );
-        if self.committing {
-            sec = sec.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .h(px(32.))
-                            .px(px(8.))
-                            .rounded(px(8.))
-                            .bg(theme::well())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .child(div().flex_1().child(self.message.clone())),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(6.))
-                            .child(git_button(
-                                faces,
-                                "do-commit",
-                                "Commit",
-                                Weight::Primary,
-                                cx,
-                                hub::GitAction::Commit,
-                            ))
-                            .child(git_button(
-                                faces,
-                                "do-push",
-                                "Commit & push",
-                                Weight::Secondary,
-                                cx,
-                                hub::GitAction::CommitPush,
-                            ))
-                            .child(git_button(
-                                faces,
-                                "do-pr",
-                                "Create PR",
-                                Weight::Quiet,
-                                cx,
-                                hub::GitAction::PullRequest,
-                            )),
-                    )
-                    .child(fine(
-                        faces,
-                        format!(
-                            "Commits everything in {} on {}, as you.",
-                            Desk::shown(&s.folder),
-                            s.branch.as_deref().unwrap_or("its branch")
-                        ),
-                    )),
-            );
-        }
-        if let Some(note) = &s.git_note {
-            let line = fine(faces, note.text.clone()).text_color(if note.trouble {
-                theme::coral()
-            } else {
-                theme::text2()
-            });
-            sec = sec.child(match note.url.clone() {
-                Some(url) => div()
-                    .id("git-url")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .cursor_pointer()
-                    .child(line)
-                    .child(fine(faces, url.clone()).text_color(theme::link()))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
-                    .into_any_element(),
-                None => line.into_any_element(),
-            });
-        }
-        Some(sec)
     }
 
     fn plan(faces: &Faces, s: &Session) -> Div {
@@ -632,7 +495,17 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(fine_mono(faces, ui::fit(&wt.branch, 24)))
+                    .child(fine_mono(faces, ui::fit(&wt.branch, 20)))
+                    .child({
+                        let key = s.key;
+                        div()
+                            .id("new-in-worktree")
+                            .cursor_pointer()
+                            .child(fine(faces, "New session").text_color(theme::link()))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.new_in_worktree(key, window, cx);
+                            }))
+                    })
                     .when(removable, |d| {
                         d.child(
                             div()
@@ -741,6 +614,7 @@ impl Desk {
             .find(|c| c.path == path)
             .map(|c| (c.added, c.gone))
             .or_else(|| from_git.map(|f| (f.added, f.gone)));
+        let full = s.folder.join(path);
         let head = top()
             .gap(px(8.))
             .child(
@@ -748,7 +622,29 @@ impl Desk {
                     .on_click(cx.listener(|this, _, _, cx| this.show_aside(Aside::Session, cx))),
             )
             .child(path_text(faces, &name))
-            .children(total.map(|(a, g)| added_gone(faces, a, g)));
+            .children(total.map(|(a, g)| added_gone(faces, a, g)))
+            .child(div().flex_1())
+            .when(from_git.is_some(), |d| {
+                d.child(
+                    ui::icon_button(
+                        "side-by-side",
+                        "panel-right",
+                        if self.side_by_side {
+                            "One above the other"
+                        } else {
+                            "Side by side"
+                        },
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.side_by_side = !this.side_by_side;
+                        cx.notify();
+                    })),
+                )
+            })
+            .child(
+                ui::icon_button("open-editor", "pencil", "Open in your editor")
+                    .on_click(move |_, _, _| crate::desk::open_in_editor(&full)),
+            );
         let mut body = div()
             .id("aside-file")
             .flex()
@@ -757,8 +653,21 @@ impl Desk {
             .min_h(px(0.))
             .overflow_y_scroll()
             .py(px(6.));
+        body = body.children(self.comment_box(faces, s, path, cx));
         if let Some(file) = from_git {
-            return frame(head).child(body.child(drawn::hunks(faces, file, drawn::Fit::Column)));
+            let hunks = if self.side_by_side {
+                drawn::hunks_split(faces, file)
+            } else {
+                // A line clicked is one to say something of, to the agent.
+                let this = cx.entity().downgrade();
+                let at = path.to_path_buf();
+                let on: drawn::OnLine = std::rc::Rc::new(move |n, window, cx| {
+                    let _ =
+                        this.update(cx, |desk, cx| desk.begin_comment(at.clone(), n, window, cx));
+                });
+                drawn::hunks(faces, file, drawn::Fit::Column, Some(&on))
+            };
+            return frame(head).child(body.child(hunks));
         }
         for t in s.tools() {
             let mut n = 0;
@@ -776,6 +685,84 @@ impl Desk {
             }
         }
         frame(head).child(body)
+    }
+
+    /// What you are saying of lines of this file: the line being commented
+    /// on and the line to write it in; those said; and sending them.
+    fn comment_box(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        path: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let here: Vec<&(std::path::PathBuf, usize, String)> =
+            self.comments.iter().filter(|c| c.0 == path).collect();
+        let writing = self
+            .commenting
+            .as_ref()
+            .filter(|(p, _)| p == path)
+            .map(|(_, n)| *n);
+        if here.is_empty() && writing.is_none() && self.comments.is_empty() {
+            return None;
+        }
+        let mut sec = div().flex().flex_col().gap(px(6.)).px(px(14.)).pb(px(10.));
+        for (n, (_, line, text)) in here.iter().enumerate() {
+            let (p, l) = (path.to_path_buf(), *line);
+            sec = sec.child(
+                frow()
+                    .child(fine_mono(faces, format!("L{line}")))
+                    .child(ui::one_line(
+                        ui::text(faces, text.clone()).text_size(px(12.5)),
+                    ))
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("uncomment-{n}")),
+                            "x",
+                            "Take it back",
+                        )
+                        .size(px(20.))
+                        .on_click(cx.listener(move |this, _, _, cx| this.drop_comment(&p, l, cx))),
+                    ),
+            );
+        }
+        if let Some(line) = writing {
+            sec = sec.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(fine_mono(faces, format!("L{line}")))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h(px(28.))
+                            .px(px(6.))
+                            .rounded(px(7.))
+                            .bg(theme::well())
+                            .border_1()
+                            .border_color(theme::border2())
+                            .child(self.comment.clone()),
+                    ),
+            );
+        }
+        if !self.comments.is_empty() {
+            let name = self.name_of(&s.agent);
+            let n = self.comments.len();
+            sec = sec.child(
+                ui::button(
+                    faces,
+                    "send-comments",
+                    format!(
+                        "Put {n} comment{} to {name} in the line",
+                        if n == 1 { "" } else { "s" }
+                    ),
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.send_comments(window, cx))),
+            );
+        }
+        Some(sec)
     }
 
     /// An agent's page's right column: what it is and how Ghost runs it.

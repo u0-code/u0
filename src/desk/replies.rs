@@ -184,6 +184,41 @@ impl Desk {
                     Err(why) => self.adding_trouble = Some(why),
                 }
             }
+            Msg::Diffed { key, scope, result } => {
+                if let Some(s) = self.session_mut(key) {
+                    match result {
+                        Ok(files) => s.scoped = Some((scope, files)),
+                        Err(why) => {
+                            s.scoped = Some((scope, Vec::new()));
+                            s.git_note = Some(crate::session::GitNote {
+                                text: why,
+                                trouble: true,
+                                url: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Msg::Commits {
+                key,
+                commits,
+                branches,
+            } => {
+                if let Some(s) = self.session_mut(key) {
+                    s.commits = commits;
+                    s.branches = branches;
+                }
+            }
+            Msg::Pr { key, pr } => {
+                if let Some(s) = self.session_mut(key) {
+                    s.pr = pr;
+                }
+            }
+            Msg::GitStep { key, text } => {
+                if let Some(s) = self.session_mut(key) {
+                    s.git_step = Some(text);
+                }
+            }
             Msg::Found { query, keys } => {
                 if self.searching && self.search.read(cx).text().to_lowercase() == query {
                     self.found = keys.into_iter().collect();
@@ -252,6 +287,9 @@ impl Desk {
                     );
                 }
                 self.end_turn(key);
+                self.take_message(key, cx);
+                self.name_branch(key);
+                self.refresh_git(key);
                 // What was said meanwhile goes now, in order.
                 self.say_queued(key, cx);
             }

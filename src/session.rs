@@ -208,6 +208,17 @@ pub struct Session {
     /// What goes with the next thing said: images, files and sessions
     /// mentioned.
     pub attached: Vec<ContentBlock>,
+    /// What git says where it works, read when it is on screen: changes in
+    /// a scope git is asked for (the branch, a commit), the recent commits,
+    /// the local branches, its pull request, the step a git action is at.
+    pub scoped: Option<(crate::desk::Scope, Vec<git::FileDiff>)>,
+    pub commits: Vec<(String, String, String)>,
+    pub branches: Vec<String>,
+    pub pr: Option<crate::hub::Pr>,
+    pub git_step: Option<String>,
+    /// The agent was asked to write a commit message: its answer goes in
+    /// the commit form.
+    pub writing_message: bool,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -444,6 +455,12 @@ impl Session {
             unsent: String::new(),
             commands: Vec::new(),
             attached: Vec::new(),
+            scoped: None,
+            commits: Vec::new(),
+            branches: Vec::new(),
+            pr: None,
+            git_step: None,
+            writing_message: false,
         }
     }
 

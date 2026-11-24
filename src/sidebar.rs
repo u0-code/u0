@@ -710,6 +710,22 @@ impl Desk {
             .when(s.flags.pinned.is_some(), |d| {
                 d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
             })
+            // Its pull request, coloured by its checks.
+            .children(s.pr.as_ref().map(|pr| {
+                let color = if pr.failed > 0 {
+                    theme::coral()
+                } else if pr.going > 0 {
+                    theme::accent()
+                } else if pr.state == "merged" {
+                    theme::link()
+                } else {
+                    theme::ok()
+                };
+                ui::text(faces, format!("#{}", pr.number))
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(color)
+            }))
             .when(s.flags.unread && !on, |d| {
                 d.child(
                     div()

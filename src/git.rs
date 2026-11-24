@@ -418,15 +418,153 @@ pub fn push(dir: &Path) -> Result<String, String> {
 /// Open a pull request for the branch `dir` is on with `gh`, titled and
 /// described from its commits; its address.
 pub fn pull_request(dir: &Path) -> Result<String, String> {
-    let mut pr = Command::new("gh");
-    pr.current_dir(dir).args(["pr", "create", "--fill"]);
-    let out = run(&mut pr)?;
-    Ok(out
-        .lines()
-        .rev()
-        .find(|l| l.starts_with("https://"))
-        .unwrap_or(&out)
-        .to_owned())
+    let host = remote(dir).map(|r| r.0).unwrap_or_default();
+    let last_url = |out: &str| {
+        out.lines()
+            .rev()
+            .find(|l| l.trim_start().starts_with("https://"))
+            .unwrap_or(out)
+            .trim()
+            .to_owned()
+    };
+    // GitHub through gh; GitLab through glab where it is installed; any
+    // other host (Bitbucket, GitLab without glab) by its page for a new
+    // one, opened in the browser.
+    if host.contains("gitlab") && crate::registry::which("glab").is_some() {
+        let mut mr = Command::new("glab");
+        mr.current_dir(dir)
+            .args(["mr", "create", "--fill", "--yes"]);
+        return run(&mut mr).map(|o| last_url(&o));
+    }
+    if host.contains("github") || remote(dir).is_none() {
+        let mut pr = Command::new("gh");
+        pr.current_dir(dir).args(["pr", "create", "--fill"]);
+        return run(&mut pr).map(|o| last_url(&o));
+    }
+    let (host, path) = remote(dir).ok_or("the repository has no remote")?;
+    let branch = branch(dir).ok_or("the folder is on no branch")?;
+    Ok(if host.contains("bitbucket") {
+        format!("https://{host}/{path}/pull-requests/new?source={branch}")
+    } else {
+        format!("https://{host}/{path}/-/merge_requests/new?merge_request[source_branch]={branch}")
+    })
+}
+
+/// The host and `owner/name` of `origin`, from its address in either form
+/// (`https://host/owner/name.git`, `git@host:owner/name.git`).
+pub fn remote(dir: &Path) -> Option<(String, String)> {
+    let url = git(dir, &["remote", "get-url", "origin"], None).ok()?;
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("ssh://"))
+        .unwrap_or_else(|| url.split_once('@').map_or(url.as_str(), |(_, r)| r));
+    let rest = rest.split_once('@').map_or(rest, |(_, r)| r);
+    let (host, path) = rest.split_once(['/', ':'])?;
+    Some((host.to_owned(), path.trim_end_matches(".git").to_owned()))
+}
+
+/// The branch the repository's work goes into: `origin`'s HEAD, else
+/// `main`, else `master`.
+pub fn default_branch(dir: &Path) -> Option<String> {
+    if let Ok(head) = git(
+        dir,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        None,
+    ) {
+        return Some(head);
+    }
+    ["main", "master"]
+        .into_iter()
+        .find(|b| git(dir, &["rev-parse", "--verify", "--quiet", b], None).is_ok())
+        .map(str::to_owned)
+}
+
+/// What changed from where the branch left the default one to the files
+/// as they are now, not committed included: the branch's whole work.
+pub fn against_base(dir: &Path) -> Result<Vec<FileDiff>, String> {
+    let base = default_branch(dir).ok_or("the repository has no main branch")?;
+    let fork = git(dir, &["merge-base", "HEAD", &base], None)?;
+    let now = snapshot(dir, "against base")?;
+    diff(dir, &fork, &now)
+}
+
+/// The last `n` commits: short id, subject, how long ago.
+pub fn log(dir: &Path, n: usize) -> Vec<(String, String, String)> {
+    git(
+        dir,
+        &["log", &format!("-{n}"), "--format=%h%x09%s%x09%cr"],
+        None,
+    )
+    .map(|t| {
+        t.lines()
+            .filter_map(|l| {
+                let mut f = l.splitn(3, '\t');
+                Some((
+                    f.next()?.to_owned(),
+                    f.next()?.to_owned(),
+                    f.next()?.to_owned(),
+                ))
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// What the commit `id` changed.
+pub fn commit_diff(dir: &Path, id: &str) -> Result<Vec<FileDiff>, String> {
+    let parent = git(
+        dir,
+        &["rev-parse", "--verify", "--quiet", &format!("{id}^")],
+        None,
+    )
+    .unwrap_or_else(|_| EMPTY_TREE.to_owned());
+    diff(dir, &parent, id)
+}
+
+/// The local branches, the one checked out first.
+pub fn branches(dir: &Path) -> Vec<String> {
+    let mut out: Vec<String> = git(dir, &["branch", "--format=%(refname:short)"], None)
+        .map(|t| t.lines().map(str::to_owned).collect())
+        .unwrap_or_default();
+    if let Some(now) = branch(dir) {
+        out.retain(|b| b != &now);
+        out.insert(0, now);
+    }
+    out
+}
+
+/// Check out `name` in `dir`, as you would.
+pub fn switch(dir: &Path, name: &str) -> Result<(), String> {
+    let mut sw = Command::new("git");
+    sw.arg("-C").arg(dir).args(["switch", name]);
+    run(&mut sw).map(|_| ())
+}
+
+/// Make the branch `name` at what `dir` is on, and check it out.
+pub fn branch_off(dir: &Path, name: &str) -> Result<(), String> {
+    let mut sw = Command::new("git");
+    sw.arg("-C").arg(dir).args(["switch", "-c", name]);
+    run(&mut sw).map(|_| ())
+}
+
+/// Rename the branch `dir` is on to `name`, unless it has been pushed.
+pub fn rename_branch(dir: &Path, name: &str) -> Result<(), String> {
+    if git(dir, &["rev-parse", "--abbrev-ref", "@{u}"], None).is_ok() {
+        return Err("it is pushed already".into());
+    }
+    git(dir, &["branch", "-m", name], None).map(|_| ())
+}
+
+/// Take away the checkpoints Ghost kept for the session `uid` in the
+/// repository at `dir`.
+pub fn drop_checkpoints(dir: &Path, uid: &str) {
+    let prefix = format!("{REFS}/{uid}/");
+    if let Ok(refs) = git(dir, &["for-each-ref", "--format=%(refname)", &prefix], None) {
+        for r in refs.lines() {
+            let _ = git(dir, &["update-ref", "-d", r], None);
+        }
+    }
 }
 
 /// Make a new project at `dir`: the folder, a repository on `main`, a
@@ -624,6 +762,50 @@ mod tests {
         assert!(!said.borrow().is_empty());
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&from);
+    }
+
+    #[test]
+    fn a_branch_is_read_against_its_base_its_commits_and_what_each_changed() {
+        let dir = repo("base");
+        git(
+            &dir,
+            &["remote", "add", "origin", "git@github.com:owner/name.git"],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            remote(&dir),
+            Some(("github.com".into(), "owner/name".into()))
+        );
+        assert_eq!(default_branch(&dir).as_deref(), Some("main"));
+
+        branch_off(&dir, "ghost/work").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        git(&dir, &["add", "b.txt"], None).unwrap();
+        git(&dir, &["commit", "-q", "-m", "second"], None).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+
+        let mut whole: Vec<String> = against_base(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        whole.sort();
+        assert_eq!(whole, ["a.txt", "b.txt"]);
+        let commits = log(&dir, 5);
+        assert_eq!(commits[0].1, "second");
+        let changed = commit_diff(&dir, &commits[0].0).unwrap();
+        assert_eq!(changed[0].path, "b.txt");
+        assert_eq!(commit_diff(&dir, &commits[1].0).unwrap()[0].path, "a.txt");
+        assert_eq!(branches(&dir), ["ghost/work", "main"]);
+
+        rename_branch(&dir, "ghost/better").unwrap();
+        assert_eq!(branch(&dir).as_deref(), Some("ghost/better"));
+
+        checkpoint(&dir, "s9/0-before").unwrap();
+        drop_checkpoints(&dir, "s9");
+        assert_eq!(git(&dir, &["for-each-ref", REFS], None).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

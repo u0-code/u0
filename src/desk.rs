@@ -27,6 +27,7 @@ use gpui::{
 use tokio::sync::mpsc;
 use tracing::warn;
 
+mod gitview;
 mod kept;
 mod lists;
 pub(crate) mod mention;
@@ -67,11 +68,15 @@ pub enum Page {
     Settings,
 }
 
-/// Which changes the right column shows: one turn's, or all of them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which changes the right column shows: one turn's, all of the
+/// session's, the branch's against where it left the main one, or one
+/// commit's.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scope {
     Turn(usize),
     All,
+    Branch,
+    Commit(String),
 }
 
 /// What the right column shows of the session on screen.
@@ -99,6 +104,8 @@ pub enum Popup {
     Session(u64),
     /// What can be done with a project in the sidebar.
     Project(PathBuf),
+    /// The branches to check out, in the column beside.
+    Branch,
     /// The project the sidebar shows, when it lists by status.
     Only,
 }
@@ -150,6 +157,15 @@ pub struct Desk {
     pub runs: Vec<runs::Run>,
     pub drawer: bool,
     pub command: Entity<TextInput>,
+    /// Minutes counted, for what is read every other one.
+    pub pr_tick: u32,
+    /// A file's diff side by side (the column widens), and what you say of
+    /// its lines: the line being commented on, the line to write it in, and
+    /// those said, waiting to go to the agent.
+    pub side_by_side: bool,
+    pub commenting: Option<(PathBuf, usize)>,
+    pub comment: Entity<TextInput>,
+    pub comments: Vec<(PathBuf, usize, String)>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -270,6 +286,11 @@ impl Desk {
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
+        cx.subscribe(&comment, |this, _, Submitted(text), cx| {
+            this.add_comment(text, cx);
+        })
+        .detach();
         let command = cx.new(|cx| TextInput::new(cx, "A command to run here").padded(4.));
         cx.subscribe(&command, |this, _, Submitted(text), cx| {
             this.run_typed(text, cx);
@@ -359,7 +380,13 @@ impl Desk {
                 cx.background_executor()
                     .timer(Duration::from_secs(60))
                     .await;
-                if this.update(cx, Self::release_idle).is_err() {
+                if this
+                    .update(cx, |this, cx| {
+                        this.release_idle(cx);
+                        this.poll_prs();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -391,6 +418,11 @@ impl Desk {
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
             runs: Vec::new(),
+            side_by_side: false,
+            pr_tick: 0,
+            commenting: None,
+            comment,
+            comments: Vec::new(),
             drawer: false,
             command,
             prs: HashMap::new(),
@@ -718,6 +750,7 @@ impl Desk {
             s.flags.unread = false;
             self.save_index();
         }
+        self.refresh_git(key);
         let closed = self
             .sessions
             .iter()
@@ -852,6 +885,16 @@ impl Desk {
         }
         let s = self.sessions.remove(at);
         self.save_index();
+        // Its checkpoints go with it.
+        if s.repo {
+            let (dir, uid) = (
+                s.worktree
+                    .as_ref()
+                    .map_or_else(|| s.project.clone(), |w| w.repo.clone()),
+                s.uid(),
+            );
+            crate::acp::runtime().spawn_blocking(move || crate::git::drop_checkpoints(&dir, &uid));
+        }
         if let Some(wt) = s.worktree {
             hub::git_action(
                 wt.repo.clone(),
@@ -1351,6 +1394,15 @@ impl Desk {
 
     /// Keep the newest line in sight while the thread grows, unless you
     /// scrolled up to read.
+    /// How wide the right column stands: wider for a diff side by side.
+    pub fn right_width(&self) -> f32 {
+        if self.side_by_side && matches!(self.aside, Aside::File(_)) {
+            720.
+        } else {
+            RIGHT
+        }
+    }
+
     pub fn home_path() -> Option<PathBuf> {
         std::env::var_os("HOME").map(PathBuf::from)
     }
@@ -1377,7 +1429,11 @@ impl Render for Desk {
             Page::Thread => {
                 let pane = f32::from(window.viewport_size().width)
                     - if self.panes.left { LEFT } else { 0. }
-                    - if self.panes.right { RIGHT } else { 0. };
+                    - if self.panes.right {
+                        self.right_width()
+                    } else {
+                        0.
+                    };
                 let column = (pane - 64.).clamp(240., crate::style::COLUMN);
                 middle
                     .child(self.thread(&faces, column, cx))
@@ -1389,7 +1445,9 @@ impl Render for Desk {
             Page::NewProject => middle.child(self.new_project_page(&faces, cx)),
         };
         let right = match (&self.page, self.panes.right) {
-            (Page::Thread, true) if self.session().is_some() => Some(self.aside(&faces, cx)),
+            (Page::Thread, true) if self.session().is_some() => {
+                Some(self.aside(&faces, cx).w(px(self.right_width())))
+            }
             (Page::Agent(id), _) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
@@ -1407,5 +1465,24 @@ impl Render for Desk {
             .child(middle)
             .children(right)
             .children(self.undo_toast(&faces, cx))
+    }
+}
+
+/// Open `path` in your editor: the first of Cursor, VS Code, Zed and
+/// Sublime Text whose command is on the PATH, else the app macOS opens
+/// text in.
+pub fn open_in_editor(path: &Path) {
+    let editor = ["cursor", "code", "zed", "subl"]
+        .into_iter()
+        .find_map(registry::which);
+    let spawned = match editor {
+        Some(cmd) => std::process::Command::new(cmd).arg(path).spawn(),
+        None => std::process::Command::new("open")
+            .arg("-t")
+            .arg(path)
+            .spawn(),
+    };
+    if let Err(e) = spawned {
+        warn!("{} could not be opened: {e}", path.display());
     }
 }

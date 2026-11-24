@@ -156,7 +156,12 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
 
 /// A file's changes as git gives them: each hunk under its head, every line
 /// numbered on the side it is on.
-pub fn hunks(faces: &Faces, file: &crate::git::FileDiff, fit: Fit) -> Div {
+pub fn hunks(
+    faces: &Faces,
+    file: &crate::git::FileDiff,
+    fit: Fit,
+    on_line: Option<&OnLine>,
+) -> Div {
     use crate::git::Line as G;
     let (size, line, num) = match fit {
         Fit::Thread => (12.5, 19., 44.),
@@ -183,7 +188,7 @@ pub fn hunks(faces: &Faces, file: &crate::git::FileDiff, fit: Fit) -> Div {
                 .child("A binary file: no lines to show."),
         );
     }
-    for hunk in &file.hunks {
+    for (h, hunk) in file.hunks.iter().enumerate() {
         well = well.child(
             div()
                 .pl(px(num + 16.))
@@ -194,7 +199,7 @@ pub fn hunks(faces: &Faces, file: &crate::git::FileDiff, fit: Fit) -> Div {
                 .overflow_hidden()
                 .child(hunk.head.clone()),
         );
-        for l in &hunk.lines {
+        for (i, l) in hunk.lines.iter().enumerate() {
             let (n, sign, text, ground, mark) = match l {
                 G::Same { new, text, .. } => (*new, " ", text, None, theme::quiet()),
                 G::Gone { old, text } => (
@@ -212,32 +217,141 @@ pub fn hunks(faces: &Faces, file: &crate::git::FileDiff, fit: Fit) -> Div {
                     theme::ok(),
                 ),
             };
-            well = well.child(
+            let row = div()
+                .flex()
+                .w_full()
+                .when_some(ground, Styled::bg)
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .justify_end()
+                        .w(px(num))
+                        .pr(px(10.))
+                        .text_color(theme::quiet())
+                        .child(n.to_string()),
+                )
+                .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .child(text.clone()),
+                );
+            // A line can be clicked, to say something of it.
+            well = match on_line {
+                Some(on) => {
+                    let on = on.clone();
+                    well.child(
+                        row.id(gpui::SharedString::from(format!("{}-{h}-{i}", file.path)))
+                            .cursor_pointer()
+                            .hover(|st| st.bg(theme::hover()))
+                            .on_click(move |_, window, cx| on(n, window, cx)),
+                    )
+                }
+                None => well.child(row),
+            };
+        }
+    }
+    well
+}
+
+/// What to do when a line of a diff is clicked: its number.
+pub type OnLine = std::rc::Rc<dyn Fn(usize, &mut gpui::Window, &mut gpui::App)>;
+
+/// A file's changes side by side: as it was on the left, as it is on the
+/// right, the lines taken away beside those put in their place.
+pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
+    use crate::git::Line as G;
+    let mut well = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .overflow_hidden()
+        .font_family(faces.mono.clone())
+        .text_size(px(11.5))
+        .line_height(px(18.))
+        .text_color(theme::code_text());
+    let cell = |n: Option<usize>, text: Option<&String>, ground: Option<gpui::Hsla>| {
+        div()
+            .flex()
+            .flex_1()
+            .min_w(px(0.))
+            .when_some(ground, Styled::bg)
+            .child(
                 div()
                     .flex()
-                    .w_full()
-                    .when_some(ground, Styled::bg)
-                    .child(
+                    .flex_none()
+                    .justify_end()
+                    .w(px(36.))
+                    .pr(px(8.))
+                    .text_color(theme::quiet())
+                    .child(n.map(|n| n.to_string()).unwrap_or_default()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .child(text.cloned().unwrap_or_default()),
+            )
+    };
+    let gone_bg = theme::coral().opacity(0.09);
+    let added_bg = theme::ok().opacity(0.09);
+    for hunk in &file.hunks {
+        well = well.child(
+            div()
+                .pl(px(44.))
+                .py(px(2.))
+                .text_size(px(12.))
+                .text_color(theme::quiet())
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .child(hunk.head.clone()),
+        );
+        // Runs of lines taken away and put in, paired row by row.
+        let mut gone: Vec<(usize, &String)> = Vec::new();
+        let mut added: Vec<(usize, &String)> = Vec::new();
+        let flush =
+            |well: Div, gone: &mut Vec<(usize, &String)>, added: &mut Vec<(usize, &String)>| {
+                let mut well = well;
+                for k in 0..gone.len().max(added.len()) {
+                    let l = gone.get(k);
+                    let r = added.get(k);
+                    well = well.child(
                         div()
                             .flex()
-                            .flex_none()
-                            .justify_end()
-                            .w(px(num))
-                            .pr(px(10.))
-                            .text_color(theme::quiet())
-                            .child(n.to_string()),
-                    )
-                    .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                    .child(
+                            .w_full()
+                            .gap(px(1.))
+                            .child(cell(l.map(|x| x.0), l.map(|x| x.1), l.map(|_| gone_bg)))
+                            .child(cell(r.map(|x| x.0), r.map(|x| x.1), r.map(|_| added_bg))),
+                    );
+                }
+                gone.clear();
+                added.clear();
+                well
+            };
+        for l in &hunk.lines {
+            match l {
+                G::Gone { old, text } => gone.push((*old, text)),
+                G::Added { new, text } => added.push((*new, text)),
+                G::Same { old, new, text } => {
+                    well = flush(well, &mut gone, &mut added);
+                    well = well.child(
                         div()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .child(text.clone()),
-                    ),
-            );
+                            .flex()
+                            .w_full()
+                            .gap(px(1.))
+                            .child(cell(Some(*old), Some(text), None))
+                            .child(cell(Some(*new), Some(text), None)),
+                    );
+                }
+            }
         }
+        well = flush(well, &mut gone, &mut added);
     }
     well
 }

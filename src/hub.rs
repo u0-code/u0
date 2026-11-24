@@ -111,6 +111,29 @@ pub enum Msg {
         folder: PathBuf,
         prs: Vec<(u64, String)>,
     },
+    /// What changed in a scope git is asked for: the branch against its
+    /// base, or one commit.
+    Diffed {
+        key: u64,
+        scope: crate::desk::Scope,
+        result: Result<Vec<git::FileDiff>, String>,
+    },
+    /// The recent commits and the local branches where a session works.
+    Commits {
+        key: u64,
+        commits: Vec<(String, String, String)>,
+        branches: Vec<String>,
+    },
+    /// The pull request of the branch a session works on, as `gh` says.
+    Pr {
+        key: u64,
+        pr: Option<Pr>,
+    },
+    /// A step of a git action on its way.
+    GitStep {
+        key: u64,
+        text: String,
+    },
     /// What `gh` says of the pull request `number`, named with `@`.
     PrText {
         number: u64,
@@ -307,6 +330,10 @@ pub enum GitAction {
     /// Commit what is left with this message, push, and open a pull request.
     PullRequest(String),
     RemoveWorktree(git::Worktree),
+    /// Check out this branch.
+    Switch(String),
+    /// Rename the worktree's branch, unless it is pushed.
+    RenameBranch(String),
 }
 
 /// Read the newest registry.
@@ -661,6 +688,109 @@ pub fn run(id: u64, dir: PathBuf, command: String, stop: Arc<AtomicBool>, tx: Se
     });
 }
 
+/// What changed in `scope` (the branch against its base, or a commit)
+/// where the session `key` works.
+pub fn scope_diff(dir: PathBuf, key: u64, scope: crate::desk::Scope, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let result = match &scope {
+            crate::desk::Scope::Commit(id) => git::commit_diff(&dir, id),
+            _ => git::against_base(&dir),
+        };
+        let _ = tx.send(Msg::Diffed { key, scope, result });
+    });
+}
+
+/// The recent commits and the local branches where the session `key` works.
+pub fn commits(dir: PathBuf, key: u64, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let _ = tx.send(Msg::Commits {
+            key,
+            commits: git::log(&dir, 12),
+            branches: git::branches(&dir),
+        });
+    });
+}
+
+/// The pull request of the branch `dir` is on, as `gh` says.
+#[derive(Debug, Clone)]
+pub struct Pr {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// open, merged, closed; draft.
+    pub state: String,
+    pub draft: bool,
+    /// Its checks: how many passed, failed, and are still going.
+    pub passed: usize,
+    pub failed: usize,
+    pub going: usize,
+    /// approved, changes requested, review required; empty for none.
+    pub review: String,
+}
+
+/// Read the pull request of the branch where the session `key` works.
+pub fn pr(dir: PathBuf, key: u64, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let _ = tx.send(Msg::Pr {
+            key,
+            pr: read_pr(&dir),
+        });
+    });
+}
+
+fn read_pr(dir: &std::path::Path) -> Option<Pr> {
+    let out = std::process::Command::new("gh")
+        .current_dir(dir)
+        .args([
+            "pr",
+            "view",
+            "--json",
+            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let checks = v["statusCheckRollup"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let count = |f: &dyn Fn(&str) -> bool| {
+        checks
+            .iter()
+            .filter(|c| {
+                let word = c["conclusion"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| c["state"].as_str())
+                    .unwrap_or("");
+                f(&word.to_ascii_uppercase())
+            })
+            .count()
+    };
+    Some(Pr {
+        number: v["number"].as_u64()?,
+        title: v["title"].as_str().unwrap_or_default().to_owned(),
+        url: v["url"].as_str().unwrap_or_default().to_owned(),
+        state: v["state"].as_str().unwrap_or_default().to_lowercase(),
+        draft: v["isDraft"].as_bool().unwrap_or(false),
+        passed: count(&|w| matches!(w, "SUCCESS" | "NEUTRAL" | "SKIPPED")),
+        failed: count(&|w| {
+            matches!(
+                w,
+                "FAILURE" | "ERROR" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED"
+            )
+        }),
+        going: count(&|w| matches!(w, "PENDING" | "QUEUED" | "IN_PROGRESS" | "EXPECTED" | "")),
+        review: v["reviewDecision"]
+            .as_str()
+            .unwrap_or_default()
+            .to_lowercase()
+            .replace('_', " "),
+    })
+}
+
 /// Look for `query` (lower case) in the records at `paths`.
 pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
@@ -929,15 +1059,46 @@ pub fn restore(
 /// Do `action` in `dir`.
 pub fn git_action(dir: PathBuf, action: GitAction, key: u64, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
+        let step = |text: &str| {
+            let _ = tx.send(Msg::GitStep {
+                key,
+                text: text.to_owned(),
+            });
+        };
+        // Work on the main branch goes on a branch of its own before it is
+        // pushed: named for what the commit says.
+        let own_branch = |m: &str| -> Result<(), String> {
+            let main = git::default_branch(&dir);
+            let now = git::branch(&dir);
+            if now.is_some()
+                && main.as_deref().map(|b| b.trim_start_matches("origin/")) == now.as_deref()
+            {
+                step("Making a branch");
+                git::branch_off(&dir, &format!("ghost/{}", git::slug(m)))?;
+            }
+            Ok(())
+        };
         let result = match &action {
             GitAction::Commit(m) => git::commit(&dir, m).map(|id| format!("Committed {id}")),
-            GitAction::CommitPush(m) => git::commit(&dir, m)
-                .and_then(|id| git::push(&dir).map(|_| format!("Committed {id} and pushed"))),
-            GitAction::PullRequest(m) => {
+            GitAction::CommitPush(m) => own_branch(m).and_then(|()| {
+                step("Committing");
+                git::commit(&dir, m).and_then(|id| {
+                    step("Pushing");
+                    git::push(&dir).map(|_| format!("Committed {id} and pushed"))
+                })
+            }),
+            GitAction::PullRequest(m) => own_branch(m).and_then(|()| {
+                step("Committing");
                 // Nothing left to commit is no reason to stop.
                 let _ = git::commit(&dir, m);
-                git::push(&dir).and_then(|_| git::pull_request(&dir))
-            }
+                step("Pushing");
+                git::push(&dir).and_then(|_| {
+                    step("Opening the pull request");
+                    git::pull_request(&dir)
+                })
+            }),
+            GitAction::Switch(b) => git::switch(&dir, b).map(|()| format!("On {b}")),
+            GitAction::RenameBranch(b) => git::rename_branch(&dir, b).map(|()| b.clone()),
             GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
                 .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),
         };

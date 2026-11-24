@@ -1,0 +1,208 @@
+//! What git says where a session works, read for the column beside it as
+//! t3code reads it: the branch against where it left the main one, one
+//! commit, the recent commits, the local branches (one can be checked out,
+//! never under another session at work), the branch's pull request and its
+//! checks. And a commit message the agent writes, when asked to.
+
+use std::fmt::Write as _;
+
+use gpui::{Context, Window};
+
+use super::{Desk, Scope};
+use crate::{
+    hub,
+    session::{Item, State},
+};
+
+/// What the agent is asked, to write a commit message.
+const WRITE_MESSAGE: &str = "Write a commit message for the changes not committed yet: a short subject line, then a few lines on what changed and why. Reply with the message only, no code block.";
+
+impl Desk {
+    /// Read again what git says where the session `key` works: its commits
+    /// and branches, and its pull request.
+    pub(crate) fn refresh_git(&self, key: u64) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        if !s.repo {
+            return;
+        }
+        hub::commits(s.folder.clone(), key, self.tx.clone());
+        if crate::registry::which("gh").is_some() {
+            hub::pr(s.folder.clone(), key, self.tx.clone());
+        }
+    }
+
+    /// Every other minute, read again the pull requests of the sessions on
+    /// branches of their own (their worktrees') and of the one on screen,
+    /// as t3code watches its threads' pull requests and their checks.
+    pub(crate) fn poll_prs(&mut self) {
+        self.pr_tick += 1;
+        if !self.pr_tick.is_multiple_of(2) || crate::registry::which("gh").is_none() {
+            return;
+        }
+        for s in self
+            .sessions
+            .iter()
+            .filter(|s| s.repo && (s.worktree.is_some() || Some(s.key) == self.current))
+        {
+            hub::pr(s.folder.clone(), s.key, self.tx.clone());
+        }
+    }
+
+    /// Show the changes of `scope`; the branch's and a commit's are read
+    /// from git first.
+    pub(crate) fn ask_scope(&mut self, scope: &Scope) {
+        let Some(key) = self.current else { return };
+        if !matches!(scope, Scope::Branch | Scope::Commit(_)) {
+            return;
+        }
+        if let Some(s) = self.session_mut(key) {
+            s.scoped = None;
+            let dir = s.folder.clone();
+            hub::scope_diff(dir, key, scope.clone(), self.tx.clone());
+        }
+    }
+
+    /// Check out `branch` where the session on screen works: not while a
+    /// session at work shares that checkout.
+    pub fn switch_branch(&mut self, branch: String, cx: &mut Context<Self>) {
+        self.popup = super::Popup::Closed;
+        let Some(s) = self.session() else { return };
+        let (key, dir) = (s.key, s.folder.clone());
+        let busy = self
+            .sessions
+            .iter()
+            .any(|o| o.folder == dir && matches!(o.state, State::Working | State::Opening));
+        if busy {
+            if let Some(s) = self.session_mut(key) {
+                s.items.push(Item::Note {
+                    text: "A session is at work in this checkout: the branch is not switched under it.".into(),
+                    trouble: true,
+                });
+            }
+            cx.notify();
+            return;
+        }
+        hub::git_action(dir, hub::GitAction::Switch(branch), key, self.tx.clone());
+        cx.notify();
+    }
+
+    /// Begin a session in the worktree the session `key` works in.
+    pub fn new_in_worktree(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let (Some(wt), agent, project) = (s.worktree.clone(), s.agent.clone(), s.project.clone())
+        else {
+            return;
+        };
+        let new = self.take_key();
+        let mut fresh = crate::session::Session::new(new, &agent, wt.path.clone());
+        fresh.project = project;
+        fresh.worktree = Some(wt);
+        if let Some(slot) = self.slot(&agent) {
+            slot.seed(&mut fresh);
+        }
+        self.sessions.push(fresh);
+        self.show(new, window, cx);
+    }
+
+    /// Ask the agent of the session `key` to write the commit message; its
+    /// answer goes in the commit form. It is a turn of its own, and spends
+    /// what a turn spends.
+    pub fn ask_message(&mut self, key: u64, cx: &mut Context<Self>) {
+        if let Some(s) = self.session_mut(key) {
+            s.writing_message = true;
+        }
+        self.send_in(key, WRITE_MESSAGE, cx);
+    }
+
+    /// A turn ended in the session `key`: a commit message it was asked for
+    /// goes in the commit form.
+    pub(crate) fn take_message(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        if !s.writing_message {
+            return;
+        }
+        s.writing_message = false;
+        let said = s.items.iter().rev().find_map(|i| match i {
+            Item::Agent(t) => Some(t.trim().to_owned()),
+            _ => None,
+        });
+        if let Some(text) = said {
+            self.message.update(cx, |m, cx| m.set_text(&text, cx));
+            self.committing = true;
+        }
+    }
+
+    /// Begin a comment on line `line` of `path`.
+    pub fn begin_comment(
+        &mut self,
+        path: std::path::PathBuf,
+        line: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commenting = Some((path, line));
+        self.comment.update(cx, |i, cx| i.set_text("", cx));
+        window.focus(&gpui::Focusable::focus_handle(self.comment.read(cx), cx));
+        cx.notify();
+    }
+
+    /// The comment written, kept with its line.
+    pub(crate) fn add_comment(&mut self, text: &str, cx: &mut Context<Self>) {
+        if let Some((path, line)) = self.commenting.take() {
+            self.comments.retain(|c| !(c.0 == path && c.1 == line));
+            self.comments.push((path, line, text.trim().to_owned()));
+        }
+        cx.notify();
+    }
+
+    pub fn drop_comment(&mut self, path: &std::path::Path, line: usize, cx: &mut Context<Self>) {
+        self.comments.retain(|c| !(c.0 == path && c.1 == line));
+        cx.notify();
+    }
+
+    /// The comments, put in the line as a message to the agent, to be sent
+    /// as you see fit.
+    pub fn send_comments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(folder) = self.session().map(|s| s.folder.clone()) else {
+            return;
+        };
+        let mut text = String::from("Comments on the changes:\n");
+        for (path, line, said) in std::mem::take(&mut self.comments) {
+            let path = path
+                .strip_prefix(&folder)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            let _ = writeln!(text, "- {path}:{line} — {said}");
+        }
+        self.input
+            .update(cx, |i, cx| i.set_text(text.trim_end(), cx));
+        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        cx.notify();
+    }
+
+    /// A worktree's branch is named for what was first said; once the
+    /// session has a title of its own (the agent's, or yours), the branch
+    /// takes it, unless it is pushed already.
+    pub(crate) fn name_branch(&self, key: u64) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let Some(wt) = &s.worktree else { return };
+        let name = format!("ghost/{}", crate::git::slug(&s.title));
+        if s.turns.len() <= 1 && wt.branch.starts_with("ghost/") && wt.branch != name {
+            hub::git_action(
+                wt.path.clone(),
+                hub::GitAction::RenameBranch(name),
+                key,
+                self.tx.clone(),
+            );
+        }
+    }
+}

@@ -597,9 +597,7 @@ impl Desk {
             Popup::Mode => "chip-mode".to_owned(),
             Popup::Option(o) => format!("chip-{o}"),
             Popup::Agent => "chip-agent".to_owned(),
-            Popup::Closed | Popup::Session(_) | Popup::Only | Popup::Project(_) => {
-                "chip".to_owned()
-            }
+            _ => "chip".to_owned(),
         };
         let for_click = popup.clone();
         let mut chip: Stateful<Div> = div()
@@ -664,8 +662,7 @@ impl Desk {
                                 this.set_option(config.clone(), value.clone(), cx);
                             }
                             Popup::Agent => this.switch_agent(&value, cx),
-                            Popup::Closed | Popup::Session(_) | Popup::Only | Popup::Project(_) => {
-                            }
+                            _ => {}
                         })),
                 );
             }
