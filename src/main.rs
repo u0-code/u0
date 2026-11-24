@@ -33,11 +33,11 @@ mod when;
 mod whole;
 
 use gpui::{
-    App, AppContext as _, Application, Bounds, Focusable as _, KeyBinding, TitlebarOptions,
-    WindowBounds, WindowOptions, actions, point, px, size,
+    App, AppContext as _, Application, Bounds, Focusable as _, KeyBinding, Menu, MenuItem,
+    OsAction, TitlebarOptions, WindowBounds, WindowOptions, actions, point, px, size,
 };
 
-actions!(desk, [Quit, NewSession, ToggleSidebar, Stop]);
+actions!(desk, [Quit, NewSession, ToggleSidebar, Stop, Minimize]);
 
 fn main() {
     // Before any thread starts, since it changes the environment.
@@ -60,6 +60,7 @@ fn main() {
                 KeyBinding::new("cmd-n", NewSession, None),
                 KeyBinding::new("cmd-b", ToggleSidebar, None),
                 KeyBinding::new("cmd-.", Stop, None),
+                KeyBinding::new("cmd-m", Minimize, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
                 KeyBinding::new("delete", input::Delete, Some(input::CONTEXT)),
                 KeyBinding::new("left", input::Left, Some(input::CONTEXT)),
@@ -76,6 +77,45 @@ fn main() {
                 KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
+            cx.on_action(|_: &Minimize, cx| {
+                if let Some(w) = cx.active_window() {
+                    let _ = w.update(cx, |_, window, _| window.minimize_window());
+                }
+            });
+            // Without a main menu macOS has no menu bar to show in full
+            // screen, so there is no way out of it. AppKit adds Enter and
+            // Exit Full Screen to the View menu, and the window list to
+            // the Window menu, by itself.
+            cx.set_menus(vec![
+                Menu {
+                    name: "Ghost".into(),
+                    items: vec![MenuItem::action("Quit Ghost", Quit)],
+                },
+                Menu {
+                    name: "File".into(),
+                    items: vec![
+                        MenuItem::action("New Session", NewSession),
+                        MenuItem::action("Stop", Stop),
+                    ],
+                },
+                Menu {
+                    name: "Edit".into(),
+                    items: vec![
+                        MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
+                        MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
+                        MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
+                        MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+                    ],
+                },
+                Menu {
+                    name: "View".into(),
+                    items: vec![MenuItem::action("Toggle Sidebar", ToggleSidebar)],
+                },
+                Menu {
+                    name: "Window".into(),
+                    items: vec![MenuItem::action("Minimize", Minimize)],
+                },
+            ]);
 
             let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
             let options = WindowOptions {
