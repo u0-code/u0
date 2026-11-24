@@ -60,6 +60,7 @@ src/hub.rs        the agents switched on; async work, back to the window as Msg
 src/session.rs    a session: its thread built from session/update; its turns' checkpoints
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
+src/store.rs      sessions.json and each session's record; the one writer
 src/desk.rs       the window's state, actions and layout
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
 src/thread/       drawing helpers: diffs, plans, command output
@@ -81,14 +82,18 @@ assets/           fonts and the desk's own icons, built into the binary
 
 ## Data
 
-- `~/.ghost/settings.json` is the only file Ghost writes that a person may
-  care about. Its fields are `deny_unknown_fields`; a file that does not
-  read is left alone and nothing is saved over it.
+- `~/.ghost/settings.json` and `~/.ghost/sessions.json` are the files
+  Ghost writes that a person may care about. Their fields are
+  `deny_unknown_fields`; a file that does not read is left alone and
+  nothing is saved over it.
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry.
-- Sessions belong to each agent. Ghost keeps none of their history: it
-  lists them from the agent (`session/list`, by project) and loads one
-  when it is opened (`session/load`).
+- Sessions belong to each agent, which lists them (`session/list`, by
+  project). Ghost keeps an index of those it has seen (`sessions.json`:
+  title, pins, archive, worktree) and a record of each
+  (`transcripts/<agent>/<id>.jsonl`), so the list and a thread show at
+  once. A session with a record is resumed (`session/resume`); one
+  without is loaded (`session/load`), and recorded as it comes.
 - In a repository Ghost writes commits no branch points at, under
   `refs/ghost/checkpoints/<session>/`, and worktrees under
   `~/.ghost/worktrees/`. It never changes your index or branch except when

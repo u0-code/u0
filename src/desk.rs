@@ -28,6 +28,7 @@ use gpui::{
 use tokio::sync::mpsc;
 use tracing::warn;
 
+mod kept;
 mod replies;
 mod turns;
 
@@ -102,6 +103,9 @@ pub struct Desk {
     /// Why the settings could not be read, while that is so: nothing is
     /// saved over them.
     pub settings_refused: Option<String>,
+    /// Why the sessions kept from before could not be read, while that is
+    /// so: nothing is saved over them.
+    pub store_refused: Option<String>,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -207,6 +211,7 @@ impl Desk {
             home,
             settings,
             settings_refused,
+            store_refused: None,
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -233,6 +238,8 @@ impl Desk {
             committing: false,
             tx,
         };
+        desk.keep_from(crate::store::load(&desk.home));
+        Self::keep_on_quit(cx);
         desk.fill_slots();
         desk
     }
@@ -478,10 +485,17 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
-        if let Some(s) = self.session_mut(key)
-            && s.state == State::Closed
+        let closed = self
+            .sessions
+            .iter()
+            .find(|s| s.key == key)
+            .is_some_and(|s| s.state == State::Closed && !s.recorded);
+        // A session with a record reads from it at once, and its agent is
+        // asked only when you write; one without comes from its agent.
+        if closed
+            && !self.read_record(key)
+            && let Some(s) = self.session_mut(key)
         {
-            // What was said in it comes again from the agent.
             s.items.clear();
             s.plan = None;
             s.turns.clear();
@@ -632,7 +646,12 @@ impl Desk {
         let Some(at) = self.sessions.iter().position(|s| s.key == key) else {
             return;
         };
+        if let Some(id) = &self.sessions[at].id {
+            let path = crate::store::record_path(&self.home, &self.sessions[at].agent, &id.0);
+            crate::store::queue(crate::store::Job::Remove(path));
+        }
         let s = self.sessions.remove(at);
+        self.save_index();
         if let Some(wt) = s.worktree {
             hub::git_action(
                 wt.repo.clone(),
@@ -727,8 +746,11 @@ impl Desk {
             return;
         }
         if session.state == State::Closed {
-            // Its agent stopped since: it is loaded again, and then it goes.
-            session.items.clear();
+            // Its agent opens it again (resumed from the record, or loaded),
+            // and then it goes.
+            if !session.recorded {
+                session.items.clear();
+            }
             session.pending = Some(text);
             session.state = State::Opening;
             let agent = session.agent.clone();
@@ -766,18 +788,34 @@ impl Desk {
     fn open_when_running(&mut self, agent: &str, key: u64) {
         let home = self.home.clone();
         let tx = self.tx.clone();
-        let (folder, id) = self
+        let (folder, id, recorded) = self
             .sessions
             .iter()
             .find(|s| s.key == key)
-            .map(|s| (s.folder.clone(), s.id.clone()))
+            .map(|s| (s.folder.clone(), s.id.clone(), s.recorded))
             .unwrap_or_default();
         let Some(slot) = self.slot_mut(agent) else {
             return;
         };
         match &slot.stage {
-            Stage::Running { agent, .. } => match id {
-                Some(id) => hub::load(agent.clone(), key, id, folder, tx),
+            Stage::Running { agent, init } => match id {
+                Some(id)
+                    if recorded
+                        && init
+                            .agent_capabilities
+                            .session_capabilities
+                            .resume
+                            .is_some() =>
+                {
+                    hub::resume(agent.clone(), key, id, folder, tx);
+                }
+                Some(id) => {
+                    let agent = agent.clone();
+                    if recorded {
+                        self.drop_record(key);
+                    }
+                    hub::load(agent, key, id, folder, tx);
+                }
                 None => hub::open(agent.clone(), key, folder, tx),
             },
             Stage::Starting => {}

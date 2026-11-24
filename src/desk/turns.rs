@@ -99,6 +99,8 @@ impl Desk {
     /// A turn ended: in a repository the files are checkpointed again, and
     /// what the turn changed is read.
     pub(super) fn end_turn(&mut self, key: u64) {
+        self.flush(key);
+        self.save_index();
         let Some(s) = self.session_mut(key) else {
             return;
         };

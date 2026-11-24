@@ -24,6 +24,7 @@ mod registry;
 mod session;
 mod settings;
 mod sidebar;
+mod store;
 mod style;
 mod syntax;
 mod theme;

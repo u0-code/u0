@@ -19,7 +19,7 @@ use agent_client_protocol_schema::v1::{
 };
 use serde_json::Value;
 
-use crate::git;
+use crate::{git, store};
 
 /// What a session is doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +129,10 @@ pub struct GitNote {
 }
 
 #[derive(Debug, Clone)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a fact of its own about the session, not a state among several"
+)]
 pub struct Session {
     /// The desk's own key for it, stable from before the agent names it.
     pub key: u64,
@@ -177,6 +181,17 @@ pub struct Session {
     thinking: Option<Instant>,
     /// What you said before the session was open, sent once it is.
     pub pending: Option<String>,
+    /// A title you gave it, which the agent's does not replace.
+    pub renamed: bool,
+    /// Where it stands in your lists: pinned, archived, settled, unread.
+    pub flags: store::Flags,
+    /// What happened in it since its record was last written.
+    pub log: Vec<store::Event>,
+    /// Its record is being read back: nothing read is written again.
+    replaying: bool,
+    /// It has a record the desk wrote: its agent's session is resumed, not
+    /// loaded, so that nothing comes twice.
+    pub recorded: bool,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -223,6 +238,7 @@ impl Session {
         if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
             s.begun = t;
             s.updated = t;
+            s.flags.order = -i64::try_from(store::secs(t)).unwrap_or(0);
         }
         s.state = State::Closed;
         s
@@ -257,6 +273,63 @@ impl Session {
     /// to work in is being made.
     pub fn worktree_ready(&self) -> bool {
         !(self.wants_worktree && self.worktree.is_none())
+    }
+
+    /// A session the desk kept from an earlier run: closed until opened.
+    pub fn stored(key: u64, meta: store::Meta) -> Self {
+        let mut s = Self::blank(key, &meta.agent, meta.folder);
+        s.project = meta.project;
+        s.id = Some(SessionId::new(meta.id));
+        s.title = meta.title;
+        s.renamed = meta.renamed;
+        s.begun = store::time(meta.begun);
+        s.updated = store::time(meta.updated);
+        s.worktree = meta.worktree;
+        s.flags = meta.flags;
+        s.state = State::Closed;
+        s
+    }
+
+    /// What the desk keeps of it; `None` until its agent has it.
+    pub fn meta(&self) -> Option<store::Meta> {
+        Some(store::Meta {
+            agent: self.agent.clone(),
+            id: self.id.as_ref()?.0.to_string(),
+            project: self.project.clone(),
+            folder: self.folder.clone(),
+            worktree: self.worktree.clone(),
+            title: self.title.clone(),
+            renamed: self.renamed,
+            begun: store::secs(self.begun),
+            updated: store::secs(self.updated),
+            flags: self.flags.clone(),
+        })
+    }
+
+    /// Build the thread again from its record.
+    pub fn replay(&mut self, events: Vec<store::Event>) {
+        self.replaying = true;
+        for e in events {
+            match e {
+                store::Event::You(text) => self.items.push(Item::You(text)),
+                store::Event::Update(u) => self.apply(*u),
+                store::Event::Ended { reason, secs } => {
+                    self.thought_over();
+                    self.items.push(Item::Ended { reason, secs });
+                }
+                store::Event::Note { text, trouble } => {
+                    self.items.push(Item::Note { text, trouble });
+                }
+            }
+        }
+        self.replaying = false;
+    }
+
+    /// Note `event` for its record, unless the record is being read.
+    fn record(&mut self, event: store::Event) {
+        if !self.replaying {
+            self.log.push(event);
+        }
     }
 
     /// Read the folder's branch, and whether it is in a repository.
@@ -299,12 +372,21 @@ impl Session {
             since: None,
             thinking: None,
             pending: None,
+            renamed: false,
+            flags: store::Flags {
+                order: -i64::try_from(store::secs(now)).unwrap_or(0),
+                ..store::Flags::default()
+            },
+            log: Vec::new(),
+            replaying: false,
+            recorded: false,
         }
     }
 
     /// What you said, put in the thread as the turn begins.
     pub fn said(&mut self, text: &str) {
-        if self.items.is_empty() {
+        self.record(store::Event::You(text.to_owned()));
+        if self.items.is_empty() && !self.renamed {
             self.title = text
                 .lines()
                 .next()
@@ -325,11 +407,20 @@ impl Session {
         self.thought_over();
         let secs = self.since.map_or(0, |t| t.elapsed().as_secs());
         match reason {
-            Ok(reason) => self.items.push(Item::Ended { reason, secs }),
-            Err(why) => self.items.push(Item::Note {
-                text: why,
-                trouble: true,
-            }),
+            Ok(reason) => {
+                self.record(store::Event::Ended { reason, secs });
+                self.items.push(Item::Ended { reason, secs });
+            }
+            Err(why) => {
+                self.record(store::Event::Note {
+                    text: why.clone(),
+                    trouble: true,
+                });
+                self.items.push(Item::Note {
+                    text: why,
+                    trouble: true,
+                });
+            }
         }
         for item in &mut self.items {
             if let Item::Asked(a) = item
@@ -358,7 +449,10 @@ impl Session {
 
     /// Take in one update from the agent.
     pub fn apply(&mut self, update: SessionUpdate) {
-        self.updated = SystemTime::now();
+        if !self.replaying {
+            self.updated = SystemTime::now();
+            self.record(store::Event::Update(Box::new(update.clone())));
+        }
         if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
             self.thought_over();
         }
@@ -632,6 +726,29 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_record_read_back_builds_the_same_thread_without_recording_it_again() {
+        let mut s = Session::new(1, "codex-acp", "/tmp/repo".into());
+        s.said("fix it");
+        s.apply(update(
+            r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#,
+        ));
+        s.ended(Ok(StopReason::EndTurn));
+        let log = std::mem::take(&mut s.log);
+        assert_eq!(log.len(), 4);
+
+        let mut again = Session::new(2, "codex-acp", "/tmp/repo".into());
+        again.replay(log);
+        assert!(again.log.is_empty());
+        assert_eq!(again.items.len(), s.items.len());
+        assert!(matches!(&again.items[0], Item::You(t) if t == "fix it"));
+        assert!(matches!(again.items[2], Item::Agent(_)));
+        assert!(matches!(again.items[3], Item::Ended { .. }));
     }
 
     #[test]

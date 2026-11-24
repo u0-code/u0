@@ -61,7 +61,8 @@ pub fn branch(dir: &Path) -> Option<String> {
 }
 
 /// A worktree made for a session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Worktree {
     /// The repository it was made from.
     pub repo: PathBuf,

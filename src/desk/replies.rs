@@ -148,7 +148,11 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
-            Msg::Loaded { key, result } => self.loaded(key, result),
+            Msg::Loaded {
+                key,
+                resumed,
+                result,
+            } => self.loaded(key, resumed, result),
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.session_mut(key)
                     && s.turns.is_empty()
@@ -331,6 +335,8 @@ impl Desk {
                         );
                     }
                 }
+                self.flush(key);
+                self.save_index();
                 let s = self.session_mut(key).expect("just opened");
                 if let Some(text) = s.pending.take() {
                     s.state = State::Working;
@@ -380,7 +386,7 @@ impl Desk {
                 .find(|s| s.agent == agent && s.id.as_ref() == Some(&info.session_id))
             {
                 if s.state == State::Closed {
-                    if let Some(t) = info.title.filter(|t| !t.trim().is_empty()) {
+                    if let Some(t) = info.title.filter(|t| !t.trim().is_empty() && !s.renamed) {
                         s.title = t;
                     }
                     if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
@@ -393,6 +399,7 @@ impl Desk {
             self.sessions
                 .push(Session::listed(key, agent, info, project));
         }
+        self.save_index();
     }
 
     pub(super) fn probed(
@@ -433,10 +440,8 @@ impl Desk {
     pub(super) fn loaded(
         &mut self,
         key: u64,
-        result: Result<
-            Box<agent_client_protocol_schema::v1::LoadSessionResponse>,
-            crate::acp::Failure,
-        >,
+        resumed: bool,
+        result: Result<hub::Opened, crate::acp::Failure>,
     ) {
         let under = self.home.join("worktrees");
         let tx = self.tx.clone();
@@ -446,7 +451,7 @@ impl Desk {
         match result {
             Ok(r) => {
                 s.modes = r.modes;
-                s.options = r.config_options.unwrap_or_default();
+                s.options = r.options.unwrap_or_default();
                 s.state = State::Idle;
                 s.look();
                 // A session in one of Ghost's worktrees works there again.
@@ -468,8 +473,16 @@ impl Desk {
                     self.begin_turn(key, text);
                 }
                 self.thread_scroll.scroll_to_bottom();
+                self.flush(key);
+                self.save_index();
             }
             Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => s.state = State::SignIn,
+            // The agent would not resume it: it is loaded, said again.
+            Err(_) if resumed => {
+                let agent = s.agent.clone();
+                self.drop_record(key);
+                self.open_when_running(&agent, key);
+            }
             Err(f) => s.state = State::Broken(f.message),
         }
     }
@@ -486,6 +499,11 @@ impl Desk {
                 };
                 let title = matches!(n.update, SessionUpdate::SessionInfoUpdate(_));
                 s.apply(n.update);
+                // A long turn is written as it goes, not only at its end.
+                let (key, long) = (s.key, s.log.len() >= 400);
+                if long {
+                    self.flush(key);
+                }
                 if !title {
                     self.thread_scroll_follow();
                 }

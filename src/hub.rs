@@ -20,11 +20,11 @@ use agent_client_protocol_schema::{
         ContentBlock, DeleteSessionRequest, Implementation, InitializeRequest, InitializeResponse,
         ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
         LogoutRequest, NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest,
-        PromptResponse, RequestPermissionOutcome, RequestPermissionResponse,
-        SelectedPermissionOutcome, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
-        SessionConfigValueId, SessionId, SessionInfo, SessionModeId, SessionModeState,
-        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-        StopReason, TextContent,
+        PromptResponse, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
+        ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
+        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionInfo, SessionModeId,
+        SessionModeState, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+        SetSessionModeRequest, StopReason, TextContent,
     },
 };
 use serde_json::Value;
@@ -65,7 +65,9 @@ pub enum Msg {
     /// before this, as updates.
     Loaded {
         key: u64,
-        result: Result<Box<LoadSessionResponse>, Failure>,
+        /// Resumed from the desk's record, not loaded with what was said.
+        resumed: bool,
+        result: Result<Opened, Failure>,
     },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
@@ -393,14 +395,50 @@ pub fn list(agent: Arc<Agent>, name: String, projects: Vec<PathBuf>, home: PathB
     });
 }
 
-/// Load the session `id` the agent keeps, in `folder`.
+/// What a session loaded or resumed starts with.
+pub struct Opened {
+    pub modes: Option<SessionModeState>,
+    pub options: Option<Vec<SessionConfigOption>>,
+}
+
+/// Load the session `id` the agent keeps, in `folder`: it says again all
+/// that was said in it, as updates.
 pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
             .request::<_, LoadSessionResponse>("session/load", LoadSessionRequest::new(id, folder))
             .await
-            .map(Box::new);
-        let _ = tx.send(Msg::Loaded { key, result });
+            .map(|r| Opened {
+                modes: r.modes,
+                options: r.config_options,
+            });
+        let _ = tx.send(Msg::Loaded {
+            key,
+            resumed: false,
+            result,
+        });
+    });
+}
+
+/// Resume the session `id` the agent keeps, in `folder`, without what was
+/// said in it: the desk has that already.
+pub fn resume(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, ResumeSessionResponse>(
+                "session/resume",
+                ResumeSessionRequest::new(id, folder),
+            )
+            .await
+            .map(|r| Opened {
+                modes: r.modes,
+                options: r.config_options,
+            });
+        let _ = tx.send(Msg::Loaded {
+            key,
+            resumed: true,
+            result,
+        });
     });
 }
 
