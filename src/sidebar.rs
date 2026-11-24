@@ -671,6 +671,15 @@ impl Desk {
         let group = SharedString::from(format!("session-{key}"));
         let done = s.flags.settled.is_some();
         let menu_open = self.popup == Popup::Session(key);
+        // The title has the room the row's other marks leave it: the time
+        // or state, the unread dot, the pin, the pull request's number.
+        #[allow(clippy::cast_precision_loss, reason = "a width in points")]
+        let room = LEFT
+            - 104.
+            - ui::fit(&when, 40).chars().count() as f32 * 6.5
+            - if s.flags.unread && !on { 12. } else { 0. }
+            - if s.flags.pinned.is_some() { 18. } else { 0. }
+            - if s.pr.is_some() { 36. } else { 0. };
         let name: AnyElement = if self.renaming == Some(key) {
             div()
                 .flex_1()
@@ -685,7 +694,7 @@ impl Desk {
                 .into_any_element()
         } else {
             ui::one_line(
-                ui::text(faces, ui::fit(&title, ui::cols(LEFT - 124.)))
+                ui::text(faces, ui::fit(&title, ui::cols(room)))
                     .text_size(px(13.))
                     .text_color(if on {
                         theme::text()

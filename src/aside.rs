@@ -480,22 +480,31 @@ impl Desk {
                     .child(ui::mark(faces, &Mark::of(&s.agent, &agent), 12.))
                     .child(fine(faces, format!("{agent} · ACP v1"))),
             ))
-            .child(key_value(
-                faces,
-                "Working directory",
-                fine_mono(faces, Desk::shown(&s.folder)),
-            ));
+            .child(key_value(faces, "Working directory", {
+                // A long one keeps its last folder, which says which it is.
+                let dir = Desk::shown(&s.folder);
+                let name = s.folder.file_name().map(|n| n.to_string_lossy());
+                fine_mono(
+                    faces,
+                    match name {
+                        Some(name) if dir.chars().count() > 26 => {
+                            format!("…/{}", ui::fit(&name, 22))
+                        }
+                        _ => dir,
+                    },
+                )
+            }));
         if let Some(wt) = &s.worktree {
             let removable = !matches!(s.state, State::Working | State::Opening);
             let wt_for_click = wt.clone();
             sec = sec.child(key_value(
                 faces,
                 "Worktree",
+                // Its branch is the one named at the column's top.
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.))
-                    .child(fine_mono(faces, ui::fit(&wt.branch, 20)))
+                    .gap(px(10.))
                     .child({
                         let key = s.key;
                         div()

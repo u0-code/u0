@@ -84,7 +84,10 @@ impl Desk {
                         ui::button(faces, "do-clone", "Clone", Weight::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_clone(cx))),
                     )
-                    .child(fine(faces, "into a folder of its name in")),
+                    .child(fine(
+                        faces,
+                        "into a folder of its name, in the folder above",
+                    )),
             );
         }
 
@@ -106,7 +109,10 @@ impl Desk {
                         ui::button(faces, "do-create", "Create", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.create_project(cx))),
                     )
-                    .child(fine(faces, "a repository with a README, in")),
+                    .child(fine(
+                        faces,
+                        "a repository with a README, in the folder above",
+                    )),
             );
 
         let remote = div()

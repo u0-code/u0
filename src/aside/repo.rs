@@ -303,7 +303,7 @@ impl Desk {
                             .text_color(theme::faint()),
                     )
                     .child(ui::one_line(
-                        ui::text(faces, subject.clone())
+                        ui::text(faces, ui::fit(subject, 26))
                             .text_size(px(12.5))
                             .text_color(theme::text2()),
                     ))

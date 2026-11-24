@@ -493,18 +493,19 @@ pub fn against_base(dir: &Path) -> Result<Vec<FileDiff>, String> {
 pub fn log(dir: &Path, n: usize) -> Vec<(String, String, String)> {
     git(
         dir,
-        &["log", &format!("-{n}"), "--format=%h%x09%s%x09%cr"],
+        &["log", &format!("-{n}"), "--format=%h%x09%s%x09%ct"],
         None,
     )
     .map(|t| {
+        // The time is said as the desk says times, not in git's language.
+        let now = std::time::SystemTime::now();
         t.lines()
             .filter_map(|l| {
                 let mut f = l.splitn(3, '\t');
-                Some((
-                    f.next()?.to_owned(),
-                    f.next()?.to_owned(),
-                    f.next()?.to_owned(),
-                ))
+                let (id, subject) = (f.next()?, f.next()?);
+                let secs = f.next()?.trim().parse().ok()?;
+                let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+                Some((id.to_owned(), subject.to_owned(), crate::when::ago(at, now)))
             })
             .collect()
     })
