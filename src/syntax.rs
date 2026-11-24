@@ -231,7 +231,7 @@ pub fn styled(faces: &Faces, code: &str, lang_name: &str) -> StyledText {
             font: gpui::Font {
                 family: faces.mono.clone(),
                 features: gpui::FontFeatures::default(),
-                fallbacks: Some(crate::fonts::fallbacks()),
+                fallbacks: Some(crate::fonts::fallbacks(gpui::FontWeight::NORMAL)),
                 weight: FontWeight::NORMAL,
                 style: FontStyle::Normal,
             },

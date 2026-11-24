@@ -23,6 +23,7 @@ use agent_client_protocol_schema::v1::{
 };
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
+use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -476,7 +477,7 @@ impl Desk {
                     .child(
                         ui::text(faces, name)
                             .text_size(px(13.))
-                            .font_weight(gpui::FontWeight::MEDIUM),
+                            .weight(gpui::FontWeight::MEDIUM),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.new_session(&id, this.project(), window, cx);
@@ -493,7 +494,7 @@ impl Desk {
                 ui::text(faces, "What should we work on?")
                     .text_size(px(22.))
                     .line_height(px(30.))
-                    .font_weight(gpui::FontWeight::SEMIBOLD),
+                    .weight(gpui::FontWeight::SEMIBOLD),
             )
             .child(
                 ui::text(
@@ -519,7 +520,7 @@ impl Desk {
                 ui::text(faces, format!("New session with {name}"))
                     .text_size(px(22.))
                     .line_height(px(30.))
-                    .font_weight(gpui::FontWeight::SEMIBOLD),
+                    .weight(gpui::FontWeight::SEMIBOLD),
             )
             .child(
                 div()

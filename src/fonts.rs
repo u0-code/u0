@@ -11,7 +11,7 @@
 //! back to a face macOS always has.
 //!
 //! None of them has Chinese, and what is said often is. Each falls back
-//! to `PingFang SC` for it, the face macOS sets Chinese in, rather than to
+//! to `PingFang SC` for it, at the weight of the text around it, the face macOS sets Chinese in, rather than to
 //! whatever the system's cascade finds first for the language you set,
 //! which can be a Japanese face with other shapes for the same characters.
 //! The window's text carries the fallbacks, so every face under it has
@@ -19,7 +19,7 @@
 
 use std::borrow::Cow;
 
-use gpui::{App, FontFallbacks, Global, SharedString, Styled};
+use gpui::{App, FontFallbacks, FontWeight, Global, SharedString, Styled};
 
 #[derive(Clone)]
 pub struct Faces {
@@ -73,22 +73,20 @@ pub fn load(cx: &mut App) {
 }
 
 /// The faces a character none of ours has is looked for in, in order:
-/// Chinese in `PingFang SC` (or, on a system without it, `Hiragino Sans GB`),
-/// and emoji in colour.
-pub fn fallbacks() -> FontFallbacks {
+/// Chinese in `PingFang SC` at the weight the text is set in (or, on a
+/// system without it, `Hiragino Sans GB`), and emoji in colour. The weight
+/// is named because macOS takes a fallback by its name alone: given the
+/// family, a heading's Chinese came out as thin as the body's.
+pub fn fallbacks(weight: FontWeight) -> FontFallbacks {
+    let pingfang = if weight.0 >= FontWeight::SEMIBOLD.0 {
+        "PingFangSC-Semibold"
+    } else if weight.0 >= FontWeight::MEDIUM.0 {
+        "PingFangSC-Medium"
+    } else {
+        "PingFangSC-Regular"
+    };
     FontFallbacks::from_fonts(vec![
-        "PingFang SC".to_owned(),
-        "Hiragino Sans GB".to_owned(),
-        "Apple Color Emoji".to_owned(),
-    ])
-}
-
-/// The faces an agent's prose falls back to: Chinese in a serif (`Songti SC`),
-/// so it reads in one voice whatever the script, then the usual.
-pub fn serif_fallbacks() -> FontFallbacks {
-    FontFallbacks::from_fonts(vec![
-        "Songti SC".to_owned(),
-        "PingFang SC".to_owned(),
+        pingfang.to_owned(),
         "Hiragino Sans GB".to_owned(),
         "Apple Color Emoji".to_owned(),
     ])
@@ -98,17 +96,21 @@ pub fn serif_fallbacks() -> FontFallbacks {
 pub fn with_fallbacks<E: Styled>(mut el: E) -> E {
     el.text_style()
         .get_or_insert_with(Default::default)
-        .font_fallbacks = Some(fallbacks());
+        .font_fallbacks = Some(fallbacks(FontWeight::NORMAL));
     el
 }
 
-/// `el`, set in serif, with prose's fallbacks.
-pub fn with_serif_fallbacks<E: Styled>(mut el: E) -> E {
-    el.text_style()
-        .get_or_insert_with(Default::default)
-        .font_fallbacks = Some(serif_fallbacks());
-    el
+/// Setting text's weight sets its Chinese's weight with it.
+pub trait Weighted: Styled + Sized {
+    fn weight(mut self, weight: FontWeight) -> Self {
+        let style = self.text_style().get_or_insert_with(Default::default);
+        style.font_weight = Some(weight);
+        style.font_fallbacks = Some(fallbacks(weight));
+        self
+    }
 }
+
+impl<E: Styled> Weighted for E {}
 
 pub fn faces(cx: &App) -> &Faces {
     cx.global::<Faces>()

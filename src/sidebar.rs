@@ -8,6 +8,7 @@ use std::{path::Path, time::SystemTime};
 
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
+use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, LEFT, Page, TOPBAR, draggable},
     fonts::Faces,
@@ -60,7 +61,7 @@ impl Desk {
                     ui::text(faces, "New session")
                         .flex_1()
                         .text_size(px(13.))
-                        .font_weight(gpui::FontWeight::MEDIUM),
+                        .weight(gpui::FontWeight::MEDIUM),
                 )
                 .child(kbd(faces, "⌘N"))
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),

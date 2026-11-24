@@ -9,8 +9,9 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
+use crate::fonts::Weighted as _;
 use crate::{
-    fonts::{self, Faces},
+    fonts::Faces,
     style::{BODY, CAPTION, META},
     theme,
 };
@@ -43,7 +44,7 @@ pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
 
 /// An agent's words, and the one headline on a page.
 pub fn serif(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    fonts::with_serif_fallbacks(div())
+    div()
         .font_family(faces.serif.clone())
         .text_color(theme::text())
         .child(text.into())
@@ -137,7 +138,7 @@ pub fn button(
 ) -> gpui::Stateful<Div> {
     let word = text(faces, label)
         .text_size(px(META))
-        .font_weight(gpui::FontWeight::MEDIUM);
+        .weight(gpui::FontWeight::MEDIUM);
     let base = div()
         .id(id)
         .flex()
@@ -169,7 +170,7 @@ pub fn label(faces: &Faces, text: &str) -> Div {
     self::text(faces, text.to_uppercase())
         .text_size(px(11.))
         .line_height(px(16.))
-        .font_weight(gpui::FontWeight::MEDIUM)
+        .weight(gpui::FontWeight::MEDIUM)
         .text_color(theme::faint())
 }
 

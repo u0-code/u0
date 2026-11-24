@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
+use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page},
     fonts::Faces,
@@ -48,7 +49,7 @@ fn step_number(faces: &Faces, n: u8, step: Step) -> Div {
         .child(
             ui::text(faces, n.to_string())
                 .text_size(px(11.))
-                .font_weight(gpui::FontWeight::MEDIUM)
+                .weight(gpui::FontWeight::MEDIUM)
                 .text_color(color),
         )
 }
@@ -149,7 +150,7 @@ impl Desk {
                 .gap(px(8.))
                 .child(
                     ui::text(faces, first_step)
-                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .weight(gpui::FontWeight::MEDIUM)
                         .text_color(if one == Step::Todo {
                             theme::text()
                         } else {
@@ -209,7 +210,7 @@ impl Desk {
                 .gap(px(4.))
                 .child(
                     ui::text(faces, title)
-                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .weight(gpui::FontWeight::MEDIUM)
                         .text_color(if st == Step::Todo {
                             theme::text2()
                         } else {
@@ -319,7 +320,7 @@ impl Desk {
                             ui::text(faces, headline)
                                 .text_size(px(22.))
                                 .line_height(px(30.))
-                                .font_weight(gpui::FontWeight::SEMIBOLD),
+                                .weight(gpui::FontWeight::SEMIBOLD),
                         )
                         .child(
                             ui::text(
@@ -432,7 +433,7 @@ impl Desk {
                             .flex_1()
                             .min_w(px(0.))
                             .cursor_pointer()
-                            .child(ui::text(faces, name).font_weight(gpui::FontWeight::MEDIUM))
+                            .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
                             .child(fine(faces, line))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_page(Page::Agent(page_id.clone()), cx);
@@ -468,7 +469,7 @@ impl Desk {
                         ui::text(faces, "Agents")
                             .text_size(px(20.))
                             .line_height(px(28.))
-                            .font_weight(gpui::FontWeight::SEMIBOLD),
+                            .weight(gpui::FontWeight::SEMIBOLD),
                     )
                     .child(
                         ui::text(

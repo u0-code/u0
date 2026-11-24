@@ -470,11 +470,7 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
     let face = |family: &SharedString, weight, style| gpui::Font {
         family: family.clone(),
         features: gpui::FontFeatures::default(),
-        fallbacks: Some(if family == &faces.serif {
-            fonts::serif_fallbacks()
-        } else {
-            fonts::fallbacks()
-        }),
+        fallbacks: Some(fonts::fallbacks(weight)),
         weight,
         style,
     };

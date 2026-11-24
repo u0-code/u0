@@ -225,7 +225,7 @@ fn styled(faces: &Faces, lines: &[Line]) -> StyledText {
             font: gpui::Font {
                 family: faces.mono.clone(),
                 features: gpui::FontFeatures::default(),
-                fallbacks: Some(crate::fonts::fallbacks()),
+                fallbacks: Some(crate::fonts::fallbacks(gpui::FontWeight::NORMAL)),
                 weight: FontWeight::NORMAL,
                 style: gpui::FontStyle::Normal,
             },

@@ -3,6 +3,7 @@
 use gpui::{Context, Div, div, prelude::*, px};
 
 use super::meta;
+use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page, TOPBAR, draggable},
     fonts::Faces,
@@ -35,7 +36,7 @@ impl Desk {
             ui::one_line(
                 ui::text(faces, t)
                     .text_size(px(13.5))
-                    .font_weight(gpui::FontWeight::MEDIUM),
+                    .weight(gpui::FontWeight::MEDIUM),
             )
             .w_auto()
             .flex_shrink()
