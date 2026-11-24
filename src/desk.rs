@@ -31,6 +31,7 @@ mod kept;
 mod lists;
 pub(crate) mod mention;
 mod projects;
+pub(crate) mod runs;
 
 pub use lists::Later;
 mod replies;
@@ -144,6 +145,13 @@ pub struct Desk {
     pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
+    /// Commands run in the drawer under the thread, whether it is open, and
+    /// the line a command is typed in.
+    pub runs: Vec<runs::Run>,
+    pub drawer: bool,
+    pub command: Entity<TextInput>,
+    /// The folders each agent has sessions in that are not projects.
+    pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
     /// requests, read once when first wanted.
     pub files: HashMap<PathBuf, Vec<String>>,
@@ -262,6 +270,11 @@ impl Desk {
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        let command = cx.new(|cx| TextInput::new(cx, "A command to run here").padded(4.));
+        cx.subscribe(&command, |this, _, Submitted(text), cx| {
+            this.run_typed(text, cx);
+        })
+        .detach();
         let clone_url = cx.new(|cx| {
             TextInput::new(cx, "https://github.com/owner/repo.git")
                 .padded(6.)
@@ -376,6 +389,10 @@ impl Desk {
             fanout: false,
             behind: false,
             files: HashMap::new(),
+            elsewhere: std::collections::BTreeMap::new(),
+            runs: Vec::new(),
+            drawer: false,
+            command,
             prs: HashMap::new(),
             mentions: Vec::new(),
             pictures: Vec::new(),
@@ -1364,6 +1381,7 @@ impl Render for Desk {
                 let column = (pane - 64.).clamp(240., crate::style::COLUMN);
                 middle
                     .child(self.thread(&faces, column, cx))
+                    .children(self.drawer(&faces, cx))
                     .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),

@@ -75,6 +75,21 @@ pub enum Msg {
         key: u64,
         result: Result<Vec<git::FileDiff>, String>,
     },
+    /// What a command run in the drawer printed, and how it ended.
+    RunOut {
+        id: u64,
+        text: String,
+    },
+    RunDone {
+        id: u64,
+        result: Result<i32, String>,
+    },
+    /// The folders `agent` has sessions in that are not projects, with how
+    /// many in each.
+    Elsewhere {
+        agent: String,
+        folders: Vec<(PathBuf, usize)>,
+    },
     /// What a session of `agent` offers before it is opened, or why the
     /// agent would not open one.
     Probed {
@@ -430,9 +445,36 @@ pub fn list(agent: Arc<Agent>, name: String, projects: Vec<PathBuf>, home: PathB
                 }
             }
         }
+        // The folders it has sessions in that are not projects (nor Ghost's
+        // own), each with how many: what could be added.
+        let known: Vec<PathBuf> = found.iter().map(|(_, s)| s.cwd.clone()).collect();
+        let mut elsewhere = std::collections::BTreeMap::<PathBuf, usize>::default();
+        let mut cursor = None;
+        for _ in 0..PAGES / 5 {
+            let request = ListSessionsRequest::new().cursor(cursor);
+            let Ok(page) = agent
+                .request::<_, ListSessionsResponse>("session/list", request)
+                .await
+            else {
+                break;
+            };
+            for s in page.sessions {
+                if !known.contains(&s.cwd) && !s.cwd.starts_with(&home) {
+                    *elsewhere.entry(s.cwd).or_default() += 1;
+                }
+            }
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
         let _ = tx.send(Msg::Listed {
-            agent: name,
+            agent: name.clone(),
             result: Ok(found),
+        });
+        let _ = tx.send(Msg::Elsewhere {
+            agent: name,
+            folders: elsewhere.into_iter().collect(),
         });
     });
 }
@@ -550,6 +592,72 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
         };
         let result = git::clone(&url, &dir, &say, &stop);
         let _ = tx.send(Msg::Cloned { dir, result });
+    });
+}
+
+/// Run `command` in `dir` through your login shell, its output (both
+/// streams) sent as it comes, until it ends or `stop` is set.
+pub fn run(id: u64, dir: PathBuf, command: String, stop: Arc<AtomicBool>, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        use std::io::Read as _;
+        use std::os::unix::process::CommandExt as _;
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let child = std::process::Command::new(shell)
+            .args(["-lc", &command])
+            .current_dir(&dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn();
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send(Msg::RunDone {
+                    id,
+                    result: Err(format!("it could not be started: {e}")),
+                });
+                return;
+            }
+        };
+        let pid = i32::try_from(child.id()).unwrap_or(0);
+        let pipes: Vec<Box<dyn std::io::Read + Send>> = vec![
+            Box::new(child.stdout.take().expect("piped")),
+            Box::new(child.stderr.take().expect("piped")),
+        ];
+        let readers: Vec<_> = pipes
+            .into_iter()
+            .map(|mut pipe| {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 8192];
+                    while let Ok(n) = pipe.read(&mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                        let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+                        let _ = tx.send(Msg::RunOut { id, text });
+                    }
+                })
+            })
+            .collect();
+        let result = loop {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                // SAFETY: kill reads only the process group id it is given.
+                unsafe {
+                    libc::kill(-pid, libc::SIGTERM);
+                }
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status.code().unwrap_or(-1)),
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                Err(e) => break Err(e.to_string()),
+            }
+        };
+        for r in readers {
+            let _ = r.join();
+        }
+        let _ = tx.send(Msg::RunDone { id, result });
     });
 }
 

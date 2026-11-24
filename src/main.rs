@@ -41,7 +41,15 @@ use gpui::{
 
 actions!(
     desk,
-    [Quit, NewSession, ToggleSidebar, Stop, Minimize, Find]
+    [
+        Quit,
+        NewSession,
+        ToggleSidebar,
+        Stop,
+        Minimize,
+        Find,
+        Drawer
+    ]
 );
 
 fn main() {
@@ -67,6 +75,7 @@ fn main() {
                 KeyBinding::new("cmd-.", Stop, None),
                 KeyBinding::new("cmd-m", Minimize, None),
                 KeyBinding::new("cmd-f", Find, None),
+                KeyBinding::new("cmd-j", Drawer, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
                 KeyBinding::new("delete", input::Delete, Some(input::CONTEXT)),
                 KeyBinding::new("left", input::Left, Some(input::CONTEXT)),
@@ -158,6 +167,9 @@ fn main() {
             });
             cx.on_action(move |_: &Find, cx| {
                 let _ = window.update(cx, desk::Desk::toggle_find);
+            });
+            cx.on_action(move |_: &Drawer, cx| {
+                let _ = window.update(cx, desk::Desk::toggle_drawer);
             });
             cx.on_action(move |_: &ToggleSidebar, cx| d.update(cx, desk::Desk::toggle_sidebar));
             cx.on_action(move |_: &Stop, cx| desk.update(cx, desk::Desk::stop));

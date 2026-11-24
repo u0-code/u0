@@ -146,6 +146,52 @@ impl Desk {
                 }
             }
         }
+        // Folders the agents have sessions in that are not projects yet.
+        let projects_now = self.projects();
+        let mut found = std::collections::BTreeMap::<std::path::PathBuf, usize>::default();
+        for (folder, n) in self.elsewhere.values().flatten() {
+            if !projects_now.contains(folder) && !self.settings.prefs.contains_key(folder) {
+                *found.entry(folder.clone()).or_default() += n;
+            }
+        }
+        if !found.is_empty() && query.is_none() {
+            let key = "elsewhere".to_owned();
+            let shown = self.expanded.contains(&key);
+            projects = projects.child(Self::shelf_row(
+                faces,
+                key,
+                "Found elsewhere",
+                found.len(),
+                shown,
+                cx,
+            ));
+            if shown {
+                for (n, (folder, count)) in found.into_iter().enumerate() {
+                    let name = folder.file_name().map_or_else(
+                        || Desk::shown(&folder),
+                        |f| f.to_string_lossy().into_owned(),
+                    );
+                    let tip = Desk::shown(&folder);
+                    projects = projects.child(
+                        session_shell(SharedString::from(format!("elsewhere-{n}")), false)
+                            .cursor_pointer()
+                            .hover(|st| st.bg(theme::hover()))
+                            .child(ui::icon("plus", 12.).text_color(theme::faint()))
+                            .child(ui::one_line(
+                                ui::text(faces, name)
+                                    .text_size(px(13.))
+                                    .text_color(theme::text2()),
+                            ))
+                            .child(fine(faces, format!("{count}")))
+                            .tooltip(ui::tip(format!("{tip} · add as a project")))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.adopt(&folder);
+                                cx.notify();
+                            })),
+                    );
+                }
+            }
+        }
         if self.projects().is_empty() {
             projects = projects.child(
                 agent_shell("first-project", false)

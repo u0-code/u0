@@ -150,6 +150,11 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
+            Msg::RunOut { id, text } => self.run_output(id, &text),
+            Msg::RunDone { id, result } => self.run_done(id, result),
+            Msg::Elsewhere { agent, folders } => {
+                self.elsewhere.insert(agent, folders);
+            }
             Msg::Forked { from, result } => self.forked(from, result, cx),
             Msg::Files { folder, files } => {
                 self.files.insert(folder, files);
@@ -258,7 +263,7 @@ impl Desk {
                     }
                 }
             }
-            Msg::Worktree { key, result } => self.worktree_made(key, result),
+            Msg::Worktree { key, result } => self.worktree_made(key, result, cx),
             Msg::Checkpoint {
                 key,
                 turn,

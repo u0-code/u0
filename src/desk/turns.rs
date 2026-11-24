@@ -127,7 +127,12 @@ impl Desk {
         hub::checkpoint(take, self.tx.clone());
     }
 
-    pub(super) fn worktree_made(&mut self, key: u64, result: Result<crate::git::Worktree, String>) {
+    pub(super) fn worktree_made(
+        &mut self,
+        key: u64,
+        result: Result<crate::git::Worktree, String>,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let Some(s) = self.session_mut(key) else {
             return;
         };
@@ -135,9 +140,12 @@ impl Desk {
             Ok(wt) => {
                 s.folder.clone_from(&wt.path);
                 s.branch = Some(wt.branch.clone());
+                let path = wt.path.clone();
                 s.worktree = Some(wt);
                 let agent = s.agent.clone();
                 self.open_when_running(&agent, key);
+                // What the repository runs in each new worktree runs now.
+                self.run_worktree_scripts(&path, cx);
             }
             Err(why) => {
                 s.pending = None;
