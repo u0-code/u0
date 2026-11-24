@@ -39,6 +39,7 @@ actions!(
         Cut,
         Copy,
         Submit,
+        SubmitAside,
         Cancel,
     ]
 );
@@ -48,6 +49,10 @@ pub const CONTEXT: &str = "DeskInput";
 
 /// The line was submitted with Return.
 pub struct Submitted(pub String);
+
+/// What is typed, handed over with ⌘Return: to go on in the background
+/// while a new line is begun.
+pub struct SubmittedAside(pub String);
 
 /// What is typed changed under the user's hand.
 pub struct Changed;
@@ -77,6 +82,7 @@ pub struct TextInput {
 }
 
 impl EventEmitter<Submitted> for TextInput {}
+impl EventEmitter<SubmittedAside> for TextInput {}
 impl EventEmitter<Changed> for TextInput {}
 impl EventEmitter<Cancelled> for TextInput {}
 
@@ -120,6 +126,16 @@ impl TextInput {
 
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
         self.send(cx);
+    }
+
+    fn submit_aside(&mut self, _: &SubmitAside, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self.content.trim().to_owned();
+        if text.is_empty() {
+            return;
+        }
+        self.reset();
+        cx.emit(SubmittedAside(text));
+        cx.notify();
     }
 
     /// Hand over what is typed, if anything, and clear the line.
@@ -803,6 +819,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::submit))
+            .on_action(cx.listener(Self::submit_aside))
             .on_action(cx.listener(Self::cancel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))

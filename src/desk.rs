@@ -38,7 +38,7 @@ mod turns;
 use crate::{
     fonts,
     hub::{self, Slot, Stage},
-    input::{Submitted, TextInput},
+    input::{Submitted, SubmittedAside, TextInput},
     registry::{self, Entry, Registry},
     session::{Item, Session, State},
     settings::{self, Settings},
@@ -104,6 +104,10 @@ pub struct Panes {
     pub right: bool,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a fact of its own about the window, not a state among several"
+)]
 pub struct Desk {
     pub home: PathBuf,
     pub settings: Settings,
@@ -122,6 +126,10 @@ pub struct Desk {
     pub found: HashSet<u64>,
     /// The settings page's tab.
     pub settings_tab: crate::pages::Tab,
+    /// The draft on screen goes to every agent that can run, once sent.
+    pub fanout: bool,
+    /// No window of Ghost's is in front.
+    pub behind: bool,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -174,7 +182,7 @@ pub fn lights_room(window: &Window) -> f32 {
 }
 
 impl Desk {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
         let (settings, settings_refused) = Settings::load(&home);
         let input = cx.new(|cx| {
@@ -184,6 +192,14 @@ impl Desk {
         });
         cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
             .detach();
+        cx.subscribe_in(
+            &input,
+            window,
+            |this, _, SubmittedAside(text), window, cx| {
+                this.send_aside(text, window, cx);
+            },
+        )
+        .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
@@ -233,6 +249,19 @@ impl Desk {
         })
         .detach();
 
+        // Each minute, let go of agents idle long enough.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs(60))
+                    .await;
+                if this.update(cx, Self::release_idle).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let registry = registry::kept(&home).unwrap_or_default();
         hub::fetch(home.clone(), tx.clone());
         let mut desk = Self {
@@ -245,6 +274,8 @@ impl Desk {
             undo: None,
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::Agents,
+            fanout: false,
+            behind: false,
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -732,17 +763,72 @@ impl Desk {
         .detach();
     }
 
-    /// Say `text` in the session on screen.
+    /// Say `text` in the session on screen; a draft set to go to every
+    /// agent goes to each of them, a session of its own for each.
     fn send(&mut self, text: &str, cx: &mut Context<Self>) {
-        let text = text.trim().to_owned();
         let Some(key) = self.current else { return };
+        let draft = self
+            .session()
+            .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
+        self.send_in(key, text, cx);
+        if draft && self.fanout {
+            self.fanout = false;
+            self.fan_out(key, text, cx);
+        }
+    }
+
+    /// Say `text` and leave it to go on: a new session is begun beside it,
+    /// in the same project, to write the next thing in (⌘Return).
+    fn send_aside(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.send(text, cx);
+        let project = self.project();
+        self.new_in(project, window, cx);
+    }
+
+    /// Begin, beside the session `key`, a session with each other agent
+    /// that can run, in the same project, and say `text` in each.
+    fn fan_out(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
+        let Some(origin) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let (agent, folder) = (origin.agent.clone(), origin.project.clone());
+        let others: Vec<String> = self
+            .slots
+            .iter()
+            .filter(|s| s.entry.id != agent)
+            .filter(|s| {
+                matches!(
+                    s.stage,
+                    Stage::Ready | Stage::Starting | Stage::Running { .. }
+                )
+            })
+            .map(|s| s.entry.id.clone())
+            .collect();
+        for other in others {
+            let new = self.take_key();
+            let mut s = Session::new(new, &other, folder.clone());
+            if let Some(slot) = self.slot(&other) {
+                slot.seed(&mut s);
+            }
+            self.sessions.push(s);
+            self.send_in(new, text, cx);
+        }
+    }
+
+    /// Say `text` in the session `key`.
+    fn send_in(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
+        let text = text.trim().to_owned();
         if text.is_empty() {
             return;
         }
+        let on_screen = self.current == Some(key);
         let Some(session) = self.session_mut(key) else {
             return;
         };
         if session.state == State::Working || session.state == State::Opening {
+            if !on_screen {
+                return;
+            }
             // Not taken while a turn goes on: it stays in the line.
             self.input.update(cx, |input, cx| input.set_text(&text, cx));
             return;
@@ -760,7 +846,7 @@ impl Desk {
             cx.notify();
             return;
         }
-        let session = self.session_mut(key).expect("the session on screen");
+        let session = self.session_mut(key).expect("found above");
         // Something new said in a session done for now brings it back.
         session.flags.settled = None;
         session.flags.snoozed = None;

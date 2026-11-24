@@ -188,6 +188,9 @@ pub struct Slot {
     /// session opened and deleted again as it starts.
     pub probe: Option<Probe>,
     pub auth: Auth,
+    /// When it last did anything: one idle long enough is let go, and
+    /// started again when it is wanted.
+    pub used: std::time::Instant,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -220,6 +223,7 @@ impl Slot {
             stage,
             probe: None,
             auth: Auth::Unknown,
+            used: std::time::Instant::now(),
         }
     }
 
@@ -627,6 +631,23 @@ pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
             result,
         });
     });
+}
+
+/// Show a notification from macOS: a turn ended, or a question is asked,
+/// while Ghost is not in front.
+pub fn notify(title: &str, body: &str) {
+    let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
+        quote(body),
+        quote(title)
+    );
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 /// Run `program` with `args` and `env` in a Terminal window, for a sign-in

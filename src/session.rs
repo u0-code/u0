@@ -325,6 +325,18 @@ impl Session {
         self.replaying = false;
     }
 
+    /// A note in the thread, kept in its record.
+    pub fn note(&mut self, text: &str) {
+        self.record(store::Event::Note {
+            text: text.to_owned(),
+            trouble: true,
+        });
+        self.items.push(Item::Note {
+            text: text.to_owned(),
+            trouble: true,
+        });
+    }
+
     /// Note `event` for its record, unless the record is being read.
     fn record(&mut self, event: store::Event) {
         if !self.replaying {

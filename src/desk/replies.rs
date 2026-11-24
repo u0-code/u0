@@ -106,6 +106,8 @@ impl Desk {
     // What comes back.
 
     pub(super) fn take(&mut self, msg: Msg, cx: &mut Context<Self>) {
+        // No window of Ghost's in front: what needs you is notified.
+        self.behind = cx.active_window().is_none();
         match msg {
             Msg::Registry(Ok(registry)) => {
                 self.registry = registry;
@@ -200,10 +202,20 @@ impl Desk {
                     };
                 }
                 let away = self.current != Some(key);
+                let behind = self.behind;
+                let ok = result.is_ok();
                 if let Some(s) = self.session_mut(key) {
                     s.ended(result.map_err(|f| f.message));
                     // A turn that ended while you looked elsewhere is unread.
-                    s.flags.unread |= away;
+                    s.flags.unread |= away || behind;
+                }
+                // With Ghost behind other windows, macOS says so.
+                if behind && let Some(s) = self.sessions.iter().find(|s| s.key == key) {
+                    let name = self.name_of(&s.agent);
+                    hub::notify(
+                        &format!("{name} · {}", crate::ui::fit(&s.title, 40)),
+                        if ok { "Finished its turn" } else { "Stopped" },
+                    );
                 }
                 self.end_turn(key);
             }
@@ -277,6 +289,7 @@ impl Desk {
                         agent: running,
                         init,
                     };
+                    slot.used = std::time::Instant::now();
                 }
                 for key in waiting {
                     self.open_when_running(agent, key);
@@ -498,6 +511,9 @@ impl Desk {
     }
 
     pub(super) fn said(&mut self, agent: &str, event: Event) {
+        if let Some(slot) = self.slot_mut(agent) {
+            slot.used = std::time::Instant::now();
+        }
         match event {
             Event::Update(n) => {
                 let Some(s) = self
@@ -526,6 +542,14 @@ impl Desk {
                 {
                     s.asked(id, request);
                     let key = s.key;
+                    if self.behind {
+                        let title = s.title.clone();
+                        let name = self.name_of(agent);
+                        hub::notify(
+                            &format!("{name} · {}", crate::ui::fit(&title, 40)),
+                            "Asks before it goes on",
+                        );
+                    }
                     if self.current != Some(key)
                         && let Some(s) = self.session_mut(key)
                     {
@@ -537,9 +561,14 @@ impl Desk {
                 }
             }
             Event::Exited(why) => {
-                if let Some(slot) = self.slot_mut(agent) {
-                    slot.stage = Stage::Failed(why.clone());
+                // One let go while idle ended as it was meant to.
+                let Some(slot) = self.slot_mut(agent) else {
+                    return;
+                };
+                if !matches!(slot.stage, Stage::Running { .. } | Stage::Starting) {
+                    return;
                 }
+                slot.stage = Stage::Failed(why.clone());
                 for s in self.sessions.iter_mut().filter(|s| s.agent == agent) {
                     let open = !matches!(s.state, State::Draft | State::Closed);
                     if s.id.is_some() && open {

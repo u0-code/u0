@@ -87,6 +87,52 @@ impl Desk {
             agent_choices,
             cx,
         ));
+        // A draft can go to every agent at once, a session for each.
+        let usable = self
+            .slots
+            .iter()
+            .filter(|x| {
+                matches!(
+                    x.stage,
+                    crate::hub::Stage::Ready
+                        | crate::hub::Stage::Starting
+                        | crate::hub::Stage::Running { .. }
+                )
+            })
+            .count();
+        if draft && usable > 1 {
+            let on = self.fanout;
+            bar = bar.child(
+                div()
+                    .id("fanout")
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(theme::panel2()))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(
+                        ui::icon(if on { "check" } else { "plus" }, 12.).text_color(if on {
+                            theme::accent()
+                        } else {
+                            theme::faint()
+                        }),
+                    )
+                    .child(
+                        ui::text(faces, format!("All {usable} agents"))
+                            .text_size(px(12.5))
+                            .text_color(if on { theme::text() } else { theme::faint() }),
+                    )
+                    .tooltip(ui::tip("Send this to every agent, a session for each"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fanout = !this.fanout;
+                        cx.notify();
+                    })),
+            );
+        }
         let mode_option = s
             .options
             .iter()

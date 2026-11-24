@@ -61,6 +61,13 @@ impl Desk {
     /// Write every record and the index, and wait until they are written:
     /// as the window closes.
     pub(crate) fn keep_all(&mut self) {
+        // A turn going on as Ghost closes may go on in the agent; the
+        // record says where Ghost lost sight of it.
+        for s in &mut self.sessions {
+            if matches!(s.state, crate::session::State::Working) {
+                s.note("Ghost closed while this turn was going on; the agent may have gone on with it.");
+            }
+        }
         let keys: Vec<u64> = self.sessions.iter().map(|s| s.key).collect();
         for key in keys {
             self.flush(key);
@@ -113,6 +120,53 @@ impl Desk {
             s.log.clear();
             s.recorded = false;
         }
+    }
+
+    /// Let go of each agent idle for a while, with nothing going on in its
+    /// sessions: its sessions close (their records are written) and it is
+    /// started again, and they resumed, when one is written in.
+    pub(crate) fn release_idle(&mut self, cx: &mut Context<Self>) {
+        const IDLE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+        let idle: Vec<String> = self
+            .slots
+            .iter()
+            .filter(|s| matches!(s.stage, crate::hub::Stage::Running { .. }))
+            .filter(|s| s.used.elapsed() >= IDLE)
+            .filter(|slot| {
+                !self.sessions.iter().any(|s| {
+                    s.agent == slot.entry.id
+                        && (matches!(
+                            s.state,
+                            crate::session::State::Working
+                                | crate::session::State::Opening
+                                | crate::session::State::SignIn
+                        ) || s.waiting().is_some())
+                })
+            })
+            .map(|s| s.entry.id.clone())
+            .collect();
+        for agent in idle {
+            let keys: Vec<u64> = self
+                .sessions
+                .iter()
+                .filter(|s| s.agent == agent && s.id.is_some())
+                .map(|s| s.key)
+                .collect();
+            for key in keys {
+                self.flush(key);
+                if let Some(s) = self.session_mut(key)
+                    && s.state == crate::session::State::Idle
+                {
+                    s.state = crate::session::State::Closed;
+                    s.recorded = true;
+                }
+            }
+            if let Some(slot) = self.slot_mut(&agent) {
+                slot.stage = crate::hub::Stage::Ready;
+            }
+            tracing::info!("{agent} was idle and is let go");
+        }
+        cx.notify();
     }
 
     /// Keep everything as the app quits.
