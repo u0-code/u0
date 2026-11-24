@@ -1,9 +1,10 @@
 //! The column down the left, as the design draws it: the window's lights
-//! with search and a new session beside them; New session; the agents
-//! switched on, each with its sessions under it; a few more agents, quieter;
-//! and at the foot the settings and the folder new sessions start in.
+//! with search and a new session beside them; New session; the projects,
+//! each a folder with its sessions under it, whichever agent each is with;
+//! the agents switched on; a few more agents, quieter; and at the foot the
+//! settings.
 
-use std::time::SystemTime;
+use std::{path::Path, time::SystemTime};
 
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
@@ -68,14 +69,13 @@ impl Desk {
         let query = self
             .searching
             .then(|| self.search.read(cx).text().to_lowercase());
-        let mut agents = div().flex().flex_col().gap(px(2.)).px(px(8.));
-        let mut shown = 0;
-        for slot in &self.slots {
+        let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
+        for folder in self.projects() {
             let sessions: Vec<&Session> = self
                 .sessions
                 .iter()
                 .rev()
-                .filter(|s| s.agent == slot.entry.id)
+                .filter(|s| s.project == folder)
                 .filter(|s| {
                     query
                         .as_ref()
@@ -85,11 +85,18 @@ impl Desk {
             if query.is_some() && sessions.is_empty() {
                 continue;
             }
-            agents = agents.child(self.agent_row(faces, slot, shown > 0, cx));
-            shown += 1;
+            let open = query.is_some() || !self.closed.contains(&folder);
+            projects = projects.child(Self::project_row(faces, &folder, sessions.len(), open, cx));
+            if !open {
+                continue;
+            }
             if sessions.is_empty() {
-                agents = agents.child(
-                    session_shell(None, false).child(
+                projects = projects.child(
+                    session_shell(
+                        SharedString::from(format!("none-{}", folder.display())),
+                        false,
+                    )
+                    .child(
                         ui::text(faces, "No sessions yet")
                             .text_size(px(13.))
                             .text_color(theme::faint()),
@@ -97,8 +104,26 @@ impl Desk {
                 );
             }
             for s in sessions {
-                agents = agents.child(self.session_row(faces, s, cx));
+                projects = projects.child(self.session_row(faces, s, cx));
             }
+        }
+        if self.projects().is_empty() {
+            projects = projects.child(
+                agent_shell("first-project", false)
+                    .child(ui::icon("folder", 16.).text_color(theme::faint()))
+                    .child(
+                        ui::text(faces, "Add a project")
+                            .flex_1()
+                            .text_size(px(13.))
+                            .text_color(theme::muted()),
+                    )
+                    .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+            );
+        }
+
+        let mut agents = div().flex().flex_col().gap(px(2.)).px(px(8.));
+        for slot in &self.slots {
+            agents = agents.child(self.agent_row(faces, slot, cx));
         }
 
         let mut more = div().flex().flex_col().gap(px(2.)).px(px(8.));
@@ -175,11 +200,32 @@ impl Desk {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(ui::label(faces, "Agents").px(px(16.)))
-                    .child(agents),
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .pl(px(16.))
+                            .pr(px(10.))
+                            .child(ui::label(faces, "Projects").flex_1())
+                            .child(
+                                ui::icon_button("add-project", "plus", "Add project")
+                                    .size(px(20.))
+                                    .text_color(theme::faint())
+                                    .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+                            ),
+                    )
+                    .child(projects),
             )
             .when(query.is_none(), |d| {
                 d.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(ui::label(faces, "Agents").px(px(16.)))
+                        .child(agents),
+                )
+                .child(
                     div()
                         .flex()
                         .flex_col()
@@ -189,13 +235,10 @@ impl Desk {
                 )
             });
 
-        let folder = Desk::shown(&self.folder());
         let settings_on = self.page == Page::Settings;
         let foot = div()
             .flex()
             .flex_none()
-            .items_center()
-            .gap(px(4.))
             .px(px(8.))
             .py(px(10.))
             .border_t_1()
@@ -206,25 +249,6 @@ impl Desk {
                     .child(ui::icon("settings", 16.).text_color(theme::faint()))
                     .child(ui::text(faces, "Settings").flex_1().text_size(px(13.)))
                     .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Settings, cx))),
-            )
-            .child(
-                div()
-                    .id("folder-chip")
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .h(px(26.))
-                    .px(px(8.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        ui::mono(faces, ui::fit(&folder, 18))
-                            .text_size(px(11.5))
-                            .text_color(theme::text2()),
-                    )
-                    .tooltip(ui::tip("The folder new sessions start in"))
-                    .on_click(cx.listener(|_, _, _, cx| Self::choose_default_folder(cx))),
             );
 
         div()
@@ -242,7 +266,7 @@ impl Desk {
             .child(foot)
     }
 
-    fn agent_row(&self, faces: &Faces, slot: &Slot, gap: bool, cx: &mut Context<Self>) -> Div {
+    fn agent_row(&self, faces: &Faces, slot: &Slot, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let id = slot.entry.id.clone();
         let on = self.page == Page::Agent(id.clone());
         let usable = matches!(
@@ -269,28 +293,99 @@ impl Desk {
                 .into_any_element()
         };
         let target = id.clone();
-        div().when(gap, |d| d.mt(px(6.))).child(
-            agent_shell(SharedString::from(format!("agent-{id}")), on)
-                .child(mark)
-                .child(ui::one_line(
-                    ui::text(faces, theme::agent_name(&id, &slot.entry.name).into_owned())
-                        .text_size(px(13.5))
-                        .text_color(if usable {
-                            theme::text()
-                        } else {
-                            theme::muted()
-                        }),
-                ))
-                .when(running, |d| d.child(ui::live_dot()))
-                .children(
-                    word.map(|(w, live)| {
-                        fine(faces, w).when(live, |d| d.text_color(theme::accent()))
+        agent_shell(SharedString::from(format!("agent-{id}")), on)
+            .child(mark)
+            .child(ui::one_line(
+                ui::text(faces, theme::agent_name(&id, &slot.entry.name).into_owned())
+                    .text_size(px(13.5))
+                    .text_color(if usable {
+                        theme::text()
+                    } else {
+                        theme::muted()
                     }),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_page(Page::Agent(target.clone()), cx);
-                })),
-        )
+            ))
+            .when(running, |d| d.child(ui::live_dot()))
+            .children(
+                word.map(|(w, live)| fine(faces, w).when(live, |d| d.text_color(theme::accent()))),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_page(Page::Agent(target.clone()), cx);
+            }))
+    }
+
+    /// A project: its folder's name, how many sessions it has when it is
+    /// folded shut, and on hover a new session in it, or, with none, taking
+    /// it off the list.
+    fn project_row(
+        faces: &Faces,
+        folder: &Path,
+        count: usize,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let name = folder.file_name().map_or_else(
+            || Desk::shown(folder),
+            |n: &std::ffi::OsStr| n.to_string_lossy().into_owned(),
+        );
+        let group = SharedString::from(format!("project-{}", folder.display()));
+        let toggle = folder.to_path_buf();
+        let new = folder.to_path_buf();
+        let forget = folder.to_path_buf();
+        agent_shell(group.clone(), false)
+            .group(group.clone())
+            .child(
+                ui::icon(if open { "folder" } else { "chevron-right" }, 16.)
+                    .text_color(theme::faint()),
+            )
+            .child(ui::one_line(
+                ui::text(faces, name)
+                    .text_size(px(13.5))
+                    .text_color(theme::text()),
+            ))
+            .tooltip(ui::tip(Desk::shown(folder)))
+            .when(!open && count > 0, |d| {
+                d.child(fine(faces, count.to_string()))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .invisible()
+                    .group_hover(group, Styled::visible)
+                    .when(count == 0 && open, |d| {
+                        d.child(
+                            ui::icon_button(
+                                SharedString::from(format!("forget-{}", folder.display())),
+                                "x",
+                                "Remove from the list",
+                            )
+                            .size(px(22.))
+                            .text_color(theme::faint())
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.forget_project(&forget, cx);
+                                },
+                            )),
+                        )
+                    })
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("new-in-{}", folder.display())),
+                            "plus",
+                            "New session here",
+                        )
+                        .size(px(22.))
+                        .text_color(theme::faint())
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.new_in(new.clone(), window, cx);
+                            },
+                        )),
+                    ),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&toggle, cx)))
     }
 
     fn session_row(
@@ -316,11 +411,15 @@ impl Desk {
             State::Draft => (String::new(), false, false),
             State::Idle => (when::ago(s.updated, SystemTime::now()), false, false),
         };
-        session_shell(Some(SharedString::from(format!("session-{key}"))), on)
+        let agent = self
+            .entry(&s.agent)
+            .map_or_else(|| s.agent.clone(), |e| e.name.clone());
+        session_shell(SharedString::from(format!("session-{key}")), on)
             .cursor_pointer()
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+            .child(ui::mark(faces, &Mark::of(&s.agent, &agent), 14.))
             .child(ui::one_line(
-                ui::text(faces, ui::fit(&title, ui::cols(LEFT - 90.)))
+                ui::text(faces, ui::fit(&title, ui::cols(LEFT - 112.)))
                     .text_size(px(13.))
                     .text_color(if on { theme::text() } else { theme::text2() }),
             ))
@@ -351,17 +450,15 @@ fn agent_shell(id: impl Into<SharedString>, on: bool) -> gpui::Stateful<Div> {
         .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
 }
 
-/// A row for a session under its agent: 28 high, in by 38.
-fn session_shell(id: Option<SharedString>, on: bool) -> gpui::Stateful<Div> {
+/// A row for a session under its project: 28 high, in by 34.
+fn session_shell(id: impl Into<SharedString>, on: bool) -> gpui::Stateful<Div> {
     div()
-        .id(gpui::ElementId::Name(
-            id.unwrap_or_else(|| SharedString::from("no-sessions")),
-        ))
+        .id(gpui::ElementId::Name(id.into()))
         .flex()
         .items_center()
         .gap(px(8.))
         .h(px(28.))
-        .pl(px(38.))
+        .pl(px(34.))
         .pr(px(8.))
         .rounded(px(8.))
         .when(on, |d| d.bg(theme::panel2()))

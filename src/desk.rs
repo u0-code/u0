@@ -1,7 +1,7 @@
 //! The desk: the whole window, and everything it knows.
 //!
-//! Down the left, the agents switched on, each with its sessions under it,
-//! and the desk's settings at the foot. In the middle, the session on
+//! Down the left, the projects, each with its sessions under it, then the
+//! agents switched on, and the desk's settings at the foot. In the middle, the session on
 //! screen: its thread, and the line you type into, with the agent's own
 //! choices (its mode, its model) under your hand. Down the right, what the
 //! session has come to: its plan, the files it changed, how full its
@@ -117,6 +117,8 @@ pub struct Desk {
     pub input: Entity<TextInput>,
     /// Cards and lines opened in the thread, by key.
     pub expanded: HashSet<String>,
+    /// Projects folded shut down the left.
+    pub closed: HashSet<PathBuf>,
     pub thread_scroll: ScrollHandle,
     /// The agent being signed in to, while it is.
     pub signing: Option<String>,
@@ -219,6 +221,7 @@ impl Desk {
             },
             input,
             expanded: HashSet::new(),
+            closed: HashSet::new(),
             thread_scroll: ScrollHandle::new(),
             signing: None,
             aside: Aside::Session,
@@ -288,18 +291,40 @@ impl Desk {
         }
     }
 
-    /// The folder a new session starts in: the last one used, else home.
-    pub fn folder(&self) -> PathBuf {
-        self.settings.folders.first().cloned().unwrap_or_else(|| {
-            std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
-        })
+    /// The project a new session starts in: that of the session on
+    /// screen, else the first, else home.
+    pub fn project(&self) -> PathBuf {
+        self.session()
+            .map(|s| s.project.clone())
+            .or_else(|| self.settings.folders.first().cloned())
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
+            })
+    }
+
+    /// The projects down the left: those kept, then the folder of any
+    /// session in none of them.
+    pub fn projects(&self) -> Vec<PathBuf> {
+        let mut out = self.settings.folders.clone();
+        for s in &self.sessions {
+            if !out.contains(&s.project) {
+                out.push(s.project.clone());
+            }
+        }
+        out
     }
 
     // What you do.
 
-    /// Begin a session with `agent`, in the folder last used. Nothing is
+    /// Begin a session with `agent` in the project `folder`. Nothing is
     /// asked of the agent until you say something.
-    pub fn new_session(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn new_session(
+        &mut self,
+        agent: &str,
+        folder: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !matches!(
             self.slot(agent).map(|s| &s.stage),
             Some(Stage::Ready | Stage::Starting | Stage::Running { .. })
@@ -309,11 +334,10 @@ impl Desk {
             return;
         }
         // A session begun and not used yet is reused, not doubled.
-        let folder = self.folder();
         let key = if let Some(s) = self
             .sessions
             .iter()
-            .find(|s| s.agent == agent && s.state == State::Draft)
+            .find(|s| s.agent == agent && s.project == folder && s.state == State::Draft)
         {
             s.key
         } else {
@@ -342,22 +366,30 @@ impl Desk {
         cx.notify();
     }
 
-    /// Begin a session with the first agent that can run, in the folder last
-    /// used.
+    /// Begin a session in the project on screen.
     pub fn new_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let project = self.project();
+        self.new_in(project, window, cx);
+    }
+
+    /// Begin a session in `folder`, with the agent of the session on screen
+    /// if it can run, else the first that can.
+    pub fn new_in(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let usable = |s: &Slot| {
+            matches!(
+                s.stage,
+                Stage::Ready | Stage::Starting | Stage::Running { .. }
+            )
+        };
         let agent = self
-            .slots
-            .iter()
-            .find(|s| {
-                matches!(
-                    s.stage,
-                    Stage::Ready | Stage::Starting | Stage::Running { .. }
-                )
-            })
+            .session()
+            .and_then(|s| self.slot(&s.agent))
+            .filter(|s| usable(s))
+            .or_else(|| self.slots.iter().find(|s| usable(s)))
             .or_else(|| self.slots.first())
             .map(|s| s.entry.id.clone());
         match agent {
-            Some(agent) => self.new_session(&agent, window, cx),
+            Some(agent) => self.new_session(&agent, folder, window, cx),
             None => self.open_page(Page::Settings, cx),
         }
     }
@@ -394,13 +426,13 @@ impl Desk {
         cx.notify();
     }
 
-    /// Ask for the folder new sessions start in.
-    pub fn choose_default_folder(cx: &mut Context<Self>) {
+    /// Ask for a folder to add as a project, and begin a session in it.
+    pub fn add_project(cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Start sessions here".into()),
+            prompt: Some("Add project".into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
@@ -416,11 +448,30 @@ impl Desk {
         .detach();
     }
 
+    /// Take `folder` off the projects; one with sessions open stays.
+    pub fn forget_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        if self.sessions.iter().any(|s| s.project == folder) {
+            return;
+        }
+        self.settings.forget(folder);
+        self.closed.remove(folder);
+        self.save_settings();
+        cx.notify();
+    }
+
+    /// Fold the project `folder` shut, or open it.
+    pub fn toggle_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        if !self.closed.remove(folder) {
+            self.closed.insert(folder.to_path_buf());
+        }
+        cx.notify();
+    }
+
     /// Begin again where the session on screen left off: a draft with the
-    /// same agent, in the same folder.
+    /// same agent, in the same project.
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let (agent, folder) = (s.agent.clone(), s.folder.clone());
+        let (agent, folder) = (s.agent.clone(), s.project.clone());
         let key = self.next_key;
         self.next_key += 1;
         self.sessions.push(Session::new(key, &agent, folder));

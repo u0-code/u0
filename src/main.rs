@@ -1,8 +1,8 @@
 //! Ghost: one desktop app for the coding agents you already use.
 //!
-//! Down the left, the agents switched on (Claude Code, Codex, Antigravity,
-//! or any other the ACP registry lists), each with its sessions. In the
-//! middle, the session on screen: talk to the agent and give it work, drawn
+//! Down the left, your projects, each with its sessions, and the agents
+//! switched on (Claude Code, Codex, Antigravity, or any other the ACP
+//! registry lists). In the middle, the session on screen: talk to the agent and give it work, drawn
 //! the same way whichever agent it is. Down the right, what the session has
 //! come to. Ghost has no agent of its own: each agent runs as its own
 //! program, with its own tools and its own sign-in, spoken to over the

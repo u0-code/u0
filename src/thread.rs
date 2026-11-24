@@ -478,9 +478,9 @@ impl Desk {
                             .text_size(px(13.))
                             .font_weight(gpui::FontWeight::MEDIUM),
                     )
-                    .on_click(
-                        cx.listener(move |this, _, window, cx| this.new_session(&id, window, cx)),
-                    ),
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.new_session(&id, this.project(), window, cx);
+                    })),
             );
         }
         div()

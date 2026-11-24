@@ -274,7 +274,9 @@ impl Desk {
             _ if enabled => {
                 actions = actions.child(
                     ui::button(faces, "start", "New session", Weight::Primary).on_click(
-                        cx.listener(move |this, _, window, cx| this.new_session(&c, window, cx)),
+                        cx.listener(move |this, _, window, cx| {
+                            this.new_session(&c, this.project(), window, cx);
+                        }),
                     ),
                 );
             }

@@ -133,7 +133,11 @@ pub struct Session {
     pub agent: String,
     /// The agent's id for it, once opened.
     pub id: Option<SessionId>,
+    /// The folder it works in: its project, or its worktree once it has one.
     pub folder: PathBuf,
+    /// The project it is listed under: the folder it was begun in, which
+    /// stays when it moves into a worktree.
+    pub project: PathBuf,
     /// The git branch the folder was on when the session began.
     pub branch: Option<String>,
     /// Whether the folder is in a git repository: then each turn is
@@ -213,6 +217,7 @@ impl Session {
             total: None,
             redo: None,
             git_note: None,
+            project: folder.clone(),
             folder,
             title,
             state: State::Draft,

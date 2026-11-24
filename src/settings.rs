@@ -1,5 +1,6 @@
 //! What the desk keeps between runs, in its home: which agents are switched
-//! on, in the order they are listed, and the folders work was started in.
+//! on, in the order they are listed, and the projects: the folders work is
+//! done in.
 //!
 //! The home is `GHOST_HOME`, or `~/.ghost`. It holds this file
 //! (`settings.json`), the last registry read (`registry.json`) and the
@@ -16,9 +17,6 @@ use crate::whole;
 /// The agents switched on when the desk is first opened.
 pub const FIRST: [&str; 3] = ["claude-acp", "codex-acp", "antigravity-acp"];
 
-/// How many folders are remembered for starting a session in.
-const FOLDERS: usize = 8;
-
 /// The desk's home.
 pub fn home() -> PathBuf {
     if let Some(dir) = std::env::var_os("GHOST_HOME").filter(|d| !d.is_empty()) {
@@ -34,7 +32,7 @@ pub fn home() -> PathBuf {
 pub struct Settings {
     /// The agents shown down the left, by registry id, in order.
     pub enabled: Vec<String>,
-    /// Folders sessions were started in, the latest first.
+    /// The projects down the left, each a folder, the latest added first.
     pub folders: Vec<PathBuf>,
     /// Whether a new session in a git repository works in a worktree of
     /// its own: the choice last made.
@@ -87,11 +85,17 @@ impl Settings {
         }
     }
 
-    /// Put `folder` first among those remembered.
+    /// Make `folder` a project, first in the list; one already a project
+    /// keeps its place, so the list does not move under you.
     pub fn used(&mut self, folder: &Path) {
+        if !self.folders.iter().any(|f| f == folder) {
+            self.folders.insert(0, folder.to_path_buf());
+        }
+    }
+
+    /// Take `folder` off the projects.
+    pub fn forget(&mut self, folder: &Path) {
         self.folders.retain(|f| f != folder);
-        self.folders.insert(0, folder.to_path_buf());
-        self.folders.truncate(FOLDERS);
     }
 }
 
@@ -100,14 +104,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_folder_used_again_moves_first_and_the_list_stays_short() {
+    fn a_new_project_comes_first_and_one_used_again_keeps_its_place() {
         let mut s = Settings::default();
         for i in 0..10 {
             s.used(Path::new(&format!("/p{i}")));
         }
         s.used(Path::new("/p3"));
-        assert_eq!(s.folders.len(), FOLDERS);
-        assert_eq!(s.folders[0], Path::new("/p3"));
+        assert_eq!(s.folders.len(), 10);
+        assert_eq!(s.folders[0], Path::new("/p9"));
+        assert_eq!(s.folders[6], Path::new("/p3"));
+        s.forget(Path::new("/p3"));
+        assert_eq!(s.folders.len(), 9);
     }
 
     #[test]
