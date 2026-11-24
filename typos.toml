@@ -4,7 +4,8 @@
 extend-exclude = [
     "Cargo.lock",
     "assets/",
-    # Other people's words: exercises, tasks and model output.
+    # An agent's answer, recorded as it said it.
+    "src/fixtures/",
 ]
 
 [default]
@@ -14,8 +15,3 @@ extend-ignore-re = [
 ]
 
 [default.extend-words]
-# Names of things, spelled as their owners spell them.
-onebot = "onebot"
-napcat = "napcat"
-# A deliberate near-miss in a test of the seal.
-abd = "abd"

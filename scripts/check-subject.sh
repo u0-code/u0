@@ -3,12 +3,12 @@
 # CONTRIBUTING.md. Pull requests are squashed, so the title of a pull request
 # is the subject of the commit it becomes.
 #
-#   scripts/check-subject.sh "feat(work): a helper can be handed part of the work"
+#   scripts/check-subject.sh "feat(thread): a diff opens in the side column"
 set -euo pipefail
 
 subject="${1:-}"
 types='feat|fix|perf|refactor|docs|style|test|bench|build|ci|chore|revert'
-scopes='core|brain|net|work|mind|protocol|link|ghostd|desk|term|telegram|discord|onebot|x|presence|deploy|repo|deps|readme|assets'
+scopes='acp|registry|thread|sidebar|aside|settings|ui|repo|deps|readme|assets'
 
 fail() {
     echo "not a subject this repository takes: $subject" >&2

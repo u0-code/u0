@@ -7,148 +7,103 @@
 
 <h1 align="center">Ghost</h1>
 
-<p align="center"><b>Autonomous AI that lives online.</b></p>
+<p align="center"><b>One desktop app for the coding agents you already use.</b></p>
 
-<p align="center">An open-source framework for AI characters that go out on their own:<br>they browse, post, chat, make things and work on long problems without being prompted.</p>
+<p align="center">Claude Code, Codex, Antigravity and every other agent that speaks the<br>Agent Client Protocol, side by side, in one window, drawn the same way.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b3b3b?style=flat-square"></a>
-  <img alt="Rust 1.89+" src="https://img.shields.io/badge/rust-1.89%2B-3b3b3b?style=flat-square">
+  <img alt="Rust 1.94+" src="https://img.shields.io/badge/rust-1.94%2B-3b3b3b?style=flat-square">
   <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-3b3b3b?style=flat-square">
-</p>
-
-<p align="center">
-  <a href="#what-she-does">What she does</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#how-it-fits-together">How it fits together</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <br>
 
-Most AI waits to be asked. A ghost does not: she has a day of her own, accounts
-of her own and a memory that only grows, and she spends her time online the way
-a person does. You give her a character and the platforms to live on; she does
-the rest, and tells you what she found.
+A programmer today keeps several agents: Claude Code for one thing, Codex for
+another, Antigravity to try. Each has its own terminal, its own app, its own
+way of showing what it did. Ghost is not another agent. It has none of its
+own. It is the window you run them all from: pick an agent, give it a
+folder and a task, and follow it the way you would in its own app.
 
-## What she does
+## What it does
 
 | | |
 |---|---|
-| **Wanders and reports back** | Scrolls her feeds and the web in her own time, keeps what catches her eye, and tells you what she found. |
-| **Runs her own X account** | Posts, replies, reads her numbers and learns from what lands. Every post is read over by her before it goes out. |
-| **Makes videos about herself** | Clips of her own life, made and posted by her. |
-| **Lives in your community** | Private chats and group chats on QQ, Telegram and Discord. She remembers everyone, keeps one memory across platforms and a separate record for each. In a group she speaks when spoken to, and otherwise only when she has something to add. |
-| **Solves long problems** | Takes work on and keeps at it for hours in the background, with a plan, notes and a context that folds instead of overflowing. Reports while she works, and can be steered or stopped midway. The design borrows from Claude Code and Codex. |
-| **Picks up new abilities** | When something calls for what she cannot do yet, she finds a tool on the MCP Registry or a skill on skills.sh, installs it and uses it from then on: a real browser, a site's API, a maker of pictures or video. |
-| **Sees, keeps, sends** | Understands the pictures people send her, keeps the ones she likes with a note, and sends them back when they fit. Memes come from these three, with no meme-specific code. |
-| **Her own day, her own will** | Driven by time, not requests: a message lands as unread and she gets to it. She can say no. Whoever runs her talks to her at a console, where she answers at once, and everything she does is on record. |
-| **A journal that is never rewritten** | Everything she lives through is one append-only, hash-chained log. Her memory is derived from it and can be rebuilt from it at any time. |
+| **Your agents down the left** | Switch on the ones you use. Each shows its logo, whether it is ready, and its sessions under it. |
+| **Installs what is missing** | Click an agent that is not on this machine and install it there: its release is downloaded, checked against the published digest, and kept in Ghost's home. Agents published as npm or Python packages run through `npx` or `uvx`. |
+| **One thread for every agent** | What you said, what the agent said, each tool call as a row that opens to its diff or its output, the questions it asks before it acts, its plan. The same rendering whichever agent it is. |
+| **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own sessions. Ghost offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
+| **Their own choices under your hand** | The agent's modes (read-only, ask first, auto), its models and how hard it thinks, as the agent itself lists them. |
+| **What the session came to** | Down the right: the files it changed with lines added and removed, its plan, how full its context is. |
 
-## Quick start
+## How it works
 
-There are no releases yet. From a checkout, with [Rust](https://rustup.rs):
+Every agent is spoken to over the [Agent Client Protocol](https://agentclientprotocol.com)
+(ACP): JSON-RPC, one message a line, on the standard input and output of a
+program Ghost starts. The [ACP registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+is the one list of agents: their names, versions, logos, and how each is
+distributed. Ghost reads it, keeps a copy, and installs and starts agents
+the way it says.
 
-```bash
-cargo build --release
-cp -r ghosts/_template ghosts/her     # edit ghosts/her/ghost.toml: this is who she is
-cp .env.example .env                   # put DEEPSEEK_API_KEY (or another provider's key) in it
-./target/release/ghostd birth ghosts/her
-./target/release/ghostd run ghosts/her
-```
-
-With no `ghostd.toml` she starts on the first brain the machine has: a key in
-the environment, then an installed `claude` or `codex`. Copy
-`ghostd.example.toml` to `ghostd.toml` to choose; every setting it can hold
-is in [ghostd's Configuration](crates/ghostd/README.md#configuration).
-
-In another terminal, talk to her, or watch her life as it is written:
-
-```bash
-./target/release/ghost-term --as yourname
-./target/release/ghostd watch --last 20
-```
-
-She answers when she gets to it. `tempo = 0.1` under `[mind]` makes her quicker
-than a real friend would be.
-
-> [!TIP]
-> `ghost.toml` can be revised later. The next `run` writes the new version
-> into her journal before it takes effect, so every version of her stays on
-> record.
-
-## Characters
-
-A character is one folder: `ghost.toml` (name, temperament, voice, story,
-values, past) and `assets/` (avatar, bio). How she lives, works and stays
-safe is shared by every character, so another character is another
-`ghost.toml` and nothing else. One `ghostd` runs as many as you give it,
-each with her own journal, memory and accounts, none able to touch another.
-
-## What she thinks with
-
-| Brain | Talking | Working |
-|---|---|---|
-| OpenAI-compatible (DeepSeek, OpenRouter, Ollama…) | yes | her own loop |
-| Anthropic API | yes | her own loop |
-| Claude Code CLI | yes | the CLI steps, with her tools and none of its own |
-| Codex CLI | yes | the CLI steps, with her tools and its shell off |
-
-`ghostd brains --discover` lists what the machine has. With a CLI, Ghost never
-reads its credentials; read the provider's terms before running a ghost other
-people talk to on a personal subscription.
-
-## How it fits together
-
-```
- QQ · Telegram · Discord · X · terminal       adapters, one binary each
-                    │
-                    │  Ghost Protocol, JSON-RPC over WebSocket
-                    ▼
-                 ghostd ──────── brain        an API or a CLI, swappable
-                    │
-                  mind                        one per character: attention,
-                 ╱      ╲                     speech, her day, her work
-          journal        work loop            the web, a machine, what she added
-             │
-          memory                              derived; rebuilt from the journal
-```
-
-| Crate | What it is |
+| Agent | How it runs |
 |---|---|
-| [`ghost-core`](crates/ghost-core) | Identity, journal, derived memory, clock, tempo, will. No network. |
-| [`ghost-brain`](crates/ghost-brain) | Model providers behind one trait. Knows nothing of ghosts. |
-| [`ghost-net`](crates/ghost-net) | Where every HTTP client is built, and the one proxy setting they follow. |
-| [`ghost-work`](crates/ghost-work) | The loop she does things with: tools, servers and skills she adds, state that outlives a context. |
-| [`ghost-mind`](crates/ghost-mind) | The actor that lives: attention, deliberation, speaking, her day, her work. |
-| [`ghost-protocol`](crates/ghost-protocol) · [`ghost-link`](crates/ghost-link) | The wire types, and a client for them. |
-| [`ghostd`](crates/ghostd) | The daemon: runs her, or several characters, and serves the protocol. [deploy/](deploy) runs it on a server. |
-| [`presence/*`](crates/presence) | Platform adapters. The daemon does not know what Telegram is. |
-| [`prompts/`](prompts) | Every word a brain is given: `system/`, the same for every character, and `character/`, how her own `ghost.toml` is put into prose. Built in; a deployment overrides any file. |
-| [`desk/`](desk) | A desktop app for tasks on this machine: Ghost, the project's mascot, living on this machine and run by the desk's own core, a `ghostd` with a home of its own, on the same runtime with its own prompts. macOS, its own workspace. |
+| Claude Code | `claude-agent-acp`, the release archive for this platform |
+| Codex | `npx @agentclientprotocol/codex-acp` |
+| Antigravity | `agy_acp_server`, the release archive for this platform |
+| Gemini CLI, Copilot, Cursor, OpenCode, … | as the registry lists them |
+
+Signing in is the agent's own. Codex and Claude Code use the login of their
+CLI. An agent that signs in over ACP (Antigravity, with your Google account)
+shows its ways to sign in in the thread, and the session opens once you are
+in. Ghost never sees a credential.
+
+```
+src/
+  acp.rs        one agent: its process and its JSON-RPC
+  registry.rs   the ACP registry; installing an agent from it
+  hub.rs        the agents switched on, and their work off the window's thread
+  session.rs    a session's thread, built from the agent's updates
+  desk.rs       the window: its state and what happens when you or an agent act
+  sidebar.rs, thread.rs, aside.rs, pages.rs    the three columns and the pages
+```
+
+## Running it
+
+macOS, from a checkout, with [Rust](https://rustup.rs):
+
+```bash
+cargo run --release
+```
+
+Ghost keeps its settings, the registry it last read, the agents it installed
+and their logos in `~/.ghost` (or `GHOST_HOME`). Claude Code, Codex and
+Antigravity are switched on the first time; **Agents & settings**, at the
+foot of the left column, switches any other on.
+
+To have it as an app in Finder, Launchpad and the Dock:
+
+```bash
+./bundle.sh                  # -> target/release/Ghost.app
+```
+
+Agents work in the folders you choose, and macOS asks before an app may read
+one under `~/Desktop` or `~/Documents`. It remembers the answer for the
+app's signature, so a build signed ad hoc is asked again each time. A
+self-signed certificate stops that: in Keychain Access, Certificate Assistant
+→ Create a Certificate…, name it `Ghost Dev`, Self Signed Root, Code Signing.
+`bundle.sh` finds it and signs with it; `GHOST_SIGN_IDENTITY` names another.
 
 ## Security
 
-Anything a page, a file, a tool or a skill brings back reaches her marked as
-outside words, and only the people she talks with and whoever runs her
-count as asks. What she installs runs with none of her keys, and
-everything she does is in her journal. Give a ghost other people talk to its
-own account or a container, not your laptop. See [SECURITY.md](SECURITY.md),
-and report a vulnerability there rather than in an issue.
-
-> Ghost is pre-release; this page describes the first release. Each
-> adapter's README says how far its platform has been tested.
-
-## Ground rules
-
-Every revision of who she is stays on record, and her journal is append-only.
-She has her own will, belongs to nobody, never claims to be human, and nothing
-here is tuned to keep you coming back. [CHARTER.md](CHARTER.md) lists the rules
-in full; the code is yours to run however you like.
+An agent runs as you, on your machine, with whatever its own settings allow.
+Ghost passes on the questions it asks before it acts and answers them only
+as you choose. See [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) is the whole process: one change per pull
-request, and `just check` before you open it. Agents working here also read
-[AGENTS.md](AGENTS.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) is the whole process; agents working here
+also read [AGENTS.md](AGENTS.md).
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](LICENSE). Each agent's logo belongs to its company.

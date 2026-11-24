@@ -15,19 +15,8 @@ just fix       # format, and apply the lint fixes that are mechanical
 just hooks     # optional: have git check your commit subjects
 ```
 
-No test needs a network, an API key or a container. If yours does, it is not
-a test: see below.
-
-A change that could make her heavier is measured with `just overhead`. It
-builds the release binaries, runs two characters in one ghostd against a
-fake model on loopback, sends them 500 messages through the Ghost Protocol,
-and prints binary sizes, the time `ghostd status` takes, ghostd's memory at
-rest, at its peak and a minute after, CPU seconds per 100 messages, and how
-much journal and derived memory each message leaves. It needs Python 3 and
-nothing else: no network, no key, no container. `--desk` measures the
-desktop app at rest as well. Each run is added to `bench/overhead.tsv`,
-which stays on your machine; give the numbers before and after in the pull
-request.
+No test needs a network, an account or a running agent. If yours does, it
+is not a test: see below.
 
 ## How a change gets in
 
@@ -51,15 +40,14 @@ type(scope): what changed, in plain words
 
 - **type**, exactly one: `feat`, `fix`, `perf`, `refactor`, `docs`, `style`,
   `test`, `bench`, `build`, `ci`, `chore`, `revert`.
-- **scope**, optional: the crate without its `ghost-` prefix (`core`,
-  `brain`, `net`, `work`, `mind`, `protocol`, `link`, `ghostd`, `desk`, `term`,
-  `telegram`, `discord`, `onebot`, `x`), or `presence`, `deploy`,
-  `repo`, `deps`, `readme`, `assets`. A change across two is `feat(work, mind): …`.
+- **scope**, optional: `acp`, `registry`, `thread`, `sidebar`, `aside`,
+  `settings`, `ui`, or `repo`, `deps`, `readme`, `assets`. A change across
+  two is `feat(acp, thread): …`.
 - 72 characters at most, no full stop at the end.
 - Say what is now true, not what you did: "a stalled answer no longer holds
   a run past its time", not "fix timeout bug".
 - `!` after the scope, and a `BREAKING CHANGE:` footer, for a change someone
-  running a ghost has to act on.
+  using Ghost has to act on.
 
 The body says why. What the code does is in the diff; what made you write it
 is not. If something was measured, give the number.
@@ -69,35 +57,24 @@ request title.
 
 ## What will not be merged
 
-- **A change to what is already written in a journal.** The journal is a
-  forever format. Events gain variants and optional fields; they never lose
-  one, rename one or change what one means. `ghost-core` has a test that
-  reads journals as every earlier version wrote them; a new event adds a
-  line to its fixtures.
-- **Anything that rewrites her journal**, keeps someone coming back, or lets
-  her pass as human. See [CHARTER.md](CHARTER.md).
-- **A secret in a tracked file.** Keys come from the environment or the
-  ignored `.env`, in code, in tests and in examples.
+- **An agent of Ghost's own.** Ghost runs other agents; it has no model
+  client, no prompts and no tools to give them.
+- **A second copy of what the protocol or the registry says.** Wire shapes
+  are the ACP schema crate's; the list of agents is the registry's.
+- **A secret in a tracked file**, or Ghost reading an agent's credentials.
 - **Tests that only show the code runs.** A test here says something that
   would be false if the behaviour were wrong, in words a person can read:
   look at the names of the ones that are there.
-- **Claims about a platform nobody ran it on.** An adapter's README says
-  exactly how far it was tested. Keep it true.
+- **Claims about an agent nobody ran it with.** Say which agents a change
+  was run against, and how far.
 
 ## Code
 
 - `cargo fmt`, and clippy's pedantic lints with the exceptions listed in
   `Cargo.toml`. An `#[allow]` carries a reason.
 - Comments say why, or what would surprise. They are sentences.
-- A crate knows as little as it can: `ghost-brain` does not know what a ghost
-  is, `ghostd` does not know what Telegram is. If a change needs one to learn
-  about another, say so in the pull request.
-- Prompts are code. They all live in [`prompts/`](prompts/README.md):
-  `system/` for how Ghost works, `character/` for how a character's own
-  `ghost.toml` is turned into prose. A change to one is tested like any
-  other, and a request recorded in a test's fixtures must not change unless
-  the wording was meant to. None of them is about a particular character:
-  that is her `ghost.toml`.
+- Everything that waits (a process, a download, an answer) runs off the
+  window's thread and comes back as a `hub::Msg`.
 
 ## Written by a model
 

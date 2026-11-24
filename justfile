@@ -14,15 +14,15 @@ fmt-check:
 
 # Lints, with warnings as errors.
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --all-targets -- -D warnings
 
-# Every test. None of them needs a network, a key or a container.
+# Every test. None of them needs a network, an account or an agent.
 test:
-    cargo test --workspace
+    cargo test
 
 # The documentation builds, and every link in it resolves.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 # Licences, advisories and sources of every dependency (needs cargo-deny).
 deny:
@@ -32,14 +32,10 @@ deny:
 typos:
     typos
 
-# Builds with the oldest compiler the code promises to build with.
-msrv:
-    cargo +1.89 check --workspace --all-targets
-
 # Format, and apply the lint fixes that can be applied mechanically.
 fix:
     cargo fmt --all
-    cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged
+    cargo clippy --all-targets --fix --allow-dirty --allow-staged
 
 # Check a commit subject or a pull request title.
 subject title:
@@ -50,12 +46,6 @@ hooks:
     ln -sf ../../scripts/commit-msg .git/hooks/commit-msg
     @echo "commit subjects are now checked by scripts/check-subject.sh"
 
-# What running costs: memory, CPU, disk and start-up, against a fake brain on
-# this machine. Takes `-n 2000`, `--settle 120`, `--desk`; see the script.
-overhead *args:
-    cargo build --release -p ghostd -p ghost-qqbot -p ghost-term
-    python3 scripts/overhead.py {{args}}
-
-# Run her from a directory, with the example configuration unless you have your own.
-run dir config="ghostd.toml":
-    cargo run --release -p ghostd -- run {{dir}} --config {{config}}
+# Ghost.app, signed, in target/release.
+bundle:
+    ./bundle.sh

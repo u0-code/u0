@@ -1,18 +1,12 @@
 /target
-*.db
-*.db-wal
-*.db-shm
-/ghosts/*
-!/ghosts/_template
 .env
 .DS_Store
-/ghostd.toml
 .claude/
-# Local runtime scripts.
-/run
 # Design documents and write-ups stay on the machine they were written on.
-# Only READMEs are published.
 /docs/
-# How the work loop compares with other agents is measured locally, not
-# published.
+# Left on this machine from before Ghost was an agent manager: a character's
+# journal and its runs. Not part of the app; move them away when done.
+/ghosts/
+/run
 /bench/
+/ghostd.toml
