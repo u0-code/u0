@@ -92,7 +92,7 @@ impl Desk {
         };
         let enabled = self.settings.enabled.iter().any(|e| e == id);
         let stage = self.slot(id).map_or_else(
-            || Slot::new(entry.clone(), &self.home).stage,
+            || Slot::new(entry.clone(), &self.home, None).stage,
             |s| s.stage.clone(),
         );
         let name = self.name_of(id);
@@ -404,7 +404,117 @@ impl Desk {
                         .text_color(theme::coral())
                         .child(why)
                 }))
-                .child(actions),
+                .child(actions)
+                .child(self.agent_own(faces, id, &stage, cx)),
         )
+    }
+
+    /// What you set for an agent: a command line of your own that starts
+    /// it, and model ids of your own beside those it lists; and a warning
+    /// where it speaks another version of ACP than Ghost.
+    fn agent_own(&self, faces: &Faces, id: &str, stage: &Stage, cx: &mut Context<Self>) -> Div {
+        let field = |input: gpui::Entity<crate::input::TextInput>| {
+            div()
+                .flex()
+                .items_center()
+                .flex_1()
+                .h(px(32.))
+                .px(px(8.))
+                .rounded(px(8.))
+                .bg(theme::well())
+                .border_1()
+                .border_color(theme::border2())
+                .child(div().flex_1().child(input))
+        };
+        let (a, b) = (id.to_owned(), id.to_owned());
+        let mut own = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(ui::label(faces, "Your own"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(field(self.agent_command.clone()))
+                    .child(
+                        ui::button(faces, "save-command", "Use this command", Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
+                    ),
+            )
+            .child(fine(
+                faces,
+                match self.settings.commands.get(id) {
+                    Some(c) => format!("Started with `{c}`; clear it to go back to the registry's way."),
+                    None => "A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output.".to_owned(),
+                },
+            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(field(self.agent_model.clone()))
+                    .child(
+                        ui::button(faces, "add-model", "Add a model", Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, _, cx| this.add_model(&b, cx))),
+                    ),
+            );
+        let mut models = div().flex().flex_wrap().gap(px(6.));
+        for (n, m) in self
+            .settings
+            .models
+            .get(id)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let (agent, model) = (id.to_owned(), m.clone());
+            models = models.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .h(px(24.))
+                    .pl(px(8.))
+                    .pr(px(2.))
+                    .rounded(px(7.))
+                    .border_1()
+                    .border_color(theme::tag_line())
+                    .child(ui::mono(faces, m.clone()).text_size(px(12.)))
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("drop-model-{n}")),
+                            "x",
+                            "Take it out",
+                        )
+                        .size(px(18.))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.drop_model(&agent, &model, cx)),
+                        ),
+                    ),
+            );
+        }
+        own = own.child(models).child(fine(
+            faces,
+            "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
+        ));
+        // The version of ACP it speaks, where it is not Ghost's.
+        if let Stage::Running { init, .. } = stage
+            && init.protocol_version != agent_client_protocol_schema::ProtocolVersion::V1
+        {
+            own = own.child(
+                fine(
+                    faces,
+                    format!(
+                        "It speaks ACP version {:?}; Ghost speaks version 1. Some of what it says may not show.",
+                        init.protocol_version
+                    ),
+                )
+                .text_color(theme::coral()),
+            );
+        }
+        own
     }
 }

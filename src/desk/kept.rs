@@ -151,27 +151,33 @@ impl Desk {
             .map(|s| s.entry.id.clone())
             .collect();
         for agent in idle {
-            let keys: Vec<u64> = self
-                .sessions
-                .iter()
-                .filter(|s| s.agent == agent && s.id.is_some())
-                .map(|s| s.key)
-                .collect();
-            for key in keys {
-                self.flush(key);
-                if let Some(s) = self.session_mut(key)
-                    && s.state == crate::session::State::Idle
-                {
-                    s.state = crate::session::State::Closed;
-                    s.recorded = true;
-                }
-            }
-            if let Some(slot) = self.slot_mut(&agent) {
-                slot.stage = crate::hub::Stage::Ready;
-            }
+            self.let_go(&agent);
             tracing::info!("{agent} was idle and is let go");
         }
         cx.notify();
+    }
+
+    /// Let go of `agent`'s process: its sessions' records are written and
+    /// they close, to be resumed when one is written in.
+    pub(crate) fn let_go(&mut self, agent: &str) {
+        let keys: Vec<u64> = self
+            .sessions
+            .iter()
+            .filter(|s| s.agent == agent && s.id.is_some())
+            .map(|s| s.key)
+            .collect();
+        for key in keys {
+            self.flush(key);
+            if let Some(s) = self.session_mut(key)
+                && s.state == crate::session::State::Idle
+            {
+                s.state = crate::session::State::Closed;
+                s.recorded = true;
+            }
+        }
+        if let Some(slot) = self.slot_mut(agent) {
+            slot.stage = crate::hub::Stage::Ready;
+        }
     }
 
     /// Keep everything as the app quits.

@@ -28,7 +28,7 @@ impl Desk {
             _ => None,
         });
         let running = running.clone();
-        let launch = slot.entry.launch(&self.home);
+        let launch = slot.launch(&self.home);
         if let Some(t) = terminal {
             // A login typed in a terminal: once it is done there, opening
             // the session is tried again from its card.
@@ -117,14 +117,8 @@ impl Desk {
                 // running keeps running as it is.
                 for slot in &mut self.slots {
                     if let Some(e) = self.registry.agents.iter().find(|e| e.id == slot.entry.id) {
-                        let stage = match &slot.stage {
-                            Stage::Missing(_) | Stage::Ready | Stage::Failed(_) => {
-                                Slot::new(e.clone(), &self.home).stage
-                            }
-                            other => other.clone(),
-                        };
                         slot.entry = e.clone();
-                        slot.stage = stage;
+                        slot.restage(&self.home);
                     }
                 }
                 self.fill_slots();
@@ -139,10 +133,15 @@ impl Desk {
             Msg::Installed { agent, result } => {
                 let home = self.home.clone();
                 if let Some(slot) = self.slot_mut(&agent) {
-                    slot.stage = match result {
-                        Err(why) if why != crate::registry::CANCELLED => Stage::Failed(why),
-                        _ => Slot::new(slot.entry.clone(), &home).stage,
-                    };
+                    match result {
+                        Err(why) if why != crate::registry::CANCELLED => {
+                            slot.stage = Stage::Failed(why);
+                        }
+                        _ => {
+                            slot.stage = Stage::Ready;
+                            slot.restage(&home);
+                        }
+                    }
                 }
                 self.start_ready();
             }

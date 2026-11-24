@@ -156,9 +156,17 @@ impl Desk {
         let mut options: Vec<_> = s.options.iter().collect();
         options.sort_by_key(rank);
         for option in options {
-            let Some((mut current, choices)) = select_choices(&option.kind) else {
+            let Some((mut current, mut choices)) = select_choices(&option.kind) else {
                 continue;
             };
+            // Model ids of yours, beside those the agent lists.
+            if option.category == Some(SessionConfigOptionCategory::Model) {
+                for m in self.settings.models.get(&s.agent).into_iter().flatten() {
+                    if !choices.iter().any(|(v, _, _)| v == m) {
+                        choices.push((m.clone(), m.clone(), false));
+                    }
+                }
+            }
             // One outside the usual three says what it is: "Fast mode: Off".
             if rank(&option) == 3 {
                 current = format!("{}: {current}", option.name);

@@ -255,6 +255,8 @@ pub struct Slot {
     pub used: std::time::Instant,
     /// The commands its sessions take, as the probe's session listed them.
     pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
+    /// A command line of yours that starts it instead of the registry's.
+    pub command: Option<String>,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -277,18 +279,39 @@ pub enum Auth {
 
 impl Slot {
     /// A slot for `entry`, ready or missing what it needs.
-    pub fn new(entry: Entry, home: &std::path::Path) -> Self {
-        let stage = match entry.launch(home) {
+    pub fn new(entry: Entry, home: &std::path::Path, command: Option<String>) -> Self {
+        let stage = match registry::launch_with(&entry, home, command.as_deref()) {
             Ok(_) => Stage::Ready,
             Err(m) => Stage::Missing(m),
         };
         Self {
+            command,
             entry,
             stage,
             probe: None,
             auth: Auth::Unknown,
             used: std::time::Instant::now(),
             commands: Vec::new(),
+        }
+    }
+
+    /// How to start it: your command line where you gave one, else the
+    /// registry's way.
+    pub fn launch(&self, home: &std::path::Path) -> Result<acp::Launch, Missing> {
+        registry::launch_with(&self.entry, home, self.command.as_deref())
+    }
+
+    /// Where it stands now that it can (or cannot) be started; one running
+    /// or on its way is left as it is.
+    pub fn restage(&mut self, home: &std::path::Path) {
+        if matches!(
+            self.stage,
+            Stage::Missing(_) | Stage::Ready | Stage::Failed(_)
+        ) {
+            self.stage = match self.launch(home) {
+                Ok(_) => Stage::Ready,
+                Err(m) => Stage::Missing(m),
+            };
         }
     }
 
@@ -359,10 +382,11 @@ pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
     });
 }
 
-/// Start `entry`'s program and say hello to it.
-pub fn start(entry: &Entry, home: &std::path::Path, tx: Sender) {
+/// Start `slot`'s program and say hello to it.
+pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
+    let entry = &slot.entry;
     let agent = entry.id.clone();
-    let launch = match entry.launch(home) {
+    let launch = match slot.launch(home) {
         Ok(l) => l,
         Err(m) => {
             let _ = tx.send(Msg::Started {

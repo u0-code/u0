@@ -118,6 +118,8 @@ pub enum Missing {
     Download,
     /// It runs through `runner`, which is not installed.
     Runner(&'static str),
+    /// Your command for it names a program that is not here.
+    Command(String),
     /// The registry has nothing for this platform.
     Unsupported,
 }
@@ -138,6 +140,9 @@ impl Missing {
                 )
             }
             Self::Unsupported => format!("{name} has no build for {}.", platform()),
+            Self::Command(program) => {
+                format!("{name} is started with your command, and `{program}` is not on this Mac.")
+            }
         }
     }
 }
@@ -267,6 +272,59 @@ impl Entry {
             Way::None => Err(Missing::Unsupported),
         }
     }
+}
+
+/// How to start `entry`: `command` (a line of yours: a program, a path or
+/// a name on the PATH, and its arguments) where there is one, else the
+/// registry's way.
+pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<Launch, Missing> {
+    let Some(line) = command.map(str::trim).filter(|c| !c.is_empty()) else {
+        return entry.launch(home);
+    };
+    let mut words = words(line).into_iter();
+    let first = words.next().unwrap_or_default();
+    let program = if first.contains('/') {
+        Some(PathBuf::from(&first)).filter(|p| p.is_file())
+    } else {
+        which(&first)
+    }
+    .ok_or(Missing::Command(first))?;
+    Ok(Launch {
+        program,
+        args: words.collect(),
+        env: Vec::new(),
+        dir: None,
+    })
+}
+
+/// A command line split into words as a shell splits it: on spaces, but
+/// not within quotes.
+fn words(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+    let mut any = false;
+    for c in line.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => word.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                any = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if any || !word.is_empty() {
+                    out.push(std::mem::take(&mut word));
+                }
+                any = false;
+            }
+            (None, c) => word.push(c),
+        }
+    }
+    if any || !word.is_empty() {
+        out.push(word);
+    }
+    out
 }
 
 /// A program by name on the PATH.
@@ -566,5 +624,22 @@ mod tests {
         assert_eq!(got, Err(CANCELLED.to_owned()));
         assert!(e.installed(&home).is_none());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_command_of_yours_is_split_as_a_shell_splits_it_and_must_be_here() {
+        assert_eq!(
+            words(r#"agent --flag "two words" 'x y'"#),
+            ["agent", "--flag", "two words", "x y"]
+        );
+        let e = entry(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#);
+        let home = Path::new("/nowhere");
+        assert_eq!(
+            launch_with(&e, home, Some("no-such-program-here --acp")),
+            Err(Missing::Command("no-such-program-here".into()))
+        );
+        let l = launch_with(&e, home, Some("sh -c 'exit 0'")).unwrap();
+        assert!(l.program.ends_with("sh"));
+        assert_eq!(l.args, ["-c", "exit 0"]);
     }
 }

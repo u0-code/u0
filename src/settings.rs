@@ -49,6 +49,13 @@ pub struct Settings {
     /// archived, the agent and the way of working its new sessions take.
     #[serde(default)]
     pub prefs: std::collections::BTreeMap<PathBuf, Prefs>,
+    /// A command line of yours that starts an agent, by its id, instead of
+    /// the registry's way: your own build, a version manager's.
+    #[serde(default)]
+    pub commands: std::collections::BTreeMap<String, String>,
+    /// Model ids of your own, by agent, offered beside those it lists.
+    #[serde(default)]
+    pub models: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// What you set for one project.
@@ -80,6 +87,8 @@ impl Default for Settings {
             by_status: false,
             only: None,
             prefs: std::collections::BTreeMap::new(),
+            commands: std::collections::BTreeMap::new(),
+            models: std::collections::BTreeMap::new(),
         }
     }
 }

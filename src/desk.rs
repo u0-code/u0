@@ -27,6 +27,7 @@ use gpui::{
 use tokio::sync::mpsc;
 use tracing::warn;
 
+mod agents;
 mod gitview;
 mod kept;
 mod lists;
@@ -157,8 +158,10 @@ pub struct Desk {
     pub runs: Vec<runs::Run>,
     pub drawer: bool,
     pub command: Entity<TextInput>,
-    /// Minutes counted, for what is read every other one.
+    /// Minutes counted, for what is read every other one, or checked every
+    /// five.
     pub pr_tick: u32,
+    pub health_tick: u32,
     /// A file's diff side by side (the column widens), and what you say of
     /// its lines: the line being commented on, the line to write it in, and
     /// those said, waiting to go to the agent.
@@ -166,6 +169,10 @@ pub struct Desk {
     pub commenting: Option<(PathBuf, usize)>,
     pub comment: Entity<TextInput>,
     pub comments: Vec<(PathBuf, usize, String)>,
+    /// On an agent's page: the command of yours that starts it, a model id
+    /// to add.
+    pub agent_command: Entity<TextInput>,
+    pub agent_model: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -291,6 +298,12 @@ impl Desk {
             this.add_comment(text, cx);
         })
         .detach();
+        let agent_command = cx.new(|cx| {
+            TextInput::new(cx, "/path/to/agent --acp")
+                .padded(4.)
+                .keeping()
+        });
+        let agent_model = cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping());
         let command = cx.new(|cx| TextInput::new(cx, "A command to run here").padded(4.));
         cx.subscribe(&command, |this, _, Submitted(text), cx| {
             this.run_typed(text, cx);
@@ -384,6 +397,7 @@ impl Desk {
                     .update(cx, |this, cx| {
                         this.release_idle(cx);
                         this.poll_prs();
+                        this.check_agents();
                     })
                     .is_err()
                 {
@@ -418,8 +432,11 @@ impl Desk {
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
             runs: Vec::new(),
+            agent_command,
+            agent_model,
             side_by_side: false,
             pr_tick: 0,
+            health_tick: 0,
             commenting: None,
             comment,
             comments: Vec::new(),
@@ -486,7 +503,11 @@ impl Desk {
             if let Some(at) = old.iter().position(|s| &s.entry.id == id) {
                 self.slots.push(old.remove(at));
             } else if let Some(entry) = self.entry(id) {
-                self.slots.push(Slot::new(entry.clone(), &self.home));
+                self.slots.push(Slot::new(
+                    entry.clone(),
+                    &self.home,
+                    self.settings.commands.get(id).cloned(),
+                ));
             }
         }
         self.start_ready();
@@ -499,7 +520,7 @@ impl Desk {
         for slot in &mut self.slots {
             if matches!(slot.stage, Stage::Ready) {
                 slot.stage = Stage::Starting;
-                hub::start(&slot.entry, &home, self.tx.clone());
+                hub::start(slot, &home, self.tx.clone());
             }
         }
     }
@@ -1132,7 +1153,7 @@ impl Desk {
             Stage::Starting => {}
             _ => {
                 slot.stage = Stage::Starting;
-                hub::start(&slot.entry, &home, tx);
+                hub::start(slot, &home, tx);
             }
         }
     }
@@ -1302,6 +1323,12 @@ impl Desk {
     }
 
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        // An agent's page shows the command of yours that starts it.
+        if let Page::Agent(id) = &page {
+            let c = self.settings.commands.get(id).cloned().unwrap_or_default();
+            self.agent_command.update(cx, |i, cx| i.set_text(&c, cx));
+            self.agent_model.update(cx, |i, cx| i.set_text("", cx));
+        }
         self.page = page;
         self.popup = Popup::Closed;
         cx.notify();
@@ -1359,7 +1386,8 @@ impl Desk {
                             slot.stage = Stage::Failed(why);
                         }
                     } else if let Some(slot) = this.slot_mut(&id) {
-                        *slot = Slot::new(entry.clone(), &home);
+                        slot.stage = Stage::Ready;
+                        slot.restage(&home);
                     }
                     cx.notify();
                 });
@@ -1372,7 +1400,8 @@ impl Desk {
     pub fn recheck(&mut self, id: &str, cx: &mut Context<Self>) {
         let home = self.home.clone();
         if let Some(slot) = self.slot_mut(id) {
-            *slot = Slot::new(slot.entry.clone(), &home);
+            slot.stage = Stage::Ready;
+            slot.restage(&home);
         }
         cx.notify();
     }
