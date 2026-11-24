@@ -110,6 +110,8 @@ pub enum Popup {
     Branch,
     /// The project the sidebar shows, when it lists by status.
     Only,
+    /// The project a session begun from the start goes in.
+    StartIn,
 }
 
 /// Which side columns show.
@@ -212,6 +214,8 @@ pub struct Desk {
     next_key: u64,
     pub page: Page,
     pub popup: Popup,
+    /// The project chosen on the start, for a session begun there.
+    pub start_in: Option<PathBuf>,
     pub panes: Panes,
     pub input: Entity<TextInput>,
     /// Cards and lines opened in the thread, by key.
@@ -523,6 +527,7 @@ impl Desk {
             next_key: 1,
             page: Page::Thread,
             popup: Popup::Closed,
+            start_in: None,
             panes: Panes {
                 left: true,
                 right: true,
@@ -776,10 +781,11 @@ impl Desk {
     }
 
     /// The project a new session starts in: that of the session on
-    /// screen, else the first, else home.
+    /// screen, else the one chosen on the start, else the first, else home.
     pub fn project(&self) -> PathBuf {
         self.session()
             .map(|s| s.project.clone())
+            .or_else(|| self.start_in.clone())
             .or_else(|| self.settings.folders.first().cloned())
             .unwrap_or_else(|| {
                 std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)

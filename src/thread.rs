@@ -14,6 +14,7 @@ pub mod drawn;
 mod fold;
 pub mod kinds;
 mod lines;
+mod start;
 
 pub use lines::Line;
 pub mod output;
@@ -373,7 +374,7 @@ impl Desk {
         }
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         match self.session() {
-            None => col = col.child(self.empty(faces, cx)),
+            None => col = col.child(self.start(faces, column, cx)),
             Some(s) => col = col.child(Self::fresh(faces, s, &self.name_of(&s.agent), cx)),
         }
         div()
@@ -403,59 +404,6 @@ impl Desk {
             .mb(px(12.))
             .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
             .child(meta(faces, parts.join(" · ")))
-    }
-
-    /// The thread with nothing on it: the agents to begin with.
-    fn empty(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut agents = div().flex().flex_wrap().gap(px(8.)).justify_center();
-        for slot in &self.slots {
-            let id = slot.entry.id.clone();
-            let name = self.name_of(&id);
-            agents = agents.child(
-                div()
-                    .id(SharedString::from(format!("start-{id}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .h(px(34.))
-                    .px(px(12.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(theme::border2())
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mark(faces, &Mark::of(&id, &name), 16.))
-                    .child(
-                        ui::text(faces, name)
-                            .text_size(px(13.))
-                            .weight(gpui::FontWeight::MEDIUM),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.new_session(&id, this.project(), window, cx);
-                    })),
-            );
-        }
-        div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(14.))
-            .mt(px(140.))
-            .child(
-                ui::text(faces, "What should we work on?")
-                    .text_size(px(22.))
-                    .line_height(px(30.))
-                    .weight(gpui::FontWeight::SEMIBOLD),
-            )
-            .child(
-                ui::text(
-                    faces,
-                    "Pick an agent. Each works with its own tools and its own sign-in; Ghost shows them all the same way.",
-                )
-                .text_size(px(14.))
-                .text_color(theme::text2()),
-            )
-            .child(agents.mt(px(10.)))
     }
 
     /// A session begun, before anything is said: where it will work.
