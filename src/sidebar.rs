@@ -675,8 +675,8 @@ impl Desk {
         // or state, the unread dot, the pin, the pull request's number.
         #[allow(clippy::cast_precision_loss, reason = "a width in points")]
         let room = LEFT
-            - 104.
-            - ui::fit(&when, 40).chars().count() as f32 * 6.5
+            - 108.
+            - (ui::fit(&when, 40).chars().count() as f32 * 7.5).max(30.)
             - if s.flags.unread && !on { 12. } else { 0. }
             - if s.flags.pinned.is_some() { 18. } else { 0. }
             - if s.pr.is_some() { 36. } else { 0. };

@@ -315,6 +315,8 @@ pub fn fit(text: &str, cols: usize) -> String {
         used += width(g);
         out.push_str(g);
     }
+    // Not a space and then the ellipsis.
+    let mut out = out.trim_end().to_owned();
     out.push('…');
     out
 }
@@ -447,6 +449,7 @@ mod tests {
         assert_eq!(fit("abcdefghijkl", 6), "abcde…");
         assert_eq!(fit("一二三四五六", 7), "一二三…");
         assert_eq!(fit("一二三", 6), "一二三");
+        assert_eq!(fit("ab cd", 4), "ab…");
         assert_eq!(fit("短 的\n句子", 10), "短 的 句子");
     }
 
