@@ -181,6 +181,31 @@ fn scratch_index(dir: &Path) -> Result<PathBuf, String> {
 /// The files of `dir` as they are now, ignored files left out, written as a
 /// commit kept under `refs/ghost/checkpoints/<name>`; its id.
 pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
+    let commit = snapshot(dir, name)?;
+    git(
+        dir,
+        &["update-ref", &format!("{REFS}/{name}"), &commit],
+        None,
+    )?;
+    Ok(commit)
+}
+
+/// What is not committed in `dir`, untracked files with it, against the
+/// commit it is on: read through a commit no ref keeps, so your index is
+/// left alone.
+pub fn uncommitted(dir: &Path) -> Result<Vec<FileDiff>, String> {
+    let now = snapshot(dir, "uncommitted")?;
+    let base = git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None)
+        .unwrap_or_else(|_| EMPTY_TREE.to_owned());
+    diff(dir, &base, &now)
+}
+
+/// The tree git gives a repository with nothing in it.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// The files of `dir` as they are now, ignored files left out, written as a
+/// commit on the one it is on; its id.
+fn snapshot(dir: &Path, name: &str) -> Result<String, String> {
     let index = scratch_index(dir)?;
     let result = (|| {
         let head = git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None).ok();
@@ -193,13 +218,7 @@ pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
         if let Some(h) = &head {
             args.extend(["-p", h.as_str()]);
         }
-        let commit = git(dir, &args, None)?;
-        git(
-            dir,
-            &["update-ref", &format!("{REFS}/{name}"), &commit],
-            None,
-        )?;
-        Ok(commit)
+        git(dir, &args, None)
     })();
     let _ = std::fs::remove_file(&index);
     result
@@ -443,6 +462,23 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn what_is_not_committed_is_read_with_new_files_and_no_ref_or_index_touched() {
+        let dir = repo("uncommitted");
+        std::fs::write(dir.join("a.txt"), "one\n2\nthree\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        let files = uncommitted(&dir).unwrap();
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["a.txt", "b.txt"]);
+        assert_eq!(
+            git(&dir, &["diff", "--cached", "--name-only"], None).unwrap(),
+            ""
+        );
+        assert_eq!(git(&dir, &["for-each-ref", REFS], None).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

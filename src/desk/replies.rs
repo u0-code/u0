@@ -150,6 +150,18 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Loaded { key, result } => self.loaded(key, result),
+            Msg::Uncommitted { key, result } => {
+                if let Some(s) = self.session_mut(key)
+                    && s.turns.is_empty()
+                {
+                    match result {
+                        Ok(files) => s.total = Some(files),
+                        Err(why) => {
+                            tracing::warn!("what is not committed could not be read: {why}");
+                        }
+                    }
+                }
+            }
             Msg::Deleted { key, result } => match result {
                 Ok(()) => self.forget_session(key, cx),
                 Err(why) => {
@@ -331,6 +343,7 @@ impl Desk {
         >,
     ) {
         let under = self.home.join("worktrees");
+        let tx = self.tx.clone();
         let Some(s) = self.session_mut(key) else {
             return;
         };
@@ -350,6 +363,9 @@ impl Desk {
                         path: s.folder.clone(),
                         branch,
                     });
+                }
+                if s.repo {
+                    hub::uncommitted(s.folder.clone(), key, tx);
                 }
                 if let Some(text) = s.pending.take() {
                     s.said(&text);

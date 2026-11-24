@@ -285,9 +285,14 @@ impl Desk {
 
     /// The changes as git reads them between the session's checkpoints:
     /// all of them or one turn's, each file with how it changed; then what
-    /// can be done with them. `None` before git has read anything.
+    /// can be done with them. A session loaded, with no turn taken here
+    /// yet, shows what is not committed. `None` before git has read
+    /// anything.
     fn git_changes(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
-        let last = s.turns.iter().rposition(|t| t.diff.is_some())?;
+        let last = s.turns.iter().rposition(|t| t.diff.is_some());
+        if last.is_none() && s.total.is_none() {
+            return None;
+        }
         let files = self.scoped(s).cloned().unwrap_or_default();
         let (added, gone) = files
             .iter()
@@ -311,7 +316,7 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to, cx)))
         };
         let turn = match self.scope {
-            Scope::Turn(n) => n,
+            Scope::Turn(n) => Some(n),
             Scope::All => last,
         };
         let mut sec = section(
@@ -326,16 +331,18 @@ impl Desk {
                 .ml(px(-7.))
                 .child(scope_tab(
                     "scope-all",
-                    "All".into(),
+                    if last.is_some() { "All" } else { "Uncommitted" }.into(),
                     self.scope == Scope::All,
                     Scope::All,
                 ))
-                .child(scope_tab(
-                    "scope-turn",
-                    format!("Turn {}", turn + 1),
-                    self.scope != Scope::All,
-                    Scope::Turn(turn),
-                )),
+                .children(turn.map(|turn| {
+                    scope_tab(
+                        "scope-turn",
+                        format!("Turn {}", turn + 1),
+                        self.scope != Scope::All,
+                        Scope::Turn(turn),
+                    )
+                })),
         );
         if files.is_empty() {
             sec = sec.child(empty(faces, "Nothing changed here."));

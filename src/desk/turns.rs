@@ -270,10 +270,16 @@ impl Desk {
         action: &hub::GitAction,
         result: Result<String, String>,
     ) {
+        let tx = self.tx.clone();
         let Some(s) = self.session_mut(key) else {
             return;
         };
         let removed = matches!(action, hub::GitAction::RemoveWorktree(_)) && result.is_ok();
+        // With no turn of its own taken here, what it shows is what is
+        // not committed: read again after a commit.
+        if s.turns.is_empty() && s.repo && !removed {
+            hub::uncommitted(s.folder.clone(), key, tx);
+        }
         s.git_note = Some(match result {
             Ok(text) => {
                 let url = text.starts_with("https://").then(|| text.clone());

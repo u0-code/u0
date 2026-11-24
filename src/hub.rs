@@ -66,6 +66,11 @@ pub enum Msg {
         key: u64,
         result: Result<Box<LoadSessionResponse>, Failure>,
     },
+    /// What is not committed where a session works, as git reads it.
+    Uncommitted {
+        key: u64,
+        result: Result<Vec<git::FileDiff>, String>,
+    },
     /// A session was deleted from its agent, or could not be.
     Deleted {
         key: u64,
@@ -346,6 +351,16 @@ pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sen
             .await
             .map(Box::new);
         let _ = tx.send(Msg::Loaded { key, result });
+    });
+}
+
+/// Read what is not committed in `dir`.
+pub fn uncommitted(dir: PathBuf, key: u64, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let _ = tx.send(Msg::Uncommitted {
+            key,
+            result: git::uncommitted(&dir),
+        });
     });
 }
 
