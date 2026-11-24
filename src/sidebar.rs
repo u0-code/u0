@@ -244,7 +244,31 @@ impl Desk {
                             .items_center()
                             .pl(px(16.))
                             .pr(px(10.))
-                            .child(ui::label(faces, "Projects").flex_1())
+                            .child(
+                                ui::label(
+                                    faces,
+                                    if self.settings.by_status {
+                                        "Sessions"
+                                    } else {
+                                        "Projects"
+                                    },
+                                )
+                                .flex_1(),
+                            )
+                            .child(
+                                ui::icon_button(
+                                    "group-by",
+                                    "list",
+                                    if self.settings.by_status {
+                                        "Group by project"
+                                    } else {
+                                        "Group by status"
+                                    },
+                                )
+                                .size(px(20.))
+                                .text_color(theme::faint())
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_grouping(cx))),
+                            )
                             .child(
                                 ui::icon_button("add-project", "plus", "Add project")
                                     .size(px(20.))
@@ -252,7 +276,12 @@ impl Desk {
                                     .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
                             ),
                     )
-                    .child(projects),
+                    .child(if self.settings.by_status {
+                        self.by_status(faces, query.as_deref(), cx)
+                            .into_any_element()
+                    } else {
+                        projects.into_any_element()
+                    }),
             )
             .when(query.is_none(), |d| {
                 d.child(
@@ -447,6 +476,18 @@ impl Desk {
             State::Draft => (String::new(), false, false),
             State::Idle | State::Closed => (when::ago(s.updated, SystemTime::now()), false, false),
         };
+        // Listed by status, a row says which project it is in.
+        let when = match s.project.file_name() {
+            Some(p) if self.settings.by_status => {
+                let p = ui::fit(&p.to_string_lossy(), 12);
+                if when.is_empty() {
+                    p
+                } else {
+                    format!("{p} · {when}")
+                }
+            }
+            _ => when,
+        };
         let agent = self
             .entry(&s.agent)
             .map_or_else(|| s.agent.clone(), |e| e.name.clone());
@@ -613,6 +654,12 @@ impl Desk {
                 );
             }
         }
+        if self.can_fork(s) && !busy {
+            menu = menu.child(
+                item(8, "branch", "Branch off a copy".into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.fork(key, cx))),
+            );
+        }
         menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
         if !busy {
             menu = menu.child(
@@ -629,6 +676,127 @@ impl Desk {
         div()
             .mt(px(4.))
             .child(ui::menu(SharedString::from(format!("session-menu-{key}"))).child(menu))
+    }
+
+    /// The sessions by where they stand: needing you, working, pinned,
+    /// recent, and done (folded); in one project, or in all.
+    fn by_status(&self, faces: &Faces, query: Option<&str>, cx: &mut Context<Self>) -> Div {
+        let mut needs = Vec::new();
+        let mut working = Vec::new();
+        let mut pinned = Vec::new();
+        let mut recent = Vec::new();
+        let mut done = Vec::new();
+        for s in self.sessions.iter().filter(|s| {
+            self.listed_now(s)
+                && query.is_none_or(|q| self.matches(s, q))
+                && self.settings.only.as_ref().is_none_or(|p| &s.project == p)
+        }) {
+            let waiting =
+                s.waiting().is_some() || matches!(s.state, State::SignIn | State::Broken(_));
+            if s.flags.settled.is_some() {
+                done.push(s);
+            } else if waiting {
+                needs.push(s);
+            } else if matches!(s.state, State::Working | State::Opening) {
+                working.push(s);
+            } else if s.flags.pinned.is_some() {
+                pinned.push(s);
+            } else {
+                recent.push(s);
+            }
+        }
+        pinned.sort_by_key(|s| s.flags.pinned);
+        recent.sort_by_key(|s| (s.flags.order, s.key));
+        done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
+        let only = self.settings.only.as_ref().map_or_else(
+            || "All projects".to_owned(),
+            |p| {
+                p.file_name()
+                    .map_or_else(|| Desk::shown(p), |n| n.to_string_lossy().into_owned())
+            },
+        );
+        let filter_open = self.popup == Popup::Only;
+        let mut filter = div().relative().child(
+            session_shell("only-project", false)
+                .pl(px(8.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                .child(
+                    ui::text(faces, only)
+                        .flex_1()
+                        .text_size(px(12.5))
+                        .text_color(theme::text2()),
+                )
+                .child(ui::icon("chevron-down", 12.).text_color(theme::faint()))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Only, cx))),
+        );
+        if filter_open {
+            let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
+            let choices = std::iter::once(None).chain(self.projects().into_iter().map(Some));
+            for (n, p) in choices.enumerate() {
+                let label = p.as_ref().map_or_else(
+                    || "All projects".to_owned(),
+                    |p| {
+                        p.file_name()
+                            .map_or_else(|| Desk::shown(p), |n| n.to_string_lossy().into_owned())
+                    },
+                );
+                let on = self.settings.only == p;
+                menu = menu.child(
+                    div()
+                        .id(SharedString::from(format!("only-{n}")))
+                        .flex()
+                        .items_center()
+                        .px(px(8.))
+                        .h(px(30.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .when(on, |d| d.bg(theme::panel2()))
+                        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                        .child(ui::text(faces, label).text_size(px(13.)))
+                        .on_click(cx.listener(move |this, _, _, cx| this.show_only(p.clone(), cx))),
+                );
+            }
+            filter =
+                filter
+                    .child(gpui::deferred(gpui::anchored().child(
+                        div().mt(px(30.)).child(ui::menu("only-menu").child(menu)),
+                    )));
+        }
+        let mut list = div().flex().flex_col().gap(px(2.)).px(px(8.)).child(filter);
+        for (label, sessions) in [
+            ("Needs you", needs),
+            ("Working", working),
+            ("Pinned", pinned),
+            ("Recent", recent),
+        ] {
+            if sessions.is_empty() {
+                continue;
+            }
+            list = list.child(
+                ui::text(faces, label)
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(2.))
+                    .text_size(px(11.5))
+                    .text_color(theme::faint()),
+            );
+            for s in sessions {
+                list = list.child(self.session_row(faces, s, cx));
+            }
+        }
+        if !done.is_empty() {
+            let key = "done-all".to_owned();
+            let shown = query.is_some() || self.expanded.contains(&key);
+            list = list.child(Self::shelf_row(faces, key, "Done", done.len(), shown, cx));
+            if shown {
+                for s in done {
+                    list = list.child(self.session_row(faces, s, cx));
+                }
+            }
+        }
+        list
     }
 
     /// A folded shelf under a project: its sessions done for now, or

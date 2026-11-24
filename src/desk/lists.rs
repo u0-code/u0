@@ -278,6 +278,100 @@ impl Desk {
         )
     }
 
+    /// Whether the agent of `s` can branch a session off.
+    pub fn can_fork(&self, s: &Session) -> bool {
+        s.id.is_some()
+            && matches!(self.slot(&s.agent).map(|x| &x.stage),
+                Some(hub::Stage::Running { init, .. })
+                    if init.agent_capabilities.session_capabilities.fork.is_some())
+    }
+
+    /// Branch the session `key` off into a new one with all that was said
+    /// in it, to go another way from there.
+    pub fn fork(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.popup = super::Popup::Closed;
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        if let (Some(id), Some(running)) = (
+            s.id.clone(),
+            self.slot(&s.agent).and_then(hub::Slot::running),
+        ) {
+            hub::fork(running.clone(), key, id, s.folder.clone(), self.tx.clone());
+        }
+        cx.notify();
+    }
+
+    /// The session branched off `from`: beside it, with its thread and a
+    /// copy of its record, on screen.
+    pub(crate) fn forked(
+        &mut self,
+        from: u64,
+        result: Result<
+            Box<agent_client_protocol_schema::v1::ForkSessionResponse>,
+            crate::acp::Failure,
+        >,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(origin) = self.sessions.iter().find(|s| s.key == from).cloned() else {
+            return;
+        };
+        let r = match result {
+            Ok(r) => r,
+            Err(f) => {
+                if let Some(s) = self.session_mut(from) {
+                    s.items.push(crate::session::Item::Note {
+                        text: format!("It could not be branched off: {}", f.message),
+                        trouble: true,
+                    });
+                }
+                return;
+            }
+        };
+        let key = self.take_key();
+        let mut s = Session::new(key, &origin.agent, origin.folder.clone());
+        s.project.clone_from(&origin.project);
+        s.worktree.clone_from(&origin.worktree);
+        s.items = origin.items;
+        s.plan = origin.plan;
+        s.title = format!("{} (fork)", origin.title);
+        s.renamed = true;
+        s.id = Some(r.session_id.clone());
+        s.modes = r.modes;
+        s.options = r.config_options.unwrap_or_default();
+        s.state = State::Idle;
+        if let Some(id) = &origin.id {
+            let from = store::record_path(&self.home, &origin.agent, &id.0);
+            let to = store::record_path(&self.home, &origin.agent, &r.session_id.0);
+            if let Some(dir) = to.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if std::fs::copy(&from, &to).is_ok() {
+                s.recorded = true;
+            }
+        }
+        self.sessions.push(s);
+        self.save_index();
+        self.current = Some(key);
+        self.page = super::Page::Thread;
+        cx.notify();
+    }
+
+    /// List sessions by where they stand, or by project.
+    pub fn toggle_grouping(&mut self, cx: &mut Context<Self>) {
+        self.settings.by_status = !self.settings.by_status;
+        self.save_settings();
+        cx.notify();
+    }
+
+    /// Show, by status, the sessions of `project` only, or of all.
+    pub fn show_only(&mut self, project: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
+        self.settings.only = project;
+        self.popup = super::Popup::Closed;
+        self.save_settings();
+        cx.notify();
+    }
+
     /// Search what was said in each session for what is typed in the
     /// search, a moment after typing stops.
     pub(crate) fn search_records(&mut self, cx: &mut Context<Self>) {

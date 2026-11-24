@@ -17,10 +17,11 @@ use agent_client_protocol_schema::{
     ProtocolVersion,
     v1::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
-        ContentBlock, DeleteSessionRequest, Implementation, InitializeRequest, InitializeResponse,
-        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-        LogoutRequest, NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest,
-        PromptResponse, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
+        ContentBlock, DeleteSessionRequest, ForkSessionRequest, ForkSessionResponse,
+        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
+        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutRequest,
+        NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest, PromptResponse,
+        RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
         ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
         SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionInfo, SessionModeId,
         SessionModeState, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
@@ -79,6 +80,11 @@ pub enum Msg {
     Probed {
         agent: String,
         result: Result<Box<NewSessionResponse>, Failure>,
+    },
+    /// A session branched off the session `from`, or why it was not.
+    Forked {
+        from: u64,
+        result: Result<Box<ForkSessionResponse>, Failure>,
     },
     /// The sessions whose records hold `query`.
     Found {
@@ -470,6 +476,18 @@ pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close:
             agent: name,
             result: result.map(Box::new),
         });
+    });
+}
+
+/// Branch the session `id` off into a new one, in `folder`, with all that
+/// was said in it.
+pub fn fork(agent: Arc<Agent>, from: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, ForkSessionResponse>("session/fork", ForkSessionRequest::new(id, folder))
+            .await
+            .map(Box::new);
+        let _ = tx.send(Msg::Forked { from, result });
     });
 }
 

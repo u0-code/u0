@@ -38,6 +38,13 @@ pub struct Settings {
     /// its own: the choice last made.
     #[serde(default)]
     pub worktree: bool,
+    /// Whether the sidebar lists sessions by where they stand (needing
+    /// you, working, pinned, recent, done) rather than by project.
+    #[serde(default)]
+    pub by_status: bool,
+    /// The one project the sidebar shows by status, if it shows one.
+    #[serde(default)]
+    pub only: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -46,6 +53,8 @@ impl Default for Settings {
             enabled: FIRST.iter().map(|s| (*s).to_owned()).collect(),
             folders: Vec::new(),
             worktree: false,
+            by_status: false,
+            only: None,
         }
     }
 }

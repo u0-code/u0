@@ -93,6 +93,8 @@ pub enum Popup {
     Agent,
     /// What can be done with a session in the sidebar, by key.
     Session(u64),
+    /// The project the sidebar shows, when it lists by status.
+    Only,
 }
 
 /// Which side columns show.

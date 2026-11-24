@@ -148,6 +148,7 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
+            Msg::Forked { from, result } => self.forked(from, result, cx),
             Msg::Found { query, keys } => {
                 if self.searching && self.search.read(cx).text().to_lowercase() == query {
                     self.found = keys.into_iter().collect();
