@@ -815,15 +815,65 @@ impl Desk {
         cx.notify();
     }
 
-    /// Install the agent `id` from its archive.
+    /// Install the agent `id` from its archive, or update it to the
+    /// registry's version.
     pub fn install(&mut self, id: &str, cx: &mut Context<Self>) {
         let home = self.home.clone();
         let tx = self.tx.clone();
         if let Some(slot) = self.slot_mut(id) {
-            slot.stage = Stage::Installing("Starting".into());
-            hub::install(slot.entry.clone(), home, tx);
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            slot.stage = Stage::Installing(hub::Install {
+                what: "Starting".into(),
+                share: None,
+                stop: stop.clone(),
+            });
+            hub::install(slot.entry.clone(), home, stop, tx);
         }
         cx.notify();
+    }
+
+    /// Stop the install of `id` going on; nothing of it is kept.
+    pub fn cancel_install(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(Stage::Installing(i)) = self.slot(id).map(|s| &s.stage) {
+            i.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            cx.notify();
+        }
+    }
+
+    /// Take the agent `id`'s download off this machine, once you say so;
+    /// it stops first if it is running.
+    pub fn uninstall(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.entry(id).cloned() else {
+            return;
+        };
+        let name = self.name_of(id);
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &format!("Uninstall {name}?"),
+            Some(&format!(
+                "Its download in {} is removed. Its sessions and sign-in stay with {name}, and it can be installed again.",
+                Desk::shown(&self.home.join("agents").join(id))
+            )),
+            &["Uninstall", "Cancel"],
+            cx,
+        );
+        let id = id.to_owned();
+        cx.spawn(async move |this, cx| {
+            if answer.await == Ok(0) {
+                let _ = this.update(cx, |this, cx| {
+                    let home = this.home.clone();
+                    if let Err(why) = entry.uninstall(&home) {
+                        if let Some(slot) = this.slot_mut(&id) {
+                            slot.stage = Stage::Failed(why);
+                        }
+                    } else if let Some(slot) = this.slot_mut(&id) {
+                        *slot = Slot::new(entry.clone(), &home);
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Look again for what an agent needs (a runner installed meanwhile).

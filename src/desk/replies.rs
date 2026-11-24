@@ -130,17 +130,18 @@ impl Desk {
                 self.fill_slots();
             }
             Msg::Registry(Err(why)) => self.registry_trouble = Some(why),
-            Msg::Installing { agent, stage } => {
-                if let Some(slot) = self.slot_mut(&agent) {
-                    slot.stage = Stage::Installing(stage);
+            Msg::Installing { agent, what, share } => {
+                if let Some(Stage::Installing(i)) = self.slot_mut(&agent).map(|s| &mut s.stage) {
+                    i.what = what;
+                    i.share = share;
                 }
             }
             Msg::Installed { agent, result } => {
                 let home = self.home.clone();
                 if let Some(slot) = self.slot_mut(&agent) {
                     slot.stage = match result {
-                        Ok(()) => Slot::new(slot.entry.clone(), &home).stage,
-                        Err(why) => Stage::Failed(why),
+                        Err(why) if why != crate::registry::CANCELLED => Stage::Failed(why),
+                        _ => Slot::new(slot.entry.clone(), &home).stage,
                     };
                 }
                 self.start_ready();

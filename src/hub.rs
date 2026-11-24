@@ -8,7 +8,10 @@
 //! over one channel, which the desk reads in order. What an agent says on
 //! its own comes back the same way.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use agent_client_protocol_schema::{
     ProtocolVersion,
@@ -37,7 +40,8 @@ pub enum Msg {
     Registry(Result<registry::Registry, String>),
     Installing {
         agent: String,
-        stage: String,
+        what: String,
+        share: Option<f32>,
     },
     Installed {
         agent: String,
@@ -126,7 +130,7 @@ pub enum Msg {
 pub enum Stage {
     /// It cannot be started yet.
     Missing(Missing),
-    Installing(String),
+    Installing(Install),
     /// It can be started, and is not running.
     Ready,
     Starting,
@@ -136,6 +140,15 @@ pub enum Stage {
     },
     /// It stopped, or could not be started: why.
     Failed(String),
+}
+
+/// An install going on: what it is doing, how far it is (0 to 1) when
+/// known, and the switch that stops it.
+#[derive(Clone)]
+pub struct Install {
+    pub what: String,
+    pub share: Option<f32>,
+    pub stop: Arc<AtomicBool>,
 }
 
 pub struct Slot {
@@ -189,17 +202,18 @@ pub fn fetch(home: PathBuf, tx: Sender) {
     });
 }
 
-/// Install `entry` from its archive.
-pub fn install(entry: Entry, home: PathBuf, tx: Sender) {
+/// Install `entry` from its archive, until `stop` is set.
+pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
         let agent = entry.id.clone();
-        let say = |stage: &str| {
+        let say = |what: &str, share: Option<f32>| {
             let _ = tx.send(Msg::Installing {
                 agent: agent.clone(),
-                stage: stage.to_owned(),
+                what: what.to_owned(),
+                share,
             });
         };
-        let result = registry::install(&entry, &home, &say);
+        let result = registry::install(&entry, &home, &say, &stop);
         let _ = tx.send(Msg::Installed { agent, result });
     });
 }

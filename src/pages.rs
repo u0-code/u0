@@ -138,8 +138,13 @@ impl Desk {
         } else {
             Step::Todo
         };
+        let installed = entry.installed(&self.home);
+        let update = installed.as_ref().filter(|v| **v != entry.version);
         let first_step = match entry.way() {
-            Way::Archive => format!("Download {name} {}", entry.version),
+            Way::Archive => match update {
+                Some(v) => format!("{name} {v} installed · {} available", entry.version),
+                None => format!("Download {name} {}", entry.version),
+            },
             Way::Runner { runner, .. } => format!("Fetched by {runner} on first start"),
             Way::None => "No build for this Mac".into(),
         };
@@ -162,25 +167,19 @@ impl Desk {
                     format!("{} · from the ACP registry", crate::registry::platform()),
                 )),
         );
-        if let Stage::Installing(what) = &stage {
-            let share = if what.starts_with("Downloading") {
-                0.35
-            } else if what.starts_with("Checking") {
-                0.7
-            } else {
-                0.9
-            };
+        if let Stage::Installing(install) = &stage {
+            // How far it is, when the size is known; never a guess.
             download = download
-                .child(
+                .children(install.share.map(|share| {
                     div()
                         .h(px(4.))
                         .w_full()
                         .rounded(px(2.))
                         .bg(theme::tag_line())
                         .overflow_hidden()
-                        .child(div().h_full().w(gpui::relative(share)).bg(theme::accent())),
-                )
-                .child(fine(faces, what.clone()));
+                        .child(div().h_full().w(gpui::relative(share)).bg(theme::accent()))
+                }))
+                .child(fine(faces, install.what.clone()));
         } else if let Stage::Missing(m) = &stage
             && !matches!(m, Missing::Download)
         {
@@ -240,13 +239,26 @@ impl Desk {
                 ),
             ));
 
-        let (a, b, c, d) = (id.to_owned(), id.to_owned(), id.to_owned(), id.to_owned());
+        let (install_id, recheck_id, start_id, toggle_id) =
+            (id.to_owned(), id.to_owned(), id.to_owned(), id.to_owned());
+        let (cancel_id, update_id, uninstall_id) = (id.to_owned(), id.to_owned(), id.to_owned());
+        let busy = self
+            .sessions
+            .iter()
+            .any(|s| s.agent == id && matches!(s.state, State::Working | State::Opening));
         let mut actions = div().flex().items_center().gap(px(8.));
         match &stage {
+            Stage::Installing(_) => {
+                actions = actions.child(
+                    ui::button(faces, "cancel-install", "Cancel", Weight::Secondary).on_click(
+                        cx.listener(move |this, _, _, cx| this.cancel_install(&cancel_id, cx)),
+                    ),
+                );
+            }
             Stage::Missing(Missing::Download) => {
                 actions = actions.child(
                     ui::button(faces, "install", format!("Install {name}"), Weight::Primary)
-                        .on_click(cx.listener(move |this, _, _, cx| this.install(&a, cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| this.install(&install_id, cx))),
                 );
             }
             Stage::Missing(Missing::Runner(runner)) => {
@@ -258,8 +270,9 @@ impl Desk {
                 let label = url.trim_start_matches("https://").trim_end_matches('/');
                 actions = actions
                     .child(
-                        ui::button(faces, "recheck", "Try again", Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, _, cx| this.recheck(&b, cx))),
+                        ui::button(faces, "recheck", "Try again", Weight::Secondary).on_click(
+                            cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx)),
+                        ),
                     )
                     .child(
                         ui::button(faces, "get-runner", label, Weight::Quiet)
@@ -269,19 +282,37 @@ impl Desk {
             Stage::Failed(_) => {
                 actions = actions.child(
                     ui::button(faces, "recheck", "Try again", Weight::Secondary)
-                        .on_click(cx.listener(move |this, _, _, cx| this.recheck(&b, cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx))),
                 );
             }
             _ if enabled => {
                 actions = actions.child(
                     ui::button(faces, "start", "New session", Weight::Primary).on_click(
                         cx.listener(move |this, _, window, cx| {
-                            this.new_session(&c, this.project(), window, cx);
+                            this.new_session(&start_id, this.project(), window, cx);
                         }),
                     ),
                 );
             }
             _ => {}
+        }
+        if update.is_some() && enabled && !busy && !matches!(stage, Stage::Installing(_)) {
+            actions = actions.child(
+                ui::button(
+                    faces,
+                    "update",
+                    format!("Update to {}", entry.version),
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.install(&update_id, cx))),
+            );
+        }
+        if installed.is_some() && !busy && !matches!(stage, Stage::Installing(_)) {
+            actions = actions.child(
+                ui::button(faces, "uninstall", "Uninstall", Weight::Quiet).on_click(cx.listener(
+                    move |this, _, window, cx| this.uninstall(&uninstall_id, window, cx),
+                )),
+            );
         }
         let toggle_weight = if enabled || !ready {
             Weight::Quiet
@@ -295,7 +326,7 @@ impl Desk {
                 if enabled { "Turn off" } else { "Turn on" },
                 toggle_weight,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&d, cx))),
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&toggle_id, cx))),
         );
 
         let trouble = match &stage {
