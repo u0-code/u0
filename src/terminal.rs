@@ -219,6 +219,41 @@ impl Terminal {
         (a != b).then(|| if a <= b { (a, b) } else { (b, a) })
     }
 
+    /// The cells of the word at `(row, col)`: the run of cells around it
+    /// with something other than a space in them.
+    pub fn word_at(&self, (row, col): (u16, u16)) -> ((u16, u16), (u16, u16)) {
+        let parser = self.parser();
+        let screen = parser.screen();
+        let cols = screen.size().1.get();
+        let filled = |c: u16| {
+            screen
+                .cell(row, c)
+                .is_some_and(|x| x.is_wide_continuation() || !x.contents().trim().is_empty())
+        };
+        if !filled(col) {
+            return ((row, col), (row, col));
+        }
+        let (mut from, mut to) = (col, col);
+        while from > 0 && filled(from - 1) {
+            from -= 1;
+        }
+        while to + 1 < cols && filled(to + 1) {
+            to += 1;
+        }
+        ((row, from), (row, to))
+    }
+
+    /// The address at `(row, col)`, when the word there is one.
+    pub fn link_at(&self, at: (u16, u16)) -> Option<String> {
+        let ((row, from), (_, to)) = self.word_at(at);
+        let word = self
+            .parser()
+            .screen()
+            .contents_between(row, from, row, to.saturating_add(1));
+        let word = word.trim_matches(|c: char| "()<>[]\"'`,;.".contains(c));
+        (word.starts_with("https://") || word.starts_with("http://")).then(|| word.to_owned())
+    }
+
     /// The text of the cells chosen.
     pub fn chosen_text(&self) -> Option<String> {
         let ((r0, c0), (r1, c1)) = self.chosen()?;
@@ -497,6 +532,7 @@ mod tests {
         let row = u16::try_from(row).expect("a row on the screen");
         t.selection = Some(((row, 7), (row, 0)));
         assert_eq!(t.chosen_text().as_deref(), Some("ghost-42"));
+        assert_eq!(t.word_at((row, 3)), ((row, 0), (row, 7)));
         t.send(b" ");
         assert_eq!(t.chosen(), None);
         t.resize(10, 50);

@@ -390,7 +390,20 @@ impl Desk {
                     window.focus(&this.term_focus);
                     if let Some(t) = this.terminals.iter_mut().find(|t| t.id == id) {
                         let at = Self::cell_at(t, e.position, cell);
-                        t.selection = Some((at, at));
+                        // ⌘ and a click opens an address; two clicks choose
+                        // a word, three its line.
+                        if e.modifiers.platform
+                            && let Some(url) = t.link_at(at)
+                        {
+                            cx.open_url(&url);
+                        } else {
+                            let last = t.size().1.saturating_sub(1);
+                            t.selection = Some(match e.click_count {
+                                2 => t.word_at(at),
+                                n if n >= 3 => ((at.0, 0), (at.0, last)),
+                                _ => (at, at),
+                            });
+                        }
                     }
                     cx.notify();
                 }),
