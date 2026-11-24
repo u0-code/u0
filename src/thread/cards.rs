@@ -184,7 +184,9 @@ impl Desk {
         let name = self.name_of(&s.agent);
         let body = match reason {
             StopReason::EndTurn => {
-                // The files changed since what you last said.
+                // The files changed since what you last said: the turn's
+                // git diff when the folder is a repository, which also sees
+                // what the agent wrote without telling; else its diffs.
                 let start = s.items[..i]
                     .iter()
                     .rposition(|x| matches!(x, Item::You(_)))
@@ -201,7 +203,11 @@ impl Desk {
                         }
                     }
                 }
-                let changed = match paths.len() {
+                let git = s
+                    .turn_of(i)
+                    .and_then(|t| s.turns.get(t))
+                    .and_then(|t| t.diff.as_ref());
+                let changed = match git.map_or(paths.len(), Vec::len) {
                     0 => String::new(),
                     1 => " · 1 file changed".into(),
                     n => format!(" · {n} files changed"),
