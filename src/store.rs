@@ -50,6 +50,9 @@ pub struct Meta {
     pub updated: u64,
     #[serde(default)]
     pub flags: Flags,
+    /// What you said while a turn went on, not said yet.
+    #[serde(default)]
+    pub queued: Vec<String>,
 }
 
 /// Where a session stands in your lists.

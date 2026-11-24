@@ -224,7 +224,7 @@ impl Desk {
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         } else {
             let input = self.input.clone();
-            let live = !empty && !working;
+            let live = !empty;
             button
                 .id("send")
                 .bg(if live { theme::text() } else { theme::panel2() })
@@ -236,7 +236,11 @@ impl Desk {
                 } else {
                     theme::faint()
                 }))
-                .tooltip(ui::tip("Send · Return"))
+                .tooltip(ui::tip(if working {
+                    "Queue it for when this turn ends · Return"
+                } else {
+                    "Send · Return, or ⌘Return to go on in the background"
+                }))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     input.update(cx, crate::input::TextInput::send);
                 }))
@@ -295,6 +299,130 @@ impl Desk {
             _ => None,
         };
 
+        // What was said while the turn goes on, waiting its turn: each can
+        // be said now (the turn is stopped first) or taken back to edit.
+        let queued = (!s.queued.is_empty()).then(|| {
+            let mut list = div().flex().flex_col().gap(px(4.));
+            for (n, text) in s.queued.iter().enumerate() {
+                list = list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(ui::icon("clock", 12.).text_color(theme::faint()))
+                        .child(
+                            ui::one_line(
+                                ui::text(faces, ui::fit(text, 70))
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text2()),
+                            )
+                            .flex_1(),
+                        )
+                        .child(
+                            ui::button(
+                                faces,
+                                SharedString::from(format!("steer-{n}")),
+                                "Send now",
+                                ui::Weight::Quiet,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.steer(n, cx))),
+                        )
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("unqueue-{n}")),
+                                "pencil",
+                                "Edit",
+                            )
+                            .size(px(22.))
+                            .on_click(cx.listener(move |this, _, _, cx| this.unqueue(n, cx))),
+                        ),
+                );
+            }
+            list
+        });
+
+        // A question waiting is answered here too, and a kind of call can
+        // be allowed for the rest of the session.
+        let approval = s.waiting().map(|asked| {
+            use agent_client_protocol_schema::v1::{PermissionOptionKind, ToolKind};
+            let headline = match asked.kind {
+                Some(ToolKind::Execute) => format!("{name} wants to run a command"),
+                Some(ToolKind::Edit) => format!("{name} wants to edit a file"),
+                Some(ToolKind::Delete) => format!("{name} wants to delete a file"),
+                Some(ToolKind::Fetch) => format!("{name} wants to fetch a page"),
+                _ => format!("{name} asks before it goes on"),
+            };
+            let mut buttons = div().flex().flex_wrap().items_center().gap(px(6.));
+            for (n, option) in asked.options.iter().enumerate() {
+                let weight = match option.kind {
+                    PermissionOptionKind::AllowOnce => ui::Weight::Primary,
+                    PermissionOptionKind::AllowAlways => ui::Weight::Secondary,
+                    _ => ui::Weight::Quiet,
+                };
+                let (request, chosen) = (asked.id.clone(), option.clone());
+                buttons = buttons.child(
+                    ui::button(
+                        faces,
+                        SharedString::from(format!("bar-ask-{n}")),
+                        option.name.clone(),
+                        weight,
+                    )
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.choose(&request, &chosen, cx)),
+                    ),
+                );
+            }
+            if let (Some(kind), Some(once)) = (
+                asked.kind,
+                asked
+                    .options
+                    .iter()
+                    .find(|o| o.kind == PermissionOptionKind::AllowOnce),
+            ) {
+                let (request, chosen) = (asked.id.clone(), once.clone());
+                buttons = buttons.child(
+                    ui::button(
+                        faces,
+                        "bar-ask-session",
+                        "Allow for this session",
+                        ui::Weight::Secondary,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.allow_for_session(&request, &chosen, kind, cx);
+                    })),
+                );
+            }
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .w(px(column.min(COLUMN)))
+                .mb(px(8.))
+                .px(px(14.))
+                .py(px(10.))
+                .rounded(px(12.))
+                .bg(theme::rail())
+                .border_1()
+                .border_color(theme::border2())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(ui::live_dot())
+                        .child(ui::text(faces, headline).text_size(px(13.)))
+                        .child(
+                            ui::one_line(
+                                ui::mono(faces, ui::fit(&asked.title, 60))
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text2()),
+                            )
+                            .flex_1(),
+                        ),
+                )
+                .child(buttons)
+        });
+
         div()
             .flex()
             .flex_col()
@@ -302,6 +430,7 @@ impl Desk {
             .items_center()
             .pb(px(18.))
             .children(sign_in)
+            .children(approval)
             .child(
                 div()
                     .flex()
@@ -320,6 +449,7 @@ impl Desk {
                     } else {
                         theme::border2()
                     })
+                    .children(queued)
                     .child(div().min_h(px(42.)).child(self.input.clone()))
                     .child(bar),
             )

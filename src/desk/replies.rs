@@ -209,6 +209,7 @@ impl Desk {
                     // A turn that ended while you looked elsewhere is unread.
                     s.flags.unread |= away || behind;
                 }
+
                 // With Ghost behind other windows, macOS says so.
                 if behind && let Some(s) = self.sessions.iter().find(|s| s.key == key) {
                     let name = self.name_of(&s.agent);
@@ -218,6 +219,8 @@ impl Desk {
                     );
                 }
                 self.end_turn(key);
+                // What was said meanwhile goes now, in order.
+                self.say_queued(key, cx);
             }
             Msg::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(&agent) {
@@ -540,8 +543,13 @@ impl Desk {
                     .iter_mut()
                     .find(|s| s.agent == agent && s.id.as_ref() == Some(&request.session_id))
                 {
-                    s.asked(id, request);
                     let key = s.key;
+                    if let Some(option) = s.asked(id.clone(), request) {
+                        if let Some(running) = self.slot(agent).and_then(Slot::running) {
+                            hub::answer(running, &id, Some(option.option_id.0.to_string()));
+                        }
+                        return;
+                    }
                     if self.behind {
                         let title = s.title.clone();
                         let name = self.name_of(agent);

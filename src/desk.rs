@@ -829,8 +829,11 @@ impl Desk {
             if !on_screen {
                 return;
             }
-            // Not taken while a turn goes on: it stays in the line.
-            self.input.update(cx, |input, cx| input.set_text(&text, cx));
+            // Said while a turn goes on: it waits its turn, and is said as
+            // the one going on ends.
+            session.queued.push(text);
+            self.save_index();
+            cx.notify();
             return;
         }
         if session.state == State::Closed {
@@ -957,6 +960,64 @@ impl Desk {
             s.answered(request, option);
         }
         cx.notify();
+    }
+
+    /// Say the next thing queued in the session `key`, if one is.
+    pub(crate) fn say_queued(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        if s.state != State::Idle || s.queued.is_empty() {
+            return;
+        }
+        let text = s.queued.remove(0);
+        self.send_in(key, &text, cx);
+    }
+
+    /// Say the queued `n` now: the turn going on is stopped, and it is
+    /// said as soon as that has ended.
+    pub fn steer(&mut self, n: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        if let Some(s) = self.session_mut(key)
+            && n < s.queued.len()
+        {
+            let text = s.queued.remove(n);
+            s.queued.insert(0, text);
+        }
+        self.stop(cx);
+    }
+
+    /// Take the queued `n` back into the line.
+    pub fn unqueue(&mut self, n: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        if n >= s.queued.len() {
+            return;
+        }
+        let text = s.queued.remove(n);
+        self.input.update(cx, |i, cx| i.set_text(&text, cx));
+        self.save_index();
+        cx.notify();
+    }
+
+    /// Allow, with `option`, the call asked about under `request`, and every
+    /// call of its kind for the rest of the session.
+    pub fn allow_for_session(
+        &mut self,
+        request: &serde_json::Value,
+        option: &agent_client_protocol_schema::v1::PermissionOption,
+        kind: agent_client_protocol_schema::v1::ToolKind,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(key) = self.current
+            && let Some(s) = self.session_mut(key)
+            && !s.trusted.contains(&kind)
+        {
+            s.trusted.push(kind);
+        }
+        self.choose(request, option, cx);
     }
 
     /// Put the session on screen in the mode `mode`.

@@ -49,6 +49,8 @@ pub struct Asked {
     pub id: Value,
     pub title: String,
     pub options: Vec<PermissionOption>,
+    /// What kind of call it asks for (a command, an edit), when known.
+    pub kind: Option<ToolKind>,
     /// The option chosen, by its name and kind, or `None` while it waits.
     /// A turn stopped first answers it as rejected, named "Cancelled".
     pub chosen: Option<(String, PermissionOptionKind)>,
@@ -192,6 +194,10 @@ pub struct Session {
     /// It has a record the desk wrote: its agent's session is resumed, not
     /// loaded, so that nothing comes twice.
     pub recorded: bool,
+    /// The kinds of call you allowed for the rest of the session.
+    pub trusted: Vec<ToolKind>,
+    /// What you said while a turn went on, said in order as each ends.
+    pub queued: Vec<String>,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -286,6 +292,7 @@ impl Session {
         s.updated = store::time(meta.updated);
         s.worktree = meta.worktree;
         s.flags = meta.flags;
+        s.queued = meta.queued;
         s.state = State::Closed;
         s
     }
@@ -303,6 +310,7 @@ impl Session {
             begun: store::secs(self.begun),
             updated: store::secs(self.updated),
             flags: self.flags.clone(),
+            queued: self.queued.clone(),
         })
     }
 
@@ -392,6 +400,8 @@ impl Session {
             log: Vec::new(),
             replaying: false,
             recorded: false,
+            trusted: Vec::new(),
+            queued: Vec::new(),
         }
     }
 
@@ -586,7 +596,13 @@ impl Session {
     }
 
     /// The agent asks a person before it goes on.
-    pub fn asked(&mut self, id: Value, request: RequestPermissionRequest) {
+    /// A question the agent asks before it goes on; the option to answer
+    /// it with at once, when the session already allows its kind of call.
+    pub fn asked(
+        &mut self,
+        id: Value,
+        request: RequestPermissionRequest,
+    ) -> Option<PermissionOption> {
         let title = request
             .tool_call
             .fields
@@ -597,13 +613,32 @@ impl Session {
                     .map(|t| t.call.title.clone())
             })
             .unwrap_or_else(|| "The agent asks to go on".into());
+        let call = request.tool_call.tool_call_id.clone();
+        let kind = request.tool_call.fields.kind.or_else(|| {
+            self.tools()
+                .filter(|t| t.call.tool_call_id == call)
+                .last()
+                .map(|t| t.call.kind)
+        });
         self.update_tool(request.tool_call);
+        // A kind of call you allowed for the whole session is allowed
+        // again without asking: the option that allows it once is the
+        // answer, given at once.
+        let auto = kind.filter(|k| self.trusted.contains(k)).and_then(|_| {
+            request
+                .options
+                .iter()
+                .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+                .cloned()
+        });
         self.items.push(Item::Asked(Asked {
             id,
             title,
             options: request.options,
-            chosen: None,
+            kind,
+            chosen: auto.as_ref().map(|o| (o.name.clone(), o.kind)),
         }));
+        auto
     }
 
     /// The question waiting on you, if one is.
