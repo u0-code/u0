@@ -22,8 +22,7 @@ use std::{
 };
 
 use gpui::{
-    Context, Entity, Focusable as _, MouseButton, PathPromptOptions, ScrollHandle, Window, div,
-    prelude::*, px,
+    Context, Entity, Focusable as _, MouseButton, PathPromptOptions, Window, div, prelude::*, px,
 };
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -155,7 +154,17 @@ pub struct Desk {
     pub expanded: HashSet<String>,
     /// Projects folded shut down the left.
     pub closed: HashSet<PathBuf>,
-    pub thread_scroll: ScrollHandle,
+    /// The thread as a list drawn where it is seen, its lines, and the
+    /// session they are of; an item to bring into view once it is drawn.
+    pub list: gpui::ListState,
+    pub lines: Vec<crate::thread::Line>,
+    pub lines_of: Option<u64>,
+    pub reveal: Option<usize>,
+    /// Find over the thread (⌘F): whether it is open, its line, and which
+    /// of what it found is on screen.
+    pub finding: bool,
+    pub find: Entity<TextInput>,
+    pub found_at: usize,
     /// The agent being signed in to, while it is.
     pub signing: Option<String>,
     /// What the right column shows.
@@ -239,6 +248,26 @@ impl Desk {
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        let find = cx.new(|cx| {
+            TextInput::new(cx, "Find in this session")
+                .padded(2.)
+                .keeping()
+        });
+        cx.subscribe(&find, |this, _, Submitted(_), cx| this.find_next(false, cx))
+            .detach();
+        cx.subscribe(&find, |this, _, _: &crate::input::Changed, cx| {
+            this.found_at = usize::MAX;
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe_in(
+            &find,
+            window,
+            |this, _, _: &crate::input::Cancelled, window, cx| {
+                this.toggle_find(window, cx);
+            },
+        )
+        .detach();
         cx.subscribe(&rename, |this, _, Submitted(text), cx| {
             this.finish_rename(text, cx);
         })
@@ -331,7 +360,13 @@ impl Desk {
             input,
             expanded: HashSet::new(),
             closed: HashSet::new(),
-            thread_scroll: ScrollHandle::new(),
+            list: gpui::ListState::new(0, gpui::ListAlignment::Bottom, px(800.)),
+            lines: Vec::new(),
+            lines_of: None,
+            reveal: None,
+            finding: false,
+            find,
+            found_at: 0,
             signing: None,
             aside: Aside::Session,
             search,
@@ -631,7 +666,7 @@ impl Desk {
             let agent = s.agent.clone();
             self.open_when_running(&agent, key);
         }
-        self.thread_scroll.scroll_to_bottom();
+        self.to_bottom();
         window.focus(&self.input.focus_handle(cx));
         cx.notify();
     }
@@ -936,7 +971,7 @@ impl Desk {
                 self.open_when_running(&agent, key);
             }
         }
-        self.thread_scroll.scroll_to_bottom();
+        self.to_bottom();
         cx.notify();
     }
 
@@ -1239,14 +1274,6 @@ impl Desk {
 
     /// Keep the newest line in sight while the thread grows, unless you
     /// scrolled up to read.
-    fn thread_scroll_follow(&self) {
-        let offset = self.thread_scroll.offset().y;
-        let max = self.thread_scroll.max_offset().height;
-        if f32::from(-offset) >= f32::from(max) - 80. {
-            self.thread_scroll.scroll_to_bottom();
-        }
-    }
-
     pub fn home_path() -> Option<PathBuf> {
         std::env::var_os("HOME").map(PathBuf::from)
     }
@@ -1259,6 +1286,7 @@ impl Desk {
 
 impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_lines();
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let middle = div()

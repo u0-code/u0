@@ -39,7 +39,10 @@ use gpui::{
     OsAction, TitlebarOptions, WindowBounds, WindowOptions, actions, point, px, size,
 };
 
-actions!(desk, [Quit, NewSession, ToggleSidebar, Stop, Minimize]);
+actions!(
+    desk,
+    [Quit, NewSession, ToggleSidebar, Stop, Minimize, Find]
+);
 
 fn main() {
     // Before any thread starts, since it changes the environment.
@@ -63,6 +66,7 @@ fn main() {
                 KeyBinding::new("cmd-b", ToggleSidebar, None),
                 KeyBinding::new("cmd-.", Stop, None),
                 KeyBinding::new("cmd-m", Minimize, None),
+                KeyBinding::new("cmd-f", Find, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
                 KeyBinding::new("delete", input::Delete, Some(input::CONTEXT)),
                 KeyBinding::new("left", input::Left, Some(input::CONTEXT)),
@@ -151,6 +155,9 @@ fn main() {
             let d = desk.clone();
             cx.on_action(move |_: &NewSession, cx| {
                 let _ = window.update(cx, desk::Desk::new_default);
+            });
+            cx.on_action(move |_: &Find, cx| {
+                let _ = window.update(cx, desk::Desk::toggle_find);
             });
             cx.on_action(move |_: &ToggleSidebar, cx| d.update(cx, desk::Desk::toggle_sidebar));
             cx.on_action(move |_: &Stop, cx| desk.update(cx, desk::Desk::stop));

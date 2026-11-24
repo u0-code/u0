@@ -95,6 +95,8 @@ pub struct TextInput {
     /// the line while you go back through it with the arrows.
     history: Vec<String>,
     recalled: Option<usize>,
+    /// What is typed stays when it is handed over: a search, not a message.
+    keeps: bool,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
@@ -122,6 +124,7 @@ impl TextInput {
             pad_y: 12.,
             history: Vec::new(),
             recalled: None,
+            keeps: false,
         }
     }
 
@@ -130,6 +133,13 @@ impl TextInput {
     #[must_use]
     pub fn wrapping(mut self, most: usize) -> Self {
         self.most = most.max(1);
+        self
+    }
+
+    /// Keep what is typed when Return hands it over.
+    #[must_use]
+    pub fn keeping(mut self) -> Self {
+        self.keeps = true;
         self
     }
 
@@ -202,6 +212,10 @@ impl TextInput {
     pub fn send(&mut self, cx: &mut Context<Self>) {
         let text = self.content.trim().to_owned();
         if text.is_empty() {
+            return;
+        }
+        if self.keeps {
+            cx.emit(Submitted(text));
             return;
         }
         if self.history.last() != Some(&text) {

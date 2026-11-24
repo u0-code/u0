@@ -63,7 +63,14 @@ impl Desk {
         let empty = self.input.read(cx).is_empty();
 
         let draft = s.state == State::Draft && s.items.is_empty();
-        let mut bar = div().flex().items_center().gap(px(4.)).ml(px(-2.));
+        // The agent and its options, wrapping onto a second line when an
+        // agent offers many; the context, dictation and send stay right.
+        let mut bar = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(4.))
+            .ml(px(-2.));
         let agent_choices = if draft {
             self.slots
                 .iter()
@@ -186,7 +193,8 @@ impl Desk {
         for (popup, current, head, choices) in chips {
             bar = bar.child(self.chip(faces, &popup, None, &current, &head, choices, cx));
         }
-        bar = bar.child(div().flex_1());
+        let chips = bar.flex_1().min_w(px(0.));
+        let mut bar = div().flex().items_end().gap(px(4.)).child(chips);
         if let Some(u) = s.usage.as_ref().filter(|u| u.size > 0) {
             let share = u.used as f32 / u.size as f32;
             bar = bar.child(
@@ -623,7 +631,7 @@ impl Desk {
                     this.toggle_popup(for_click.clone(), cx);
                 }));
         }
-        let mut wrap = div().relative().flex().min_w(px(0.)).child(chip);
+        let mut wrap = div().relative().flex().flex_none().child(chip);
         if open {
             let mut menu = div()
                 .flex()

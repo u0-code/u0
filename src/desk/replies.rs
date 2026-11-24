@@ -512,7 +512,7 @@ impl Desk {
                     s.said(&text);
                     self.begin_turn(key, text);
                 }
-                self.thread_scroll.scroll_to_bottom();
+                self.to_bottom();
                 self.flush(key);
                 self.save_index();
             }
@@ -553,9 +553,7 @@ impl Desk {
                 if long {
                     self.flush(key);
                 }
-                if !title {
-                    self.thread_scroll_follow();
-                }
+                if !title {}
             }
             Event::Permission { id, request } => {
                 if let Some(s) = self
@@ -583,7 +581,6 @@ impl Desk {
                     {
                         s.flags.unread = true;
                     }
-                    self.thread_scroll_follow();
                 } else if let Some(running) = self.slot(agent).and_then(Slot::running) {
                     hub::answer(running, &id, None);
                 }

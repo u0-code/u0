@@ -99,6 +99,11 @@ impl Desk {
         s.items.clear();
         s.replay(events);
         s.recorded = true;
+        // In a repository, what it shows beside is what is not committed.
+        s.look();
+        if s.repo {
+            crate::hub::uncommitted(s.folder.clone(), key, self.tx.clone());
+        }
         if s.options.is_empty()
             && let Some(p) = slot.and_then(|x| x.probe.as_ref())
         {

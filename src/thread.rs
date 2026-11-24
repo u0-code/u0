@@ -12,6 +12,9 @@ mod composer;
 pub mod drawn;
 mod fold;
 pub mod kinds;
+mod lines;
+
+pub use lines::Line;
 pub mod output;
 mod topbar;
 
@@ -28,7 +31,7 @@ use crate::{
     desk::Desk,
     fonts::Faces,
     markdown,
-    session::{Item, Session, State, Tool, text_of},
+    session::{Item, Session, Tool, text_of},
     style::BUBBLE_RADIUS,
     theme,
     ui::{self, Mark},
@@ -358,92 +361,14 @@ impl Desk {
         faces: &Faces,
         column: f32,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui::AnyElement {
+        if !self.lines.is_empty() {
+            return self.thread_list(column, cx).into_any_element();
+        }
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         match self.session() {
             None => col = col.child(self.empty(faces, cx)),
-            Some(s) if s.items.is_empty() && matches!(s.state, State::Draft) => {
-                col = col.child(Self::fresh(faces, s, &self.name_of(&s.agent), cx));
-            }
-            Some(s) => {
-                col = col.child(self.turn_header(faces, s));
-                // A one-line row (a quiet call, a fold) sits right under
-                // another; everything else stands 12 apart.
-                let line = |row: &fold::Row| match row {
-                    fold::Row::Item(i) => match &s.items[*i] {
-                        Item::Tool(t) => !self.tool_open(s.key, *i, t),
-                        _ => false,
-                    },
-                    fold::Row::Group { .. } => true,
-                    fold::Row::Turn { .. } => false,
-                };
-                let rows = fold::rows(
-                    s.key,
-                    &s.items,
-                    &self.expanded,
-                    |i| match &s.items[i] {
-                        Item::Tool(t) => self.tool_open(s.key, i, t),
-                        _ => false,
-                    },
-                    matches!(s.state, State::Working | State::Opening),
-                );
-                let mut before: Option<&fold::Row> = None;
-                for row in &rows {
-                    let tight = before.is_some_and(|b| line(b) && line(row));
-                    let gap = if before.is_none() || tight { 0. } else { 12. };
-                    let el = match row {
-                        fold::Row::Item(i) => self.item(faces, s, *i, &s.items[*i], cx),
-                        fold::Row::Turn {
-                            from,
-                            to,
-                            secs,
-                            open,
-                        } => {
-                            let summary = fold::summary(&s.items[*from..*to]);
-                            let mut words = match secs {
-                                Some(secs) => format!(
-                                    "Worked for {}",
-                                    when::took(std::time::Duration::from_secs(*secs))
-                                ),
-                                None => "Worked".to_owned(),
-                            };
-                            if !summary.is_empty() {
-                                words = format!("{words} · {summary}");
-                            }
-                            Self::fold_row(faces, fold::turn_key(s.key, *from), &words, *open, cx)
-                        }
-                        fold::Row::Group { from, to, open } => Self::fold_row(
-                            faces,
-                            fold::group_key(s.key, *from),
-                            &fold::summary(&s.items[*from..*to]),
-                            *open,
-                            cx,
-                        ),
-                    };
-                    col = col.child(div().mt(px(gap)).child(el));
-                    before = Some(row);
-                }
-                match &s.state {
-                    State::Opening => {
-                        col = col.child(
-                            step()
-                                .mt(px(12.))
-                                .child(div().mx(px(2.)).child(ui::live_dot()))
-                                .child(
-                                    verb(faces, format!("Starting {}", self.name_of(&s.agent)))
-                                        .text_color(theme::accent()),
-                                ),
-                        );
-                    }
-                    State::SignIn => {
-                        col = col.child(div().mt(px(12.)).child(self.sign_in_card(faces, s, cx)));
-                    }
-                    State::Broken(why) => {
-                        col = col.child(div().mt(px(12.)).child(self.broken(faces, s, why, cx)));
-                    }
-                    _ => {}
-                }
-            }
+            Some(s) => col = col.child(Self::fresh(faces, s, &self.name_of(&s.agent), cx)),
         }
         div()
             .id("thread")
@@ -453,8 +378,8 @@ impl Desk {
             .flex_1()
             .min_h(px(0.))
             .overflow_y_scroll()
-            .track_scroll(&self.thread_scroll)
             .child(col)
+            .into_any_element()
     }
 
     /// The line over the first turn: who, with what, where.
@@ -928,7 +853,7 @@ impl Desk {
                 d.child(counts(faces, added, gone))
             })
             .children(tail)
-            .children(open_diff.map(|b| div().ml_auto().child(b)));
+            .children(open_diff.map(|b| div().flex_1().flex().justify_end().child(b)));
         if has_body(tool) {
             line = line
                 .cursor_pointer()
