@@ -203,6 +203,123 @@ impl Desk {
         frame(head).child(body)
     }
 
+    /// A file's diff with the files changed beside it, to go from one to
+    /// the next, and under it the commit.
+    fn review(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        path: &std::path::Path,
+        diff: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let files = self.scoped(s).cloned().unwrap_or_default();
+        let mut rail = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(180.))
+            .gap(px(2.))
+            .px(px(6.))
+            .py(px(8.))
+            .border_r_1()
+            .border_color(theme::border());
+        for (n, f) in files.iter().enumerate() {
+            let at = std::path::PathBuf::from(&f.path);
+            let on = at == path;
+            let name = at
+                .file_name()
+                .map_or_else(|| f.path.clone(), |n| n.to_string_lossy().into_owned());
+            rail = rail.child(
+                div()
+                    .id(SharedString::from(format!("review-{n}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(theme::hover()))
+                    .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                    .tooltip(ui::tip(f.path.clone()))
+                    .child(
+                        ui::one_line(
+                            ui::mono(faces, ui::fit(&name, 16))
+                                .text_size(px(12.5))
+                                .text_color(if on { theme::text() } else { theme::text2() }),
+                        )
+                        .flex_1(),
+                    )
+                    .child(match f.status {
+                        crate::git::Status::Added => fine(faces, "new"),
+                        crate::git::Status::Deleted => {
+                            fine(faces, "deleted").text_color(theme::coral())
+                        }
+                        _ => added_gone(faces, f.added, 0),
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.show_aside(Aside::File(at.clone()), cx);
+                    })),
+            );
+        }
+        rail = rail.child(div().px(px(10.)).pt(px(10.)).child(fine(
+            faces,
+            format!(
+                "{} file{}",
+                files.len(),
+                if files.len() == 1 { "" } else { "s" }
+            ),
+        )));
+        let commit = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .gap(px(10.))
+            .p(px(12.))
+            .border_t_1()
+            .border_color(theme::border())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(ui::label(faces, "Commit").flex_1())
+                    .child(fine(
+                        faces,
+                        format!(
+                            "on {} · {} file{}",
+                            s.branch.as_deref().unwrap_or("its branch"),
+                            files.len(),
+                            if files.len() == 1 { "" } else { "s" }
+                        ),
+                    )),
+            )
+            .child(if self.committing {
+                self.commit_form(faces, s, cx)
+            } else {
+                div().flex().child(
+                    ui::button(faces, "review-commit", "Commit…", Weight::Secondary).on_click(
+                        cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
+                    ),
+                )
+            });
+        div()
+            .flex()
+            .flex_1()
+            .min_h(px(0.))
+            .when(!files.is_empty(), |d| d.child(rail))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(diff)
+                    .when(s.repo, |d| d.child(commit)),
+            )
+    }
+
     /// The branch where the session works; a click lists the others, to
     /// check one out.
     fn branch_chip(&self, faces: &Faces, s: &Session, branch: &str, cx: &mut Context<Self>) -> Div {
@@ -676,7 +793,7 @@ impl Desk {
                 });
                 drawn::hunks(faces, file, drawn::Fit::Column, Some(&on))
             };
-            return frame(head).child(body.child(hunks));
+            return frame(head).child(self.review(faces, s, path, body.child(hunks), cx));
         }
         for t in s.tools() {
             let mut n = 0;
@@ -693,7 +810,7 @@ impl Desk {
                 }
             }
         }
-        frame(head).child(body)
+        frame(head).child(self.review(faces, s, path, body, cx))
     }
 
     /// What you are saying of lines of this file: the line being commented

@@ -174,70 +174,7 @@ impl Desk {
                 ),
         );
         if self.committing {
-            sec = sec.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .h(px(32.))
-                            .px(px(8.))
-                            .rounded(px(8.))
-                            .bg(theme::well())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .child(div().flex_1().child(self.message.clone())),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(6.))
-                            .child(git_button(
-                                faces,
-                                "do-commit",
-                                "Commit",
-                                Weight::Primary,
-                                cx,
-                                hub::GitAction::Commit,
-                            ))
-                            .child(git_button(
-                                faces,
-                                "do-push",
-                                "Commit & push",
-                                Weight::Secondary,
-                                cx,
-                                hub::GitAction::CommitPush,
-                            ))
-                            .child(git_button(
-                                faces,
-                                "do-pr",
-                                "Create PR",
-                                Weight::Quiet,
-                                cx,
-                                hub::GitAction::PullRequest,
-                            )),
-                    )
-                    .child({
-                        // The agent can write the message: a turn of its own.
-                        let key = s.key;
-                        let name = self.name_of(&s.agent);
-                        ui::button(faces, "ask-message", format!("Ask {name} to write it"), Weight::Quiet)
-                            .tooltip(ui::tip("A turn of its own, spent as any turn is"))
-                            .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)))
-                    })
-                    .child(fine(
-                        faces,
-                        format!(
-                            "Commits everything in {} on {}, as you. On the main branch, a branch of its own is made first for a push or a pull request.",
-                            Desk::shown(&s.folder),
-                            s.branch.as_deref().unwrap_or("its branch")
-                        ),
-                    )),
-            );
+            sec = sec.child(self.commit_form(faces, s, cx));
         }
         if let Some(step) = &s.git_step {
             sec = sec.child(
@@ -270,6 +207,73 @@ impl Desk {
             });
         }
         Some(sec)
+    }
+
+    /// The message to commit with and what can be done with it: commit,
+    /// commit and push, a pull request; the agent can write the message.
+    pub(super) fn commit_form(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(32.))
+                    .px(px(8.))
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(div().flex_1().child(self.message.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.))
+                    .child(git_button(
+                        faces,
+                        "do-commit",
+                        "Commit",
+                        Weight::Primary,
+                        cx,
+                        hub::GitAction::Commit,
+                    ))
+                    .child(git_button(
+                        faces,
+                        "do-push",
+                        "Commit & push",
+                        Weight::Secondary,
+                        cx,
+                        hub::GitAction::CommitPush,
+                    ))
+                    .child(git_button(
+                        faces,
+                        "do-pr",
+                        "Create PR",
+                        Weight::Quiet,
+                        cx,
+                        hub::GitAction::PullRequest,
+                    )),
+            )
+            .child({
+                // The agent can write the message: a turn of its own.
+                let key = s.key;
+                let name = self.name_of(&s.agent);
+                ui::button(faces, "ask-message", format!("Ask {name} to write it"), Weight::Quiet)
+                    .tooltip(ui::tip("A turn of its own, spent as any turn is"))
+                    .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)))
+            })
+            .child(fine(
+                faces,
+                format!(
+                    "Commits everything in {} on {}, as you. On the main branch, a branch of its own is made first for a push or a pull request.",
+                    Desk::shown(&s.folder),
+                    s.branch.as_deref().unwrap_or("its branch")
+                ),
+            ))
     }
 
     /// The recent commits where the session works; a click shows what one
