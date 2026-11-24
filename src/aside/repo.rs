@@ -30,6 +30,66 @@ impl Desk {
         }
     }
 
+    /// Which changes are shown: all of them, a turn's, the branch's, a
+    /// commit's.
+    pub(super) fn scope_tabs(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let last = s.turns.iter().rposition(|t| t.diff.is_some());
+        let scope_tab = |id: &'static str, label: String, on: bool, to: Scope| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .h(px(22.))
+                .px(px(7.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::hover()))
+                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                .child(ui::text(faces, label).text_size(px(12.)).text_color(if on {
+                    theme::text()
+                } else {
+                    theme::muted()
+                }))
+                .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx)))
+        };
+        let turn = match self.scope {
+            Scope::Turn(n) => Some(n),
+            _ => last,
+        };
+        div()
+            .flex()
+            .gap(px(2.))
+            .child(scope_tab(
+                "scope-all",
+                if last.is_some() { "All" } else { "Uncommitted" }.into(),
+                self.scope == Scope::All,
+                Scope::All,
+            ))
+            .children(turn.map(|turn| {
+                scope_tab(
+                    "scope-turn",
+                    format!("Turn {}", turn + 1),
+                    matches!(self.scope, Scope::Turn(_)),
+                    Scope::Turn(turn),
+                )
+            }))
+            .child(scope_tab(
+                "scope-branch",
+                "Branch".into(),
+                self.scope == Scope::Branch,
+                Scope::Branch,
+            ))
+            .children(match &self.scope {
+                Scope::Commit(id) => Some(scope_tab(
+                    "scope-commit",
+                    id.clone(),
+                    true,
+                    Scope::Commit(id.clone()),
+                )),
+                _ => None,
+            })
+    }
+
     /// The changes as git reads them between the session's checkpoints:
     /// all of them or one turn's, each file with how it changed; then what
     /// can be done with them. A session loaded, with no turn taken here
@@ -54,68 +114,12 @@ impl Desk {
         let (added, gone) = files
             .iter()
             .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
-        let scope_tab = |id: &'static str, label: String, on: bool, to: Scope| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .h(px(22.))
-                .px(px(7.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(ui::text(faces, label).text_size(px(12.)).text_color(if on {
-                    theme::text()
-                } else {
-                    theme::muted()
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx)))
-        };
-        let turn = match self.scope {
-            Scope::Turn(n) => Some(n),
-            _ => last,
-        };
         let mut sec = section(
             faces,
             "Changes",
             (!files.is_empty()).then(|| added_gone(faces, added, gone)),
         )
-        .child(
-            div()
-                .flex()
-                .gap(px(2.))
-                .ml(px(-7.))
-                .child(scope_tab(
-                    "scope-all",
-                    if last.is_some() { "All" } else { "Uncommitted" }.into(),
-                    self.scope == Scope::All,
-                    Scope::All,
-                ))
-                .children(turn.map(|turn| {
-                    scope_tab(
-                        "scope-turn",
-                        format!("Turn {}", turn + 1),
-                        matches!(self.scope, Scope::Turn(_)),
-                        Scope::Turn(turn),
-                    )
-                }))
-                .child(scope_tab(
-                    "scope-branch",
-                    "Branch".into(),
-                    self.scope == Scope::Branch,
-                    Scope::Branch,
-                ))
-                .children(match &self.scope {
-                    Scope::Commit(id) => Some(scope_tab(
-                        "scope-commit",
-                        id.clone(),
-                        true,
-                        Scope::Commit(id.clone()),
-                    )),
-                    _ => None,
-                }),
-        );
+        .child(self.scope_tabs(faces, s, cx).ml(px(-7.)));
         if reading {
             sec = sec.child(empty(faces, "Reading git…"));
         } else if files.is_empty() {
@@ -212,6 +216,27 @@ impl Desk {
     /// The message to commit with and what can be done with it: commit,
     /// commit and push, a pull request; the agent can write the message.
     pub(super) fn commit_form(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        // The agent can write the message: a turn of its own.
+        let key = s.key;
+        let name = self.name_of(&s.agent);
+        let write = ui::led_button(
+            faces,
+            "ask-message",
+            Some(ui::mark(faces, &ui::Mark::of(&s.agent, &name), 12.)),
+            "Write it",
+            Weight::Quiet,
+        )
+        .h(px(24.))
+        .px(px(7.))
+        .tooltip(ui::tip(format!(
+            "{name} writes the message: a turn of its own, spent as any turn is"
+        )))
+        .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
+        let what = format!(
+            "Everything in {} on {}, as you, with this message or the session's title",
+            Desk::shown(&s.folder),
+            s.branch.as_deref().unwrap_or("its branch")
+        );
         div()
             .flex()
             .flex_col()
@@ -220,60 +245,56 @@ impl Desk {
                 div()
                     .flex()
                     .items_center()
-                    .h(px(32.))
-                    .px(px(8.))
+                    .gap(px(4.))
+                    .h(px(34.))
+                    .pl(px(8.))
+                    .pr(px(4.))
                     .rounded(px(8.))
                     .bg(theme::well())
                     .border_1()
                     .border_color(theme::border2())
-                    .child(div().flex_1().child(self.message.clone())),
+                    .child(div().flex_1().min_w(px(0.)).child(self.message.clone()))
+                    .child(write),
             )
             .child(
                 div()
                     .flex()
                     .flex_wrap()
+                    .items_center()
                     .gap(px(6.))
-                    .child(git_button(
-                        faces,
-                        "do-commit",
-                        "Commit",
-                        Weight::Primary,
-                        cx,
-                        hub::GitAction::Commit,
-                    ))
-                    .child(git_button(
-                        faces,
-                        "do-push",
-                        "Commit & push",
-                        Weight::Secondary,
-                        cx,
-                        hub::GitAction::CommitPush,
-                    ))
+                    .child(
+                        git_button(
+                            faces,
+                            "do-commit",
+                            "Commit",
+                            Weight::Primary,
+                            cx,
+                            hub::GitAction::Commit,
+                        )
+                        .tooltip(ui::tip(what)),
+                    )
+                    .child(
+                        git_button(
+                            faces,
+                            "do-push",
+                            "Commit & push",
+                            Weight::Secondary,
+                            cx,
+                            hub::GitAction::CommitPush,
+                        )
+                        .tooltip(ui::tip(
+                            "On the main branch, a branch of its own is made first",
+                        )),
+                    )
                     .child(git_button(
                         faces,
                         "do-pr",
                         "Create PR",
-                        Weight::Quiet,
+                        Weight::Secondary,
                         cx,
                         hub::GitAction::PullRequest,
                     )),
             )
-            .child({
-                // The agent can write the message: a turn of its own.
-                let key = s.key;
-                let name = self.name_of(&s.agent);
-                ui::button(faces, "ask-message", format!("Ask {name} to write it"), Weight::Quiet)
-                    .tooltip(ui::tip("A turn of its own, spent as any turn is"))
-                    .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)))
-            })
-            .child(fine(
-                faces,
-                format!(
-                    "Commits everything in {} on {}, as you. On the main branch, a branch of its own is made first for a push or a pull request.",
-                    Desk::shown(&s.folder),
-                    s.branch.as_deref().unwrap_or("its branch")
-                ),
-            ))
     }
 
     /// The recent commits where the session works; a click shows what one

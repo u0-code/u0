@@ -263,12 +263,18 @@ impl Desk {
                     })),
             );
         }
+        let said = self.comments.len();
         rail = rail.child(div().px(px(10.)).pt(px(10.)).child(fine(
             faces,
             format!(
-                "{} file{}",
+                "{} file{}{}",
                 files.len(),
-                if files.len() == 1 { "" } else { "s" }
+                if files.len() == 1 { "" } else { "s" },
+                match said {
+                    0 => String::new(),
+                    1 => " · 1 comment".into(),
+                    n => format!(" · {n} comments"),
+                }
             ),
         )));
         let commit = div()
@@ -295,15 +301,7 @@ impl Desk {
                         ),
                     )),
             )
-            .child(if self.committing {
-                self.commit_form(faces, s, cx)
-            } else {
-                div().flex().child(
-                    ui::button(faces, "review-commit", "Commit…", Weight::Secondary).on_click(
-                        cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
-                    ),
-                )
-            });
+            .child(self.commit_form(faces, s, cx));
         div()
             .flex()
             .flex_1()
@@ -747,9 +745,15 @@ impl Desk {
                 ui::icon_button("back", "chevron-left", "Back to the session")
                     .on_click(cx.listener(|this, _, _, cx| this.show_aside(Aside::Session, cx))),
             )
-            .child(path_text(faces, &name))
+            .child(
+                ui::mono(faces, ui::fit(&name, 34))
+                    .flex_none()
+                    .text_size(px(12.5))
+                    .text_color(theme::text2()),
+            )
             .children(total.map(|(a, g)| added_gone(faces, a, g)))
             .child(div().flex_1())
+            .when(s.repo, |d| d.child(self.scope_tabs(faces, s, cx)))
             .when(from_git.is_some(), |d| {
                 d.child(
                     ui::icon_button(

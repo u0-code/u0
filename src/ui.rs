@@ -138,6 +138,17 @@ pub fn button(
     label: impl Into<SharedString>,
     weight: Weight,
 ) -> gpui::Stateful<Div> {
+    led_button(faces, id, None, label, weight)
+}
+
+/// A button with something before its word: an agent's mark, an icon.
+pub fn led_button(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    lead: Option<AnyElement>,
+    label: impl Into<SharedString>,
+    weight: Weight,
+) -> gpui::Stateful<Div> {
     let word = text(faces, label)
         .text_size(px(META))
         .weight(gpui::FontWeight::MEDIUM);
@@ -146,10 +157,12 @@ pub fn button(
         .flex()
         .flex_none()
         .items_center()
+        .gap(px(6.))
         .h(px(28.))
         .px(px(11.))
         .rounded(px(8.))
-        .cursor_pointer();
+        .cursor_pointer()
+        .children(lead);
     match weight {
         Weight::Primary => base
             .bg(theme::text())
