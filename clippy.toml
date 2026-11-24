@@ -1,2 +1,2 @@
 # Product and protocol names that are not code and need no backticks in docs.
-doc-valid-idents = ["OneBot", "NapCat", "WebSocket", "OpenAI", "DeepSeek", "OpenRouter", "BotFather", "SQLite", "OAuth", "SearXNG", ".."]
+doc-valid-idents = ["JSON-RPC", "OpenAI", "GPUI", "..", "SHA-256"]
