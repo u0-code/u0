@@ -10,6 +10,7 @@
 mod cards;
 mod composer;
 pub mod drawn;
+mod fold;
 pub mod kinds;
 pub mod output;
 mod topbar;
@@ -354,13 +355,52 @@ impl Desk {
             }
             Some(s) => {
                 col = col.child(self.turn_header(faces, s));
-                let mut before: Option<&Item> = None;
-                for (i, item) in s.items.iter().enumerate() {
-                    let tight = matches!((before, item), (Some(Item::Tool(a)), Item::Tool(b))
-                        if !self.tool_open(s.key, i - 1, a) && !self.tool_open(s.key, i, b));
+                // A one-line row (a quiet call, a fold) sits right under
+                // another; everything else stands 12 apart.
+                let line = |row: &fold::Row| match row {
+                    fold::Row::Item(i) => match &s.items[*i] {
+                        Item::Tool(t) => !self.tool_open(s.key, *i, t),
+                        _ => false,
+                    },
+                    fold::Row::Group { .. } => true,
+                    fold::Row::Turn { .. } => false,
+                };
+                let rows = fold::rows(s.key, &s.items, &self.expanded, |i| match &s.items[i] {
+                    Item::Tool(t) => self.tool_open(s.key, i, t),
+                    _ => false,
+                });
+                let mut before: Option<&fold::Row> = None;
+                for row in &rows {
+                    let tight = before.is_some_and(|b| line(b) && line(row));
                     let gap = if before.is_none() || tight { 0. } else { 12. };
-                    col = col.child(div().mt(px(gap)).child(self.item(faces, s, i, item, cx)));
-                    before = Some(item);
+                    let el = match row {
+                        fold::Row::Item(i) => self.item(faces, s, *i, &s.items[*i], cx),
+                        fold::Row::Turn {
+                            from,
+                            to,
+                            secs,
+                            open,
+                        } => {
+                            let summary = fold::summary(&s.items[*from..*to]);
+                            let mut words = format!(
+                                "Worked for {}",
+                                when::took(std::time::Duration::from_secs(*secs))
+                            );
+                            if !summary.is_empty() {
+                                words = format!("{words} · {summary}");
+                            }
+                            Self::fold_row(faces, fold::turn_key(s.key, *from), &words, *open, cx)
+                        }
+                        fold::Row::Group { from, to, open } => Self::fold_row(
+                            faces,
+                            fold::group_key(s.key, *from),
+                            &fold::summary(&s.items[*from..*to]),
+                            *open,
+                            cx,
+                        ),
+                    };
+                    col = col.child(div().mt(px(gap)).child(el));
+                    before = Some(row);
                 }
                 match &s.state {
                     State::Opening => {
@@ -673,6 +713,35 @@ impl Desk {
                 .ended(faces, s, i, *reason, *secs, cx)
                 .into_any_element(),
         }
+    }
+
+    /// A folded stretch of the thread, as one line: a chevron, and what
+    /// was done in it. A click opens or folds it.
+    fn fold_row(
+        faces: &Faces,
+        key: String,
+        words: &str,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let toggle = key.clone();
+        step()
+            .id(SharedString::from(key))
+            .cursor_pointer()
+            .rounded(px(8.))
+            .hover(|st| st.bg(theme::hover()))
+            .child(icon(if open {
+                "chevron-down"
+            } else {
+                "chevron-right"
+            }))
+            .child(
+                ui::one_line(verb(faces, ui::fit(words, 90)))
+                    .w_auto()
+                    .min_w(px(0.)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
+            .into_any_element()
     }
 
     /// Whether the call at `i` is open: an edit and a command with output

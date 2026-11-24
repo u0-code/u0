@@ -1,0 +1,303 @@
+//! What of a thread is folded away, as t3code folds it: a turn that is over
+//! becomes one line ("Worked for 2m 10s · Read 3 files and ran 2
+//! commands") between what you said and what the agent finally answered,
+//! and inside a turn opened again, a run of three or more quiet tool calls
+//! becomes one line of its own. A turn still going on is never folded: it
+//! is what you are watching.
+//!
+//! Text in, rows out: what is drawn is decided here, without a window.
+
+use std::collections::HashSet;
+
+use agent_client_protocol_schema::v1::{ToolCallContent, ToolKind};
+
+use crate::session::{Item, Tool};
+
+/// One row of the thread as drawn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Row {
+    /// The item at this index, as it is.
+    Item(usize),
+    /// A finished turn's work, `from..to`, folded or opened; how long the
+    /// turn took.
+    Turn {
+        from: usize,
+        to: usize,
+        secs: u64,
+        open: bool,
+    },
+    /// A run of tool calls, `from..to`, folded or opened.
+    Group { from: usize, to: usize, open: bool },
+}
+
+/// The key a turn's fold is opened under.
+pub fn turn_key(session: u64, from: usize) -> String {
+    format!("{session}-turn-{from}")
+}
+
+/// The key a group of calls is opened under.
+pub fn group_key(session: u64, from: usize) -> String {
+    format!("{session}-group-{from}")
+}
+
+/// How many quiet calls in a row are folded into one line.
+const RUN: usize = 3;
+
+/// The rows of a thread. `open_call(i)` says whether the call at `i` is
+/// open (then it is not folded into a group); `expanded` holds the folds
+/// opened.
+pub fn rows(
+    session: u64,
+    items: &[Item],
+    expanded: &HashSet<String>,
+    open_call: impl Fn(usize) -> bool,
+) -> Vec<Row> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < items.len() {
+        if !matches!(items[i], Item::You(_)) {
+            out.push(Row::Item(i));
+            i += 1;
+            continue;
+        }
+        out.push(Row::Item(i));
+        // The turn runs to the next thing you said.
+        let end = items[i + 1..]
+            .iter()
+            .position(|x| matches!(x, Item::You(_)))
+            .map_or(items.len(), |p| i + 1 + p);
+        let ended = items[i + 1..end]
+            .iter()
+            .rposition(|x| matches!(x, Item::Ended { .. }))
+            .map(|p| i + 1 + p);
+        let work = match ended {
+            // The answer stays out: the last thing the agent said, if
+            // nothing but notes and the end come after it.
+            Some(e) => {
+                let answer = items[i + 1..e]
+                    .iter()
+                    .rposition(|x| matches!(x, Item::Agent(_)))
+                    .map(|p| i + 1 + p)
+                    .filter(|&a| {
+                        items[a + 1..e]
+                            .iter()
+                            .all(|x| matches!(x, Item::Note { .. }))
+                    });
+                Some((i + 1, answer.unwrap_or(e), e))
+            }
+            None => None,
+        };
+        match work {
+            Some((from, to, e)) if to - from >= 2 => {
+                let secs = match &items[e] {
+                    Item::Ended { secs, .. } => *secs,
+                    _ => 0,
+                };
+                let open = expanded.contains(&turn_key(session, from));
+                out.push(Row::Turn {
+                    from,
+                    to,
+                    secs,
+                    open,
+                });
+                if open {
+                    grouped(session, items, from, to, expanded, &open_call, &mut out);
+                }
+                out.extend((to..end).map(Row::Item));
+            }
+            Some(_) => {
+                grouped(session, items, i + 1, end, expanded, &open_call, &mut out);
+            }
+            // Going on: every row shows.
+            None => out.extend((i + 1..end).map(Row::Item)),
+        }
+        i = end;
+    }
+    out
+}
+
+/// The items `from..to`, with each run of quiet calls folded into a group.
+fn grouped(
+    session: u64,
+    items: &[Item],
+    from: usize,
+    to: usize,
+    expanded: &HashSet<String>,
+    open_call: &impl Fn(usize) -> bool,
+    out: &mut Vec<Row>,
+) {
+    let quiet = |j: usize| matches!(items[j], Item::Tool(_)) && !open_call(j);
+    let mut j = from;
+    while j < to {
+        if quiet(j) {
+            let run_end = (j..to).find(|&k| !quiet(k)).unwrap_or(to);
+            if run_end - j >= RUN {
+                let open = expanded.contains(&group_key(session, j));
+                out.push(Row::Group {
+                    from: j,
+                    to: run_end,
+                    open,
+                });
+                if open {
+                    out.extend((j..run_end).map(Row::Item));
+                }
+                j = run_end;
+                continue;
+            }
+        }
+        out.push(Row::Item(j));
+        j += 1;
+    }
+}
+
+/// What the calls among `items` did, in words: "Read 3 files, edited 2
+/// and ran 4 commands".
+pub fn summary(items: &[Item]) -> String {
+    let mut read = 0;
+    let mut edited = 0;
+    let mut created = 0;
+    let mut deleted = 0;
+    let mut ran = 0;
+    let mut searched = 0;
+    let mut fetched = 0;
+    let mut other = 0;
+    for item in items {
+        let Item::Tool(t) = item else { continue };
+        let Tool { call, .. } = &**t;
+        match call.kind {
+            ToolKind::Read => read += 1,
+            ToolKind::Edit
+                if call
+                    .content
+                    .iter()
+                    .any(|c| matches!(c, ToolCallContent::Diff(d) if d.old_text.is_none())) =>
+            {
+                created += 1;
+            }
+            ToolKind::Edit | ToolKind::Move => edited += 1,
+            ToolKind::Delete => deleted += 1,
+            ToolKind::Execute => ran += 1,
+            ToolKind::Search => searched += 1,
+            ToolKind::Fetch => fetched += 1,
+            _ => other += 1,
+        }
+    }
+    let count = |n: usize, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(one.to_owned()),
+        n => Some(format!("{n} {many}")),
+    };
+    let parts: Vec<String> = [
+        count(read, "1 file", "files").map(|x| format!("read {x}")),
+        count(edited, "1 file", "files").map(|x| format!("edited {x}")),
+        count(created, "1 file", "files").map(|x| format!("created {x}")),
+        count(deleted, "1 file", "files").map(|x| format!("deleted {x}")),
+        count(ran, "1 command", "commands").map(|x| format!("ran {x}")),
+        count(searched, "once", "times").map(|x| format!("searched {x}")),
+        count(fetched, "1 page", "pages").map(|x| format!("fetched {x}")),
+        count(other, "1 tool", "tools").map(|x| format!("used {x}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let mut text = match parts.len() {
+        0 => return String::new(),
+        1 => parts[0].clone(),
+        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
+    };
+    if let Some(first) = text.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::Session;
+
+    fn session() -> Session {
+        let mut s = Session::new(7, "x", "/r".into());
+        s.said("go");
+        for (id, kind) in [
+            ("a", "read"),
+            ("b", "read"),
+            ("c", "search"),
+            ("d", "execute"),
+        ] {
+            s.apply(
+                serde_json::from_str(&format!(
+                    r#"{{"sessionUpdate":"tool_call","toolCallId":"{id}","title":"t","kind":"{kind}","status":"completed"}}"#
+                ))
+                .unwrap(),
+            );
+        }
+        s.apply(
+            serde_json::from_str(
+                r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#,
+            )
+            .unwrap(),
+        );
+        s
+    }
+
+    #[test]
+    fn a_turn_going_on_shows_every_row() {
+        let s = session();
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false);
+        assert_eq!(rows.len(), s.items.len());
+        assert!(rows.iter().all(|r| matches!(r, Row::Item(_))));
+    }
+
+    #[test]
+    fn a_finished_turn_folds_its_work_and_keeps_the_answer() {
+        let mut s = session();
+        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false);
+        // You, the fold over four calls, the answer, the end.
+        assert_eq!(
+            rows,
+            vec![
+                Row::Item(0),
+                Row::Turn {
+                    from: 1,
+                    to: 5,
+                    secs: 0,
+                    open: false
+                },
+                Row::Item(5),
+                Row::Item(6)
+            ]
+        );
+        assert_eq!(
+            summary(&s.items[1..5]),
+            "Read 2 files, ran 1 command and searched once"
+        );
+    }
+
+    #[test]
+    fn an_opened_turn_folds_a_run_of_quiet_calls_into_a_group() {
+        let mut s = session();
+        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        let open: HashSet<String> = [turn_key(7, 1)].into_iter().collect();
+        let rows = rows(7, &s.items, &open, |i| i == 4);
+        // The fourth call is open, so only the first three are a group.
+        assert_eq!(
+            rows[1..4],
+            [
+                Row::Turn {
+                    from: 1,
+                    to: 5,
+                    secs: 0,
+                    open: true
+                },
+                Row::Group {
+                    from: 1,
+                    to: 4,
+                    open: false
+                },
+                Row::Item(4)
+            ]
+        );
+    }
+}
