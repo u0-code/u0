@@ -1,32 +1,72 @@
-//! The pages that take the middle in place of a thread: an agent's own,
-//! which says what it is and gets it ready to run, and the settings, where
-//! agents are switched on and off.
+//! The pages that take the middle in place of a thread, as the design has
+//! them: an agent's own, which gets it ready to run in three steps, and the
+//! settings, where agents are switched on and off.
+
+use std::time::SystemTime;
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::Desk,
+    desk::{Desk, Page},
     fonts::Faces,
-    hub::Stage,
+    hub::{Slot, Stage},
     registry::{Missing, Way},
-    style::{DISPLAY, META, NAME, S1, S2, S3, S4, SMALL},
+    session::State,
+    sidebar::kbd,
     theme,
     ui::{self, Mark, Weight},
+    when,
 };
 
 /// The width of a page's column.
 const PAGE: f32 = 560.;
 
-fn page() -> gpui::Stateful<Div> {
+/// Where a step of getting an agent ready stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Todo,
+    Now,
+    Done,
+}
+
+fn step_number(faces: &Faces, n: u8, step: Step) -> Div {
+    let (line, color) = match step {
+        Step::Todo => (theme::border2(), theme::muted()),
+        Step::Now => (theme::accent(), theme::accent()),
+        Step::Done => (theme::ok(), theme::ok()),
+    };
     div()
-        .id("page")
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(22.))
+        .rounded_full()
+        .border_1()
+        .border_color(line)
+        .when(step == Step::Done, |d| d.bg(theme::ok().opacity(0.18)))
+        .child(
+            ui::text(faces, n.to_string())
+                .text_size(px(11.))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(color),
+        )
+}
+
+fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    ui::text(faces, text)
+        .text_size(px(11.5))
+        .line_height(px(16.))
+        .text_color(theme::faint())
+}
+
+fn card() -> Div {
+    div()
         .flex()
         .flex_col()
-        .items_center()
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .py(px(56.))
+        .rounded(px(12.))
+        .border_1()
+        .border_color(theme::border())
 }
 
 impl Desk {
@@ -36,59 +76,202 @@ impl Desk {
         id: &str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let Some(slot) = self.slot(id) else {
-            return page()
-                .child(ui::text(faces, "This agent is switched off.").text_color(theme::muted()));
+        let page = div()
+            .id("page")
+            .flex()
+            .flex_col()
+            .items_center()
+            .flex_1()
+            .min_h(px(0.))
+            .overflow_y_scroll();
+        let Some(entry) = self.entry(id) else {
+            return page
+                .child(ui::text(faces, "The registry does not list this agent.").mt(px(72.)));
         };
-        let e = &slot.entry;
-        let how = match e.way() {
+        let enabled = self.settings.enabled.iter().any(|e| e == id);
+        let stage = self.slot(id).map_or_else(
+            || Slot::new(entry.clone(), &self.home).stage,
+            |s| s.stage.clone(),
+        );
+        let name = self.name_of(id);
+        let command = match entry.way() {
             Way::Archive => {
-                "Installed from its release archive, checked against the registry's digest."
-                    .to_owned()
+                let b = &entry.distribution.binary[&crate::registry::platform()];
+                std::iter::once(b.cmd.trim_start_matches("./").to_owned())
+                    .chain(b.args.iter().cloned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
             }
-            Way::Runner { runner, package } => {
-                format!("Runs with `{runner} {package}`; the package is fetched on first start.")
-            }
-            Way::None => "No build for this machine.".to_owned(),
+            Way::Runner { runner, package } => format!("{runner} -y {package}"),
+            Way::None => String::new(),
         };
-        let (status, trouble) = match &slot.stage {
-            Stage::Missing(m) => (m.say(&e.name), !matches!(m, Missing::Download)),
-            Stage::Installing(stage) => (format!("{stage}…"), false),
-            Stage::Ready => (
-                "Installed. It starts with the first session.".to_owned(),
-                false,
-            ),
-            Stage::Starting => ("Starting…".to_owned(), false),
-            Stage::Running { init, .. } => {
-                let who = init
-                    .agent_info
-                    .as_ref()
-                    .map_or_else(String::new, |i| format!(" as {} {}", i.name, i.version));
-                (format!("Running{who}."), false)
-            }
-            Stage::Failed(why) => (why.clone(), true),
+        let opened = self
+            .sessions
+            .iter()
+            .any(|s| s.agent == id && s.id.is_some());
+        let signing = self
+            .sessions
+            .iter()
+            .any(|s| s.agent == id && s.state == State::SignIn);
+
+        let (headline, ready) = match &stage {
+            Stage::Missing(_) => (format!("{name} isn't on this Mac yet"), false),
+            Stage::Installing(_) => (format!("Installing {name}"), false),
+            Stage::Failed(_) => (format!("{name} stopped"), true),
+            _ => (format!("{name} is ready"), true),
         };
-        let (a, b, c) = (id.to_owned(), id.to_owned(), id.to_owned());
-        let mut actions = div().flex().gap(px(S2));
-        match &slot.stage {
+        let one = match &stage {
+            Stage::Missing(_) => Step::Todo,
+            Stage::Installing(_) => Step::Now,
+            _ => Step::Done,
+        };
+        let two = match &stage {
+            Stage::Running { .. } => Step::Done,
+            Stage::Starting => Step::Now,
+            _ => Step::Todo,
+        };
+        let three = if opened {
+            Step::Done
+        } else if signing {
+            Step::Now
+        } else {
+            Step::Todo
+        };
+        let first_step = match entry.way() {
+            Way::Archive => format!("Download {name} {}", entry.version),
+            Way::Runner { runner, .. } => format!("Fetched by {runner} on first start"),
+            Way::None => "No build for this Mac".into(),
+        };
+        let mut download = div().flex().flex_col().flex_1().gap(px(8.)).child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap(px(8.))
+                .child(
+                    ui::text(faces, first_step)
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(if one == Step::Todo {
+                            theme::text()
+                        } else {
+                            theme::text2()
+                        }),
+                )
+                .child(fine(
+                    faces,
+                    format!("{} · from the ACP registry", crate::registry::platform()),
+                )),
+        );
+        if let Stage::Installing(what) = &stage {
+            let share = if what.starts_with("Downloading") {
+                0.35
+            } else if what.starts_with("Checking") {
+                0.7
+            } else {
+                0.9
+            };
+            download = download
+                .child(
+                    div()
+                        .h(px(4.))
+                        .w_full()
+                        .rounded(px(2.))
+                        .bg(theme::tag_line())
+                        .overflow_hidden()
+                        .child(div().h_full().w(gpui::relative(share)).bg(theme::accent())),
+                )
+                .child(fine(faces, what.clone()));
+        } else if let Stage::Missing(m) = &stage
+            && !matches!(m, Missing::Download)
+        {
+            download = download.child(fine(faces, m.say(&name)).text_color(theme::coral()));
+        } else {
+            download = download.child(
+                ui::mono(faces, Desk::shown(&entry.dir(&self.home)))
+                    .text_size(px(11.5))
+                    .text_color(theme::faint()),
+            );
+        }
+        let step_row = |n: u8, st: Step, body: Div| {
+            div()
+                .flex()
+                .gap(px(14.))
+                .px(px(16.))
+                .py(px(14.))
+                .when(n > 1, |d| d.border_t_1().border_color(theme::border()))
+                .child(step_number(faces, n, st))
+                .child(body)
+        };
+        let simple = |title: String, text: String, st: Step| {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .gap(px(4.))
+                .child(
+                    ui::text(faces, title)
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(if st == Step::Todo {
+                            theme::text2()
+                        } else {
+                            theme::text()
+                        }),
+                )
+                .child(fine(faces, text))
+        };
+        let steps = card()
+            .child(step_row(1, one, download))
+            .child(step_row(
+                2,
+                two,
+                simple(
+                    "Check that it speaks ACP".into(),
+                    format!("Starts {command} once and reads its version and abilities."),
+                    two,
+                ),
+            ))
+            .child(step_row(
+                3,
+                three,
+                simple(
+                    format!("Sign in to {name}"),
+                    format!("{name}'s own sign-in. Skipped if you're already signed in."),
+                    three,
+                ),
+            ));
+
+        let (a, b, c, d) = (id.to_owned(), id.to_owned(), id.to_owned(), id.to_owned());
+        let mut actions = div().flex().items_center().gap(px(8.));
+        match &stage {
             Stage::Missing(Missing::Download) => {
                 actions = actions.child(
-                    ui::button(
-                        faces,
-                        "install",
-                        format!("Install {}", e.name),
-                        Weight::Primary,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.install(&a, cx))),
+                    ui::button(faces, "install", format!("Install {name}"), Weight::Primary)
+                        .on_click(cx.listener(move |this, _, _, cx| this.install(&a, cx))),
                 );
             }
-            Stage::Missing(Missing::Runner(_)) | Stage::Failed(_) => {
+            Stage::Missing(Missing::Runner(runner)) => {
+                let url = if *runner == "npx" {
+                    "https://nodejs.org/"
+                } else {
+                    "https://docs.astral.sh/uv/"
+                };
+                let label = url.trim_start_matches("https://").trim_end_matches('/');
+                actions = actions
+                    .child(
+                        ui::button(faces, "recheck", "Try again", Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, _, cx| this.recheck(&b, cx))),
+                    )
+                    .child(
+                        ui::button(faces, "get-runner", label, Weight::Quiet)
+                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(url))),
+                    );
+            }
+            Stage::Failed(_) => {
                 actions = actions.child(
-                    ui::button(faces, "recheck", "Check again", Weight::Secondary)
+                    ui::button(faces, "recheck", "Try again", Weight::Secondary)
                         .on_click(cx.listener(move |this, _, _, cx| this.recheck(&b, cx))),
                 );
             }
-            Stage::Ready | Stage::Running { .. } => {
+            _ if enabled => {
                 actions = actions.child(
                     ui::button(faces, "start", "New session", Weight::Primary).on_click(
                         cx.listener(move |this, _, window, cx| this.new_session(&c, window, cx)),
@@ -97,43 +280,93 @@ impl Desk {
             }
             _ => {}
         }
-        let link = e.website.clone().or_else(|| e.repository.clone());
-        page().child(
+        let toggle_weight = if enabled || !ready {
+            Weight::Quiet
+        } else {
+            Weight::Primary
+        };
+        actions = actions.child(div().flex_1()).child(
+            ui::button(
+                faces,
+                "toggle",
+                if enabled { "Turn off" } else { "Turn on" },
+                toggle_weight,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&d, cx))),
+        );
+
+        let trouble = match &stage {
+            Stage::Failed(why) => Some(why.clone()),
+            _ => None,
+        };
+        page.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(S4))
+                .gap(px(24.))
                 .w(px(PAGE))
-                .child(ui::mark(faces, &Mark::of(&e.id, &e.name), 48.))
-                .child(ui::serif(faces, e.name.clone()).text_size(px(DISPLAY)))
-                .child(ui::text(faces, e.description.clone()).text_color(theme::text2()))
+                .pt(px(72.))
+                .pb(px(40.))
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(S1))
-                        .child(meta_row(faces, "Version", &e.version))
-                        .child(meta_row(faces, "How", &how))
-                        .children(link.map(|l| meta_row(faces, "Source", &l))),
+                        .gap(px(14.))
+                        .child(ui::mark(faces, &Mark::of(id, &name), 48.))
+                        .child(
+                            ui::text(faces, headline)
+                                .text_size(px(22.))
+                                .line_height(px(30.))
+                                .font_weight(gpui::FontWeight::SEMIBOLD),
+                        )
+                        .child(
+                            ui::text(
+                                faces,
+                                format!(
+                                    "Ghost runs {name}'s own agent and shows its work here. Its account, models and billing stay with {name}; Ghost never sees its sign-in."
+                                ),
+                            )
+                            .text_size(px(14.))
+                            .line_height(px(21.))
+                            .text_color(theme::text2()),
+                        ),
                 )
-                .child(
-                    ui::text(faces, status)
-                        .text_size(px(SMALL))
-                        .text_color(if trouble { theme::coral() } else { theme::text2() }),
-                )
-                .child(actions)
-                .child(
-                    ui::text(faces, "Each agent signs in its own way, with its own account: if it asks, run its CLI once in a terminal and sign in there.")
-                        .text_size(px(META))
-                        .text_color(theme::faint()),
-                ),
+                .child(steps)
+                .children(trouble.map(|why| {
+                    crate::thread::well(faces)
+                        .px(px(12.))
+                        .py(px(8.))
+                        .text_size(px(12.))
+                        .text_color(theme::coral())
+                        .child(why)
+                }))
+                .child(actions),
         )
     }
 
     pub(crate) fn settings_page(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut list = div().flex().flex_col();
+        let nav = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(220.))
+            .gap(px(2.))
+            .p(px(8.))
+            .border_r_1()
+            .border_color(theme::border())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(32.))
+                    .px(px(10.))
+                    .rounded(px(8.))
+                    .bg(theme::panel2())
+                    .child(ui::text(faces, "Agents").text_size(px(13.5))),
+            );
+
+        let mut list = card().overflow_hidden();
         let mut agents: Vec<_> = self.registry.agents.iter().collect();
-        // Those switched on first, in their order; then the rest by name.
         agents.sort_by_key(|e| {
             (
                 self.settings
@@ -144,116 +377,178 @@ impl Desk {
                 e.name.to_lowercase(),
             )
         });
-        for e in agents {
+        for (n, e) in agents.into_iter().enumerate() {
             let on = self.settings.enabled.contains(&e.id);
-            let id = e.id.clone();
+            let installed = e.launch(&self.home).is_ok();
+            let name = self.name_of(&e.id);
+            let how = match e.way() {
+                Way::Archive => "binary",
+                Way::Runner { runner, .. } => runner,
+                Way::None => "unavailable",
+            };
+            let line = match (installed, on, e.way()) {
+                (true, true, _) => format!("{} {} · {how}", e.id, e.version),
+                (true, false, Way::Archive) => "installed · off".to_owned(),
+                (true, false, _) => format!("runs with {how} · off"),
+                (false, _, _) => "not installed".to_owned(),
+            };
+            let (id, page_id) = (e.id.clone(), e.id.clone());
+            let control = if installed || on {
+                ui::switch(SharedString::from(format!("toggle-{id}")), on)
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))
+                    .into_any_element()
+            } else {
+                ui::button(
+                    faces,
+                    SharedString::from(format!("get-{id}")),
+                    "Install",
+                    Weight::Secondary,
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.open_page(Page::Agent(id.clone()), cx)),
+                )
+                .into_any_element()
+            };
             list = list.child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(S3))
-                    .py(px(10.))
-                    .border_b_1()
-                    .border_color(theme::border())
+                    .gap(px(12.))
+                    .px(px(16.))
+                    .py(px(12.))
+                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .child(div().when(!on, |d| d.opacity(0.45)).child(ui::mark(
                         faces,
-                        &Mark::of(&e.id, &e.name),
+                        &Mark::of(&e.id, &name),
                         24.,
                     )))
                     .child(
                         div()
+                            .id(SharedString::from(format!("aname-{n}")))
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w(px(0.))
-                            .child(ui::text(faces, e.name.clone()).text_size(px(NAME)))
-                            .child(ui::one_line(
-                                ui::text(faces, ui::fit(&e.description, 64))
-                                    .text_size(px(META))
-                                    .text_color(theme::faint()),
-                            )),
+                            .cursor_pointer()
+                            .child(ui::text(faces, name).font_weight(gpui::FontWeight::MEDIUM))
+                            .child(fine(faces, line))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_page(Page::Agent(page_id.clone()), cx);
+                            })),
                     )
-                    .child(
-                        toggle(SharedString::from(format!("toggle-{id}")), on).on_click(
-                            cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)),
-                        ),
-                    ),
+                    .child(control),
             );
         }
-        let head = div()
+        let default = self
+            .slots
+            .first()
+            .map(|s| (s.entry.id.clone(), self.name_of(&s.entry.id)));
+        let read = self.registry_read.map_or_else(
+            || "Registry not read yet".to_owned(),
+            |t| match when::ago(t, SystemTime::now()).as_str() {
+                "now" => "Registry checked just now".to_owned(),
+                ago => format!("Registry checked {ago} ago"),
+            },
+        );
+        let content = div()
             .flex()
-            .items_end()
-            .justify_between()
-            .child(ui::serif(faces, "Agents").text_size(px(DISPLAY)))
+            .flex_col()
+            .gap(px(22.))
+            .px(px(40.))
+            .py(px(28.))
+            .max_w(px(720.))
             .child(
-                ui::button(faces, "refresh", "Read the registry again", Weight::Quiet)
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
-            );
-        page().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        ui::text(faces, "Agents")
+                            .text_size(px(20.))
+                            .line_height(px(28.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        ui::text(
+                            faces,
+                            "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
+                        )
+                        .text_size(px(13.5))
+                        .text_color(theme::text2()),
+                    ),
+            )
+            .children(default.map(|(id, name)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(
+                        ui::text(faces, "Default for new sessions")
+                            .flex_1()
+                            .text_size(px(13.5)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .h(px(26.))
+                            .px(px(8.))
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(theme::tag_line())
+                            .child(ui::mark(faces, &Mark::of(&id, &name), 14.))
+                            .child(
+                                ui::text(faces, name)
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text2()),
+                            ),
+                    )
+                    .child(kbd(faces, "⌘N"))
+            }))
+            .children(
+                self.settings_refused
+                    .clone()
+                    .map(|why| fine(faces, why).text_color(theme::coral())),
+            )
+            .children(
+                self.registry_trouble
+                    .clone()
+                    .map(|why| fine(faces, why).text_color(theme::coral())),
+            )
+            .when(
+                self.registry.agents.is_empty() && self.registry_trouble.is_none(),
+                |d| d.child(fine(faces, "Reading the registry…")),
+            )
+            .child(list)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(
+                        ui::button(faces, "refresh", "Read the registry again", Weight::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
+                    )
+                    .child(div().flex_1())
+                    .child(fine(faces, read)),
+            )
+            .child(fine(
+                faces,
+                format!(
+                    "Ghost keeps its settings and the agents it installs in {}.",
+                    Desk::shown(&self.home)
+                ),
+            ));
+        div().flex().flex_1().min_h(px(0.)).child(nav).child(
             div()
+                .id("settings")
                 .flex()
                 .flex_col()
-                .gap(px(S4))
-                .w(px(PAGE))
-                .child(head)
-                .child(
-                    ui::text(faces, "Every agent that speaks the Agent Client Protocol, as its registry lists them. Those switched on are down the left.")
-                        .text_size(px(SMALL))
-                        .text_color(theme::muted()),
-                )
-                .children(self.settings_refused.clone().map(|why| trouble(faces, why)))
-                .children(self.registry_trouble.clone().map(|why| trouble(faces, why)))
-                .when(self.registry.agents.is_empty() && self.registry_trouble.is_none(), |d| {
-                    d.child(ui::text(faces, "Reading the registry…").text_color(theme::muted()))
-                })
-                .child(list)
-                .child(meta_row(faces, "Home", &Desk::shown(&self.home))),
+                .flex_1()
+                .min_w(px(0.))
+                .overflow_y_scroll()
+                .child(content),
         )
     }
-}
-
-fn meta_row(faces: &Faces, label: &str, value: &str) -> Div {
-    div()
-        .flex()
-        .gap(px(S3))
-        .child(
-            ui::text(faces, label.to_owned())
-                .w(px(72.))
-                .flex_none()
-                .text_size(px(META))
-                .text_color(theme::faint()),
-        )
-        .child(
-            ui::text(faces, value.to_owned())
-                .text_size(px(META))
-                .text_color(theme::text2()),
-        )
-}
-
-fn trouble(faces: &Faces, why: String) -> Div {
-    ui::text(faces, why)
-        .text_size(px(SMALL))
-        .text_color(theme::coral())
-}
-
-/// An on/off switch.
-fn toggle(id: SharedString, on: bool) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .w(px(30.))
-        .h(px(18.))
-        .p(px(2.))
-        .rounded_full()
-        .cursor_pointer()
-        .bg(if on { theme::text2() } else { theme::border2() })
-        .when(on, gpui::Styled::justify_end)
-        .child(
-            div()
-                .size(px(14.))
-                .rounded_full()
-                .bg(if on { theme::bg() } else { theme::muted() }),
-        )
 }

@@ -115,22 +115,11 @@ pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
         .overflow_hidden()
 }
 
-/// The quiet title over a menu's choices: "Mode", "Model".
-pub fn menu_head(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    self::text(faces, text)
-        .text_size(px(CAPTION))
-        .text_color(theme::muted())
-        .px(px(10.))
-        .pt(px(8.))
-        .pb(px(4.))
-}
-
 /// How much a button asks to be pressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Weight {
-    /// The one that finishes what is on screen: a raised grey, its word
-    /// in full text and medium weight. The accent is kept for small
-    /// things (focus, the choice in use), never for a block of colour.
+    /// The one that does what the page is for: light on the dark ground,
+    /// its word in the ground's colour. One to a card at most.
     Primary,
     /// Beside it: an outline.
     Secondary,
@@ -138,45 +127,96 @@ pub enum Weight {
     Quiet,
 }
 
-/// A button, the same everywhere in the desk: small corners, one height,
-/// and its weight said by its edge and its type rather than a fill.
+/// A button, the same everywhere in the desk: 28 high, corners of 8, its
+/// weight said by its fill, its edge or neither.
 pub fn button(
     faces: &Faces,
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
     weight: Weight,
 ) -> gpui::Stateful<Div> {
-    let word = text(faces, label).text_size(px(META));
+    let word = text(faces, label)
+        .text_size(px(META))
+        .font_weight(gpui::FontWeight::MEDIUM);
     let base = div()
         .id(id)
         .flex()
         .flex_none()
         .items_center()
         .h(px(28.))
-        .px(px(12.))
-        .rounded(px(6.));
+        .px(px(11.))
+        .rounded(px(8.))
+        .cursor_pointer();
     match weight {
         Weight::Primary => base
-            .cursor_pointer()
-            .bg(theme::border2())
-            .border_1()
-            .border_color(theme::ghost_line())
-            .hover(|s| s.bg(theme::ghost_line()))
-            .child(
-                word.font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(theme::text()),
-            ),
+            .bg(theme::text())
+            .hover(|s| s.bg(theme::text2()))
+            .child(word.text_color(theme::bg())),
         Weight::Secondary => base
-            .cursor_pointer()
             .border_1()
             .border_color(theme::border2())
             .hover(|s| s.bg(theme::hover()))
-            .child(word.text_color(theme::text2())),
+            .child(word.text_color(theme::text())),
         Weight::Quiet => base
-            .cursor_pointer()
             .hover(|s| s.bg(theme::hover()))
-            .child(word.text_color(theme::muted())),
+            .child(word.text_color(theme::text2())),
     }
+}
+
+/// The head of a section: small capitals, faint, as the side columns and
+/// pages set them. GPUI has no letter spacing, so the capitals carry it.
+pub fn label(faces: &Faces, text: &str) -> Div {
+    self::text(faces, text.to_uppercase())
+        .text_size(px(11.))
+        .line_height(px(16.))
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(theme::faint())
+}
+
+/// An on/off switch.
+pub fn switch(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .w(px(30.))
+        .h(px(18.))
+        .p(px(2.))
+        .rounded_full()
+        .cursor_pointer()
+        .bg(if on {
+            theme::text()
+        } else {
+            theme::ghost_line()
+        })
+        .when(on, Styled::justify_end)
+        .child(
+            div()
+                .size(px(14.))
+                .rounded_full()
+                .bg(if on { theme::bg() } else { theme::muted() }),
+        )
+}
+
+/// An icon button: a 28-point square that lights on hover.
+pub fn icon_button(
+    id: impl Into<gpui::ElementId>,
+    icon_name: &str,
+    tip_text: &'static str,
+) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(28.))
+        .rounded(px(7.))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(icon(icon_name, 16.))
+        .tooltip(tip(tip_text))
 }
 
 /// A short note shown on hover, for `.tooltip`.
@@ -209,6 +249,22 @@ impl Render for Tip {
 /// A six-pixel dot: a state.
 pub fn dot(color: Hsla) -> Div {
     div().size(px(6.)).rounded_full().bg(color).flex_none()
+}
+
+/// Something going on now: the amber dot in a faint ring of its own colour,
+/// breathing.
+pub fn live_dot() -> Div {
+    breathing(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(12.))
+            .rounded_full()
+            .bg(theme::accent().opacity(0.16))
+            .child(dot(theme::accent())),
+    )
 }
 
 /// A piece of text that stays on one line. It is as wide as it may be: in
@@ -329,6 +385,46 @@ pub fn breathing(d: Div) -> Div {
     let phase = (t.as_millis() % BREATH.as_millis()) as f32 / BREATH.as_millis() as f32;
     let wave = f32::midpoint(1., (phase * std::f32::consts::TAU).cos());
     d.opacity(0.35 + 0.65 * wave)
+}
+
+/// How much of something is used, as a ring: a faint track, and the share
+/// used drawn over it from the top, clockwise.
+pub fn ring(share: f32, size: f32) -> impl IntoElement {
+    let share = share.clamp(0., 1.);
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, (), window, _| {
+            let width = 2.5;
+            let r = (size - width) / 2.;
+            let c = bounds.center();
+            let at = |turn: f32| {
+                let a = turn * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                gpui::point(c.x + px(r * a.cos()), c.y + px(r * a.sin()))
+            };
+            let arc = |from: f32, to: f32| {
+                let mut p = gpui::PathBuilder::stroke(px(width));
+                p.move_to(at(from));
+                p.arc_to(
+                    gpui::point(px(r), px(r)),
+                    px(0.),
+                    to - from > 0.5,
+                    true,
+                    at(to),
+                );
+                p.build().ok()
+            };
+            for path in [arc(0., 0.5), arc(0.5, 0.999)].into_iter().flatten() {
+                window.paint_path(path, theme::ghost_line());
+            }
+            if share > 0.005
+                && let Some(path) = arc(0., share.min(0.999))
+            {
+                window.paint_path(path, theme::muted());
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
 }
 
 #[cfg(test)]

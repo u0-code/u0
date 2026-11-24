@@ -1,125 +1,343 @@
 //! The middle: the top bar, the session's thread, and the line you type
-//! into.
+//! into, drawn as the design has them.
 //!
-//! The thread is drawn the way a coding agent's own app draws it: what you
-//! said in a bubble, what the agent said in prose, each tool call as a row
-//! (its kind as a verb, what it was about, how it ended) that opens to
-//! what it did, a diff as a diff and output as output; a question the
-//! agent asks as a card with its choices. Every agent is drawn the same
-//! way, from the same ACP updates.
+//! What you said sits in a bubble; what the agent said is prose; each tool
+//! call is a row (an icon, its kind as a verb, what it was about, how it
+//! went) that opens into a framed box with its diff or its output; a
+//! question the agent asks is a card with its choices. Every agent is drawn
+//! the same way, from the same ACP updates.
 
+mod cards;
+mod composer;
 pub mod drawn;
 pub mod kinds;
 pub mod output;
+mod topbar;
+
+use std::path::Path;
 
 use agent_client_protocol_schema::v1::{
-    PermissionOptionKind, SessionConfigOptionCategory, StopReason, ToolCall, ToolCallContent,
-    ToolCallStatus, ToolKind,
+    Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
+    SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
-use gpui::{AnyElement, Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Desk, Popup, TOPBAR, draggable},
+    desk::Desk,
     fonts::Faces,
     markdown,
-    session::{Asked, Item, Session, State, text_of},
-    style::{
-        BODY, BUBBLE_RADIUS, CARD_RADIUS, DISPLAY, META, MONO, NAME, S1, S2, S3, S4, SMALL, TURN,
-        boxed, meta, row,
-    },
+    session::{Item, Session, State, Tool, text_of},
+    style::BUBBLE_RADIUS,
     theme,
-    ui::{self, Mark, Weight},
+    ui::{self, Mark},
+    when,
 };
 
-/// How a tool call's kind reads as a verb.
-fn verb(kind: ToolKind) -> &'static str {
-    match kind {
-        ToolKind::Read => "Read",
-        ToolKind::Edit => "Edited",
-        ToolKind::Delete => "Deleted",
-        ToolKind::Move => "Moved",
-        ToolKind::Search => "Searched",
-        ToolKind::Execute => "Ran",
-        ToolKind::Think => "Thought",
-        ToolKind::Fetch => "Fetched",
-        ToolKind::SwitchMode => "Switched mode",
-        _ => "Used",
+/// The parts of a tool call's row.
+struct Row {
+    icon: &'static str,
+    verb: &'static str,
+    object: String,
+    kind: Object,
+}
+
+/// How what a row is about is set.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Object {
+    /// A path or a pattern, in mono.
+    Mono,
+    /// A command: its program in one colour, the rest in another.
+    Command,
+    /// An address, as a link.
+    Link,
+    /// Words.
+    Plain,
+}
+
+/// `title` without the verb an agent may have begun it with, or the
+/// backticks around a command.
+fn bare(title: &str) -> String {
+    let t = title.trim().trim_matches('`');
+    for verb in [
+        "Read ", "Edit ", "Write ", "Search ", "Grep ", "Run ", "Fetch ", "Delete ", "Move ",
+    ] {
+        if let Some(rest) = t.strip_prefix(verb) {
+            return rest.trim().trim_matches('`').to_owned();
+        }
+    }
+    t.to_owned()
+}
+
+/// A path shown relative to the session's folder when it is inside it.
+fn rel(path: &Path, folder: &Path) -> String {
+    path.strip_prefix(folder)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+/// An address without its scheme, shortened in the middle when long.
+fn short_url(url: &str) -> String {
+    let u = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if u.chars().count() <= 60 {
+        return u.to_owned();
+    }
+    let parts: Vec<&str> = u.split('/').collect();
+    if parts.len() > 3 {
+        format!("{}/{}/…/{}", parts[0], parts[1], parts[parts.len() - 1])
+    } else {
+        ui::fit(u, 60)
     }
 }
 
-/// How long a turn has gone on, as a person says it.
-fn took(secs: u64) -> String {
-    if secs < 60 {
-        format!("{secs}s")
-    } else {
-        format!("{}m {}s", secs / 60, secs % 60)
+fn row_of(tool: &Tool, folder: &Path) -> Row {
+    let call = &tool.call;
+    let path = call
+        .content
+        .iter()
+        .find_map(|c| match c {
+            ToolCallContent::Diff(d) => Some(d.path.clone()),
+            _ => None,
+        })
+        .or_else(|| call.locations.first().map(|l| l.path.clone()));
+    let path_or_title = || {
+        path.as_deref()
+            .map_or_else(|| bare(&call.title), |p| rel(p, folder))
+    };
+    let created = call
+        .content
+        .iter()
+        .any(|c| matches!(c, ToolCallContent::Diff(d) if d.old_text.is_none()));
+    let running = matches!(
+        call.status,
+        ToolCallStatus::Pending | ToolCallStatus::InProgress
+    );
+    let (icon, verb, object, kind) = match call.kind {
+        ToolKind::Read => ("file", "Read", path_or_title(), Object::Mono),
+        ToolKind::Edit if created => ("file-plus", "Created", path_or_title(), Object::Mono),
+        ToolKind::Edit => ("pencil", "Edited", path_or_title(), Object::Mono),
+        ToolKind::Delete => ("trash", "Deleted", path_or_title(), Object::Mono),
+        ToolKind::Move => ("arrow-right", "Moved", bare(&call.title), Object::Mono),
+        ToolKind::Search => ("search", "Searched", bare(&call.title), Object::Mono),
+        ToolKind::Execute if running => ("terminal", "Running", bare(&call.title), Object::Command),
+        ToolKind::Execute => ("terminal", "Ran", bare(&call.title), Object::Command),
+        ToolKind::Fetch => (
+            "globe",
+            "Fetched",
+            short_url(&bare(&call.title)),
+            Object::Link,
+        ),
+        ToolKind::Think => ("bulb", "Thought about", call.title.clone(), Object::Plain),
+        ToolKind::SwitchMode => ("list", "Switched mode", call.title.clone(), Object::Plain),
+        _ => ("plug", "Called", call.title.clone(), Object::Plain),
+    };
+    Row {
+        icon,
+        verb,
+        object,
+        kind,
     }
+}
+
+/// A command as the design colours it: the program, then its arguments.
+pub fn command(faces: &Faces, text: &str, size: f32) -> Div {
+    let (program, rest) = text.split_once(' ').unwrap_or((text, ""));
+    div()
+        .flex()
+        .min_w(px(0.))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .font_family(faces.mono.clone())
+        .text_size(px(size))
+        .child(
+            div()
+                .flex_none()
+                .text_color(theme::code_program())
+                .child(program.to_owned()),
+        )
+        .when(!rest.is_empty(), |d| {
+            d.child(
+                div()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .text_color(theme::code_argument())
+                    .child(format!(" {}", ui::fit(rest, 72))),
+            )
+        })
+}
+
+/// A step's row, as the design sets it: 30 high, an icon, the verb in grey,
+/// what it was about, and small print at the right.
+fn step() -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .min_h(px(30.))
+        .px(px(10.))
+        .text_size(px(14.))
+        .line_height(px(22.))
+}
+
+fn icon(name: &str) -> gpui::Svg {
+    ui::icon(name, 16.).text_color(theme::faint())
+}
+
+fn verb(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    ui::text(faces, text).flex_none().text_color(theme::muted())
+}
+
+/// Small print at the right of a row. It takes the room left and sets its
+/// words at the end of it: GPUI drops a row's gaps when a child is pushed
+/// right with an automatic margin.
+fn right(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    right_in(faces, text, theme::faint())
+}
+
+/// Small print at the right, in `color`: amber while running, coral when
+/// it failed.
+fn right_in(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> Div {
+    div().flex().flex_1().justify_end().child(
+        ui::text(faces, text)
+            .flex_none()
+            .text_size(px(12.5))
+            .line_height(px(18.))
+            .text_color(color),
+    )
+}
+
+fn meta(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    ui::text(faces, text)
+        .text_size(px(12.5))
+        .line_height(px(18.))
+        .text_color(theme::faint())
+}
+
+fn counts(faces: &Faces, added: usize, gone: usize) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(8.))
+        .when(added > 0 || gone == 0, |d| {
+            d.child(
+                ui::mono(faces, format!("+{added}"))
+                    .text_size(px(12.5))
+                    .text_color(theme::ok()),
+            )
+        })
+        .when(gone > 0, |d| {
+            d.child(
+                ui::mono(faces, format!("−{gone}"))
+                    .text_size(px(12.5))
+                    .text_color(theme::coral()),
+            )
+        })
+}
+
+/// The framed box an opened step sits in.
+fn boxed() -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(10.))
+        .px(px(12.))
+        .pt(px(12.))
+        .pb(px(14.))
+        .rounded(px(16.))
+        .border_1()
+        .border_color(theme::border())
+}
+
+/// A well of mono text, for output.
+pub fn well(faces: &Faces) -> Div {
+    div()
+        .px(px(14.))
+        .py(px(10.))
+        .rounded(px(12.))
+        .border_1()
+        .border_color(theme::border())
+        .font_family(faces.mono.clone())
+        .text_size(px(13.))
+        .line_height(px(19.))
+        .text_color(theme::text2())
+}
+
+/// A plan's steps as the checklist draws them.
+pub fn plan_steps(plan: &Plan) -> Vec<(kinds::Status, String)> {
+    plan.entries
+        .iter()
+        .map(|e| {
+            let status = match e.status {
+                PlanEntryStatus::Completed => kinds::Status::Done,
+                PlanEntryStatus::InProgress => kinds::Status::Doing,
+                _ => kinds::Status::Todo,
+            };
+            (status, e.content.clone())
+        })
+        .collect()
+}
+
+/// The choices of a select option: `(id, name, current)` each, and the
+/// name of the current one.
+/// A menu's choices: `(id, name, current)` each.
+type Choices = Vec<(String, String, bool)>;
+
+fn select_choices(kind: &SessionConfigKind) -> Option<(String, Choices)> {
+    let SessionConfigKind::Select(select) = kind else {
+        return None;
+    };
+    let all: Vec<_> = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(o) => o.iter().collect(),
+        SessionConfigSelectOptions::Grouped(g) => g.iter().flat_map(|g| g.options.iter()).collect(),
+        _ => return None,
+    };
+    let current = all
+        .iter()
+        .find(|o| o.value == select.current_value)
+        .map_or_else(|| select.current_value.0.to_string(), |o| o.name.clone());
+    let choices = all
+        .iter()
+        .map(|o| {
+            (
+                o.value.0.to_string(),
+                o.name.clone(),
+                o.value == select.current_value,
+            )
+        })
+        .collect();
+    Some((current, choices))
 }
 
 impl Desk {
-    pub(crate) fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
-        let left = if self.panes.left { 16. } else { lights };
-        let mut title = div().flex().items_center().gap(px(S2)).min_w(px(0.));
-        if !self.panes.left {
-            title = title.child(
-                div()
-                    .id("show-sidebar")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(28.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(ui::icon("sidebar", 16.))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
-            );
-        }
-        if self.page == crate::desk::Page::Thread
-            && let Some(s) = self.session()
-        {
-            let name = self
-                .slot(&s.agent)
-                .map_or(s.agent.as_str(), |x| x.entry.name.as_str());
-            title = title
-                .child(ui::mark(faces, &Mark::of(&s.agent, name), 16.))
-                .child(ui::one_line(
-                    ui::text(faces, ui::fit(&s.title, 60))
-                        .text_size(px(NAME))
-                        .font_weight(gpui::FontWeight::MEDIUM),
-                ))
-                .child(
-                    ui::text(faces, format!("{name} · {}", Desk::shown(&s.folder)))
-                        .flex_none()
-                        .text_size(px(META))
-                        .text_color(theme::faint()),
-                );
-        }
-        draggable()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .h(px(TOPBAR))
-            .pl(px(left))
-            .pr(px(S3))
-            .border_b_1()
-            .border_color(theme::border())
-            .child(title)
-            .child(
-                div()
-                    .id("toggle-aside")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(28.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(ui::icon("panel-right", 16.))
-                    .tooltip(ui::tip("The session's side column"))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
-            )
+    /// An agent's name as the desk shows it.
+    pub(crate) fn name_of(&self, id: &str) -> String {
+        let registry = self.entry(id).map_or(id, |e| e.name.as_str());
+        theme::agent_name(id, registry).into_owned()
+    }
+
+    /// The name of the value chosen for the session's option in `category`.
+    pub(crate) fn option_name(
+        s: &Session,
+        category: &SessionConfigOptionCategory,
+    ) -> Option<String> {
+        s.options
+            .iter()
+            .find(|o| o.category.as_ref() == Some(category))
+            .and_then(|o| select_choices(&o.kind))
+            .map(|(current, _)| current)
+    }
+
+    /// The session's mode, by name, from its options or its modes.
+    pub(crate) fn mode_name(s: &Session) -> Option<String> {
+        Self::option_name(s, &SessionConfigOptionCategory::Mode).or_else(|| {
+            let m = s.modes.as_ref()?;
+            m.available_modes
+                .iter()
+                .find(|x| x.id == m.current_mode_id)
+                .map(|x| x.name.clone())
+        })
     }
 
     pub(crate) fn thread(
@@ -128,32 +346,41 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let mut col = div()
-            .flex()
-            .flex_col()
-            .w(px(column))
-            .pt(px(TURN))
-            .pb(px(TURN));
+        let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         match self.session() {
             None => col = col.child(self.empty(faces, cx)),
-            Some(s) if s.items.is_empty() && s.state == State::Draft => {
-                col = col.child(self.fresh(faces, s, cx));
+            Some(s) if s.items.is_empty() && matches!(s.state, State::Draft) => {
+                col = col.child(Self::fresh(faces, s, &self.name_of(&s.agent), cx));
             }
             Some(s) => {
+                col = col.child(self.turn_header(faces, s));
                 let mut before: Option<&Item> = None;
                 for (i, item) in s.items.iter().enumerate() {
-                    let gap = match (before, item) {
-                        (None, _) => 0.,
-                        (_, Item::You(_)) => TURN,
-                        (Some(Item::Tool(_)), Item::Tool(_)) => 0.,
-                        _ => S3,
-                    };
+                    let tight = matches!((before, item), (Some(Item::Tool(a)), Item::Tool(b))
+                        if !self.tool_open(s.key, i - 1, a) && !self.tool_open(s.key, i, b));
+                    let gap = if before.is_none() || tight { 0. } else { 12. };
                     col = col.child(div().mt(px(gap)).child(self.item(faces, s, i, item, cx)));
                     before = Some(item);
                 }
-                col = col.children(live(faces, s));
-                if s.state == State::SignIn {
-                    col = col.child(self.sign_in_card(faces, s, cx));
+                match &s.state {
+                    State::Opening => {
+                        col = col.child(
+                            step()
+                                .mt(px(12.))
+                                .child(div().mx(px(2.)).child(ui::live_dot()))
+                                .child(
+                                    verb(faces, format!("Starting {}", self.name_of(&s.agent)))
+                                        .text_color(theme::accent()),
+                                ),
+                        );
+                    }
+                    State::SignIn => {
+                        col = col.child(div().mt(px(12.)).child(self.sign_in_card(faces, s, cx)));
+                    }
+                    State::Broken(why) => {
+                        col = col.child(div().mt(px(12.)).child(self.broken(faces, s, why, cx)));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -169,26 +396,48 @@ impl Desk {
             .child(col)
     }
 
+    /// The line over the first turn: who, with what, where.
+    fn turn_header(&self, faces: &Faces, s: &Session) -> Div {
+        let name = self.name_of(&s.agent);
+        let mut parts = vec![name.clone()];
+        parts.extend(Self::option_name(s, &SessionConfigOptionCategory::Model));
+        parts.extend(Self::mode_name(s));
+        parts.push(Desk::shown(&s.folder));
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(10.))
+            .mb(px(12.))
+            .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
+            .child(meta(faces, parts.join(" · ")))
+    }
+
     /// The thread with nothing on it: the agents to begin with.
     fn empty(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut agents = div().flex().flex_wrap().gap(px(S2)).justify_center();
+        let mut agents = div().flex().flex_wrap().gap(px(8.)).justify_center();
         for slot in &self.slots {
             let id = slot.entry.id.clone();
+            let name = self.name_of(&id);
             agents = agents.child(
                 div()
                     .id(SharedString::from(format!("start-{id}")))
                     .flex()
                     .items_center()
-                    .gap(px(S2))
-                    .h(px(36.))
-                    .px(px(14.))
-                    .rounded(px(10.))
+                    .gap(px(8.))
+                    .h(px(34.))
+                    .px(px(12.))
+                    .rounded(px(8.))
                     .border_1()
                     .border_color(theme::border2())
                     .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(ui::mark(faces, &Mark::of(&id, &slot.entry.name), 16.))
-                    .child(ui::text(faces, slot.entry.name.clone()).text_size(px(NAME)))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::mark(faces, &Mark::of(&id, &name), 16.))
+                    .child(
+                        ui::text(faces, name)
+                            .text_size(px(13.))
+                            .font_weight(gpui::FontWeight::MEDIUM),
+                    )
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.new_session(&id, window, cx)),
                     ),
@@ -198,46 +447,65 @@ impl Desk {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(S4))
-            .mt(px(120.))
-            .child(ui::serif(faces, "What should we work on?").text_size(px(DISPLAY)))
+            .gap(px(14.))
+            .mt(px(140.))
             .child(
-                ui::text(faces, "Pick an agent. Each works with its own tools and its own sign-in; Ghost shows them all the same way.")
-                    .text_size(px(SMALL))
-                    .text_color(theme::muted()),
+                ui::text(faces, "What should we work on?")
+                    .text_size(px(22.))
+                    .line_height(px(30.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD),
             )
-            .child(agents)
+            .child(
+                ui::text(
+                    faces,
+                    "Pick an agent. Each works with its own tools and its own sign-in; Ghost shows them all the same way.",
+                )
+                .text_size(px(14.))
+                .text_color(theme::text2()),
+            )
+            .child(agents.mt(px(10.)))
     }
 
     /// A session begun, before anything is said: where it will work.
-    fn fresh(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let name = self
-            .slot(&s.agent)
-            .map_or(s.agent.clone(), |x| x.entry.name.clone());
+    fn fresh(faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
         div()
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(S4))
-            .mt(px(120.))
-            .child(ui::mark(faces, &Mark::of(&s.agent, &name), 32.))
-            .child(ui::serif(faces, format!("New session with {name}")).text_size(px(DISPLAY)))
+            .gap(px(14.))
+            .mt(px(140.))
+            .child(ui::mark(faces, &Mark::of(&s.agent, name), 48.))
+            .child(
+                ui::text(faces, format!("New session with {name}"))
+                    .text_size(px(22.))
+                    .line_height(px(30.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD),
+            )
             .child(
                 div()
                     .id("folder")
                     .flex()
                     .items_center()
-                    .gap(px(S2))
-                    .h(px(30.))
-                    .px(px(12.))
-                    .rounded(px(8.))
+                    .gap(px(6.))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .rounded(px(7.))
                     .border_1()
-                    .border_color(theme::border2())
+                    .border_color(theme::tag_line())
                     .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(ui::icon("folder", 14.))
-                    .child(ui::mono(faces, Desk::shown(&s.folder)).text_color(theme::text2()))
-                    .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                    .child(
+                        ui::mono(faces, Desk::shown(&s.folder))
+                            .text_size(px(12.))
+                            .text_color(theme::text2()),
+                    )
+                    .children(s.branch.clone().map(|b| {
+                        ui::mono(faces, b)
+                            .text_size(px(12.))
+                            .text_color(theme::faint())
+                    }))
+                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint()))
                     .tooltip(ui::tip("The folder it works in"))
                     .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
             )
@@ -260,86 +528,130 @@ impl Desk {
                     ui::text(faces, text.clone())
                         .max_w(px(520.))
                         .px(px(16.))
-                        .py(px(10.))
+                        .py(px(12.))
                         .rounded(px(BUBBLE_RADIUS))
                         .bg(theme::bubble())
+                        .text_size(px(14.))
                         .line_height(px(21.)),
                 )
                 .into_any_element(),
-            Item::Agent(text) => {
-                markdown::render(faces, &key, text, &self.expanded, cx).into_any_element()
-            }
-            Item::Thought(text) => {
+            Item::Agent(text) => div()
+                .px(px(10.))
+                .child(markdown::render(faces, &key, text, &self.expanded, cx))
+                .into_any_element(),
+            Item::Thought { text, secs } => {
                 let open = self.expanded.contains(&key);
                 let toggle = key.clone();
+                let label = match secs {
+                    Some(n) => format!("Thought for {n}s"),
+                    None => "Thinking".into(),
+                };
                 div()
                     .flex()
                     .flex_col()
                     .child(
-                        row()
+                        step()
                             .id(SharedString::from(key.clone()))
                             .cursor_pointer()
-                            .gap(px(S2))
                             .rounded(px(8.))
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(ui::text(faces, "Thought").text_color(theme::muted()))
-                            .child(ui::icon(
-                                if open {
-                                    "chevron-down"
-                                } else {
-                                    "chevron-right"
-                                },
-                                11.,
-                            ))
+                            .hover(|st| st.bg(theme::hover()))
+                            .child(icon(if open {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            }))
+                            .child(
+                                verb(faces, label)
+                                    .when(secs.is_none(), |d| d.text_color(theme::accent())),
+                            )
                             .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
                     )
                     .when(open, |d| {
-                        d.child(div().pl(px(10.)).child(markdown::render_as(
-                            faces,
-                            &key,
-                            text,
-                            markdown::Setting::Small,
-                            &self.expanded,
-                            cx,
-                        )))
+                        d.child(
+                            div()
+                                .ml(px(33.))
+                                .pl(px(12.))
+                                .border_l_1()
+                                .border_color(theme::tag_line())
+                                .child(
+                                    ui::serif(faces, text.clone())
+                                        .italic()
+                                        .text_size(px(14.))
+                                        .line_height(px(21.))
+                                        .text_color(theme::muted()),
+                                ),
+                        )
                     })
                     .into_any_element()
             }
-            Item::Tool(call) => self.tool(faces, &key, call, cx).into_any_element(),
-            Item::Asked(asked) => Self::asked(faces, &key, asked, cx).into_any_element(),
+            Item::Tool(tool) => self.tool(faces, s, i, tool, cx).into_any_element(),
+            Item::Asked(asked) => self.asked(faces, s, &key, asked, cx).into_any_element(),
+            Item::Plan(plan) => {
+                let steps = plan_steps(plan);
+                let done = steps
+                    .iter()
+                    .filter(|(st, _)| *st == kinds::Status::Done)
+                    .count();
+                boxed()
+                    .child(
+                        step()
+                            .px(px(2.))
+                            .min_h(px(22.))
+                            .child(icon("list"))
+                            .child(verb(faces, "Plan"))
+                            .child(right(faces, format!("{done} of {} done", steps.len()))),
+                    )
+                    .child(div().px(px(4.)).child(drawn::plan(faces, &steps)))
+                    .into_any_element()
+            }
             Item::Note { text, trouble } => ui::text(faces, text.clone())
-                .text_size(px(SMALL))
+                .px(px(10.))
+                .text_size(px(13.))
+                .line_height(px(20.))
                 .text_color(if *trouble {
                     theme::coral()
                 } else {
                     theme::muted()
                 })
                 .into_any_element(),
-            Item::Ended(reason) => {
-                let word = match reason {
-                    StopReason::Cancelled => "Stopped",
-                    StopReason::MaxTokens => "Stopped: the answer reached its length limit",
-                    StopReason::MaxTurnRequests => {
-                        "Stopped: the turn reached its limit of requests"
-                    }
-                    StopReason::Refusal => "The agent refused to go on",
-                    _ => "Ended",
-                };
-                row()
-                    .gap(px(S2))
-                    .child(div().size(px(8.)).rounded(px(1.5)).bg(theme::faint()))
-                    .child(meta(faces, word))
-                    .into_any_element()
-            }
+            Item::Ended { reason, secs } => self
+                .ended(faces, s, i, *reason, *secs, cx)
+                .into_any_element(),
         }
     }
 
-    /// A tool call: a row, and on a click what it did.
-    fn tool(&self, faces: &Faces, key: &str, call: &ToolCall, cx: &mut Context<Self>) -> Div {
-        let open = self.expanded.contains(key);
-        let has_more = !call.content.is_empty();
-        let toggle = key.to_owned();
-        let (adds, gone) = call.content.iter().fold((0, 0), |(a, g), c| match c {
+    /// Whether the call at `i` is open: an edit and a command with output
+    /// start open, the rest closed; a click turns either over.
+    fn tool_open(&self, session: u64, i: usize, tool: &Tool) -> bool {
+        let call = &tool.call;
+        if !has_body(tool) {
+            return false;
+        }
+        let first = match call.kind {
+            ToolKind::Edit | ToolKind::Execute => true,
+            _ => call.status == ToolCallStatus::Failed,
+        };
+        first != self.expanded.contains(&format!("{session}-{i}"))
+    }
+
+    fn tool(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        i: usize,
+        tool: &Tool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let call = &tool.call;
+        let key = format!("{}-{i}", s.key);
+        let row = row_of(tool, &s.folder);
+        let open = self.tool_open(s.key, i, tool);
+        let running = matches!(
+            call.status,
+            ToolCallStatus::Pending | ToolCallStatus::InProgress
+        );
+        let failed = call.status == ToolCallStatus::Failed;
+        let (added, gone) = call.content.iter().fold((0, 0), |(a, g), c| match c {
             ToolCallContent::Diff(d) => {
                 let (gone, added) = kinds::counted(&kinds::diff(
                     d.old_text.as_deref().unwrap_or(""),
@@ -349,553 +661,122 @@ impl Desk {
             }
             _ => (a, g),
         });
-        let status: AnyElement = match call.status {
-            ToolCallStatus::Pending | ToolCallStatus::InProgress => {
-                ui::breathing(ui::dot(theme::accent())).into_any_element()
-            }
-            ToolCallStatus::Failed => ui::icon("x", 12.)
-                .text_color(theme::coral())
-                .into_any_element(),
-            _ => div().into_any_element(),
-        };
-        let mut line = row()
-            .id(SharedString::from(format!("{key}-row")))
-            .gap(px(S2))
-            .rounded(px(8.))
-            .child(
-                ui::text(faces, verb(call.kind))
-                    .flex_none()
-                    .text_color(theme::muted()),
+
+        let object: AnyElement = match row.kind {
+            Object::Command => command(faces, &row.object, 13.5).into_any_element(),
+            Object::Mono => ui::one_line(
+                ui::mono(faces, ui::fit(&row.object, 72))
+                    .text_size(px(13.5))
+                    .text_color(theme::text()),
             )
-            .child(ui::one_line(
-                div()
-                    .font_family(faces.mono.clone())
-                    .text_size(px(MONO))
-                    .text_color(theme::text())
-                    .child(ui::fit(&call.title, 80)),
-            ))
-            .when(adds + gone > 0, |d| {
-                d.child(
-                    ui::mono(faces, format!("+{adds}"))
-                        .flex_none()
-                        .text_color(theme::code_argument()),
-                )
-                .child(
-                    ui::mono(faces, format!("−{gone}"))
-                        .flex_none()
-                        .text_color(theme::coral()),
-                )
+            .w_auto()
+            .min_w(px(0.))
+            .into_any_element(),
+            Object::Link => {
+                ui::one_line(ui::text(faces, row.object.clone()).text_color(theme::link()))
+                    .w_auto()
+                    .min_w(px(0.))
+                    .into_any_element()
+            }
+            Object::Plain => {
+                ui::one_line(ui::text(faces, ui::fit(&row.object, 72)).text_color(theme::text()))
+                    .w_auto()
+                    .min_w(px(0.))
+                    .into_any_element()
+            }
+        };
+        let mark: AnyElement = if running {
+            div().mx(px(2.)).child(ui::live_dot()).into_any_element()
+        } else {
+            icon(row.icon)
+                .when(failed, |i| i.text_color(theme::coral()))
+                .into_any_element()
+        };
+        let tail: Option<AnyElement> = if running {
+            Some(
+                right_in(faces, when::took(tool.started.elapsed()), theme::accent())
+                    .into_any_element(),
+            )
+        } else if failed {
+            Some(right_in(faces, "failed", theme::coral()).into_any_element())
+        } else if call.kind == ToolKind::Execute {
+            tool.took
+                .map(|t| right(faces, when::took_short(t)).into_any_element())
+        } else if call.kind == ToolKind::Search {
+            call.content.iter().find_map(|c| match c {
+                ToolCallContent::Content(x) => {
+                    let n = text_of(&x.content)
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .count();
+                    let word = if n == 1 { "match" } else { "matches" };
+                    Some(right(faces, format!("{n} {word}")).into_any_element())
+                }
+                _ => None,
             })
-            .child(status);
-        if has_more {
+        } else {
+            None
+        };
+
+        let toggle = key.clone();
+        let mut line = step()
+            .id(SharedString::from(format!("{key}-row")))
+            .rounded(px(8.))
+            .child(mark)
+            .child(verb(faces, row.verb).when(running, |d| d.text_color(theme::accent())))
+            .child(object)
+            .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
+                d.child(counts(faces, added, gone))
+            })
+            .children(tail);
+        if has_body(tool) {
             line = line
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(
-                    ui::icon(
-                        if open {
-                            "chevron-down"
-                        } else {
-                            "chevron-right"
-                        },
-                        11.,
-                    )
-                    .flex_none(),
-                )
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)));
-        }
-        let mut d = div().flex().flex_col().child(line);
-        if open {
-            let mut body = boxed().gap(px(S2)).mt(px(S1)).mb(px(S2));
-            for (j, c) in call.content.iter().enumerate() {
-                body = body.child(match c {
-                    ToolCallContent::Diff(diff) => div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(S1))
-                        .child(meta(faces, Desk::shown(&diff.path)))
-                        .child(drawn::diff(
-                            faces,
-                            &kinds::diff(diff.old_text.as_deref().unwrap_or(""), &diff.new_text),
-                        ))
-                        .into_any_element(),
-                    ToolCallContent::Content(content) => output::printed(
-                        faces,
-                        &format!("{key}-{j}"),
-                        &text_of(&content.content),
-                        self.expanded.contains(&format!("{key}-all")),
-                    )
-                    .into_any_element(),
-                    _ => div().into_any_element(),
-                });
+            if !open {
+                line = line.hover(|st| st.bg(theme::hover()));
             }
-            d = d.child(body);
         }
-        d
-    }
+        if !open {
+            return div().child(line);
+        }
 
-    /// A question the agent asks: what it wants to do, and the choices it
-    /// gives; once answered, what was chosen, quietly.
-    fn asked(faces: &Faces, key: &str, asked: &Asked, cx: &mut Context<Self>) -> Div {
-        if let Some(chosen) = &asked.chosen {
-            return row().gap(px(S2)).child(ui::icon("check", 13.)).child(meta(
-                faces,
-                format!("{chosen} · {}", ui::fit(&asked.title, 60)),
-            ));
-        }
-        let mut choices = div().flex().flex_wrap().gap(px(S2));
-        for (n, option) in asked.options.iter().enumerate() {
-            let weight = match option.kind {
-                PermissionOptionKind::AllowOnce => Weight::Primary,
-                PermissionOptionKind::AllowAlways => Weight::Secondary,
-                _ => Weight::Quiet,
-            };
-            let (request, id, name) = (
-                asked.id.clone(),
-                option.option_id.0.to_string(),
-                option.name.clone(),
-            );
-            choices = choices.child(
-                ui::button(
-                    faces,
-                    SharedString::from(format!("{key}-opt-{n}")),
-                    option.name.clone(),
-                    weight,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.choose(&request, id.clone(), &name, cx);
-                })),
-            );
-        }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(S3))
-            .p(px(S4))
-            .rounded(px(CARD_RADIUS))
-            .border_1()
-            .border_color(theme::accent().opacity(0.45))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(S2))
-                    .child(ui::dot(theme::accent()))
-                    .child(
-                        ui::text(faces, "Waiting for you")
-                            .text_size(px(META))
-                            .text_color(theme::accent()),
-                    ),
-            )
-            .child(
-                div()
-                    .font_family(faces.mono.clone())
-                    .text_size(px(MONO))
-                    .text_color(theme::text())
-                    .child(asked.title.clone()),
-            )
-            .child(choices)
-    }
-
-    /// The agent asks to be signed in before it opens the session: the
-    /// ways it offers, each a button, and a way to try again once a login
-    /// done elsewhere is finished.
-    fn sign_in_card(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        use agent_client_protocol_schema::v1::AuthMethod;
-        let name = self
-            .slot(&s.agent)
-            .map_or(s.agent.clone(), |x| x.entry.name.clone());
-        let methods: Vec<(String, String, Option<String>)> =
-            match self.slot(&s.agent).map(|x| &x.stage) {
-                Some(crate::hub::Stage::Running { init, .. }) => init
-                    .auth_methods
-                    .iter()
-                    .filter_map(|m| match m {
-                        AuthMethod::Agent(a) => {
-                            Some((a.id.0.to_string(), a.name.clone(), a.description.clone()))
-                        }
-                        AuthMethod::Terminal(t) => {
-                            Some((t.id.0.to_string(), t.name.clone(), t.description.clone()))
-                        }
-                        _ => None,
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            };
-        let busy = self.signing.as_deref() == Some(s.agent.as_str());
-        let mut list = div().flex().flex_col().gap(px(S2));
-        for (n, (id, label, about)) in methods.into_iter().enumerate() {
-            let agent = s.agent.clone();
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(S3))
-                    .child(
-                        ui::button(
-                            faces,
-                            SharedString::from(format!("auth-{n}")),
-                            label,
-                            if n == 0 {
-                                Weight::Primary
-                            } else {
-                                Weight::Secondary
-                            },
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.sign_in(&agent, &id, cx))),
-                    )
-                    .children(about.map(|a| meta(faces, a))),
-            );
-        }
-        let agent = s.agent.clone();
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(S3))
-            .mt(px(S3))
-            .p(px(S4))
-            .rounded(px(CARD_RADIUS))
-            .border_1()
-            .border_color(theme::accent().opacity(0.45))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(S2))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
-                    .child(ui::text(faces, format!("Sign in to {name}")).font_weight(gpui::FontWeight::MEDIUM)),
-            )
-            .child(
-                ui::text(faces, "It signs in with its own account; Ghost never sees it. What you said is sent once you are in.")
-                    .text_size(px(SMALL))
-                    .text_color(theme::muted()),
-            )
-            .child(if busy {
-                row()
-                    .gap(px(S2))
-                    .child(ui::breathing(ui::dot(theme::accent())))
-                    .child(ui::text(faces, "Waiting for the sign-in to finish").text_size(px(SMALL)))
-            } else {
-                list
-            })
-            .child(
-                ui::button(faces, "auth-retry", "I have signed in, continue", Weight::Quiet)
-                    .on_click(cx.listener(move |this, _, _, cx| this.retry_open(&agent, cx))),
-            )
-    }
-
-    /// The line you type into, with the session's mode and options under
-    /// your hand.
-    pub(crate) fn composer(
-        &self,
-        faces: &Faces,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let Some(s) = self.session() else {
-            return div();
-        };
-        let focused = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
-        let working = matches!(s.state, State::Working | State::Opening);
-        let empty = self.input.read(cx).is_empty();
-        let mut chips = div()
-            .flex()
-            .flex_1()
-            .min_w(px(0.))
-            .items_center()
-            .gap(px(2.))
-            .ml(px(-4.));
-        let name = self
-            .slot(&s.agent)
-            .map_or(s.agent.clone(), |x| x.entry.name.clone());
-        chips = chips.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .h(px(26.))
-                .px(px(8.))
-                .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
-                .child(
-                    ui::text(faces, name)
-                        .text_size(px(META))
-                        .text_color(theme::muted()),
-                ),
-        );
-        // An agent that offers its mode among its options says it there;
-        // ACP has clients prefer the options to the older list of modes.
-        let mode_option = s
-            .options
-            .iter()
-            .any(|o| o.category == Some(SessionConfigOptionCategory::Mode));
-        if let Some(modes) = s.modes.as_ref().filter(|_| !mode_option) {
-            let current = modes
-                .available_modes
-                .iter()
-                .find(|m| m.id == modes.current_mode_id)
-                .map_or_else(|| modes.current_mode_id.0.to_string(), |m| m.name.clone());
-            let choices = modes
-                .available_modes
-                .iter()
-                .map(|m| {
-                    (
-                        m.id.0.to_string(),
-                        m.name.clone(),
-                        m.id == modes.current_mode_id,
-                    )
-                })
-                .collect();
-            chips = chips.child(self.chip(faces, &Popup::Mode, &current, "Mode", choices, cx));
-        }
-        // Under your hand: the mode, the model and how hard it thinks. The
-        // rest of what an agent offers is for its settings, not each turn.
-        for option in s.options.iter().filter(|o| {
-            matches!(
-                o.category,
-                Some(
-                    SessionConfigOptionCategory::Mode
-                        | SessionConfigOptionCategory::Model
-                        | SessionConfigOptionCategory::ThoughtLevel
-                )
-            )
-        }) {
-            use agent_client_protocol_schema::v1::{SessionConfigKind, SessionConfigSelectOptions};
-            let SessionConfigKind::Select(select) = &option.kind else {
-                continue;
-            };
-            let all: Vec<_> = match &select.options {
-                SessionConfigSelectOptions::Ungrouped(o) => o.iter().collect(),
-                SessionConfigSelectOptions::Grouped(g) => {
-                    g.iter().flat_map(|g| g.options.iter()).collect()
+        let mut body = boxed().when(failed, |d| d.border_color(theme::coral().opacity(0.35)));
+        body = body.child(line.px(px(2.)).min_h(px(22.)));
+        let mut diff_n = 0;
+        for (j, c) in call.content.iter().enumerate() {
+            match c {
+                ToolCallContent::Diff(d) => {
+                    let lines = kinds::diff(d.old_text.as_deref().unwrap_or(""), &d.new_text);
+                    let start = tool.starts.get(diff_n).copied().flatten();
+                    diff_n += 1;
+                    body = body.child(drawn::diff(faces, &lines, start, drawn::Fit::Thread));
                 }
-                _ => continue,
-            };
-            let current = all
-                .iter()
-                .find(|o| o.value == select.current_value)
-                .map_or_else(|| select.current_value.0.to_string(), |o| o.name.clone());
-            let choices = all
-                .iter()
-                .map(|o| {
-                    (
-                        o.value.0.to_string(),
-                        o.name.clone(),
-                        o.value == select.current_value,
-                    )
-                })
-                .collect();
-            chips = chips.child(self.chip(
-                faces,
-                &Popup::Option(option.id.0.to_string()),
-                &current,
-                &option.name,
-                choices,
-                cx,
-            ));
-        }
-
-        let button = div()
-            .size(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(7.))
-            .border_1();
-        let button =
-            if working && empty {
-                button
-                    .id("stop")
-                    .cursor_pointer()
-                    .bg(theme::border2())
-                    .border_color(theme::ghost_line())
-                    .hover(|s| s.bg(theme::ghost_line()))
-                    .child(div().size(px(8.)).rounded(px(2.)).bg(theme::text()))
-                    .tooltip(ui::tip("Stop · Esc"))
-                    .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
-            } else {
-                let input = self.input.clone();
-                button
-                    .id("send")
-                    .when(empty || working, |d| d.border_color(theme::border2()))
-                    .when(!empty && !working, |d| {
-                        d.cursor_pointer()
-                            .bg(theme::border2())
-                            .border_color(theme::ghost_line())
-                            .hover(|s| s.bg(theme::ghost_line()))
-                    })
-                    .child(ui::mono(faces, "↑").text_size(px(BODY)).text_color(
-                        if empty || working {
-                            theme::faint()
-                        } else {
-                            theme::text()
-                        },
-                    ))
-                    .tooltip(ui::tip("Send · Return"))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        input.update(cx, crate::input::TextInput::send);
-                    }))
-            };
-
-        let broken = match &s.state {
-            State::Broken(why) => Some(why.clone()),
-            _ => None,
-        };
-        div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .flex_none()
-            .px(px(S4))
-            .pb(px(S4))
-            .children(broken.map(|why| {
-                ui::text(faces, why)
-                    .w_full()
-                    .max_w(px(crate::style::COLUMN))
-                    .pb(px(S2))
-                    .text_size(px(SMALL))
-                    .text_color(theme::coral())
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .w_full()
-                    .max_w(px(crate::style::COLUMN))
-                    .px(px(8.))
-                    .pt(px(6.))
-                    .pb(px(8.))
-                    .bg(theme::panel())
-                    .border_1()
-                    .border_color(if focused {
-                        theme::ghost_line()
-                    } else {
-                        theme::border2()
-                    })
-                    .rounded(px(16.))
-                    .child(div().px(px(4.)).child(self.input.clone()))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap(px(8.))
-                            .child(chips)
-                            .child(button),
-                    ),
-            )
-    }
-
-    /// A chip that opens a menu of choices: `(id, name, current)` each.
-    fn chip(
-        &self,
-        faces: &Faces,
-        popup: &Popup,
-        current: &str,
-        head: &str,
-        choices: Vec<(String, String, bool)>,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let open = &self.popup == popup;
-        let id = match popup {
-            Popup::Mode => "chip-mode".to_owned(),
-            Popup::Option(o) => format!("chip-{o}"),
-            Popup::Closed => "chip".to_owned(),
-        };
-        let for_click = popup.clone();
-        let mut chip = div().relative().flex().min_w(px(0.)).child(
-            div()
-                .id(SharedString::from(id.clone()))
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(26.))
-                .px(px(8.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(open, |d| d.bg(theme::panel2()))
-                .hover(|s| s.bg(theme::hover()))
-                .child(ui::one_line(
-                    ui::text(faces, ui::fit(current, 22))
-                        .text_size(px(META))
-                        .text_color(theme::muted()),
-                ))
-                .child(
-                    ui::icon("chevron-down", 11.)
-                        .flex_none()
-                        .text_color(theme::faint()),
-                )
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.toggle_popup(for_click.clone(), cx)),
-                ),
-        );
-        if open {
-            let mut menu = div()
-                .flex()
-                .flex_col()
-                .w(px(240.))
-                .py(px(4.))
-                .child(ui::menu_head(faces, head.to_owned()));
-            for (n, (value, name, on)) in choices.into_iter().enumerate() {
-                let popup = popup.clone();
-                menu = menu.child(
-                    div()
-                        .id(SharedString::from(format!("{id}-{n}")))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .mx(px(4.))
-                        .px(px(8.))
-                        .h(px(28.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
-                        .child(ui::text(faces, name).text_size(px(SMALL)))
-                        .when(on, |d| d.child(ui::icon("check", 13.)))
-                        .on_click(cx.listener(move |this, _, _, cx| match &popup {
-                            Popup::Mode => this.set_mode(value.clone(), cx),
-                            Popup::Option(config) => {
-                                this.set_option(config.clone(), value.clone(), cx);
-                            }
-                            Popup::Closed => {}
-                        })),
-                );
+                ToolCallContent::Content(x) => {
+                    let text = text_of(&x.content);
+                    if !text.trim().is_empty() {
+                        body = body.child(well(faces).px(px(4.)).child(output::printed(
+                            faces,
+                            &format!("{key}-{j}"),
+                            &text,
+                            self.expanded.contains(&format!("{key}-all")),
+                        )));
+                    }
+                }
+                _ => {}
             }
-            chip = chip.child(
-                div()
-                    .absolute()
-                    .bottom(px(32.))
-                    .left(px(0.))
-                    .child(ui::menu(SharedString::from(format!("{id}-menu"))).child(menu)),
-            );
         }
-        chip
+        div().child(body)
     }
 }
 
-/// What goes on now, at the foot of the thread: the agent starting, or
-/// working, and for how long.
-fn live(faces: &Faces, s: &Session) -> Option<Div> {
-    let word = match s.state {
-        State::Opening => "Starting the agent",
-        State::Working if s.waiting().is_some() => return None,
-        State::Working => "Working",
-        _ => return None,
-    };
-    let secs = s.since.map_or(0, |t| t.elapsed().as_secs());
-    Some(
-        row()
-            .mt(px(S3))
-            .gap(px(S2))
-            .child(ui::breathing(ui::dot(theme::accent())))
-            .child(
-                ui::text(faces, word)
-                    .text_size(px(SMALL))
-                    .text_color(theme::text2()),
-            )
-            .child(meta(faces, took(secs))),
-    )
+/// Whether a call has anything to open: a diff, or output with words in it.
+fn has_body(tool: &Tool) -> bool {
+    tool.call.content.iter().any(|c| match c {
+        ToolCallContent::Diff(_) => true,
+        ToolCallContent::Content(x) => !text_of(&x.content).trim().is_empty(),
+        _ => false,
+    })
 }
 
 #[cfg(test)]
@@ -903,10 +784,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_kind_of_tool_call_reads_as_a_verb() {
-        assert_eq!(verb(ToolKind::Execute), "Ran");
-        assert_eq!(verb(ToolKind::Edit), "Edited");
-        assert_eq!(verb(ToolKind::Other), "Used");
-        assert_eq!(took(75), "1m 15s");
+    fn an_agents_own_verb_and_backticks_are_taken_off_a_title() {
+        assert_eq!(bare("Read src/lib.rs"), "src/lib.rs");
+        assert_eq!(bare("`cargo test`"), "cargo test");
+        assert_eq!(bare("Run `ls -la`"), "ls -la");
+        assert_eq!(bare("put_object"), "put_object");
+    }
+
+    #[test]
+    fn a_long_address_keeps_its_host_and_its_end() {
+        assert_eq!(
+            short_url("https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html"),
+            "docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html"
+        );
+        assert_eq!(
+            short_url(
+                "https://docs.example.com/a/very/long/path/that/keeps/going/on/and/on/ErrorResponses.html"
+            ),
+            "docs.example.com/a/…/ErrorResponses.html"
+        );
     }
 }

@@ -133,6 +133,19 @@ impl TextInput {
         cx.notify();
     }
 
+    /// Say something else in the line while it is empty.
+    pub fn set_placeholder(&mut self, placeholder: &str, cx: &mut Context<Self>) {
+        if self.placeholder != placeholder {
+            self.placeholder = SharedString::from(placeholder.to_owned());
+            cx.notify();
+        }
+    }
+
+    /// What is typed, as it is.
+    pub fn text(&self) -> String {
+        self.content.trim().to_owned()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.content.trim().is_empty()
     }

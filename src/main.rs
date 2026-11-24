@@ -28,6 +28,7 @@ mod syntax;
 mod theme;
 mod thread;
 mod ui;
+mod when;
 mod whole;
 
 use gpui::{
@@ -35,7 +36,7 @@ use gpui::{
     WindowBounds, WindowOptions, actions, point, px, size,
 };
 
-actions!(desk, [Quit, ToggleSidebar, Stop]);
+actions!(desk, [Quit, NewSession, ToggleSidebar, Stop]);
 
 fn main() {
     // Before any thread starts, since it changes the environment.
@@ -55,6 +56,7 @@ fn main() {
             icon::set();
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("cmd-n", NewSession, None),
                 KeyBinding::new("cmd-b", ToggleSidebar, None),
                 KeyBinding::new("cmd-.", Stop, None),
                 KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
@@ -81,8 +83,8 @@ fn main() {
                     title: Some("Ghost".into()),
                     appears_transparent: true,
                     // The lights share a line with the controls beside them, the
-                    // middle of the 52-pixel top row.
-                    traffic_light_position: Some(point(px(16.), px(20.))),
+                    // middle of the 44-pixel top row, 18 in from the edge.
+                    traffic_light_position: Some(point(px(18.), px(16.))),
                 }),
                 window_min_size: Some(size(px(800.), px(520.))),
                 ..Default::default()
@@ -99,6 +101,9 @@ fn main() {
                 })
                 .expect("the desk");
             let d = desk.clone();
+            cx.on_action(move |_: &NewSession, cx| {
+                let _ = window.update(cx, desk::Desk::new_default);
+            });
             cx.on_action(move |_: &ToggleSidebar, cx| d.update(cx, desk::Desk::toggle_sidebar));
             cx.on_action(move |_: &Stop, cx| desk.update(cx, desk::Desk::stop));
             cx.activate(true);

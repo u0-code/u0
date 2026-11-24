@@ -3,15 +3,19 @@
 //! changed (its modes and its options, such as the model).
 //!
 //! Everything here comes from the agent over ACP. The desk adds only what
-//! you said, the permission questions as they were answered, and what went
-//! wrong between the two.
+//! you said, the permission questions as they were answered, when things
+//! started and ended, and what went wrong between the two.
 
-use std::path::PathBuf;
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant, SystemTime},
+};
 
 use agent_client_protocol_schema::v1::{
-    ContentBlock, EmbeddedResourceResource, PermissionOption, Plan, RequestPermissionRequest,
-    SessionConfigOption, SessionId, SessionModeState, SessionUpdate, StopReason, ToolCall,
-    ToolCallId, ToolCallUpdate, UsageUpdate,
+    ContentBlock, EmbeddedResourceResource, PermissionOption, PermissionOptionKind, Plan,
+    RequestPermissionRequest, SessionConfigOption, SessionId, SessionModeState, SessionUpdate,
+    StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolKind,
+    UsageUpdate,
 };
 use serde_json::Value;
 
@@ -40,9 +44,21 @@ pub struct Asked {
     pub id: Value,
     pub title: String,
     pub options: Vec<PermissionOption>,
-    /// The name of the option chosen, or `None` while it waits; "Cancelled"
-    /// when the turn was stopped first.
-    pub chosen: Option<String>,
+    /// The option chosen, by its name and kind, or `None` while it waits.
+    /// A turn stopped first answers it as rejected, named "Cancelled".
+    pub chosen: Option<(String, PermissionOptionKind)>,
+}
+
+/// A tool call, with when it started and how long it took, as the desk saw.
+#[derive(Debug, Clone)]
+pub struct Tool {
+    pub call: ToolCall,
+    pub started: Instant,
+    pub took: Option<Duration>,
+    /// For each diff in the call's content, the line of the file its new
+    /// text starts on, found once the call is done; `None` where the file
+    /// could not be read or no longer holds it.
+    pub starts: Vec<Option<usize>>,
 }
 
 /// One thing in the thread.
@@ -51,17 +67,42 @@ pub enum Item {
     You(String),
     /// What the agent said, as it streamed in.
     Agent(String),
-    /// What it thought aloud.
-    Thought(String),
-    Tool(Box<ToolCall>),
+    /// What it thought aloud, and for how long once it moved on.
+    Thought {
+        text: String,
+        secs: Option<u64>,
+    },
+    Tool(Box<Tool>),
     Asked(Asked),
+    /// The agent's plan as it stood at this point.
+    Plan(Plan),
     /// Something the desk or the agent wants seen: a notice, a refusal.
     Note {
         text: String,
         trouble: bool,
     },
-    /// A turn ended other than by the agent finishing it.
-    Ended(StopReason),
+    /// A turn ended, why, and after how long.
+    Ended {
+        reason: StopReason,
+        secs: u64,
+    },
+}
+
+/// How a file was changed in the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    New,
+    Edited,
+    Deleted,
+}
+
+/// A file the session changed, with its lines added and taken away.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changed {
+    pub path: PathBuf,
+    pub change: Change,
+    pub added: usize,
+    pub gone: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +114,8 @@ pub struct Session {
     /// The agent's id for it, once opened.
     pub id: Option<SessionId>,
     pub folder: PathBuf,
+    /// The git branch the folder was on when the session began.
+    pub branch: Option<String>,
     pub title: String,
     pub state: State,
     pub items: Vec<Item>,
@@ -80,8 +123,13 @@ pub struct Session {
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
     pub usage: Option<UsageUpdate>,
+    /// When it began, and when anything last happened in it.
+    pub begun: SystemTime,
+    pub updated: SystemTime,
     /// When the turn going on started, for the time beside it.
-    pub since: Option<std::time::Instant>,
+    pub since: Option<Instant>,
+    /// When the thought being streamed began.
+    thinking: Option<Instant>,
     /// What you said before the session was open, sent once it is.
     pub pending: Option<String>,
 }
@@ -102,16 +150,41 @@ pub fn text_of(block: &ContentBlock) -> String {
     }
 }
 
+/// The branch `folder` is on, asked of git; `None` outside a repository.
+pub fn branch_of(folder: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let name = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+    (out.status.success() && !name.is_empty()).then_some(name)
+}
+
+/// The line of `file` that `text` starts on, counting from one.
+fn line_of(file: &Path, text: &str) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+    let whole = std::fs::read_to_string(file).ok()?;
+    let at = whole.find(text)?;
+    Some(whole[..at].matches('\n').count() + 1)
+}
+
 impl Session {
     pub fn new(key: u64, agent: &str, folder: PathBuf) -> Self {
         let title = folder.file_name().map_or_else(
             || folder.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
+        let now = SystemTime::now();
         Self {
             key,
             agent: agent.to_owned(),
             id: None,
+            branch: branch_of(&folder),
             folder,
             title,
             state: State::Draft,
@@ -120,7 +193,10 @@ impl Session {
             modes: None,
             options: Vec::new(),
             usage: None,
+            begun: now,
+            updated: now,
             since: None,
+            thinking: None,
             pending: None,
         }
     }
@@ -135,17 +211,20 @@ impl Session {
                 .chars()
                 .take(60)
                 .collect();
+            self.begun = SystemTime::now();
         }
         self.items.push(Item::You(text.to_owned()));
         self.state = State::Working;
-        self.since = Some(std::time::Instant::now());
+        self.since = Some(Instant::now());
+        self.updated = SystemTime::now();
     }
 
     /// The turn is over.
     pub fn ended(&mut self, reason: Result<StopReason, String>) {
+        self.thought_over();
+        let secs = self.since.map_or(0, |t| t.elapsed().as_secs());
         match reason {
-            Ok(StopReason::EndTurn) => {}
-            Ok(reason) => self.items.push(Item::Ended(reason)),
+            Ok(reason) => self.items.push(Item::Ended { reason, secs }),
             Err(why) => self.items.push(Item::Note {
                 text: why,
                 trouble: true,
@@ -155,15 +234,33 @@ impl Session {
             if let Item::Asked(a) = item
                 && a.chosen.is_none()
             {
-                a.chosen = Some("Cancelled".into());
+                a.chosen = Some(("Cancelled".into(), PermissionOptionKind::RejectOnce));
             }
         }
         self.state = State::Idle;
         self.since = None;
+        self.updated = SystemTime::now();
+    }
+
+    /// A thought being streamed is over: it is timed.
+    fn thought_over(&mut self) {
+        if let Some(from) = self.thinking.take()
+            && let Some(Item::Thought { secs, .. }) = self
+                .items
+                .iter_mut()
+                .rev()
+                .find(|i| matches!(i, Item::Thought { .. }))
+        {
+            *secs = Some(from.elapsed().as_secs().max(1));
+        }
     }
 
     /// Take in one update from the agent.
     pub fn apply(&mut self, update: SessionUpdate) {
+        self.updated = SystemTime::now();
+        if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
+            self.thought_over();
+        }
         match update {
             SessionUpdate::UserMessageChunk(c) => {
                 // A session being reopened replays what you said.
@@ -182,20 +279,35 @@ impl Session {
             }
             SessionUpdate::AgentThoughtChunk(c) => {
                 let text = text_of(&c.content);
-                match self.items.last_mut() {
-                    Some(Item::Thought(t)) => t.push_str(&text),
-                    _ => self.items.push(Item::Thought(text)),
+                if let Some(Item::Thought { text: t, .. }) = self.items.last_mut() {
+                    t.push_str(&text);
+                } else {
+                    self.thinking = Some(Instant::now());
+                    self.items.push(Item::Thought { text, secs: None });
                 }
             }
             SessionUpdate::ToolCall(call) => {
-                if let Some(old) = self.tool_mut(&call.tool_call_id) {
-                    *old = call;
+                let id = call.tool_call_id.clone();
+                if let Some(old) = self.tool_mut(&id) {
+                    old.call = call;
                 } else {
-                    self.items.push(Item::Tool(Box::new(call)));
+                    self.items.push(Item::Tool(Box::new(Tool {
+                        call,
+                        started: Instant::now(),
+                        took: None,
+                        starts: Vec::new(),
+                    })));
                 }
+                self.settle(&id);
             }
             SessionUpdate::ToolCallUpdate(update) => self.update_tool(update),
-            SessionUpdate::Plan(plan) => self.plan = Some(plan),
+            SessionUpdate::Plan(plan) => {
+                match self.items.last_mut() {
+                    Some(Item::Plan(p)) => *p = plan.clone(),
+                    _ => self.items.push(Item::Plan(plan.clone())),
+                }
+                self.plan = Some(plan);
+            }
             SessionUpdate::CurrentModeUpdate(m) => {
                 if let Some(modes) = &mut self.modes {
                     modes.current_mode_id = m.current_mode_id;
@@ -219,19 +331,51 @@ impl Session {
         }
     }
 
-    fn tool_mut(&mut self, id: &ToolCallId) -> Option<&mut ToolCall> {
+    fn tool_mut(&mut self, id: &ToolCallId) -> Option<&mut Tool> {
         self.items.iter_mut().rev().find_map(|i| match i {
-            Item::Tool(t) if &t.tool_call_id == id => Some(&mut **t),
+            Item::Tool(t) if &t.call.tool_call_id == id => Some(&mut **t),
             _ => None,
         })
     }
 
     fn update_tool(&mut self, update: ToolCallUpdate) {
-        if let Some(call) = self.tool_mut(&update.tool_call_id) {
-            call.update(update.fields);
+        let id = update.tool_call_id.clone();
+        if let Some(tool) = self.tool_mut(&id) {
+            tool.call.update(update.fields);
         } else if let Ok(call) = ToolCall::try_from(update) {
-            self.items.push(Item::Tool(Box::new(call)));
+            self.items.push(Item::Tool(Box::new(Tool {
+                call,
+                started: Instant::now(),
+                took: None,
+                starts: Vec::new(),
+            })));
         }
+        self.settle(&id);
+    }
+
+    /// A call that has just ended is timed, and its diffs placed in their
+    /// files.
+    fn settle(&mut self, id: &ToolCallId) {
+        let Some(tool) = self.tool_mut(id) else {
+            return;
+        };
+        let done = matches!(
+            tool.call.status,
+            ToolCallStatus::Completed | ToolCallStatus::Failed
+        );
+        if !done || tool.took.is_some() {
+            return;
+        }
+        tool.took = Some(tool.started.elapsed());
+        tool.starts = tool
+            .call
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                ToolCallContent::Diff(d) => Some(line_of(&d.path, &d.new_text)),
+                _ => None,
+            })
+            .collect();
     }
 
     /// The agent asks a person before it goes on.
@@ -243,7 +387,7 @@ impl Session {
             .clone()
             .or_else(|| {
                 self.tool_mut(&request.tool_call.tool_call_id)
-                    .map(|t| t.title.clone())
+                    .map(|t| t.call.title.clone())
             })
             .unwrap_or_else(|| "The agent asks to go on".into());
         self.update_tool(request.tool_call);
@@ -263,41 +407,97 @@ impl Session {
         })
     }
 
-    /// Note that the question asked under `id` was answered with `name`.
-    pub fn answered(&mut self, id: &Value, name: &str) {
+    /// Note that the question asked under `id` was answered with `option`.
+    pub fn answered(&mut self, id: &Value, option: &PermissionOption) {
         for item in &mut self.items {
             if let Item::Asked(a) = item
                 && &a.id == id
             {
-                a.chosen = Some(name.to_owned());
+                a.chosen = Some((option.name.clone(), option.kind));
             }
         }
     }
 
+    /// The tool calls, in order.
+    pub fn tools(&self) -> impl Iterator<Item = &Tool> {
+        self.items.iter().filter_map(|i| match i {
+            Item::Tool(t) => Some(&**t),
+            _ => None,
+        })
+    }
+
+    /// The commands the agent ran, in order.
+    pub fn commands(&self) -> impl Iterator<Item = &Tool> {
+        self.tools().filter(|t| t.call.kind == ToolKind::Execute)
+    }
+
     /// The files the agent changed in this session, each once, in the order
     /// first changed, with the lines added and taken away.
-    pub fn changed(&self) -> Vec<(PathBuf, usize, usize)> {
-        use agent_client_protocol_schema::v1::ToolCallContent;
-        let mut files: Vec<(PathBuf, usize, usize)> = Vec::new();
-        for item in &self.items {
-            let Item::Tool(t) = item else { continue };
-            for c in &t.content {
+    pub fn changed(&self) -> Vec<Changed> {
+        let mut files: Vec<Changed> = Vec::new();
+        for t in self.tools() {
+            if t.call.kind == ToolKind::Delete {
+                for l in &t.call.locations {
+                    files.retain(|f| f.path != l.path);
+                    files.push(Changed {
+                        path: l.path.clone(),
+                        change: Change::Deleted,
+                        added: 0,
+                        gone: 0,
+                    });
+                }
+            }
+            for c in &t.call.content {
                 let ToolCallContent::Diff(d) = c else {
                     continue;
                 };
                 let lines =
                     crate::thread::kinds::diff(d.old_text.as_deref().unwrap_or(""), &d.new_text);
                 let (gone, added) = crate::thread::kinds::counted(&lines);
-                match files.iter_mut().find(|f| f.0 == d.path) {
+                match files.iter_mut().find(|f| f.path == d.path) {
                     Some(f) => {
-                        f.1 += added;
-                        f.2 += gone;
+                        f.added += added;
+                        f.gone += gone;
                     }
-                    None => files.push((d.path.clone(), added, gone)),
+                    None => files.push(Changed {
+                        path: d.path.clone(),
+                        change: if d.old_text.is_none() {
+                            Change::New
+                        } else {
+                            Change::Edited
+                        },
+                        added,
+                        gone,
+                    }),
                 }
             }
         }
         files
+    }
+
+    /// Every file the session touched, read or changed, each once.
+    pub fn files(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for t in self.tools() {
+            let diffs = t.call.content.iter().filter_map(|c| match c {
+                ToolCallContent::Diff(d) => Some(&d.path),
+                _ => None,
+            });
+            for p in t.call.locations.iter().map(|l| &l.path).chain(diffs) {
+                if !out.contains(p) {
+                    out.push(p.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// How many turns there have been.
+    pub fn turns(&self) -> usize {
+        self.items
+            .iter()
+            .filter(|i| matches!(i, Item::You(_)))
+            .count()
     }
 }
 
@@ -329,7 +529,7 @@ mod tests {
         assert_eq!(s.title, "fix it");
         assert!(matches!(&s.items[1], Item::Agent(t) if t == "Looking"));
         assert!(
-            matches!(&s.items[2], Item::Tool(t) if t.status == agent_client_protocol_schema::v1::ToolCallStatus::Completed)
+            matches!(&s.items[2], Item::Tool(t) if t.call.status == ToolCallStatus::Completed && t.took.is_some())
         );
         assert!(matches!(&s.items[3], Item::Agent(t) if t == "Done"));
     }
@@ -348,7 +548,10 @@ mod tests {
         assert!(s.waiting().is_none());
         assert!(matches!(
             s.items.last(),
-            Some(Item::Ended(StopReason::Cancelled))
+            Some(Item::Ended {
+                reason: StopReason::Cancelled,
+                ..
+            })
         ));
     }
 
@@ -359,8 +562,39 @@ mod tests {
         s.apply(update(r#"{"sessionUpdate":"tool_call","toolCallId":"b","title":"Edit","kind":"edit","content":[{"type":"diff","path":"/r/a.rs","oldText":"y\n","newText":"w\n"}]}"#));
         let files = s.changed();
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].0, PathBuf::from("/r/a.rs"));
-        assert_eq!((files[0].1, files[0].2), (3, 2));
+        assert_eq!(files[0].path, PathBuf::from("/r/a.rs"));
+        assert_eq!(files[0].change, Change::Edited);
+        assert_eq!((files[0].added, files[0].gone), (3, 2));
+    }
+
+    #[test]
+    fn a_thought_is_timed_when_the_agent_moves_on_and_a_plan_update_replaces_the_last() {
+        let mut s = Session::new(1, "x", "/r".into());
+        s.said("go");
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hm"}}"#,
+        ));
+        s.apply(update(r#"{"sessionUpdate":"plan","entries":[{"content":"a","priority":"high","status":"pending"}]}"#));
+        s.apply(update(r#"{"sessionUpdate":"plan","entries":[{"content":"a","priority":"high","status":"completed"}]}"#));
+        assert!(matches!(&s.items[1], Item::Thought { secs: Some(_), .. }));
+        assert_eq!(s.items.len(), 3);
+    }
+
+    #[test]
+    fn a_diffs_place_is_found_in_its_file_once_the_call_is_done() {
+        let dir = std::env::temp_dir().join(format!("ghost-line-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.rs");
+        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
+        let mut s = Session::new(1, "x", dir.clone());
+        let json = format!(
+            r#"{{"sessionUpdate":"tool_call","toolCallId":"e","title":"Edit","kind":"edit","status":"completed","content":[{{"type":"diff","path":"{}","oldText":"3\n","newText":"three\nfour\n"}}]}}"#,
+            file.display()
+        );
+        s.apply(update(&json));
+        let tool = s.tools().next().unwrap();
+        assert_eq!(tool.starts, vec![Some(3)]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

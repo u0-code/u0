@@ -44,6 +44,14 @@ const FILES: &[(&str, &[u8])] = icons![
     "copy",
     "image-off",
     "arrow-right",
+    "settings",
+    "list",
+    "file-plus",
+    "trash",
+    "globe",
+    "bulb",
+    "square",
+    "arrow-up",
 ];
 
 impl AssetSource for Assets {

@@ -38,10 +38,18 @@ pub fn rule() -> Hsla {
 pub fn panel2() -> Hsla {
     c(0x3434_34)
 }
+/// An inset under the ground: a field, a search box.
+pub fn well() -> Hsla {
+    c(0x1414_14)
+}
 /// Lines between things, and the frame of a card or a box in the thread:
 /// barely there, as in Claude's app.
 pub fn border() -> Hsla {
     c(0x2222_22)
+}
+/// The edge of a chip or a small framed control.
+pub fn tag_line() -> Hsla {
+    c(0x2E2E_2E)
 }
 /// A stronger line: a control's edge.
 pub fn border2() -> Hsla {
@@ -75,6 +83,10 @@ pub fn quiet() -> Hsla {
 /// A disabled or empty mark.
 pub fn ghost_line() -> Hsla {
     c(0x4A4A_4A)
+}
+/// Done, passed, a line added.
+pub fn ok() -> Hsla {
+    c(0x8FBF_8A)
 }
 /// The one accent: something going on now, a question waiting on you.
 pub fn accent() -> Hsla {
@@ -128,5 +140,17 @@ pub fn brand(id: &str) -> Hsla {
         "opencode" => c(0xB4B4_B4),
         "github-copilot-cli" => c(0xC4C4_C4),
         _ => text(),
+    }
+}
+
+/// The name an agent goes by in the desk: the product's own short name
+/// where the registry's is longer ("Claude Agent" is Claude Code), else the
+/// registry's.
+pub fn agent_name<'a>(id: &str, registry: &'a str) -> std::borrow::Cow<'a, str> {
+    match id {
+        "claude-acp" => "Claude Code".into(),
+        "antigravity-acp" => "Antigravity".into(),
+        "github-copilot-cli" => "Copilot CLI".into(),
+        _ => registry.into(),
     }
 }

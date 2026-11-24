@@ -42,7 +42,7 @@ use crate::{
 /// The side columns' widths, the top bar's height.
 pub const LEFT: f32 = 264.;
 pub const RIGHT: f32 = 320.;
-pub const TOPBAR: f32 = 52.;
+pub const TOPBAR: f32 = 44.;
 /// Room the window's lights take at the left of the top row.
 const LIGHTS: f32 = 76.;
 
@@ -56,6 +56,17 @@ pub enum Page {
     Settings,
 }
 
+/// What the right column shows of the session on screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Aside {
+    /// What it has come to: changes, plan, commands, context.
+    Session,
+    /// Every file it touched.
+    Files,
+    /// One file's changes, whole.
+    File(PathBuf),
+}
+
 /// A small menu open over the desk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Popup {
@@ -64,6 +75,8 @@ pub enum Popup {
     Mode,
     /// One of the session's options (a model, a level of thought), by id.
     Option(String),
+    /// The agent a draft is begun with.
+    Agent,
 }
 
 /// Which side columns show.
@@ -97,6 +110,13 @@ pub struct Desk {
     pub thread_scroll: ScrollHandle,
     /// The agent being signed in to, while it is.
     pub signing: Option<String>,
+    /// What the right column shows.
+    pub aside: Aside,
+    /// The search over sessions, and whether it is open.
+    pub search: Entity<TextInput>,
+    pub searching: bool,
+    /// When the registry was last read.
+    pub registry_read: Option<std::time::SystemTime>,
     tx: hub::Sender,
 }
 
@@ -127,6 +147,14 @@ impl Desk {
         });
         cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
             .detach();
+        let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
+        cx.subscribe(&search, |_, _, _: &crate::input::Changed, cx| cx.notify())
+            .detach();
+        cx.subscribe(&search, |this, _, _: &crate::input::Cancelled, cx| {
+            this.searching = false;
+            cx.notify();
+        })
+        .detach();
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         cx.spawn(async move |this, cx| {
@@ -177,6 +205,10 @@ impl Desk {
             expanded: HashSet::new(),
             thread_scroll: ScrollHandle::new(),
             signing: None,
+            aside: Aside::Session,
+            search,
+            searching: false,
+            registry_read: None,
             tx,
         };
         desk.fill_slots();
@@ -238,7 +270,7 @@ impl Desk {
     }
 
     /// The folder a new session starts in: the last one used, else home.
-    fn folder(&self) -> PathBuf {
+    pub fn folder(&self) -> PathBuf {
         self.settings.folders.first().cloned().unwrap_or_else(|| {
             std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
         })
@@ -276,12 +308,103 @@ impl Desk {
 
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if self.current != Some(key) {
+            self.aside = Aside::Session;
+        }
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
         self.thread_scroll.scroll_to_bottom();
         window.focus(&self.input.focus_handle(cx));
         cx.notify();
+    }
+
+    /// Begin a session with the first agent that can run, in the folder last
+    /// used.
+    pub fn new_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let agent = self
+            .slots
+            .iter()
+            .find(|s| {
+                matches!(
+                    s.stage,
+                    Stage::Ready | Stage::Starting | Stage::Running { .. }
+                )
+            })
+            .or_else(|| self.slots.first())
+            .map(|s| s.entry.id.clone());
+        match agent {
+            Some(agent) => self.new_session(&agent, window, cx),
+            None => self.open_page(Page::Settings, cx),
+        }
+    }
+
+    /// Begin the draft on screen with another agent.
+    pub fn switch_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.popup = Popup::Closed;
+        if let Some(key) = self.current
+            && let Some(s) = self.session_mut(key)
+            && s.state == State::Draft
+        {
+            *s = Session::new(key, agent, s.folder.clone());
+        }
+        cx.notify();
+    }
+
+    /// Open or close the search over sessions.
+    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.searching = !self.searching;
+        if self.searching {
+            window.focus(&self.search.focus_handle(cx));
+        } else {
+            self.search.update(cx, |s, cx| s.set_text("", cx));
+        }
+        cx.notify();
+    }
+
+    /// Show `aside` in the right column.
+    pub fn show_aside(&mut self, aside: Aside, cx: &mut Context<Self>) {
+        self.aside = aside;
+        self.panes.right = true;
+        cx.notify();
+    }
+
+    /// Ask for the folder new sessions start in.
+    pub fn choose_default_folder(cx: &mut Context<Self>) {
+        let answer = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Start sessions here".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = answer.await
+                && let Some(folder) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    this.settings.used(&folder);
+                    this.save_settings();
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Begin again where the session on screen left off: a draft with the
+    /// same agent, in the same folder.
+    pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let (agent, folder) = (s.agent.clone(), s.folder.clone());
+        let key = self.next_key;
+        self.next_key += 1;
+        self.sessions.push(Session::new(key, &agent, folder));
+        self.show(key, window, cx);
+    }
+
+    /// Say `text` in the session on screen, as if typed.
+    pub fn say(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.send(text, cx);
     }
 
     /// Ask for the folder the draft on screen works in.
@@ -405,8 +528,7 @@ impl Desk {
     pub fn choose(
         &mut self,
         request: &serde_json::Value,
-        option: String,
-        name: &str,
+        option: &agent_client_protocol_schema::v1::PermissionOption,
         cx: &mut Context<Self>,
     ) {
         let Some(key) = self.current else { return };
@@ -414,10 +536,10 @@ impl Desk {
             return;
         };
         if let Some(running) = self.slot(&agent).and_then(Slot::running) {
-            hub::answer(running, request, Some(option));
+            hub::answer(running, request, Some(option.option_id.0.to_string()));
         }
         if let Some(s) = self.session_mut(key) {
-            s.answered(request, name);
+            s.answered(request, option);
         }
         cx.notify();
     }
@@ -616,6 +738,7 @@ impl Desk {
         match msg {
             Msg::Registry(Ok(registry)) => {
                 self.registry = registry;
+                self.registry_read = Some(std::time::SystemTime::now());
                 self.registry_trouble = None;
                 // A newer version of an agent replaces its entry; one
                 // running keeps running as it is.
@@ -836,12 +959,16 @@ impl Render for Desk {
                 let column = (pane - 64.).clamp(240., crate::style::COLUMN);
                 middle
                     .child(self.thread(&faces, column, cx))
-                    .child(self.composer(&faces, window, cx))
+                    .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
             Page::Settings => middle.child(self.settings_page(&faces, cx)),
         };
-        let show_right = self.panes.right && self.page == Page::Thread && self.session().is_some();
+        let right = match (&self.page, self.panes.right) {
+            (Page::Thread, true) if self.session().is_some() => Some(self.aside(&faces, cx)),
+            (Page::Agent(id), _) => Some(self.about(&faces, id, cx)),
+            _ => None,
+        };
         fonts::with_fallbacks(div())
             .relative()
             .flex()
@@ -854,6 +981,6 @@ impl Render for Desk {
                 d.child(self.sidebar(&faces, lights, cx))
             })
             .child(middle)
-            .when(show_right, |d| d.child(self.aside(&faces, cx)))
+            .children(right)
     }
 }

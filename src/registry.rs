@@ -40,8 +40,6 @@ pub struct Entry {
     pub name: String,
     pub version: String,
     #[serde(default)]
-    pub description: String,
-    #[serde(default)]
     pub website: Option<String>,
     #[serde(default)]
     pub repository: Option<String>,

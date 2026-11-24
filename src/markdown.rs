@@ -20,7 +20,7 @@ use gpui::{
 use crate::{
     desk::Desk,
     fonts::{self, Faces},
-    style::{BODY, BODY_LINE, H1, H2, H3, MONO, MONO_LINE, S2, S3, S4, SMALL, WELL_RADIUS, boxed},
+    style::{H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S2, S4, SMALL, WELL_RADIUS},
     theme, ui,
 };
 
@@ -372,33 +372,29 @@ struct Base {
     face: SharedString,
 }
 
-/// How a message is set: as prose, the serif at body size, or small and
-/// quiet, as a thought along the way.
+/// How a message is set: as prose, the serif at 15 on 23, as the design
+/// sets an agent's words.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Setting {
     Prose,
-    Small,
 }
 
 impl Setting {
     fn size(self) -> (f32, f32) {
         match self {
-            Setting::Prose => (BODY, BODY_LINE),
-            Setting::Small => (BODY, BODY_LINE),
+            Setting::Prose => (PROSE, PROSE_LINE),
         }
     }
 
     fn face(self, faces: &Faces) -> SharedString {
         match self {
             Setting::Prose => faces.serif.clone(),
-            Setting::Small => faces.ui.clone(),
         }
     }
 
     fn color(self) -> Hsla {
         match self {
             Setting::Prose => theme::text(),
-            Setting::Small => theme::text2(),
         }
     }
 }
@@ -610,7 +606,7 @@ fn body(faces: &Faces, set: Setting) -> Base {
         weight: FontWeight::NORMAL,
         color: set.color(),
         strong: match set {
-            Setting::Prose | Setting::Small => theme::text(),
+            Setting::Prose => theme::text(),
         },
         face: set.face(faces),
     }
@@ -634,16 +630,18 @@ fn block_element(
         Block::Paragraph(text) => {
             sized(set).child(linked(faces, key.to_owned(), text, &body(faces, set)))
         }
+        // A heading is in the interface's face, semibold, as the design
+        // sets "What changes" over an agent's prose.
         Block::Heading(level, text) => {
-            let (size, line) = match (set, level) {
-                (Setting::Small, _) => set.size(),
-                (_, 1) => H1,
-                (_, 2) => H2,
+            let (size, line) = match level {
+                1 => H1,
+                2 => H2,
                 _ => H3,
             };
             let base = Base {
-                weight: strong_weight(faces, &set.face(faces)),
+                weight: FontWeight::SEMIBOLD,
                 color: body(faces, set).strong,
+                face: faces.ui.clone(),
                 ..body(faces, set)
             };
             div()
@@ -818,64 +816,30 @@ fn table(
         })
 }
 
-/// A fenced block, drawn as a command is when opened: a box with its
-/// language at the head, and its text in mono in a well under it that
-/// scrolls sideways so that a long line keeps its shape. Both are hairline
-/// frames on the thread's ground.
+/// A fenced block: its text in mono, coloured by its language, in a
+/// hairline well that scrolls sideways so that a long line keeps its shape.
 fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
-    let lang = if lang.is_empty() { "text" } else { lang };
-    boxed()
-        .gap(px(S3))
-        .child(
-            ui::text(faces, lang.to_owned())
-                .px(px(10.))
-                .text_size(px(BODY))
-                .text_color(theme::muted()),
-        )
-        .child({
-            let copy = text.to_owned();
-            div()
-                .relative()
-                .w_full()
-                .child(
-                    div()
-                        .id(SharedString::from(format!("{key}-code")))
-                        .flex()
-                        .rounded(px(WELL_RADIUS))
-                        .border_1()
-                        .border_color(theme::border())
-                        .overflow_x_scroll()
-                        .child(
-                            div()
-                                .flex_none()
-                                .pl(px(14.))
-                                .pr(px(44.))
-                                .py(px(10.))
-                                .text_size(px(MONO))
-                                .line_height(px(MONO_LINE))
-                                .whitespace_nowrap()
-                                .child(crate::syntax::styled(faces, text, lang)),
-                        ),
-                )
-                .child(
-                    div()
-                        .id(SharedString::from(format!("{key}-copy")))
-                        .absolute()
-                        .top(px(S2))
-                        .right(px(S2))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(24.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::bubble()))
-                        .child(ui::icon("copy", 15.).text_color(theme::text()))
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                        }),
-                )
-        })
+    div().w_full().child(
+        div()
+            .id(SharedString::from(format!("{key}-code")))
+            .flex()
+            .rounded(px(WELL_RADIUS))
+            .border_1()
+            .border_color(theme::border())
+            .overflow_x_scroll()
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(14.))
+                    .py(px(10.))
+                    .font_family(faces.mono.clone())
+                    .text_size(px(MONO))
+                    .line_height(px(MONO_LINE))
+                    .text_color(theme::text2())
+                    .whitespace_nowrap()
+                    .child(crate::syntax::styled(faces, text, lang)),
+            ),
+    )
 }
 
 #[cfg(test)]
