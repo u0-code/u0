@@ -180,6 +180,43 @@ impl Desk {
         }
     }
 
+    /// Measure what Ghost keeps on this machine.
+    pub fn measure(&self) {
+        crate::hub::sizes(self.home.clone(), self.tx.clone());
+    }
+
+    /// Tidy `what` around the sessions kept.
+    pub fn tidy(&mut self, what: crate::tidy::Tidy, cx: &mut Context<Self>) {
+        let kept = crate::tidy::Kept {
+            records: self
+                .sessions
+                .iter()
+                .filter_map(|s| Some(store::record_path(&self.home, &s.agent, &s.id.as_ref()?.0)))
+                .collect(),
+            worktrees: self
+                .sessions
+                .iter()
+                .filter_map(|s| s.worktree.as_ref().map(|w| w.path.clone()))
+                .collect(),
+            repos: self
+                .settings
+                .folders
+                .iter()
+                .filter(|f| crate::git::root(f).is_some())
+                .cloned()
+                .collect(),
+            uids: self
+                .sessions
+                .iter()
+                .filter(|s| !s.turns.is_empty())
+                .map(Session::uid)
+                .collect(),
+        };
+        self.tidied = None;
+        crate::hub::tidy(self.home.clone(), what, kept, self.tx.clone());
+        cx.notify();
+    }
+
     /// Keep everything as the app quits.
     pub(super) fn keep_on_quit(cx: &mut Context<Self>) {
         cx.on_app_quit(|this, _| {

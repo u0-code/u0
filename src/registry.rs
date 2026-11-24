@@ -182,17 +182,26 @@ impl Entry {
     /// is there, else the last one installed, which runs until it is
     /// updated.
     pub fn installed(&self, home: &Path) -> Option<String> {
-        let cmd = &self.distribution.binary.get(&platform())?.cmd;
-        if self.dir(home).join(cmd).is_file() {
+        if self.program_in(&self.dir(home)).is_some() {
             return Some(self.version.clone());
         }
         std::fs::read_dir(home.join("agents").join(&self.id))
             .ok()?
             .flatten()
-            .filter(|e| e.path().join(cmd).is_file())
             .filter(|e| e.path().extension().is_none_or(|x| x != "partial"))
+            .filter(|e| self.program_in(&e.path()).is_some())
             .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
             .map(|e| e.file_name().to_string_lossy().into_owned())
+    }
+
+    /// The program installed in `dir`: an archive's command, or the one a
+    /// package installed there names in its `program` file.
+    fn program_in(&self, dir: &Path) -> Option<PathBuf> {
+        let program = match self.distribution.binary.get(&platform()) {
+            Some(b) => dir.join(&b.cmd),
+            None => dir.join(std::fs::read_to_string(dir.join(PROGRAM)).ok()?.trim()),
+        };
+        program.is_file().then_some(program)
     }
 
     /// A program unpacked beside its command, other than the command: the
@@ -229,7 +238,7 @@ impl Entry {
     /// Whether its archive is on this machine: an agent run through a
     /// runner never is, the runner fetching it each time.
     pub fn downloaded(&self, home: &Path) -> bool {
-        matches!(self.way(), Way::Archive) && self.launch(home).is_ok()
+        self.installed(home).is_some()
     }
 
     /// How to start it, or why it cannot be.
@@ -254,6 +263,19 @@ impl Entry {
                     d.uvx.as_ref()
                 }
                 .expect("the package the way names");
+                // Installed in Ghost's folder, it starts from there, at its
+                // version, with nothing fetched.
+                if let Some(program) = self
+                    .installed(home)
+                    .and_then(|v| self.program_in(&self.dir_of(home, &v)))
+                {
+                    return Ok(Launch {
+                        program,
+                        args: p.args.clone(),
+                        env: p.env.clone().into_iter().collect(),
+                        dir: None,
+                    });
+                }
                 let program = which(runner).ok_or(Missing::Runner(runner))?;
                 let mut args = if runner == "npx" {
                     vec!["-y".to_owned()]
@@ -369,6 +391,120 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
 
 /// Download, check and unpack `entry`'s archive for this platform. Blocking.
 /// `say` is told each stage as it starts.
+/// The file in a package's install folder that names its program.
+const PROGRAM: &str = "program";
+
+/// Install `entry`'s package at its version into Ghost's folder, with npm
+/// (an npx package) or uv (a uvx one): it then starts from there, with
+/// nothing fetched each time, and is updated as an archive is.
+fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
+    let d = &entry.distribution;
+    let dir = entry.dir(home);
+    let staging = dir.with_extension("partial");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    let mut command = if let Some(p) = &d.npx {
+        say(&format!("Installing {} with npm", p.package), None);
+        let npm = which("npm").ok_or_else(|| Missing::Runner("npx").say(&entry.name))?;
+        let mut c = Command::new(npm);
+        c.args([
+            "install",
+            "--no-audit",
+            "--no-fund",
+            "--loglevel=error",
+            "--prefix",
+        ])
+        .arg(&staging)
+        .arg(&p.package);
+        c
+    } else if let Some(p) = &d.uvx {
+        say(&format!("Installing {} with uv", p.package), None);
+        let uv = which("uv").ok_or_else(|| Missing::Runner("uvx").say(&entry.name))?;
+        let mut c = Command::new(uv);
+        c.args(["tool", "install", "--force", &p.package])
+            .env("UV_TOOL_DIR", staging.join("tools"))
+            .env("UV_TOOL_BIN_DIR", staging.join("bin"));
+        c
+    } else {
+        return Err(Missing::Unsupported.say(&entry.name));
+    };
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(CANCELLED.into());
+        }
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            if !status.success() {
+                let mut said = String::new();
+                if let Some(mut err) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut err, &mut said);
+                }
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(format!("the install failed: {}", said.trim()));
+            }
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let program = if let Some(p) = &d.npx {
+        npm_bin(&staging, &p.package)
+    } else {
+        first_file(&staging.join("bin"))
+            .and_then(|p| p.strip_prefix(&staging).ok().map(Path::to_path_buf))
+    }
+    .ok_or("the package installed no program")?;
+    std::fs::write(staging.join(PROGRAM), program.to_string_lossy().as_bytes())
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::rename(&staging, &dir).map_err(|e| e.to_string())?;
+    if let Ok(all) = std::fs::read_dir(home.join("agents").join(&entry.id)) {
+        for old in all.flatten().filter(|e| e.path() != dir) {
+            let _ = std::fs::remove_dir_all(old.path());
+        }
+    }
+    Ok(())
+}
+
+/// The program an npm package installed under `prefix` gives, from its
+/// `package.json`'s `bin`: its path from `prefix`.
+fn npm_bin(prefix: &Path, package: &str) -> Option<PathBuf> {
+    // "@scope/name@1.2.3" or "name@1.2.3": the name is before the last @
+    // that is not the first character.
+    let name = match package[1..].rfind('@') {
+        Some(at) => &package[..=at],
+        None => package,
+    };
+    let root = prefix.join("node_modules").join(name);
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("package.json")).ok()?).ok()?;
+    let bin = match &json["bin"] {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(m) => m.values().next()?.as_str()?.to_owned(),
+        _ => return None,
+    };
+    let program = root.join(bin);
+    program
+        .is_file()
+        .then(|| program.strip_prefix(prefix).ok().map(Path::to_path_buf))
+        .flatten()
+}
+
+fn first_file(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.is_file())
+}
+
 /// What an install says it is doing, and how far it is, from 0 to 1, when
 /// that is known.
 pub type Say<'a> = &'a dyn Fn(&str, Option<f32>);
@@ -380,7 +516,7 @@ pub const CANCELLED: &str = "cancelled";
 /// stops it, and nothing is left of it.
 pub fn install(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
     let Some(b) = entry.distribution.binary.get(&platform()) else {
-        return Err(Missing::Unsupported.say(&entry.name));
+        return install_package(entry, home, say, stop);
     };
     let dir = entry.dir(home);
     let staging = dir.with_extension("partial");
@@ -641,5 +777,24 @@ mod tests {
         let l = launch_with(&e, home, Some("sh -c 'exit 0'")).unwrap();
         assert!(l.program.ends_with("sh"));
         assert_eq!(l.args, ["-c", "exit 0"]);
+    }
+
+    #[test]
+    fn an_npm_package_names_its_program_in_its_package_json() {
+        let prefix = std::env::temp_dir().join(format!("ghost-npm-{}", std::process::id()));
+        let root = prefix.join("node_modules/@scope/agent");
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"@scope/agent","bin":{"agent":"dist/main.js"}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("dist/main.js"), "").unwrap();
+        assert_eq!(
+            npm_bin(&prefix, "@scope/agent@1.2.3"),
+            Some(PathBuf::from("node_modules/@scope/agent/dist/main.js"))
+        );
+        assert_eq!(npm_bin(&prefix, "@scope/other@1"), None);
+        let _ = std::fs::remove_dir_all(&prefix);
     }
 }

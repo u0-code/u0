@@ -1,0 +1,161 @@
+//! What Ghost keeps on this machine, measured and tidied, as t3code's
+//! storage cleanup: the records of sessions it no longer lists, the
+//! worktrees no session works in (one with changes not committed is left),
+//! the checkpoints of sessions gone.
+
+use std::{
+    fmt::Write as _,
+    path::{Path, PathBuf},
+};
+
+use crate::git;
+
+/// What can be tidied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tidy {
+    Records,
+    Worktrees,
+    Checkpoints,
+}
+
+/// What the desk knows of the sessions it keeps, to tidy around them.
+pub struct Kept {
+    /// Each record's path that belongs to a session kept.
+    pub records: Vec<PathBuf>,
+    /// The worktrees sessions work in.
+    pub worktrees: Vec<PathBuf>,
+    /// The repositories of the projects, and the checkpoint names of the
+    /// sessions kept.
+    pub repos: Vec<PathBuf>,
+    pub uids: Vec<String>,
+}
+
+/// How much each part of the home takes, in bytes.
+pub fn sizes(home: &Path) -> Vec<(&'static str, u64)> {
+    [
+        ("Session records", "transcripts"),
+        ("Worktrees", "worktrees"),
+        ("Agents installed", "agents"),
+        ("Scratch sessions", "scratch"),
+    ]
+    .into_iter()
+    .map(|(label, dir)| (label, size(&home.join(dir))))
+    .collect()
+}
+
+fn size(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_dir() {
+        std::fs::read_dir(path)
+            .map(|all| all.flatten().map(|e| size(&e.path())).sum())
+            .unwrap_or(0)
+    } else {
+        meta.len()
+    }
+}
+
+/// Tidy `what`; what was done, in words.
+pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
+    match what {
+        Tidy::Records => {
+            let mut n = 0;
+            for agent in std::fs::read_dir(home.join("transcripts"))
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                for record in std::fs::read_dir(agent.path())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                {
+                    let path = record.path();
+                    if !kept.records.contains(&path) && std::fs::remove_file(&path).is_ok() {
+                        n += 1;
+                    }
+                }
+            }
+            format!("{n} record{} removed", if n == 1 { "" } else { "s" })
+        }
+        Tidy::Worktrees => {
+            let under = home.join("worktrees");
+            let (mut gone, mut left) = (0, 0);
+            for repo in &kept.repos {
+                for wt in git::worktrees(repo, &under) {
+                    if kept.worktrees.contains(&wt.path) {
+                        continue;
+                    }
+                    // `git worktree remove` keeps one with changes.
+                    if git::remove_worktree(&wt).is_ok() {
+                        gone += 1;
+                    } else {
+                        left += 1;
+                    }
+                }
+            }
+            let mut said = format!(
+                "{gone} worktree{} removed",
+                if gone == 1 { "" } else { "s" }
+            );
+            if left > 0 {
+                let _ = write!(said, "; {left} with changes not committed left");
+            }
+            said
+        }
+        Tidy::Checkpoints => {
+            let mut n = 0;
+            for repo in &kept.repos {
+                for uid in git::checkpoint_owners(repo) {
+                    if !kept.uids.contains(&uid) {
+                        git::drop_checkpoints(repo, &uid);
+                        n += 1;
+                    }
+                }
+            }
+            format!(
+                "Checkpoints of {n} session{} removed",
+                if n == 1 { "" } else { "s" }
+            )
+        }
+    }
+}
+
+/// `bytes` as a person reads a size: "12 KB", "3.4 MB".
+pub fn shown(bytes: u64) -> String {
+    #[allow(clippy::cast_precision_loss, reason = "a size to read, not to count")]
+    let b = bytes as f64;
+    match bytes {
+        0..1_024 => format!("{bytes} B"),
+        1_024..1_048_576 => format!("{:.0} KB", b / 1_024.),
+        1_048_576..1_073_741_824 => format!("{:.1} MB", b / 1_048_576.),
+        _ => format!("{:.1} GB", b / 1_073_741_824.),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_no_session_keeps_are_removed_and_sizes_are_read() {
+        let home = std::env::temp_dir().join(format!("ghost-tidy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let dir = home.join("transcripts/a");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("kept.jsonl"), "x").unwrap();
+        std::fs::write(dir.join("gone.jsonl"), "yy").unwrap();
+        assert_eq!(sizes(&home)[0], ("Session records", 3));
+        let kept = Kept {
+            records: vec![dir.join("kept.jsonl")],
+            worktrees: Vec::new(),
+            repos: Vec::new(),
+            uids: Vec::new(),
+        };
+        assert_eq!(tidy(&home, Tidy::Records, &kept), "1 record removed");
+        assert!(dir.join("kept.jsonl").is_file());
+        assert_eq!(shown(1_536), "2 KB");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

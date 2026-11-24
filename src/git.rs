@@ -556,6 +556,21 @@ pub fn rename_branch(dir: &Path, name: &str) -> Result<(), String> {
     git(dir, &["branch", "-m", name], None).map(|_| ())
 }
 
+/// The sessions that have checkpoints in the repository at `dir`, by name.
+pub fn checkpoint_owners(dir: &Path) -> Vec<String> {
+    let mut out: Vec<String> = git(dir, &["for-each-ref", "--format=%(refname)", REFS], None)
+        .map(|t| {
+            t.lines()
+                .filter_map(|r| r.strip_prefix(&format!("{REFS}/"))?.split('/').next())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Take away the checkpoints Ghost kept for the session `uid` in the
 /// repository at `dir`.
 pub fn drop_checkpoints(dir: &Path, uid: &str) {

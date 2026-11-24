@@ -30,6 +30,7 @@ mod style;
 mod syntax;
 mod theme;
 mod thread;
+mod tidy;
 mod ui;
 mod when;
 mod whole;

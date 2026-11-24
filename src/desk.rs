@@ -173,6 +173,12 @@ pub struct Desk {
     /// to add.
     pub agent_command: Entity<TextInput>,
     pub agent_model: Entity<TextInput>,
+    /// How much each part of Ghost's home takes, and what the last tidying
+    /// did, for the settings.
+    pub sizes: Vec<(&'static str, u64)>,
+    pub tidied: Option<String>,
+    /// The search over the registry's agents, in the settings.
+    pub agent_search: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -304,6 +310,15 @@ impl Desk {
                 .keeping()
         });
         let agent_model = cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping());
+        let agent_search = cx.new(|cx| {
+            TextInput::new(cx, "Search the ACP registry")
+                .padded(4.)
+                .keeping()
+        });
+        cx.subscribe(&agent_search, |_, _, _: &crate::input::Changed, cx| {
+            cx.notify();
+        })
+        .detach();
         let command = cx.new(|cx| TextInput::new(cx, "A command to run here").padded(4.));
         cx.subscribe(&command, |this, _, Submitted(text), cx| {
             this.run_typed(text, cx);
@@ -434,6 +449,9 @@ impl Desk {
             runs: Vec::new(),
             agent_command,
             agent_model,
+            agent_search,
+            sizes: Vec::new(),
+            tidied: None,
             side_by_side: false,
             pr_tick: 0,
             health_tick: 0,
@@ -1337,6 +1355,10 @@ impl Desk {
     /// Install the agent `id` from its archive, or update it to the
     /// registry's version.
     pub fn install(&mut self, id: &str, cx: &mut Context<Self>) {
+        // One running is let go first; it starts again once installed.
+        if matches!(self.slot(id).map(|s| &s.stage), Some(Stage::Running { .. })) {
+            self.let_go(id);
+        }
         let home = self.home.clone();
         let tx = self.tx.clone();
         if let Some(slot) = self.slot_mut(id) {

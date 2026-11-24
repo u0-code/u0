@@ -218,6 +218,8 @@ impl Desk {
                     s.git_step = Some(text);
                 }
             }
+            Msg::Sizes(sizes) => self.sizes = sizes,
+            Msg::Tidied(said) => self.tidied = Some(said),
             Msg::Found { query, keys } => {
                 if self.searching && self.search.read(cx).text().to_lowercase() == query {
                     self.found = keys.into_iter().collect();

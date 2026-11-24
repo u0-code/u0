@@ -148,6 +148,9 @@ pub enum Msg {
         dir: PathBuf,
         result: Result<(), String>,
     },
+    /// How much each part of Ghost's home takes, and what a tidying did.
+    Sizes(Vec<(&'static str, u64)>),
+    Tidied(String),
     /// The sessions whose records hold `query`.
     Found {
         query: String,
@@ -813,6 +816,22 @@ fn read_pr(dir: &std::path::Path) -> Option<Pr> {
             .to_lowercase()
             .replace('_', " "),
     })
+}
+
+/// Measure Ghost's home.
+pub fn sizes(home: PathBuf, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let _ = tx.send(Msg::Sizes(crate::tidy::sizes(&home)));
+    });
+}
+
+/// Tidy `what` around what is kept, then measure again.
+pub fn tidy(home: PathBuf, what: crate::tidy::Tidy, kept: crate::tidy::Kept, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let said = crate::tidy::tidy(&home, what, &kept);
+        let _ = tx.send(Msg::Tidied(said));
+        let _ = tx.send(Msg::Sizes(crate::tidy::sizes(&home)));
+    });
 }
 
 /// Look for `query` (lower case) in the records at `paths`.

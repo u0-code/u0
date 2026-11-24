@@ -151,7 +151,13 @@ impl Desk {
                 Some(v) => format!("{name} {v} installed · {} available", entry.version),
                 None => format!("Download {name} {}", entry.version),
             },
-            Way::Runner { runner, .. } => format!("Fetched by {runner} on first start"),
+            Way::Runner { runner, .. } => match &installed {
+                Some(v) if *v == entry.version => format!("{name} {v} installed in Ghost"),
+                Some(v) => format!("{name} {v} installed · {} available", entry.version),
+                None => {
+                    format!("Fetched by {runner} as it starts; install it here to start faster")
+                }
+            },
             Way::None => "No build for this Mac".into(),
         };
         let mut download = div().flex().flex_col().flex_1().gap(px(8.)).child(
@@ -307,6 +313,27 @@ impl Desk {
                 );
             }
             _ => {}
+        }
+        // A package can be installed here, at its version, instead of
+        // being fetched as it starts.
+        if matches!(entry.way(), Way::Runner { .. })
+            && installed.is_none()
+            && enabled
+            && matches!(
+                stage,
+                Stage::Ready | Stage::Running { .. } | Stage::Failed(_)
+            )
+        {
+            let here = id.to_owned();
+            actions = actions.child(
+                ui::button(
+                    faces,
+                    "install-here",
+                    format!("Install {} here", entry.version),
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.install(&here, cx))),
+            );
         }
         if update.is_some() && enabled && !busy && !matches!(stage, Stage::Installing(_)) {
             actions = actions.child(

@@ -52,6 +52,9 @@ impl Desk {
                     .child(ui::text(faces, label).text_size(px(13.5)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_tab = tab;
+                        if tab == Tab::Sessions {
+                            this.measure();
+                        }
                         cx.notify();
                     })),
             );
@@ -76,7 +79,19 @@ impl Desk {
         }
 
         let mut list = card().overflow_hidden();
-        let mut agents: Vec<_> = self.registry.agents.iter().collect();
+        // What runs here, and what answers the search, from the registry.
+        let query = self.agent_search.read(cx).text().trim().to_lowercase();
+        let mut agents: Vec<_> = self
+            .registry
+            .agents
+            .iter()
+            .filter(|e| self.settings.enabled.contains(&e.id) || !matches!(e.way(), Way::None))
+            .filter(|e| {
+                query.is_empty()
+                    || e.name.to_lowercase().contains(&query)
+                    || e.id.to_lowercase().contains(&query)
+            })
+            .collect();
         agents.sort_by_key(|e| {
             (
                 self.settings
@@ -237,6 +252,20 @@ impl Desk {
                 self.registry.agents.is_empty() && self.registry_trouble.is_none(),
                 |d| d.child(fine(faces, "Reading the registry…")),
             )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(32.))
+                    .px(px(8.))
+                    .gap(px(6.))
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(ui::icon("search", 14.).text_color(theme::faint()))
+                    .child(div().flex_1().child(self.agent_search.clone())),
+            )
             .child(list)
             .child(
                 div()
@@ -273,6 +302,55 @@ impl Desk {
                     .child(content),
             )
             .into_any_element()
+    }
+
+    /// What Ghost keeps on this machine, how much, and tidying it.
+    fn storage(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
+        use crate::tidy::Tidy;
+        let mut rows = card().overflow_hidden();
+        for (n, (label, bytes)) in self.sizes.iter().enumerate() {
+            rows = rows.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(16.))
+                    .py(px(8.))
+                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                    .child(ui::text(faces, *label).flex_1().text_size(px(13.)))
+                    .child(fine(faces, crate::tidy::shown(*bytes))),
+            );
+        }
+        let button = |id: &'static str, label: &'static str, what: Tidy| {
+            ui::button(faces, id, label, Weight::Secondary)
+                .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                ui::text(faces, "On this Mac")
+                    .text_size(px(16.))
+                    .weight(gpui::FontWeight::SEMIBOLD),
+            )
+            .child(rows)
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(8.))
+                    .child(button("tidy-records", "Remove records no session keeps", Tidy::Records))
+                    .child(button("tidy-worktrees", "Remove worktrees no session works in", Tidy::Worktrees))
+                    .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
+            )
+            .children(self.tidied.clone().map(|said| fine(faces, said)))
+            .child(fine(
+                faces,
+                format!(
+                    "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
+                    Desk::shown(&self.home)
+                ),
+            ))
     }
 
     /// Projects archived: out of the list until restored here.
@@ -416,6 +494,7 @@ impl Desk {
             )
             .child(list)
             .children(self.archived_projects(faces, cx))
+            .child(self.storage(faces, cx))
             .children(
                 self.store_refused
                     .clone()
