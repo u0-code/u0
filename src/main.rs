@@ -30,6 +30,7 @@ mod sidebar;
 mod store;
 mod style;
 mod syntax;
+mod terminal;
 mod theme;
 mod thread;
 mod tidy;

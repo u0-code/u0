@@ -57,6 +57,7 @@ change is held to these rules.
 src/acp.rs        one agent process and its JSON-RPC; the ACP runtime
 src/registry.rs   the ACP registry, installing an agent, starting one
 src/remote.rs     projects on another machine; their agents over SSH
+src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
 src/hub.rs        the agents switched on; async work, back to the window as Msg
 src/session.rs    a session: its thread built from session/update; its turns' checkpoints
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR

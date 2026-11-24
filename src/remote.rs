@@ -85,12 +85,9 @@ pub fn command(entry: &Entry, host: &str) -> Option<String> {
     Some(over(host, &inner))
 }
 
-/// The command line that runs `command` on `host` in `dir` there.
-pub fn run_in(host: &str, dir: &Path, command: &str) -> String {
-    over(
-        host,
-        &format!("cd {} && {command}", quoted(&dir.to_string_lossy())),
-    )
+/// A shell line that runs `then` in `dir`, whatever `dir` is named.
+pub fn shell_in(dir: &Path, then: &str) -> String {
+    format!("cd {} && {then}", quoted(&dir.to_string_lossy()))
 }
 
 /// `command` run on `host` in a login shell, so that what is on the PATH
@@ -138,23 +135,18 @@ mod tests {
         if let Ok(l) = launch {
             assert_eq!(l.args, ["-T", "devbox", "bash -lc 'npx -y @x/c@1 --acp'"]);
         }
-        // What the other machine's shell is given runs in the folder there,
-        // a quote in its name and all.
+        // A folder is gone into whatever it is named, a quote and all.
         let dir = std::env::temp_dir().join(format!("ghost it's {}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let line = run_in("devbox", &dir, "pwd");
-        if let Ok(l) = crate::registry::launch_with(&e, Path::new("/"), Some(&line)) {
-            let out = std::process::Command::new("sh")
-                .args(["-c", &l.args[2]])
-                .env("HOME", &dir)
-                .output()
-                .unwrap();
-            let shown = String::from_utf8_lossy(&out.stdout);
-            assert_eq!(
-                Path::new(shown.trim()).canonicalize().unwrap(),
-                dir.canonicalize().unwrap()
-            );
-        }
+        let out = std::process::Command::new("sh")
+            .args(["-c", &shell_in(&dir, "pwd")])
+            .output()
+            .unwrap();
+        let shown = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(
+            Path::new(shown.trim()).canonicalize().unwrap(),
+            dir.canonicalize().unwrap()
+        );
         let _ = std::fs::remove_dir(&dir);
     }
 }

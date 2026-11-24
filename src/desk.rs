@@ -158,11 +158,14 @@ pub struct Desk {
     pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
-    /// Commands run in the drawer under the thread, whether it is open, and
-    /// the line a command is typed in.
-    pub runs: Vec<runs::Run>,
+    /// Your terminals in the drawer under the thread, whether it is open,
+    /// where keys go in it, the one they go to, and whether two show side
+    /// by side.
+    pub terminals: Vec<crate::terminal::Terminal>,
     pub drawer: bool,
-    pub command: Entity<TextInput>,
+    pub term_focus: gpui::FocusHandle,
+    pub term_on: Option<u64>,
+    pub split: bool,
     /// Minutes counted, for what is read every other one, or checked every
     /// five.
     pub pr_tick: u32,
@@ -359,11 +362,6 @@ impl Desk {
             cx.notify();
         })
         .detach();
-        let command = cx.new(|cx| TextInput::new(cx, "A command to run here").padded(4.));
-        cx.subscribe(&command, |this, _, Submitted(text), cx| {
-            this.run_typed(text, cx);
-        })
-        .detach();
         let clone_url = cx.new(|cx| {
             TextInput::new(cx, "https://github.com/owner/repo.git")
                 .padded(6.)
@@ -495,7 +493,7 @@ impl Desk {
             behind: false,
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
-            runs: Vec::new(),
+            terminals: Vec::new(),
             agent_command,
             agent_model,
             agent_search,
@@ -511,7 +509,9 @@ impl Desk {
             comment,
             comments: Vec::new(),
             drawer: false,
-            command,
+            term_focus: cx.focus_handle(),
+            term_on: None,
+            split: false,
             prs: HashMap::new(),
             mentions: Vec::new(),
             pictures: Vec::new(),
@@ -1620,12 +1620,20 @@ impl Render for Desk {
             .min_w(px(0.))
             .h_full()
             .child(self.topbar(&faces, lights, pane, cx));
+        // The terminals take the size the drawer gives them.
+        let cell = crate::thread::drawer::cell_width(window, &faces);
+        if self.drawer {
+            let two = self.split && self.session_terminals().len() > 1;
+            let (rows, cols) =
+                crate::thread::drawer::fits(if two { pane / 2. } else { pane }, cell);
+            self.fit_terminals(rows, cols);
+        }
         let middle = match self.page.clone() {
             Page::Thread => {
                 let column = (pane - 64.).clamp(240., crate::style::COLUMN);
                 middle
                     .child(self.thread(&faces, column, cx))
-                    .children(self.drawer(&faces, cx))
+                    .children(self.drawer(&faces, cell, cx))
                     .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),

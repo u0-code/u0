@@ -149,8 +149,16 @@ impl Desk {
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
-            Msg::RunOut { id, text } => self.run_output(id, &text),
-            Msg::RunDone { id, result } => self.run_done(id, result),
+            Msg::Terminal(id) => {
+                if let Some(t) = self.terminals.iter().find(|t| t.id == id) {
+                    t.changed.store(false, std::sync::atomic::Ordering::Release);
+                }
+            }
+            Msg::TerminalEnded(id) => {
+                if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) {
+                    t.end();
+                }
+            }
             Msg::Elsewhere { agent, folders } => {
                 self.elsewhere.insert(agent, folders);
             }

@@ -75,15 +75,9 @@ pub enum Msg {
         key: u64,
         result: Result<Vec<git::FileDiff>, String>,
     },
-    /// What a command run in the drawer printed, and how it ended.
-    RunOut {
-        id: u64,
-        text: String,
-    },
-    RunDone {
-        id: u64,
-        result: Result<i32, String>,
-    },
+    /// A terminal's screen changed; a terminal's shell ended.
+    Terminal(u64),
+    TerminalEnded(u64),
     /// The folders `agent` has sessions in that are not projects, with how
     /// many in each.
     Elsewhere {
@@ -657,72 +651,6 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
         };
         let result = git::clone(&url, &dir, &say, &stop);
         let _ = tx.send(Msg::Cloned { dir, result });
-    });
-}
-
-/// Run `command` in `dir` through your login shell, its output (both
-/// streams) sent as it comes, until it ends or `stop` is set.
-pub fn run(id: u64, dir: PathBuf, command: String, stop: Arc<AtomicBool>, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        use std::io::Read as _;
-        use std::os::unix::process::CommandExt as _;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-        let child = std::process::Command::new(shell)
-            .args(["-lc", &command])
-            .current_dir(&dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .process_group(0)
-            .spawn();
-        let mut child = match child {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx.send(Msg::RunDone {
-                    id,
-                    result: Err(format!("it could not be started: {e}")),
-                });
-                return;
-            }
-        };
-        let pid = i32::try_from(child.id()).unwrap_or(0);
-        let pipes: Vec<Box<dyn std::io::Read + Send>> = vec![
-            Box::new(child.stdout.take().expect("piped")),
-            Box::new(child.stderr.take().expect("piped")),
-        ];
-        let readers: Vec<_> = pipes
-            .into_iter()
-            .map(|mut pipe| {
-                let tx = tx.clone();
-                std::thread::spawn(move || {
-                    let mut buf = [0u8; 8192];
-                    while let Ok(n) = pipe.read(&mut buf) {
-                        if n == 0 {
-                            break;
-                        }
-                        let text = String::from_utf8_lossy(&buf[..n]).into_owned();
-                        let _ = tx.send(Msg::RunOut { id, text });
-                    }
-                })
-            })
-            .collect();
-        let result = loop {
-            if stop.load(std::sync::atomic::Ordering::Relaxed) {
-                // SAFETY: kill reads only the process group id it is given.
-                unsafe {
-                    libc::kill(-pid, libc::SIGTERM);
-                }
-            }
-            match child.try_wait() {
-                Ok(Some(status)) => break Ok(status.code().unwrap_or(-1)),
-                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-                Err(e) => break Err(e.to_string()),
-            }
-        };
-        for r in readers {
-            let _ = r.join();
-        }
-        let _ = tx.send(Msg::RunDone { id, result });
     });
 }
 

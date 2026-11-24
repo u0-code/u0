@@ -9,7 +9,7 @@
 
 mod cards;
 mod composer;
-mod drawer;
+pub mod drawer;
 pub mod drawn;
 mod fold;
 pub mod kinds;
