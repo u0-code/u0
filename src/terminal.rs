@@ -43,6 +43,12 @@ pub struct Terminal {
     /// How it ended, once it has.
     pub ended: Option<String>,
     size: (u16, u16),
+    /// The cells chosen with the mouse, from where the press was to where
+    /// it is now, each a row and column on the screen.
+    pub selection: Option<((u16, u16), (u16, u16))>,
+    /// Where on the window its first cell was last drawn, to tell which
+    /// cell the mouse is over.
+    pub origin: std::rc::Rc<std::cell::Cell<gpui::Point<gpui::Pixels>>>,
 }
 
 /// A stretch of a row drawn one way.
@@ -94,6 +100,9 @@ impl Terminal {
         };
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        // macOS's bash would otherwise open every terminal with a notice
+        // that zsh is the default now.
+        command.env("BASH_SILENCE_DEPRECATION_WARNING", "1");
         let child = pty
             .slave
             .spawn_command(command)
@@ -143,6 +152,8 @@ impl Terminal {
             child,
             ended: None,
             size: (rows, cols),
+            selection: None,
+            origin: std::rc::Rc::default(),
         })
     }
 
@@ -155,6 +166,7 @@ impl Terminal {
     pub fn send(&mut self, bytes: &[u8]) {
         // Typing brings the screen back to its bottom.
         self.parser().screen_mut().set_scrollback(0);
+        self.selection = None;
         let _ = self.writer.write_all(bytes);
         let _ = self.writer.flush();
     }
@@ -196,6 +208,25 @@ impl Terminal {
         let screen = parser.screen_mut();
         let at = screen.scrollback().saturating_add_signed(by);
         screen.set_scrollback(at);
+        drop(parser);
+        self.selection = None;
+    }
+
+    /// The cells chosen, first to last, the last one in; `None` when
+    /// nothing is, or only the cell pressed on.
+    pub fn chosen(&self) -> Option<((u16, u16), (u16, u16))> {
+        let (a, b) = self.selection?;
+        (a != b).then(|| if a <= b { (a, b) } else { (b, a) })
+    }
+
+    /// The text of the cells chosen.
+    pub fn chosen_text(&self) -> Option<String> {
+        let ((r0, c0), (r1, c1)) = self.chosen()?;
+        let text = self
+            .parser()
+            .screen()
+            .contents_between(r0, c0, r1, c1.saturating_add(1));
+        Some(text.trim_end().to_owned()).filter(|t| !t.is_empty())
     }
 
     /// The screen as rows of stretches, and the cursor where it shows.
@@ -450,6 +481,24 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(seen, "{}", t.text());
+        // The answer's own line, chosen with the mouse, is its text.
+        let row = t
+            .rows()
+            .0
+            .iter()
+            .position(|r| {
+                r.iter()
+                    .map(|s| s.text.as_str())
+                    .collect::<String>()
+                    .trim_end()
+                    == "ghost-42"
+            })
+            .expect("the answer on a line of its own");
+        let row = u16::try_from(row).expect("a row on the screen");
+        t.selection = Some(((row, 7), (row, 0)));
+        assert_eq!(t.chosen_text().as_deref(), Some("ghost-42"));
+        t.send(b" ");
+        assert_eq!(t.chosen(), None);
         t.resize(10, 50);
         assert_eq!(t.rows().0.len(), 10);
     }

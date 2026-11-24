@@ -180,7 +180,9 @@ impl Desk {
             return;
         }
         if k.modifiers.platform && k.key == "c" {
-            cx.write_to_clipboard(ClipboardItem::new_string(t.text()));
+            if let Some(text) = t.chosen_text() {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
             cx.stop_propagation();
             return;
         }
@@ -190,20 +192,33 @@ impl Desk {
         }
     }
 
-    /// Hand what the terminal `id` shows to the session's agent: put in
-    /// what you are writing, to say what to do with it.
+    /// Hand what is chosen in the terminal `id` to the session's agent:
+    /// put in what you are writing, to say what to do with it.
     pub fn ask_about_terminal(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(t) = self.terminals.iter().find(|t| t.id == id) else {
+        let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) else {
             return;
         };
-        let shown = t.text();
-        let shown = shown.trim_end();
+        let Some(chosen) = t.chosen_text() else {
+            return;
+        };
+        t.selection = None;
         let typed = self.input.read(cx).text();
-        let text = format!("{typed}\n\nWhat my terminal shows:\n```\n{shown}\n```\n");
+        let text = format!("{typed}\n\nFrom my terminal:\n```\n{chosen}\n```\n");
         self.input
             .update(cx, |i, cx| i.set_text(text.trim_start(), cx));
         window.focus(&self.input.focus_handle(cx));
         cx.notify();
+    }
+
+    /// Copy what is chosen in the terminal `id`, and let it go.
+    pub(crate) fn copy_chosen(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id)
+            && let Some(text) = t.chosen_text()
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            t.selection = None;
+            cx.notify();
+        }
     }
 
     /// The scripts of a new worktree's repository marked to run in each new

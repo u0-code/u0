@@ -4,8 +4,9 @@
 //! address to open; and what a terminal shows, handed to the agent.
 
 use gpui::{
-    Context, Div, FontWeight, InteractiveElement as _, KeyDownEvent, ScrollWheelEvent,
-    SharedString, StyledText, TextRun, Window, div, prelude::*, px,
+    Context, Div, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, ScrollWheelEvent, SharedString, StyledText, TextRun, Window, div, prelude::*,
+    px,
 };
 
 use crate::{
@@ -17,12 +18,14 @@ use crate::{
 };
 
 /// How tall the drawer stands, its tab bar, and a terminal's line.
-pub const HEIGHT: f32 = 300.;
-const BAR: f32 = 36.;
-const LINE: f32 = 18.;
-/// The size terminal text is set in, and the room around it.
+pub const HEIGHT: f32 = 340.;
+const BAR: f32 = 38.;
+const LINE: f32 = 19.;
+/// The size terminal text is set in, and the room around it: beside and
+/// above.
 const SIZE: f32 = 12.5;
-const PAD: f32 = 12.;
+const PAD: f32 = 14.;
+const TOP: f32 = 10.;
 
 /// How wide a terminal's cell is in the desk's mono face.
 pub fn cell_width(window: &Window, faces: &Faces) -> f32 {
@@ -43,7 +46,7 @@ pub fn fits(width: f32, cell: f32) -> (u16, u16) {
     )]
     let count = |room: f32, each: f32| (room / each).floor().clamp(2., 500.) as u16;
     (
-        count(HEIGHT - BAR - 2. * 8., LINE),
+        count(HEIGHT - BAR - 2. * TOP, LINE),
         count(width - 2. * PAD, cell),
     )
 }
@@ -88,7 +91,8 @@ impl Desk {
                     })),
             )
             .child(div().flex_1());
-        if !scripts.is_empty() {
+        let scripts_none = scripts.is_empty();
+        if !scripts_none {
             bar = bar.child(
                 ui::text(faces, "Scripts")
                     .text_size(px(11.5))
@@ -99,12 +103,19 @@ impl Desk {
         for (n, script) in scripts.into_iter().enumerate() {
             let command = script.command.clone();
             bar = bar.child(
-                ui::button(
+                ui::led_button(
                     faces,
                     SharedString::from(format!("script-{n}")),
+                    Some(
+                        ui::icon("play", 10.)
+                            .text_color(theme::muted())
+                            .into_any_element(),
+                    ),
                     script.name.clone(),
-                    Weight::Quiet,
+                    Weight::Secondary,
                 )
+                .h(px(24.))
+                .px(px(8.))
                 .tooltip(ui::tip(script.command))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.open_terminal(Some(&command), window, cx);
@@ -112,30 +123,20 @@ impl Desk {
             );
         }
         let shown = on.and_then(|id| terms.iter().find(|t| t.id == id).copied());
-        if let Some(url) = shown.and_then(|t| runs::address(&t.text())) {
+        let preview = shown.and_then(|t| runs::address(&t.text()));
+        // A rule between what the repository gives and the drawer's own.
+        let ruled = !scripts_none || preview.is_some();
+        if let Some(url) = preview {
             bar = bar.child(
                 ui::button(faces, "open-preview", "Open preview", Weight::Quiet)
                     .tooltip(ui::tip(url.clone()))
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             );
         }
-        if let (Some(t), Some(s)) = (shown, self.session()) {
-            let id = t.id;
-            bar = bar.child(
-                ui::button(
-                    faces,
-                    "ask-terminal",
-                    format!("Ask {}", self.name_of(&s.agent)),
-                    Weight::Quiet,
-                )
-                .tooltip(ui::tip("What the terminal shows, put in your message"))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.ask_about_terminal(id, window, cx);
-                })),
-            );
-        }
         bar = bar
-            .child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme::tag_line()))
+            .when(ruled, |d| {
+                d.child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme::tag_line()))
+            })
             .child(
                 ui::icon_button(
                     "split-terminals",
@@ -178,7 +179,7 @@ impl Desk {
                 body = body.child(div().w(px(1.)).h_full().bg(theme::border()));
             }
             let focused = Some(t.id) == on;
-            body = body.child(Self::pane(faces, t, cell, focused, cx));
+            body = body.child(self.pane(faces, t, cell, focused, cx));
         }
         Some(
             div()
@@ -253,8 +254,10 @@ impl Desk {
             }))
     }
 
-    /// A terminal's screen, its cursor where keys go.
+    /// A terminal's screen, its cursor where keys go; the cells chosen
+    /// with the mouse, and over them what can be done with them.
     fn pane(
+        &self,
         faces: &Faces,
         t: &Terminal,
         cell: f32,
@@ -301,6 +304,62 @@ impl Desk {
         }
         runs.retain(|r| r.len > 0);
         let id = t.id;
+        let (_, cols) = t.size();
+        let at = |(row, col): (u16, u16)| (f32::from(col) * cell, f32::from(row) * LINE);
+
+        // The screen's cells, with where its first one is kept for the
+        // mouse to be read against.
+        let origin = t.origin.clone();
+        let mut screen = div()
+            .relative()
+            .font_family(faces.mono.clone())
+            .text_size(px(SIZE))
+            .line_height(px(LINE))
+            .whitespace_nowrap()
+            .child(
+                gpui::canvas(
+                    move |bounds, _, _| origin.set(bounds.origin),
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            );
+        if let Some(((r0, c0), (r1, c1))) = t.chosen() {
+            let mut tint = theme::accent();
+            tint.a = 0.25;
+            for r in r0..=r1 {
+                let from = if r == r0 { c0 } else { 0 };
+                let to = if r == r1 { c1 + 1 } else { cols };
+                let (x, y) = at((r, from));
+                screen = screen.child(
+                    div()
+                        .absolute()
+                        .left(px(x))
+                        .top(px(y))
+                        .w(px(f32::from(to.saturating_sub(from)) * cell))
+                        .h(px(LINE))
+                        .bg(tint),
+                );
+            }
+        }
+        screen = screen.child(StyledText::new(SharedString::from(text)).with_runs(runs));
+        if let Some(c) = cursor.filter(|_| focused) {
+            let (x, y) = at(c);
+            screen = screen.child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(px(cell))
+                    .h(px(LINE))
+                    .bg(theme::text2())
+                    .opacity(0.7),
+            );
+        }
+        let pop = t.chosen().map(|((r0, c0), (r1, _))| {
+            self.chosen_pop(faces, id, at, (r0, c0, r1), cols, cell, cx)
+        });
+
         div()
             .id(SharedString::from(format!("term-{id}")))
             .relative()
@@ -309,26 +368,10 @@ impl Desk {
             .h_full()
             .overflow_hidden()
             .px(px(PAD))
-            .py(px(8.))
+            .py(px(TOP))
             .cursor_text()
-            .child(
-                div()
-                    .font_family(faces.mono.clone())
-                    .text_size(px(SIZE))
-                    .line_height(px(LINE))
-                    .whitespace_nowrap()
-                    .child(StyledText::new(SharedString::from(text)).with_runs(runs)),
-            )
-            .children(cursor.filter(|_| focused).map(|(row, col)| {
-                div()
-                    .absolute()
-                    .left(px(PAD + f32::from(col) * cell))
-                    .top(px(8. + f32::from(row) * LINE))
-                    .w(px(cell))
-                    .h(px(LINE))
-                    .bg(theme::text2())
-                    .opacity(0.7)
-            }))
+            .child(screen)
+            .children(pop)
             .on_scroll_wheel(cx.listener(move |this, e: &ScrollWheelEvent, _, cx| {
                 let dy = f32::from(e.delta.pixel_delta(px(LINE)).y);
                 #[allow(clippy::cast_possible_truncation, reason = "lines scrolled")]
@@ -340,11 +383,106 @@ impl Desk {
                     cx.notify();
                 }
             }))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.term_on = Some(id);
-                window.focus(&this.term_focus);
-                cx.notify();
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.term_on = Some(id);
+                    window.focus(&this.term_focus);
+                    if let Some(t) = this.terminals.iter_mut().find(|t| t.id == id) {
+                        let at = Self::cell_at(t, e.position, cell);
+                        t.selection = Some((at, at));
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |this, e: &MouseMoveEvent, _, cx| {
+                if e.pressed_button != Some(MouseButton::Left) {
+                    return;
+                }
+                if let Some(t) = this.terminals.iter_mut().find(|t| t.id == id)
+                    && let Some((from, _)) = t.selection
+                {
+                    t.selection = Some((from, Self::cell_at(t, e.position, cell)));
+                    cx.notify();
+                }
             }))
+    }
+
+    /// The cell of `t` under the mouse at `position` on the window.
+    fn cell_at(t: &Terminal, position: gpui::Point<gpui::Pixels>, cell: f32) -> (u16, u16) {
+        let (rows, cols) = t.size();
+        let from = position - t.origin.get();
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a cell's place, clamped to the screen"
+        )]
+        let count = |by: f32, each: f32, most: u16| {
+            (by / each).floor().clamp(0., f32::from(most - 1)) as u16
+        };
+        (
+            count(f32::from(from.y), LINE, rows),
+            count(f32::from(from.x), cell, cols),
+        )
+    }
+
+    /// Over the cells chosen, under the last of them (over the first when
+    /// there is no room below): what can be done with them.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "where the cells are, to stand by them"
+    )]
+    fn chosen_pop(
+        &self,
+        faces: &Faces,
+        id: u64,
+        at: impl Fn((u16, u16)) -> (f32, f32),
+        (r0, c0, r1): (u16, u16, u16),
+        cols: u16,
+        cell: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        const WIDE: f32 = 290.;
+        const HIGH: f32 = 34.;
+        let room = HEIGHT - BAR - 2. * TOP;
+        let (x, below) = at((r1 + 1, c0));
+        let y = if below + 4. + HIGH <= room {
+            below + 4.
+        } else {
+            (at((r0, c0)).1 - HIGH - 4.).max(0.)
+        };
+        let x = x.min(f32::from(cols) * cell - WIDE).max(0.);
+        let name = self
+            .session()
+            .map(|s| (s.agent.clone(), self.name_of(&s.agent)));
+        div().absolute().left(px(PAD + x)).top(px(TOP + y)).child(
+            ui::menu("term-chosen")
+                .gap(px(2.))
+                .p(px(4.))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .children(name.map(|(agent, name)| {
+                    ui::led_button(
+                        faces,
+                        "ask-chosen",
+                        Some(ui::mark(faces, &ui::Mark::of(&agent, &name), 12.)),
+                        format!("Ask {name} about this"),
+                        Weight::Quiet,
+                    )
+                    .h(px(24.))
+                    .px(px(8.))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.ask_about_terminal(id, window, cx);
+                    }))
+                }))
+                .child(
+                    ui::button(faces, "copy-chosen", "Copy", Weight::Quiet)
+                        .h(px(24.))
+                        .px(px(8.))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.copy_chosen(id, cx);
+                        })),
+                ),
+        )
     }
 }
 
@@ -354,7 +492,7 @@ mod tests {
 
     #[test]
     fn a_pane_holds_the_cells_its_room_allows() {
-        assert_eq!(fits(800., 7.5), (13, 103));
-        assert_eq!(fits(10., 7.5), (13, 2));
+        assert_eq!(fits(800., 7.5), (14, 102));
+        assert_eq!(fits(10., 7.5), (14, 2));
     }
 }
