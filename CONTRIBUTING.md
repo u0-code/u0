@@ -10,7 +10,7 @@ You need Rust (the version in `rust-toolchain.toml` is installed for you by
 [`typos`].
 
 ```bash
-just check     # what CI runs: format, lints, tests, docs, dependencies, spelling
+just check     # format, lints, tests, docs, dependencies, spelling
 just fix       # format, and apply the lint fixes that are mechanical
 just hooks     # optional: have git check your commit subjects
 ```
@@ -20,17 +20,12 @@ is not a test: see below.
 
 ## How a change gets in
 
-1. Branch from `main`: `feat/…`, `fix/…`, `docs/…`, `chore/…`.
-2. Make one change. A pull request that does two things is two pull requests.
-3. `just check`.
-4. Open a pull request. Its title is the subject of the commit it will
-   become, so it follows the rules below; its description says what changed,
-   why, how you know it works, and what could go wrong.
-5. CI has to pass. Pull requests are squashed into one commit on `main`.
+1. Make one change. A commit that does two things is two commits.
+2. `just check`.
+3. Commit to `main` with a subject that follows the rules below, and push.
+   There are no pull requests and no CI: `just check` is the gate.
 
-`main` takes no direct pushes.
-
-## Commit subjects and pull request titles
+## Commit subjects
 
 [Conventional Commits], with a short list of types and scopes:
 
@@ -52,8 +47,8 @@ type(scope): what changed, in plain words
 The body says why. What the code does is in the diff; what made you write it
 is not. If something was measured, give the number.
 
-`scripts/check-subject.sh` checks all of this, and CI runs it on every pull
-request title.
+`scripts/check-subject.sh` checks all of this; `just hooks` has git run it
+on every commit.
 
 ## What will not be merged
 
@@ -79,8 +74,8 @@ request title.
 ## Written by a model
 
 Much of this repository was. That is welcome, and it changes nothing about
-who answers for a change: whoever opens the pull request has read it, run
-it, and can say why each line is there. [AGENTS.md](AGENTS.md) is what an
+who answers for a change: whoever commits it has read it, run it, and can
+say why each line is there. [AGENTS.md](AGENTS.md) is what an
 agent working here is told.
 
 ## Licence

@@ -1,11 +1,10 @@
-# What a contributor runs. `just check` is what CI runs, in the same order;
-# if it passes here it passes there.
+# What a contributor runs. `just check` is the gate before every commit.
 
 # List the recipes.
 default:
     @just --list
 
-# Everything CI checks.
+# Everything a commit must pass.
 check: fmt-check clippy test docs deny typos
 
 # Formatting, without changing anything.
@@ -37,7 +36,7 @@ fix:
     cargo fmt --all
     cargo clippy --all-targets --fix --allow-dirty --allow-staged
 
-# Check a commit subject or a pull request title.
+# Check a commit subject.
 subject title:
     scripts/check-subject.sh "{{title}}"
 

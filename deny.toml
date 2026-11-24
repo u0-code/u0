@@ -1,4 +1,4 @@
-# What every dependency has to satisfy. Checked by `just deny` and in CI.
+# What every dependency has to satisfy. Checked by `just deny`.
 
 [graph]
 all-features = true

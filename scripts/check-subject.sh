@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Check one commit subject, or a pull request title, against the rules in
-# CONTRIBUTING.md. Pull requests are squashed, so the title of a pull request
-# is the subject of the commit it becomes.
+# Check one commit subject against the rules in CONTRIBUTING.md.
 #
 #   scripts/check-subject.sh "feat(thread): a diff opens in the side column"
 set -euo pipefail

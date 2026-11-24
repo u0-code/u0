@@ -3,7 +3,7 @@
 Instructions for coding agents (Claude Code, Codex and others) working in
 this repository. [CONTRIBUTING.md](CONTRIBUTING.md) applies in full; this file
 adds the rules that are easy to break. Keep it current: a change that alters a
-rule, path or command stated here updates this file in the same pull request.
+rule, path or command stated here updates this file in the same commit.
 
 ## What Ghost is
 
@@ -44,7 +44,7 @@ change is held to these rules.
    versions are not supported: no migrations, fallbacks or shims. A stored
    file in an unknown format is refused with an error that says what to do,
    not converted.
-6. **Growth must pay for itself.** Every pull request states its net line
+6. **Growth must pay for itself.** Every commit states its net line
    change. A file holding more than one responsibility is split; length
    over about 800 lines is a prompt to check, not a rule.
 7. **Nothing unfinished is merged.** No TODO/FIXME, commented-out code,
@@ -106,8 +106,10 @@ test for the behaviour it proves.
 `docs/` is git-ignored: design notes stay local. The published documents are
 `README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and `SECURITY.md`.
 
-## Commits and pull requests
+## Commits
 
-One change per pull request. The title follows CONTRIBUTING.md and is checked
-by `scripts/check-subject.sh`. Never push to `main`. The description states
-what changed and why, and the net line change.
+Changes are committed straight to `main`, one change per commit, and pushed;
+there are no pull requests and no CI. `just check` before each commit is
+what stands in for both. The subject follows CONTRIBUTING.md and is checked
+by `scripts/check-subject.sh` (`just hooks` installs it as a commit hook).
+The body states what changed and why, and the net line change.
