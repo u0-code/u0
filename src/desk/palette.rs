@@ -1,7 +1,8 @@
 //! The command palette (⌘K), as t3code's: what can be done, the sessions
-//! to go to, the projects to begin one in, found by what is typed; Return
-//! does the first. And the sessions in the sidebar's order, gone to by
-//! number (⌘1 to ⌘9) or one after another (⌘[ and ⌘]).
+//! to go to, the projects to begin one in, found by what is typed and
+//! grouped; ↑ and ↓ choose, Return does it. And the sessions in the
+//! sidebar's order, gone to by number (⌘1 to ⌘9) or one after another
+//! (⌘[ and ⌘]).
 
 use std::path::PathBuf;
 
@@ -12,11 +13,16 @@ use gpui::{
 };
 
 use super::{Desk, Page, Popup};
-use crate::{fonts::Faces, session::State, theme, ui};
+use crate::{
+    fonts::Faces,
+    session::State,
+    theme,
+    ui::{self, Mark},
+};
 
 /// What a line of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Act {
+enum Act {
     NewSession,
     Scratch,
     AddProject,
@@ -31,6 +37,19 @@ pub enum Act {
 
 /// How many lines the palette shows.
 const LINES: usize = 12;
+
+/// A line of the palette.
+struct Line {
+    group: &'static str,
+    label: String,
+    /// What is said at its end: a session's project, a key.
+    hint: String,
+    act: Act,
+    /// A session's agent, drawn as its mark; else `icon`.
+    agent: Option<String>,
+    icon: &'static str,
+    live: bool,
+}
 
 impl Desk {
     /// The sessions as the sidebar lists them by project: pinned first,
@@ -95,6 +114,7 @@ impl Desk {
     /// Open the palette, or close it.
     pub fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette = !self.palette;
+        self.palette_at = 0;
         if self.palette {
             self.palette_input.update(cx, |i, cx| i.set_text("", cx));
             window.focus(&self.palette_input.focus_handle(cx));
@@ -104,36 +124,92 @@ impl Desk {
         cx.notify();
     }
 
-    /// The lines the palette offers for what is typed.
-    fn acts(&self, query: &str) -> Vec<(String, &'static str, Act)> {
+    /// Move the palette's choice up (below zero) or down.
+    pub(crate) fn step_palette(&mut self, by: isize, cx: &mut Context<Self>) {
+        let query = self.palette_input.read(cx).text();
+        let last = self.lines(&query).len().saturating_sub(1);
+        self.palette_at = self.palette_at.saturating_add_signed(by).min(last);
+        cx.notify();
+    }
+
+    /// The lines the palette offers for what is typed: with nothing typed
+    /// what can be done leads, else the sessions found.
+    fn lines(&self, query: &str) -> Vec<Line> {
         let q = query.trim().to_lowercase();
-        let mut all: Vec<(String, &'static str, Act)> = vec![
-            ("New session".into(), "⌘N", Act::NewSession),
-            ("New scratch session".into(), "", Act::Scratch),
-            ("Add a project".into(), "", Act::AddProject),
-            ("Find in this session".into(), "⌘F", Act::Find),
-            ("Commands drawer".into(), "⌘J", Act::Drawer),
-            ("Show or hide the sidebar".into(), "⌘B", Act::Sidebar),
-            (
-                "Group sessions by project or status".into(),
+        let found = |text: &str| q.is_empty() || text.to_lowercase().contains(&q);
+        let act = |label: &str, hint: &str, act: Act, icon: &'static str| Line {
+            group: "Actions",
+            label: label.to_owned(),
+            hint: hint.to_owned(),
+            act,
+            agent: None,
+            icon,
+            live: false,
+        };
+        let actions: Vec<Line> = [
+            act("New session", "⌘N", Act::NewSession, "plus"),
+            act("New scratch session", "", Act::Scratch, "file-plus"),
+            act("Add a project", "", Act::AddProject, "folder"),
+            act("Find in this session", "⌘F", Act::Find, "search"),
+            act("Commands drawer", "⌘J", Act::Drawer, "terminal"),
+            act("Show or hide the sidebar", "⌘B", Act::Sidebar, "sidebar"),
+            act(
+                "Group sessions by project or status",
                 "",
                 Act::Grouping,
+                "list",
             ),
-            ("Settings".into(), "⌘,", Act::Settings),
-        ];
-        for folder in self.projects() {
-            all.push((
-                format!("New session in {}", self.project_name(&folder)),
-                "",
-                Act::NewIn(folder),
-            ));
-        }
-        for key in self.ordered() {
-            if let Some(s) = self.sessions.iter().find(|s| s.key == key) {
-                all.push((s.title.clone(), "session", Act::Go(key)));
+            act("Settings", "⌘,", Act::Settings, "settings"),
+        ]
+        .into_iter()
+        .filter(|l| found(&l.label))
+        .collect();
+        let mut sessions = Vec::new();
+        for (n, key) in self.ordered().into_iter().enumerate() {
+            let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+                continue;
+            };
+            let project = self.project_name(&s.project);
+            if !found(&s.title) && !found(&project) {
+                continue;
             }
+            let hint = if n < 9 {
+                format!("{project}  ⌘{}", n + 1)
+            } else {
+                project
+            };
+            sessions.push(Line {
+                group: "Sessions",
+                label: s.title.clone(),
+                hint,
+                act: Act::Go(key),
+                agent: Some(s.agent.clone()),
+                icon: "",
+                live: matches!(s.state, State::Working | State::Opening),
+            });
         }
-        all.retain(|(label, _, _)| q.is_empty() || label.to_lowercase().contains(&q));
+        let projects = self.projects().into_iter().filter_map(|folder| {
+            let label = format!("New session in {}", self.project_name(&folder));
+            found(&label).then(|| Line {
+                group: "Projects",
+                label,
+                hint: String::new(),
+                act: Act::NewIn(folder),
+                agent: None,
+                icon: "plus",
+                live: false,
+            })
+        });
+        let mut all = if q.is_empty() {
+            let mut all = actions;
+            all.extend(sessions.into_iter().take(5));
+            all
+        } else {
+            let mut all = sessions;
+            all.extend(actions);
+            all
+        };
+        all.extend(projects);
         all.truncate(LINES);
         all
     }
@@ -141,12 +217,12 @@ impl Desk {
     /// Do the line `n` of the palette.
     pub fn run_act(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         let query = self.palette_input.read(cx).text();
-        let Some((_, _, act)) = self.acts(&query).into_iter().nth(n) else {
+        let Some(line) = self.lines(&query).into_iter().nth(n) else {
             return;
         };
         self.palette = false;
         window.focus(&self.input.focus_handle(cx));
-        match act {
+        match line.act {
             Act::NewSession => self.new_default(window, cx),
             Act::Scratch => self.new_scratch(window, cx),
             Act::AddProject => self.open_page(Page::NewProject, cx),
@@ -168,8 +244,25 @@ impl Desk {
         }
         let query = self.palette_input.read(cx).text();
         let mut list = div().flex().flex_col().p(px(6.));
-        for (n, (label, hint, act)) in self.acts(&query).into_iter().enumerate() {
-            let busy = matches!(act, Act::Go(k) if self.sessions.iter().any(|s| s.key == k && s.state == State::Working));
+        let mut group = "";
+        for (n, line) in self.lines(&query).into_iter().enumerate() {
+            if line.group != group {
+                group = line.group;
+                list = list.child(
+                    div()
+                        .px(px(10.))
+                        .pt(px(8.))
+                        .pb(px(4.))
+                        .child(ui::label(faces, group)),
+                );
+            }
+            let lead = match &line.agent {
+                Some(agent) => ui::mark(faces, &Mark::of(agent, &self.name_of(agent)), 16.),
+                None => ui::icon(line.icon, 15.)
+                    .flex_none()
+                    .text_color(theme::muted())
+                    .into_any_element(),
+            };
             list = list.child(
                 div()
                     .id(SharedString::from(format!("act-{n}")))
@@ -177,15 +270,21 @@ impl Desk {
                     .items_center()
                     .gap(px(10.))
                     .px(px(10.))
-                    .h(px(32.))
+                    .h(px(34.))
                     .rounded(px(7.))
                     .cursor_pointer()
-                    .when(n == 0, |d| d.bg(theme::panel2()))
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::one_line(ui::text(faces, label).text_size(px(13.5))).flex_1())
-                    .when(busy, |d| d.child(ui::live_dot()))
+                    .when(n == self.palette_at, |d| d.bg(theme::panel2()))
+                    .when(n != self.palette_at, |d| {
+                        d.hover(|st| st.bg(theme::hover()))
+                    })
+                    .child(lead)
                     .child(
-                        ui::text(faces, hint)
+                        ui::one_line(ui::text(faces, ui::fit(&line.label, 52)).text_size(px(13.5)))
+                            .flex_1(),
+                    )
+                    .when(line.live, |d| d.child(ui::live_dot()))
+                    .child(
+                        ui::text(faces, line.hint)
                             .flex_none()
                             .text_size(px(12.))
                             .text_color(theme::faint()),
@@ -193,6 +292,18 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, window, cx| this.run_act(n, window, cx))),
             );
         }
+        let key = |k: &'static str, what: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .child(crate::sidebar::kbd(faces, k))
+                .child(
+                    ui::text(faces, what)
+                        .text_size(px(11.5))
+                        .text_color(theme::faint()),
+                )
+        };
         Some(
             div()
                 .absolute()
@@ -204,20 +315,35 @@ impl Desk {
                 .child(
                     ui::menu("palette")
                         .flex_col()
-                        .w(px(560.))
+                        .w(px(600.))
+                        .p_0()
                         .child(
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(8.))
-                                .px(px(14.))
-                                .h(px(44.))
+                                .gap(px(10.))
+                                .px(px(16.))
+                                .h(px(48.))
                                 .border_b_1()
                                 .border_color(theme::border2())
                                 .child(ui::icon("search", 16.).text_color(theme::faint()))
-                                .child(div().flex_1().child(self.palette_input.clone())),
+                                .child(div().flex_1().child(self.palette_input.clone()))
+                                .child(crate::sidebar::kbd(faces, "esc")),
                         )
-                        .child(list),
+                        .child(list)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(14.))
+                                .px(px(16.))
+                                .h(px(34.))
+                                .border_t_1()
+                                .border_color(theme::border2())
+                                .child(key("↑↓", "move"))
+                                .child(key("↵", "open"))
+                                .child(key("⌘1–9", "a session, from anywhere")),
+                        ),
                 )
                 .into_any_element(),
         )

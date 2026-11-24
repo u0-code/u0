@@ -146,14 +146,7 @@ impl Desk {
                 }
             }
         }
-        // Folders the agents have sessions in that are not projects yet.
-        let projects_now = self.projects();
-        let mut found = std::collections::BTreeMap::<std::path::PathBuf, usize>::default();
-        for (folder, n) in self.elsewhere.values().flatten() {
-            if !projects_now.contains(folder) && !self.settings.prefs.contains_key(folder) {
-                *found.entry(folder.clone()).or_default() += n;
-            }
-        }
+        let found = self.found_elsewhere();
         if !found.is_empty() && query.is_none() {
             let key = "elsewhere".to_owned();
             let shown = self.expanded.contains(&key);
@@ -166,7 +159,7 @@ impl Desk {
                 cx,
             ));
             if shown {
-                for (n, (folder, count)) in found.into_iter().enumerate() {
+                for (n, (folder, count, _)) in found.into_iter().enumerate() {
                     let name = folder.file_name().map_or_else(
                         || Desk::shown(&folder),
                         |f| f.to_string_lossy().into_owned(),
@@ -471,8 +464,16 @@ impl Desk {
         let row = agent_shell(group.clone(), false)
             .group(group.clone())
             .child(
-                ui::icon(if open { "folder" } else { "chevron-right" }, 16.)
-                    .text_color(theme::faint()),
+                // A project on another machine shows as one.
+                ui::icon(
+                    match (open, crate::remote::parse(folder).is_some()) {
+                        (false, _) => "chevron-right",
+                        (true, true) => "server",
+                        (true, false) => "folder",
+                    },
+                    16.,
+                )
+                .text_color(theme::faint()),
             )
             .child(name)
             .when(pinned, |d| {

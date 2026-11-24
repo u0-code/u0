@@ -149,6 +149,33 @@ impl Desk {
         cx.notify();
     }
 
+    /// The folders the agents have sessions in that are not projects yet:
+    /// how many sessions each, and which agents; most first.
+    pub(crate) fn found_elsewhere(&self) -> Vec<(PathBuf, usize, Vec<String>)> {
+        let projects = self.projects();
+        let mut found = std::collections::BTreeMap::<PathBuf, (usize, Vec<String>)>::new();
+        for (agent, folders) in &self.elsewhere {
+            for (folder, n) in folders {
+                if projects.contains(folder) || self.settings.prefs.contains_key(folder) {
+                    continue;
+                }
+                let at = found.entry(folder.clone()).or_default();
+                at.0 += n;
+                at.1.push(agent.clone());
+            }
+        }
+        let mut found: Vec<_> = found.into_iter().map(|(f, (n, a))| (f, n, a)).collect();
+        found.sort_by(|a, b| b.1.cmp(&a.1));
+        found
+    }
+
+    /// Begin typing a project on `host`.
+    pub fn pick_host(&mut self, host: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.remote_at
+            .update(cx, |i, cx| i.set_text(&format!("{host}:/"), cx));
+        window.focus(&self.remote_at.focus_handle(cx));
+    }
+
     /// Ask for the folder new and cloned projects go in.
     pub fn choose_parent(cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(gpui::PathPromptOptions {

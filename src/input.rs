@@ -53,6 +53,15 @@ actions!(
 /// The context key bindings apply under.
 pub const CONTEXT: &str = "DeskInput";
 
+/// What Return does with the line: clears it into its history, or keeps
+/// it (and hands it over even empty, for a list's choice).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keeps {
+    No,
+    Text,
+    EvenEmpty,
+}
+
 /// The line was submitted with Return.
 pub struct Submitted(pub String);
 
@@ -65,6 +74,10 @@ pub struct Changed;
 
 /// Esc was pressed in the line.
 pub struct Cancelled;
+
+/// ↑ (-1) or ↓ (1) was pressed in a line with nothing handed over before
+/// to go back through: a list beside it can move its choice.
+pub struct Stepped(pub isize);
 
 /// Tab was pressed: what is offered for the word being typed is taken.
 pub struct Complete;
@@ -96,13 +109,14 @@ pub struct TextInput {
     history: Vec<String>,
     recalled: Option<usize>,
     /// What is typed stays when it is handed over: a search, not a message.
-    keeps: bool,
+    keeps: Keeps,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
 impl EventEmitter<SubmittedAside> for TextInput {}
 impl EventEmitter<Changed> for TextInput {}
 impl EventEmitter<Cancelled> for TextInput {}
+impl EventEmitter<Stepped> for TextInput {}
 impl EventEmitter<Complete> for TextInput {}
 impl EventEmitter<PastedImage> for TextInput {}
 
@@ -124,7 +138,7 @@ impl TextInput {
             pad_y: 12.,
             history: Vec::new(),
             recalled: None,
-            keeps: false,
+            keeps: Keeps::No,
         }
     }
 
@@ -139,7 +153,15 @@ impl TextInput {
     /// Keep what is typed when Return hands it over.
     #[must_use]
     pub fn keeping(mut self) -> Self {
-        self.keeps = true;
+        self.keeps = Keeps::Text;
+        self
+    }
+
+    /// Return hands over the line even when it is empty, as a list's
+    /// choice can be taken with nothing typed.
+    #[must_use]
+    pub fn submitting_empty(mut self) -> Self {
+        self.keeps = Keeps::EvenEmpty;
         self
     }
 
@@ -164,7 +186,11 @@ impl TextInput {
     /// Back through what was handed over before, while the line is empty
     /// or holds one of those.
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
-        if self.history.is_empty() || (!self.content.is_empty() && self.recalled.is_none()) {
+        if self.history.is_empty() {
+            cx.emit(Stepped(-1));
+            return;
+        }
+        if !self.content.is_empty() && self.recalled.is_none() {
             return;
         }
         let at = self
@@ -177,6 +203,10 @@ impl TextInput {
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        if self.history.is_empty() {
+            cx.emit(Stepped(1));
+            return;
+        }
         let Some(at) = self.recalled else { return };
         if at + 1 < self.history.len() {
             let text = self.history[at + 1].clone();
@@ -211,10 +241,10 @@ impl TextInput {
     /// Hand over what is typed, if anything, and clear the line.
     pub fn send(&mut self, cx: &mut Context<Self>) {
         let text = self.content.trim().to_owned();
-        if text.is_empty() {
+        if text.is_empty() && self.keeps != Keeps::EvenEmpty {
             return;
         }
-        if self.keeps {
+        if self.keeps != Keeps::No {
             cx.emit(Submitted(text));
             return;
         }

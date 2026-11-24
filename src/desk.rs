@@ -147,8 +147,10 @@ pub struct Desk {
     /// the folder either goes in, a clone going on and what went wrong.
     pub clone_url: Entity<TextInput>,
     pub new_name: Entity<TextInput>,
-    /// A project on another machine, typed as `host:/path`.
+    /// A project on another machine, typed as `host:/path`, and the
+    /// machines your SSH configuration names.
     pub remote_at: Entity<TextInput>,
+    pub hosts: Vec<String>,
     pub parent: PathBuf,
     pub cloning: Option<hub::Install>,
     pub adding_trouble: Option<String>,
@@ -179,6 +181,8 @@ pub struct Desk {
     /// The command palette (⌘K): whether it is open, and its line.
     pub palette: bool,
     pub palette_input: Entity<TextInput>,
+    /// The line of the palette Return takes.
+    pub palette_at: usize,
     /// How much each part of Ghost's home takes, and what the last tidying
     /// did, for the settings.
     pub sizes: Vec<(&'static str, u64)>,
@@ -319,17 +323,22 @@ impl Desk {
         let palette_input = cx.new(|cx| {
             TextInput::new(cx, "Go to a session, or do something")
                 .padded(4.)
-                .keeping()
+                .submitting_empty()
         });
-        cx.subscribe(&palette_input, |_, _, _: &crate::input::Changed, cx| {
+        cx.subscribe(&palette_input, |this, _, _: &crate::input::Changed, cx| {
+            this.palette_at = 0;
             cx.notify();
+        })
+        .detach();
+        cx.subscribe(&palette_input, |this, _, crate::input::Stepped(by), cx| {
+            this.step_palette(*by, cx);
         })
         .detach();
         cx.subscribe_in(
             &palette_input,
             window,
             |this, _, Submitted(_), window, cx| {
-                this.run_act(0, window, cx);
+                this.run_act(this.palette_at, window, cx);
             },
         )
         .detach();
@@ -476,6 +485,7 @@ impl Desk {
             clone_url,
             new_name,
             remote_at,
+            hosts: Vec::new(),
             parent: settings::home()
                 .parent()
                 .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
@@ -492,6 +502,7 @@ impl Desk {
             sizes: Vec::new(),
             palette: false,
             palette_input,
+            palette_at: 0,
             tidied: None,
             side_by_side: false,
             pr_tick: 0,
@@ -1470,6 +1481,9 @@ impl Desk {
             let c = self.settings.commands.get(id).cloned().unwrap_or_default();
             self.agent_command.update(cx, |i, cx| i.set_text(&c, cx));
             self.agent_model.update(cx, |i, cx| i.set_text("", cx));
+        }
+        if page == Page::NewProject {
+            self.hosts = crate::remote::hosts();
         }
         self.page = page;
         self.popup = Popup::Closed;

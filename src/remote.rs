@@ -29,6 +29,32 @@ pub fn parse(project: &Path) -> Option<(String, PathBuf)> {
     (!host.is_empty()).then(|| (host.to_owned(), PathBuf::from(format!("/{path}"))))
 }
 
+/// The machines named in `~/.ssh/config` (no patterns), to pick from.
+pub fn hosts() -> Vec<String> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let text = std::fs::read_to_string(Path::new(&home).join(".ssh/config")).unwrap_or_default();
+    named(&text)
+}
+
+/// The hosts a `ssh_config` text names, in order, once each.
+fn named(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        if !words.next().is_some_and(|w| w.eq_ignore_ascii_case("host")) {
+            continue;
+        }
+        for host in words {
+            if !host.contains(['*', '?', '!']) && !out.iter().any(|h| h == host) {
+                out.push(host.to_owned());
+            }
+        }
+    }
+    out
+}
+
 /// The slot of `agent` on `host`.
 pub fn agent_on(agent: &str, host: &str) -> String {
     format!("{agent}@{host}")
@@ -84,6 +110,13 @@ fn quoted(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hosts_of_an_ssh_config_are_named_without_patterns() {
+        let text =
+            "Host devbox gpu-1\n  HostName 10.0.0.2\nHost *\n  User me\nhost staging devbox\n";
+        assert_eq!(named(text), ["devbox", "gpu-1", "staging"]);
+    }
 
     #[test]
     fn a_project_on_another_machine_is_read_back_and_its_agent_started_over_ssh() {
