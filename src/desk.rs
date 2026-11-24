@@ -32,6 +32,7 @@ mod gitview;
 mod kept;
 mod lists;
 pub(crate) mod mention;
+mod palette;
 mod projects;
 pub(crate) mod runs;
 
@@ -173,6 +174,9 @@ pub struct Desk {
     /// to add.
     pub agent_command: Entity<TextInput>,
     pub agent_model: Entity<TextInput>,
+    /// The command palette (⌘K): whether it is open, and its line.
+    pub palette: bool,
+    pub palette_input: Entity<TextInput>,
     /// How much each part of Ghost's home takes, and what the last tidying
     /// did, for the settings.
     pub sizes: Vec<(&'static str, u64)>,
@@ -310,6 +314,31 @@ impl Desk {
                 .keeping()
         });
         let agent_model = cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping());
+        let palette_input = cx.new(|cx| {
+            TextInput::new(cx, "Go to a session, or do something")
+                .padded(4.)
+                .keeping()
+        });
+        cx.subscribe(&palette_input, |_, _, _: &crate::input::Changed, cx| {
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe_in(
+            &palette_input,
+            window,
+            |this, _, Submitted(_), window, cx| {
+                this.run_act(0, window, cx);
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &palette_input,
+            window,
+            |this, _, _: &crate::input::Cancelled, window, cx| {
+                this.toggle_palette(window, cx);
+            },
+        )
+        .detach();
         let agent_search = cx.new(|cx| {
             TextInput::new(cx, "Search the ACP registry")
                 .padded(4.)
@@ -451,6 +480,8 @@ impl Desk {
             agent_model,
             agent_search,
             sizes: Vec::new(),
+            palette: false,
+            palette_input,
             tidied: None,
             side_by_side: false,
             pr_tick: 0,
@@ -1516,6 +1547,7 @@ impl Render for Desk {
             .child(middle)
             .children(right)
             .children(self.undo_toast(&faces, cx))
+            .children(self.palette_view(&faces, cx))
     }
 }
 

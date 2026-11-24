@@ -61,10 +61,15 @@ src/session.rs    a session: its thread built from session/update; its turns' ch
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
 src/store.rs      sessions.json and each session's record; the one writer
+src/tidy.rs       what Ghost keeps here, measured and tidied
+src/keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
 src/desk.rs       the window's state, actions and layout
+src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
+                  palette, agents, turns, replies
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
-src/thread/       drawing helpers: diffs, plans, command output
-src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs
+src/thread/       the thread as a list (lines), folds, cards, the composer,
+                  the drawer; drawing helpers: diffs, plans, command output
+src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs, src/base64.rs
 assets/           fonts and the desk's own icons, built into the binary
 ```
 

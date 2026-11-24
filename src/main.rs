@@ -18,6 +18,7 @@ mod git;
 mod hub;
 mod icon;
 mod input;
+mod keys;
 mod markdown;
 mod pages;
 mod path;
@@ -35,23 +36,12 @@ mod ui;
 mod when;
 mod whole;
 
-use gpui::{
-    App, AppContext as _, Application, Bounds, Focusable as _, KeyBinding, Menu, MenuItem,
-    OsAction, TitlebarOptions, WindowBounds, WindowOptions, actions, point, px, size,
-};
+use keys::{Minimize, NewSession, Quit, Stop, ToggleSidebar};
 
-actions!(
-    desk,
-    [
-        Quit,
-        NewSession,
-        ToggleSidebar,
-        Stop,
-        Minimize,
-        Find,
-        Drawer
-    ]
-);
+use gpui::{
+    App, AppContext as _, Application, Bounds, Focusable as _, Menu, MenuItem, OsAction,
+    TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
+};
 
 fn main() {
     // Before any thread starts, since it changes the environment.
@@ -69,40 +59,7 @@ fn main() {
         .run(|cx: &mut App| {
             fonts::load(cx);
             icon::set();
-            cx.bind_keys([
-                KeyBinding::new("cmd-q", Quit, None),
-                KeyBinding::new("cmd-n", NewSession, None),
-                KeyBinding::new("cmd-b", ToggleSidebar, None),
-                KeyBinding::new("cmd-.", Stop, None),
-                KeyBinding::new("cmd-m", Minimize, None),
-                KeyBinding::new("cmd-f", Find, None),
-                KeyBinding::new("cmd-j", Drawer, None),
-                KeyBinding::new("backspace", input::Backspace, Some(input::CONTEXT)),
-                KeyBinding::new("delete", input::Delete, Some(input::CONTEXT)),
-                KeyBinding::new("left", input::Left, Some(input::CONTEXT)),
-                KeyBinding::new("right", input::Right, Some(input::CONTEXT)),
-                KeyBinding::new("shift-left", input::SelectLeft, Some(input::CONTEXT)),
-                KeyBinding::new("shift-right", input::SelectRight, Some(input::CONTEXT)),
-                KeyBinding::new("cmd-a", input::SelectAll, Some(input::CONTEXT)),
-                KeyBinding::new("cmd-v", input::Paste, Some(input::CONTEXT)),
-                KeyBinding::new("cmd-c", input::Copy, Some(input::CONTEXT)),
-                KeyBinding::new("cmd-x", input::Cut, Some(input::CONTEXT)),
-                KeyBinding::new("home", input::Home, Some(input::CONTEXT)),
-                KeyBinding::new("end", input::End, Some(input::CONTEXT)),
-                KeyBinding::new("enter", input::Submit, Some(input::CONTEXT)),
-                KeyBinding::new("cmd-enter", input::SubmitAside, Some(input::CONTEXT)),
-                KeyBinding::new("shift-enter", input::Newline, Some(input::CONTEXT)),
-                KeyBinding::new("tab", input::Tab, Some(input::CONTEXT)),
-                KeyBinding::new("up", input::Up, Some(input::CONTEXT)),
-                KeyBinding::new("down", input::Down, Some(input::CONTEXT)),
-                KeyBinding::new("escape", input::Cancel, Some(input::CONTEXT)),
-            ]);
-            cx.on_action(|_: &Quit, cx| cx.quit());
-            cx.on_action(|_: &Minimize, cx| {
-                if let Some(w) = cx.active_window() {
-                    let _ = w.update(cx, |_, window, _| window.minimize_window());
-                }
-            });
+            keys::bind(cx, &settings::home());
             // Without a main menu macOS has no menu bar to show in full
             // screen, so there is no way out of it. AppKit adds Enter and
             // Exit Full Screen to the View menu, and the window list to
@@ -156,24 +113,12 @@ fn main() {
                     cx.new(|cx| desk::Desk::new(window, cx))
                 })
                 .expect("open the window");
-            let desk = window
+            window
                 .update(cx, |desk, window, cx| {
                     window.focus(&desk.input.focus_handle(cx));
-                    cx.entity()
                 })
                 .expect("the desk");
-            let d = desk.clone();
-            cx.on_action(move |_: &NewSession, cx| {
-                let _ = window.update(cx, desk::Desk::new_default);
-            });
-            cx.on_action(move |_: &Find, cx| {
-                let _ = window.update(cx, desk::Desk::toggle_find);
-            });
-            cx.on_action(move |_: &Drawer, cx| {
-                let _ = window.update(cx, desk::Desk::toggle_drawer);
-            });
-            cx.on_action(move |_: &ToggleSidebar, cx| d.update(cx, desk::Desk::toggle_sidebar));
-            cx.on_action(move |_: &Stop, cx| desk.update(cx, desk::Desk::stop));
+            keys::handle(cx, window);
             cx.activate(true);
         });
 }
