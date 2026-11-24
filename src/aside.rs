@@ -393,7 +393,10 @@ impl Desk {
                 faces,
                 format!(
                     "Files the agent changes in {} show here.",
-                    Desk::shown(&s.folder)
+                    s.folder.file_name().map_or_else(
+                        || Desk::shown(&s.folder),
+                        |n| n.to_string_lossy().into_owned()
+                    )
                 ),
             ));
         }
@@ -602,8 +605,8 @@ impl Desk {
                 fine_mono(
                     faces,
                     match name {
-                        Some(name) if dir.chars().count() > 26 => {
-                            format!("…/{}", ui::fit(&name, 22))
+                        Some(name) if dir.chars().count() > 20 => {
+                            format!("…/{}", ui::fit(&name, 18))
                         }
                         _ => dir,
                     },

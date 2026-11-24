@@ -56,7 +56,14 @@ impl Desk {
             );
         }
         self.input.update(cx, |i, cx| {
-            i.set_placeholder(&format!("Reply to {name}, or tell it what to do next…"), cx);
+            i.set_placeholder(
+                &if s.items.is_empty() {
+                    format!("Tell {name} what to do…")
+                } else {
+                    format!("Reply to {name}, or tell it what to do next…")
+                },
+                cx,
+            );
         });
         let focused = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
         let working = matches!(s.state, State::Working | State::Opening);
