@@ -68,6 +68,26 @@ pub struct Tool {
     pub starts: Vec<Option<usize>>,
 }
 
+impl Tool {
+    /// The command a call that runs one ran, as the agent gave it: its
+    /// input's `command` (words, or the script a shell was given), else
+    /// its title without the backticks.
+    pub fn command_line(&self) -> String {
+        let words = |w: &[Value]| -> Option<Vec<String>> {
+            w.iter().map(|w| w.as_str().map(str::to_owned)).collect()
+        };
+        match self.call.raw_input.as_ref().and_then(|v| v.get("command")) {
+            Some(Value::String(line)) => line.clone(),
+            Some(Value::Array(w)) => match words(w).as_deref() {
+                Some([_, flag, script]) if flag == "-c" || flag == "-lc" => script.clone(),
+                Some(w) => w.join(" "),
+                None => self.call.title.trim().trim_matches('`').to_owned(),
+            },
+            _ => self.call.title.trim().trim_matches('`').to_owned(),
+        }
+    }
+}
+
 /// One thing in the thread.
 #[derive(Debug, Clone)]
 pub enum Item {
@@ -844,6 +864,30 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_command_is_read_from_its_input_before_its_title() {
+        let tool = |input: Value| Tool {
+            call: serde_json::from_value(serde_json::json!({
+                "toolCallId": "t", "title": "`cargo test`", "kind": "execute", "rawInput": input,
+            }))
+            .unwrap(),
+            started: Instant::now(),
+            took: None,
+            starts: Vec::new(),
+        };
+        let line = |v: Value| tool(v).command_line();
+        assert_eq!(line(serde_json::json!({"command": "ls -la"})), "ls -la");
+        assert_eq!(
+            line(serde_json::json!({"command": ["bash", "-lc", "rg -n x src"]})),
+            "rg -n x src"
+        );
+        assert_eq!(
+            line(serde_json::json!({"command": ["git", "status"]})),
+            "git status"
+        );
+        assert_eq!(line(serde_json::json!({})), "cargo test");
     }
 
     #[test]

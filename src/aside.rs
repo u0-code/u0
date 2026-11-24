@@ -197,7 +197,7 @@ impl Desk {
             .children(Self::pull_request(faces, s, cx))
             .children(self.commits(faces, s, cx))
             .child(Self::plan(faces, s))
-            .child(Self::terminals(faces, s))
+            .child(Self::terminals(faces, s, cx))
             .child(self.context(faces, s, cx))
         };
         frame(head).child(body)
@@ -476,7 +476,7 @@ impl Desk {
         section(faces, "Plan", Some(note)).child(drawn::plan(faces, &steps))
     }
 
-    fn terminals(faces: &Faces, s: &Session) -> Div {
+    fn terminals(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let commands: Vec<_> = s.commands().collect();
         if commands.is_empty() {
             return section(faces, "Terminals", None)
@@ -515,9 +515,13 @@ impl Desk {
             } else {
                 fine(faces, t.took.map(when::took_short).unwrap_or_default())
             };
-            let text = t.call.title.trim().trim_matches('`').to_owned();
+            let text = t.command_line();
+            let group = SharedString::from(format!("ran-{}", t.call.tool_call_id.0));
+            let again = text.clone();
             sec = sec.child(
                 frow()
+                    .id(group.clone())
+                    .group(group.clone())
                     .child(dot)
                     .child(
                         div()
@@ -525,7 +529,42 @@ impl Desk {
                             .min_w(px(0.))
                             .child(thread::command(faces, &text, 12.5)),
                     )
-                    .child(time),
+                    // Run again in a terminal of yours, to see or change it:
+                    // over its time, while the pointer is on the row.
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .items_center()
+                            .child(time.when(!live, |d| {
+                                d.group_hover(group.clone(), gpui::Styled::invisible)
+                            }))
+                            .when(!live, |d| {
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .right(px(-4.))
+                                        .invisible()
+                                        .group_hover(group, gpui::Styled::visible)
+                                        .child(
+                                            ui::icon_button(
+                                                SharedString::from(format!(
+                                                    "rerun-{}",
+                                                    t.call.tool_call_id.0
+                                                )),
+                                                "play",
+                                                "Run it in a terminal of yours",
+                                            )
+                                            .size(px(22.))
+                                            .on_click(
+                                                cx.listener(move |this, _, window, cx| {
+                                                    this.open_terminal(Some(&again), window, cx);
+                                                }),
+                                            ),
+                                        ),
+                                )
+                            }),
+                    ),
             );
             if live
                 && let Some(out) = t.call.content.iter().find_map(|c| match c {
