@@ -71,6 +71,32 @@ pub struct Worktree {
     pub branch: String,
 }
 
+/// The worktrees of the repository at `repo` that live under `under`
+/// (Ghost's own), with the branch each is on.
+pub fn worktrees(repo: &Path, under: &Path) -> Vec<Worktree> {
+    let Ok(out) = git(repo, &["worktree", "list", "--porcelain"], None) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    let mut path: Option<PathBuf> = None;
+    for line in out.lines().chain(std::iter::once("")) {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = Some(PathBuf::from(p));
+        } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
+            if let Some(p) = path.take().filter(|p| p.starts_with(under)) {
+                found.push(Worktree {
+                    repo: repo.to_path_buf(),
+                    path: p,
+                    branch: b.to_owned(),
+                });
+            }
+        } else if line.is_empty() {
+            path = None;
+        }
+    }
+    found
+}
+
 /// `text` as a short name for a branch: lower case, words joined by `-`.
 pub fn slug(text: &str) -> String {
     let mut out = String::new();

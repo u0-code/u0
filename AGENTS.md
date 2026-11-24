@@ -86,7 +86,9 @@ assets/           fonts and the desk's own icons, built into the binary
   read is left alone and nothing is saved over it.
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry.
-- Sessions belong to each agent. Ghost keeps none of their history.
+- Sessions belong to each agent. Ghost keeps none of their history: it
+  lists them from the agent (`session/list`, by project) and loads one
+  when it is opened (`session/load`).
 - In a repository Ghost writes commits no branch points at, under
   `refs/ghost/checkpoints/<session>/`, and worktrees under
   `~/.ghost/worktrees/`. It never changes your index or branch except when

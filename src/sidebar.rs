@@ -19,9 +19,6 @@ use crate::{
     when,
 };
 
-/// The agents offered under "More agents" when they are not switched on.
-const MORE: [&str; 4] = ["gemini", "opencode", "github-copilot-cli", "cursor"];
-
 impl Desk {
     pub(crate) fn sidebar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
         let head = draggable()
@@ -72,10 +69,9 @@ impl Desk {
             .then(|| self.search.read(cx).text().to_lowercase());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
         for folder in self.projects() {
-            let sessions: Vec<&Session> = self
+            let mut sessions: Vec<&Session> = self
                 .sessions
                 .iter()
-                .rev()
                 .filter(|s| s.project == folder)
                 .filter(|s| {
                     query
@@ -86,6 +82,9 @@ impl Desk {
             if query.is_some() && sessions.is_empty() {
                 continue;
             }
+            // The latest first; one not begun yet on top.
+            sessions
+                .sort_by_key(|s| std::cmp::Reverse((s.state == State::Draft, s.updated, s.key)));
             let open = query.is_some() || !self.closed.contains(&folder);
             projects = projects.child(Self::project_row(faces, &folder, sessions.len(), open, cx));
             if !open {
@@ -127,41 +126,39 @@ impl Desk {
             agents = agents.child(self.agent_row(faces, slot, cx));
         }
 
+        // Agents switched off that are on this machine still, then the
+        // rest of the registry, one click away.
         let mut more = div().flex().flex_col().gap(px(2.)).px(px(8.));
-        for id in MORE
+        let off: Vec<&crate::registry::Entry> = self
+            .registry
+            .agents
             .iter()
-            .filter(|id| !self.settings.enabled.iter().any(|e| e == *id))
-        {
-            let Some(entry) = self.entry(id) else {
-                continue;
-            };
-            let word = if entry.launch(&self.home).is_ok() {
-                "Off"
-            } else {
-                "Install"
-            };
-            let on = self.page == Page::Agent((*id).to_owned());
-            let target = (*id).to_owned();
+            .filter(|e| !self.settings.enabled.contains(&e.id))
+            .collect();
+        for entry in off.iter().filter(|e| e.downloaded(&self.home)) {
+            let id = entry.id.clone();
+            let on = self.page == Page::Agent(id.clone());
             more = more.child(
                 agent_shell(SharedString::from(format!("more-{id}")), on)
                     .child(div().opacity(0.45).child(ui::mark(
                         faces,
-                        &Mark::of(id, &entry.name),
+                        &Mark::of(&id, &entry.name),
                         16.,
                     )))
                     .child(
                         ui::one_line(
-                            ui::text(faces, theme::agent_name(id, &entry.name).into_owned())
+                            ui::text(faces, theme::agent_name(&id, &entry.name).into_owned())
                                 .text_size(px(13.5)),
                         )
                         .opacity(0.45),
                     )
-                    .child(fine(faces, word))
+                    .child(fine(faces, "Off"))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_page(Page::Agent(target.clone()), cx);
+                        this.open_page(Page::Agent(id.clone()), cx);
                     })),
             );
         }
+        let rest = off.iter().filter(|e| !e.downloaded(&self.home)).count();
         more = more.child(
             agent_shell("add-agents", false)
                 .child(ui::icon("plus", 16.).mx(px(2.)).text_color(theme::faint()))
@@ -171,6 +168,7 @@ impl Desk {
                         .text_size(px(13.))
                         .text_color(theme::muted()),
                 )
+                .when(rest > 0, |d| d.child(fine(faces, rest.to_string())))
                 .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Settings, cx))),
         );
 
@@ -410,12 +408,16 @@ impl Desk {
             State::SignIn => ("sign in".to_owned(), true, false),
             State::Broken(_) => ("stopped".to_owned(), false, true),
             State::Draft => (String::new(), false, false),
-            State::Idle => (when::ago(s.updated, SystemTime::now()), false, false),
+            State::Idle | State::Closed => (when::ago(s.updated, SystemTime::now()), false, false),
         };
         let agent = self
             .entry(&s.agent)
             .map_or_else(|| s.agent.clone(), |e| e.name.clone());
-        session_shell(SharedString::from(format!("session-{key}")), on)
+        let group = SharedString::from(format!("session-{key}"));
+        let deletable = s.id.is_none() || self.can_delete(&s.agent);
+        let busy = matches!(s.state, State::Working | State::Opening);
+        session_shell(group.clone(), on)
+            .group(group.clone())
             .cursor_pointer()
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
             .child(ui::mark(faces, &Mark::of(&s.agent, &agent), 14.))
@@ -431,6 +433,29 @@ impl Desk {
             } else {
                 theme::faint()
             }))
+            .when(deletable && !busy, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .invisible()
+                        .group_hover(group, Styled::visible)
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("delete-{key}")),
+                                "trash",
+                                "Delete session",
+                            )
+                            .size(px(20.))
+                            .text_color(theme::faint())
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.delete_session(key, window, cx);
+                                },
+                            )),
+                        ),
+                )
+            })
             .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
     }
 }

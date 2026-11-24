@@ -66,9 +66,60 @@ pub fn ago(t: SystemTime, now: SystemTime) -> String {
     }
 }
 
+/// A time written as RFC 3339 says ("2026-11-24T10:42:07.123Z", or with
+/// an offset such as "+08:00"), as agents date their sessions.
+pub fn parse(text: &str) -> Option<SystemTime> {
+    let bytes = text.as_bytes();
+    let num = |r: std::ops::Range<usize>| -> Option<i64> { text.get(r)?.parse().ok() };
+    if bytes.len() < 19
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !matches!(bytes[10], b'T' | b't' | b' ')
+    {
+        return None;
+    }
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let clock = num(11..13)? * 3600 + num(14..16)? * 60 + num(17..19)?;
+    let mut rest = &text[19..];
+    if let Some(fraction) = rest.strip_prefix('.') {
+        rest = fraction.trim_start_matches(|c: char| c.is_ascii_digit());
+    }
+    let offset = match rest.as_bytes().first() {
+        Some(b'Z' | b'z') | None => 0,
+        Some(sign @ (b'+' | b'-')) => {
+            let east: i64 = rest.get(1..3)?.parse::<i64>().ok()? * 3600
+                + rest.get(4..6)?.parse::<i64>().ok()? * 60;
+            if *sign == b'+' { east } else { -east }
+        }
+        _ => return None,
+    };
+    // Days from the civil date, as Howard Hinnant counts them.
+    let shifted = if month <= 2 { year - 1 } else { year };
+    let era = shifted.div_euclid(400);
+    let of_era = shifted - era * 400;
+    let of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
+    let days = era * 146_097 + of_cycle - 719_468;
+    let secs = days * 86_400 + clock - offset;
+    Some(UNIX_EPOCH + Duration::from_secs(u64::try_from(secs).ok()?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_rfc_3339_time_is_read_with_its_fraction_and_offset() {
+        let t = |s| {
+            parse(s)
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+        };
+        assert_eq!(t("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(t("2026-11-24T10:42:07.123Z"), Some(1_795_516_927));
+        assert_eq!(t("2026-11-24T18:42:07+08:00"), Some(1_795_516_927));
+        assert_eq!(t("yesterday"), None);
+    }
 
     #[test]
     fn a_duration_reads_in_seconds_then_minutes_then_hours() {

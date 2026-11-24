@@ -366,10 +366,16 @@ impl Desk {
                     fold::Row::Group { .. } => true,
                     fold::Row::Turn { .. } => false,
                 };
-                let rows = fold::rows(s.key, &s.items, &self.expanded, |i| match &s.items[i] {
-                    Item::Tool(t) => self.tool_open(s.key, i, t),
-                    _ => false,
-                });
+                let rows = fold::rows(
+                    s.key,
+                    &s.items,
+                    &self.expanded,
+                    |i| match &s.items[i] {
+                        Item::Tool(t) => self.tool_open(s.key, i, t),
+                        _ => false,
+                    },
+                    matches!(s.state, State::Working | State::Opening),
+                );
                 let mut before: Option<&fold::Row> = None;
                 for row in &rows {
                     let tight = before.is_some_and(|b| line(b) && line(row));
@@ -383,10 +389,13 @@ impl Desk {
                             open,
                         } => {
                             let summary = fold::summary(&s.items[*from..*to]);
-                            let mut words = format!(
-                                "Worked for {}",
-                                when::took(std::time::Duration::from_secs(*secs))
-                            );
+                            let mut words = match secs {
+                                Some(secs) => format!(
+                                    "Worked for {}",
+                                    when::took(std::time::Duration::from_secs(*secs))
+                                ),
+                                None => "Worked".to_owned(),
+                            };
                             if !summary.is_empty() {
                                 words = format!("{words} · {summary}");
                             }

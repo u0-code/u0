@@ -39,7 +39,7 @@ use crate::{
     session::{Item, Session, State},
     settings::{self, Settings},
     style::BODY,
-    theme,
+    theme, ui,
 };
 
 /// The side columns' widths, the top bar's height.
@@ -259,6 +259,53 @@ impl Desk {
                 self.slots.push(Slot::new(entry.clone(), &self.home));
             }
         }
+        self.start_ready();
+    }
+
+    /// Start each agent switched on that can run and is not running, so
+    /// that the sessions it keeps are listed.
+    fn start_ready(&mut self) {
+        let home = self.home.clone();
+        for slot in &mut self.slots {
+            if matches!(slot.stage, Stage::Ready) {
+                slot.stage = Stage::Starting;
+                hub::start(&slot.entry, &home, self.tx.clone());
+            }
+        }
+    }
+
+    /// Ask `agent`, if it is running and can list them, for the sessions
+    /// it keeps in the projects.
+    pub(crate) fn list_sessions(&self, agent: &str) {
+        let Some(Stage::Running {
+            agent: running,
+            init,
+        }) = self.slot(agent).map(|s| &s.stage)
+        else {
+            return;
+        };
+        if init.agent_capabilities.session_capabilities.list.is_none() {
+            return;
+        }
+        hub::list(
+            running.clone(),
+            agent.to_owned(),
+            self.settings.folders.clone(),
+            self.home.clone(),
+            self.tx.clone(),
+        );
+    }
+
+    /// Whether `agent` can delete the sessions it keeps.
+    pub fn can_delete(&self, agent: &str) -> bool {
+        matches!(self.slot(agent).map(|s| &s.stage),
+            Some(Stage::Running { init, .. }) if init.agent_capabilities.session_capabilities.delete.is_some())
+    }
+
+    /// A key no session has had.
+    pub(crate) fn take_key(&mut self) -> u64 {
+        self.next_key += 1;
+        self.next_key - 1
     }
 
     pub fn entry(&self, id: &str) -> Option<&Entry> {
@@ -341,8 +388,7 @@ impl Desk {
         {
             s.key
         } else {
-            let key = self.next_key;
-            self.next_key += 1;
+            let key = self.take_key();
             let mut s = Session::new(key, agent, folder);
             s.wants_worktree = s.repo && self.settings.worktree;
             self.sessions.push(s);
@@ -361,6 +407,19 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
+        if let Some(s) = self.session_mut(key)
+            && s.state == State::Closed
+        {
+            // What was said in it comes again from the agent.
+            s.items.clear();
+            s.plan = None;
+            s.turns.clear();
+            s.total = None;
+            s.redo = None;
+            s.state = State::Opening;
+            let agent = s.agent.clone();
+            self.open_when_running(&agent, key);
+        }
         self.thread_scroll.scroll_to_bottom();
         window.focus(&self.input.focus_handle(cx));
         cx.notify();
@@ -441,11 +500,74 @@ impl Desk {
                 let _ = this.update(cx, |this, cx| {
                     this.settings.used(&folder);
                     this.save_settings();
+                    let agents: Vec<String> =
+                        this.slots.iter().map(|s| s.entry.id.clone()).collect();
+                    for agent in agents {
+                        this.list_sessions(&agent);
+                    }
                     cx.notify();
                 });
             }
         })
         .detach();
+    }
+
+    /// Delete the session `key`: one its agent keeps is deleted there too,
+    /// once you say so, and the worktree made for it is removed.
+    pub fn delete_session(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let Some(id) = s.id.clone() else {
+            self.forget_session(key, cx);
+            return;
+        };
+        let name = self.name_of(&s.agent);
+        let detail = match &s.worktree {
+            Some(w) => format!(
+                "{name} deletes it and what was said in it. Its worktree on {} is removed too, unless it has changes not committed.",
+                w.branch
+            ),
+            None => format!("{name} deletes it and what was said in it."),
+        };
+        let agent = s.agent.clone();
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &format!("Delete “{}”?", ui::fit(&s.title, 60)),
+            Some(&detail),
+            &["Delete", "Cancel"],
+            cx,
+        );
+        cx.spawn(async move |this, cx| {
+            if answer.await == Ok(0) {
+                let _ = this.update(cx, |this, _| {
+                    if let Some(running) = this.slot(&agent).and_then(Slot::running) {
+                        hub::delete(running.clone(), key, id, this.tx.clone());
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Take the session `key` off the desk, and the worktree made for it.
+    pub(crate) fn forget_session(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(at) = self.sessions.iter().position(|s| s.key == key) else {
+            return;
+        };
+        let s = self.sessions.remove(at);
+        if let Some(wt) = s.worktree {
+            hub::git_action(
+                wt.repo.clone(),
+                hub::GitAction::RemoveWorktree(wt),
+                key,
+                self.tx.clone(),
+            );
+        }
+        if self.current == Some(key) {
+            self.current = None;
+        }
+        cx.notify();
     }
 
     /// Take `folder` off the projects; one with sessions open stays.
@@ -472,8 +594,7 @@ impl Desk {
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (agent, folder) = (s.agent.clone(), s.project.clone());
-        let key = self.next_key;
-        self.next_key += 1;
+        let key = self.take_key();
         self.sessions.push(Session::new(key, &agent, folder));
         self.show(key, window, cx);
     }
@@ -528,6 +649,16 @@ impl Desk {
             self.input.update(cx, |input, cx| input.set_text(&text, cx));
             return;
         }
+        if session.state == State::Closed {
+            // Its agent stopped since: it is loaded again, and then it goes.
+            session.items.clear();
+            session.pending = Some(text);
+            session.state = State::Opening;
+            let agent = session.agent.clone();
+            self.open_when_running(&agent, key);
+            cx.notify();
+            return;
+        }
         let session = self.session_mut(key).expect("the session on screen");
         session.said(&text);
         let (agent, folder, id) = (
@@ -558,19 +689,20 @@ impl Desk {
     fn open_when_running(&mut self, agent: &str, key: u64) {
         let home = self.home.clone();
         let tx = self.tx.clone();
-        let folder = self
+        let (folder, id) = self
             .sessions
             .iter()
             .find(|s| s.key == key)
-            .map(|s| s.folder.clone())
+            .map(|s| (s.folder.clone(), s.id.clone()))
             .unwrap_or_default();
         let Some(slot) = self.slot_mut(agent) else {
             return;
         };
         match &slot.stage {
-            Stage::Running { agent, .. } => {
-                hub::open(agent.clone(), key, folder, tx);
-            }
+            Stage::Running { agent, .. } => match id {
+                Some(id) => hub::load(agent.clone(), key, id, folder, tx),
+                None => hub::open(agent.clone(), key, folder, tx),
+            },
             Stage::Starting => {}
             _ => {
                 slot.stage = Stage::Starting;

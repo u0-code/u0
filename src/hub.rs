@@ -13,13 +13,14 @@ use std::{path::PathBuf, sync::Arc};
 use agent_client_protocol_schema::{
     ProtocolVersion,
     v1::{
-        AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock, Implementation,
-        InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
-        PermissionOptionId, PromptRequest, PromptResponse, RequestPermissionOutcome,
-        RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
-        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId,
-        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-        StopReason, TextContent,
+        AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
+        DeleteSessionRequest, Implementation, InitializeRequest, InitializeResponse,
+        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+        NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest, PromptResponse,
+        RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome,
+        SessionConfigId, SessionConfigOption, SessionConfigOptionValue, SessionConfigValueId,
+        SessionId, SessionInfo, SessionModeId, SetSessionConfigOptionRequest,
+        SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TextContent,
     },
 };
 use serde_json::Value;
@@ -49,6 +50,22 @@ pub enum Msg {
     Opened {
         key: u64,
         result: Result<Box<NewSessionResponse>, Failure>,
+    },
+    /// The sessions `agent` keeps in the projects, each with its project.
+    Listed {
+        agent: String,
+        result: Result<Vec<(PathBuf, SessionInfo)>, String>,
+    },
+    /// A session the agent keeps was loaded: what was said in it came
+    /// before this, as updates.
+    Loaded {
+        key: u64,
+        result: Result<Box<LoadSessionResponse>, Failure>,
+    },
+    /// A session was deleted from its agent, or could not be.
+    Deleted {
+        key: u64,
+        result: Result<(), String>,
     },
     Ended {
         key: u64,
@@ -252,6 +269,81 @@ pub fn open(agent: Arc<Agent>, key: u64, folder: PathBuf, tx: Sender) {
             .await
             .map(Box::new);
         let _ = tx.send(Msg::Opened { key, result });
+    });
+}
+
+/// How many pages of a project's sessions are read from an agent at most:
+/// some page through all they keep, the project's few among them.
+const PAGES: usize = 50;
+
+/// The sessions `agent` keeps in each of `projects` and in Ghost's
+/// worktrees of them (under `home`), each with the project it belongs to.
+pub fn list(agent: Arc<Agent>, name: String, projects: Vec<PathBuf>, home: PathBuf, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let under = home.join("worktrees");
+        let mut places: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for project in projects {
+            let p = project.clone();
+            let u = under.clone();
+            let worktrees = tokio::task::spawn_blocking(move || git::worktrees(&p, &u))
+                .await
+                .unwrap_or_default();
+            places.push((project.clone(), project.clone()));
+            places.extend(worktrees.into_iter().map(|w| (w.path, project.clone())));
+        }
+        let mut found = Vec::new();
+        for (cwd, project) in places {
+            let mut cursor = None;
+            for _ in 0..PAGES {
+                let request = ListSessionsRequest::new().cwd(cwd.clone()).cursor(cursor);
+                match agent
+                    .request::<_, ListSessionsResponse>("session/list", request)
+                    .await
+                {
+                    Ok(page) => {
+                        found.extend(page.sessions.into_iter().map(|s| (project.clone(), s)));
+                        cursor = page.next_cursor;
+                        if cursor.is_none() {
+                            break;
+                        }
+                    }
+                    Err(f) => {
+                        let _ = tx.send(Msg::Listed {
+                            agent: name,
+                            result: Err(f.message),
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+        let _ = tx.send(Msg::Listed {
+            agent: name,
+            result: Ok(found),
+        });
+    });
+}
+
+/// Load the session `id` the agent keeps, in `folder`.
+pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, LoadSessionResponse>("session/load", LoadSessionRequest::new(id, folder))
+            .await
+            .map(Box::new);
+        let _ = tx.send(Msg::Loaded { key, result });
+    });
+}
+
+/// Delete the session `id` from its agent.
+pub fn delete(agent: Arc<Agent>, key: u64, id: SessionId, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, Value>("session/delete", DeleteSessionRequest::new(id))
+            .await
+            .map(|_| ())
+            .map_err(|f| f.message);
+        let _ = tx.send(Msg::Deleted { key, result });
     });
 }
 

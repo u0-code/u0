@@ -13,9 +13,9 @@ use std::{
 
 use agent_client_protocol_schema::v1::{
     ContentBlock, EmbeddedResourceResource, PermissionOption, PermissionOptionKind, Plan,
-    RequestPermissionRequest, SessionConfigOption, SessionId, SessionModeState, SessionUpdate,
-    StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolKind,
-    UsageUpdate,
+    RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
+    SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
+    ToolCallUpdate, ToolKind, UsageUpdate,
 };
 use serde_json::Value;
 
@@ -35,7 +35,10 @@ pub enum State {
     Idle,
     /// Working on what you said.
     Working,
-    /// It could not be opened or its agent stopped: why.
+    /// Kept by its agent, not open here: opening it loads what was said
+    /// in it from the agent.
+    Closed,
+    /// It could not be opened: why.
     Broken(String),
 }
 
@@ -200,6 +203,40 @@ fn line_of(file: &Path, text: &str) -> Option<usize> {
 
 impl Session {
     pub fn new(key: u64, agent: &str, folder: PathBuf) -> Self {
+        let mut s = Self::blank(key, agent, folder);
+        s.look();
+        s
+    }
+
+    /// A session its agent listed, in `project`: closed until opened.
+    pub fn listed(key: u64, agent: &str, info: SessionInfo, project: PathBuf) -> Self {
+        let mut s = Self::blank(key, agent, info.cwd);
+        s.project = project;
+        s.id = Some(info.session_id);
+        if let Some(title) = info.title.filter(|t| !t.trim().is_empty()) {
+            s.title = title;
+        }
+        if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
+            s.begun = t;
+            s.updated = t;
+        }
+        s.state = State::Closed;
+        s
+    }
+
+    /// Whether it can be opened where it is: not while the worktree it is
+    /// to work in is being made.
+    pub fn worktree_ready(&self) -> bool {
+        !(self.wants_worktree && self.worktree.is_none())
+    }
+
+    /// Read the folder's branch, and whether it is in a repository.
+    pub fn look(&mut self) {
+        self.branch = git::branch(&self.folder);
+        self.repo = git::root(&self.folder).is_some();
+    }
+
+    fn blank(key: u64, agent: &str, folder: PathBuf) -> Self {
         let title = folder.file_name().map_or_else(
             || folder.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
@@ -209,8 +246,8 @@ impl Session {
             key,
             agent: agent.to_owned(),
             id: None,
-            branch: git::branch(&folder),
-            repo: git::root(&folder).is_some(),
+            branch: None,
+            repo: false,
             wants_worktree: false,
             worktree: None,
             turns: Vec::new(),

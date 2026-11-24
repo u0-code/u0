@@ -3,7 +3,8 @@
 //! commands") between what you said and what the agent finally answered,
 //! and inside a turn opened again, a run of three or more quiet tool calls
 //! becomes one line of its own. A turn still going on is never folded: it
-//! is what you are watching.
+//! is what you are watching. A turn loaded from an agent has no end
+//! marked; it is over when another follows it or nothing is going on.
 //!
 //! Text in, rows out: what is drawn is decided here, without a window.
 
@@ -19,11 +20,11 @@ pub enum Row {
     /// The item at this index, as it is.
     Item(usize),
     /// A finished turn's work, `from..to`, folded or opened; how long the
-    /// turn took.
+    /// turn took, when that is known.
     Turn {
         from: usize,
         to: usize,
-        secs: u64,
+        secs: Option<u64>,
         open: bool,
     },
     /// A run of tool calls, `from..to`, folded or opened.
@@ -45,12 +46,13 @@ const RUN: usize = 3;
 
 /// The rows of a thread. `open_call(i)` says whether the call at `i` is
 /// open (then it is not folded into a group); `expanded` holds the folds
-/// opened.
+/// opened; `going` whether a turn is going on now.
 pub fn rows(
     session: u64,
     items: &[Item],
     expanded: &HashSet<String>,
     open_call: impl Fn(usize) -> bool,
+    going: bool,
 ) -> Vec<Row> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -69,7 +71,8 @@ pub fn rows(
         let ended = items[i + 1..end]
             .iter()
             .rposition(|x| matches!(x, Item::Ended { .. }))
-            .map(|p| i + 1 + p);
+            .map(|p| i + 1 + p)
+            .or((end < items.len() || !going).then_some(end));
         let work = match ended {
             // The answer stays out: the last thing the agent said, if
             // nothing but notes and the end come after it.
@@ -89,9 +92,9 @@ pub fn rows(
         };
         match work {
             Some((from, to, e)) if to - from >= 2 => {
-                let secs = match &items[e] {
-                    Item::Ended { secs, .. } => *secs,
-                    _ => 0,
+                let secs = match items.get(e) {
+                    Some(Item::Ended { secs, .. }) => Some(*secs),
+                    _ => None,
                 };
                 let open = expanded.contains(&turn_key(session, from));
                 out.push(Row::Turn {
@@ -244,7 +247,7 @@ mod tests {
     #[test]
     fn a_turn_going_on_shows_every_row() {
         let s = session();
-        let rows = rows(7, &s.items, &HashSet::new(), |_| false);
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, true);
         assert_eq!(rows.len(), s.items.len());
         assert!(rows.iter().all(|r| matches!(r, Row::Item(_))));
     }
@@ -253,7 +256,7 @@ mod tests {
     fn a_finished_turn_folds_its_work_and_keeps_the_answer() {
         let mut s = session();
         s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
-        let rows = rows(7, &s.items, &HashSet::new(), |_| false);
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false);
         // You, the fold over four calls, the answer, the end.
         assert_eq!(
             rows,
@@ -262,7 +265,7 @@ mod tests {
                 Row::Turn {
                     from: 1,
                     to: 5,
-                    secs: 0,
+                    secs: Some(0),
                     open: false
                 },
                 Row::Item(5),
@@ -280,7 +283,7 @@ mod tests {
         let mut s = session();
         s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
         let open: HashSet<String> = [turn_key(7, 1)].into_iter().collect();
-        let rows = rows(7, &s.items, &open, |i| i == 4);
+        let rows = rows(7, &s.items, &open, |i| i == 4, false);
         // The fourth call is open, so only the first three are a group.
         assert_eq!(
             rows[1..4],
@@ -288,7 +291,7 @@ mod tests {
                 Row::Turn {
                     from: 1,
                     to: 5,
-                    secs: 0,
+                    secs: Some(0),
                     open: true
                 },
                 Row::Group {
@@ -297,6 +300,25 @@ mod tests {
                     open: false
                 },
                 Row::Item(4)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_turn_loaded_without_an_end_folds_once_nothing_goes_on() {
+        let s = session();
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false);
+        assert_eq!(
+            rows,
+            vec![
+                Row::Item(0),
+                Row::Turn {
+                    from: 1,
+                    to: 5,
+                    secs: None,
+                    open: false
+                },
+                Row::Item(5)
             ]
         );
     }

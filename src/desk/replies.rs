@@ -8,7 +8,7 @@ use super::Desk;
 use crate::{
     acp::Event,
     hub::{self, Msg, Slot, Stage},
-    session::{Item, State},
+    session::{Item, Session, State},
 };
 
 impl Desk {
@@ -143,9 +143,23 @@ impl Desk {
                         Err(why) => Stage::Failed(why),
                     };
                 }
+                self.start_ready();
             }
             Msg::Started { agent, result } => self.started(&agent, result),
             Msg::Opened { key, result } => self.opened(key, result),
+            Msg::Listed { agent, result } => self.listed(&agent, result),
+            Msg::Loaded { key, result } => self.loaded(key, result),
+            Msg::Deleted { key, result } => match result {
+                Ok(()) => self.forget_session(key, cx),
+                Err(why) => {
+                    if let Some(s) = self.session_mut(key) {
+                        s.items.push(Item::Note {
+                            text: format!("It could not be deleted: {why}"),
+                            trouble: true,
+                        });
+                    }
+                }
+            },
             Msg::Ended { key, result } => {
                 if let Some(s) = self.session_mut(key) {
                     s.ended(result);
@@ -204,7 +218,7 @@ impl Desk {
         let waiting: Vec<u64> = self
             .sessions
             .iter()
-            .filter(|s| s.agent == agent && s.state == State::Opening && s.id.is_none())
+            .filter(|s| s.agent == agent && s.state == State::Opening && s.worktree_ready())
             .map(|s| s.key)
             .collect();
         match result {
@@ -218,6 +232,7 @@ impl Desk {
                 for key in waiting {
                     self.open_when_running(agent, key);
                 }
+                self.list_sessions(agent);
             }
             Err(f) => {
                 if let Some(slot) = self.slot_mut(agent) {
@@ -264,6 +279,88 @@ impl Desk {
         }
     }
 
+    /// What `agent` listed: each session not on the desk yet is put there,
+    /// closed; one closed already takes the agent's title and time.
+    pub(super) fn listed(
+        &mut self,
+        agent: &str,
+        result: Result<
+            Vec<(
+                std::path::PathBuf,
+                agent_client_protocol_schema::v1::SessionInfo,
+            )>,
+            String,
+        >,
+    ) {
+        let found = match result {
+            Ok(found) => found,
+            Err(why) => {
+                tracing::warn!("{agent} could not list its sessions: {why}");
+                return;
+            }
+        };
+        for (project, info) in found {
+            if let Some(s) = self
+                .sessions
+                .iter_mut()
+                .find(|s| s.agent == agent && s.id.as_ref() == Some(&info.session_id))
+            {
+                if s.state == State::Closed {
+                    if let Some(t) = info.title.filter(|t| !t.trim().is_empty()) {
+                        s.title = t;
+                    }
+                    if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
+                        s.updated = t;
+                    }
+                }
+                continue;
+            }
+            let key = self.take_key();
+            self.sessions
+                .push(Session::listed(key, agent, info, project));
+        }
+    }
+
+    pub(super) fn loaded(
+        &mut self,
+        key: u64,
+        result: Result<
+            Box<agent_client_protocol_schema::v1::LoadSessionResponse>,
+            crate::acp::Failure,
+        >,
+    ) {
+        let under = self.home.join("worktrees");
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        match result {
+            Ok(r) => {
+                s.modes = r.modes;
+                s.options = r.config_options.unwrap_or_default();
+                s.state = State::Idle;
+                s.look();
+                // A session in one of Ghost's worktrees works there again.
+                if s.worktree.is_none()
+                    && s.folder.starts_with(&under)
+                    && let Some(branch) = s.branch.clone()
+                {
+                    s.worktree = Some(crate::git::Worktree {
+                        repo: s.project.clone(),
+                        path: s.folder.clone(),
+                        branch,
+                    });
+                }
+                if let Some(text) = s.pending.take() {
+                    s.said(&text);
+                    self.begin_turn(key, text);
+                }
+                self.thread_scroll.scroll_to_bottom();
+            }
+            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => s.state = State::SignIn,
+            Err(f) => s.state = State::Broken(f.message),
+        }
+    }
+
     pub(super) fn said(&mut self, agent: &str, event: Event) {
         match event {
             Event::Update(n) => {
@@ -297,8 +394,17 @@ impl Desk {
                     slot.stage = Stage::Failed(why.clone());
                 }
                 for s in self.sessions.iter_mut().filter(|s| s.agent == agent) {
-                    if s.id.is_some() || s.state == State::Opening {
-                        s.id = None;
+                    let open = !matches!(s.state, State::Draft | State::Closed);
+                    if s.id.is_some() && open {
+                        // The agent keeps it: opened again, it is loaded.
+                        s.items.push(Item::Note {
+                            text: format!("The agent stopped: {why}"),
+                            trouble: true,
+                        });
+                        s.pending = None;
+                        s.since = None;
+                        s.state = State::Closed;
+                    } else if s.state == State::Opening {
                         s.pending = None;
                         s.since = None;
                         s.state = State::Broken(format!("The agent stopped: {why}"));

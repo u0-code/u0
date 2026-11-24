@@ -167,6 +167,12 @@ impl Entry {
         home.join("agents").join(&self.id).join(&self.version)
     }
 
+    /// Whether its archive is on this machine: an agent run through a
+    /// runner never is, the runner fetching it each time.
+    pub fn downloaded(&self, home: &Path) -> bool {
+        matches!(self.way(), Way::Archive) && self.launch(home).is_ok()
+    }
+
     /// How to start it, or why it cannot be.
     pub fn launch(&self, home: &Path) -> Result<Launch, Missing> {
         let d = &self.distribution;
