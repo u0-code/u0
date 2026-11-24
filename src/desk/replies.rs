@@ -121,10 +121,8 @@ impl Desk {
                             }
                             other => other.clone(),
                         };
-                        *slot = Slot {
-                            entry: e.clone(),
-                            stage,
-                        };
+                        slot.entry = e.clone();
+                        slot.stage = stage;
                     }
                 }
                 self.fill_slots();
@@ -149,6 +147,7 @@ impl Desk {
             Msg::Started { agent, result } => self.started(&agent, result),
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
+            Msg::Probed { agent, result } => self.probed(&agent, result),
             Msg::Loaded { key, result } => self.loaded(key, result),
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.session_mut(key)
@@ -174,10 +173,34 @@ impl Desk {
                 }
             },
             Msg::Ended { key, result } => {
+                // A turn refused for want of a sign-in marks the agent: the
+                // composer then offers its sign-in.
+                let agent = self
+                    .sessions
+                    .iter()
+                    .find(|s| s.key == key)
+                    .map(|s| s.agent.clone());
+                if let Some(slot) = agent.and_then(|a| self.slot_mut(&a)) {
+                    slot.auth = match &result {
+                        Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+                            hub::Auth::Needed(f.message.clone())
+                        }
+                        Ok(_) => hub::Auth::Ready,
+                        Err(_) => slot.auth.clone(),
+                    };
+                }
                 if let Some(s) = self.session_mut(key) {
-                    s.ended(result);
+                    s.ended(result.map_err(|f| f.message));
                 }
                 self.end_turn(key);
+            }
+            Msg::LoggedOut { agent, result } => {
+                if let Some(slot) = self.slot_mut(&agent) {
+                    match result {
+                        Ok(()) => slot.auth = hub::Auth::Needed("Signed out".into()),
+                        Err(why) => tracing::warn!("{agent} could not sign out: {why}"),
+                    }
+                }
             }
             Msg::Worktree { key, result } => self.worktree_made(key, result),
             Msg::Checkpoint {
@@ -246,6 +269,7 @@ impl Desk {
                     self.open_when_running(agent, key);
                 }
                 self.list_sessions(agent);
+                self.probe_agent(agent);
             }
             Err(f) => {
                 if let Some(slot) = self.slot_mut(agent) {
@@ -268,6 +292,7 @@ impl Desk {
             crate::acp::Failure,
         >,
     ) {
+        let tx = self.tx.clone();
         let Some(s) = self.session_mut(key) else {
             return;
         };
@@ -277,13 +302,49 @@ impl Desk {
                 s.modes = r.modes;
                 s.options = r.config_options.unwrap_or_default();
                 s.state = State::Idle;
+                // What was chosen before it was opened is set on it now,
+                // ahead of the first thing said.
+                let chosen = std::mem::take(&mut s.chosen);
+                let mode = s.chosen_mode.take();
+                for (config, value) in &chosen {
+                    s.choose(config, value);
+                }
+                s.chosen.clear();
+                if let (Some(m), Some(modes)) = (&mode, &mut s.modes) {
+                    modes.current_mode_id =
+                        agent_client_protocol_schema::v1::SessionModeId::new(m.clone());
+                }
+                let agent = s.agent.clone();
+                let id = r.session_id.clone();
+                if let Some(running) = self.slot(&agent).and_then(Slot::running).cloned() {
+                    if let Some(m) = mode {
+                        hub::set_mode(running.clone(), key, id.clone(), m, tx.clone());
+                    }
+                    for (config, value) in chosen {
+                        hub::set_option(
+                            running.clone(),
+                            key,
+                            id.clone(),
+                            config,
+                            value,
+                            tx.clone(),
+                        );
+                    }
+                }
+                let s = self.session_mut(key).expect("just opened");
                 if let Some(text) = s.pending.take() {
                     s.state = State::Working;
                     self.begin_turn(key, text);
                 }
             }
             // The text waits: once signed in, the session opens and it goes.
-            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => s.state = State::SignIn,
+            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+                s.state = State::SignIn;
+                let agent = s.agent.clone();
+                if let Some(slot) = self.slot_mut(&agent) {
+                    slot.auth = hub::Auth::Needed(f.message);
+                }
+            }
             Err(f) => {
                 s.pending = None;
                 s.since = None;
@@ -331,6 +392,41 @@ impl Desk {
             let key = self.take_key();
             self.sessions
                 .push(Session::listed(key, agent, info, project));
+        }
+    }
+
+    pub(super) fn probed(
+        &mut self,
+        agent: &str,
+        result: Result<
+            Box<agent_client_protocol_schema::v1::NewSessionResponse>,
+            crate::acp::Failure,
+        >,
+    ) {
+        let Some(at) = self.slots.iter().position(|s| s.entry.id == agent) else {
+            return;
+        };
+        match result {
+            Ok(r) => {
+                let slot = &mut self.slots[at];
+                slot.probe = Some(hub::Probe {
+                    modes: r.modes,
+                    options: r.config_options.unwrap_or_default(),
+                });
+                slot.auth = hub::Auth::Ready;
+                let slot = &self.slots[at];
+                for s in self
+                    .sessions
+                    .iter_mut()
+                    .filter(|s| s.agent == agent && s.id.is_none() && s.options.is_empty())
+                {
+                    slot.seed(s);
+                }
+            }
+            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+                self.slots[at].auth = hub::Auth::Needed(f.message);
+            }
+            Err(f) => tracing::warn!("{agent} would not open a session to be read: {}", f.message),
         }
     }
 

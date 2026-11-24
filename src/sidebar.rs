@@ -277,6 +277,9 @@ impl Desk {
             .iter()
             .any(|s| s.agent == id && matches!(s.state, State::Working | State::Opening));
         let word = match &slot.stage {
+            Stage::Running { .. } if matches!(slot.auth, crate::hub::Auth::Needed(_)) => {
+                Some(("Sign in", true))
+            }
             Stage::Missing(_) => Some(("Install", false)),
             Stage::Installing(_) => Some(("Installing", true)),
             Stage::Starting => Some(("Starting", true)),

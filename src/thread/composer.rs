@@ -65,19 +65,24 @@ impl Desk {
             .iter()
             .any(|o| o.category == Some(SessionConfigOptionCategory::Mode));
         let mut chips: Vec<(Popup, String, String, Choices)> = Vec::new();
-        for option in s.options.iter().filter(|o| {
-            matches!(
-                o.category,
-                Some(
-                    SessionConfigOptionCategory::Model
-                        | SessionConfigOptionCategory::ThoughtLevel
-                        | SessionConfigOptionCategory::Mode
-                )
-            )
-        }) {
-            let Some((current, choices)) = select_choices(&option.kind) else {
+        // Every option the agent offers: its model, how hard it thinks and
+        // its mode first, then the rest it lists (a speed, a way of working).
+        let rank = |o: &&agent_client_protocol_schema::v1::SessionConfigOption| match o.category {
+            Some(SessionConfigOptionCategory::Model) => 0,
+            Some(SessionConfigOptionCategory::ThoughtLevel) => 1,
+            Some(SessionConfigOptionCategory::Mode) => 2,
+            _ => 3,
+        };
+        let mut options: Vec<_> = s.options.iter().collect();
+        options.sort_by_key(rank);
+        for option in options {
+            let Some((mut current, choices)) = select_choices(&option.kind) else {
                 continue;
             };
+            // One outside the usual three says what it is: "Fast mode: Off".
+            if rank(&option) == 3 {
+                current = format!("{}: {current}", option.name);
+            }
             let head = format!("{name} {}", option.name.to_lowercase());
             chips.push((
                 Popup::Option(option.id.0.to_string()),
@@ -165,27 +170,86 @@ impl Desk {
         };
         bar = bar.child(button);
 
-        div().flex().flex_none().justify_center().pb(px(18.)).child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .w(px(column.min(COLUMN)))
-                .pl(px(14.))
-                .pr(px(12.))
-                .pt(px(12.))
-                .pb(px(10.))
-                .rounded(px(16.))
-                .bg(theme::panel())
-                .border_1()
-                .border_color(if focused {
-                    theme::ghost_line()
-                } else {
-                    theme::border2()
-                })
-                .child(div().min_h(px(42.)).child(self.input.clone()))
-                .child(bar),
-        )
+        // An agent that wants a sign-in says so above the line, with its
+        // way to sign in, before anything said to it is refused.
+        let sign_in = match self.slot(&s.agent).map(|x| &x.auth) {
+            Some(crate::hub::Auth::Needed(why)) => {
+                let (a, b) = (s.agent.clone(), s.agent.clone());
+                Some(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .w(px(column.min(COLUMN)))
+                        .mb(px(8.))
+                        .px(px(14.))
+                        .py(px(10.))
+                        .rounded(px(12.))
+                        .bg(theme::rail())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .child(ui::icon("alert", 16.).text_color(theme::accent()))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .child(
+                                    ui::text(faces, format!("{name} needs you to sign in"))
+                                        .text_size(px(13.)),
+                                )
+                                .child(ui::one_line(
+                                    ui::text(faces, ui::fit(why, 80))
+                                        .text_size(px(11.5))
+                                        .text_color(theme::faint()),
+                                )),
+                        )
+                        .child(
+                            ui::button(faces, "sign-in-now", "Sign in", ui::Weight::Primary)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.sign_in_agent(&a, cx);
+                                })),
+                        )
+                        .child(
+                            ui::button(faces, "signed-in", "I've signed in", ui::Weight::Quiet)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.recheck_auth(&b, cx);
+                                })),
+                        ),
+                )
+            }
+            _ => None,
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .items_center()
+            .pb(px(18.))
+            .children(sign_in)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .w(px(column.min(COLUMN)))
+                    .pl(px(14.))
+                    .pr(px(12.))
+                    .pt(px(12.))
+                    .pb(px(10.))
+                    .rounded(px(16.))
+                    .bg(theme::panel())
+                    .border_1()
+                    .border_color(if focused {
+                        theme::ghost_line()
+                    } else {
+                        theme::border2()
+                    })
+                    .child(div().min_h(px(42.)).child(self.input.clone()))
+                    .child(bar),
+            )
     }
 
     /// A chip that opens a menu of choices, `(id, name, current)` each; with

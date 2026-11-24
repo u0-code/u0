@@ -16,14 +16,15 @@ use std::{
 use agent_client_protocol_schema::{
     ProtocolVersion,
     v1::{
-        AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
-        DeleteSessionRequest, Implementation, InitializeRequest, InitializeResponse,
+        AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
+        ContentBlock, DeleteSessionRequest, Implementation, InitializeRequest, InitializeResponse,
         ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-        NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest, PromptResponse,
-        RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome,
-        SessionConfigId, SessionConfigOption, SessionConfigOptionValue, SessionConfigValueId,
-        SessionId, SessionInfo, SessionModeId, SetSessionConfigOptionRequest,
-        SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TextContent,
+        LogoutRequest, NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest,
+        PromptResponse, RequestPermissionOutcome, RequestPermissionResponse,
+        SelectedPermissionOutcome, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
+        SessionConfigValueId, SessionId, SessionInfo, SessionModeId, SessionModeState,
+        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+        StopReason, TextContent,
     },
 };
 use serde_json::Value;
@@ -71,6 +72,12 @@ pub enum Msg {
         key: u64,
         result: Result<Vec<git::FileDiff>, String>,
     },
+    /// What a session of `agent` offers before it is opened, or why the
+    /// agent would not open one.
+    Probed {
+        agent: String,
+        result: Result<Box<NewSessionResponse>, Failure>,
+    },
     /// A session was deleted from its agent, or could not be.
     Deleted {
         key: u64,
@@ -78,7 +85,12 @@ pub enum Msg {
     },
     Ended {
         key: u64,
-        result: Result<StopReason, String>,
+        result: Result<StopReason, Failure>,
+    },
+    /// An agent signed out, or could not.
+    LoggedOut {
+        agent: String,
+        result: Result<(), String>,
     },
     /// Something an agent said on its own.
     Said {
@@ -159,6 +171,28 @@ pub struct Install {
 pub struct Slot {
     pub entry: Entry,
     pub stage: Stage,
+    /// What a session of it offers before one is opened: read from a
+    /// session opened and deleted again as it starts.
+    pub probe: Option<Probe>,
+    pub auth: Auth,
+}
+
+/// The modes and options a session of an agent starts with.
+#[derive(Clone)]
+pub struct Probe {
+    pub modes: Option<SessionModeState>,
+    pub options: Vec<SessionConfigOption>,
+}
+
+/// Whether an agent is signed in, as far as the desk can tell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Auth {
+    /// Not known yet.
+    Unknown,
+    /// It opened a session without asking.
+    Ready,
+    /// It asked to be signed in, or said its sign-in failed: what it said.
+    Needed(String),
 }
 
 impl Slot {
@@ -168,7 +202,23 @@ impl Slot {
             Ok(_) => Stage::Ready,
             Err(m) => Stage::Missing(m),
         };
-        Self { entry, stage }
+        Self {
+            entry,
+            stage,
+            probe: None,
+            auth: Auth::Unknown,
+        }
+    }
+
+    /// Give the draft `s` the modes and options a session of this agent
+    /// starts with, so they can be chosen before it is opened.
+    pub fn seed(&self, s: &mut crate::session::Session) {
+        if let Some(p) = &self.probe
+            && s.id.is_none()
+        {
+            s.modes.clone_from(&p.modes);
+            s.options.clone_from(&p.options);
+        }
     }
 
     pub fn running(&self) -> Option<&Arc<Agent>> {
@@ -354,6 +404,32 @@ pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sen
     });
 }
 
+/// Open a session of `agent` in `dir` to read what a session offers, then
+/// delete it (or close it) again, so that nothing of it is kept.
+pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close: bool, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, NewSessionResponse>("session/new", NewSessionRequest::new(dir))
+            .await;
+        if let Ok(r) = &result {
+            let id = r.session_id.clone();
+            if delete {
+                let _ = agent
+                    .request::<_, Value>("session/delete", DeleteSessionRequest::new(id))
+                    .await;
+            } else if close {
+                let _ = agent
+                    .request::<_, Value>("session/close", CloseSessionRequest::new(id))
+                    .await;
+            }
+        }
+        let _ = tx.send(Msg::Probed {
+            agent: name,
+            result: result.map(Box::new),
+        });
+    });
+}
+
 /// Read what is not committed in `dir`.
 pub fn uncommitted(dir: PathBuf, key: u64, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
@@ -383,14 +459,7 @@ pub fn prompt(agent: Arc<Agent>, key: u64, id: SessionId, text: String, tx: Send
         let result = agent
             .request::<_, PromptResponse>("session/prompt", request)
             .await
-            .map(|r| r.stop_reason)
-            .map_err(|f| match f.code {
-                Some(acp::AUTH_REQUIRED) => format!(
-                    "{} The agent needs you to sign in: run its own CLI once in a terminal and sign in there, then try again.",
-                    f.message
-                ),
-                _ => f.message,
-            });
+            .map(|r| r.stop_reason);
         let _ = tx.send(Msg::Ended { key, result });
     });
 }
@@ -467,6 +536,21 @@ pub fn authenticate(agent: Arc<Agent>, id: String, method: String, tx: Sender) {
             .map(|_| ())
             .map_err(|f| f.message);
         let _ = tx.send(Msg::Signed { agent: id, result });
+    });
+}
+
+/// Sign `agent` out.
+pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let result = agent
+            .request::<_, Value>("logout", LogoutRequest::new())
+            .await
+            .map(|_| ())
+            .map_err(|f| f.message);
+        let _ = tx.send(Msg::LoggedOut {
+            agent: name,
+            result,
+        });
     });
 }
 

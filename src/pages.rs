@@ -131,12 +131,17 @@ impl Desk {
             Stage::Starting => Step::Now,
             _ => Step::Todo,
         };
-        let three = if opened {
-            Step::Done
-        } else if signing {
-            Step::Now
-        } else {
-            Step::Todo
+        let auth = self
+            .slot(id)
+            .map_or(crate::hub::Auth::Unknown, |s| s.auth.clone());
+        let can_log_out = matches!(self.slot(id).map(|s| &s.stage),
+            Some(Stage::Running { init, .. }) if init.agent_capabilities.auth.logout.is_some());
+        let three = match &auth {
+            crate::hub::Auth::Needed(_) => Step::Now,
+            crate::hub::Auth::Ready => Step::Done,
+            crate::hub::Auth::Unknown if opened => Step::Done,
+            crate::hub::Auth::Unknown if signing => Step::Now,
+            crate::hub::Auth::Unknown => Step::Todo,
         };
         let installed = entry.installed(&self.home);
         let update = installed.as_ref().filter(|v| **v != entry.version);
@@ -234,7 +239,13 @@ impl Desk {
                 three,
                 simple(
                     format!("Sign in to {name}"),
-                    format!("{name}'s own sign-in. Skipped if you're already signed in."),
+                    match &auth {
+                        crate::hub::Auth::Needed(why) => format!("{name} says: {why}"),
+                        crate::hub::Auth::Ready => format!("Signed in: {name} opens sessions."),
+                        crate::hub::Auth::Unknown => {
+                            format!("{name}'s own sign-in. Skipped if you're already signed in.")
+                        }
+                    },
                     three,
                 ),
             ));
@@ -305,6 +316,24 @@ impl Desk {
                     Weight::Secondary,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.install(&update_id, cx))),
+            );
+        }
+        if matches!(auth, crate::hub::Auth::Needed(_)) {
+            let (a, b) = (id.to_owned(), id.to_owned());
+            actions = actions
+                .child(
+                    ui::button(faces, "page-sign-in", "Sign in", Weight::Primary)
+                        .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(&a, cx))),
+                )
+                .child(
+                    ui::button(faces, "page-signed-in", "I've signed in", Weight::Quiet)
+                        .on_click(cx.listener(move |this, _, _, cx| this.recheck_auth(&b, cx))),
+                );
+        } else if can_log_out && auth == crate::hub::Auth::Ready && !busy {
+            let a = id.to_owned();
+            actions = actions.child(
+                ui::button(faces, "log-out", "Log out", Weight::Quiet)
+                    .on_click(cx.listener(move |this, _, _, cx| this.log_out(&a, cx))),
             );
         }
         if installed.is_some() && !busy && !matches!(stage, Stage::Installing(_)) {
@@ -420,9 +449,16 @@ impl Desk {
                 Way::Runner { runner, .. } => runner,
                 Way::None => "unavailable",
             };
+            // Installed, which version, signed in: as far as each is known.
+            let version = e.installed(&self.home).unwrap_or_else(|| e.version.clone());
+            let signed = match self.slot(&e.id).map(|s| &s.auth) {
+                Some(crate::hub::Auth::Ready) => " · signed in",
+                Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",
+                _ => "",
+            };
             let line = match (installed, on, e.way()) {
-                (true, true, _) => format!("{} {} · {how}", e.id, e.version),
-                (true, false, Way::Archive) => "installed · off".to_owned(),
+                (true, true, _) => format!("{version} · {how}{signed}"),
+                (true, false, Way::Archive) => format!("{version} installed · off"),
                 (true, false, _) => format!("runs with {how} · off"),
                 (false, _, _) => "not installed".to_owned(),
             };

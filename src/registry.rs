@@ -190,6 +190,26 @@ impl Entry {
             .map(|e| e.file_name().to_string_lossy().into_owned())
     }
 
+    /// A program unpacked beside its command, other than the command: the
+    /// agent's own CLI where an archive brings one (Claude's `claude`), in
+    /// which it is signed in.
+    pub fn own_cli(&self, home: &Path) -> Option<PathBuf> {
+        let b = self.distribution.binary.get(&platform())?;
+        let dir = self.dir_of(home, &self.installed(home)?);
+        let cmd = dir.join(&b.cmd);
+        let cmd = cmd.canonicalize().unwrap_or(cmd);
+        std::fs::read_dir(&dir)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.canonicalize().map_or(true, |c| c != cmd))
+            .find(|p| {
+                use std::os::unix::fs::PermissionsExt as _;
+                p.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+    }
+
     /// Take its archives off this machine.
     pub fn uninstall(&self, home: &Path) -> Result<(), String> {
         let dir = home.join("agents").join(&self.id);

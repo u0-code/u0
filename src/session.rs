@@ -148,6 +148,10 @@ pub struct Session {
     pub repo: bool,
     /// For a draft: whether it is to work in a worktree of its own.
     pub wants_worktree: bool,
+    /// Options and a mode chosen before the agent opened it, set on it
+    /// once it does.
+    pub chosen: Vec<(String, String)>,
+    pub chosen_mode: Option<String>,
     /// The worktree it works in, when it has one.
     pub worktree: Option<git::Worktree>,
     /// Each turn's checkpoints, by turn, the first turn first.
@@ -224,6 +228,31 @@ impl Session {
         s
     }
 
+    /// Choose `value` for the option `config` here, before the agent has
+    /// the session: it is set on it once it is opened.
+    pub fn choose(&mut self, config: &str, value: &str) {
+        for o in &mut self.options {
+            if &*o.id.0 == config
+                && let agent_client_protocol_schema::v1::SessionConfigKind::Select(select) =
+                    &mut o.kind
+            {
+                select.current_value =
+                    agent_client_protocol_schema::v1::SessionConfigValueId::new(value.to_owned());
+            }
+        }
+        self.chosen.retain(|(c, _)| c != config);
+        self.chosen.push((config.to_owned(), value.to_owned()));
+    }
+
+    /// Choose the mode `mode` here, before the agent has the session.
+    pub fn choose_mode(&mut self, mode: &str) {
+        if let Some(modes) = &mut self.modes {
+            modes.current_mode_id =
+                agent_client_protocol_schema::v1::SessionModeId::new(mode.to_owned());
+        }
+        self.chosen_mode = Some(mode.to_owned());
+    }
+
     /// Whether it can be opened where it is: not while the worktree it is
     /// to work in is being made.
     pub fn worktree_ready(&self) -> bool {
@@ -249,6 +278,8 @@ impl Session {
             branch: None,
             repo: false,
             wants_worktree: false,
+            chosen: Vec::new(),
+            chosen_mode: None,
             worktree: None,
             turns: Vec::new(),
             total: None,

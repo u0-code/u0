@@ -296,6 +296,74 @@ impl Desk {
         );
     }
 
+    /// Read what a session of `agent` offers before one is opened, and
+    /// whether it is signed in, by opening one and deleting it again.
+    pub(crate) fn probe_agent(&self, agent: &str) {
+        let Some(slot) = self.slot(agent) else { return };
+        let Stage::Running {
+            agent: running,
+            init,
+        } = &slot.stage
+        else {
+            return;
+        };
+        let caps = &init.agent_capabilities.session_capabilities;
+        hub::probe(
+            running.clone(),
+            agent.to_owned(),
+            self.home.clone(),
+            caps.delete.is_some(),
+            caps.close.is_some(),
+            self.tx.clone(),
+        );
+    }
+
+    /// Sign in to `agent` the way it offers: its own method when it lists
+    /// one, else its own program in a terminal, where it signs in.
+    pub fn sign_in_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        use agent_client_protocol_schema::v1::AuthMethod;
+        let Some(slot) = self.slot(agent) else { return };
+        if let Stage::Running { init, .. } = &slot.stage
+            && let Some(method) = init.auth_methods.iter().find_map(|m| match m {
+                AuthMethod::Agent(a) => Some(a.id.0.to_string()),
+                AuthMethod::Terminal(t) => Some(t.id.0.to_string()),
+                _ => None,
+            })
+        {
+            self.sign_in(agent, &method, cx);
+            return;
+        }
+        match slot.entry.own_cli(&self.home) {
+            Some(cli) => {
+                if let Err(e) = hub::in_terminal(&cli, &[], &[]) {
+                    tracing::warn!("a terminal could not be opened: {e}");
+                }
+            }
+            None => {
+                if let Some(site) = &slot.entry.website {
+                    cx.open_url(site);
+                }
+            }
+        }
+    }
+
+    /// Read again whether `agent` is signed in.
+    pub fn recheck_auth(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(slot) = self.slot_mut(agent) {
+            slot.auth = hub::Auth::Unknown;
+        }
+        self.probe_agent(agent);
+        cx.notify();
+    }
+
+    /// Sign `agent` out, when it can be.
+    pub fn log_out(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(running) = self.slot(agent).and_then(Slot::running) {
+            hub::logout(running.clone(), agent.to_owned(), self.tx.clone());
+        }
+        cx.notify();
+    }
+
     /// Whether `agent` can delete the sessions it keeps.
     pub fn can_delete(&self, agent: &str) -> bool {
         matches!(self.slot(agent).map(|s| &s.stage),
@@ -391,6 +459,9 @@ impl Desk {
             let key = self.take_key();
             let mut s = Session::new(key, agent, folder);
             s.wants_worktree = s.repo && self.settings.worktree;
+            if let Some(slot) = self.slot(agent) {
+                slot.seed(&mut s);
+            }
             self.sessions.push(s);
             key
         };
@@ -463,6 +534,12 @@ impl Desk {
             let wants = s.wants_worktree;
             *s = Session::new(key, agent, s.folder.clone());
             s.wants_worktree = wants && s.repo;
+        }
+        if let Some(key) = self.current {
+            let slot = self.slots.iter().find(|x| x.entry.id == agent);
+            if let (Some(slot), Some(s)) = (slot, self.sessions.iter_mut().find(|s| s.key == key)) {
+                slot.seed(s);
+            }
         }
         cx.notify();
     }
@@ -759,7 +836,10 @@ impl Desk {
         let Some(key) = self.current else { return };
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.agent.clone(), s.id.clone());
-        if let (Some(running), Some(id)) = (self.slot(&agent).and_then(Slot::running).cloned(), id)
+        if id.is_none() {
+            self.session_mut(key).expect("on screen").choose_mode(&mode);
+        } else if let (Some(running), Some(id)) =
+            (self.slot(&agent).and_then(Slot::running).cloned(), id)
         {
             hub::set_mode(running, key, id, mode.clone(), self.tx.clone());
             if let Some(modes) = &mut self.session_mut(key).expect("on screen").modes {
@@ -775,7 +855,12 @@ impl Desk {
         let Some(key) = self.current else { return };
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.agent.clone(), s.id.clone());
-        if let (Some(running), Some(id)) = (self.slot(&agent).and_then(Slot::running).cloned(), id)
+        if id.is_none() {
+            self.session_mut(key)
+                .expect("on screen")
+                .choose(&config, &value);
+        } else if let (Some(running), Some(id)) =
+            (self.slot(&agent).and_then(Slot::running).cloned(), id)
         {
             hub::set_option(running, key, id, config, value, self.tx.clone());
         }
