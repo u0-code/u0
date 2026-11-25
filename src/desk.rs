@@ -329,7 +329,7 @@ impl Desk {
         })
         .detach();
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
-        let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
+        let rename = cx.new(|cx| TextInput::new(cx, "Name").sized(13.5, 20.).padded(0.));
         let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
         cx.subscribe(&comment, |this, _, Submitted(text), cx| {
             this.add_comment(text, cx);

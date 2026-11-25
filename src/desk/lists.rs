@@ -208,7 +208,10 @@ impl Desk {
             .unwrap_or_default();
         self.popup = super::Popup::Closed;
         self.renaming = Some(key);
-        self.rename.update(cx, |i, cx| i.set_text(&title, cx));
+        self.rename.update(cx, |i, cx| {
+            i.set_text(&title, cx);
+            i.select_everything(cx);
+        });
         window.focus(&self.rename.focus_handle(cx));
         cx.notify();
     }

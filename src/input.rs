@@ -104,6 +104,10 @@ pub struct TextInput {
     /// Room above and below the text: a prompt breathes, a field in a
     /// list row sits as tall as its neighbours.
     pad_y: f32,
+    /// The size of the text and of a line: a field in a list row reads as
+    /// the row's own words.
+    size: f32,
+    line: f32,
     /// What was handed over before, the latest last, and which of it is in
     /// the line while you go back through it with the arrows.
     history: Vec<String>,
@@ -139,6 +143,8 @@ impl TextInput {
             history: Vec::new(),
             recalled: None,
             keeps: Keeps::No,
+            size: BODY,
+            line: 22.,
         }
     }
 
@@ -162,6 +168,14 @@ impl TextInput {
     #[must_use]
     pub fn submitting_empty(mut self) -> Self {
         self.keeps = Keeps::EvenEmpty;
+        self
+    }
+
+    /// Text `size` on lines `line` tall, in pixels.
+    #[must_use]
+    pub fn sized(mut self, size: f32, line: f32) -> Self {
+        self.size = size;
+        self.line = line;
         self
     }
 
@@ -1013,8 +1027,8 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .line_height(px(22.))
-            .text_size(px(BODY))
+            .line_height(px(self.line))
+            .text_size(px(self.size))
             .text_color(theme::text())
             .child(
                 div()

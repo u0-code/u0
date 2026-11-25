@@ -66,7 +66,10 @@ impl Desk {
         self.popup = Popup::Closed;
         self.renaming = None;
         self.renaming_project = Some(folder.to_path_buf());
-        self.rename.update(cx, |i, cx| i.set_text(&name, cx));
+        self.rename.update(cx, |i, cx| {
+            i.set_text(&name, cx);
+            i.select_everything(cx);
+        });
         window.focus(&self.rename.focus_handle(cx));
         cx.notify();
     }

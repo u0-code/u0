@@ -20,6 +20,24 @@ use crate::{
 };
 
 impl Desk {
+    /// The name being written in place of a row's own, at the size and
+    /// place of the words it replaces.
+    fn rename_field(&self) -> gpui::Div {
+        div()
+            .flex()
+            .items_center()
+            .flex_1()
+            .min_w(px(0.))
+            .h(px(24.))
+            .ml(px(-6.))
+            .px(px(5.))
+            .rounded(px(6.))
+            .bg(theme::panel())
+            .border_1()
+            .border_color(theme::ghost_line())
+            .child(self.rename.clone())
+    }
+
     pub(crate) fn sidebar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
         let head = draggable()
             .flex()
@@ -441,17 +459,7 @@ impl Desk {
         let menu_open = self.popup == Popup::Project(folder.to_path_buf());
         let pinned = self.prefs(folder).pinned;
         let name: gpui::AnyElement = if self.renaming_project.as_deref() == Some(folder) {
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .h(px(24.))
-                .px(px(4.))
-                .rounded(px(5.))
-                .bg(theme::well())
-                .border_1()
-                .border_color(theme::border2())
-                .child(self.rename.clone())
-                .into_any_element()
+            self.rename_field().into_any_element()
         } else {
             ui::one_line(
                 ui::text(faces, self.project_name(folder))
@@ -682,17 +690,7 @@ impl Desk {
             - if s.flags.pinned.is_some() { 18. } else { 0. }
             - if s.pr.is_some() { 36. } else { 0. };
         let name: AnyElement = if self.renaming == Some(key) {
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .h(px(22.))
-                .px(px(4.))
-                .rounded(px(5.))
-                .bg(theme::well())
-                .border_1()
-                .border_color(theme::border2())
-                .child(self.rename.clone())
-                .into_any_element()
+            self.rename_field().into_any_element()
         } else {
             ui::one_line(
                 ui::text(faces, ui::fit(&title, ui::cols(room)))
