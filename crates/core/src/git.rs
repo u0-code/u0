@@ -154,14 +154,17 @@ pub fn slug(text: &str) -> String {
 }
 
 /// Make a worktree of the repository at `dir` for a session about `about`,
-/// under `under/<repo>/`, on a new branch `<prefix><slug>` from
-/// the commit `dir` is on. A name already taken gets a number.
+/// under `under/<repo>/`, on a new branch `<prefix><slug>` from `from`. A
+/// name already taken gets a number. With `sparse`, git's sparse-checkout
+/// patterns (non-cone, a line each), only the files they match are ever
+/// written in it.
 pub fn worktree(
     dir: &Path,
     about: &str,
     under: &Path,
     prefix: &str,
     from: &str,
+    sparse: Option<&str>,
 ) -> Result<Worktree, String> {
     let repo = root(dir).ok_or("the folder is not in a git repository")?;
     let name = repo
@@ -192,10 +195,57 @@ pub fn worktree(
             continue;
         }
         let at = path.to_string_lossy().into_owned();
-        git(&repo, &["worktree", "add", "-b", &branch, &at, from], None)?;
-        return Ok(Worktree { repo, path, branch });
+        let Some(patterns) = sparse else {
+            git(&repo, &["worktree", "add", "-b", &branch, &at, from], None)?;
+            return Ok(Worktree { repo, path, branch });
+        };
+        git(
+            &repo,
+            &["worktree", "add", "--no-checkout", "-b", &branch, &at, from],
+            None,
+        )?;
+        let mut set = vec!["sparse-checkout", "set", "--no-cone"];
+        set.extend(
+            patterns
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#')),
+        );
+        let wt = Worktree { repo, path, branch };
+        return match git(&wt.path, &set, None)
+            .and_then(|_| git(&wt.path, &["read-tree", "-mu", "HEAD"], None))
+        {
+            Ok(_) => Ok(wt),
+            Err(e) => {
+                let _ = git(&wt.repo, &["worktree", "remove", "--force", &at], None);
+                Err(e)
+            }
+        };
     }
     Err("no free name for a worktree".into())
+}
+
+/// The file `path` as the commit `rev` of the repository at `dir` has it.
+pub fn show(dir: &Path, rev: &str, path: &str) -> Result<String, String> {
+    git(dir, &["show", &format!("{rev}:{path}")], None)
+}
+
+/// Check out the submodules of the worktree `dir` as `how` says. What
+/// cannot be fetched is said, the worktree kept.
+pub fn submodules(dir: &Path, how: crate::settings::Submodules) {
+    use crate::settings::Submodules;
+    let args: &[&str] = match how {
+        _ if !dir.join(".gitmodules").is_file() => return,
+        Submodules::Skip => return,
+        Submodules::Top => &["submodule", "update", "--init"],
+        Submodules::Recursive => &["submodule", "update", "--init", "--recursive"],
+    };
+    if let Err(e) = git(dir, args, None) {
+        tracing::warn!(
+            "the submodules of {} were not checked out: {e}",
+            dir.display()
+        );
+    }
 }
 
 /// Make a worktree of the repository at `dir` on the branch of the pull
@@ -1388,8 +1438,8 @@ mod tests {
     fn a_worktree_gets_a_branch_of_its_own_and_a_second_one_a_number() {
         let dir = repo("worktree");
         let home = dir.join(".home");
-        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD").unwrap();
-        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD").unwrap();
+        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD", None).unwrap();
+        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD", None).unwrap();
         assert_eq!(a.branch, "ghost/retry-s3-uploads");
         assert_eq!(b.branch, "ghost/retry-s3-uploads-2");
         assert!(a.path.join("a.txt").is_file());
@@ -1397,6 +1447,32 @@ mod tests {
         remove_worktree(&a).unwrap();
         assert!(!a.path.exists());
         let _ = remove_worktree(&b);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_worktree_writes_only_the_files_its_patterns_match() {
+        let dir = repo("sparse");
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("docs/big.md"), "big\n").unwrap();
+        git(&dir, &["add", "docs"], None).unwrap();
+        git(&dir, &["commit", "-q", "-m", "docs"], None).unwrap();
+        let under = dir.join(".worktrees");
+        let wt = worktree(
+            &dir,
+            "lean",
+            &under,
+            "g/",
+            "HEAD",
+            Some("/*\n# not docs\n!/docs/\n"),
+        )
+        .unwrap();
+        assert!(wt.path.join("a.txt").is_file());
+        assert!(!wt.path.join("docs").exists());
+        // The repository's own checkout is left whole.
+        assert!(dir.join("docs/big.md").is_file());
+        let status = git(&dir, &["status", "--porcelain", "-uno"], None).unwrap();
+        assert!(status.is_empty(), "{status}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

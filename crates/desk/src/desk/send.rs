@@ -230,6 +230,7 @@ impl Desk {
                     under: self.settings.worktree_folders(&self.home).remove(0),
                     prefix: self.settings.branch_prefix.clone(),
                     from,
+                    submodules: self.settings.submodules,
                     key,
                 });
             } else {

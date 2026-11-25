@@ -361,8 +361,11 @@ impl Server {
                 under,
                 prefix,
                 from,
+                submodules,
                 key,
-            } => self.off(move || repo::make_worktree(&dir, &about, &under, &prefix, from, key)),
+            } => self.off(move || {
+                repo::make_worktree(&dir, &about, &under, &prefix, from, submodules, key)
+            }),
             Call::Checkpoint {
                 dir,
                 name,

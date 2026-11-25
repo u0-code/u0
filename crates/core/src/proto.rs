@@ -316,6 +316,7 @@ pub enum Call {
         under: PathBuf,
         prefix: String,
         from: Option<Begin>,
+        submodules: crate::settings::Submodules,
         key: u64,
     },
     /// Take the checkpoint `name` of the turn `turn`; after it (`after`),
@@ -840,6 +841,7 @@ mod tests {
                 under: dir.join("w"),
                 prefix: "ghost/".into(),
                 from: Some(Begin::Pr(7, "Fix".into())),
+                submodules: crate::settings::Submodules::Top,
                 key: 1,
             },
             Call::Checkpoint {

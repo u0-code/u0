@@ -177,6 +177,21 @@ pub struct Settings {
     /// Where new worktrees are made; none, the home's `worktrees`.
     #[serde(default)]
     pub worktrees: Option<PathBuf>,
+    /// How far a new worktree's submodules are checked out.
+    #[serde(default)]
+    pub submodules: Submodules,
+}
+
+/// How far a new worktree's submodules are checked out, as t3code's: all
+/// the way down, those the repository names itself, or none (for a setup
+/// script to do).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Submodules {
+    #[default]
+    Recursive,
+    Top,
+    Skip,
 }
 
 /// What Ghost asks before it does it, as t3code's confirmations: each
@@ -666,6 +681,7 @@ impl Default for Settings {
             check_updates: yes(),
             frame: None,
             worktrees: None,
+            submodules: Submodules::default(),
         }
     }
 }

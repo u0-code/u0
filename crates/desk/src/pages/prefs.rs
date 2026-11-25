@@ -12,7 +12,7 @@ use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
     keys,
-    settings::{Notify, Quit, Width},
+    settings::{Notify, Quit, Submodules, Width},
     theme,
     ui::{self, Pick, Weight},
 };
@@ -605,6 +605,23 @@ impl Desk {
                                 Desk::shown(&self.settings.worktree_folders(&self.home)[0])
                             ),
                             self.worktree_location(cx),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Submodules",
+                            "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
+                            Self::pick(
+                                "submodules",
+                                [
+                                    ("Recursive", Submodules::Recursive),
+                                    ("Top level", Submodules::Top),
+                                    ("Skip", Submodules::Skip),
+                                ],
+                                self.settings.submodules,
+                                |s, v| s.submodules = v,
+                                cx,
+                            ),
                         ),
                     ],
                 )],

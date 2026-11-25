@@ -10,6 +10,9 @@
 //! it is made, and one marked `wait` as well holds the session's first
 //! message until it has run. The drawer adds, changes and takes away
 //! scripts, written back to the file.
+//!
+//! It may also name, as `"sparse": ".sparse"`, a file of git's
+//! sparse-checkout patterns, which new worktrees check out alone.
 
 use std::path::Path;
 
@@ -21,6 +24,10 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// A file of git sparse-checkout patterns (non-cone), by its path in
+    /// the repository: a new worktree checks out only what they match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparse: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

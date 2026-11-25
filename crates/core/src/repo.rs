@@ -18,6 +18,7 @@ use crate::{
     proto::Event,
     scripts::{self, Script},
     session::Begin,
+    settings::Submodules,
 };
 
 /// A checkpoint, and what changed up to it.
@@ -173,25 +174,56 @@ pub fn scope_diff(
 }
 
 /// Make a worktree in `under` for the session `key`, about `about`,
-/// on a branch beginning with `prefix`.
+/// on a branch beginning with `prefix`, its submodules checked out as
+/// `submodules` says; only the files `ghost.json` asks for where it names
+/// sparse-checkout patterns.
 pub fn make_worktree(
     dir: &Path,
     about: &str,
     under: &Path,
     prefix: &str,
     from: Option<Begin>,
+    submodules: Submodules,
     key: u64,
 ) -> Event {
     let result = match from {
         Some(Begin::Pr(number, _)) => git::pr_worktree(dir, number, under),
-        Some(Begin::Branch(b)) => git::worktree(dir, about, under, prefix, &b),
-        None => git::worktree(dir, about, under, prefix, &git::fresh_base(dir)),
+        from => {
+            let from = match from {
+                Some(Begin::Branch(b)) => b,
+                _ => git::fresh_base(dir),
+            };
+            sparse(dir, &from).and_then(|patterns| {
+                git::worktree(dir, about, under, prefix, &from, patterns.as_deref())
+            })
+        }
     };
     let result = result.map(|wt| {
+        git::submodules(&wt.path, submodules);
         let scripts = scripts::config(&wt.path).scripts;
         (wt, scripts)
     });
     Event::Worktree { key, result }
+}
+
+/// The sparse-checkout patterns `ghost.json` points to, both read as the
+/// commit `from` of the repository at `dir` has them: none where it names
+/// none, and refused where the file it names is not there, rather than
+/// every file checked out.
+fn sparse(dir: &Path, from: &str) -> Result<Option<String>, String> {
+    let Ok(text) = git::show(dir, from, "ghost.json") else {
+        return Ok(None);
+    };
+    let config: scripts::Config =
+        serde_json::from_str(&text).map_err(|e| format!("ghost.json in {from}: {e}"))?;
+    config
+        .sparse
+        .map(|path| {
+            git::show(dir, from, &path).map_err(|_| {
+                format!("{path}, which ghost.json names for a sparse checkout, is not in {from}")
+            })
+        })
+        .transpose()
 }
 
 /// Take a checkpoint; after a turn, read what changed in it and in all.
