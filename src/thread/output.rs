@@ -38,8 +38,9 @@ pub const MOST: usize = 400;
 /// went wrong red, what went right green, a warning yellow and a name
 /// blue; the rest of what it might colour carries less, and shown as it
 /// came it would be a second palette in the thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Ink {
+    #[default]
     Plain,
     Red,
     Green,
@@ -98,69 +99,61 @@ impl Line {
 /// out, and a line written over after a carriage return (a progress bar)
 /// left as it ended.
 pub fn lines(text: &str) -> Vec<Line> {
-    let mut out = Vec::new();
-    let mut line = Line::default();
-    let mut ink = Ink::Plain;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\u{1b}' => match chars.next() {
-                // A control sequence: parameters, then a final byte from
-                // `@` to `~`. Only `m` sets colours.
-                Some('[') => {
-                    let mut params = String::new();
-                    for n in chars.by_ref() {
-                        if ('@'..='~').contains(&n) {
-                            if n == 'm' {
-                                ink = sgr(&params, ink);
-                            }
-                            break;
-                        }
-                        params.push(n);
-                    }
-                }
-                // A string, a title or a link: to a bell or `ESC \`.
-                Some(']' | 'P' | '_' | '^' | 'X') => {
-                    while let Some(n) = chars.next() {
-                        if n == '\u{7}' {
-                            break;
-                        }
-                        if n == '\u{1b}' {
-                            chars.next_if_eq(&'\\');
-                            break;
-                        }
-                    }
-                }
-                // Anything else: what it takes in between, then one more.
-                Some(n) if (' '..='/').contains(&n) => {
-                    while chars.next().is_some_and(|n| (' '..='/').contains(&n)) {}
-                }
-                _ => {}
-            },
-            '\n' => out.push(std::mem::take(&mut line)),
-            '\r' => {
-                if chars.peek() != Some(&'\n') {
-                    line = Line::default();
-                }
+    let mut read = Read::default();
+    vte::Parser::new().advance(&mut read, text.as_bytes());
+    if !read.back && !read.line.text.is_empty() {
+        read.out.push(read.line);
+    }
+    read.out
+}
+
+/// What `lines` holds as the parser reads: the lines done, the one being
+/// written, its colour, and whether a carriage return is to start it over.
+#[derive(Default)]
+struct Read {
+    out: Vec<Line>,
+    line: Line,
+    ink: Ink,
+    back: bool,
+}
+
+impl vte::Perform for Read {
+    fn print(&mut self, c: char) {
+        if std::mem::take(&mut self.back) {
+            self.line = Line::default();
+        }
+        self.line.push(c, self.ink);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        match byte {
+            b'\n' => {
+                self.back = false;
+                self.out.push(std::mem::take(&mut self.line));
             }
-            '\t' => line.push(c, ink),
-            c if c.is_control() => {}
-            c => line.push(c, ink),
+            b'\r' => self.back = true,
+            b'\t' => self.print('\t'),
+            _ => {}
         }
     }
-    if !line.text.is_empty() {
-        out.push(line);
+
+    /// Of the control sequences only `m` sets colours; one with nothing
+    /// in it resets them.
+    fn csi_dispatch(&mut self, params: &vte::Params, between: &[u8], _: bool, action: char) {
+        if action == 'm' && between.is_empty() {
+            self.ink = if params.is_empty() {
+                Ink::Plain
+            } else {
+                sgr(params.iter().flatten().copied(), self.ink)
+            };
+        }
     }
-    out
 }
 
 /// The colour a Select Graphic Rendition sequence leaves, from the one
 /// before it. Bold, underline and the like are let go; a colour that is
 /// not one of ours is plain; a background changes nothing.
-fn sgr(params: &str, mut ink: Ink) -> Ink {
-    let mut codes = params
-        .split([';', ':'])
-        .map(|p| p.parse::<u16>().unwrap_or(0));
+fn sgr(mut codes: impl Iterator<Item = u16>, mut ink: Ink) -> Ink {
     while let Some(code) = codes.next() {
         match code {
             0 | 39 => ink = Ink::Plain,
