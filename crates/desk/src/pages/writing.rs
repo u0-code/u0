@@ -124,13 +124,26 @@ impl Desk {
         self.menu(
             Popup::Writer,
             trigger,
-            move |d, _, cx| d.writer_menu(&faces, cx).overflow_y_scrollbar(),
+            move |d, _, cx| {
+                let w = d.settings.writer.clone();
+                d.models_menu(
+                    &faces,
+                    Some("The session's agent"),
+                    (w.agent.as_deref(), w.model.as_deref()),
+                    |d, agent, model| {
+                        (d.settings.writer.agent, d.settings.writer.model) = (agent, model);
+                        d.save_settings();
+                    },
+                    cx,
+                )
+                .overflow_y_scrollbar()
+            },
             cx,
         )
     }
 
     /// The name `agent` gives the model `value`, as a session of it said.
-    fn model_name(&self, agent: &str, value: &str) -> Option<String> {
+    pub(super) fn model_name(&self, agent: &str, value: &str) -> Option<String> {
         let options = &self.slot(agent)?.probe.as_ref()?.options;
         let option = options
             .iter()
@@ -139,8 +152,17 @@ impl Desk {
         choices.into_iter().find(|c| c.0 == value).map(|c| c.1)
     }
 
-    fn writer_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
-        let w = &self.settings.writer;
+    /// The agents switched on, each with its models, to choose one from;
+    /// `own`, where given, names a choice of none first. `chosen` is lit;
+    /// picking one hands it to `set`.
+    pub(super) fn models_menu(
+        &self,
+        faces: &Faces,
+        own: Option<&str>,
+        chosen: (Option<&str>, Option<&str>),
+        set: fn(&mut Self, Option<String>, Option<String>),
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
         let pick = |id: String,
                     label: String,
                     on: bool,
@@ -150,30 +172,30 @@ impl Desk {
             ui::menu_row(SharedString::from(id), on)
                 .child(ui::one_line(ui::text(faces, label).text_size(px(13.))))
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.settings.writer.agent.clone_from(&agent);
-                    this.settings.writer.model.clone_from(&model);
-                    this.save_settings();
+                    set(this, agent.clone(), model.clone());
                     this.popup = Popup::Closed;
                     cx.notify();
                 }))
         };
         let mut list = div()
-            .id("writer-menu")
+            .id("models-menu")
             .flex()
             .flex_col()
             .w(px(300.))
-            .max_h(px(420.))
-            .child(pick(
-                "writer-own".into(),
-                "The session's agent".into(),
-                w.agent.is_none(),
+            .max_h(px(420.));
+        if let Some(own) = own {
+            list = list.child(pick(
+                "models-own".into(),
+                own.into(),
+                chosen.0.is_none(),
                 None,
                 None,
                 cx,
             ));
+        }
         for slot in &self.slots {
             let agent = slot.entry.id.clone();
-            let on = w.agent.as_ref() == Some(&agent);
+            let on = chosen.0 == Some(agent.as_str());
             list = list.child(
                 div()
                     .flex()
@@ -190,9 +212,9 @@ impl Desk {
                     ),
             );
             list = list.child(pick(
-                format!("writer-{agent}"),
+                format!("models-{agent}"),
                 "Its default model".into(),
-                on && w.model.is_none(),
+                on && chosen.1.is_none(),
                 Some(agent.clone()),
                 None,
                 cx,
@@ -209,11 +231,11 @@ impl Desk {
                 .map(|c| c.1)
                 .unwrap_or_default();
             for (value, name, _) in models {
-                let chosen = on && w.model.as_ref() == Some(&value);
+                let is_chosen = on && chosen.1 == Some(value.as_str());
                 list = list.child(pick(
-                    format!("writer-{agent}-{value}"),
+                    format!("models-{agent}-{value}"),
                     name,
-                    chosen,
+                    is_chosen,
                     Some(agent.clone()),
                     Some(value),
                     cx,

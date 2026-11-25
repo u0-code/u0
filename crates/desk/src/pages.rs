@@ -11,6 +11,7 @@ mod prefs;
 mod projects;
 mod settings;
 mod sharing;
+mod tasks;
 mod updates;
 mod usage;
 mod voice;

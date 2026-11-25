@@ -32,6 +32,7 @@ pub mod session;
 pub mod settings;
 pub mod share;
 pub mod store;
+pub mod tasks;
 pub mod terminals;
 pub mod tidy;
 pub mod update;

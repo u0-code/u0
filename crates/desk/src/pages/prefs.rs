@@ -663,6 +663,7 @@ impl Desk {
             Tab::About => return self.about_ghost(faces, q, cx),
             Tab::SourceControl => return self.source_control(faces, q, cx),
             Tab::Diagnostics => return self.diagnostics(faces, q, cx),
+            Tab::Tasks => return self.tasks_tab(faces, q, cx),
             Tab::Agents | Tab::Sessions | Tab::Projects | Tab::Sharing | Tab::Connections => {
                 return None;
             }

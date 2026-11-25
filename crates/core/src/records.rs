@@ -38,6 +38,11 @@ impl Records {
         (self.open.lock().expect("records")).insert((agent.to_owned(), id), thread);
     }
 
+    /// Whether the session `id` of `agent` is open with it.
+    pub fn is_open(&self, agent: &str, id: &SessionId) -> bool {
+        (self.open.lock().expect("records")).contains_key(&(agent.to_owned(), id.clone()))
+    }
+
     /// The sessions of `agent` are open with it no more: it stopped.
     pub fn close(&self, agent: &str) {
         (self.open.lock().expect("records")).retain(|(a, _), _| a != agent);

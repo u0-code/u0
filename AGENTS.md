@@ -104,7 +104,7 @@ crates/core/src/
   acp.rs        one agent process and its SDK connection; the ACP runtime
   registry.rs   the ACP registry, installing an agent, starting one
   server.rs     the agents running, held by id; the store's one writer; each Call
-                handled, answered as Events
+                handled, answered as Events; server/scheduled: the scheduled tasks run
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
   link.rs       a server reached from elsewhere: a WebSocket on 127.0.0.1, what
@@ -127,6 +127,7 @@ crates/core/src/
   settings.rs   ~/.ghost/settings.json and the home
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
+  tasks.rs      scheduled tasks: a prompt, its agent and project, its schedule (tasks.json)
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
   tidy.rs       what Ghost keeps here, measured and tidied
@@ -155,7 +156,8 @@ crates/desk/src/
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
                 PRs and Issues pages), links (the ghost:// links and folders
-                macOS opens Ghost with), looks (themes chosen, made, removed)
+                macOS opens Ghost with), looks (themes chosen, made, removed),
+                tasks (the scheduled tasks, the one written, a task's turn)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
@@ -170,7 +172,7 @@ crates/desk/src/
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
-                sharing: Sharing & access and Connections),
+                sharing: Sharing & access and Connections, tasks: Scheduled tasks),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
@@ -201,6 +203,9 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   Ghost writes that a person may care about. Their fields are
   `deny_unknown_fields`; a file that does not read is left alone and
   nothing is saved over it.
+- `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
+  and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
+  in the index like any other.
 - A secret (an agent's variable marked so, a forge's token) is kept in the
   macOS Keychain under the service `Ghost <home>`, never in a file;
   `settings.json` names it only.

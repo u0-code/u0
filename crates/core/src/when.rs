@@ -37,13 +37,43 @@ pub fn stamp(t: SystemTime) -> String {
 
 /// `days` days after `t`, at `hour` o'clock in this computer's time zone.
 pub fn at_hour(t: SystemTime, days: i32, hour: i8) -> SystemTime {
-    local(t)
-        .with()
-        .time(civil::time(hour, 0, 0, 0))
-        .build()
-        .and_then(|at| at.checked_add(days.days()))
-        .and_then(SystemTime::try_from)
+    at_minute(t, days, u16::try_from(hour).unwrap_or(0) * 60)
+}
+
+/// `days` days after `t`, `minute` minutes into the day, in this
+/// computer's time zone.
+pub fn at_minute(t: SystemTime, days: i32, minute: u16) -> SystemTime {
+    let time = civil::Time::new(
+        i8::try_from(minute / 60 % 24).unwrap_or(0),
+        i8::try_from(minute % 60).unwrap_or(0),
+        0,
+        0,
+    );
+    time.ok()
+        .and_then(|time| local(t).with().time(time).build().ok())
+        .and_then(|at| at.checked_add(days.days()).ok())
+        .and_then(|at| SystemTime::try_from(at).ok())
         .unwrap_or(t)
+}
+
+/// The first time after `after` that is `minute` minutes into a day, on
+/// one of `days` (0 for Sunday to 6; none, any day), in this computer's
+/// time zone.
+pub fn next_daily(after: SystemTime, minute: u16, days: &[u8]) -> Option<SystemTime> {
+    (0..8)
+        .map(|d| at_minute(after, d, minute))
+        .find(|t| *t > after && (days.is_empty() || days.contains(&weekday(*t))))
+}
+
+/// How many minutes into its day `t` is, in this computer's time zone.
+pub fn minute_of_day(t: SystemTime) -> u16 {
+    let t = local(t);
+    u16::try_from(t.hour()).unwrap_or(0) * 60 + u16::try_from(t.minute()).unwrap_or(0)
+}
+
+/// The day of the week of `t`, 0 for Sunday to 6.
+pub fn weekday(t: SystemTime) -> u8 {
+    u8::try_from(local(t).weekday().to_sunday_zero_offset()).unwrap_or(0)
 }
 
 /// Days from `t` to the next Monday (1 to 7).

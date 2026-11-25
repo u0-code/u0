@@ -50,6 +50,7 @@ pub(crate) mod updates;
 pub use lists::{Later, Renaming};
 mod replies;
 mod send;
+pub mod tasks;
 mod turns;
 mod writing;
 
@@ -133,6 +134,12 @@ pub enum Popup {
     Language,
     /// What can be done with the pull request or issue read.
     ForgeActions,
+    /// A scheduled task's menu, by its id.
+    Task(u64),
+    /// The agent and model of the task being written.
+    TaskAgent,
+    /// The project of the task being written.
+    TaskProject,
 }
 
 /// Which side columns show.
@@ -266,6 +273,8 @@ pub struct Desk {
     pub current: Option<u64>,
     pub page: Page,
     pub popup: Popup,
+    /// The scheduled tasks, and the one being written.
+    pub tasks: tasks::Tasks,
     pub picker: crate::thread::Picker,
     pub panes: Panes,
     pub composer: mention::Composer,
@@ -513,6 +522,7 @@ impl Desk {
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
+            tasks: tasks::Tasks::default(),
             fetched: None,
             badge: 0,
             here: HashMap::new(),

@@ -25,11 +25,11 @@ use agent_client_protocol::{
         CloseSessionRequest, CompactionCapabilities, ContentBlock, ContentChunk,
         DeleteSessionRequest, ElicitationCapabilities, ElicitationFormCapabilities,
         ElicitationUrlCapabilities, ForkSessionRequest, Implementation, InitializeRequest,
-        ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
-        NoticeCapabilities, PromptRequest, ResumeSessionRequest, SessionConfigId,
-        SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigValueId, SessionId,
-        SessionModeId, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
-        SubagentCapabilities,
+        InitializeResponse, ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId,
+        NewSessionRequest, NoticeCapabilities, PromptRequest, ResumeSessionRequest,
+        SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
+        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId, SessionUpdate,
+        SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities,
     },
 };
 
@@ -49,6 +49,8 @@ use crate::{
     tidy, writer,
 };
 
+mod scheduled;
+
 /// Where what the server says goes.
 type Send = Arc<dyn Fn(Event) + std::marker::Send + Sync>;
 
@@ -60,16 +62,9 @@ type Running = Arc<Mutex<BTreeMap<String, Arc<Agent>>>>;
 type Writing = Arc<Mutex<HashMap<SessionId, String>>>;
 
 pub struct Server {
-    home: PathBuf,
-    send: Send,
-    agents: Running,
+    shared: Shared,
     /// The switch that stops each agent's install going on.
     installs: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    /// The index of the sessions kept, or why it does not read: then
-    /// nothing is saved over it.
-    index: Mutex<Result<Index, String>>,
-    records: Arc<Records>,
-    writing: Writing,
     /// The switch that stops the clone going on.
     cloning: Mutex<Arc<AtomicBool>>,
     terminals: Terminals,
@@ -78,6 +73,127 @@ pub struct Server {
     outbox: Arc<Outbox>,
     access: Access,
     sharing: Mutex<Sharing>,
+}
+
+/// What the server holds that work it hands off holds too: a task's run,
+/// an agent starting.
+#[derive(Clone)]
+struct Shared {
+    home: PathBuf,
+    send: Send,
+    agents: Running,
+    /// The index of the sessions kept, or why it does not read: then
+    /// nothing is saved over it.
+    index: Arc<Mutex<Result<Index, String>>>,
+    records: Arc<Records>,
+    writing: Writing,
+    /// The sessions a turn goes on in, by agent and id.
+    turning: Arc<Mutex<std::collections::HashSet<(String, SessionId)>>>,
+    /// The scheduled tasks, or why they do not read.
+    tasks: Arc<Mutex<Result<crate::tasks::Tasks, String>>>,
+}
+
+impl Shared {
+    /// Change the index by `change` and write it, unless it did not read.
+    fn change_index(&self, change: impl FnOnce(&mut Index)) {
+        let mut index = self.index.lock().expect("index");
+        if let Ok(index) = &mut *index {
+            change(index);
+            store::queue(Job::Write(
+                store::index_path(&self.home),
+                store::bytes(index),
+            ));
+        }
+    }
+
+    /// The agent `id`, while it runs.
+    fn running(&self, id: &str) -> Option<Arc<Agent>> {
+        self.agents.lock().expect("agents").get(id).cloned()
+    }
+
+    /// Start the agent `agent` by `launch`, with the variables `env` (as
+    /// in the settings' `env`), and say hello to it; it is held as running
+    /// from then on. What it says on its own comes back as
+    /// [`Event::Said`], in order with the answers.
+    async fn launch(
+        &self,
+        agent: &str,
+        mut launch: acp::Launch,
+        env: BTreeMap<String, Option<String>>,
+    ) -> Result<(Arc<Agent>, Started), Error> {
+        let of = agent.to_owned();
+        // Read from the Keychain, or 1Password, which may ask you first.
+        let vars = tokio::task::spawn_blocking(move || crate::secrets::env(&of, &env)).await;
+        launch.env.extend(
+            vars.expect("the variables read")
+                .map_err(|why| Error::internal_error().data(why))?,
+        );
+        let (said, id, this) = (self.send.clone(), agent.to_owned(), self.clone());
+        let running = Agent::start(&launch, move |event| {
+            if let Some(event) = heard(&this.records, &this.agents, &this.writing, &id, event) {
+                said(event);
+            }
+        })
+        .await?;
+        let hello = InitializeRequest::new(ProtocolVersion::V1)
+            .client_capabilities(
+                ClientCapabilities::new()
+                    .subagents(SubagentCapabilities::new())
+                    // What it asks for is a form filled in over the
+                    // composer, or a page opened.
+                    .elicitation(
+                        ElicitationCapabilities::new()
+                            .form(ElicitationFormCapabilities::new())
+                            .url(ElicitationUrlCapabilities::new()),
+                    )
+                    // Notices, and the context compacted, are said in the
+                    // thread.
+                    .session(
+                        ClientSessionCapabilities::new()
+                            .notices(NoticeCapabilities::new())
+                            .compaction(CompactionCapabilities::new()),
+                    )
+                    // Tasks left going in the background (a command), as
+                    // the JetBrains extension says them, are shown.
+                    .meta(serde_json::Map::from_iter([(
+                        "jetbrains".into(),
+                        serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
+                    )])),
+            )
+            .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
+        let init = running.request(hello).await?;
+        let pid = running.pid();
+        let running = Arc::new(running);
+        (self.agents.lock().expect("agents")).insert(agent.to_owned(), running.clone());
+        Ok((running, (pid, Box::new(init))))
+    }
+}
+
+/// What an agent started says of itself: its process, and its hello.
+type Started = (Option<u32>, Box<InitializeResponse>);
+
+/// Choose the model `model` in the session `id` of `agent`, by the option
+/// of its `options` that chooses one; with none, or no such option, its
+/// own stays.
+async fn choose_model(
+    agent: &Agent,
+    id: &SessionId,
+    options: Option<Vec<SessionConfigOption>>,
+    model: Option<String>,
+) -> Result<(), Error> {
+    let option = (options.unwrap_or_default().into_iter())
+        .find(|o| o.category == Some(SessionConfigOptionCategory::Model));
+    match model.zip(option) {
+        Some((model, option)) => agent
+            .request(SetSessionConfigOptionRequest::new(
+                id.clone(),
+                option.id,
+                SessionConfigOptionValue::value_id(SessionConfigValueId::new(model)),
+            ))
+            .await
+            .map(|_| ()),
+        None => Ok(()),
+    }
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -95,26 +211,35 @@ impl Server {
         if let Err(why) = &index {
             tracing::warn!("{why}");
         }
+        let tasks = crate::tasks::load(&home);
+        if let Err(why) = &tasks {
+            tracing::warn!("{why}");
+        }
         let outbox = Arc::new(Outbox::default());
         let kept = outbox.clone();
         let server = Arc::new(Self {
             sharing: Mutex::default(),
             access: Access::new(&home),
             outbox,
-            records: Arc::new(Records::new(home.clone())),
-            writing: Writing::default(),
-            home,
-            send: Arc::new(move |event| {
-                kept.push(&event);
-                send(event);
-            }),
-            agents: Running::default(),
+            shared: Shared {
+                records: Arc::new(Records::new(home.clone())),
+                writing: Writing::default(),
+                home,
+                send: Arc::new(move |event| {
+                    kept.push(&event);
+                    send(event);
+                }),
+                agents: Running::default(),
+                index: Arc::new(Mutex::new(index)),
+                turning: Arc::default(),
+                tasks: Arc::new(Mutex::new(tasks)),
+            },
             installs: Mutex::default(),
-            index: Mutex::new(index),
             cloning: Mutex::default(),
             terminals: Terminals::default(),
         });
         server.share_as_kept(false);
+        server.shared.schedule();
         server
     }
 
@@ -123,11 +248,11 @@ impl Server {
     }
 
     pub(crate) fn say(&self, event: Event) {
-        (self.send)(event);
+        (self.shared.send)(event);
     }
 
     pub fn home(&self) -> &std::path::Path {
-        &self.home
+        &self.shared.home
     }
 
     pub fn outbox(&self) -> &Outbox {
@@ -140,7 +265,7 @@ impl Server {
 
     /// The settings in this server's home, or why they do not read.
     pub fn settings(&self) -> Result<Box<crate::settings::Settings>, String> {
-        match crate::settings::Settings::load(&self.home) {
+        match crate::settings::Settings::load(&self.shared.home) {
             (settings, None) => Ok(Box::new(settings)),
             (_, Some(why)) => Err(why),
         }
@@ -249,12 +374,12 @@ impl Server {
                 )
             }),
             Call::Troubles => {
-                let home = self.home.clone();
+                let home = self.shared.home.clone();
                 self.off(move || Event::Troubles(crate::diagnostics::troubles(&home, 200)));
             }
             Call::Here { agents, commands } => self.here(agents, commands),
             Call::Uninstall { entry } => {
-                let (home, said) = (self.home.clone(), self.send.clone());
+                let (home, said) = (self.shared.home.clone(), self.shared.send.clone());
                 self.off(move || match entry.uninstall(&home) {
                     Ok(()) => Event::Here([(entry.id.clone(), here(&entry, &home, None))].into()),
                     Err(why) => {
@@ -267,12 +392,16 @@ impl Server {
             }
             Call::CliVersion { cli } => self.cli_version(cli),
             Call::Watch => {
-                let index = self.index.lock().expect("index").clone();
-                (self.send)(Event::Index(index));
+                let index = self.shared.index.lock().expect("index").clone();
+                (self.shared.send)(Event::Index(index));
+                self.say_tasks();
             }
-            Call::SaveSettings(settings) => settings.save(&self.home),
+            Call::SaveSettings(settings) => settings.save(&self.shared.home),
             Call::Share(share) => self.share(share),
-            Call::Keep(metas) => self.change_index(|index| {
+            Call::SetTask(task) => self.set_task(task),
+            Call::DropTask(id) => self.drop_task(id),
+            Call::RunTask(id) => self.run_task(id),
+            Call::Keep(metas) => self.shared.change_index(|index| {
                 for meta in metas {
                     match index.sessions.iter_mut().find(|m| same(m, &meta)) {
                         Some(m) => *m = meta,
@@ -285,7 +414,7 @@ impl Server {
                 id,
                 keep_out,
             } => {
-                self.change_index(|index| {
+                self.shared.change_index(|index| {
                     index
                         .sessions
                         .retain(|m| m.agent != agent || m.id.as_ref() != Some(&id));
@@ -293,15 +422,18 @@ impl Server {
                         index.gone.push((agent.clone(), id.0.to_string()));
                     }
                 });
-                self.records.forget(&agent, &id);
+                self.shared.records.forget(&agent, &id);
             }
-            Call::Stash(stashed) => self.change_index(|index| index.stashed = stashed),
-            Call::Append { agent, id, events } => self.records.append(&agent, &id, events),
+            Call::Stash(stashed) => self.shared.change_index(|index| index.stashed = stashed),
+            Call::Append { agent, id, events } => self.shared.records.append(&agent, &id, events),
             Call::DropRecord { agent, id } => {
-                store::queue(Job::Remove(self.records.path(&agent, &id)));
+                store::queue(Job::Remove(self.shared.records.path(&agent, &id)));
             }
             Call::Read { key, agent, id } => {
-                let (path, send) = (self.records.path(&agent, &id), self.send.clone());
+                let (path, send) = (
+                    self.shared.records.path(&agent, &id),
+                    self.shared.send.clone(),
+                );
                 store::queue(Job::Then(Box::new(move || {
                     send(Event::Record {
                         key,
@@ -316,8 +448,8 @@ impl Server {
                 yours,
             } => {
                 let (from, to) = (
-                    self.records.path(&agent, &from),
-                    self.records.path(&agent, &to),
+                    self.shared.records.path(&agent, &from),
+                    self.shared.records.path(&agent, &to),
                 );
                 // After what is being written to it; and before anything
                 // else is written to the branch.
@@ -330,7 +462,7 @@ impl Server {
                 })));
             }
             Call::Spent { records } => {
-                let home = self.home.clone();
+                let home = self.shared.home.clone();
                 self.off(move || {
                     Event::Spent(
                         (records.into_iter())
@@ -344,7 +476,7 @@ impl Server {
                 });
             }
             Call::Search { query, records } => {
-                let home = self.home.clone();
+                let home = self.shared.home.clone();
                 self.off(move || Event::Found {
                     keys: (records.into_iter())
                         .filter(|(_, agent, id)| {
@@ -435,7 +567,7 @@ impl Server {
             Call::Clone { url, dir } => {
                 let stop = Arc::new(AtomicBool::new(false));
                 *self.cloning.lock().expect("cloning") = stop.clone();
-                let send = self.send.clone();
+                let send = self.shared.send.clone();
                 self.off(move || repo::clone(&url, dir, &stop, &*send));
             }
             Call::CancelClone => {
@@ -503,7 +635,7 @@ impl Server {
                 left_out,
                 key,
             } => {
-                let send = self.send.clone();
+                let send = self.shared.send.clone();
                 self.off(move || repo::git_action(&dir, action, &prefix, &left_out, key, &*send));
             }
             Call::DropCheckpoints { dir, uid } => {
@@ -511,11 +643,11 @@ impl Server {
             }
             Call::Place { key, calls } => self.off(move || repo::place(key, calls)),
             Call::Sizes { worktrees } => {
-                let home = self.home.clone();
+                let home = self.shared.home.clone();
                 self.off(move || Event::Sizes(tidy::sizes(&home, &worktrees)));
             }
             Call::Tidy { what, kept } => {
-                let (home, send) = (self.home.clone(), self.send.clone());
+                let (home, send) = (self.shared.home.clone(), self.shared.send.clone());
                 self.off(move || {
                     send(Event::Tidied(tidy::tidy(&home, what, &kept)));
                     Event::Sizes(tidy::sizes(&home, &kept.under))
@@ -530,36 +662,30 @@ impl Server {
                 shell,
                 first,
                 size,
-            } => (self.terminals).open(id, (dir, host, shell), first, size, self.send.clone()),
+            } => (self.terminals).open(
+                id,
+                (dir, host, shell),
+                first,
+                size,
+                self.shared.send.clone(),
+            ),
             Call::TermInput { id, bytes } => self.terminals.input(id, &bytes),
             Call::TermResize { id, size } => self.terminals.resize(id, size),
             Call::TermClose { id, force } => {
                 let busy = self.terminals.close(id, force);
-                (self.send)(Event::TermClosed { id, busy });
+                (self.shared.send)(Event::TermClosed { id, busy });
             }
-        }
-    }
-
-    /// Change the index by `change` and write it, unless it did not read.
-    fn change_index(&self, change: impl FnOnce(&mut Index)) {
-        let mut index = self.index.lock().expect("index");
-        if let Ok(index) = &mut *index {
-            change(index);
-            store::queue(Job::Write(
-                store::index_path(&self.home),
-                store::bytes(index),
-            ));
         }
     }
 
     /// The agent `id`, while it runs.
     fn running(&self, id: &str) -> Option<Arc<Agent>> {
-        self.agents.lock().expect("agents").get(id).cloned()
+        self.shared.running(id)
     }
 
     /// Do `work` off the window's thread, and send what it comes to back.
     fn off(&self, work: impl FnOnce() -> Event + std::marker::Send + 'static) {
-        let send = self.send.clone();
+        let send = self.shared.send.clone();
         acp::runtime().spawn_blocking(move || send(work()));
     }
 
@@ -574,7 +700,7 @@ impl Server {
         R: JsonRpcRequest + std::marker::Send + 'static,
         R::Response: std::marker::Send,
     {
-        let (agent, send) = (self.running(id), self.send.clone());
+        let (agent, send) = (self.running(id), self.shared.send.clone());
         acp::runtime().spawn(async move {
             let result = match agent {
                 Some(agent) => agent.request(request).await,
@@ -586,7 +712,7 @@ impl Server {
 
     /// Read the newest registry.
     fn fetch(&self) {
-        let home = self.home.clone();
+        let home = self.shared.home.clone();
         self.off(move || Event::Registry(registry::fetch(&home)));
     }
 
@@ -594,7 +720,7 @@ impl Server {
     fn install(&self, entry: Entry) {
         let stop = Arc::new(AtomicBool::new(false));
         (self.installs.lock().expect("installs")).insert(entry.id.clone(), stop.clone());
-        let (home, send) = (self.home.clone(), self.send.clone());
+        let (home, send) = (self.shared.home.clone(), self.shared.send.clone());
         self.off(move || {
             let agent = entry.id.clone();
             let say = |what: &str, share: Option<f32>| {
@@ -621,84 +747,32 @@ impl Server {
     /// comes back as [`Event::Said`], in order with the answers.
     fn start(&self, entry: &Entry, command: Option<&str>, env: &BTreeMap<String, Option<String>>) {
         let agent = entry.id.clone();
-        let mut launch = match registry::launch_with(entry, &self.home, command) {
+        let launch = match registry::launch_with(entry, &self.shared.home, command) {
             Ok(l) => l,
             Err(m) => {
-                (self.send)(Event::Started {
+                (self.shared.send)(Event::Started {
                     agent,
                     result: Err(Error::internal_error().data(m.say(&entry.name))),
                 });
                 return;
             }
         };
-        let (send, agents) = (self.send.clone(), self.agents.clone());
-        let (records, running) = (self.records.clone(), self.agents.clone());
-        let writing = self.writing.clone();
-        let (vars, of) = (env.clone(), agent.clone());
+        let shared = self.shared.clone();
+        let env = env.clone();
         acp::runtime().spawn(async move {
-            // Read from the Keychain, or 1Password, which may ask you first.
-            let vars = tokio::task::spawn_blocking(move || crate::secrets::env(&of, &vars)).await;
-            match vars.expect("the variables read") {
-                Ok(vars) => launch.env.extend(vars),
-                Err(why) => {
-                    let result = Err(Error::internal_error().data(why));
-                    return send(Event::Started { agent, result });
-                }
-            }
-            let (said, id) = (send.clone(), agent.clone());
-            let result = match Agent::start(&launch, move |event| {
-                if let Some(event) = heard(&records, &running, &writing, &id, event) {
-                    said(event);
-                }
-            })
-            .await
-            {
-                Ok(running) => {
-                    let hello = InitializeRequest::new(ProtocolVersion::V1)
-                        .client_capabilities(
-                            ClientCapabilities::new()
-                                .subagents(SubagentCapabilities::new())
-                                // Notices, and the context compacted, are
-                                // said in the thread.
-                                // What it asks for is a form filled in
-                                // over the composer, or a page opened.
-                                .elicitation(
-                                    ElicitationCapabilities::new()
-                                        .form(ElicitationFormCapabilities::new())
-                                        .url(ElicitationUrlCapabilities::new()),
-                                )
-                                .session(
-                                    ClientSessionCapabilities::new()
-                                        .notices(NoticeCapabilities::new())
-                                        .compaction(CompactionCapabilities::new()),
-                                )
-                                // Tasks left going in the background (a
-                                // command), as the JetBrains extension says
-                                // them, are shown.
-                                .meta(serde_json::Map::from_iter([(
-                                    "jetbrains".into(),
-                                    serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
-                                )])),
-                        )
-                        .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
-                    running.request(hello).await.map(|init| {
-                        let pid = running.pid();
-                        let running = Arc::new(running);
-                        (agents.lock().expect("agents")).insert(agent.clone(), running);
-                        (pid, Box::new(init))
-                    })
-                }
-                Err(e) => Err(e),
-            };
-            send(Event::Started { agent, result });
+            let result = shared
+                .launch(&agent, launch, env)
+                .await
+                .map(|(_, said)| said);
+            (shared.send)(Event::Started { agent, result });
         });
     }
 
     /// Let go of the agent `id`: its process stops once nothing more is
     /// asked of it.
     fn stop(&self, id: &str) {
-        self.agents.lock().expect("agents").remove(id);
-        self.records.close(id);
+        self.shared.agents.lock().expect("agents").remove(id);
+        self.shared.records.close(id);
     }
 
     /// Stop the agent `id` at once, and all it started: when it would not
@@ -713,7 +787,7 @@ impl Server {
     /// `also` beside it.
     fn open(&self, id: &str, key: u64, folder: PathBuf, also: Vec<PathBuf>) {
         let request = NewSessionRequest::new(folder).additional_directories(also);
-        let (records, agent) = (self.records.clone(), id.to_owned());
+        let (records, agent) = (self.shared.records.clone(), id.to_owned());
         self.ask(id, request, move |r| {
             if let Ok(r) = &r {
                 records.open(&agent, r.session_id.clone());
@@ -732,7 +806,11 @@ impl Server {
         let Some(agent) = self.running(id) else {
             return;
         };
-        let (name, home, send) = (id.to_owned(), self.home.clone(), self.send.clone());
+        let (name, home, send) = (
+            id.to_owned(),
+            self.shared.home.clone(),
+            self.shared.send.clone(),
+        );
         acp::runtime().spawn(async move {
             let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
             // Each project's folder (on another machine, its path there), and
@@ -820,7 +898,7 @@ impl Server {
     ) {
         // What it says from now on is written: on a load, all that was
         // said in it.
-        self.records.open(id, session.clone());
+        self.shared.records.open(id, session.clone());
         let loaded = move |result| Event::Loaded {
             key,
             resumed,
@@ -852,7 +930,7 @@ impl Server {
         let Some(agent) = self.running(id) else {
             return;
         };
-        let (name, send) = (id.to_owned(), self.send.clone());
+        let (name, send) = (id.to_owned(), self.shared.send.clone());
         acp::runtime().spawn(async move {
             let result = agent.request(NewSessionRequest::new(dir)).await;
             if let Ok(r) = &result {
@@ -893,7 +971,7 @@ impl Server {
             request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
         }
         let at = upto.map(|(at, _)| at);
-        let (records, agent) = (self.records.clone(), id.to_owned());
+        let (records, agent) = (self.shared.records.clone(), id.to_owned());
         self.ask(id, request, move |r| {
             if let Ok(r) = &r {
                 records.open(&agent, r.session_id.clone());
@@ -919,7 +997,11 @@ impl Server {
     /// Say `content` in the session `session`, and wait for the turn to
     /// end.
     fn prompt(&self, id: &str, key: u64, session: SessionId, content: Vec<ContentBlock>) {
+        let turning = self.shared.turning.clone();
+        let on = (id.to_owned(), session.clone());
+        turning.lock().expect("turning").insert(on.clone());
         self.ask(id, PromptRequest::new(session, content), move |r| {
+            turning.lock().expect("turning").remove(&on);
             Event::Ended {
                 key,
                 result: r.map(|r| r.stop_reason),
@@ -943,8 +1025,8 @@ impl Server {
         } = order;
         let (running, send, writing) = (
             self.running(&agent),
-            self.send.clone(),
-            self.writing.clone(),
+            self.shared.send.clone(),
+            self.shared.writing.clone(),
         );
         acp::runtime().spawn(async move {
             let made = ask.clone();
@@ -962,23 +1044,7 @@ impl Server {
                     .lock()
                     .expect("writing")
                     .insert(id.clone(), String::new());
-                let chosen = match model.zip(
-                    opened
-                        .config_options
-                        .unwrap_or_default()
-                        .into_iter()
-                        .find(|o| o.category == Some(SessionConfigOptionCategory::Model)),
-                ) {
-                    Some((model, option)) => agent
-                        .request(SetSessionConfigOptionRequest::new(
-                            id.clone(),
-                            option.id,
-                            SessionConfigOptionValue::value_id(SessionConfigValueId::new(model)),
-                        ))
-                        .await
-                        .map(|_| ()),
-                    None => Ok(()),
-                };
+                let chosen = choose_model(&agent, &id, opened.config_options, model).await;
                 let turn = match chosen {
                     Ok(()) => agent
                         .request(PromptRequest::new(id.clone(), vec![prompt.into()]))
@@ -1042,7 +1108,7 @@ impl Server {
         let Some(agent) = self.running(id) else {
             return;
         };
-        let send = self.send.clone();
+        let send = self.shared.send.clone();
         acp::runtime().spawn(async move {
             let request = SetSessionModeRequest::new(session, SessionModeId::new(mode));
             if let Err(f) = agent.request(request).await {
@@ -1098,7 +1164,7 @@ impl Server {
     /// What Ghost runs (`diagnostics`), and which are the agents running:
     /// each one's id and process id.
     fn weigh(&self) {
-        let running: Vec<(String, u32)> = (self.agents.lock().expect("agents").iter())
+        let running: Vec<(String, u32)> = (self.shared.agents.lock().expect("agents").iter())
             .filter_map(|(id, a)| Some((id.clone(), a.pid()?)))
             .collect();
         self.off(move || Event::Weighed {
@@ -1110,7 +1176,7 @@ impl Server {
     /// Look at what of each of `agents` is here, in the home and on the
     /// PATH.
     fn here(&self, agents: Vec<Entry>, commands: BTreeMap<String, String>) {
-        let home = self.home.clone();
+        let home = self.shared.home.clone();
         self.off(move || {
             Event::Here(
                 (agents.iter())
@@ -1263,6 +1329,7 @@ mod tests {
         let (server, rx) = server(home.path());
         server.handle(Call::Watch);
         assert!(matches!(rx.recv().unwrap(), Event::Index(Ok(i)) if i.sessions.is_empty()));
+        assert!(matches!(rx.recv().unwrap(), Event::Tasks(Ok(t)) if t.is_empty()));
         server.handle(Call::Keep(vec![meta("s1", "first"), meta("s2", "other")]));
         server.handle(Call::Keep(vec![meta("s1", "renamed")]));
         server.handle(Call::Stash(vec!["later".into()]));

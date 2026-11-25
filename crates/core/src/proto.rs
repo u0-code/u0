@@ -22,7 +22,7 @@ use crate::{
     repo::{GitAction, Held, Snapshot},
     scripts::Script,
     session::Begin,
-    store, tidy, writer,
+    store, tasks, tidy, writer,
 };
 
 /// What the desk asks of the server. An agent is named by its registry id
@@ -433,6 +433,13 @@ pub enum Call {
         id: u64,
         force: bool,
     },
+    /// Keep `task` as it is now: a new one (its id 0) is given an id.
+    /// Answered, as each change to them is, with [`Event::Tasks`].
+    SetTask(tasks::Task),
+    /// Take the task `id` away.
+    DropTask(u64),
+    /// Run the task `id` now, whatever its schedule says.
+    RunTask(u64),
 }
 
 /// What the server sends back.
@@ -558,6 +565,16 @@ pub enum Event {
     Index(Result<store::Index, String>),
     /// How sharing this Ghost stands.
     Shared(Box<crate::share::Shared>),
+    /// The scheduled tasks as they are now, or why `tasks.json` does not
+    /// read.
+    Tasks(Result<Vec<tasks::Task>, String>),
+    /// A task's turn in the session `meta` begins (`ended` none), with the
+    /// session's record so far where `record`; or it ended, how.
+    TaskTurn {
+        meta: Box<store::Meta>,
+        record: Option<Vec<store::Event>>,
+        ended: Option<Result<StopReason, String>>,
+    },
     /// The record of the session `key`, read back: none where there is none.
     Record {
         key: u64,
@@ -1290,6 +1307,25 @@ mod tests {
             },
             Call::CliVersion { cli: cli.clone() },
             Call::Watch,
+            Call::SetTask(crate::tasks::Task {
+                id: 1,
+                title: "t".into(),
+                prompt: "go".into(),
+                agent: "a".into(),
+                model: None,
+                mode: None,
+                project: "/p".into(),
+                schedule: crate::tasks::Schedule::Every(5),
+                paused: false,
+                same: true,
+                worktree: false,
+                session: None,
+                next: Some(1),
+                last: None,
+                runs: 0,
+            }),
+            Call::DropTask(1),
+            Call::RunTask(1),
             Call::Keep(vec![meta]),
             Call::Forget {
                 agent: "a".into(),
@@ -1446,6 +1482,28 @@ mod tests {
             Event::CliVersion {
                 cli,
                 version: "a 1.0".into(),
+            },
+            Event::Tasks(Ok(vec![crate::tasks::Task {
+                id: 1,
+                title: "t".into(),
+                prompt: "go".into(),
+                agent: "a".into(),
+                model: None,
+                mode: None,
+                project: "/p".into(),
+                schedule: crate::tasks::Schedule::Every(5),
+                paused: false,
+                same: true,
+                worktree: false,
+                session: None,
+                next: Some(1),
+                last: None,
+                runs: 0,
+            }])),
+            Event::TaskTurn {
+                meta: Box::new(index.sessions[0].clone()),
+                record: None,
+                ended: Some(Ok(StopReason::EndTurn)),
             },
             Event::Index(Ok(index)),
             Event::Shared(Box::new(crate::share::Shared {

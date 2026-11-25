@@ -468,49 +468,23 @@ impl Desk {
                         Err(_) => slot.auth.clone(),
                     };
                 }
-                let away = self.current != Some(key);
-                let behind = self.behind;
                 let ok = result.is_ok();
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.ended(result.map_err(|f| f.message));
-                    // A turn that ended while you looked elsewhere is unread.
-                    s.meta.flags.unread |= away || behind;
-                }
-
-                // With Ghost behind other windows, macOS says so; in front,
-                // with another session on screen, a notice leads to it; each
-                // as you asked for it.
-                let on = &self.settings.notify_on;
-                if let Some(s) = self.sessions.at(key)
-                    && (if ok { on.finished } else { on.failed })
-                {
-                    let name = self.name_of(&s.meta.agent);
-                    let title = crate::ui::fit(&s.meta.title, 40);
-                    if behind {
-                        self.tell(
-                            key,
-                            format!("{name} · {title}"),
-                            if ok { "Finished its turn" } else { "Stopped" },
-                        );
-                    } else if away && s.parent.is_none() {
-                        self.done(
-                            format!(
-                                "{name} {} “{title}”",
-                                if ok { "finished" } else { "stopped in" }
-                            ),
-                            Some(super::notices::Way::Show(key)),
-                        );
-                    }
                 }
                 self.stopping = None;
                 self.end_turn(key);
-                if ok {
-                    self.suggest_next(key);
-                }
-                self.refresh_git(key);
-                // What was said meanwhile goes now, in order.
-                self.say_queued(key, cx);
+                self.turn_over(key, ok, cx);
             }
+            Event::Tasks(list) => {
+                self.tasks.list = list;
+                cx.notify();
+            }
+            Event::TaskTurn {
+                meta,
+                record,
+                ended,
+            } => self.task_turn(&meta, record, ended, cx),
             Event::Written { key, ask, result } => self.written(key, ask, result, window, cx),
             Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(&agent) {
@@ -553,6 +527,50 @@ impl Desk {
                 self.trouble(format!("{name} kept it as it was"), Some(why), None);
             }
         }
+    }
+
+    /// A turn in the session `key` is over (`ok`, or it failed): it is
+    /// unread if you looked elsewhere, you are told as you asked, and what
+    /// was said meanwhile goes now.
+    pub(super) fn turn_over(&mut self, key: u64, ok: bool, cx: &mut Context<Self>) {
+        let away = self.current != Some(key);
+        let behind = self.behind;
+        // A turn that ended while you looked elsewhere is unread.
+        if let Some(s) = self.sessions.at_mut(key).filter(|_| away || behind) {
+            s.meta.flags.unread = true;
+            self.save_index();
+        }
+        // With Ghost behind other windows, macOS says so; in front, with
+        // another session on screen, a notice leads to it; each as you
+        // asked for it.
+        let on = &self.settings.notify_on;
+        if let Some(s) = self.sessions.at(key)
+            && (if ok { on.finished } else { on.failed })
+        {
+            let name = self.name_of(&s.meta.agent);
+            let title = crate::ui::fit(&s.meta.title, 40);
+            if behind {
+                self.tell(
+                    key,
+                    format!("{name} · {title}"),
+                    if ok { "Finished its turn" } else { "Stopped" },
+                );
+            } else if away && s.parent.is_none() {
+                self.done(
+                    format!(
+                        "{name} {} “{title}”",
+                        if ok { "finished" } else { "stopped in" }
+                    ),
+                    Some(super::notices::Way::Show(key)),
+                );
+            }
+        }
+        if ok {
+            self.suggest_next(key);
+        }
+        self.refresh_git(key);
+        // What was said meanwhile goes now, in order.
+        self.say_queued(key, cx);
     }
 
     pub(super) fn started(
