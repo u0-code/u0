@@ -75,13 +75,16 @@ strip = true
 
 # Temporary, until gpui-kit releases them: a soft break between Chinese,
 # Japanese or Korean characters joins without a space
-# (https://github.com/longbridge/gpui-kit/pull/4123), and a key hint can be
-# a label rather than one keystroke (https://github.com/longbridge/gpui-kit/pull/4124).
-# The branch is v0.11.0 with those two commits; back to crates.io once they
+# (https://github.com/longbridge/gpui-kit/pull/4123), a key hint can be a
+# label rather than one keystroke (https://github.com/longbridge/gpui-kit/pull/4124),
+# Shift+F10 opens a context menu, a tree's selected row's too
+# (https://github.com/longbridge/gpui-kit/pull/4133), and a tree's row menu
+# can hold submenus (https://github.com/longbridge/gpui-kit/pull/4134).
+# The branch is v0.11.0 with those four commits; back to crates.io once they
 # are released.
 [patch.crates-io]
-gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
-gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
-gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
-gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
-gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
+gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus" }
+gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus" }
+gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus" }
+gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus" }
+gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus" }

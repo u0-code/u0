@@ -2133,7 +2133,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2175,7 +2175,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
 dependencies = [
  "anyhow",
  "core-text",
@@ -2223,7 +2223,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2234,7 +2234,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -2248,7 +2248,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
 dependencies = [
  "anyhow",
  "gpui-pre",
