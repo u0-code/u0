@@ -416,9 +416,7 @@ fn address(s: &str) -> Option<Range<usize>> {
 }
 
 /// The weight bold is set in: a semibold, as the design sets it.
-fn strong_weight(_: &Faces, _: &SharedString) -> FontWeight {
-    FontWeight::SEMIBOLD
-}
+const STRONG: FontWeight = FontWeight::SEMIBOLD;
 
 /// How a block's text is set before its marks: its weight and its colour.
 #[derive(Clone)]
@@ -611,11 +609,7 @@ fn styled_from(faces: &Faces, id: &str, parsed: &Inline, base: &Base) -> StyledT
                     Some(theme::bubble()),
                 ),
                 Mark::Bold => (
-                    face(
-                        &base.face,
-                        strong_weight(faces, &base.face),
-                        FontStyle::Normal,
-                    ),
+                    face(&base.face, STRONG, FontStyle::Normal),
                     base.strong,
                     None,
                 ),
@@ -841,7 +835,7 @@ fn table(faces: &Faces, key: &str, t: &Table, all: bool, cx: &mut Context<Desk>)
     let line = PROSE_LINE;
     let (shown, folded) = table_rows(t.rows, all);
     let strong = Base {
-        weight: strong_weight(faces, &faces.serif),
+        weight: STRONG,
         color: body(faces).strong,
         ..body(faces)
     };
