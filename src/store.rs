@@ -264,16 +264,14 @@ pub enum Job {
     /// A file the desk keeps, written whole (`whole::write`).
     Write(PathBuf, Vec<u8>),
     Remove(PathBuf),
-    /// Read the record at the path, after what was asked before is
-    /// written, and hand it on.
-    Read(PathBuf, Box<dyn FnOnce(Option<Vec<Event>>) + Send>),
-    /// Answer once everything asked before is done.
-    Done(std::sync::mpsc::Sender<()>),
+    /// Run once everything asked before is done: a record read back, a
+    /// file read, changed and written again.
+    Then(Box<dyn FnOnce() + Send>),
 }
 
 /// Hand `job` to the one thread that writes the desk's files, so that the
 /// window never waits on the disk, two writes of one file never cross, and
-/// a record is read back with all that was written to it.
+/// a file is read back with all that was written to it.
 pub fn queue(job: Job) {
     use std::sync::{Mutex, OnceLock, mpsc};
     static WRITER: OnceLock<Mutex<mpsc::Sender<Job>>> = OnceLock::new();
@@ -290,12 +288,8 @@ pub fn queue(job: Job) {
                             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
                             _ => Ok(()),
                         },
-                        Job::Read(path, then) => {
-                            then(read(&path));
-                            Ok(())
-                        }
-                        Job::Done(tx) => {
-                            let _ = tx.send(());
+                        Job::Then(then) => {
+                            then();
                             Ok(())
                         }
                     };
@@ -315,7 +309,9 @@ pub fn queue(job: Job) {
 /// Wait until what was handed to the writer is written.
 pub fn settle() {
     let (tx, rx) = std::sync::mpsc::channel();
-    queue(Job::Done(tx));
+    queue(Job::Then(Box::new(move || {
+        let _ = tx.send(());
+    })));
     let _ = rx.recv_timeout(Duration::from_secs(5));
 }
 
@@ -375,12 +371,9 @@ mod tests {
         let path = record_path(dir.path(), "x", "read-after");
         queue(Job::Append(path.clone(), vec![Event::You("go".into())]));
         let (tx, rx) = std::sync::mpsc::channel();
-        queue(Job::Read(
-            path,
-            Box::new(move |events| {
-                let _ = tx.send(events);
-            }),
-        ));
+        queue(Job::Then(Box::new(move || {
+            let _ = tx.send(read(&path));
+        })));
         let events = rx.recv().unwrap().expect("a record");
         assert!(matches!(&events[..], [Event::You(t)] if t == "go"));
     }

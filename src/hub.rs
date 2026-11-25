@@ -373,11 +373,12 @@ pub fn notify(title: &str, body: &str, sound: bool) {
 }
 
 /// Bind the action `name` to `key` in your keybindings.json (none: give
-/// it Ghost's keys back).
+/// it Ghost's keys back), on the writer, so that two binds made quickly
+/// are kept in the order they were made.
 pub fn set_keys(home: PathBuf, name: &'static str, key: Option<String>, tx: Sender) {
-    off(tx, move || {
-        Msg::Keys(crate::keys::set_yours(&home, name, key))
-    });
+    crate::store::queue(crate::store::Job::Then(Box::new(move || {
+        let _ = tx.send(Msg::Keys(crate::keys::set_yours(&home, name, key)));
+    })));
 }
 
 /// Open the terminal `id` beside the session `session` in `dir` (on
@@ -495,8 +496,8 @@ fn line_of(file: &std::path::Path, text: &str) -> Option<usize> {
 /// Read back the record of the session `key` at `path`, after what is being
 /// written to it.
 pub fn read_record(path: PathBuf, key: u64, tx: Sender) {
-    let then = move |events| {
+    crate::store::queue(crate::store::Job::Then(Box::new(move || {
+        let events = crate::store::read(&path);
         let _ = tx.send(Msg::Record { key, events });
-    };
-    crate::store::queue(crate::store::Job::Read(path, Box::new(then)));
+    })));
 }
