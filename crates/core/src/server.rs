@@ -36,8 +36,10 @@ use crate::{
     proto::{Call, Event, Here, Opened},
     records::Records,
     registry::{self, Entry},
+    repo,
     session::Session,
     store::{self, Index, Job, Meta},
+    tidy,
 };
 
 /// Where what the server says goes.
@@ -56,6 +58,8 @@ pub struct Server {
     /// nothing is saved over it.
     index: Mutex<Result<Index, String>>,
     records: Arc<Records>,
+    /// The switch that stops the clone going on.
+    cloning: Mutex<Arc<AtomicBool>>,
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -77,6 +81,7 @@ impl Server {
             agents: Running::default(),
             installs: Mutex::default(),
             index: Mutex::new(index),
+            cloning: Mutex::default(),
         }
     }
 
@@ -236,6 +241,140 @@ impl Server {
                     query,
                 });
             }
+            Call::Look { key, folder } => self.off(move || repo::look(key, folder)),
+            Call::SaveScript {
+                dir,
+                at,
+                script,
+                key,
+            } => self.off(move || repo::save_script(dir, at, script, key)),
+            Call::ReadProject { folder } => self.off(move || repo::read_project(folder)),
+            Call::Uncommitted {
+                dir,
+                key,
+                no_spacing,
+            } => self.off(move || Event::Uncommitted {
+                key,
+                result: git::uncommitted(&dir, no_spacing),
+            }),
+            Call::ScopeDiff {
+                dir,
+                key,
+                scope,
+                base,
+                no_spacing,
+            } => self.off(move || repo::scope_diff(&dir, key, scope, base.as_deref(), no_spacing)),
+            Call::Commits { dir, key } => self.off(move || Event::Commits {
+                key,
+                commits: git::log(&dir, 12),
+                branches: git::branches(&dir),
+                upstream: git::upstream(&dir),
+            }),
+            Call::ReadPr { dir, key } => self.off(move || Event::Pr {
+                key,
+                pr: git::read_pr(&dir),
+            }),
+            Call::PrText { dir, number } => self.off(move || Event::PrText {
+                text: git::pull_request_text(&dir, number),
+                number,
+            }),
+            Call::ListPrs { folder } => self.off(move || Event::Prs {
+                prs: git::open_on_github(&folder, "pr"),
+                issues: git::open_on_github(&folder, "issue"),
+                folder,
+            }),
+            Call::ListFiles { folder } => self.off(move || Event::Files {
+                files: git::files(&folder),
+                folder,
+            }),
+            Call::Grep { folder, words } => self.off(move || Event::Grepped {
+                found: git::grep(&folder, &words),
+                words,
+            }),
+            Call::Create { dir, name } => self.off(move || Event::Cloned {
+                result: git::create(&dir, &name),
+                dir,
+            }),
+            Call::Clone { url, dir } => {
+                let stop = Arc::new(AtomicBool::new(false));
+                *self.cloning.lock().expect("cloning") = stop.clone();
+                let send = self.send.clone();
+                self.off(move || repo::clone(&url, dir, &stop, &*send));
+            }
+            Call::CancelClone => {
+                let stop = self.cloning.lock().expect("cloning");
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            Call::MakeWorktree {
+                dir,
+                about,
+                prefix,
+                from,
+                key,
+            } => {
+                let home = self.home.clone();
+                self.off(move || repo::make_worktree(&dir, &about, &home, &prefix, from, key));
+            }
+            Call::Checkpoint {
+                dir,
+                name,
+                key,
+                turn,
+                after,
+                before,
+                first,
+                then,
+                no_spacing,
+            } => self.off(move || {
+                repo::checkpoint(
+                    &dir,
+                    &name,
+                    key,
+                    turn,
+                    after,
+                    (before, first),
+                    then,
+                    no_spacing,
+                )
+            }),
+            Call::Restore {
+                dir,
+                target,
+                name,
+                first,
+                key,
+                turn,
+                undo,
+                no_spacing,
+            } => self.off(move || {
+                repo::restore(&dir, &target, &name, first, key, turn, undo, no_spacing)
+            }),
+            Call::Git {
+                dir,
+                action,
+                prefix,
+                left_out,
+                key,
+            } => {
+                let send = self.send.clone();
+                self.off(move || repo::git_action(&dir, action, &prefix, &left_out, key, &*send));
+            }
+            Call::DropCheckpoints { dir, uid } => {
+                acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
+            }
+            Call::Place { key, calls } => self.off(move || repo::place(key, calls)),
+            Call::Sizes => {
+                let home = self.home.clone();
+                self.off(move || Event::Sizes(tidy::sizes(&home)));
+            }
+            Call::Tidy { what, kept } => {
+                let (home, send) = (self.home.clone(), self.send.clone());
+                self.off(move || {
+                    send(Event::Tidied(tidy::tidy(&home, what, &kept)));
+                    Event::Sizes(tidy::sizes(&home))
+                });
+            }
+            Call::Hosts => self.off(|| Event::Hosts(crate::remote::hosts())),
         }
     }
 

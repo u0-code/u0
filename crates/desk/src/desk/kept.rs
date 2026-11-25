@@ -278,7 +278,7 @@ impl Desk {
 
     /// Measure what Ghost keeps on this machine.
     pub fn measure(&self) {
-        crate::hub::sizes(self.home.clone(), self.tx.clone());
+        self.transport.send(Call::Sizes);
     }
 
     /// Tidy `what` around the sessions kept.
@@ -288,13 +288,7 @@ impl Desk {
                 .sessions
                 .all
                 .iter()
-                .filter_map(|s| {
-                    Some(store::record_path(
-                        &self.home,
-                        &s.meta.agent,
-                        &s.meta.id.as_ref()?.0,
-                    ))
-                })
+                .filter_map(|s| Some((s.meta.agent.clone(), s.meta.id.as_ref()?.0.to_string())))
                 .collect(),
             worktrees: self
                 .sessions
@@ -312,7 +306,7 @@ impl Desk {
                 .collect(),
         };
         self.pages.tidied = None;
-        crate::hub::tidy(self.home.clone(), what, kept, self.tx.clone());
+        self.transport.send(Call::Tidy { what, kept });
         cx.notify();
     }
 

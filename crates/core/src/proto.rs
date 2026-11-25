@@ -12,14 +12,18 @@ use std::{collections::HashMap, path::PathBuf};
 use agent_client_protocol::v1::schema::{
     ContentBlock, ForkSessionResponse, InitializeResponse, MessageId, NewSessionResponse,
     RequestPermissionOutcome, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
-    StopReason,
+    StopReason, ToolCallId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     acp::{self, Error},
+    git,
     registry::{self, Entry},
-    store,
+    repo::{GitAction, Held, Snapshot},
+    scripts::Script,
+    session::Begin,
+    store, tidy,
 };
 
 /// What the desk asks of the server. An agent is named by its registry id
@@ -203,6 +207,138 @@ pub enum Call {
         query: String,
         records: Vec<(u64, String, SessionId)>,
     },
+    /// What git says of `folder`, where the session `key` works.
+    Look {
+        key: u64,
+        folder: PathBuf,
+    },
+    /// Put `script` at `at` in the `ghost.json` of the repository at `dir`
+    /// (none: take the one at `at` away), then look again.
+    SaveScript {
+        dir: PathBuf,
+        at: Option<usize>,
+        script: Option<Script>,
+        key: u64,
+    },
+    /// What the project `folder` holds.
+    ReadProject {
+        folder: PathBuf,
+    },
+    /// What is not committed in `dir`.
+    Uncommitted {
+        dir: PathBuf,
+        key: u64,
+        no_spacing: bool,
+    },
+    /// What changed in `scope` where the session `key` works.
+    ScopeDiff {
+        dir: PathBuf,
+        key: u64,
+        scope: git::Scope,
+        base: Option<String>,
+        no_spacing: bool,
+    },
+    /// The recent commits and local branches where the session `key` works.
+    Commits {
+        dir: PathBuf,
+        key: u64,
+    },
+    /// The pull request of the branch where the session `key` works.
+    ReadPr {
+        dir: PathBuf,
+        key: u64,
+    },
+    /// What `gh` says of the pull request `number` of the project `dir`.
+    PrText {
+        dir: PathBuf,
+        number: u64,
+    },
+    /// The open pull requests and issues of `folder`.
+    ListPrs {
+        folder: PathBuf,
+    },
+    /// The files of `folder` git sees.
+    ListFiles {
+        folder: PathBuf,
+    },
+    /// Where `words` are in the files of `folder` git sees.
+    Grep {
+        folder: PathBuf,
+        words: String,
+    },
+    /// Make the new project `name` in `dir`: a folder, a repository.
+    Create {
+        dir: PathBuf,
+        name: String,
+    },
+    /// Clone `url` into `dir`; the clone going on stops at `CancelClone`.
+    Clone {
+        url: String,
+        dir: PathBuf,
+    },
+    CancelClone,
+    /// Make a worktree of `dir` for the session `key`, about `about`, on a
+    /// branch beginning with `prefix`, from `from` (where `dir` is, if
+    /// nothing).
+    MakeWorktree {
+        dir: PathBuf,
+        about: String,
+        prefix: String,
+        from: Option<Begin>,
+        key: u64,
+    },
+    /// Take the checkpoint `name` of the turn `turn`; after it (`after`),
+    /// what changed since the turn's checkpoint before and the session's
+    /// first; `then`, what is said once it is taken.
+    Checkpoint {
+        dir: PathBuf,
+        name: String,
+        key: u64,
+        turn: usize,
+        after: bool,
+        before: Option<String>,
+        first: Option<String>,
+        then: Option<String>,
+        no_spacing: bool,
+    },
+    /// Put the files back as the checkpoint `target` had them.
+    Restore {
+        dir: PathBuf,
+        target: String,
+        name: String,
+        first: Option<String>,
+        key: u64,
+        turn: usize,
+        undo: bool,
+        no_spacing: bool,
+    },
+    /// Do `action` in `dir`, leaving `left_out` out of a commit.
+    Git {
+        dir: PathBuf,
+        action: GitAction,
+        prefix: String,
+        left_out: Vec<String>,
+        key: u64,
+    },
+    /// Drop the checkpoints of the session `uid` in the repository at `dir`.
+    DropCheckpoints {
+        dir: PathBuf,
+        uid: String,
+    },
+    /// Where each diff of the calls of the session `key` starts in its file.
+    Place {
+        key: u64,
+        calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,
+    },
+    /// How much each part of Ghost's home takes.
+    Sizes,
+    /// Tidy `what` around what is `kept`, then measure again.
+    Tidy {
+        what: tidy::Tidy,
+        kept: tidy::Kept,
+    },
+    /// The hosts your SSH config names.
+    Hosts,
 }
 
 /// What the server sends back.
@@ -325,6 +461,123 @@ pub enum Event {
         query: String,
         keys: Vec<u64>,
     },
+    /// What git says of `folder`, where the session `key` works: its
+    /// branch, whether it is in a repository, and the scripts the
+    /// repository's `ghost.json` names.
+    Looked {
+        key: u64,
+        folder: PathBuf,
+        branch: Option<String>,
+        repo: bool,
+        scripts: Vec<Script>,
+    },
+    /// What the folder of a project holds.
+    Held {
+        folder: PathBuf,
+        held: Held,
+    },
+    /// Something done, to be said: what was done, or what was not and why.
+    Notice(Result<String, (String, String)>),
+    /// What is not committed where a session works, as git reads it.
+    Uncommitted {
+        key: u64,
+        result: Result<Vec<git::FileDiff>, String>,
+    },
+    /// What changed in a scope git is asked for: the branch against its
+    /// base, or one commit.
+    Diffed {
+        key: u64,
+        scope: git::Scope,
+        result: Result<Vec<git::FileDiff>, String>,
+    },
+    /// The recent commits and the local branches where a session works.
+    Commits {
+        key: u64,
+        commits: Vec<(String, String, String)>,
+        branches: Vec<String>,
+        /// How far behind its upstream, and whether it has an origin.
+        upstream: (usize, bool),
+    },
+    /// The pull request of the branch a session works on, as `gh` says.
+    Pr {
+        key: u64,
+        pr: Option<git::Pr>,
+    },
+    /// What `gh` says of the pull request `number`, named with `@`.
+    PrText {
+        number: u64,
+        text: Option<String>,
+    },
+    /// The open pull requests and issues of a project.
+    Prs {
+        folder: PathBuf,
+        prs: Vec<(u64, String)>,
+        issues: Vec<(u64, String)>,
+    },
+    /// The files of a project, for `@` to name.
+    Files {
+        folder: PathBuf,
+        files: Vec<String>,
+    },
+    /// What git grep found for `words`: each place as "path:line", and the
+    /// line.
+    Grepped {
+        words: String,
+        found: Vec<(String, String)>,
+    },
+    /// How a clone goes, and how it (or a new project made) ended.
+    Cloning {
+        what: String,
+        share: Option<f32>,
+    },
+    Cloned {
+        dir: PathBuf,
+        result: Result<(), String>,
+    },
+    /// A worktree was made for the session, with the scripts its
+    /// `ghost.json` names, or could not be.
+    Worktree {
+        key: u64,
+        result: Result<(git::Worktree, Vec<Script>), String>,
+    },
+    /// A turn's checkpoint was taken; after it, what changed. `then` is
+    /// what to say once the checkpoint before a turn is taken.
+    Checkpoint {
+        key: u64,
+        turn: usize,
+        after: bool,
+        result: Result<Snapshot, String>,
+        then: Option<String>,
+    },
+    /// A turn was undone (or put back): the checkpoint that reverses it,
+    /// and what changed in all now.
+    Restored {
+        key: u64,
+        turn: usize,
+        undo: bool,
+        result: Result<(String, Option<Vec<git::FileDiff>>), String>,
+    },
+    /// A step of a git action on its way.
+    GitStep {
+        key: u64,
+        text: String,
+    },
+    /// A commit, a push, a pull request or a worktree removed: what it said.
+    Git {
+        key: u64,
+        action: GitAction,
+        result: Result<String, String>,
+    },
+    /// Where the diffs of calls of the session `key` start in their files.
+    Placed {
+        key: u64,
+        starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
+    },
+    /// How much each part of Ghost's home takes, and what a tidying did.
+    Sizes(Vec<(String, u64)>),
+    Tidied(String),
+    /// The hosts your SSH config names.
+    Hosts(Vec<String>),
 }
 
 /// What a session loaded or resumed starts with.
@@ -381,6 +634,235 @@ mod tests {
 
     fn of<T: DeserializeOwned>(value: Value) -> T {
         serde_json::from_value(value).unwrap()
+    }
+
+    /// A call and an answer for each thing asked of the machine: its git,
+    /// its files, its home.
+    fn machine() -> (Vec<Call>, Vec<Event>) {
+        let dir = PathBuf::from("/p");
+        let diff: git::FileDiff = of(json!({
+            "path": "a.rs", "from": null, "status": "Modified", "added": 1, "gone": 1,
+            "hunks": [{"head": "@@ -1 +1 @@", "lines": [
+                {"Gone": {"old": 1, "text": "a"}}, {"Added": {"new": 1, "text": "b"}},
+                {"Same": {"old": 2, "new": 2, "text": "c"}},
+            ]}],
+            "binary": false,
+        }));
+        let script: Script = of(json!({"name": "dev", "command": "make dev", "worktree": true}));
+        let worktree: git::Worktree = of(json!({"repo": "/p", "path": "/w", "branch": "ghost/a"}));
+        let call: ToolCallId = of(json!("c1"));
+        let calls = vec![
+            Call::Look {
+                key: 1,
+                folder: dir.clone(),
+            },
+            Call::SaveScript {
+                dir: dir.clone(),
+                at: Some(0),
+                script: Some(script.clone()),
+                key: 1,
+            },
+            Call::ReadProject {
+                folder: dir.clone(),
+            },
+            Call::Uncommitted {
+                dir: dir.clone(),
+                key: 1,
+                no_spacing: true,
+            },
+            Call::ScopeDiff {
+                dir: dir.clone(),
+                key: 1,
+                scope: git::Scope::Commit("abc".into()),
+                base: Some("main".into()),
+                no_spacing: false,
+            },
+            Call::Commits {
+                dir: dir.clone(),
+                key: 1,
+            },
+            Call::ReadPr {
+                dir: dir.clone(),
+                key: 1,
+            },
+            Call::PrText {
+                dir: dir.clone(),
+                number: 7,
+            },
+            Call::ListPrs {
+                folder: dir.clone(),
+            },
+            Call::ListFiles {
+                folder: dir.clone(),
+            },
+            Call::Grep {
+                folder: dir.clone(),
+                words: "fn main".into(),
+            },
+            Call::Create {
+                dir: dir.clone(),
+                name: "new".into(),
+            },
+            Call::Clone {
+                url: "https://example.com/a.git".into(),
+                dir: dir.clone(),
+            },
+            Call::CancelClone,
+            Call::MakeWorktree {
+                dir: dir.clone(),
+                about: "fix it".into(),
+                prefix: "ghost/".into(),
+                from: Some(Begin::Pr(7, "Fix".into())),
+                key: 1,
+            },
+            Call::Checkpoint {
+                dir: dir.clone(),
+                name: "u/0-after".into(),
+                key: 1,
+                turn: 0,
+                after: true,
+                before: Some("a1".into()),
+                first: Some("a0".into()),
+                then: None,
+                no_spacing: false,
+            },
+            Call::Restore {
+                dir: dir.clone(),
+                target: "a1".into(),
+                name: "u/0-undo".into(),
+                first: None,
+                key: 1,
+                turn: 0,
+                undo: true,
+                no_spacing: false,
+            },
+            Call::Git {
+                dir: dir.clone(),
+                action: GitAction::RemoveWorktree(worktree.clone()),
+                prefix: "ghost/".into(),
+                left_out: vec!["b.rs".into()],
+                key: 1,
+            },
+            Call::DropCheckpoints {
+                dir: dir.clone(),
+                uid: "u".into(),
+            },
+            Call::Place {
+                key: 1,
+                calls: vec![(call.clone(), vec![(dir.join("a.rs"), "b\n".into())])],
+            },
+            Call::Sizes,
+            Call::Tidy {
+                what: tidy::Tidy::Records,
+                kept: of(json!({
+                    "records": [["a", "s1"]], "worktrees": ["/w"], "projects": ["/p"], "uids": ["u"],
+                })),
+            },
+            Call::Hosts,
+        ];
+        let events = vec![
+            Event::Looked {
+                key: 1,
+                folder: dir.clone(),
+                branch: Some("main".into()),
+                repo: true,
+                scripts: vec![script.clone()],
+            },
+            Event::Held {
+                folder: dir.clone(),
+                held: Held {
+                    repo: true,
+                    icon: Some(dir.join("icon.png")),
+                },
+            },
+            Event::Notice(Err(("Couldn't write ghost.json".into(), "no".into()))),
+            Event::Uncommitted {
+                key: 1,
+                result: Ok(vec![diff.clone()]),
+            },
+            Event::Diffed {
+                key: 1,
+                scope: git::Scope::Branch,
+                result: Err("no base".into()),
+            },
+            Event::Commits {
+                key: 1,
+                commits: vec![("abc".into(), "Fix".into(), "1 hour ago".into())],
+                branches: vec!["main".into()],
+                upstream: (2, true),
+            },
+            Event::Pr {
+                key: 1,
+                pr: Some(of(json!({
+                    "number": 7, "title": "Fix", "url": "https://example.com/7", "state": "open",
+                    "draft": false, "conflicts": false, "passed": 3, "failed": 0, "going": 1,
+                    "review": "",
+                }))),
+            },
+            Event::PrText {
+                number: 7,
+                text: Some("Fix it".into()),
+            },
+            Event::Prs {
+                folder: dir.clone(),
+                prs: vec![(7, "Fix".into())],
+                issues: Vec::new(),
+            },
+            Event::Files {
+                folder: dir.clone(),
+                files: vec!["a.rs".into()],
+            },
+            Event::Grepped {
+                words: "fn main".into(),
+                found: vec![("a.rs:1".into(), "fn main() {}".into())],
+            },
+            Event::Cloning {
+                what: "Receiving objects".into(),
+                share: Some(0.5),
+            },
+            Event::Cloned {
+                dir: dir.clone(),
+                result: Ok(()),
+            },
+            Event::Worktree {
+                key: 1,
+                result: Ok((worktree, vec![script])),
+            },
+            Event::Checkpoint {
+                key: 1,
+                turn: 0,
+                after: true,
+                result: Ok(Snapshot {
+                    commit: "a2".into(),
+                    turn: Some(vec![diff.clone()]),
+                    total: None,
+                }),
+                then: Some("go".into()),
+            },
+            Event::Restored {
+                key: 1,
+                turn: 0,
+                undo: true,
+                result: Ok(("a3".into(), Some(vec![diff]))),
+            },
+            Event::GitStep {
+                key: 1,
+                text: "Pushing".into(),
+            },
+            Event::Git {
+                key: 1,
+                action: GitAction::Commit("Fix".into()),
+                result: Ok("Committed abc".into()),
+            },
+            Event::Placed {
+                key: 1,
+                starts: vec![(call, vec![Some(3), None])],
+            },
+            Event::Sizes(vec![("Session records".into(), 3)]),
+            Event::Tidied("1 record removed".into()),
+            Event::Hosts(vec!["box".into()]),
+        ];
+        (calls, events)
     }
 
     #[test]
@@ -645,6 +1127,9 @@ mod tests {
                 keys: vec![1],
             },
         ];
+        let (machine_calls, machine_events) = machine();
+        let calls: Vec<Call> = calls.into_iter().chain(machine_calls).collect();
+        let events: Vec<Event> = events.into_iter().chain(machine_events).collect();
         let called: BTreeSet<String> = calls.iter().map(round_trip).collect();
         assert_eq!(called, variants::<Call>());
         let said: BTreeSet<String> = events.iter().map(round_trip).collect();

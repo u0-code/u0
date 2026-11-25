@@ -12,7 +12,6 @@ use crate::{
     fonts::Faces,
     git,
     git::Scope,
-    hub,
     session::{Session, State},
     theme,
     ui::{self, Weight},
@@ -347,7 +346,7 @@ impl Desk {
                             "Commit",
                             Weight::Primary,
                             cx,
-                            hub::GitAction::Commit,
+                            crate::repo::GitAction::Commit,
                         )
                         .tooltip(ui::tip(what)),
                     )
@@ -358,7 +357,7 @@ impl Desk {
                             "Commit & push",
                             Weight::Secondary,
                             cx,
-                            hub::GitAction::CommitPush,
+                            crate::repo::GitAction::CommitPush,
                         )
                         .tooltip(ui::tip(
                             "On the main branch, a branch of its own is made first",
@@ -370,7 +369,7 @@ impl Desk {
                         "Create PR",
                         Weight::Secondary,
                         cx,
-                        hub::GitAction::PullRequest,
+                        crate::repo::GitAction::PullRequest,
                     )),
             )
     }
@@ -420,7 +419,7 @@ impl Desk {
         let note = |text: String,
                     id: &'static str,
                     label: &'static str,
-                    action: fn() -> hub::GitAction| {
+                    action: fn() -> crate::repo::GitAction| {
             div()
                 .flex()
                 .items_center()
@@ -441,7 +440,7 @@ impl Desk {
                         format!("{behind} behind its upstream"),
                         "pull",
                         "Pull",
-                        || hub::GitAction::Pull,
+                        || crate::repo::GitAction::Pull,
                     ))
                 })
                 .when(!origin && gh, |d| {
@@ -449,7 +448,7 @@ impl Desk {
                         "Not on GitHub yet".into(),
                         "publish",
                         "Publish, private",
-                        || hub::GitAction::Publish,
+                        || crate::repo::GitAction::Publish,
                     ))
                 }),
         )
@@ -516,7 +515,7 @@ impl Desk {
                         .gap(px(6.))
                         .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
                             d.child(ui::button(faces, "merge-pr", "Merge", Weight::Secondary).on_click(
-                                cx.listener(|this, _, _, cx| this.git_action(hub::GitAction::Merge, cx)),
+                                cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Merge, cx)),
                             ))
                         })
                         .when(open && pr.failed > 0, |d| {

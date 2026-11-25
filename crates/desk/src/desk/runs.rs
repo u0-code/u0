@@ -365,7 +365,12 @@ impl Desk {
             return;
         }
         self.drawer.writing = None;
-        crate::hub::save_script(dir, w.at, script, key, self.tx.clone());
+        self.transport.send(crate::proto::Call::SaveScript {
+            dir,
+            at: w.at,
+            script,
+            key,
+        });
         cx.notify();
     }
 

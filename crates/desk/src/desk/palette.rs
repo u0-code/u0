@@ -243,7 +243,9 @@ impl Desk {
     /// Open the palette to look through `through` (⌘P files, ⇧⌘F words).
     pub fn open_palette(&mut self, through: Through, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(s) = self.session() {
-            crate::hub::list_files(s.meta.folder.clone(), self.tx.clone());
+            self.transport.send(crate::proto::Call::ListFiles {
+                folder: s.meta.folder.clone(),
+            });
         }
         self.palette.open = false;
         self.toggle_palette(window, cx);
@@ -266,11 +268,10 @@ impl Desk {
             self.palette.grep.clear();
             return;
         }
-        crate::hub::grep(
-            s.meta.folder.clone(),
-            words.trim().to_owned(),
-            self.tx.clone(),
-        );
+        self.transport.send(crate::proto::Call::Grep {
+            folder: s.meta.folder.clone(),
+            words: words.trim().to_owned(),
+        });
     }
 
     /// Open the palette, or close it.

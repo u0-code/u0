@@ -310,7 +310,7 @@ pub fn restore(dir: &Path, commit: &str, name: &str) -> Result<String, String> {
 }
 
 /// How a file changed between two checkpoints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
     Added,
     Deleted,
@@ -319,7 +319,7 @@ pub enum Status {
 }
 
 /// One line of a hunk, with its number on either side where it has one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Line {
     Same {
         old: usize,
@@ -337,7 +337,7 @@ pub enum Line {
 }
 
 /// A stretch of a file that changed, with the lines around it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hunk {
     /// Git's own head for it: "@@ -58,9 +58,41 @@ fn send".
     pub head: String,
@@ -345,7 +345,7 @@ pub struct Hunk {
 }
 
 /// One file's changes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileDiff {
     /// Its path from the top of the repository, as it is after.
     pub path: String,
@@ -866,7 +866,7 @@ pub fn files(dir: &Path) -> Vec<String> {
 }
 
 /// The pull request of the branch `dir` is on, as `gh` says.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Pr {
     pub number: u64,
     pub title: String,
@@ -1350,7 +1350,7 @@ mod tests {
 /// Which changes the right column shows: one turn's, all of the
 /// session's, the branch's against where it left the main one, or one
 /// commit's.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Scope {
     Turn(usize),
     All,

@@ -1,33 +1,27 @@
 //! The work done off the window's thread, and what comes back of it.
 //!
-//! The agents are the server's (`ghost_core::server`): the desk asks it by
-//! an agent's id, with a `proto::Call` through the [`Transport`], and what
-//! it says comes back as [`Msg::Event`]. Each agent
-//! switched on has a [`Slot`] here: what the registry says of it, whether it
-//! can be started, and once started what it said it can do. The rest of the
-//! work (git, files, windows, terminals, searching, tidying) runs on the ACP
-//! runtime too, and all of it comes back to the window as a [`Msg`] over one
-//! channel, which the desk reads in order.
-//!
-//! The slots are in `hub/agent.rs`, what is asked of git in `hub/git.rs`;
-//! here, the messages and the rest of the work.
+//! What touches the machine is the server's (`ghost_core::server`): the
+//! agents, the store, git and the files of a project. The desk asks it with
+//! a `proto::Call` through the [`Transport`], and what it says comes back
+//! as [`Msg::Event`]. Each agent switched on has a [`Slot`] here
+//! (`hub/agent.rs`): what the registry says of it, whether it can be
+//! started, and once started what it said it can do. What is the window's
+//! own (pictures, your editor, notifications, key bindings, terminals)
+//! runs on the ACP runtime too, and all of it comes back to the window as
+//! a [`Msg`] over one channel, which the desk reads in order.
 
 use std::path::PathBuf;
 
-use agent_client_protocol::v1::schema::ToolCallId;
 use tokio::sync::mpsc;
 
 mod agent;
-mod git;
 
 pub use agent::*;
-pub use git::*;
 
 use crate::{
     acp,
     proto::{Call, Event},
     registry,
-    scripts::Script,
     server::Server,
 };
 
@@ -35,41 +29,14 @@ use crate::{
 pub enum Msg {
     /// What the server says.
     Event(Event),
-    /// What git says of `folder`, where the session `key` works: its
-    /// branch, whether it is in a repository, and the scripts the
-    /// repository's `ghost.json` names.
-    Looked {
-        key: u64,
-        folder: PathBuf,
-        branch: Option<String>,
-        repo: bool,
-        scripts: Vec<Script>,
-    },
     /// Your key bindings, as keybindings.json says now, or why it was not
     /// written.
     Keys(Result<Vec<crate::keys::Binding>, String>),
     /// The programs the desk offers that are on the PATH.
     OnPath(Vec<&'static str>),
-    /// The hosts your SSH config names.
-    Hosts(Vec<String>),
-    /// What the folder of a project holds.
-    Held {
-        folder: PathBuf,
-        held: Held,
-    },
     /// Something done off the window's thread, to be said: what was done,
     /// or what was not and why.
     Notice(Result<String, (String, String)>),
-    /// Where the diffs of calls of the session `key` start in their files.
-    Placed {
-        key: u64,
-        starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
-    },
-    /// What is not committed where a session works, as git reads it.
-    Uncommitted {
-        key: u64,
-        result: Result<Vec<crate::git::FileDiff>, String>,
-    },
     /// A terminal was opened, or why not; its screen changed; its shell
     /// ended.
     TerminalOpened {
@@ -81,93 +48,6 @@ pub enum Msg {
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Picture(Option<crate::desk::mention::Picture>),
-    /// What git grep found for `words`.
-    Grepped {
-        words: String,
-        found: Vec<(String, String)>,
-    },
-    /// The files of a project, for `@` to name.
-    Files {
-        folder: PathBuf,
-        files: Vec<String>,
-    },
-    /// The open pull requests of a project, for `@` to name.
-    Prs {
-        folder: PathBuf,
-        prs: Vec<(u64, String)>,
-        issues: Vec<(u64, String)>,
-    },
-    /// What changed in a scope git is asked for: the branch against its
-    /// base, or one commit.
-    Diffed {
-        key: u64,
-        scope: crate::git::Scope,
-        result: Result<Vec<crate::git::FileDiff>, String>,
-    },
-    /// The recent commits and the local branches where a session works.
-    Commits {
-        key: u64,
-        commits: Vec<(String, String, String)>,
-        branches: Vec<String>,
-        /// How far behind its upstream, and whether it has an origin.
-        upstream: (usize, bool),
-    },
-    /// The pull request of the branch a session works on, as `gh` says.
-    Pr {
-        key: u64,
-        pr: Option<crate::git::Pr>,
-    },
-    /// A step of a git action on its way.
-    GitStep {
-        key: u64,
-        text: String,
-    },
-    /// What `gh` says of the pull request `number`, named with `@`.
-    PrText {
-        number: u64,
-        text: Option<String>,
-    },
-    /// How a clone goes, and how it (or a new project made) ended.
-    Cloning {
-        what: String,
-        share: Option<f32>,
-    },
-    Cloned {
-        dir: PathBuf,
-        result: Result<(), String>,
-    },
-    /// How much each part of Ghost's home takes, and what a tidying did.
-    Sizes(Vec<(&'static str, u64)>),
-    Tidied(String),
-    /// A worktree was made for the session, with the scripts its
-    /// `ghost.json` names, or could not be.
-    Worktree {
-        key: u64,
-        result: Result<(crate::git::Worktree, Vec<Script>), String>,
-    },
-    /// A turn's checkpoint was taken; after it, what changed. `then` is
-    /// what to say once the checkpoint before a turn is taken.
-    Checkpoint {
-        key: u64,
-        turn: usize,
-        after: bool,
-        result: Result<Snapshot, String>,
-        then: Option<String>,
-    },
-    /// A turn was undone (or put back): the checkpoint that reverses it,
-    /// and what changed in all now.
-    Restored {
-        key: u64,
-        turn: usize,
-        undo: bool,
-        result: Result<(String, Option<Vec<crate::git::FileDiff>>), String>,
-    },
-    /// A commit, a push, a pull request or a worktree removed: what it said.
-    Git {
-        key: u64,
-        action: GitAction,
-        result: Result<String, String>,
-    },
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -324,11 +204,6 @@ pub fn open_terminal(
     });
 }
 
-/// Read the hosts your SSH config names, for a project on another machine.
-pub fn hosts(tx: Sender) {
-    off(tx, || Msg::Hosts(crate::remote::hosts()));
-}
-
 /// Write `text` to `path` whole, and say that it is there, or why not.
 pub fn write(path: PathBuf, text: String, tx: Sender) {
     off(tx, move || {
@@ -347,68 +222,4 @@ pub fn on_path(tx: Sender) {
         let offered = std::iter::once("gh").chain(crate::desk::EDITORS.map(|(c, _)| c));
         Msg::OnPath(offered.filter(|c| registry::which(c).is_some()).collect())
     });
-}
-
-/// Measure Ghost's home.
-pub fn sizes(home: PathBuf, tx: Sender) {
-    off(tx, move || Msg::Sizes(crate::tidy::sizes(&home)));
-}
-
-/// Tidy `what` around what is kept, then measure again.
-pub fn tidy(home: PathBuf, what: crate::tidy::Tidy, kept: crate::tidy::Kept, tx: Sender) {
-    off(tx.clone(), move || {
-        let _ = tx.send(Msg::Tidied(crate::tidy::tidy(&home, what, &kept)));
-        Msg::Sizes(crate::tidy::sizes(&home))
-    });
-}
-
-/// Find the line each diff of the calls `calls` of the session `key` starts
-/// on in its file.
-pub fn place(key: u64, calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>, tx: Sender) {
-    off(tx, move || Msg::Placed {
-        key,
-        starts: calls
-            .into_iter()
-            .map(|(id, diffs)| (id, diffs.iter().map(|(f, t)| line_of(f, t)).collect()))
-            .collect(),
-    });
-}
-
-/// The line of `file` that `text` starts on, counting from one.
-fn line_of(file: &std::path::Path, text: &str) -> Option<usize> {
-    if text.is_empty() {
-        return None;
-    }
-    let whole = std::fs::read_to_string(file).ok()?;
-    let at = whole.find(text)?;
-    Some(whole[..at].matches('\n').count() + 1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session::Session;
-
-    #[test]
-    fn a_diffs_place_is_found_in_its_file_off_the_window_once_the_call_is_done() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("a.rs");
-        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
-        let mut s = Session::new(1, "x", dir.path().to_path_buf());
-        let json = format!(
-            r#"{{"sessionUpdate":"tool_call","toolCallId":"e","title":"Edit","kind":"edit","status":"completed","content":[{{"type":"diff","path":"{}","oldText":"3\n","newText":"three\nfour\n"}}]}}"#,
-            file.display()
-        );
-        s.apply(serde_json::from_str(&json).unwrap());
-        assert!(s.tools().next().unwrap().starts.is_empty());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        place(1, std::mem::take(&mut s.placing), tx);
-        let Some(Msg::Placed { starts, .. }) = rx.blocking_recv() else {
-            panic!("the diffs were not placed");
-        };
-        for (id, starts) in starts {
-            s.placed(&id, starts);
-        }
-        assert_eq!(s.tools().next().unwrap().starts, vec![Some(3)]);
-    }
 }

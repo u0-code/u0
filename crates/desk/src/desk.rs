@@ -240,7 +240,7 @@ pub struct Desk {
     /// Projects folded shut down the left.
     pub closed: HashSet<PathBuf>,
     /// What each project's folder holds, once read (see `read_projects`).
-    pub held: HashMap<PathBuf, hub::Held>,
+    pub held: HashMap<PathBuf, crate::repo::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
     /// session they are of; an item to bring into view once it is drawn.
     pub list: gpui::ListState,
@@ -544,8 +544,9 @@ impl Desk {
     fn read_projects(&mut self) {
         for folder in self.projects() {
             if !self.held.contains_key(&folder) && crate::remote::parse(&folder).is_none() {
-                self.held.insert(folder.clone(), hub::Held::default());
-                hub::read_project(folder, self.tx.clone());
+                self.held
+                    .insert(folder.clone(), crate::repo::Held::default());
+                self.transport.send(Call::ReadProject { folder });
             }
         }
     }
@@ -625,7 +626,10 @@ impl Desk {
         if let Some((_, path)) = there {
             s.meta.folder = path;
         } else {
-            hub::look(s.meta.folder.clone(), key, self.tx.clone());
+            self.transport.send(Call::Look {
+                folder: s.meta.folder.clone(),
+                key,
+            });
         }
         if let Some(slot) = self.slot(agent) {
             slot.seed(&mut s);
@@ -832,7 +836,7 @@ impl Desk {
                     .map_or_else(|| s.meta.project.clone(), |w| w.repo.clone()),
                 s.uid(),
             );
-            hub::drop_checkpoints(dir, uid);
+            self.transport.send(Call::DropCheckpoints { dir, uid });
         }
         // Its worktree goes too, unless another session works in it (a
         // fork, or a new session begun there).
@@ -843,14 +847,13 @@ impl Desk {
                 .iter()
                 .any(|o| o.meta.worktree.as_ref().is_some_and(|w| w.path == wt.path))
         {
-            hub::git_action(
-                wt.repo.clone(),
-                hub::GitAction::RemoveWorktree(wt),
-                self.settings.branch_prefix.clone(),
-                Vec::new(),
+            self.transport.send(Call::Git {
+                dir: wt.repo.clone(),
+                action: crate::repo::GitAction::RemoveWorktree(wt),
+                prefix: self.settings.branch_prefix.clone(),
+                left_out: Vec::new(),
                 key,
-                self.tx.clone(),
-            );
+            });
         }
         if self.current == Some(key) {
             self.current = None;
@@ -1154,7 +1157,7 @@ impl Desk {
             }
         }
         if page == Page::NewProject {
-            hub::hosts(self.tx.clone());
+            self.transport.send(Call::Hosts);
         }
         self.page = page;
         self.popup = Popup::Closed;

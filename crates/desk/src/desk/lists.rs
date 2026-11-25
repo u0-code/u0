@@ -566,17 +566,16 @@ impl Desk {
             && let Some(turn) = s.turn_of(item)
             && let Some(before) = s.turns.get(turn).and_then(|t| t.before.clone())
         {
-            hub::restore(
-                s.meta.folder.clone(),
-                before,
-                format!("{}/{turn}-rewind", s.uid()),
-                s.first().map(str::to_owned),
+            self.transport.send(Call::Restore {
+                dir: s.meta.folder.clone(),
+                target: before,
+                name: format!("{}/{turn}-rewind", s.uid()),
+                first: s.first().map(str::to_owned),
                 key,
                 turn,
-                true,
-                self.settings.no_spacing,
-                self.tx.clone(),
-            );
+                undo: true,
+                no_spacing: self.settings.no_spacing,
+            });
         }
         match point {
             Some(point) => {

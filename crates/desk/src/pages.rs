@@ -34,7 +34,7 @@ pub struct Pages {
     pub agent_search: Entity<TextInput>,
     pub prefix: Entity<TextInput>,
     pub recording: Option<&'static str>,
-    pub sizes: Vec<(&'static str, u64)>,
+    pub sizes: Vec<(String, u64)>,
     pub tidied: Option<String>,
     pub command: Entity<TextInput>,
     pub model: Entity<TextInput>,

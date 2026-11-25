@@ -394,7 +394,7 @@ impl Desk {
                     .px(px(16.))
                     .py(px(8.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::text(faces, *label).flex_1().text_size(px(13.)))
+                    .child(ui::text(faces, label.clone()).flex_1().text_size(px(13.)))
                     .child(ui::fine(faces, crate::tidy::shown(*bytes))),
             );
         }

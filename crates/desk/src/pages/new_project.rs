@@ -125,7 +125,7 @@ impl Desk {
             .border_color(theme::border())
             .child(heading("Clone a repository"))
             .child(field(self.adding.url.clone()));
-        if let Some((c, _)) = &self.adding.cloning {
+        if let Some(c) = &self.adding.cloning {
             clone = clone
                 .children(c.share.map(|share| {
                     div()

@@ -7,7 +7,7 @@ use gpui::{Context, Focusable as _, Window};
 use super::{Aside, Desk};
 use crate::git::Scope;
 use crate::{
-    hub::{self, Slot},
+    hub::Slot,
     proto::Call,
     session::{Item, State},
 };
@@ -73,18 +73,17 @@ impl Desk {
         };
         if s.repo {
             let turn = s.turn_count().saturating_sub(1);
-            hub::checkpoint(
-                s.meta.folder.clone(),
-                format!("{}/{turn}-before", s.uid()),
+            self.transport.send(Call::Checkpoint {
+                dir: s.meta.folder.clone(),
+                name: format!("{}/{turn}-before", s.uid()),
                 key,
                 turn,
-                false,
-                None,
-                None,
-                Some(text),
-                self.settings.no_spacing,
-                self.tx.clone(),
-            );
+                after: false,
+                before: None,
+                first: None,
+                then: Some(text),
+                no_spacing: self.settings.no_spacing,
+            });
         } else {
             self.prompt(key, text);
         }
@@ -132,18 +131,17 @@ impl Desk {
             return;
         }
         let turn = s.turns.len() - 1;
-        hub::checkpoint(
-            s.meta.folder.clone(),
-            format!("{}/{turn}-after", s.uid()),
+        self.transport.send(Call::Checkpoint {
+            dir: s.meta.folder.clone(),
+            name: format!("{}/{turn}-after", s.uid()),
             key,
             turn,
-            true,
-            s.turns[turn].before.clone(),
-            s.first().map(str::to_owned),
-            None,
-            self.settings.no_spacing,
-            self.tx.clone(),
-        );
+            after: true,
+            before: s.turns[turn].before.clone(),
+            first: s.first().map(str::to_owned),
+            then: None,
+            no_spacing: self.settings.no_spacing,
+        });
     }
 
     pub(super) fn worktree_made(
@@ -182,7 +180,7 @@ impl Desk {
         key: u64,
         turn: usize,
         after: bool,
-        result: Result<hub::Snapshot, String>,
+        result: Result<crate::repo::Snapshot, String>,
         then: Option<String>,
     ) {
         let Some(s) = self.sessions.at_mut(key) else {
@@ -229,17 +227,16 @@ impl Desk {
         };
         let Some((target, undo)) = target else { return };
         let name = format!("{}/{turn}-{}", s.uid(), if undo { "undo" } else { "redo" });
-        hub::restore(
-            s.meta.folder.clone(),
+        self.transport.send(Call::Restore {
+            dir: s.meta.folder.clone(),
             target,
             name,
-            s.first().map(str::to_owned),
-            s.key,
+            first: s.first().map(str::to_owned),
+            key: s.key,
             turn,
             undo,
-            self.settings.no_spacing,
-            self.tx.clone(),
-        );
+            no_spacing: self.settings.no_spacing,
+        });
         cx.notify();
     }
 
@@ -284,7 +281,7 @@ impl Desk {
 
     /// Commit, push, open a pull request, or remove the worktree, in the
     /// session on screen.
-    pub fn git_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
+    pub fn git_action(&mut self, action: crate::repo::GitAction, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (dir, key) = (s.meta.folder.clone(), s.key);
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
@@ -292,31 +289,30 @@ impl Desk {
             s.git.step = Some("Working".into());
             s.git.left_out.clear();
         }
-        hub::git_action(
+        self.transport.send(Call::Git {
             dir,
             action,
-            self.settings.branch_prefix.clone(),
+            prefix: self.settings.branch_prefix.clone(),
             left_out,
             key,
-            self.tx.clone(),
-        );
+        });
         cx.notify();
     }
 
     pub(super) fn gitted(
         &mut self,
         key: u64,
-        action: &hub::GitAction,
+        action: &crate::repo::GitAction,
         result: Result<String, String>,
     ) {
-        let (tx, no_spacing) = (self.tx.clone(), self.settings.no_spacing);
+        let no_spacing = self.settings.no_spacing;
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         s.git.step = None;
         // A branch renamed, or another checked out, is the session's now.
         match (action, &result) {
-            (hub::GitAction::RenameBranch(name), Ok(_)) => {
+            (crate::repo::GitAction::RenameBranch(name), Ok(_)) => {
                 s.branch = Some(name.clone());
                 if let Some(wt) = &mut s.meta.worktree {
                     wt.branch.clone_from(name);
@@ -324,24 +320,33 @@ impl Desk {
                 self.save_index();
                 return;
             }
-            (hub::GitAction::RenameBranch(_), Err(_)) => return,
+            (crate::repo::GitAction::RenameBranch(_), Err(_)) => return,
             _ => {}
         }
         let looks = matches!(
             (action, &result),
             (
-                hub::GitAction::Switch(_) | hub::GitAction::Init | hub::GitAction::NewBranch(_),
+                crate::repo::GitAction::Switch(_)
+                    | crate::repo::GitAction::Init
+                    | crate::repo::GitAction::NewBranch(_),
                 Ok(_),
             )
         );
-        let removed = matches!(action, hub::GitAction::RemoveWorktree(_)) && result.is_ok();
+        let removed = matches!(action, crate::repo::GitAction::RemoveWorktree(_)) && result.is_ok();
         // With no turn of its own taken here, what it shows is what is
         // not committed: read again after a commit, and after another
         // branch is checked out once git has said which.
         if looks {
-            hub::look(s.meta.folder.clone(), key, tx);
+            self.transport.send(Call::Look {
+                folder: s.meta.folder.clone(),
+                key,
+            });
         } else if s.turns.is_empty() && s.repo && !removed {
-            hub::uncommitted(s.meta.folder.clone(), key, no_spacing, tx);
+            self.transport.send(Call::Uncommitted {
+                dir: s.meta.folder.clone(),
+                key,
+                no_spacing,
+            });
         }
         // Its worktree removed, it is not kept from now on.
         let unkept =
@@ -352,7 +357,7 @@ impl Desk {
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
         }
         // A repository made here: its project is read again.
-        if matches!(action, hub::GitAction::Init) {
+        if matches!(action, crate::repo::GitAction::Init) {
             let project = s.meta.project.clone();
             self.held.remove(&project);
         }

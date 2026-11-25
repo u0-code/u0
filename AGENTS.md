@@ -71,6 +71,7 @@ crates/core/src/
                 handled, answered as Events
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk)
   records.rs    the record of each session open with its agent, written as it comes
+  repo.rs       what is asked of a project's folder and its git: each a Call, one Event
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   session.rs    a session: its thread built from session/update; its turns' checkpoints
@@ -86,8 +87,8 @@ crates/core/src/
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
   terminal.rs   a terminal of yours: its pty and its screen
-  hub.rs        async work, back to the window as Msg; the Transport to the server
-  hub/          by subject: agent (each agent's slot, as the desk sees it), git
+  hub.rs        the Transport to the server; the window's own work, back as Msg
+  hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
@@ -111,12 +112,12 @@ assets/         fonts and the desk's own icons, built into the app
 | Need | Use |
 |---|---|
 | A request to an agent | a `proto::Call` naming it by id, sent with `hub::Transport::send`; in the server, `acp::Agent::request` with a schema type |
-| Work off the window's thread | what the server does: a `proto::Call`, answered as a `proto::Event`; the rest (git, files, terminals, the window's own) a function in `hub.rs` that returns a `Msg` |
+| Work off the window's thread | what touches the machine (agents, store, git, files, the home): a `proto::Call`, answered as a `proto::Event`; the window's own (pictures, your editor, key bindings, terminals) a function in `hub.rs` that returns a `Msg` |
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
 | A program on the PATH | `registry::which` |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
-| Anything git | `git.rs`, called off the window's thread through `hub` |
+| Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
 
 ## Data
 

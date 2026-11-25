@@ -11,7 +11,7 @@ use std::{
 use crate::git;
 
 /// What can be tidied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Tidy {
     Records,
     Worktrees,
@@ -19,9 +19,10 @@ pub enum Tidy {
 }
 
 /// What the desk knows of the sessions it keeps, to tidy around them.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Kept {
-    /// Each record's path that belongs to a session kept.
-    pub records: Vec<PathBuf>,
+    /// The sessions kept, each by its agent and id: their records stay.
+    pub records: Vec<(String, String)>,
     /// The worktrees sessions work in.
     pub worktrees: Vec<PathBuf>,
     /// The projects (those in a repository are tidied), and the checkpoint
@@ -31,7 +32,7 @@ pub struct Kept {
 }
 
 /// How much each part of the home takes, in bytes.
-pub fn sizes(home: &Path) -> Vec<(&'static str, u64)> {
+pub fn sizes(home: &Path) -> Vec<(String, u64)> {
     [
         ("Session records", "transcripts"),
         ("Worktrees", "worktrees"),
@@ -39,7 +40,7 @@ pub fn sizes(home: &Path) -> Vec<(&'static str, u64)> {
         ("Scratch sessions", "scratch"),
     ]
     .into_iter()
-    .map(|(label, dir)| (label, size(&home.join(dir))))
+    .map(|(label, dir)| (label.to_owned(), size(&home.join(dir))))
     .collect()
 }
 
@@ -65,6 +66,9 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
         .collect();
     match what {
         Tidy::Records => {
+            let kept: Vec<PathBuf> = (kept.records.iter())
+                .map(|(agent, id)| crate::store::record_path(home, agent, id))
+                .collect();
             let mut n = 0;
             for agent in std::fs::read_dir(home.join("transcripts"))
                 .into_iter()
@@ -77,7 +81,7 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
                     .flatten()
                 {
                     let path = record.path();
-                    if !kept.records.contains(&path) && std::fs::remove_file(&path).is_ok() {
+                    if !kept.contains(&path) && std::fs::remove_file(&path).is_ok() {
                         n += 1;
                     }
                 }
@@ -150,9 +154,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("kept.jsonl"), "x").unwrap();
         std::fs::write(dir.join("gone.jsonl"), "yy").unwrap();
-        assert_eq!(sizes(home)[0], ("Session records", 3));
+        assert_eq!(sizes(home)[0], ("Session records".to_owned(), 3));
         let kept = Kept {
-            records: vec![dir.join("kept.jsonl")],
+            records: vec![("a".into(), "kept".into())],
             worktrees: Vec::new(),
             projects: Vec::new(),
             uids: Vec::new(),

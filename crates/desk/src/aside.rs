@@ -14,7 +14,7 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 use crate::{
     desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
-    git, hub,
+    git,
     registry::{self, Way},
     session::{Change, Session, State},
     theme,
@@ -189,7 +189,7 @@ impl Desk {
                         .child(
                             ui::button(faces, "git-init", "Make it one", ui::Weight::Quiet)
                                 .h(px(24.))
-                                .on_click(cx.listener(|this, _, _, cx| this.git_action(hub::GitAction::Init, cx))),
+                                .on_click(cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Init, cx))),
                         ),
                 )
             })
@@ -1095,7 +1095,9 @@ impl Desk {
                                 .child(fine(faces, "Remove").text_color(theme::link()))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.git_action(
-                                        hub::GitAction::RemoveWorktree(wt_for_click.clone()),
+                                        crate::repo::GitAction::RemoveWorktree(
+                                            wt_for_click.clone(),
+                                        ),
                                         cx,
                                     );
                                 })),
@@ -1475,7 +1477,7 @@ fn git_button(
     label: &'static str,
     weight: Weight,
     cx: &mut Context<Desk>,
-    make: fn(String) -> hub::GitAction,
+    make: fn(String) -> crate::repo::GitAction,
 ) -> gpui::Stateful<Div> {
     ui::button(faces, id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
         let message = this.commit_message(cx);

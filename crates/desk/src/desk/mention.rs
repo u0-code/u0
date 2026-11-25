@@ -255,11 +255,13 @@ impl Desk {
         let (folder, project) = (s.meta.folder.clone(), s.meta.project.clone());
         if !self.files.contains_key(&folder) {
             self.files.insert(folder.clone(), Vec::new());
-            hub::list_files(folder, self.tx.clone());
+            self.transport
+                .send(crate::proto::Call::ListFiles { folder });
         }
         if !self.prs.contains_key(&project) {
             self.prs.insert(project.clone(), Vec::new());
-            hub::list_prs(project, self.tx.clone());
+            self.transport
+                .send(crate::proto::Call::ListPrs { folder: project });
         }
     }
 
@@ -319,7 +321,10 @@ impl Desk {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
             {
-                hub::pr_text(s.meta.project.clone(), *number, self.tx.clone());
+                self.transport.send(crate::proto::Call::PrText {
+                    dir: s.meta.project.clone(),
+                    number: *number,
+                });
             }
             self.composer.mentions.push(Mention {
                 token,

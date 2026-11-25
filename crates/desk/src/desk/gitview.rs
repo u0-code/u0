@@ -11,7 +11,6 @@ use gpui::{AppContext as _, Context, Entity, Window};
 use super::Desk;
 use crate::{
     git::Scope,
-    hub,
     input::{Submitted, TextInput},
     session::{Item, State},
 };
@@ -65,9 +64,15 @@ impl Desk {
         if !s.repo {
             return;
         }
-        hub::commits(s.meta.folder.clone(), key, self.tx.clone());
+        self.transport.send(crate::proto::Call::Commits {
+            dir: s.meta.folder.clone(),
+            key,
+        });
         // Without gh there is no answer, and no pull request shown.
-        hub::pr(s.meta.folder.clone(), key, self.tx.clone());
+        self.transport.send(crate::proto::Call::ReadPr {
+            dir: s.meta.folder.clone(),
+            key,
+        });
     }
 
     /// Ask git about the folder the session `key` works in: not on another
@@ -76,7 +81,10 @@ impl Desk {
         if let Some(s) = self.sessions.at(key)
             && crate::remote::parse(&s.meta.project).is_none()
         {
-            hub::look(s.meta.folder.clone(), key, self.tx.clone());
+            self.transport.send(crate::proto::Call::Look {
+                folder: s.meta.folder.clone(),
+                key,
+            });
         }
     }
 
@@ -128,13 +136,13 @@ impl Desk {
     /// just ended start in their files; not on another machine, whose
     /// files are not here.
     pub(crate) fn place(&mut self, key: u64) {
-        let tx = self.tx.clone();
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         let calls = std::mem::take(&mut s.placing);
         if !calls.is_empty() && crate::remote::parse(&s.meta.project).is_none() {
-            hub::place(key, calls, tx);
+            self.transport
+                .send(crate::proto::Call::Place { key, calls });
         }
     }
 
@@ -146,21 +154,19 @@ impl Desk {
         if !s.repo {
             return;
         }
-        hub::uncommitted(
-            s.meta.folder.clone(),
+        self.transport.send(crate::proto::Call::Uncommitted {
+            dir: s.meta.folder.clone(),
             key,
-            self.settings.no_spacing,
-            self.tx.clone(),
-        );
+            no_spacing: self.settings.no_spacing,
+        });
         if let Some((scope, _)) = &s.git.scoped {
-            hub::scope_diff(
-                s.meta.folder.clone(),
+            self.transport.send(crate::proto::Call::ScopeDiff {
+                dir: s.meta.folder.clone(),
                 key,
-                scope.clone(),
-                s.git.compare_to.clone(),
-                self.settings.no_spacing,
-                self.tx.clone(),
-            );
+                scope: scope.clone(),
+                base: s.git.compare_to.clone(),
+                no_spacing: self.settings.no_spacing,
+            });
         }
     }
 
@@ -178,7 +184,10 @@ impl Desk {
             .iter()
             .filter(|s| s.repo && (s.meta.worktree.is_some() || Some(s.key) == self.current))
         {
-            hub::pr(s.meta.folder.clone(), s.key, self.tx.clone());
+            self.transport.send(crate::proto::Call::ReadPr {
+                dir: s.meta.folder.clone(),
+                key: s.key,
+            });
         }
     }
 
@@ -193,27 +202,33 @@ impl Desk {
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.scoped = None;
             let (dir, base) = (s.meta.folder.clone(), s.git.compare_to.clone());
-            hub::scope_diff(dir, key, scope.clone(), base, no_spacing, self.tx.clone());
+            self.transport.send(crate::proto::Call::ScopeDiff {
+                dir,
+                key,
+                scope: scope.clone(),
+                base,
+                no_spacing,
+            });
         }
     }
 
     /// Check out `branch` where the session on screen works: not while a
     /// session at work shares that checkout.
     pub fn switch_branch(&mut self, branch: String, cx: &mut Context<Self>) {
-        self.branch_action(hub::GitAction::Switch(branch), cx);
+        self.branch_action(crate::repo::GitAction::Switch(branch), cx);
     }
 
     /// Make the branch `name` where the session works, and check it out.
     pub fn new_branch(&mut self, name: &str, cx: &mut Context<Self>) {
         let name = name.trim().replace(' ', "-");
         if !name.is_empty() {
-            self.branch_action(hub::GitAction::NewBranch(name), cx);
+            self.branch_action(crate::repo::GitAction::NewBranch(name), cx);
         }
     }
 
     /// Check out, or make, a branch where the session on screen works:
     /// not while a session is at work in that checkout.
-    fn branch_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
+    fn branch_action(&mut self, action: crate::repo::GitAction, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
         let (key, dir) = (s.key, s.meta.folder.clone());
@@ -230,14 +245,13 @@ impl Desk {
             cx.notify();
             return;
         }
-        hub::git_action(
+        self.transport.send(crate::proto::Call::Git {
             dir,
             action,
-            self.settings.branch_prefix.clone(),
-            Vec::new(),
+            prefix: self.settings.branch_prefix.clone(),
+            left_out: Vec::new(),
             key,
-            self.tx.clone(),
-        );
+        });
         cx.notify();
     }
 
@@ -362,14 +376,13 @@ impl Desk {
         let prefix = &self.settings.branch_prefix;
         let name = format!("{prefix}{}", crate::git::slug(&s.meta.title));
         if s.turns.len() <= 1 && wt.branch.starts_with(prefix.as_str()) && wt.branch != name {
-            hub::git_action(
-                wt.path.clone(),
-                hub::GitAction::RenameBranch(name),
-                prefix.clone(),
-                Vec::new(),
+            self.transport.send(crate::proto::Call::Git {
+                dir: wt.path.clone(),
+                action: crate::repo::GitAction::RenameBranch(name),
+                prefix: prefix.clone(),
+                left_out: Vec::new(),
                 key,
-                self.tx.clone(),
-            );
+            });
         }
     }
 }

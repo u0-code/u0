@@ -263,7 +263,7 @@ impl Sub {
 }
 
 /// What a draft's worktree begins from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Begin {
     /// A local branch: a new branch from it.
     Branch(String),

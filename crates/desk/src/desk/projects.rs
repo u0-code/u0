@@ -3,10 +3,7 @@
 //! working its new sessions take; and the scratch sessions that have no
 //! project yet, each in a folder of its own until it becomes one.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::path::{Path, PathBuf};
 
 use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
 
@@ -37,7 +34,7 @@ pub struct Adding {
     pub hosts: Vec<String>,
     pub parent: PathBuf,
     /// A clone going on, and the switch that stops it.
-    pub cloning: Option<(crate::hub::Install, Arc<AtomicBool>)>,
+    pub cloning: Option<crate::hub::Install>,
     pub trouble: Option<String>,
 }
 
@@ -136,20 +133,21 @@ impl Desk {
         if url.is_empty() || name.is_empty() || self.adding.cloning.is_some() {
             return;
         }
-        let stop = Arc::new(AtomicBool::new(false));
-        let install = crate::hub::Install {
+        self.adding.cloning = Some(crate::hub::Install {
             what: "Starting".into(),
             share: None,
-        };
-        self.adding.cloning = Some((install, stop.clone()));
+        });
         self.adding.trouble = None;
-        crate::hub::clone(url, self.adding.parent.join(name), stop, self.tx.clone());
+        self.transport.send(crate::proto::Call::Clone {
+            url,
+            dir: self.adding.parent.join(name),
+        });
         cx.notify();
     }
 
     pub fn cancel_clone(&mut self, cx: &mut Context<Self>) {
-        if let Some((_, stop)) = &self.adding.cloning {
-            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if self.adding.cloning.is_some() {
+            self.transport.send(crate::proto::Call::CancelClone);
         }
         cx.notify();
     }
@@ -161,7 +159,10 @@ impl Desk {
             return;
         }
         self.adding.trouble = None;
-        crate::hub::create(self.adding.parent.join(&name), name, self.tx.clone());
+        self.transport.send(crate::proto::Call::Create {
+            dir: self.adding.parent.join(&name),
+            name,
+        });
         cx.notify();
     }
 

@@ -149,16 +149,31 @@ impl Desk {
             }
             Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
             Msg::Picture(None) => {}
-            Msg::Grepped { words, found } => {
+            Msg::OnPath(found) => self.on_path = found,
+            Msg::Keys(Ok(yours)) => {
+                cx.clear_key_bindings();
+                crate::keys::bind(cx, &yours);
+            }
+            Msg::Keys(Err(why)) => self.trouble("Couldn't keep the keys", Some(why), None),
+            Msg::Notice(Ok(text)) => self.done(text, None),
+            Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
+        }
+        cx.notify();
+    }
+
+    /// What the server says.
+    fn event(&mut self, event: Event, cx: &mut Context<Self>) {
+        match event {
+            Event::Grepped { words, found } => {
                 // Only what answers what is typed now.
                 if self.palette.input.read(cx).text().trim() == words {
                     self.palette.grep = found;
                 }
             }
-            Msg::Files { folder, files } => {
+            Event::Files { folder, files } => {
                 self.files.insert(folder, files);
             }
-            Msg::Prs {
+            Event::Prs {
                 folder,
                 prs,
                 issues,
@@ -166,7 +181,7 @@ impl Desk {
                 self.prs.insert(folder.clone(), prs);
                 self.issues.insert(folder, issues);
             }
-            Msg::PrText { number, text } => {
+            Event::PrText { number, text } => {
                 for m in &mut self.composer.mentions {
                     if matches!(m.what, crate::desk::mention::Offer::Pr { number: n, .. } if n == number)
                     {
@@ -174,13 +189,13 @@ impl Desk {
                     }
                 }
             }
-            Msg::Cloning { what, share } => {
-                if let Some((c, _)) = &mut self.adding.cloning {
+            Event::Cloning { what, share } => {
+                if let Some(c) = &mut self.adding.cloning {
                     c.what = what;
                     c.share = share.or(c.share);
                 }
             }
-            Msg::Cloned { dir, result } => {
+            Event::Cloned { dir, result } => {
                 self.adding.cloning = None;
                 match result {
                     Ok(()) => {
@@ -191,7 +206,7 @@ impl Desk {
                     Err(why) => self.adding.trouble = Some(why),
                 }
             }
-            Msg::Diffed { key, scope, result } => {
+            Event::Diffed { key, scope, result } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     match result {
                         Ok(files) => s.git.scoped = Some((scope, files)),
@@ -202,7 +217,7 @@ impl Desk {
                     }
                 }
             }
-            Msg::Commits {
+            Event::Commits {
                 key,
                 commits,
                 branches,
@@ -214,7 +229,7 @@ impl Desk {
                     s.git.upstream = upstream;
                 }
             }
-            Msg::Pr { key, pr } => {
+            Event::Pr { key, pr } => {
                 let merged = pr.as_ref().is_some_and(|p| p.state == "merged");
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.git.pr = pr;
@@ -226,40 +241,32 @@ impl Desk {
                     }
                 }
             }
-            Msg::GitStep { key, text } => {
+            Event::GitStep { key, text } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.git.step = Some(text);
                 }
             }
-            Msg::Sizes(sizes) => self.pages.sizes = sizes,
-            Msg::Tidied(said) => self.pages.tidied = Some(said),
-            Msg::Looked {
+            Event::Sizes(sizes) => self.pages.sizes = sizes,
+            Event::Tidied(said) => self.pages.tidied = Some(said),
+            Event::Looked {
                 key,
                 folder,
                 branch,
                 repo,
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
-            Msg::Hosts(hosts) => self.adding.hosts = hosts,
-            Msg::OnPath(found) => self.on_path = found,
-            Msg::Keys(Ok(yours)) => {
-                cx.clear_key_bindings();
-                crate::keys::bind(cx, &yours);
-            }
-            Msg::Keys(Err(why)) => self.trouble("Couldn't keep the keys", Some(why), None),
-            Msg::Held { folder, held } => {
+            Event::Hosts(hosts) => self.adding.hosts = hosts,
+            Event::Held { folder, held } => {
                 self.held.insert(folder, held);
             }
-            Msg::Notice(Ok(text)) => self.done(text, None),
-            Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
-            Msg::Placed { key, starts } => {
+            Event::Placed { key, starts } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     for (id, starts) in starts {
                         s.placed(&id, starts);
                     }
                 }
             }
-            Msg::Uncommitted { key, result } => {
+            Event::Uncommitted { key, result } => {
                 if let Some(s) = self.sessions.at_mut(key)
                     && s.turns.is_empty()
                 {
@@ -271,32 +278,27 @@ impl Desk {
                     }
                 }
             }
-            Msg::Worktree { key, result } => self.worktree_made(key, result, cx),
-            Msg::Checkpoint {
+            Event::Worktree { key, result } => self.worktree_made(key, result, cx),
+            Event::Checkpoint {
                 key,
                 turn,
                 after,
                 result,
                 then,
             } => self.checkpointed(key, turn, after, result, then),
-            Msg::Restored {
+            Event::Restored {
                 key,
                 turn,
                 undo,
                 result,
             } => self.restored(key, turn, undo, result),
-            Msg::Git {
+            Event::Git {
                 key,
                 action,
                 result,
             } => self.gitted(key, &action, result),
-        }
-        cx.notify();
-    }
-
-    /// What the server says.
-    fn event(&mut self, event: Event, cx: &mut Context<Self>) {
-        match event {
+            Event::Notice(Ok(text)) => self.done(text, None),
+            Event::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
             Event::Registry(Ok(registry)) => {
                 self.registry = registry;
                 self.registry_read = Some(std::time::SystemTime::now());

@@ -8,7 +8,7 @@ use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SelectedPermis
 
 use super::{Desk, Later, Popup};
 use crate::{
-    hub::{self, Slot, Stage},
+    hub::{Slot, Stage},
     proto::Call,
     session::{Item, State},
 };
@@ -234,15 +234,13 @@ impl Desk {
             self.save_settings();
             if worktree {
                 let from = self.sessions.at(key).and_then(|s| s.begin.clone());
-                hub::make_worktree(
-                    folder,
-                    text,
-                    self.home.clone(),
-                    self.settings.branch_prefix.clone(),
+                self.transport.send(Call::MakeWorktree {
+                    dir: folder,
+                    about: text,
+                    prefix: self.settings.branch_prefix.clone(),
                     from,
                     key,
-                    self.tx.clone(),
-                );
+                });
             } else {
                 self.open_when_running(&agent, key);
             }
