@@ -31,8 +31,8 @@ pub use git::*;
 
 use crate::{
     acp::{self, Agent, Error},
-    desk::runs::Script,
     registry,
+    scripts::Script,
 };
 
 /// What comes back to the window.

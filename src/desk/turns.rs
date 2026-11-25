@@ -142,7 +142,7 @@ impl Desk {
     pub(super) fn worktree_made(
         &mut self,
         key: u64,
-        result: Result<(crate::git::Worktree, Vec<super::runs::Script>), String>,
+        result: Result<(crate::git::Worktree, Vec<crate::scripts::Script>), String>,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(s) = self.sessions.at_mut(key) else {

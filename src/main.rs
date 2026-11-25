@@ -23,6 +23,7 @@ mod pages;
 mod path;
 mod registry;
 mod remote;
+mod scripts;
 mod session;
 mod sessions;
 mod settings;

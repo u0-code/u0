@@ -88,7 +88,7 @@ impl Desk {
         folder: &std::path::Path,
         branch: Option<String>,
         repo: bool,
-        scripts: Vec<super::runs::Script>,
+        scripts: Vec<crate::scripts::Script>,
     ) {
         let under = self.home.join("worktrees");
         let Some(s) = self

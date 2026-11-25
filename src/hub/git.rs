@@ -9,9 +9,8 @@ use std::{
 
 use super::{Msg, Sender, off};
 use crate::{
-    acp,
-    desk::runs::{self, Script},
-    git,
+    acp, git,
+    scripts::{self, Script},
 };
 
 /// A checkpoint, and what changed up to it.
@@ -78,7 +77,9 @@ fn looked(key: u64, folder: PathBuf) -> Msg {
         key,
         branch: git::branch(&folder),
         repo: root.is_some(),
-        scripts: root.map(|r| runs::config(&r).scripts).unwrap_or_default(),
+        scripts: root
+            .map(|r| scripts::config(&r).scripts)
+            .unwrap_or_default(),
         folder,
     }
 }
@@ -86,7 +87,7 @@ fn looked(key: u64, folder: PathBuf) -> Msg {
 /// Put `script` at `at` in the `ghost.json` of the repository at `dir`, or
 /// take the one at `at` away; then read the session `key`'s folder again.
 pub fn save_script(dir: PathBuf, at: Option<usize>, script: Option<Script>, key: u64, tx: Sender) {
-    off(tx, move || match runs::write_script(&dir, at, script) {
+    off(tx, move || match scripts::write_script(&dir, at, script) {
         Ok(()) => looked(key, dir),
         Err(why) => Msg::Notice(Err(("Couldn't write ghost.json".into(), why))),
     });
@@ -253,7 +254,7 @@ pub fn make_worktree(
             None => git::worktree(&dir, &about, &home, &prefix, "HEAD"),
         };
         let result = result.map(|wt| {
-            let scripts = runs::config(&wt.path).scripts;
+            let scripts = scripts::config(&wt.path).scripts;
             (wt, scripts)
         });
         Msg::Worktree { key, result }

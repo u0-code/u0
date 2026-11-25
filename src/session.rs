@@ -351,7 +351,7 @@ pub struct Session {
     /// What git says where it works, and what you chose of it.
     pub git: git::View,
     /// The scripts the `ghost.json` of its repository names.
-    pub scripts: Vec<crate::desk::runs::Script>,
+    pub scripts: Vec<crate::scripts::Script>,
     /// The calls just ended whose diffs are yet to be placed in their
     /// files, each diff's file and new text (see `hub::place`).
     pub placing: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,

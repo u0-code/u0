@@ -71,6 +71,7 @@ src/settings.rs   ~/.ghost/settings.json and the home
 src/store.rs      sessions.json and each session's record; the one writer
 src/tidy.rs       what Ghost keeps here, measured and tidied
 src/keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
+src/scripts.rs    a repository's own commands, in its ghost.json
 src/desk.rs       the window's state, actions and layout
 src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
                   palette, agents, send, turns, replies, notices
