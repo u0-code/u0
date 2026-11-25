@@ -51,7 +51,7 @@ impl Desk {
         for (id, title) in missing {
             let mut child = Session::new(self.take_key(), &agent, folder.clone());
             child.project.clone_from(&project);
-            child.id = Some(agent_client_protocol_schema::v1::SessionId::new(id));
+            child.id = Some(agent_client_protocol::v1::schema::SessionId::new(id));
             child.parent = Some(key);
             child.title = title;
             child.renamed = true;

@@ -1,7 +1,7 @@
 //! The line you type into, and the chips under it: the agent, its model
 //! and mode, how full its context is, and Send or Stop.
 
-use agent_client_protocol_schema::v1::SessionConfigOptionCategory;
+use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
 use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
 use super::{Choices, select_choices};
@@ -150,7 +150,7 @@ impl Desk {
             .any(|o| o.category == Some(SessionConfigOptionCategory::Mode));
         // The model first, then the mode; the rest (how hard it thinks, a
         // speed, a way of working) in the order the agent lists them.
-        let rank = |o: &&agent_client_protocol_schema::v1::SessionConfigOption| match o.category {
+        let rank = |o: &&agent_client_protocol::v1::schema::SessionConfigOption| match o.category {
             Some(SessionConfigOptionCategory::Model) => 0,
             Some(SessionConfigOptionCategory::Mode) => 1,
             _ => 2,
@@ -535,7 +535,7 @@ impl Desk {
         // A question waiting is answered here too, and a kind of call can
         // be allowed for the rest of the session.
         let approval = s.waiting().map(|asked| {
-            use agent_client_protocol_schema::v1::{PermissionOptionKind, ToolKind};
+            use agent_client_protocol::v1::schema::{PermissionOptionKind, ToolKind};
             let headline = match asked.kind {
                 Some(ToolKind::Execute) => format!("{name} wants to run a command"),
                 Some(ToolKind::Edit) => format!("{name} wants to edit a file"),
@@ -550,7 +550,7 @@ impl Desk {
                     PermissionOptionKind::AllowAlways => ui::Weight::Secondary,
                     _ => ui::Weight::Quiet,
                 };
-                let (request, chosen) = (asked.id.clone(), option.clone());
+                let (request, chosen) = (asked.id, option.clone());
                 buttons = buttons.child(
                     ui::button(
                         faces,
@@ -558,9 +558,7 @@ impl Desk {
                         option.name.clone(),
                         weight,
                     )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.choose(&request, &chosen, cx)),
-                    ),
+                    .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx))),
                 );
             }
             if let (Some(kind), Some(once)) = (
@@ -570,7 +568,7 @@ impl Desk {
                     .iter()
                     .find(|o| o.kind == PermissionOptionKind::AllowOnce),
             ) {
-                let (request, chosen) = (asked.id.clone(), once.clone());
+                let (request, chosen) = (asked.id, once.clone());
                 buttons = buttons.child(
                     ui::button(
                         faces,
@@ -579,7 +577,7 @@ impl Desk {
                         ui::Weight::Secondary,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.allow_for_session(&request, &chosen, kind, cx);
+                        this.allow_for_session(request, &chosen, kind, cx);
                     })),
                 );
             }
@@ -1270,7 +1268,7 @@ impl Desk {
     fn option_choices(
         &self,
         s: &crate::session::Session,
-        option: &agent_client_protocol_schema::v1::SessionConfigOption,
+        option: &agent_client_protocol::v1::schema::SessionConfigOption,
     ) -> Option<(String, Choices)> {
         let (current, mut choices) = select_choices(&option.kind)?;
         if option.category == Some(SessionConfigOptionCategory::Model) {

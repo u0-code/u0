@@ -8,7 +8,7 @@ mod repo;
 
 use std::time::SystemTime;
 
-use agent_client_protocol_schema::v1::{ToolCallContent, ToolCallStatus};
+use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{

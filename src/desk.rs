@@ -899,7 +899,7 @@ impl Desk {
     /// Sign in to `agent` the way it offers: its own method when it lists
     /// one, else its own program in a terminal, where it signs in.
     pub fn sign_in_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
-        use agent_client_protocol_schema::v1::AuthMethod;
+        use agent_client_protocol::v1::schema::AuthMethod;
         let Some(slot) = self.slot(agent) else { return };
         if let Stage::Running { init, .. } = &slot.stage
             && let Some(method) = init.auth_methods.iter().find_map(|m| match m {
@@ -1650,7 +1650,7 @@ impl Desk {
         session.unsent.clear();
         let pictures: Vec<_> = attached
             .iter()
-            .filter(|b| matches!(b, agent_client_protocol_schema::v1::ContentBlock::Image(_)))
+            .filter(|b| matches!(b, agent_client_protocol::v1::schema::ContentBlock::Image(_)))
             .cloned()
             .collect();
         session.attached.extend(attached);
@@ -1661,8 +1661,8 @@ impl Desk {
         // The images it took show under it, and are kept with its record.
         for p in pictures {
             session.apply(
-                agent_client_protocol_schema::v1::SessionUpdate::UserMessageChunk(
-                    agent_client_protocol_schema::v1::ContentChunk::new(p),
+                agent_client_protocol::v1::schema::SessionUpdate::UserMessageChunk(
+                    agent_client_protocol::v1::schema::ContentChunk::new(p),
                 ),
             );
         }
@@ -1761,12 +1761,12 @@ impl Desk {
                 .items
                 .iter()
                 .filter_map(|i| match i {
-                    Item::Asked(a) if a.chosen.is_none() => Some(a.id.clone()),
+                    Item::Asked(a) if a.chosen.is_none() => Some(a.id),
                     _ => None,
                 })
                 .collect();
             for request in open {
-                hub::answer(running, &request, None);
+                hub::answer(running, request, None);
             }
             hub::cancel(running, id);
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
@@ -1846,8 +1846,8 @@ impl Desk {
     /// Answer the question asked under `request` with the option `option`.
     pub fn choose(
         &mut self,
-        request: &serde_json::Value,
-        option: &agent_client_protocol_schema::v1::PermissionOption,
+        request: u64,
+        option: &agent_client_protocol::v1::schema::PermissionOption,
         cx: &mut Context<Self>,
     ) {
         let Some(key) = self.current else { return };
@@ -1932,9 +1932,9 @@ impl Desk {
     /// call of its kind for the rest of the session.
     pub fn allow_for_session(
         &mut self,
-        request: &serde_json::Value,
-        option: &agent_client_protocol_schema::v1::PermissionOption,
-        kind: agent_client_protocol_schema::v1::ToolKind,
+        request: u64,
+        option: &agent_client_protocol::v1::schema::PermissionOption,
+        kind: agent_client_protocol::v1::schema::ToolKind,
         cx: &mut Context<Self>,
     ) {
         if let Some(key) = self.current
@@ -1959,7 +1959,7 @@ impl Desk {
         {
             hub::set_mode(running, key, id, mode.clone(), self.tx.clone());
             if let Some(modes) = &mut self.session_mut(key).expect("on screen").modes {
-                modes.current_mode_id = agent_client_protocol_schema::v1::SessionModeId::new(mode);
+                modes.current_mode_id = agent_client_protocol::v1::schema::SessionModeId::new(mode);
             }
         }
         cx.notify();

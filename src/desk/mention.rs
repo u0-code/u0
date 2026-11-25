@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol_schema::v1::{
+use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResource, EmbeddedResourceResource, ImageContent, ResourceLink,
     TextResourceContents,
 };
@@ -126,7 +126,8 @@ impl Desk {
         }
         // The models the agent offers: @ switches to one.
         if let Some(option) = s.options.iter().find(|o| {
-            o.category == Some(agent_client_protocol_schema::v1::SessionConfigOptionCategory::Model)
+            o.category
+                == Some(agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model)
         }) && let Some((_, choices)) = crate::thread::select_choices(&option.kind)
         {
             for (value, label, on) in choices {

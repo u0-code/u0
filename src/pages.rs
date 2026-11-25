@@ -518,7 +518,7 @@ impl Desk {
         ));
         // The version of ACP it speaks, where it is not Ghost's.
         if let Stage::Running { init, .. } = stage
-            && init.protocol_version != agent_client_protocol_schema::ProtocolVersion::V1
+            && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             own = own.child(ui::trouble(
                 faces,

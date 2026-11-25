@@ -13,26 +13,24 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use agent_client_protocol_schema::{
-    ProtocolVersion,
-    v1::{
+use agent_client_protocol::{
+    schema::ProtocolVersion,
+    v1::schema::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
         ContentBlock, DeleteSessionRequest, ForkSessionRequest, ForkSessionResponse,
         Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutRequest, MessageId,
-        NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest, PromptResponse,
-        RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
-        ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
+        LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest, NewSessionResponse,
+        PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+        ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
         SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionInfo, SessionModeId,
-        SessionModeState, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
-        SetSessionModeRequest, StopReason, TextContent,
+        SessionModeState, SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason,
+        SubagentCapabilities, TextContent,
     },
 };
-use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::{
-    acp::{self, Agent, Failure},
+    acp::{self, Agent, Error},
     git,
     registry::{self, Entry, Missing},
 };
@@ -51,11 +49,11 @@ pub enum Msg {
     },
     Started {
         agent: String,
-        result: Result<(Arc<Agent>, Box<InitializeResponse>), Failure>,
+        result: Result<(Arc<Agent>, Box<InitializeResponse>), Error>,
     },
     Opened {
         key: u64,
-        result: Result<Box<NewSessionResponse>, Failure>,
+        result: Result<Box<NewSessionResponse>, Error>,
     },
     /// The sessions `agent` keeps in the projects, each with its project.
     Listed {
@@ -68,7 +66,7 @@ pub enum Msg {
         key: u64,
         /// Resumed from the desk's record, not loaded with what was said.
         resumed: bool,
-        result: Result<Opened, Failure>,
+        result: Result<Opened, Error>,
     },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
@@ -93,14 +91,14 @@ pub enum Msg {
     /// agent would not open one.
     Probed {
         agent: String,
-        result: Result<Box<NewSessionResponse>, Failure>,
+        result: Result<Box<NewSessionResponse>, Error>,
     },
     /// A session branched off the session `from` (before the item `at` of
     /// its thread, or whole), or why it was not.
     Forked {
         from: u64,
         at: Option<usize>,
-        result: Result<Box<ForkSessionResponse>, Failure>,
+        result: Result<Box<ForkSessionResponse>, Error>,
     },
     /// A window you chose was captured, to go with what you write: the
     /// picture's bytes, or nothing if you let it be.
@@ -175,7 +173,7 @@ pub enum Msg {
     },
     Ended {
         key: u64,
-        result: Result<StopReason, Failure>,
+        result: Result<StopReason, Error>,
     },
     /// An agent signed out, or could not.
     LoggedOut {
@@ -269,12 +267,12 @@ pub struct Slot {
     /// started again when it is wanted.
     pub used: std::time::Instant,
     /// The commands its sessions take, as the probe's session listed them.
-    pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
+    pub commands: Vec<agent_client_protocol::v1::schema::AvailableCommand>,
     /// A command line of yours that starts it instead of the registry's.
     pub command: Option<String>,
     /// What it said it can do when it last started: kept while it is let
     /// go; none before it first starts.
-    pub known: Option<agent_client_protocol_schema::v1::AgentCapabilities>,
+    pub known: Option<agent_client_protocol::v1::schema::AgentCapabilities>,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -439,7 +437,8 @@ pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
     });
 }
 
-/// Start `slot`'s program and say hello to it.
+/// Start `slot`'s program and say hello to it. What it says on its own
+/// comes back as [`Msg::Said`], in order with the answers to the desk.
 pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
     let entry = &slot.entry;
     let agent = entry.id.clone();
@@ -448,60 +447,42 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
         Err(m) => {
             let _ = tx.send(Msg::Started {
                 agent,
-                result: Err(Failure {
-                    code: None,
-                    message: m.say(&entry.name),
-                }),
+                result: Err(Error::internal_error().data(m.say(&entry.name))),
             });
             return;
         }
     };
-    let (events, mut said) = mpsc::unbounded_channel();
-    let forward = tx.clone();
-    let id = agent.clone();
     acp::runtime().spawn(async move {
-        while let Some(event) = said.recv().await {
-            if forward
-                .send(Msg::Said {
-                    agent: id.clone(),
-                    event: Box::new(event),
-                })
-                .is_err()
-            {
-                break;
+        let (said, id) = (tx.clone(), agent.clone());
+        let result = match Agent::start(&launch, move |event| {
+            let _ = said.send(Msg::Said {
+                agent: id.clone(),
+                event: Box::new(event),
+            });
+        })
+        .await
+        {
+            Ok(running) => {
+                let hello = InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(
+                        ClientCapabilities::new()
+                            .subagents(SubagentCapabilities::new())
+                            // Tasks left going in the background (a
+                            // command), as the JetBrains extension says
+                            // them, are shown.
+                            .meta(serde_json::Map::from_iter([(
+                                "jetbrains".into(),
+                                serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
+                            )])),
+                    )
+                    .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
+                running
+                    .request(hello)
+                    .await
+                    .map(|init| (Arc::new(running), Box::new(init)))
             }
-        }
-    });
-    let running = match Agent::start(&launch, events) {
-        Ok(a) => Arc::new(a),
-        Err(e) => {
-            let _ = tx.send(Msg::Started {
-                agent,
-                result: Err(Failure {
-                    code: None,
-                    message: format!("{} could not be started: {e}", launch.program.display()),
-                }),
-            });
-            return;
-        }
-    };
-    acp::runtime().spawn(async move {
-        let hello = InitializeRequest::new(ProtocolVersion::V1)
-            .client_capabilities(
-                ClientCapabilities::new()
-                    .subagents(agent_client_protocol_schema::v1::SubagentCapabilities::new())
-                    // Tasks left going in the background (a command), as
-                    // the JetBrains extension says them, are shown.
-                    .meta(serde_json::Map::from_iter([(
-                        "jetbrains".into(),
-                        serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
-                    )])),
-            )
-            .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
-        let result = running
-            .request::<_, InitializeResponse>("initialize", hello)
-            .await
-            .map(|init| (running, Box::new(init)));
+            Err(e) => Err(e),
+        };
         let _ = tx.send(Msg::Started { agent, result });
     });
 }
@@ -510,10 +491,7 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
 pub fn open(agent: Arc<Agent>, key: u64, (folder, also): (PathBuf, Vec<PathBuf>), tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, NewSessionResponse>(
-                "session/new",
-                NewSessionRequest::new(folder).additional_directories(also),
-            )
+            .request(NewSessionRequest::new(folder).additional_directories(also))
             .await
             .map(Box::new);
         let _ = tx.send(Msg::Opened { key, result });
@@ -555,10 +533,7 @@ pub fn list(
             let mut cursor = None;
             for _ in 0..PAGES {
                 let request = ListSessionsRequest::new().cwd(cwd.clone()).cursor(cursor);
-                match agent
-                    .request::<_, ListSessionsResponse>("session/list", request)
-                    .await
-                {
+                match agent.request(request).await {
                     Ok(page) => {
                         found.extend(page.sessions.into_iter().map(|s| (project.clone(), s)));
                         cursor = page.next_cursor;
@@ -583,10 +558,7 @@ pub fn list(
         let mut cursor = None;
         for _ in 0..PAGES / 5 {
             let request = ListSessionsRequest::new().cursor(cursor);
-            let Ok(page) = agent
-                .request::<_, ListSessionsResponse>("session/list", request)
-                .await
-            else {
+            let Ok(page) = agent.request(request).await else {
                 break;
             };
             for s in page.sessions {
@@ -627,10 +599,7 @@ pub fn load(
 ) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, LoadSessionResponse>(
-                "session/load",
-                LoadSessionRequest::new(id, folder).additional_directories(also),
-            )
+            .request(LoadSessionRequest::new(id, folder).additional_directories(also))
             .await
             .map(|r| Opened {
                 modes: r.modes,
@@ -655,10 +624,7 @@ pub fn resume(
 ) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, ResumeSessionResponse>(
-                "session/resume",
-                ResumeSessionRequest::new(id, folder).additional_directories(also),
-            )
+            .request(ResumeSessionRequest::new(id, folder).additional_directories(also))
             .await
             .map(|r| Opened {
                 modes: r.modes,
@@ -676,19 +642,13 @@ pub fn resume(
 /// delete it (or close it) again, so that nothing of it is kept.
 pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close: bool, tx: Sender) {
     acp::runtime().spawn(async move {
-        let result = agent
-            .request::<_, NewSessionResponse>("session/new", NewSessionRequest::new(dir))
-            .await;
+        let result = agent.request(NewSessionRequest::new(dir)).await;
         if let Ok(r) = &result {
             let id = r.session_id.clone();
             if delete {
-                let _ = agent
-                    .request::<_, Value>("session/delete", DeleteSessionRequest::new(id))
-                    .await;
+                let _ = agent.request(DeleteSessionRequest::new(id)).await;
             } else if close {
-                let _ = agent
-                    .request::<_, Value>("session/close", CloseSessionRequest::new(id))
-                    .await;
+                let _ = agent.request(CloseSessionRequest::new(id)).await;
             }
         }
         let _ = tx.send(Msg::Probed {
@@ -719,10 +679,7 @@ pub fn fork(
             let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
             request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
         }
-        let result = agent
-            .request::<_, ForkSessionResponse>("session/fork", request)
-            .await
-            .map(Box::new);
+        let result = agent.request(request).await.map(Box::new);
         let at = upto.map(|(at, _)| at);
         let _ = tx.send(Msg::Forked { from, at, result });
     });
@@ -884,7 +841,7 @@ fn read_pr(dir: &std::path::Path) -> Option<Pr> {
         .output()
         .ok()
         .filter(|o| o.status.success())?;
-    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     let checks = v["statusCheckRollup"]
         .as_array()
         .cloned()
@@ -969,7 +926,7 @@ pub fn uncommitted(dir: PathBuf, key: u64, tx: Sender) {
 pub fn delete(agent: Arc<Agent>, key: u64, id: SessionId, tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, Value>("session/delete", DeleteSessionRequest::new(id))
+            .request(DeleteSessionRequest::new(id))
             .await
             .map(|_| ())
             .map_err(|f| f.message);
@@ -990,10 +947,7 @@ pub fn prompt(
         let mut content = vec![ContentBlock::Text(TextContent::new(text))];
         content.extend(attached);
         let request = PromptRequest::new(id, content);
-        let result = agent
-            .request::<_, PromptResponse>("session/prompt", request)
-            .await
-            .map(|r| r.stop_reason);
+        let result = agent.request(request).await.map(|r| r.stop_reason);
         let _ = tx.send(Msg::Ended { key, result });
     });
 }
@@ -1003,9 +957,12 @@ pub fn prompt(
 pub fn stop_task(agent: Arc<Agent>, id: SessionId, task: String) {
     acp::runtime().spawn(async move {
         let _ = agent
-            .request::<_, Value>(
-                "_session/async_task/stop",
-                serde_json::json!({"sessionId": id.0, "asyncTaskId": task}),
+            .request(
+                agent_client_protocol::UntypedMessage::new(
+                    "_session/async_task/stop",
+                    serde_json::json!({"sessionId": id.0, "asyncTaskId": task}),
+                )
+                .expect("a JSON object"),
             )
             .await;
     });
@@ -1013,12 +970,12 @@ pub fn stop_task(agent: Arc<Agent>, id: SessionId, task: String) {
 
 /// Stop the turn going on in `id`.
 pub fn cancel(agent: &Agent, id: SessionId) {
-    agent.notify("session/cancel", CancelNotification::new(id));
+    agent.cancel(CancelNotification::new(id));
 }
 
 /// Answer the question asked under `request` with `option`, or say it was
 /// cancelled.
-pub fn answer(agent: &Agent, request: &Value, option: Option<String>) {
+pub fn answer(agent: &Agent, request: u64, option: Option<String>) {
     let outcome = match option {
         Some(o) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
             PermissionOptionId::new(o),
@@ -1032,7 +989,7 @@ pub fn answer(agent: &Agent, request: &Value, option: Option<String>) {
 pub fn set_mode(agent: Arc<Agent>, key: u64, id: SessionId, mode: String, tx: Sender) {
     acp::runtime().spawn(async move {
         let request = SetSessionModeRequest::new(id, SessionModeId::new(mode));
-        if let Err(f) = agent.request::<_, Value>("session/set_mode", request).await {
+        if let Err(f) = agent.request(request).await {
             let _ = tx.send(Msg::Refused {
                 key,
                 why: f.message,
@@ -1056,10 +1013,7 @@ pub fn set_option(
             SessionConfigId::new(config),
             SessionConfigOptionValue::value_id(SessionConfigValueId::new(value)),
         );
-        let msg = match agent
-            .request::<_, SetSessionConfigOptionResponse>("session/set_config_option", request)
-            .await
-        {
+        let msg = match agent.request(request).await {
             Ok(r) => Msg::Options {
                 key,
                 options: r.config_options,
@@ -1078,7 +1032,7 @@ pub fn set_option(
 pub fn authenticate(agent: Arc<Agent>, id: String, method: String, tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, Value>("authenticate", AuthenticateRequest::new(method))
+            .request(AuthenticateRequest::new(method))
             .await
             .map(|_| ())
             .map_err(|f| f.message);
@@ -1090,7 +1044,7 @@ pub fn authenticate(agent: Arc<Agent>, id: String, method: String, tx: Sender) {
 pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, Value>("logout", LogoutRequest::new())
+            .request(LogoutRequest::new())
             .await
             .map(|_| ())
             .map_err(|f| f.message);

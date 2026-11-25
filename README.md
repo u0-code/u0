@@ -64,7 +64,7 @@ in. Ghost never sees a credential.
 
 ```
 src/
-  acp.rs        one agent: its process and its JSON-RPC
+  acp.rs        one agent: its process and its ACP connection
   registry.rs   the ACP registry; installing an agent from it
   hub.rs        the agents switched on, and their work off the window's thread
   session.rs    a session's thread, built from the agent's updates

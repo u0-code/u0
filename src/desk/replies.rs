@@ -1,7 +1,7 @@
 //! What comes back to the window: signing in, and every message from the
 //! agents and the work done off the window's thread.
 
-use agent_client_protocol_schema::v1::SessionUpdate;
+use agent_client_protocol::v1::schema::SessionUpdate;
 use gpui::Context;
 
 use super::Desk;
@@ -14,7 +14,7 @@ use crate::{
 impl Desk {
     /// Sign in to `agent` with its method `method`.
     pub fn sign_in(&mut self, agent: &str, method: &str, cx: &mut Context<Self>) {
-        use agent_client_protocol_schema::v1::AuthMethod;
+        use agent_client_protocol::v1::schema::AuthMethod;
         let Some(slot) = self.slot(agent) else { return };
         let Stage::Running {
             agent: running,
@@ -358,7 +358,7 @@ impl Desk {
                     .map(|s| s.agent.clone());
                 if let Some(slot) = agent.and_then(|a| self.slot_mut(&a)) {
                     slot.auth = match &result {
-                        Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+                        Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
                             hub::Auth::Needed(f.message.clone())
                         }
                         Ok(_) => hub::Auth::Ready,
@@ -455,9 +455,9 @@ impl Desk {
         result: Result<
             (
                 std::sync::Arc<crate::acp::Agent>,
-                Box<agent_client_protocol_schema::v1::InitializeResponse>,
+                Box<agent_client_protocol::v1::schema::InitializeResponse>,
             ),
-            crate::acp::Failure,
+            crate::acp::Error,
         >,
     ) {
         let waiting: Vec<u64> = self
@@ -507,8 +507,8 @@ impl Desk {
         &mut self,
         key: u64,
         result: Result<
-            Box<agent_client_protocol_schema::v1::NewSessionResponse>,
-            crate::acp::Failure,
+            Box<agent_client_protocol::v1::schema::NewSessionResponse>,
+            crate::acp::Error,
         >,
     ) {
         let tx = self.tx.clone();
@@ -531,7 +531,7 @@ impl Desk {
                 s.chosen.clear();
                 if let (Some(m), Some(modes)) = (&mode, &mut s.modes) {
                     modes.current_mode_id =
-                        agent_client_protocol_schema::v1::SessionModeId::new(m.clone());
+                        agent_client_protocol::v1::schema::SessionModeId::new(m.clone());
                 }
                 let agent = s.agent.clone();
                 let id = r.session_id.clone();
@@ -559,7 +559,7 @@ impl Desk {
                 }
             }
             // The text waits: once signed in, the session opens and it goes.
-            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+            Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
                 s.state = State::SignIn;
                 let agent = s.agent.clone();
                 if let Some(slot) = self.slot_mut(&agent) {
@@ -582,7 +582,7 @@ impl Desk {
         result: Result<
             Vec<(
                 std::path::PathBuf,
-                agent_client_protocol_schema::v1::SessionInfo,
+                agent_client_protocol::v1::schema::SessionInfo,
             )>,
             String,
         >,
@@ -629,8 +629,8 @@ impl Desk {
         &mut self,
         agent: &str,
         result: Result<
-            Box<agent_client_protocol_schema::v1::NewSessionResponse>,
-            crate::acp::Failure,
+            Box<agent_client_protocol::v1::schema::NewSessionResponse>,
+            crate::acp::Error,
         >,
     ) {
         let Some(at) = self.slots.iter().position(|s| s.entry.id == agent) else {
@@ -653,7 +653,7 @@ impl Desk {
                     slot.seed(s);
                 }
             }
-            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => {
+            Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
                 self.slots[at].auth = hub::Auth::Needed(f.message);
             }
             Err(f) => tracing::warn!("{agent} would not open a session to be read: {}", f.message),
@@ -664,7 +664,7 @@ impl Desk {
         &mut self,
         key: u64,
         resumed: bool,
-        result: Result<hub::Opened, crate::acp::Failure>,
+        result: Result<hub::Opened, crate::acp::Error>,
     ) {
         let under = self.home.join("worktrees");
         let tx = self.tx.clone();
@@ -699,7 +699,7 @@ impl Desk {
                 self.flush(key);
                 self.save_index();
             }
-            Err(f) if f.code == Some(crate::acp::AUTH_REQUIRED) => s.state = State::SignIn,
+            Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => s.state = State::SignIn,
             // The agent would not resume it: it is loaded, said again.
             Err(_) if resumed => {
                 let agent = s.agent.clone();
@@ -740,7 +740,7 @@ impl Desk {
                     let (folder, project, up) =
                         (parent.folder.clone(), parent.project.clone(), parent.key);
                     let title = match &u.title {
-                        agent_client_protocol_schema::MaybeUndefined::Value(t) => t.clone(),
+                        agent_client_protocol::schema::MaybeUndefined::Value(t) => t.clone(),
                         _ => "A subagent".into(),
                     };
                     let key = self.take_key();
@@ -794,9 +794,9 @@ impl Desk {
                     .find(|s| s.agent == agent && s.id.as_ref() == Some(&request.session_id))
                 {
                     let key = s.key;
-                    if let Some(option) = s.asked(id.clone(), request) {
+                    if let Some(option) = s.asked(id, request) {
                         if let Some(running) = self.slot(agent).and_then(Slot::running) {
-                            hub::answer(running, &id, Some(option.option_id.0.to_string()));
+                            hub::answer(running, id, Some(option.option_id.0.to_string()));
                         }
                         return;
                     }
@@ -814,7 +814,7 @@ impl Desk {
                         s.flags.unread = true;
                     }
                 } else if let Some(running) = self.slot(agent).and_then(Slot::running) {
-                    hub::answer(running, &id, None);
+                    hub::answer(running, id, None);
                 }
             }
             Event::Exited(why) => {

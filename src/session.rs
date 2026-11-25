@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use agent_client_protocol_schema::v1::{
+use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResourceResource, MessageId, PermissionOption, PermissionOptionKind,
     Plan, RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
     SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
@@ -45,8 +45,8 @@ pub enum State {
 /// A question the agent asked, and what was chosen.
 #[derive(Debug, Clone)]
 pub struct Asked {
-    /// The JSON-RPC id the answer goes back under.
-    pub id: Value,
+    /// The number the answer goes back under ([`crate::acp::Agent::respond`]).
+    pub id: u64,
     pub title: String,
     pub options: Vec<PermissionOption>,
     /// What kind of call it asks for (a command, an edit), when known.
@@ -217,8 +217,8 @@ pub struct Sub {
 
 impl Sub {
     /// Take in what the parent's agent says of it now.
-    pub fn take(&mut self, u: &agent_client_protocol_schema::v1::SubagentUpdate) {
-        use agent_client_protocol_schema::{MaybeUndefined, v1::StateUpdate};
+    pub fn take(&mut self, u: &agent_client_protocol::v1::schema::SubagentUpdate) {
+        use agent_client_protocol::{schema::MaybeUndefined, v1::schema::StateUpdate};
         match &u.state {
             MaybeUndefined::Value(StateUpdate::Running(_)) => {
                 self.since.get_or_insert_with(SystemTime::now);
@@ -379,7 +379,7 @@ pub struct Session {
     /// session is on screen.
     pub unsent: String,
     /// The commands the agent takes in it, typed after `/`.
-    pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
+    pub commands: Vec<agent_client_protocol::v1::schema::AvailableCommand>,
     /// What goes with the next thing said: images, files and sessions
     /// mentioned.
     pub attached: Vec<ContentBlock>,
@@ -473,11 +473,11 @@ impl Session {
     pub fn choose(&mut self, config: &str, value: &str) {
         for o in &mut self.options {
             if &*o.id.0 == config
-                && let agent_client_protocol_schema::v1::SessionConfigKind::Select(select) =
+                && let agent_client_protocol::v1::schema::SessionConfigKind::Select(select) =
                     &mut o.kind
             {
                 select.current_value =
-                    agent_client_protocol_schema::v1::SessionConfigValueId::new(value.to_owned());
+                    agent_client_protocol::v1::schema::SessionConfigValueId::new(value.to_owned());
             }
         }
         self.chosen.retain(|(c, _)| c != config);
@@ -488,7 +488,7 @@ impl Session {
     pub fn choose_mode(&mut self, mode: &str) {
         if let Some(modes) = &mut self.modes {
             modes.current_mode_id =
-                agent_client_protocol_schema::v1::SessionModeId::new(mode.to_owned());
+                agent_client_protocol::v1::schema::SessionModeId::new(mode.to_owned());
         }
         self.chosen_mode = Some(mode.to_owned());
     }
@@ -675,7 +675,7 @@ impl Session {
             .as_ref()
             .is_some_and(|m| plan(&m.current_mode_id.0))
             || self.options.iter().any(|o| match &o.kind {
-                agent_client_protocol_schema::v1::SessionConfigKind::Select(sel) => {
+                agent_client_protocol::v1::schema::SessionConfigKind::Select(sel) => {
                     plan(&sel.current_value.0)
                 }
                 _ => false,
@@ -996,7 +996,7 @@ impl Session {
             SessionUpdate::SubagentUpdate(u) => {
                 let id = u.session_id.clone();
                 let named = match u.title {
-                    agent_client_protocol_schema::MaybeUndefined::Value(t) => Some(t),
+                    agent_client_protocol::schema::MaybeUndefined::Value(t) => Some(t),
                     _ => None,
                 };
                 if let Some(Item::Child { title, .. }) = self
@@ -1088,7 +1088,7 @@ impl Session {
     /// it with at once, when the session already allows its kind of call.
     pub fn asked(
         &mut self,
-        id: Value,
+        id: u64,
         request: RequestPermissionRequest,
     ) -> Option<PermissionOption> {
         let title = request
@@ -1138,10 +1138,10 @@ impl Session {
     }
 
     /// Note that the question asked under `id` was answered with `option`.
-    pub fn answered(&mut self, id: &Value, option: &PermissionOption) {
+    pub fn answered(&mut self, id: u64, option: &PermissionOption) {
         for item in &mut self.items {
             if let Item::Asked(a) = item
-                && &a.id == id
+                && a.id == id
             {
                 a.chosen = Some((option.name.clone(), option.kind));
             }
@@ -1257,7 +1257,7 @@ impl Session {
 
 /// The level ("warning", "error") of a chunk Claude's adapter marks as
 /// its own information, not the agent's words.
-fn informational(c: &agent_client_protocol_schema::v1::ContentChunk) -> Option<&str> {
+fn informational(c: &agent_client_protocol::v1::schema::ContentChunk) -> Option<&str> {
     let own = c.meta.as_ref()?.get("claudeCode")?;
     (own.get("kind")?.as_str()? == "informational")
         .then(|| own.get("level").and_then(|l| l.as_str()).unwrap_or("info"))
@@ -1401,7 +1401,7 @@ mod tests {
             r#"{"sessionId":"s","toolCall":{"toolCallId":"t","title":"rm -rf build"},"options":[{"optionId":"a","name":"Allow","kind":"allow_once"}]}"#,
         )
         .unwrap();
-        s.asked(Value::from(5), request);
+        s.asked(5, request);
         assert_eq!(s.waiting().unwrap().title, "rm -rf build");
         s.ended(Ok(StopReason::Cancelled));
         assert!(s.waiting().is_none());
@@ -1459,7 +1459,7 @@ mod tests {
     #[test]
     fn codexs_own_answer_to_a_new_session_is_read_with_its_modes_and_options() {
         // Recorded from @agentclientprotocol/codex-acp 2.10.0.
-        let r: agent_client_protocol_schema::v1::NewSessionResponse =
+        let r: agent_client_protocol::v1::schema::NewSessionResponse =
             serde_json::from_str(include_str!("fixtures/codex-session-new.json")).unwrap();
         assert!(r.modes.is_some());
         let options = r.config_options.unwrap();

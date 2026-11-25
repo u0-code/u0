@@ -169,7 +169,7 @@ impl Desk {
     /// Open the model's menu in the composer (⌘⇧M).
     pub fn open_model(&mut self, cx: &mut Context<Self>) {
         self.open_option(
-            &agent_client_protocol_schema::v1::SessionConfigOptionCategory::Model,
+            &agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model,
             cx,
         );
     }
@@ -179,7 +179,7 @@ impl Desk {
     /// has no such option.
     pub fn open_option(
         &mut self,
-        which: &agent_client_protocol_schema::v1::SessionConfigOptionCategory,
+        which: &agent_client_protocol::v1::schema::SessionConfigOptionCategory,
         cx: &mut Context<Self>,
     ) {
         let Some(s) = self.session() else { return };
@@ -190,7 +190,7 @@ impl Desk {
         self.popup = match found {
             Some(o) => Popup::Option(o.id.0.to_string()),
             None if *which
-                == agent_client_protocol_schema::v1::SessionConfigOptionCategory::Mode
+                == agent_client_protocol::v1::schema::SessionConfigOptionCategory::Mode
                 && s.modes.is_some() =>
             {
                 Popup::Mode

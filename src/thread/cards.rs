@@ -1,7 +1,7 @@
 //! The cards in a thread: a question the agent asks, how a turn ended,
 //! the agent stopping, and signing in.
 
-use agent_client_protocol_schema::v1::{
+use agent_client_protocol::v1::schema::{
     PermissionOptionKind, StopReason, ToolCallContent, ToolKind,
 };
 use std::path::Path;
@@ -81,14 +81,14 @@ impl Desk {
                 PermissionOptionKind::AllowAlways => Weight::Secondary,
                 _ => Weight::Quiet,
             };
-            let (request, chosen) = (asked.id.clone(), option.clone());
+            let (request, chosen) = (asked.id, option.clone());
             let button = ui::button(
                 faces,
                 SharedString::from(format!("{key}-opt-{n}")),
                 option.name.clone(),
                 weight,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(&request, &chosen, cx)));
+            .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx)));
             if weight == Weight::Quiet {
                 reject = reject.child(button);
             } else {
@@ -304,7 +304,7 @@ impl Desk {
 
     /// The agent asks to be signed in before it opens the session.
     pub(super) fn sign_in_card(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        use agent_client_protocol_schema::v1::AuthMethod;
+        use agent_client_protocol::v1::schema::AuthMethod;
         let name = self.name_of(&s.agent);
         let methods: Vec<(String, String)> = match self.slot(&s.agent).map(|x| &x.stage) {
             Some(Stage::Running { init, .. }) => init

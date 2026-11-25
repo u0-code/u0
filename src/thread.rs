@@ -23,7 +23,7 @@ mod topbar;
 
 use std::path::Path;
 
-use agent_client_protocol_schema::v1::{
+use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };

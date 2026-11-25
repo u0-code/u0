@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use agent_client_protocol_schema::v1::SessionConfigOptionCategory as Kind;
+use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
 use gpui::{Action, App, KeyBinding, WindowHandle, actions};
 use serde::Deserialize;
 

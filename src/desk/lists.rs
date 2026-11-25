@@ -9,7 +9,7 @@ use gpui::{
     Window, px,
 };
 
-use agent_client_protocol_schema::v1::MessageId;
+use agent_client_protocol::v1::schema::MessageId;
 
 use super::Desk;
 use crate::{
@@ -597,8 +597,8 @@ impl Desk {
         from: u64,
         at: Option<usize>,
         result: Result<
-            Box<agent_client_protocol_schema::v1::ForkSessionResponse>,
-            crate::acp::Failure,
+            Box<agent_client_protocol::v1::schema::ForkSessionResponse>,
+            crate::acp::Error,
         >,
         cx: &mut Context<Self>,
     ) {
@@ -711,11 +711,11 @@ impl Desk {
         // An option that plans (a way of working) goes back to its first value
         // that does not.
         let option = s.options.iter().find_map(|o| match &o.kind {
-            agent_client_protocol_schema::v1::SessionConfigKind::Select(sel)
+            agent_client_protocol::v1::schema::SessionConfigKind::Select(sel)
                 if plan(&sel.current_value.0) =>
             {
                 let values: Vec<_> = match &sel.options {
-                    agent_client_protocol_schema::v1::SessionConfigSelectOptions::Ungrouped(v) => {
+                    agent_client_protocol::v1::schema::SessionConfigSelectOptions::Ungrouped(v) => {
                         v.iter().map(|x| x.value.0.to_string()).collect()
                     }
                     _ => Vec::new(),

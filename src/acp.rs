@@ -1,15 +1,13 @@
-//! One agent, spoken to over the Agent Client Protocol: JSON-RPC, a message
-//! a line, on the standard input and output of a program the desk starts.
+//! One agent, spoken to over the Agent Client Protocol on the standard input
+//! and output of a program the desk starts.
 //!
-//! The protocol's types are `agent-client-protocol-schema`'s; this file only
-//! carries them. What the desk asks (`initialize`, `session/new`,
-//! `session/prompt`, ...) is a request whose answer comes back through
-//! [`Agent::request`]. What the agent says on its own comes to the desk as an
-//! [`Event`]: an update to a session, or a question only a person can answer
-//! (`session/request_permission`), which the desk answers later with
-//! [`Agent::respond`]. Whatever else the agent asks of the desk it is told the
-//! desk does not do: the desk offers it no file system and no terminal, so
-//! that every agent works with its own tools, as it would in its own CLI.
+//! The protocol is the `agent-client-protocol` SDK's: its connection frames
+//! the messages, pairs each answer with its request and refuses what the
+//! desk does not offer (a file system, a terminal: every agent works with its
+//! own tools, as in its own CLI). This file starts the program and turns what
+//! the agent says on its own into an [`Event`]: an update to a session, or a
+//! question only a person can answer, which the desk answers later with
+//! [`Agent::respond`].
 //!
 //! The program runs in a process group of its own, so that stopping it stops
 //! whatever it started (an `npx` runs a node under it). Dropping the
@@ -21,20 +19,30 @@ use std::{
     process::Stdio,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 
-use agent_client_protocol_schema::v1::{RequestPermissionRequest, SessionNotification};
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader},
-    process::{Child, Command},
-    runtime::Runtime,
-    sync::{mpsc, oneshot},
+use agent_client_protocol::{
+    ByteStreams, Client, JsonRpcRequest, Responder, UntypedMessage, V1, on_receive_notification,
+    on_receive_request,
+    v1::{
+        ConnectionTo,
+        schema::{
+            CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
+            SessionNotification,
+        },
+    },
 };
-use tracing::{debug, warn};
+pub use agent_client_protocol::{Error, ErrorCode};
+use tokio::{
+    io::{AsyncBufReadExt as _, BufReader},
+    process::Command,
+    runtime::Runtime,
+    sync::oneshot,
+};
+use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
+use tracing::debug;
 
 /// Where every agent's pipes are served: two threads are plenty for a
 /// handful of programs.
@@ -68,7 +76,7 @@ pub enum Event {
     /// It wants a person to choose before it goes on. Answer with
     /// [`Agent::respond`] under `id`.
     Permission {
-        id: Value,
+        id: u64,
         request: RequestPermissionRequest,
     },
     /// It stopped, with the last of what it wrote to its standard error.
@@ -119,42 +127,28 @@ struct TaskNote {
     update: Task,
 }
 
-/// An error the agent answered with, or the reason there was no answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Failure {
-    /// The JSON-RPC code, when the agent gave one.
-    pub code: Option<i64>,
-    pub message: String,
-}
-
-impl std::fmt::Display for Failure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-/// The code an agent answers with when it needs to be signed in first.
-pub const AUTH_REQUIRED: i64 = -32000;
-
-type Waiting = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, Failure>>>>>;
-
 /// How many lines of an agent's standard error are kept to say why it
 /// stopped.
 const STDERR_KEPT: usize = 20;
 
+/// Questions the agent asked that wait for a person, by the number the desk
+/// knows each by.
+type Asked = Arc<Mutex<HashMap<u64, Responder<RequestPermissionResponse, V1>>>>;
+
 /// A running agent.
 pub struct Agent {
-    out: mpsc::UnboundedSender<String>,
-    waiting: Waiting,
-    next: AtomicI64,
+    connection: ConnectionTo<agent_client_protocol::Agent>,
+    asked: Asked,
     pid: Option<u32>,
 }
 
 impl Agent {
-    /// Start the program and serve its pipes; what it says on its own goes
-    /// to `events`.
-    pub fn start(launch: &Launch, events: mpsc::UnboundedSender<Event>) -> std::io::Result<Self> {
-        let _enter = runtime().enter();
+    /// Start the program and connect to it; what it says on its own goes to
+    /// `said`, in the order it says it, before the answer that follows it.
+    pub async fn start(
+        launch: &Launch,
+        said: impl Fn(Event) + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
         let mut command = Command::new(&launch.program);
         command
             .args(&launch.args)
@@ -174,87 +168,124 @@ impl Agent {
         if let Some(dir) = &launch.dir {
             command.current_dir(dir);
         }
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(|e| {
+            Error::internal_error().data(format!(
+                "{} could not be started: {e}",
+                launch.program.display()
+            ))
+        })?;
         let pid = child.id();
-        let (out, mut lines) = mpsc::unbounded_channel::<String>();
-        let waiting: Waiting = Arc::default();
-
-        let mut stdin = child.stdin.take().expect("piped stdin");
-        runtime().spawn(async move {
-            while let Some(line) = lines.recv().await {
-                if stdin.write_all(line.as_bytes()).await.is_err()
-                    || stdin.write_all(b"\n").await.is_err()
-                    || stdin.flush().await.is_err()
-                {
-                    break;
-                }
-            }
-        });
+        let stdin = child.stdin.take().expect("piped stdin").compat_write();
+        let stdout = child.stdout.take().expect("piped stdout").compat();
 
         // The last of what it writes to its standard error, handed over
-        // when that closes: it says why the agent stopped.
+        // when that closes: it says why the agent stopped. Read as bytes, so
+        // that a line that is not UTF-8 does not stop the reading and leave
+        // the agent blocked on a full pipe.
         let stderr = child.stderr.take().expect("piped stderr");
         let tail = runtime().spawn(async move {
             let mut kept = VecDeque::new();
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                debug!(target: "ghost_desk::agent", "{line}");
+            let mut reader = BufReader::new(stderr);
+            let mut line = Vec::new();
+            while reader
+                .read_until(b'\n', &mut line)
+                .await
+                .is_ok_and(|n| n > 0)
+            {
+                let text = String::from_utf8_lossy(&line).trim_end().to_owned();
+                debug!(target: "ghost_desk::agent", "{text}");
                 if kept.len() == STDERR_KEPT {
                     kept.pop_front();
                 }
-                kept.push_back(line);
+                kept.push_back(text);
+                line.clear();
             }
             kept
         });
 
-        let stdout = child.stdout.take().expect("piped stdout");
-        let answers = waiting.clone();
-        let replies = out.clone();
-        runtime().spawn(read(child, stdout, answers, replies, events, tail));
-
+        let said = Arc::new(said);
+        let asked = Asked::default();
+        let (connected, connection) = oneshot::channel();
+        let (updates, questions, waiting) = (said.clone(), said.clone(), asked.clone());
+        runtime().spawn(async move {
+            let ticket = AtomicU64::new(1);
+            let _ = Client
+                .v1()
+                .name("ghost")
+                .on_receive_notification(
+                    async move |n: UntypedMessage, _| {
+                        if n.method == "session/update" {
+                            update(n.params, &*updates);
+                        }
+                        Ok(())
+                    },
+                    on_receive_notification!(),
+                )
+                .on_receive_request(
+                    async move |request: RequestPermissionRequest, responder, _| {
+                        let id = ticket.fetch_add(1, Ordering::Relaxed);
+                        waiting.lock().expect("asked").insert(id, responder);
+                        questions(Event::Permission { id, request });
+                        Ok(())
+                    },
+                    on_receive_request!(),
+                )
+                .connect_with(ByteStreams::new(stdin, stdout), async move |cx| {
+                    let _ = connected.send(cx.clone());
+                    // Its output closing ends it, as does the connection
+                    // failing some other way.
+                    tokio::select! {
+                        () = cx.incoming_closed() => {}
+                        _ = cx.terminated() => {}
+                    }
+                    Ok(())
+                })
+                .await;
+            let status = child.wait().await.ok();
+            // A program it left behind may hold its standard error open: the
+            // reason is waited for a moment, not for ever.
+            let tail = tokio::time::timeout(std::time::Duration::from_secs(2), tail).await;
+            let mut why = tail
+                .ok()
+                .and_then(Result::ok)
+                .map(Vec::from)
+                .unwrap_or_default()
+                .join("\n");
+            if why.trim().is_empty() {
+                why = match status.and_then(|s| s.code()) {
+                    Some(code) => format!("it exited with status {code}"),
+                    None => "it was stopped".into(),
+                };
+            }
+            said(Event::Exited(why));
+        });
+        let connection = connection
+            .await
+            .map_err(|_| Error::internal_error().data("the agent stopped as it started"))?;
         Ok(Self {
-            out,
-            waiting,
-            next: AtomicI64::new(1),
+            connection,
+            asked,
             pid,
         })
     }
 
-    /// Ask `method` with `params`, and wait for the answer.
-    pub async fn request<P: Serialize, R: DeserializeOwned>(
-        &self,
-        method: &str,
-        params: P,
-    ) -> Result<R, Failure> {
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().expect("waiting").insert(id, tx);
-        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        if self.out.send(line.to_string()).is_err() {
-            self.waiting.lock().expect("waiting").remove(&id);
-            return Err(gone());
+    /// Ask `request`, and wait for the answer.
+    pub async fn request<R: JsonRpcRequest>(&self, request: R) -> Result<R::Response, Error> {
+        self.connection.send_request(request).block_task().await
+    }
+
+    /// Stop the turn going on in a session.
+    pub fn cancel(&self, cancel: CancelNotification) {
+        let _ = self.connection.send_notification(cancel);
+    }
+
+    /// Answer the question the agent asked under `id`.
+    pub fn respond(&self, id: u64, response: RequestPermissionResponse) {
+        if let Some(responder) = self.asked.lock().expect("asked").remove(&id) {
+            let _ = responder.respond(response);
         }
-        let value = rx.await.map_err(|_| gone())??;
-        serde_json::from_value(value).map_err(|e| Failure {
-            code: None,
-            message: format!("{method} answered in a shape the desk does not read: {e}"),
-        })
     }
 
-    /// Say `method` with `params`, expecting no answer.
-    pub fn notify<P: Serialize>(&self, method: &str, params: P) {
-        let line = json!({"jsonrpc": "2.0", "method": method, "params": params});
-        let _ = self.out.send(line.to_string());
-    }
-
-    /// Answer the agent's request `id`.
-    pub fn respond<R: Serialize>(&self, id: &Value, result: R) {
-        let line = json!({"jsonrpc": "2.0", "id": id, "result": result});
-        let _ = self.out.send(line.to_string());
-    }
-}
-
-impl Agent {
     /// Its process's id, where it has one.
     pub fn pid(&self) -> Option<u32> {
         self.pid
@@ -262,159 +293,74 @@ impl Agent {
 
     /// Stop it at once, and all it started: when it would not stop a turn.
     pub fn kill(&self) {
-        if let Some(pid) = self.pid.and_then(|p| i32::try_from(p).ok()) {
-            // SAFETY: kill(2) on a process group the desk started; it
-            // touches no memory.
-            unsafe {
-                libc::kill(-pid, libc::SIGKILL);
-            }
-        }
+        signal(self.pid, libc::SIGKILL);
     }
 }
 
 impl Drop for Agent {
     fn drop(&mut self) {
         // The whole group: an npx and the node it started.
-        if let Some(pid) = self.pid.and_then(|p| i32::try_from(p).ok()) {
-            // SAFETY: kill(2) on a process group the desk started; it
-            // touches no memory.
-            unsafe {
-                libc::kill(-pid, libc::SIGTERM);
-            }
+        signal(self.pid, libc::SIGTERM);
+    }
+}
+
+/// Send `signal` to the process group `pid` leads.
+fn signal(pid: Option<u32>, signal: i32) {
+    if let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()) {
+        // SAFETY: kill(2) on a process group the desk started; it touches no
+        // memory.
+        unsafe {
+            libc::kill(-pid, signal);
         }
     }
 }
 
-fn gone() -> Failure {
-    Failure {
-        code: None,
-        message: "the agent is no longer running".into(),
-    }
-}
-
-/// Read the agent's standard output to its end: answers to the desk's
-/// requests go to whoever waits on them, everything else is an [`Event`].
-async fn read(
-    mut child: Child,
-    stdout: tokio::process::ChildStdout,
-    waiting: Waiting,
-    out: mpsc::UnboundedSender<String>,
-    events: mpsc::UnboundedSender<Event>,
-    tail: tokio::task::JoinHandle<VecDeque<String>>,
-) {
-    let mut lines = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            warn!(
-                "an agent wrote a line that is not JSON: {}",
-                line.chars().take(200).collect::<String>()
-            );
-            continue;
-        };
-        match (
-            message.get("method").and_then(Value::as_str),
-            message.get("id"),
-        ) {
-            (Some(method), id) => incoming(method, id.cloned(), &message, &out, &events),
-            (None, Some(id)) => {
-                let Some(id) = id.as_i64() else { continue };
-                let Some(tx) = waiting.lock().expect("waiting").remove(&id) else {
-                    continue;
-                };
-                let answer = match message.get("error") {
-                    Some(error) => Err(Failure {
-                        code: error.get("code").and_then(Value::as_i64),
-                        message: error
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("the agent refused")
-                            .to_owned(),
-                    }),
-                    None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
-                };
-                let _ = tx.send(answer);
+/// A `session/update`: one the schema has, or a task in the background,
+/// which it does not; any other kind the desk does not know yet is skipped,
+/// and the session goes on.
+fn update(params: serde_json::Value, said: &dyn Fn(Event)) {
+    match serde_json::from_value(params.clone()) {
+        Ok(update) => said(Event::Update(update)),
+        Err(e) => {
+            if let Ok(n) = serde_json::from_value::<TaskNote>(params) {
+                said(Event::Task {
+                    session: n.session,
+                    task: n.update,
+                });
+            } else {
+                debug!("skipped an update the desk does not read: {e}");
             }
-            (None, None) => {}
         }
-    }
-    let status = child.wait().await.ok();
-    waiting.lock().expect("waiting").clear();
-    // A program it left behind may hold its standard error open: the reason
-    // is waited for a moment, not for ever.
-    let said: Vec<String> = tokio::time::timeout(std::time::Duration::from_secs(2), tail)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .map(Vec::from)
-        .unwrap_or_default();
-    let mut why = said.join("\n");
-    if why.trim().is_empty() {
-        why = match status.and_then(|s| s.code()) {
-            Some(code) => format!("it exited with status {code}"),
-            None => "it was stopped".into(),
-        };
-    }
-    let _ = events.send(Event::Exited(why));
-}
-
-/// A message the agent began: a notification, or a request of the desk.
-fn incoming(
-    method: &str,
-    id: Option<Value>,
-    message: &Value,
-    out: &mpsc::UnboundedSender<String>,
-    events: &mpsc::UnboundedSender<Event>,
-) {
-    let params = message.get("params").cloned().unwrap_or(Value::Null);
-    match (method, id) {
-        ("session/update", None) => match serde_json::from_value(params.clone()) {
-            Ok(update) => {
-                let _ = events.send(Event::Update(update));
-            }
-            // A task in the background, which the schema does not have; any
-            // other kind of update this desk does not know yet is skipped,
-            // and the session goes on.
-            Err(e) => {
-                if let Ok(n) = serde_json::from_value::<TaskNote>(params) {
-                    let _ = events.send(Event::Task {
-                        session: n.session,
-                        task: n.update,
-                    });
-                } else {
-                    debug!("skipped an update the desk does not read: {e}");
-                }
-            }
-        },
-        ("session/request_permission", Some(id)) => match serde_json::from_value(params) {
-            Ok(request) => {
-                let _ = events.send(Event::Permission { id, request });
-            }
-            Err(e) => {
-                let line = json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": e.to_string()}});
-                let _ = out.send(line.to_string());
-            }
-        },
-        (_, Some(id)) => {
-            let line = json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("{method} is not offered by this client")}});
-            let _ = out.send(line.to_string());
-        }
-        (_, None) => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_client_protocol::v1::schema::NewSessionRequest;
+    use serde_json::{Value, json};
+    use tokio::sync::mpsc;
 
-    /// A shell script that answers one request and says one update, the way
-    /// an agent would.
+    /// A shell script that speaks to the desk the way an agent would; `id`
+    /// reads the id of the request on `$line`.
     fn script(body: &str) -> Launch {
+        let id = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }"#;
         Launch {
             program: "/bin/sh".into(),
-            args: vec!["-c".into(), body.into()],
+            args: vec!["-c".into(), format!("{id}\n{body}")],
             env: vec![],
             dir: None,
         }
+    }
+
+    fn start(body: &str) -> (Agent, mpsc::UnboundedReceiver<Event>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let agent = runtime()
+            .block_on(Agent::start(&script(body), move |e| {
+                let _ = tx.send(e);
+            }))
+            .unwrap();
+        (agent, rx)
     }
 
     #[test]
@@ -448,43 +394,57 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_reaches_the_request_it_answers_and_an_update_arrives_as_an_event() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let agent = Agent::start(
-            &script(
-                r#"read line
+    fn an_update_said_before_an_answer_arrives_before_it() {
+        let (agent, mut rx) = start(
+            r#"read line
 printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}'
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"s1"}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"s1"}}\n' "$(id)"
 read line"#,
-            ),
-            tx,
-        )
-        .unwrap();
-        let answer: Value = runtime()
-            .block_on(agent.request("session/new", json!({"cwd": "/", "mcpServers": []})))
+        );
+        let answer = runtime()
+            .block_on(agent.request(NewSessionRequest::new("/")))
             .unwrap();
-        assert_eq!(answer["sessionId"], "s1");
-        let event = runtime().block_on(rx.recv()).unwrap();
+        assert_eq!(&*answer.session_id.0, "s1");
+        let event = rx.try_recv().expect("the update, already there");
         assert!(matches!(event, Event::Update(u) if &*u.session_id.0 == "s1"));
     }
 
     #[test]
+    fn a_question_is_answered_later_under_its_id() {
+        let (agent, mut rx) = start(
+            r#"printf '%s\n' '{"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t"},"options":[]}}'
+read line
+echo "$line" >&2"#,
+        );
+        let Event::Permission { id, .. } = runtime().block_on(rx.recv()).unwrap() else {
+            panic!("expected a question");
+        };
+        agent.respond(
+            id,
+            RequestPermissionResponse::new(
+                agent_client_protocol::v1::schema::RequestPermissionOutcome::Cancelled,
+            ),
+        );
+        let Event::Exited(why) = runtime().block_on(rx.recv()).unwrap() else {
+            panic!("expected the agent to exit");
+        };
+        assert!(
+            why.contains(r#""id":9"#) && why.contains("cancelled"),
+            "{why}"
+        );
+    }
+
+    #[test]
     fn a_request_the_desk_does_not_offer_is_refused_and_an_exit_says_why() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let _agent = Agent::start(
-            &script(
-                r#"printf '%s\n' '{"jsonrpc":"2.0","id":7,"method":"fs/read_text_file","params":{}}'
+        let (_agent, mut rx) = start(
+            r#"printf '%s\n' '{"jsonrpc":"2.0","id":7,"method":"fs/read_text_file","params":{"sessionId":"s1","path":"/x"}}'
 read line
 echo "$line" >&2
 exit 3"#,
-            ),
-            tx,
-        )
-        .unwrap();
+        );
         let Event::Exited(why) = runtime().block_on(rx.recv()).unwrap() else {
             panic!("expected the agent to exit");
         };
         assert!(why.contains("-32601"), "{why}");
-        assert!(why.contains("fs/read_text_file is not offered"), "{why}");
     }
 }

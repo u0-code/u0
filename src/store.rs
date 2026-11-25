@@ -19,7 +19,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use agent_client_protocol_schema::v1::{SessionUpdate, StopReason};
+use agent_client_protocol::v1::schema::{SessionUpdate, StopReason};
 use serde::{Deserialize, Serialize};
 
 use crate::{git, whole};

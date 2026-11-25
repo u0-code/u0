@@ -10,7 +10,7 @@
 
 use std::collections::HashSet;
 
-use agent_client_protocol_schema::v1::{ToolCallContent, ToolKind};
+use agent_client_protocol::v1::schema::{ToolCallContent, ToolKind};
 
 use crate::session::{Item, Tool};
 
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn a_finished_turn_folds_its_work_and_keeps_the_answer() {
         let mut s = session();
-        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        s.ended(Ok(agent_client_protocol::v1::schema::StopReason::EndTurn));
         let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
         // You, the fold over four calls, the answer, the end.
         assert_eq!(
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn an_opened_turn_folds_a_run_of_quiet_calls_into_a_group() {
         let mut s = session();
-        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        s.ended(Ok(agent_client_protocol::v1::schema::StopReason::EndTurn));
         let open: HashSet<String> = [turn_key(7, 1)].into_iter().collect();
         let rows = rows(7, &s.items, &open, |i| i == 4, false, true);
         // The fourth call is open, so only the first three are a group.
@@ -331,7 +331,7 @@ mod tests {
         s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#).unwrap());
         s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"b","title":"u","kind":"edit","status":"completed"}"#).unwrap());
         s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}"#).unwrap());
-        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        s.ended(Ok(agent_client_protocol::v1::schema::StopReason::EndTurn));
         let folded = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
         assert!(folded.iter().any(|r| matches!(r, Row::Turn { .. })));
         let shown = rows(7, &s.items, &HashSet::new(), |_| false, false, false);

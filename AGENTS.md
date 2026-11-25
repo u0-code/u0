@@ -31,12 +31,13 @@ change is held to these rules.
 1. **Delete before adding.** Find the code that already does the job, or that
    the change makes obsolete. Reuse it or remove it. Code made dead by a
    change is deleted in that change.
-2. **One source of truth.** The wire shapes are `agent-client-protocol-schema`'s
-   v1 types; never hand-built JSON that mirrors them. The list of agents and
-   how each is installed is the ACP registry's; never a table of agents in
-   code, but one: which CLI an adapter drives and the variable that points
-   it at yours (`registry::DRIVES`), which the registry does not say. Each
-   other fact is defined once and referenced everywhere else.
+2. **One source of truth.** The protocol is the `agent-client-protocol` SDK's:
+   its connection and its v1 schema types; never hand-built JSON-RPC or JSON
+   that mirrors them. The list of agents and how each is installed is the
+   ACP registry's; never a table of agents in code, but one: which CLI an
+   adapter drives and the variable that points it at yours
+   (`registry::DRIVES`), which the registry does not say. Each other fact is
+   defined once and referenced everywhere else.
 3. **No second mechanism.** Before adding a check, gate, retry, cache,
    second pass or fallback, show that stating the rule once at its source
    does not work.
@@ -56,7 +57,7 @@ change is held to these rules.
 ## Map
 
 ```
-src/acp.rs        one agent process and its JSON-RPC; the ACP runtime
+src/acp.rs        one agent process and its SDK connection; the ACP runtime
 src/registry.rs   the ACP registry, installing an agent, starting one
 src/remote.rs     projects on another machine; their agents over SSH
 src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
