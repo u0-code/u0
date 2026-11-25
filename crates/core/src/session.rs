@@ -458,8 +458,8 @@ fn file_of(block: &ContentBlock) -> Option<(String, String)> {
     match block {
         ContentBlock::ResourceLink(r) => Some((r.name.clone(), r.uri.clone())),
         ContentBlock::Resource(r) => match &r.resource {
-            EmbeddedResourceResource::TextResourceContents(t) if t.uri.starts_with(PASTE) => {
-                Some(("Pasted text".into(), t.uri.clone()))
+            EmbeddedResourceResource::TextResourceContents(t) => {
+                Some((Context::of(&t.uri)?.name().into(), t.uri.clone()))
             }
             _ => None,
         },
@@ -467,8 +467,53 @@ fn file_of(block: &ContentBlock) -> Option<(String, String)> {
     }
 }
 
-/// Where a paste too long for the line is said to be from.
-pub const PASTE: &str = "ghost://paste/";
+/// Text that goes with what you say, as a chip beside the line rather
+/// than in it, named by where it came from: sent as a resource whose
+/// address says that (`ghost://<kind>/<n>`), so the thread names it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Context {
+    /// A paste too long for the line.
+    Paste,
+    /// What you quoted from the thread.
+    Quote,
+    /// What you chose in a terminal.
+    Terminal,
+    /// Your comments on the changes.
+    Review,
+}
+
+impl Context {
+    const ALL: [Self; 4] = [Self::Paste, Self::Quote, Self::Terminal, Self::Review];
+
+    fn word(self) -> &'static str {
+        match self {
+            Self::Paste => "paste",
+            Self::Quote => "quote",
+            Self::Terminal => "terminal",
+            Self::Review => "review",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Paste => "Pasted text",
+            Self::Quote => "Quote",
+            Self::Terminal => "Terminal output",
+            Self::Review => "Review comments",
+        }
+    }
+
+    /// The address of the `n`th that goes with what you say.
+    pub fn uri(self, n: usize) -> String {
+        format!("ghost://{}/{n}", self.word())
+    }
+
+    /// The kind an address of [`Context::uri`] names.
+    pub fn of(uri: &str) -> Option<Self> {
+        let word = uri.strip_prefix("ghost://")?.split('/').next()?;
+        Self::ALL.into_iter().find(|c| c.word() == word)
+    }
+}
 
 /// A picture in a thread, in a format the desk draws.
 #[derive(Debug)]
@@ -1385,6 +1430,24 @@ fn informational(c: &agent_client_protocol::v1::schema::ContentChunk) -> Option<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_sent_beside_the_line_is_named_again_in_the_thread_by_where_it_came_from() {
+        use super::{Context, file_of};
+        use agent_client_protocol::v1::schema::{
+            EmbeddedResource, EmbeddedResourceResource, TextResourceContents,
+        };
+        let sent = |uri: String| {
+            ContentBlock::Resource(EmbeddedResource::new(
+                EmbeddedResourceResource::TextResourceContents(TextResourceContents::new("x", uri)),
+            ))
+        };
+        let quote = file_of(&sent(Context::Quote.uri(2))).unwrap();
+        assert_eq!(quote, ("Quote".into(), "ghost://quote/2".into()));
+        let terminal = file_of(&sent(Context::Terminal.uri(1))).unwrap();
+        assert_eq!(terminal.0, "Terminal output");
+        assert!(file_of(&sent("file:///a.txt".into())).is_none());
+    }
+
     #[test]
     fn a_goal_is_set_paused_and_cleared_by_what_you_say_and_what_the_agent_answers() {
         use super::Goal;

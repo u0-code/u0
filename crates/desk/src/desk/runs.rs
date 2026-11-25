@@ -321,11 +321,7 @@ impl Desk {
             return;
         };
         t.selection = None;
-        let typed = self.typed(cx);
-        let text = format!("{typed}\n\nFrom my terminal:\n```\n{chosen}\n```\n");
-        self.put_line(text.trim_start(), window, cx);
-        window.focus(&self.composer.input.focus_handle(cx), cx);
-        cx.notify();
+        self.add_context(crate::session::Context::Terminal, &chosen, window, cx);
     }
 
     /// Paste what is copied into the terminal `id`, as a terminal pastes.

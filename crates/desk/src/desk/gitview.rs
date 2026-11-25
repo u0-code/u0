@@ -395,7 +395,7 @@ impl Desk {
         let Some(folder) = self.session().map(|s| s.meta.folder.clone()) else {
             return;
         };
-        let mut text = String::from("Comments on the changes:\n");
+        let mut text = String::new();
         for (path, line, said) in std::mem::take(&mut self.review.comments) {
             let path = path
                 .strip_prefix(&folder)
@@ -404,11 +404,6 @@ impl Desk {
                 .to_string();
             let _ = writeln!(text, "- {path}:{line} — {said}");
         }
-        self.put_line(text.trim_end(), window, cx);
-        window.focus(
-            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
-            cx,
-        );
-        cx.notify();
+        self.add_context(crate::session::Context::Review, text.trim_end(), window, cx);
     }
 }

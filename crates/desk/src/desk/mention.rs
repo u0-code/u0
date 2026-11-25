@@ -347,9 +347,13 @@ pub struct Mention {
 /// line, sent as its text.
 #[derive(Debug, Clone)]
 pub enum Attached {
-    Image { mime: String, bytes: Vec<u8> },
+    Image {
+        mime: String,
+        bytes: Vec<u8>,
+    },
     File(PathBuf),
-    Text(String),
+    /// Text, named by where it came from.
+    Text(crate::session::Context, String),
 }
 
 /// A paste this long or longer is attached, not put in the line.
@@ -553,7 +557,10 @@ impl Desk {
                     if s.text().len() >= LONG_PASTE
                         || s.text().chars().count() + self.typed(cx).chars().count() > LIMIT =>
                 {
-                    self.add_attached(Attached::Text(s.text().clone()), cx);
+                    self.add_attached(
+                        Attached::Text(crate::session::Context::Paste, s.text().clone()),
+                        cx,
+                    );
                     return true;
                 }
                 gpui::ClipboardEntry::String(_) => {}
@@ -607,15 +614,19 @@ impl Desk {
     /// Quote `text` (something the agent said) in what you are writing,
     /// to answer it.
     pub fn quote(&mut self, text: &str, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        let quoted = text.trim().lines().fold(String::new(), |mut q, l| {
-            q.push_str("> ");
-            q.push_str(l);
-            q.push('\n');
-            q
-        });
-        let typed = self.typed(cx);
-        let line = format!("{quoted}\n{typed}");
-        self.put_line(&line, window, cx);
+        self.add_context(crate::session::Context::Quote, text.trim(), window, cx);
+    }
+
+    /// Put `text` beside what you are writing, as a chip named `kind`, and
+    /// go to the line to say what to do with it.
+    pub fn add_context(
+        &mut self,
+        kind: crate::session::Context,
+        text: &str,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_attached(Attached::Text(kind, text.to_owned()), cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -694,10 +705,7 @@ impl Desk {
                         uri.to_string(),
                     )))
                 }
-                Attached::Text(t) => Some(text_resource(
-                    &format!("{}{}", crate::session::PASTE, n + 1),
-                    &t,
-                )),
+                Attached::Text(kind, t) => Some(text_resource(&kind.uri(n + 1), &t)),
             })
             .collect();
         let Some(s) = self.sessions.at(key) else {

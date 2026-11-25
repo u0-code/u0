@@ -910,10 +910,18 @@ impl Desk {
                             .map(|m| size(m.len()))
                             .unwrap_or_default(),
                     ),
-                    Attached::Text(t) => (
-                        AttachmentMedia::new().child(ui::icon("list", 16.)),
-                        "Pasted text".to_owned(),
-                        format!("{} lines · {}", t.lines().count(), size(t.len() as u64)),
+                    Attached::Text(kind, t) => (
+                        AttachmentMedia::new().child(ui::icon(
+                            match kind {
+                                crate::session::Context::Paste => "list",
+                                crate::session::Context::Quote => "reply",
+                                crate::session::Context::Terminal => "terminal",
+                                crate::session::Context::Review => "square-pen",
+                            },
+                            16.,
+                        )),
+                        kind.name().to_owned(),
+                        ui::fit(t.lines().next().unwrap_or_default(), 32),
                     ),
                 };
                 row = row.child(
