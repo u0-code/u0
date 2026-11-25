@@ -178,6 +178,17 @@ impl Desk {
         ));
         rows.push(setting(
             faces,
+            "Pull its default branch",
+            "As Ghost starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on.",
+            Switch::new("project-pull")
+                .small()
+                .checked(prefs.pull)
+                .on_click(Self::on_project(cx, &dir, |d, f, _, cx| {
+                    d.set_prefs(f, cx, |p| p.pull = !p.pull);
+                })),
+        ));
+        rows.push(setting(
+            faces,
             "Archived",
             "Hides the project from the sidebar and project pickers. Sessions and files are kept.",
             Switch::new("project-archived")

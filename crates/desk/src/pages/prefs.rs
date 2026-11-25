@@ -160,6 +160,28 @@ impl Desk {
                     ),
                     group(
                         faces,
+                        "Repositories",
+                        vec![row(
+                            faces,
+                            q,
+                            "Fetch each project's remote every",
+                            "So branches and pull requests are up to date; projects set to pull are moved on too.",
+                            Self::pick(
+                                "fetch-every",
+                                [
+                                    ("Minute", Some(1)),
+                                    ("5 minutes", Some(5)),
+                                    ("15 minutes", Some(15)),
+                                    ("Never", None),
+                                ],
+                                self.settings.fetch_every,
+                                |s, v| s.fetch_every = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                    group(
+                        faces,
                         "Confirmations",
                         vec![
                             self.asks(

@@ -299,6 +299,12 @@ pub enum Call {
         dir: PathBuf,
     },
     CancelClone,
+    /// Fetch from `origin` for each project folder; those marked, on their
+    /// default branch with nothing changed, moved on to it. Nothing is
+    /// said back: what fails is only logged.
+    Refresh {
+        projects: Vec<(PathBuf, bool)>,
+    },
     /// Make a worktree of `dir` for the session `key`, about `about`, on a
     /// branch beginning with `prefix`, from `from` (where `dir` is, if
     /// nothing).
@@ -819,6 +825,9 @@ mod tests {
                 dir: dir.clone(),
             },
             Call::CancelClone,
+            Call::Refresh {
+                projects: vec![(dir.clone(), true)],
+            },
             Call::MakeWorktree {
                 dir: dir.clone(),
                 about: "fix it".into(),

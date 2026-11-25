@@ -72,6 +72,10 @@ pub struct Settings {
     /// is left.
     #[serde(default)]
     pub keep_with_pr: bool,
+    /// The minutes between fetches from each project's remote; none,
+    /// never.
+    #[serde(default = "five")]
+    pub fetch_every: Option<u32>,
     /// Times on a twelve-hour clock.
     #[serde(default)]
     pub twelve: bool,
@@ -461,6 +465,14 @@ fn yes() -> bool {
     clippy::unnecessary_wraps,
     reason = "serde's default for an Option field"
 )]
+fn five() -> Option<u32> {
+    Some(5)
+}
+
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "serde's default for an Option field"
+)]
 fn week() -> Option<u32> {
     Some(7)
 }
@@ -494,6 +506,10 @@ pub struct Prefs {
     /// is a repository; unset, the last choice made anywhere.
     #[serde(default)]
     pub worktree: Option<bool>,
+    /// Its default branch is pulled as Ghost starts and each fetch, when
+    /// it is checked out with nothing changed.
+    #[serde(default)]
+    pub pull: bool,
 }
 
 impl Default for Settings {
@@ -516,6 +532,7 @@ impl Default for Settings {
             settle_days: week(),
             settle_merged: yes(),
             keep_with_pr: false,
+            fetch_every: five(),
             width: Width::default(),
             look: Look::default(),
             twelve: false,

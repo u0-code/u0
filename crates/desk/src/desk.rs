@@ -173,6 +173,8 @@ pub struct Desk {
     /// under, as questions to be answered over the composer.
     pub forms:
         std::collections::HashMap<u64, Entity<gpui::component::questionnaire::QuestionnaireState>>,
+    /// When the projects were last fetched from their remotes.
+    pub fetched: Option<std::time::Instant>,
     /// When ⌘Q was last pressed, not held.
     pub quit_asked: Option<std::time::Instant>,
     /// Each running agent's process and the memory its group holds (kB),
@@ -446,8 +448,10 @@ impl Desk {
         })
         .detach();
 
-        // Each minute, let go of agents idle long enough.
+        // Each minute, let go of agents idle long enough; at once and as
+        // often as you said, fetch the projects.
         cx.spawn(async move |this, cx| {
+            let _ = this.update(cx, |this, _| this.refresh_projects());
             loop {
                 cx.background_executor()
                     .timer(Duration::from_secs(60))
@@ -455,6 +459,7 @@ impl Desk {
                 if this
                     .update(cx, |this, cx| {
                         this.release_idle(cx);
+                        this.refresh_projects();
                         this.send_due(cx);
                         this.poll_prs();
                         this.check_agents(cx);
@@ -491,6 +496,7 @@ impl Desk {
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
+            fetched: None,
             badge: 0,
             weights: Vec::new(),
             here: HashMap::new(),

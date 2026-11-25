@@ -342,6 +342,15 @@ impl Server {
                 let stop = self.cloning.lock().expect("cloning");
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            Call::Refresh { projects } => {
+                acp::runtime().spawn_blocking(move || {
+                    for (dir, pull) in projects {
+                        if let Err(e) = git::refresh(&dir, pull) {
+                            tracing::warn!("{}: {e}", dir.display());
+                        }
+                    }
+                });
+            }
             Call::MakeWorktree {
                 dir,
                 about,

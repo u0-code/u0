@@ -226,6 +226,35 @@ impl Desk {
         self.current = None;
     }
 
+    /// Fetch each project here from its remote, as often as you said
+    /// (`fetch_every`), those you said pulled on their default branch; at
+    /// the first, those you said pulled even with fetching off.
+    pub(crate) fn refresh_projects(&mut self) {
+        let first = self.fetched.is_none();
+        let due = self.settings.fetch_every.is_some_and(|m| {
+            self.fetched
+                .is_none_or(|t| t.elapsed().as_secs() >= u64::from(m) * 60)
+        });
+        if !due && !first {
+            return;
+        }
+        self.fetched = Some(std::time::Instant::now());
+        let projects: Vec<(PathBuf, bool)> = self
+            .projects()
+            .into_iter()
+            .filter(|p| crate::remote::parse(p).is_none() && !self.is_scratch(p))
+            .map(|p| {
+                let pull = self.prefs(&p).pull;
+                (p, pull)
+            })
+            .filter(|(_, pull)| due || *pull)
+            .collect();
+        if !projects.is_empty() {
+            self.transport
+                .send(crate::proto::Call::Refresh { projects });
+        }
+    }
+
     /// Where scratch sessions are begun: one folder each, under the home.
     pub fn scratch_dir(&self) -> PathBuf {
         self.home.join("scratch")

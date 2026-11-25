@@ -762,6 +762,24 @@ pub fn pull(dir: &Path) -> Result<String, String> {
     yours(dir, "git", &["pull", "--ff-only", "-q"])
 }
 
+/// Fetch what `origin` has for the repository at `dir`; with `pull`, and
+/// the folder on its default branch with nothing changed, move it on to
+/// where `origin` has it, only where it moves straight on (t3code's auto
+/// pull). Nothing to fetch from is no failure.
+pub fn refresh(dir: &Path, pull: bool) -> Result<(), String> {
+    if git(dir, &["remote", "get-url", "origin"], None).is_err() {
+        return Ok(());
+    }
+    git(dir, &["fetch", "--quiet", "origin"], None)?;
+    let on_default = default_branch(dir)
+        .is_some_and(|d| branch(dir).is_some_and(|b| d.strip_prefix("origin/").unwrap_or(&d) == b));
+    let clean = git(dir, &["status", "--porcelain"], None).is_ok_and(|s| s.is_empty());
+    if pull && on_default && clean {
+        git(dir, &["merge", "--ff-only", "--quiet", "@{upstream}"], None)?;
+    }
+    Ok(())
+}
+
 /// Make the folder `dir` a repository on main, all it holds committed.
 pub fn init_here(dir: &Path) -> Result<String, String> {
     yours(dir, "git", &["init", "-q", "-b", "main"])?;
@@ -1066,6 +1084,26 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_refresh_fetches_and_pulls_the_default_branch_only_when_asked() {
+        let origin = repo("refresh-origin");
+        let here = std::env::temp_dir().join(format!("ghost-git-refresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&here);
+        let at = here.to_string_lossy().into_owned();
+        let from = origin.to_string_lossy().into_owned();
+        git(&origin, &["clone", "-q", &from, &at], None).unwrap();
+        std::fs::write(origin.join("b.txt"), "new\n").unwrap();
+        git(&origin, &["add", "b.txt"], None).unwrap();
+        git(&origin, &["commit", "-q", "-m", "second"], None).unwrap();
+        refresh(&here, false).unwrap();
+        assert!(!here.join("b.txt").exists());
+        assert_eq!(upstream(&here).0, 1);
+        refresh(&here, true).unwrap();
+        assert!(here.join("b.txt").exists());
+        let _ = std::fs::remove_dir_all(&here);
+        let _ = std::fs::remove_dir_all(&origin);
     }
 
     #[test]
