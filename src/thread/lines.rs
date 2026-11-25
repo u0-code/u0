@@ -245,11 +245,16 @@ impl Desk {
             .children(self.session().map(|s| Self::turn_map(s, cx)))
     }
 
-    /// A tab for the session and one for each of its subagents, over the
-    /// thread, on the session's page and on each of theirs: where you are
-    /// lit, each with its state, a click going to it. None for a session
-    /// without subagents.
-    fn family_tabs(&self, faces: &crate::fonts::Faces, cx: &mut Context<Self>) -> Option<Div> {
+    /// Tabs over the thread: the session's, and one for each subagent at
+    /// work or waiting on you, and the one on screen. A subagent's tab goes
+    /// as it finishes; × hides it, its work going on (the right column
+    /// brings it back). The tabs shrink to the thread's width, then scroll
+    /// sideways. None while no subagent has a tab.
+    fn family_tabs(
+        &self,
+        faces: &crate::fonts::Faces,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Stateful<Div>> {
         let s = self.session()?;
         let family = s.parent.unwrap_or(s.key);
         let parent = self.sessions.iter().find(|p| p.key == family)?;
@@ -257,53 +262,96 @@ impl Desk {
             .sessions
             .iter()
             .filter(|c| c.parent == Some(family))
+            .filter(|c| {
+                c.key == s.key
+                    || ((c.sub.working() || c.sub.needs_you) && !self.closed_tabs.contains(&c.key))
+            })
             .collect();
         if kids.is_empty() {
             return None;
         }
-        let tab = |key: u64, mark: Div, title: &str, cx: &mut Context<Self>| {
+        let tab = |key: u64, mark: Div, title: &str, closable: bool, cx: &mut Context<Self>| {
             let on = key == s.key;
+            let group = SharedString::from(format!("family-{key}"));
             div()
-                .id(SharedString::from(format!("family-{key}")))
+                .id(group.clone())
+                .group(group.clone())
                 .flex()
-                .flex_none()
+                .flex_shrink()
+                .min_w(px(96.))
+                .max_w(px(220.))
                 .items_center()
                 .gap(px(6.))
                 .h(px(26.))
-                .px(px(8.))
+                .pl(px(8.))
+                .pr(px(if closable { 2. } else { 8. }))
                 .rounded(px(7.))
                 .cursor_pointer()
                 .when(on, |d| d.bg(theme::panel2()))
                 .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
                 .child(mark)
                 .child(
-                    ui::text(faces, ui::fit(title, 28))
+                    ui::text(faces, title.to_owned())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
                         .text_size(px(12.5))
                         .text_color(if on { theme::text() } else { theme::text2() }),
                 )
+                .when(closable, |d| {
+                    d.child(
+                        div()
+                            .invisible()
+                            .group_hover(group.clone(), gpui::Styled::visible)
+                            .when(on, gpui::Styled::visible)
+                            .child(
+                                ui::icon_button(
+                                    SharedString::from(format!("family-x-{key}")),
+                                    "x",
+                                    "Hide this tab; it goes on",
+                                )
+                                .size(px(18.))
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.closed_tabs.insert(key);
+                                        if this.current == Some(key) {
+                                            this.show(family, window, cx);
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                })
                 .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
         };
         let mut bar = div()
             .id("family-tabs")
             .flex()
             .flex_none()
+            .w_full()
+            .min_w(px(0.))
             .items_center()
             .gap(px(2.))
             .px(px(12.))
             .py(px(6.))
             .overflow_x_scroll()
             .border_b_1()
-            .border_color(theme::border());
-        bar = bar.child(tab(
-            parent.key,
-            div().child(ui::icon("list", 13.).text_color(theme::faint())),
-            &parent.title,
-            cx,
-        ));
+            .border_color(theme::border())
+            .child(tab(
+                parent.key,
+                div().child(ui::icon("list", 13.).text_color(theme::faint())),
+                &parent.title,
+                false,
+                cx,
+            ));
         for c in kids {
-            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.title, cx));
+            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.title, true, cx));
         }
-        Some(div().flex().child(bar))
+        Some(bar)
     }
 
     /// The line `ix` of the list, in the reading column.

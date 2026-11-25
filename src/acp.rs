@@ -73,6 +73,50 @@ pub enum Event {
     },
     /// It stopped, with the last of what it wrote to its standard error.
     Exited(String),
+    /// A task it set going in the background in the session `session` (a
+    /// command left running), as the `JetBrains` extension of ACP says it:
+    /// not in the schema.
+    Task { session: String, task: Task },
+}
+
+/// What the `JetBrains` extension of ACP (`air`, `asyncTasks`) says of a
+/// task going on in the background: begun, under way, or over.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "sessionUpdate")]
+pub enum Task {
+    #[serde(rename = "async_task_spawned")]
+    Spawned {
+        #[serde(rename = "asyncTaskId")]
+        id: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default, rename = "canStop")]
+        can_stop: bool,
+    },
+    #[serde(rename = "async_task_progress")]
+    Progress {
+        #[serde(rename = "asyncTaskId")]
+        id: String,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    #[serde(rename = "async_task_state_update")]
+    Ended {
+        #[serde(rename = "asyncTaskId")]
+        id: String,
+        /// completed, failed, stopped; anything else is still going.
+        state: String,
+    },
+}
+
+/// A task's update and the session it is in, as the notification has them.
+#[derive(serde::Deserialize)]
+struct TaskNote {
+    #[serde(rename = "sessionId")]
+    session: String,
+    update: Task,
 }
 
 /// An error the agent answered with, or the reason there was no answer.
@@ -323,13 +367,23 @@ fn incoming(
 ) {
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     match (method, id) {
-        ("session/update", None) => match serde_json::from_value(params) {
+        ("session/update", None) => match serde_json::from_value(params.clone()) {
             Ok(update) => {
                 let _ = events.send(Event::Update(update));
             }
-            // A kind of update this desk does not know yet: it is skipped,
-            // the session goes on.
-            Err(e) => debug!("skipped an update the desk does not read: {e}"),
+            // A task in the background, which the schema does not have; any
+            // other kind of update this desk does not know yet is skipped,
+            // and the session goes on.
+            Err(e) => {
+                if let Ok(n) = serde_json::from_value::<TaskNote>(params) {
+                    let _ = events.send(Event::Task {
+                        session: n.session,
+                        task: n.update,
+                    });
+                } else {
+                    debug!("skipped an update the desk does not read: {e}");
+                }
+            }
         },
         ("session/request_permission", Some(id)) => match serde_json::from_value(params) {
             Ok(request) => {
@@ -361,6 +415,36 @@ mod tests {
             env: vec![],
             dir: None,
         }
+    }
+
+    #[test]
+    fn a_task_in_the_background_is_read_as_the_jetbrains_extension_says_it() {
+        let note = |update: Value| -> TaskNote {
+            serde_json::from_value(json!({"sessionId": "s1", "update": update})).unwrap()
+        };
+        let begun = note(
+            json!({"sessionUpdate": "async_task_spawned", "asyncTaskId": "b1", "name": "Bash", "description": "make all", "taskType": "local_bash", "showInTranscript": true, "canStop": true, "toolCallId": "t1"}),
+        );
+        assert_eq!(begun.session, "s1");
+        assert_eq!(
+            begun.update,
+            Task::Spawned {
+                id: "b1".into(),
+                name: Some("Bash".into()),
+                description: Some("make all".into()),
+                can_stop: true
+            }
+        );
+        let over = note(
+            json!({"sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "completed", "summary": "done"}),
+        );
+        assert_eq!(
+            over.update,
+            Task::Ended {
+                id: "b1".into(),
+                state: "completed".into()
+            }
+        );
     }
 
     #[test]

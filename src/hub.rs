@@ -489,7 +489,13 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
         let hello = InitializeRequest::new(ProtocolVersion::V1)
             .client_capabilities(
                 ClientCapabilities::new()
-                    .subagents(agent_client_protocol_schema::v1::SubagentCapabilities::new()),
+                    .subagents(agent_client_protocol_schema::v1::SubagentCapabilities::new())
+                    // Tasks left going in the background (a command), as
+                    // the JetBrains extension says them, are shown.
+                    .meta(serde_json::Map::from_iter([(
+                        "jetbrains".into(),
+                        serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
+                    )])),
             )
             .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
         let result = running
@@ -989,6 +995,19 @@ pub fn prompt(
             .await
             .map(|r| r.stop_reason);
         let _ = tx.send(Msg::Ended { key, result });
+    });
+}
+
+/// Stop the task `task` going in the background in the session `id`, as
+/// the `JetBrains` extension of ACP asks it.
+pub fn stop_task(agent: Arc<Agent>, id: SessionId, task: String) {
+    acp::runtime().spawn(async move {
+        let _ = agent
+            .request::<_, Value>(
+                "_session/async_task/stop",
+                serde_json::json!({"sessionId": id.0, "asyncTaskId": task}),
+            )
+            .await;
     });
 }
 

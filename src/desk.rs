@@ -201,6 +201,9 @@ pub struct Desk {
     pub asking_beside: Option<u64>,
     /// Words in the thread are being chosen with the mouse.
     pub choosing: bool,
+    /// The subagents' tabs over the thread you closed: hidden, still at
+    /// work.
+    pub closed_tabs: HashSet<u64>,
     /// The part of an open menu shown beside it: "snooze", "copy".
     pub submenu: Option<&'static str>,
     /// What waits for an agent to start, by agent: a fork, a delete.
@@ -687,6 +690,7 @@ impl Desk {
             asking_beside: None,
             choosing: false,
             submenu: None,
+            closed_tabs: HashSet::new(),
             gone: Vec::new(),
             stashed: Vec::new(),
             notices: Vec::new(),
@@ -1756,6 +1760,19 @@ impl Desk {
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
                 self.stopping = Some((s.key, std::time::Instant::now()));
             }
+        }
+        cx.notify();
+    }
+
+    /// Stop the task `task` the agent left going in the session `key`.
+    pub fn stop_task(&mut self, key: u64, task: String, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        if let (Some(running), Some(id)) =
+            (self.slot(&s.agent).and_then(Slot::running), s.id.clone())
+        {
+            hub::stop_task(running.clone(), id, task);
         }
         cx.notify();
     }

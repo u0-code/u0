@@ -214,7 +214,7 @@ impl Desk {
                         ),
                 )
             })
-            .children(self.subagents(faces, s, cx))
+            .children(self.background(faces, s, cx))
             .child(Self::plan(faces, s))
             .children(self.servers(faces, s, cx))
             .child(Self::terminals(faces, s, cx))
@@ -223,79 +223,127 @@ impl Desk {
         frame(head).child(body)
     }
 
-    /// The subagents of the session (or of its parent, on a subagent's
-    /// own page): those at work or waiting on you first, with how long and
-    /// a stop where their work can be stopped; those done folded in one
-    /// line, "N finished", a click away.
-    fn subagents(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+    /// What goes on beside the session (or its parent, on a subagent's own
+    /// page), as one list: its subagents and the commands its agent left
+    /// going in the background. Those going or waiting on you first, with
+    /// how long and a stop where they can be stopped; those over folded in
+    /// one line, "N finished", a click away.
+    fn background(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let family = s.parent.unwrap_or(s.key);
-        let mut kids: Vec<&Session> = self
+        let kids: Vec<&Session> = self
             .sessions
             .iter()
             .filter(|c| c.parent == Some(family))
             .collect();
-        if kids.is_empty() {
+        let tasks: Vec<(u64, &crate::session::Task)> = self
+            .sessions
+            .iter()
+            .filter(|c| c.key == family || c.parent == Some(family))
+            .flat_map(|c| c.tasks.iter().map(move |t| (c.key, t)))
+            .collect();
+        if kids.is_empty() && tasks.is_empty() {
             return None;
         }
-        kids.sort_by_key(|c| (!c.sub.needs_you, !c.sub.working()));
-        let busy = kids.iter().filter(|c| c.sub.working()).count();
-        let done = kids
-            .iter()
-            .filter(|c| !c.sub.working() && !c.sub.needs_you)
-            .count();
-        let open = self.expanded.contains(&format!("subs-{family}"));
+        let live = |c: &Session| c.sub.working() || c.sub.needs_you;
+        let going = kids.iter().filter(|c| live(c)).count()
+            + tasks.iter().filter(|(_, t)| t.ended.is_none()).count();
+        let over = kids.iter().filter(|c| !live(c)).count()
+            + tasks.iter().filter(|(_, t)| t.ended.is_some()).count();
+        let fold = format!("background-{family}");
+        let open = self.expanded.contains(&fold);
         let mut sec = section(
             faces,
-            "Subagents",
-            (busy > 0).then(|| fine(faces, format!("{busy} running")).text_color(theme::accent())),
+            "Background tasks",
+            (going > 0)
+                .then(|| fine(faces, format!("{going} running")).text_color(theme::accent())),
         );
-        let row = |c: &Session, cx: &mut Context<Self>| {
-            let (key, on) = (c.key, c.key == s.key);
+        let row_of = |id: SharedString| {
             frow()
-                .id(SharedString::from(format!("sub-{key}")))
+                .id(id)
                 .px(px(6.))
                 .mx(px(-6.))
                 .rounded(px(6.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
                 .hover(|st| st.bg(theme::hover()))
+        };
+        let title = |text: &str| {
+            ui::one_line(ui::text(faces, ui::fit(text, 40)).text_size(px(13.)))
+                .flex_1()
+                .min_w(px(0.))
+        };
+        let stop = |id: SharedString| ui::icon_button(id, "square", "Stop it").size(px(20.));
+        let sub_row = |c: &Session, cx: &mut Context<Self>| {
+            let key = c.key;
+            row_of(SharedString::from(format!("bg-sub-{key}")))
+                .cursor_pointer()
+                .when(key == s.key, |d| d.bg(theme::hover()))
                 .child(crate::thread::sub_mark(&c.sub))
-                .child(
-                    ui::one_line(ui::text(faces, ui::fit(&c.title, 40)).text_size(px(13.)))
-                        .flex_1()
-                        .min_w(px(0.)),
-                )
+                .child(title(&c.title))
                 .children(c.sub.time().map(|t| fine(faces, t)))
                 .when(c.sub.working() && c.sub.stoppable, |d| {
                     d.child(
-                        ui::icon_button(
-                            SharedString::from(format!("sub-stop-{key}")),
-                            "square",
-                            "Stop it",
-                        )
-                        .size(px(20.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.stop_sub(key, cx);
-                        })),
+                        stop(SharedString::from(format!("bg-sub-stop-{key}"))).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.stop_sub(key, cx);
+                            }),
+                        ),
                     )
                 })
-                .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.closed_tabs.remove(&key);
+                    this.show(key, window, cx);
+                }))
+        };
+        let task_row = |at: u64, t: &crate::session::Task, cx: &mut Context<Self>| {
+            let (id, running) = (t.id.clone(), t.ended.is_none());
+            let time = match &t.ended {
+                Some((_, took)) => crate::when::took(*took),
+                None => crate::when::took(t.since.elapsed().unwrap_or_default()),
+            };
+            row_of(SharedString::from(format!("bg-task-{at}-{}", t.id)))
+                .child(
+                    div()
+                        .size(px(16.))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .child(if running {
+                            ui::live_dot().into_any_element()
+                        } else {
+                            ui::icon("terminal", 13.)
+                                .text_color(match t.ended.as_ref().map(|(how, _)| how.as_str()) {
+                                    Some("failed") => theme::coral(),
+                                    _ => theme::faint(),
+                                })
+                                .into_any_element()
+                        }),
+                )
+                .child(title(&t.name))
+                .child(fine(faces, time))
+                .when(running && t.stoppable, |d| {
+                    d.child(
+                        stop(SharedString::from(format!("bg-task-stop-{at}-{}", t.id))).on_click(
+                            cx.listener(move |this, _, _, cx| this.stop_task(at, id.clone(), cx)),
+                        ),
+                    )
+                })
         };
         let mut list = div().flex().flex_col();
-        for c in kids.iter().filter(|c| c.sub.working() || c.sub.needs_you) {
-            list = list.child(row(c, cx));
+        for c in kids.iter().filter(|c| c.sub.needs_you) {
+            list = list.child(sub_row(c, cx));
         }
-        if done > 0 {
-            let fold = format!("subs-{family}");
+        for c in kids.iter().filter(|c| c.sub.working() && !c.sub.needs_you) {
+            list = list.child(sub_row(c, cx));
+        }
+        for (at, t) in tasks.iter().filter(|(_, t)| t.ended.is_none()) {
+            list = list.child(task_row(*at, t, cx));
+        }
+        if over > 0 {
+            let toggle = fold.clone();
             list = list.child(
-                frow()
-                    .id(SharedString::from(format!("subs-done-{family}")))
-                    .px(px(6.))
-                    .mx(px(-6.))
-                    .rounded(px(6.))
+                row_of(SharedString::from(format!("bg-over-{family}")))
                     .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
                     .child(
                         ui::icon(
                             if open {
@@ -307,17 +355,20 @@ impl Desk {
                         )
                         .text_color(theme::faint()),
                     )
-                    .child(fine(faces, format!("{done} finished")))
+                    .child(fine(faces, format!("{over} finished")))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.expanded.remove(&fold) {
-                            this.expanded.insert(fold.clone());
+                        if !this.expanded.remove(&toggle) {
+                            this.expanded.insert(toggle.clone());
                         }
                         cx.notify();
                     })),
             );
             if open {
-                for c in kids.iter().filter(|c| !c.sub.working() && !c.sub.needs_you) {
-                    list = list.child(row(c, cx));
+                for c in kids.iter().filter(|c| !live(c)) {
+                    list = list.child(sub_row(c, cx));
+                }
+                for (at, t) in tasks.iter().filter(|(_, t)| t.ended.is_some()) {
+                    list = list.child(task_row(*at, t, cx));
                 }
             }
         }

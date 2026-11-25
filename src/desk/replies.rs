@@ -715,6 +715,15 @@ impl Desk {
             slot.used = std::time::Instant::now();
         }
         match event {
+            Event::Task { session, task } => {
+                if let Some(s) = self
+                    .sessions
+                    .iter_mut()
+                    .find(|s| s.agent == agent && s.id.as_ref().is_some_and(|i| *i.0 == *session))
+                {
+                    s.task(task);
+                }
+            }
             Event::Update(n) => {
                 // A subagent set to work: a session of its own, under its
                 // parent, that its updates go to.
