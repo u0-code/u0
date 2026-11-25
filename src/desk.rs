@@ -155,6 +155,13 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// The session asked to stop, and when: past a while, it can be
+    /// stopped by force.
+    pub stopping: Option<(u64, std::time::Instant)>,
+    /// When quitting was last asked while agents worked.
+    pub quit_asked: Option<std::time::Instant>,
+    /// How many sessions need you, as the Dock last said.
+    pub badge: usize,
     /// The action whose keys are being recorded, in Settings, Keyboard.
     pub recording: Option<&'static str>,
     /// The sessions shown before the one on screen, and those gone back
@@ -561,6 +568,7 @@ impl Desk {
                     .update(cx, |this, cx| {
                         this.take(msg, cx);
                         this.stay_awake();
+                        this.show_badge();
                     })
                     .is_err()
                 {
@@ -627,6 +635,9 @@ impl Desk {
             ahead: Vec::new(),
             trailing: false,
             recording: None,
+            stopping: None,
+            quit_asked: None,
+            badge: 0,
             menu_search,
             reading: None,
             reader,
@@ -1604,8 +1615,52 @@ impl Desk {
                 hub::answer(running, &request, None);
             }
             hub::cancel(running, id);
+            if self.stopping.is_none_or(|(k, _)| k != s.key) {
+                self.stopping = Some((s.key, std::time::Instant::now()));
+            }
         }
         cx.notify();
+    }
+
+    /// Stop by force the agent of the session `key`, which would not stop
+    /// its turn: its process is ended, and started again when wanted.
+    pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.stopping = None;
+        let agent = self
+            .sessions
+            .iter()
+            .find(|s| s.key == key)
+            .map(|s| s.agent.clone());
+        if let Some(running) = agent
+            .as_deref()
+            .and_then(|a| self.slot(a))
+            .and_then(Slot::running)
+        {
+            running.kill();
+        }
+        cx.notify();
+    }
+
+    /// Whether Ghost may quit now: at once with no agent at work, else at
+    /// the second asking within a few seconds.
+    pub fn may_quit(&mut self) -> bool {
+        let working = self
+            .sessions
+            .iter()
+            .any(|s| matches!(s.state, State::Working));
+        let again = self
+            .quit_asked
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
+        if !working || again {
+            return true;
+        }
+        self.quit_asked = Some(std::time::Instant::now());
+        self.trouble(
+            "Agents are at work",
+            Some("Quitting stops their turns. ⌘Q again to quit.".into()),
+            None,
+        );
+        false
     }
 
     /// Answer the question asked under `request` with the option `option`.

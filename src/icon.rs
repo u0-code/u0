@@ -55,6 +55,32 @@ pub fn dictate() {
 #[cfg(not(target_os = "macos"))]
 pub fn dictate() {}
 
+/// Say on the Dock's icon how many things wait for you; nothing at none.
+#[cfg(target_os = "macos")]
+pub fn badge(n: usize) {
+    use cocoa::{
+        appkit::NSApp,
+        base::{id, nil},
+        foundation::NSString,
+    };
+    use objc::{msg_send, sel, sel_impl};
+    // SAFETY: called on the main thread; the dock tile is the shared
+    // NSApplication's, and the label a Foundation string made here (nil
+    // clears it).
+    unsafe {
+        let tile: id = msg_send![NSApp(), dockTile];
+        let label: id = if n == 0 {
+            nil
+        } else {
+            NSString::alloc(nil).init_str(&n.to_string())
+        };
+        let _: () = msg_send![tile, setBadgeLabel: label];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn badge(_: usize) {}
+
 /// Elsewhere the window manager's own icon stands.
 #[cfg(not(target_os = "macos"))]
 pub fn set() {}

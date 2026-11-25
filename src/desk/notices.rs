@@ -34,6 +34,8 @@ pub enum Way {
     Open(String),
     /// An agent's page: to sign in to it, or see why it stopped.
     Agent(String),
+    /// A session, to put it on screen.
+    Show(u64),
 }
 
 impl Desk {
@@ -139,6 +141,22 @@ impl Desk {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_page(crate::desk::Page::Agent(agent.clone()), cx);
+                    })),
+                );
+            }
+            Some(Way::Show(key)) => {
+                any = true;
+                let id = n.id;
+                ways = ways.child(
+                    ui::button(
+                        faces,
+                        SharedString::from(format!("way-{id}")),
+                        "Show",
+                        Weight::Secondary,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.notices.retain(|n| n.id != id);
+                        this.show(key, window, cx);
                     })),
                 );
             }

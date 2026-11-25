@@ -210,6 +210,19 @@ impl Agent {
     }
 }
 
+impl Agent {
+    /// Stop it at once, and all it started: when it would not stop a turn.
+    pub fn kill(&self) {
+        if let Some(pid) = self.pid.and_then(|p| i32::try_from(p).ok()) {
+            // SAFETY: kill(2) on a process group the desk started; it
+            // touches no memory.
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
 impl Drop for Agent {
     fn drop(&mut self) {
         // The whole group: an npx and the node it started.

@@ -329,7 +329,16 @@ pub fn bind(cx: &mut App, home: &Path) {
 
 /// What each action does in the window.
 pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(move |_: &Quit, cx| {
+        let quit = window.update(cx, |d, _, cx| {
+            let may = d.may_quit();
+            cx.notify();
+            may
+        });
+        if quit.unwrap_or(true) {
+            cx.quit();
+        }
+    });
     cx.on_action(|_: &Minimize, cx| {
         if let Some(w) = cx.active_window() {
             let _ = w.update(cx, |_, window, _| window.minimize_window());

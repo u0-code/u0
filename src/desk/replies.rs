@@ -110,6 +110,19 @@ impl Desk {
         }
     }
 
+    /// How many sessions need you, on the Dock's icon, when it changes.
+    pub(crate) fn show_badge(&mut self) {
+        let n = self
+            .sessions
+            .iter()
+            .filter(|s| s.parent.is_none() && (s.waiting().is_some() || s.state == State::SignIn))
+            .count();
+        if n != self.badge {
+            self.badge = n;
+            crate::icon::badge(n);
+        }
+    }
+
     /// While an agent works, and you asked for it, the Mac does not sleep
     /// (`caffeinate`, for as long as Ghost runs); otherwise it may.
     pub(crate) fn stay_awake(&mut self) {
@@ -338,14 +351,27 @@ impl Desk {
                     s.flags.unread |= away || behind;
                 }
 
-                // With Ghost behind other windows, macOS says so.
-                if behind && let Some(s) = self.sessions.iter().find(|s| s.key == key) {
+                // With Ghost behind other windows, macOS says so; in front,
+                // with another session on screen, a notice leads to it.
+                if let Some(s) = self.sessions.iter().find(|s| s.key == key) {
                     let name = self.name_of(&s.agent);
-                    self.tell(
-                        &format!("{name} · {}", crate::ui::fit(&s.title, 40)),
-                        if ok { "Finished its turn" } else { "Stopped" },
-                    );
+                    let title = crate::ui::fit(&s.title, 40);
+                    if behind {
+                        self.tell(
+                            &format!("{name} · {title}"),
+                            if ok { "Finished its turn" } else { "Stopped" },
+                        );
+                    } else if away && s.parent.is_none() {
+                        self.done(
+                            format!(
+                                "{name} {} “{title}”",
+                                if ok { "finished" } else { "stopped in" }
+                            ),
+                            Some(super::notices::Way::Show(key)),
+                        );
+                    }
                 }
+                self.stopping = None;
                 self.end_turn(key);
                 self.take_message(key, cx);
                 self.name_branch(key);

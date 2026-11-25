@@ -283,7 +283,31 @@ impl Desk {
             .items_center()
             .justify_center()
             .rounded(px(8.));
-        let button = if working && empty {
+        // Asked to stop, and still going a while after: stopped by force.
+        let key = s.key;
+        let force = working
+            && self
+                .stopping
+                .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
+        let button = if force {
+            button
+                .id("force-stop")
+                .w_auto()
+                .px(px(10.))
+                .cursor_pointer()
+                .border_1()
+                .border_color(theme::coral().opacity(0.5))
+                .hover(|st| st.bg(theme::hover()))
+                .child(
+                    ui::text(faces, "Force stop")
+                        .text_size(px(12.5))
+                        .text_color(theme::coral()),
+                )
+                .tooltip(ui::tip(
+                    "It would not stop: its process is ended, and started again when wanted",
+                ))
+                .on_click(cx.listener(move |this, _, _, cx| this.force_stop(key, cx)))
+        } else if working && empty {
             button
                 .id("stop")
                 .cursor_pointer()
