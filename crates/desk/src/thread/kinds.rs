@@ -1,29 +1,10 @@
 //! What some calls hold, read so that an opened call can be drawn as what
-//! it is rather than as text: an edit as a diff (`git::edit_diff`) cut to
-//! what the thread shows, a file written as its first lines, a search as
+//! it is rather than as text: a file written as its first lines, a search as
 //! its results, a plan as a checklist, a recall as its memories, a failed
 //! command by how it ended. All of it is text in and text out, so that it
 //! can be tested without a window; `thread.rs` and `drawn.rs` draw it.
 
 use std::ops::Range;
-
-use crate::git::FileDiff;
-
-/// How many lines of an edit the thread shows before the rest is counted.
-pub const LINES_SHOWN: usize = 24;
-
-/// The first `n` lines of a diff's hunks, and how many were left out.
-pub fn cut(mut file: FileDiff, n: usize) -> (FileDiff, usize) {
-    let (mut left, mut out) = (n, 0);
-    for h in &mut file.hunks {
-        let keep = h.lines.len().min(left);
-        out += h.lines.len() - keep;
-        h.lines.truncate(keep);
-        left -= keep;
-    }
-    file.hunks.retain(|h| !h.lines.is_empty());
-    (file, out)
-}
 
 /// Where a step of a plan stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,27 +43,7 @@ pub fn alarms(text: &str) -> Vec<Range<usize>> {
 
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol::v1::schema::Diff;
-
     use super::*;
-    use crate::git;
-
-    fn edit(old: Option<&str>, new: &str) -> Diff {
-        Diff::new("a.rs", new).old_text(old.map(str::to_owned))
-    }
-
-    #[test]
-    fn a_long_write_is_counted_whole_though_the_thread_shows_its_head() {
-        let new = (0..300)
-            .map(|i| format!("line {i}\n"))
-            .collect::<Vec<_>>()
-            .concat();
-        let file = git::edit_diff(&edit(None, &new), None);
-        assert_eq!((file.gone, file.added), (0, 300));
-        let (shown, more) = cut(file, LINES_SHOWN);
-        assert_eq!(shown.hunks[0].lines.len(), LINES_SHOWN);
-        assert_eq!(more, 300 - LINES_SHOWN);
-    }
 
     #[test]
     fn only_whole_words_that_say_something_went_wrong_are_marked() {

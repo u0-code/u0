@@ -63,7 +63,9 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
                 .style(style)
                 .selectable(true)
                 .plugin(Paths(desk))
-                .on_link_click(move |to, _, _, cx| follow(&links, to, cx))
+                .on_link_click(move |to, click, _, cx| {
+                    follow(&links, to, click.modifiers().platform, cx);
+                })
                 .code_block_actions(move |block, _, _| {
                     code_actions(&blocks, &block.lang().unwrap_or_default(), &block.code())
                 })
@@ -93,14 +95,30 @@ fn bulleted(text: &str) -> SharedString {
         .into()
 }
 
-/// A link clicked: an address in the browser or in mail, a file in your
-/// editor; any other link does nothing.
-fn follow(desk: &WeakEntity<Desk>, to: &str, cx: &mut App) {
+/// A link clicked: a commit of the session's repository in its Diff tab
+/// (with ⌘, on its host), an address in the browser or in mail, a file in
+/// your editor; any other link does nothing.
+fn follow(desk: &WeakEntity<Desk>, to: &str, outside: bool, cx: &mut App) {
+    let here = commit_of(to).filter(|_| !outside).is_some_and(|id| {
+        desk.update(cx, |d, cx| d.show_commit(id, cx))
+            .unwrap_or(false)
+    });
+    if here {
+        return;
+    }
     if web(to) {
         cx.open_url(to);
     } else if path_like(to) {
         let _ = desk.update(cx, |d, _| d.open_named(to));
     }
+}
+
+/// The commit a host's commit link names (`…/commit/<sha>`), as its first
+/// seven characters.
+fn commit_of(address: &str) -> Option<&str> {
+    let (_, rest) = address.split_once("/commit/")?;
+    let sha = rest.split(['/', '#', '?']).next()?;
+    (sha.len() >= 7 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then(|| &sha[..7])
 }
 
 /// Whether a link opens in the browser or in mail. No other scheme is
@@ -233,6 +251,16 @@ fn csv(table: &TableData) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_host_commit_link_names_its_commit() {
+        assert_eq!(
+            commit_of("https://github.com/o/r/commit/9b3f184b0c1d2e3f#diff-1"),
+            Some("9b3f184")
+        );
+        assert_eq!(commit_of("https://github.com/o/r/pull/12"), None);
+        assert_eq!(commit_of("https://github.com/o/r/commit/main"), None);
+    }
 
     #[test]
     fn a_table_copies_as_csv_quoting_what_needs_it() {

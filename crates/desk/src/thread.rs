@@ -1519,7 +1519,7 @@ impl Desk {
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.open_surface(crate::desk::Surface::File(path.clone()), cx);
+                this.reveal_in_diff(&path, cx);
             }))
         });
         // On hover, at its end: a command copied, or run again in a
@@ -1596,25 +1596,24 @@ impl Desk {
                 ToolCallContent::Diff(d) => {
                     let start = tool.starts.get(diff_n).copied().flatten();
                     diff_n += 1;
-                    let (file, more) = kinds::cut(git::edit_diff(d, start), kinds::LINES_SHOWN);
-                    body = body.child(
-                        drawn::hunks(
-                            faces,
-                            &file,
-                            self.settings.diff_wrap,
-                            drawn::Fit::Thread,
-                            None,
-                        )
-                        .when(more > 0, |d| {
-                            d.child(
-                                div()
-                                    .pl(px(60.))
-                                    .py(px(2.))
-                                    .text_color(theme::quiet())
-                                    .child(format!("… {more} more lines")),
-                            )
-                        }),
-                    );
+                    let file = git::edit_diff(d, start);
+                    body = body
+                        .child(self.edit_view(&format!("{key}-{j}"), &file, cx))
+                        .child(
+                            div().flex().justify_end().child(
+                                ui::button(
+                                    SharedString::from(format!("{key}-{j}-in-diff")),
+                                    "Open in the Diff tab",
+                                    ui::Weight::Quiet,
+                                )
+                                .h(px(22.))
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.show_changes(crate::git::Scope::Call(i), cx);
+                                    },
+                                )),
+                            ),
+                        );
                 }
                 ToolCallContent::Content(x) => {
                     let text = text_of(&x.content);

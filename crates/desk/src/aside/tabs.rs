@@ -6,8 +6,6 @@
 //! click, ⌘W or its right-click menu; the last one closed opens again with
 //! ⇧⌘T.
 
-use std::path::PathBuf;
-
 use gpui::component::{
     Sizable as _,
     kbd::Kbd,
@@ -33,8 +31,6 @@ pub enum Surface {
     Diff,
     /// Every file it touched.
     Files,
-    /// One file's changes, whole.
-    File(PathBuf),
     /// Your terminals beside it.
     Terminal,
     /// Its branch's pull request.
@@ -318,28 +314,15 @@ impl Desk {
                     })
                 };
                 let mut menu = menu;
-                match shown {
-                    Some(Surface::File(path)) => {
-                        let copied = path.display().to_string();
-                        menu = menu
-                            .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                    copied.clone(),
-                                ));
-                            }))
-                            .separator();
-                    }
-                    Some(Surface::Side(key)) => {
-                        let desk = desk.clone();
-                        menu = menu
-                            .item(PopupMenuItem::new("Open in main view").on_click(
-                                move |_, window, cx| {
-                                    desk.update(cx, |d, cx| d.show(key, window, cx));
-                                },
-                            ))
-                            .separator();
-                    }
-                    _ => {}
+                if let Some(Surface::Side(key)) = shown {
+                    let desk = desk.clone();
+                    menu = menu
+                        .item(PopupMenuItem::new("Open in main view").on_click(
+                            move |_, window, cx| {
+                                desk.update(cx, |d, cx| d.show(key, window, cx));
+                            },
+                        ))
+                        .separator();
                 }
                 menu.item(close("Close", |at, n| at == n))
                     .item(close("Close others", |at, n| at != n))
@@ -414,13 +397,6 @@ impl Desk {
             Surface::Details => ("Details".into(), "list"),
             Surface::Diff => ("Diff".into(), "diff"),
             Surface::Files => ("Files".into(), "folder"),
-            Surface::File(path) => (
-                path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |n| n.to_string_lossy().into(),
-                ),
-                "file",
-            ),
             Surface::Terminal => ("Terminal".into(), "terminal"),
             Surface::PullRequest => (
                 s.git

@@ -99,6 +99,9 @@ pub struct Settings {
     /// A change only in spacing is left out of diffs.
     #[serde(default)]
     pub no_spacing: bool,
+    /// A diff's files show folded, each opened as wanted.
+    #[serde(default)]
+    pub diff_folded: bool,
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
@@ -374,6 +377,7 @@ impl Default for Settings {
             branch_prefix: prefix(),
             branch_kind: false,
             hidden_details: Vec::new(),
+            diff_folded: false,
             view: View::default(),
             cmd_sends: false,
             left: left(),

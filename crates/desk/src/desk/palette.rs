@@ -402,7 +402,7 @@ impl Desk {
             .session()
             .is_some_and(|s| s.changed().iter().any(|c| c.path.ends_with(&path)));
         if changed {
-            self.open_surface(super::Surface::File(path), cx);
+            self.reveal_in_diff(&path, cx);
         } else {
             self.open_named(name);
         }

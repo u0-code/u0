@@ -12,34 +12,19 @@ use gpui::component::{
 };
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{empty, fine, frow, git_button, path_text, section};
+use super::{fine, git_button, section};
 use crate::{
-    desk::{Desk, Surface},
+    desk::Desk,
     fonts::Faces,
-    git,
     git::Scope,
-    session::{Session, State},
+    session::Session,
     theme,
     ui::{self, Weight},
 };
 
 impl Desk {
-    /// The changes the scope asks for, as git read them, when it has.
-    pub(super) fn scoped<'a>(&self, s: &'a Session) -> Option<&'a Vec<git::FileDiff>> {
-        match &self.review.scope {
-            Scope::All => s.total.as_ref(),
-            Scope::Turn(n) => s.turns.get(*n).and_then(|t| t.diff.as_ref()),
-            scope => s
-                .git
-                .scoped
-                .as_ref()
-                .filter(|(at, _)| at == scope)
-                .map(|(_, files)| files),
-        }
-    }
-
     /// Which changes are shown: all of them, a turn's, the branch's, a
-    /// commit's.
+    /// commit's (chosen from the recent ones), one call's.
     pub(super) fn scope_tabs(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let last = s.turns.iter().rposition(|t| t.diff.is_some());
         let turn = match self.review.scope {
@@ -50,8 +35,10 @@ impl Desk {
         let mut tabs = vec![(all.to_owned(), Scope::All)];
         tabs.extend(turn.map(|n| (format!("Turn {}", n + 1), Scope::Turn(n))));
         tabs.push(("Branch".to_owned(), Scope::Branch));
-        if let Scope::Commit(id) = &self.review.scope {
-            tabs.push((id.clone(), Scope::Commit(id.clone())));
+        match &self.review.scope {
+            Scope::Commit(id) => tabs.push((id.clone(), Scope::Commit(id.clone()))),
+            Scope::Call(i) => tabs.push(("Edit".to_owned(), Scope::Call(*i))),
+            _ => {}
         }
         let chosen = tabs
             .iter()
@@ -80,6 +67,24 @@ impl Desk {
             )
             .when(self.review.scope == Scope::Branch, |d| {
                 d.child(self.compare_chip(faces, s, cx))
+            })
+            .when(!s.git.commits.is_empty(), |d| {
+                let faces = faces.clone();
+                let chip = ui::opener("commits")
+                    .h(px(22.))
+                    .px(px(6.))
+                    .child(fine(&faces, "Commits"))
+                    .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
+                let key = s.key;
+                d.child(
+                    self.menu(
+                        crate::desk::Popup::Commits,
+                        chip,
+                        move |d, _, cx| d.commits(&faces, key, cx),
+                        cx,
+                    )
+                    .anchor(gpui::Anchor::TopLeft),
+                )
             })
     }
 
@@ -149,107 +154,6 @@ impl Desk {
             );
         }
         list
-    }
-
-    /// The changes as git reads them between the session's checkpoints:
-    /// all of them or one turn's, each file with how it changed; then what
-    /// can be done with them. A session loaded, with no turn taken here
-    /// yet, shows what is not committed. `None` before git has read
-    /// anything.
-    pub(super) fn git_changes(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let last = s.turns.iter().rposition(|t| t.diff.is_some());
-        if last.is_none()
-            && s.total.is_none()
-            && !matches!(self.review.scope, Scope::Branch | Scope::Commit(_))
-        {
-            return None;
-        }
-        let reading = matches!(self.review.scope, Scope::Branch | Scope::Commit(_))
-            && self.scoped(s).is_none();
-        let files = self.scoped(s).cloned().unwrap_or_default();
-        let (added, gone) = files
-            .iter()
-            .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
-        let mut sec = section(
-            faces,
-            "Changes",
-            (!files.is_empty()).then(|| ui::counts(faces, added, gone, 11.5)),
-        )
-        .child(self.scope_tabs(faces, s, cx));
-        if reading {
-            sec = sec.child(empty(faces, "Reading git…"));
-        } else if files.is_empty() {
-            sec = sec.child(empty(faces, "Nothing changed here."));
-        }
-        let mut rows = div().flex().flex_col();
-        for (n, f) in files.iter().enumerate() {
-            let tail = match f.status {
-                git::Status::Added => fine(faces, "new"),
-                git::Status::Deleted => fine(faces, "deleted").text_color(theme::coral()),
-                git::Status::Renamed if f.added + f.gone == 0 => fine(faces, "renamed"),
-                _ => ui::counts(faces, f.added, f.gone, 11.5),
-            };
-            let path = std::path::PathBuf::from(&f.path);
-            rows = rows.child(
-                frow()
-                    .id(SharedString::from(format!("gchange-{n}")))
-                    .px(px(6.))
-                    .mx(px(-6.))
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(path_text(faces, &f.path))
-                    .child(tail)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_surface(Surface::File(path.clone()), cx);
-                    })),
-            );
-        }
-        sec = sec.child(rows);
-        let idle = !matches!(s.state, State::Working | State::Opening);
-        let first = files.first().map(|f| std::path::PathBuf::from(&f.path));
-        sec =
-            sec.child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .children(first.map(|first| {
-                        ui::button(
-                            "review",
-                            "Review diff",
-                            if idle {
-                                Weight::Primary
-                            } else {
-                                Weight::Secondary
-                            },
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_surface(Surface::File(first.clone()), cx);
-                        }))
-                    }))
-                    .child(ui::button("commit", "Commit…", Weight::Secondary).on_click(
-                        cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
-                    )),
-            );
-        if self.review.committing {
-            sec = sec.child(self.commit_form(faces, s, cx));
-        }
-        if let Some(step) = &s.git.step {
-            sec = sec.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(ui::live_dot())
-                    .child(fine(faces, format!("{step}…")).text_color(theme::accent())),
-            );
-        }
-        Some(sec)
     }
 
     /// The message to commit with and what can be done with it: commit,
@@ -322,82 +226,38 @@ impl Desk {
 
     /// The recent commits where the session works; a click shows what one
     /// changed.
-    pub(super) fn commits(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        if s.git.commits.is_empty() {
-            return None;
-        }
-        let mut rows = div().flex().flex_col();
-        for (id, subject, when) in s.git.commits.iter().take(8) {
-            let on = self.review.scope == Scope::Commit(id.clone());
+    fn commits(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
+        let mut rows = div().flex().flex_col().w(px(320.));
+        let commits = self.sessions.at(key).map(|s| s.git.commits.as_slice());
+        for (id, subject, when) in commits.unwrap_or_default() {
             let to = Scope::Commit(id.clone());
             rows = rows.child(
-                frow()
-                    .id(SharedString::from(format!("commit-{id}")))
-                    .px(px(6.))
-                    .mx(px(-6.))
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(theme::hover()))
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(
-                        ui::mono(faces, id.clone())
-                            .flex_none()
-                            .text_size(px(11.5))
-                            .text_color(theme::faint()),
-                    )
-                    .child(ui::one_line(
-                        ui::text(faces, ui::fit(subject, 26))
+                ui::menu_row(
+                    SharedString::from(format!("commit-{id}")),
+                    self.review.scope == to,
+                )
+                .child(
+                    ui::mono(faces, id.clone())
+                        .flex_none()
+                        .text_size(px(11.5))
+                        .text_color(theme::faint()),
+                )
+                .child(
+                    ui::one_line(
+                        ui::text(faces, ui::fit(subject, 30))
                             .text_size(px(12.5))
                             .text_color(theme::text2()),
-                    ))
-                    .child(fine(faces, when.clone()).flex_none())
-                    .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx))),
+                    )
+                    .flex_1(),
+                )
+                .child(fine(faces, when.clone()).flex_none())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.popup = crate::desk::Popup::Closed;
+                    this.show_changes(to.clone(), cx);
+                })),
             );
         }
-        // Behind its upstream, or not on a remote yet: the way on.
-        let (behind, origin) = s.git.upstream;
-        let gh = self.on_path.contains(&"gh");
-        let note = |text: String,
-                    id: &'static str,
-                    label: &'static str,
-                    action: fn() -> crate::repo::GitAction| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .mt(px(6.))
-                .child(fine(faces, text).flex_1())
-                .child(
-                    ui::button(id, label, Weight::Quiet)
-                        .h(px(24.))
-                        .on_click(cx.listener(move |this, _, _, cx| this.git_action(action(), cx))),
-                )
-        };
-        Some(
-            section(faces, "Commits", None)
-                .child(rows)
-                .when(behind > 0, |d| {
-                    d.child(note(
-                        format!("{behind} behind its upstream"),
-                        "pull",
-                        "Pull",
-                        || crate::repo::GitAction::Pull,
-                    ))
-                })
-                .when(!origin && gh, |d| {
-                    d.child(note(
-                        "Not on GitHub yet".into(),
-                        "publish",
-                        "Publish, private",
-                        || crate::repo::GitAction::Publish,
-                    ))
-                }),
-        )
+        rows
     }
 
     /// The branch's pull request: its state, its checks, the review asked.

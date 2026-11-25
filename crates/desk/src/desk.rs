@@ -118,6 +118,8 @@ pub enum Popup {
     Surfaces,
     /// What a session's details show.
     Details,
+    /// The recent commits, to see one's changes.
+    Commits,
 }
 
 /// Which side columns show.
@@ -267,6 +269,8 @@ pub struct Desk {
     pub side_line: Entity<InputState>,
     /// How far the column's tabs are scrolled, to bring one opened into view.
     pub tab_scroll: gpui::ScrollHandle,
+    /// gpui-kit's view of each edit opened in the thread, by its card.
+    pub edits: std::cell::RefCell<HashMap<String, Entity<gpui::component::diff::DiffState>>>,
     pub search: lists::Search,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
@@ -522,6 +526,7 @@ impl Desk {
             columns: HashMap::new(),
             side_line,
             tab_scroll: gpui::ScrollHandle::new(),
+            edits: std::cell::RefCell::default(),
             search: lists::Search::new(window, cx),
             registry_read: None,
             tx,
@@ -1356,8 +1361,8 @@ impl Desk {
     /// wider again for its diff side by side.
     pub fn right_width(&self) -> f32 {
         match self.surface() {
-            Some(Surface::File(_)) if self.settings.side_by_side => 720.,
-            Some(Surface::File(_) | Surface::Terminal) => 560.,
+            Some(Surface::Diff) if self.settings.side_by_side => 720.,
+            Some(Surface::Diff | Surface::Terminal) => 560.,
             _ => RIGHT,
         }
     }
@@ -1387,6 +1392,7 @@ impl Render for Desk {
             cx,
         );
         self.sync_lines();
+        self.sync_diff(cx);
         self.read_projects();
         self.sync_side(cx);
         // ⌘ let go where the desk did not hear it (over a dialog): the

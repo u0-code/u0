@@ -706,11 +706,7 @@ mod tests {
         let dir = PathBuf::from("/p");
         let diff: git::FileDiff = of(json!({
             "path": "a.rs", "from": null, "status": "Modified", "added": 1, "gone": 1,
-            "hunks": [{"head": "@@ -1 +1 @@", "lines": [
-                {"Gone": {"old": 1, "text": "a"}}, {"Added": {"new": 1, "text": "b"}},
-                {"Same": {"old": 2, "new": 2, "text": "c"}},
-            ]}],
-            "binary": false,
+            "binary": false, "patch": "--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-a\n+b\n c\n",
         }));
         let script: Script = of(json!({"name": "dev", "command": "make dev", "worktree": true}));
         let worktree: git::Worktree = of(json!({"repo": "/p", "path": "/w", "branch": "ghost/a"}));

@@ -10,6 +10,7 @@
 //! Every call here blocks; the desk makes them off the window's thread.
 
 use std::{
+    fmt::Write as _,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -368,33 +369,8 @@ pub enum Status {
     Renamed,
 }
 
-/// One line of a hunk, with its number on either side where it has one.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Line {
-    Same {
-        old: usize,
-        new: usize,
-        text: String,
-    },
-    Gone {
-        old: usize,
-        text: String,
-    },
-    Added {
-        new: usize,
-        text: String,
-    },
-}
-
-/// A stretch of a file that changed, with the lines around it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Hunk {
-    /// Git's own head for it: "@@ -58,9 +58,41 @@ fn send".
-    pub head: String,
-    pub lines: Vec<Line>,
-}
-
-/// One file's changes.
+/// One file's changes: what lists name and count of them, and its patch
+/// as git writes it, which the desk's diff view reads.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileDiff {
     /// Its path from the top of the repository, as it is after.
@@ -404,9 +380,10 @@ pub struct FileDiff {
     pub status: Status,
     pub added: usize,
     pub gone: usize,
-    pub hunks: Vec<Hunk>,
     /// Whether git called it binary.
     pub binary: bool,
+    /// Its part of the unified diff, from its `diff --git` (or `---`) line.
+    pub patch: String,
 }
 
 /// An edit as git would show it: each stretch that changed, with a line of
@@ -416,45 +393,36 @@ pub fn edit_diff(d: &Diff, start: Option<usize>) -> FileDiff {
     let old = d.old_text.as_deref().unwrap_or("");
     let at = start.unwrap_or(1);
     let text = TextDiff::from_lines(old, &d.new_text);
+    let named = d.path.display().to_string();
     let (mut added, mut gone) = (0, 0);
-    let hunks = text
-        .grouped_ops(1)
-        .iter()
-        .map(|group| {
-            let (first, last) = (&group[0], &group[group.len() - 1]);
-            let (o, n) = (first.old_range().start, first.new_range().start);
-            let (o_len, n_len) = (last.old_range().end - o, last.new_range().end - n);
-            let lines = group
-                .iter()
-                .flat_map(|op| text.iter_changes(op))
-                .map(|c| {
-                    let text = c.value().trim_end_matches(['\r', '\n']).to_owned();
-                    let (old, new) = (c.old_index().map(|i| i + at), c.new_index().map(|i| i + at));
-                    match (c.tag(), old, new) {
-                        (ChangeTag::Delete, Some(old), _) => {
-                            gone += 1;
-                            Line::Gone { old, text }
-                        }
-                        (ChangeTag::Insert, _, Some(new)) => {
-                            added += 1;
-                            Line::Added { new, text }
-                        }
-                        (_, old, new) => Line::Same {
-                            old: old.unwrap_or_default(),
-                            new: new.unwrap_or_default(),
-                            text,
-                        },
-                    }
-                })
-                .collect();
-            Hunk {
-                head: format!("@@ -{},{o_len} +{},{n_len} @@", o + at, n + at),
-                lines,
-            }
-        })
-        .collect();
+    let from = if d.old_text.is_some() {
+        format!("a/{named}")
+    } else {
+        "/dev/null".to_owned()
+    };
+    let mut patch = format!("--- {from}\n+++ b/{named}\n");
+    for group in text.grouped_ops(1) {
+        let (first, last) = (&group[0], &group[group.len() - 1]);
+        let (o, n) = (first.old_range().start, first.new_range().start);
+        let (o_len, n_len) = (last.old_range().end - o, last.new_range().end - n);
+        let _ = writeln!(patch, "@@ -{},{o_len} +{},{n_len} @@", o + at, n + at);
+        for c in group.iter().flat_map(|op| text.iter_changes(op)) {
+            let sign = match c.tag() {
+                ChangeTag::Delete => {
+                    gone += 1;
+                    '-'
+                }
+                ChangeTag::Insert => {
+                    added += 1;
+                    '+'
+                }
+                ChangeTag::Equal => ' ',
+            };
+            let _ = writeln!(patch, "{sign}{}", c.value().trim_end_matches(['\r', '\n']));
+        }
+    }
     FileDiff {
-        path: d.path.display().to_string(),
+        path: named,
         from: None,
         status: if d.old_text.is_none() {
             Status::Added
@@ -463,8 +431,8 @@ pub fn edit_diff(d: &Diff, start: Option<usize>) -> FileDiff {
         },
         added,
         gone,
-        hunks,
         binary: false,
+        patch,
     }
 }
 
@@ -525,28 +493,38 @@ fn unquote(name: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// A unified diff, read.
+/// A unified diff, cut into its files: each named and counted, with its
+/// own part of the patch.
 pub fn parse(text: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
-    let (mut old, mut new) = (0usize, 0usize);
+    let mut in_hunk = false;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("diff --git ") {
-            let path = new_name(rest);
             files.push(FileDiff {
-                path,
+                path: new_name(rest),
                 from: None,
                 status: Status::Modified,
                 added: 0,
                 gone: 0,
-                hunks: Vec::new(),
                 binary: false,
+                patch: String::new(),
             });
-            continue;
+            in_hunk = false;
         }
         let Some(file) = files.last_mut() else {
             continue;
         };
-        if line.starts_with("new file mode") {
+        file.patch.push_str(line);
+        file.patch.push('\n');
+        if line.starts_with("@@") {
+            in_hunk = true;
+        } else if in_hunk {
+            if line.starts_with('+') {
+                file.added += 1;
+            } else if line.starts_with('-') {
+                file.gone += 1;
+            }
+        } else if line.starts_with("new file mode") {
             file.status = Status::Added;
         } else if line.starts_with("deleted file mode") {
             file.status = Status::Deleted;
@@ -557,44 +535,6 @@ pub fn parse(text: &str) -> Vec<FileDiff> {
             file.path = unquote(to);
         } else if line.starts_with("Binary files ") {
             file.binary = true;
-        } else if line.starts_with("@@") {
-            let nums = |prefix: char| {
-                line.split_whitespace()
-                    .find_map(|w| w.strip_prefix(prefix))
-                    .and_then(|w| w.split(',').next())
-                    .and_then(|n| n.parse::<usize>().ok())
-                    .unwrap_or(0)
-            };
-            old = nums('-');
-            new = nums('+');
-            file.hunks.push(Hunk {
-                head: line.to_owned(),
-                lines: Vec::new(),
-            });
-        } else if let Some(hunk) = file.hunks.last_mut() {
-            if let Some(t) = line.strip_prefix('+') {
-                hunk.lines.push(Line::Added {
-                    new,
-                    text: t.to_owned(),
-                });
-                new += 1;
-                file.added += 1;
-            } else if let Some(t) = line.strip_prefix('-') {
-                hunk.lines.push(Line::Gone {
-                    old,
-                    text: t.to_owned(),
-                });
-                old += 1;
-                file.gone += 1;
-            } else if let Some(t) = line.strip_prefix(' ') {
-                hunk.lines.push(Line::Same {
-                    old,
-                    new,
-                    text: t.to_owned(),
-                });
-                old += 1;
-                new += 1;
-            }
         }
     }
     files
@@ -1081,31 +1021,8 @@ mod tests {
         let d = edit(Some("fn a() {\n    1\n}\n"), "fn a() {\n    2\n    3\n}\n");
         let file = edit_diff(&d, Some(10));
         assert_eq!(
-            file.hunks[0].lines,
-            [
-                Line::Same {
-                    old: 10,
-                    new: 10,
-                    text: "fn a() {".into()
-                },
-                Line::Gone {
-                    old: 11,
-                    text: "    1".into()
-                },
-                Line::Added {
-                    new: 11,
-                    text: "    2".into()
-                },
-                Line::Added {
-                    new: 12,
-                    text: "    3".into()
-                },
-                Line::Same {
-                    old: 12,
-                    new: 13,
-                    text: "}".into()
-                },
-            ]
+            file.patch,
+            "--- a/a.rs\n+++ b/a.rs\n@@ -10,3 +10,4 @@\n fn a() {\n-    1\n+    2\n+    3\n }\n"
         );
         assert_eq!((file.gone, file.added), (1, 2));
     }
@@ -1120,9 +1037,9 @@ mod tests {
             .replace("line 2\n", "two\n")
             .replace("line 17\n", "seventeen\n");
         let file = edit_diff(&edit(Some(&old), &new), Some(1));
-        assert_eq!(file.hunks.len(), 2);
+        assert_eq!(file.patch.matches("\n@@ ").count(), 2);
         assert_eq!((file.gone, file.added), (2, 2));
-        assert_eq!(file.hunks[1].head, "@@ -17,3 +17,3 @@");
+        assert!(file.patch.contains("\n@@ -17,3 +17,3 @@\n"));
     }
 
     /// A repository in a temporary folder with one committed file.
@@ -1295,8 +1212,8 @@ mod tests {
         assert_eq!(files.len(), 2);
         let a = files.iter().find(|f| f.path == "a.txt").unwrap();
         assert_eq!((a.added, a.gone, a.status), (1, 1, Status::Modified));
-        assert!(matches!(a.hunks[0].lines[1], Line::Gone { old: 2, .. }));
-        assert!(matches!(a.hunks[0].lines[2], Line::Added { new: 2, .. }));
+        assert!(a.patch.starts_with("diff --git a/a.txt b/a.txt\n"));
+        assert!(a.patch.contains("\n one\n-two\n+2\n three\n"));
         let b = files.iter().find(|f| f.path == "b.txt").unwrap();
         assert_eq!(b.status, Status::Added);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1408,14 +1325,15 @@ mod tests {
 }
 
 /// Which changes the right column shows: one turn's, all of the
-/// session's, the branch's against where it left the main one, or one
-/// commit's.
+/// session's, the branch's against where it left the main one, one
+/// commit's, or the edits of one call (by its place in the thread).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Scope {
     Turn(usize),
     All,
     Branch,
     Commit(String),
+    Call(usize),
 }
 
 /// What git says where a session works, read while it is on screen, and

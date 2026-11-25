@@ -4,11 +4,15 @@
 //! never under another session at work), the branch's pull request and its
 //! checks. And a commit message the writer writes, when asked to.
 
-use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
+use std::{fmt::Write as _, path::PathBuf};
 
 use gpui::{AppContext as _, Context, Entity, Window};
 
-use gpui::component::input::{InputEvent, InputState};
+use gpui::component::{
+    diff::{DiffSide, DiffState},
+    input::{InputEvent, InputState},
+    tree::TreeState,
+};
 
 use super::Desk;
 use crate::{git::Scope, session::State};
@@ -16,8 +20,14 @@ use crate::{git::Scope, session::State};
 /// The changes in the column beside: which it shows; the commit message
 /// being written and whether its form is open; what you say of a file's
 /// lines (the line being commented on, the line to write it in, and those
-/// said, waiting to go to the agent); the folders folded in the list of
-/// files, and whether test files are left out of it.
+/// said, waiting to go to the agent); whether test files are left out.
+/// gpui-kit's view of them and the tree of their files, with what the view
+/// holds (session, scope, how many files, how much patch) and whether the
+/// tree shows; the words found in them, each line found, and the one on.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a fact of its own about the review, not a state among several"
+)]
 pub struct Review {
     pub scope: Scope,
     pub message: Entity<InputState>,
@@ -25,8 +35,17 @@ pub struct Review {
     pub commenting: Option<(PathBuf, usize)>,
     pub comment: Entity<InputState>,
     pub comments: Vec<(PathBuf, usize, String)>,
-    pub folded: HashSet<String>,
     pub no_tests: bool,
+    pub diff: Entity<DiffState>,
+    pub tree: Entity<TreeState>,
+    pub shown: Option<(u64, Scope, usize, usize)>,
+    pub tree_open: bool,
+    pub find: Entity<InputState>,
+    pub finding: bool,
+    pub hits: Vec<(String, DiffSide, usize, std::ops::Range<usize>)>,
+    pub hit: usize,
+    /// A file to bring into view once the view holds it.
+    pub reveal: Option<String>,
 }
 
 impl Review {
@@ -46,6 +65,13 @@ impl Review {
             },
         )
         .detach();
+        let find = cx.new(|cx| InputState::new(window, cx).placeholder("Find in the diff"));
+        cx.subscribe_in(&find, window, |this, _, e: &InputEvent, _, cx| match e {
+            InputEvent::Change => this.find_in_diff(cx),
+            InputEvent::PressEnter { .. } => this.step_hit(1, cx),
+            _ => {}
+        })
+        .detach();
         Self {
             scope: Scope::All,
             message: cx.new(|cx| InputState::new(window, cx).placeholder("Commit message")),
@@ -53,8 +79,16 @@ impl Review {
             commenting: None,
             comment,
             comments: Vec::new(),
-            folded: HashSet::new(),
             no_tests: false,
+            diff: cx.new(|cx| DiffState::new([], cx)),
+            tree: cx.new(|cx| TreeState::new(cx)),
+            shown: None,
+            tree_open: false,
+            find,
+            finding: false,
+            hits: Vec::new(),
+            hit: 0,
+            reveal: None,
         }
     }
 }

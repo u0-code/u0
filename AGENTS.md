@@ -139,9 +139,10 @@ crates/desk/src/
                 waits beside it (later), the model
                 picker (picker) and the mode menu (modes), the start,
                 the drawer, the top bar; calls read (kinds);
-                drawing helpers: diffs and plans (drawn), command output
-  aside/        the column's tabs (tabs), its changes as git reads them (repo),
-                a side chat in it (side)
+                drawing helpers: plans (drawn), command output
+  aside/        the column's tabs (tabs), the Diff tab as gpui-kit's diff view
+                reads the patches (diff), git's scopes, commits and pull
+                request (repo), a side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

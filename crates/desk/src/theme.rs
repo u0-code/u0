@@ -172,11 +172,6 @@ pub fn accent() -> Hsla {
 pub fn coral() -> Hsla {
     pick(0xD98C_7A, 0xBF51_3A)
 }
-/// The words of code in a diff, a shade under text so the signs and
-/// grounds around them carry the change.
-pub fn code_text() -> Hsla {
-    pick(0xE6E6_E6, 0x2626_26)
-}
 /// The program at the head of a command, and a keyword in code.
 pub fn code_program() -> Hsla {
     pick(0x81B6_F9, 0x1D6A_C9)
@@ -267,8 +262,9 @@ pub fn kit(cx: &mut App) {
         c.tab_active_foreground = text();
         c.switch = ghost_line();
         c.switch_thumb = bg();
-        c.danger = coral();
-        c.success = ok();
+        // What a diff adds and takes away, in the colours chosen for it.
+        c.danger = gone();
+        c.success = added();
         c.warning = accent();
         c.link = link();
         c.link_hover = link();
