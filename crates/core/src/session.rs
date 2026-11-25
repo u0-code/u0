@@ -119,6 +119,12 @@ pub enum Item {
         /// It went with what you said, not came from the agent.
         yours: bool,
     },
+    /// A file that went with what you said, by its name and address; or a
+    /// long paste, named so.
+    File {
+        name: String,
+        uri: String,
+    },
     /// A subagent the agent set to work: its session's id, and what the
     /// agent calls it.
     Child {
@@ -373,6 +379,24 @@ pub fn text_of(block: &ContentBlock) -> String {
         _ => String::new(),
     }
 }
+
+/// The name and address of a file that went with what you said: one
+/// linked, or a paste too long for the line, sent as its text.
+fn file_of(block: &ContentBlock) -> Option<(String, String)> {
+    match block {
+        ContentBlock::ResourceLink(r) => Some((r.name.clone(), r.uri.clone())),
+        ContentBlock::Resource(r) => match &r.resource {
+            EmbeddedResourceResource::TextResourceContents(t) if t.uri.starts_with(PASTE) => {
+                Some(("Pasted text".into(), t.uri.clone()))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Where a paste too long for the line is said to be from.
+pub const PASTE: &str = "ghost://paste/";
 
 /// A picture in a thread, in a format the desk draws.
 #[derive(Debug)]
@@ -723,7 +747,8 @@ impl Session {
         }
     }
 
-    /// What you said, put in the thread as the turn begins.
+    /// What you said, put in the thread as the turn begins, with what
+    /// went with it.
     pub fn said(&mut self, text: &str) {
         let now = SystemTime::now();
         self.record(store::Event::At(store::secs(now)));
@@ -740,6 +765,18 @@ impl Session {
             self.meta.begun = SystemTime::now();
         }
         self.items.push(Item::You(text.to_owned()));
+        // What goes with it shows under it, and is kept with its record:
+        // images, files and long pastes; not what a session or pull
+        // request named said.
+        let shown: Vec<ContentBlock> = (self.attached.iter())
+            .filter(|b| image_of(b).is_some() || file_of(b).is_some())
+            .cloned()
+            .collect();
+        for b in shown {
+            self.apply(SessionUpdate::UserMessageChunk(
+                agent_client_protocol::v1::schema::ContentChunk::new(b),
+            ));
+        }
         self.state = State::Working;
         self.since = Some(Instant::now());
         self.meta.updated = SystemTime::now();
@@ -865,6 +902,11 @@ impl Session {
                 // An image that went with it shows as itself.
                 if let Some(image) = image_of(&c.content) {
                     self.items.push(Item::Image { image, yours: true });
+                    return;
+                }
+                // And a file, or a long paste, as a file of its own.
+                if let Some((name, uri)) = file_of(&c.content) {
+                    self.items.push(Item::File { name, uri });
                     return;
                 }
                 // A session being reopened replays what you said.
@@ -1438,6 +1480,23 @@ mod tests {
         let kept = Session::record_before(events, 1);
         assert_eq!(kept.len(), 4);
         assert!(!kept.iter().any(|e| matches!(e, store::Event::You(_))));
+    }
+
+    #[test]
+    fn a_file_or_a_long_paste_that_went_with_your_message_shows_as_a_file() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.said("read these");
+        s.apply(update(
+            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"resource_link","name":"a.pdf","uri":"file:///tmp/a.pdf"}}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"resource","resource":{"uri":"ghost://paste/2","text":"long"}}}"#,
+        ));
+        assert!(
+            matches!(&s.items[1], Item::File { name, uri } if name == "a.pdf" && uri == "file:///tmp/a.pdf")
+        );
+        assert!(matches!(&s.items[2], Item::File { name, .. } if name == "Pasted text"));
+        assert!(matches!(&s.items[0], Item::You(t) if t == "read these"));
     }
 
     #[test]

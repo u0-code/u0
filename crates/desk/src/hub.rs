@@ -39,7 +39,7 @@ pub enum Msg {
     Notice(Result<String, (String, String)>),
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
-    Picture(Option<crate::desk::mention::Picture>),
+    Attached(Option<crate::desk::mention::Attached>),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -91,23 +91,63 @@ pub fn capture_window(tx: Sender) {
             .filter(std::process::ExitStatus::success)
             .and_then(|_| std::fs::read(&path).ok());
         let _ = std::fs::remove_file(&path);
-        Msg::Picture(bytes.map(|bytes| crate::desk::mention::Picture {
+        Msg::Attached(bytes.map(|bytes| crate::desk::mention::Attached::Image {
             mime: "image/png".into(),
             bytes,
         }))
     });
 }
 
-/// Read the picture at `path`, of the type `mime`, for what you write.
-pub fn read_picture(path: PathBuf, mime: &'static str, tx: Sender) {
+/// The largest image sent as it is; a larger one is made smaller first.
+const PICTURE: u64 = 10 * 1024 * 1024;
+
+/// Whether the file at `path` is a picture an agent is shown, as itself or
+/// made a JPEG.
+pub fn is_picture(path: &std::path::Path) -> bool {
+    picture_kind(path).is_some()
+}
+
+/// The kind of picture `path` holds, by its name; none, not one.
+fn picture_kind(path: &std::path::Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_string_lossy().to_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "heic" | "heif" => "image/heic",
+        _ => return None,
+    })
+}
+
+/// Read the picture at `path`, for what you write: a photo in HEIC, which
+/// agents do not read, or one over `PICTURE`, made a JPEG (by macOS's
+/// `sips`), no wider or taller than 2560 points.
+pub fn read_picture(path: PathBuf, tx: Sender) {
     off(tx, move || {
-        Msg::Picture(
-            std::fs::read(&path)
-                .ok()
-                .map(|bytes| crate::desk::mention::Picture {
-                    mime: mime.into(),
-                    bytes,
-                }),
+        let mime = picture_kind(&path).unwrap_or("image/png");
+        let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > PICTURE);
+        let read = if mime == "image/heic" || big {
+            let out =
+                std::env::temp_dir().join(format!("ghost-picture-{}.jpg", std::process::id()));
+            let made = std::process::Command::new("sips")
+                .args(["-s", "format", "jpeg", "-Z", "2560"])
+                .arg(&path)
+                .arg("--out")
+                .arg(&out)
+                .output()
+                .is_ok_and(|o| o.status.success());
+            let bytes = made.then(|| std::fs::read(&out).ok()).flatten();
+            let _ = std::fs::remove_file(&out);
+            bytes.map(|b| ("image/jpeg", b))
+        } else {
+            std::fs::read(&path).ok().map(|b| (mime, b))
+        };
+        Msg::Attached(
+            read.map(|(mime, bytes)| crate::desk::mention::Attached::Image {
+                mime: mime.into(),
+                bytes,
+            }),
         )
     });
 }

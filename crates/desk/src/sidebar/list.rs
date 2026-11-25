@@ -592,7 +592,7 @@ impl Desk {
             title: SharedString::from(ui::fit(&title, 40)),
         };
         let pinned = s.meta.flags.pinned.is_some();
-        let (click, drop) = (desk.clone(), desk.clone());
+        let (click, drop, files) = (desk.clone(), desk.clone(), desk.clone());
         item.when(in_folder, |d| d.pl(px(36.)))
             .when(self.chosen.contains(&key), |d| d.bg(theme::row_chosen()))
             .child(
@@ -653,6 +653,14 @@ impl Desk {
                             .on_drop(move |d: &Dragged, _, cx| {
                                 drop.update(cx, |this, cx| this.move_session(d.key, key, cx));
                             })
+                    })
+                    // Files dropped on it go with what you write next there.
+                    .drag_over::<gpui::ExternalPaths>(|st, _, _, _| st.bg(theme::row_hover()))
+                    .on_drop(move |p: &gpui::ExternalPaths, window, cx| {
+                        files.update(cx, |this, cx| {
+                            this.show(key, window, cx);
+                            this.drop_files(p.paths(), window, cx);
+                        });
                     }),
             )
             .on_click(move |e, window, cx| {

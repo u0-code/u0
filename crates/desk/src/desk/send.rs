@@ -198,24 +198,11 @@ impl Desk {
         };
         let session = self.sessions.at_mut(key).expect("found above");
         session.meta.unsent.clear();
-        let pictures: Vec<_> = attached
-            .iter()
-            .filter(|b| matches!(b, agent_client_protocol::v1::schema::ContentBlock::Image(_)))
-            .cloned()
-            .collect();
         session.attached.extend(attached);
         // Something new said in a session done for now brings it back.
         session.meta.flags.settled = None;
         session.meta.flags.snoozed = None;
         session.said(&text);
-        // The images it took show under it, and are kept with its record.
-        for p in pictures {
-            session.apply(
-                agent_client_protocol::v1::schema::SessionUpdate::UserMessageChunk(
-                    agent_client_protocol::v1::schema::ContentChunk::new(p),
-                ),
-            );
-        }
         let (agent, folder, id) = (
             session.meta.agent.clone(),
             session.meta.folder.clone(),

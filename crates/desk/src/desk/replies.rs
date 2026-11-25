@@ -126,8 +126,8 @@ impl Desk {
         self.behind = cx.active_window().is_none();
         match msg {
             Msg::Event(e) => self.event(e, window, cx),
-            Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
-            Msg::Picture(None) => {}
+            Msg::Attached(Some(attached)) => self.add_attached(attached, cx),
+            Msg::Attached(None) => {}
             Msg::OnPath(found) => self.on_path = found,
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();

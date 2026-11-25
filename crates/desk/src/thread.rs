@@ -1000,7 +1000,8 @@ impl Desk {
                     .into_any_element()
             }
             // An image, yours under what you said, the agent's in its
-            // reply; a click looks at it large.
+            // reply, as high as its row is taken to be before the picture
+            // is read; a click looks at it large.
             Item::Image { image, yours } => {
                 let (w, h) = if *yours { (240., 180.) } else { (480., 360.) };
                 let at = (s.key, i);
@@ -1015,13 +1016,42 @@ impl Desk {
                             .child(
                                 gpui::img(picture(image))
                                     .max_w(px(w))
-                                    .max_h(px(h))
+                                    .h(px(h))
                                     .rounded(px(8.)),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.zoom = Some(at);
                                 cx.notify();
                             })),
+                    )
+                    .into_any_element()
+            }
+            // A file that went with what you said, under it, as it was in
+            // the composer; a click opens it.
+            Item::File { name, uri } => {
+                use gpui::component::Sizable as _;
+                use gpui::component::attachment::{
+                    Attachment, AttachmentContent, AttachmentMedia, AttachmentTitle,
+                };
+                let uri = uri.clone();
+                div()
+                    .flex()
+                    .justify_end()
+                    .px(px(10.))
+                    .child(
+                        Attachment::new()
+                            .id(SharedString::from(format!("{key}-file")))
+                            .small()
+                            .media(AttachmentMedia::new().child(ui::icon("file", 16.)))
+                            .content(
+                                AttachmentContent::new().title(AttachmentTitle::new(name.clone())),
+                            )
+                            .tooltip(uri.clone())
+                            .on_click(move |_, _, cx| {
+                                if uri.starts_with("file:") {
+                                    cx.open_url(&uri);
+                                }
+                            }),
                     )
                     .into_any_element()
             }

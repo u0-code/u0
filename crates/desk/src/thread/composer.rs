@@ -4,7 +4,11 @@
 //! its model, its mode and how full its context is.
 
 use gpui::component::{
-    Selectable as _,
+    Selectable as _, Sizable as _,
+    attachment::{
+        Attachment, AttachmentContent, AttachmentDescription, AttachmentGroup, AttachmentMedia,
+        AttachmentTitle,
+    },
     button::{Button, ButtonVariants as _},
     input::{Enter, Escape, IndentInline, MoveDown, MoveUp, Textarea},
     list::ListItem,
@@ -93,7 +97,7 @@ impl Desk {
                     } else {
                         theme::border2()
                     })
-                    .children(self.pictures_row(faces, cx))
+                    .children(self.attached_row(cx))
                     .child(
                         div()
                             .flex()
@@ -165,15 +169,12 @@ impl Desk {
             .child(
                 Textarea::new(&self.composer.input)
                     .appearance(false)
-                    .on_paste(move |item, _, cx| {
-                        let Some(image) = item.entries().iter().find_map(|e| match e {
-                            gpui::ClipboardEntry::Image(i) => Some(i.clone()),
-                            _ => None,
-                        }) else {
-                            return false;
-                        };
-                        desk.update(cx, |this, cx| this.paste_picture(&image, cx))
-                            .is_ok()
+                    // ⇧⌘V puts what is pasted in the line, whatever it is.
+                    .on_paste(move |item, window, cx| {
+                        !window.modifiers().shift
+                            && desk
+                                .update(cx, |this, cx| this.paste(item, window, cx))
+                                .unwrap_or(false)
                     }),
             )
     }
@@ -687,40 +688,49 @@ impl Desk {
             })
     }
 
-    /// Images waiting to go with what is said.
-    fn pictures_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
-        (!self.composer.pictures.is_empty()).then(|| {
-            let mut row = div().flex().flex_wrap().gap(px(6.)).px(px(10.)).pt(px(10.));
-            for (n, p) in self.composer.pictures.iter().enumerate() {
-                row = row.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .h(px(26.))
-                        .pl(px(8.))
-                        .pr(px(2.))
-                        .rounded(px(7.))
-                        .border_1()
-                        .border_color(theme::tag_line())
-                        .child(ui::icon("file", 12.).text_color(theme::faint()))
-                        .child(
-                            ui::text(
-                                faces,
-                                format!("Image {} · {} KB", n + 1, p.bytes.len() / 1024),
-                            )
-                            .text_size(px(12.))
-                            .text_color(theme::text2()),
-                        )
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("drop-pic-{n}")),
-                                "x",
-                                "Take it out",
-                            )
-                            .size(px(20.))
-                            .on_click(cx.listener(move |this, _, _, cx| this.drop_picture(n, cx))),
+    /// What is attached, as gpui-kit's attachments: an image with its
+    /// picture, a file with its name and size, a long paste with its
+    /// length; each can be taken out.
+    fn attached_row(&self, cx: &mut Context<Self>) -> Option<AttachmentGroup> {
+        use crate::desk::mention::Attached;
+        (!self.composer.attached.is_empty()).then(|| {
+            let mut row = AttachmentGroup::new("attached").px(px(10.)).pt(px(10.));
+            for (n, a) in self.composer.attached.iter().enumerate() {
+                let (media, title, about) = match a {
+                    Attached::Image { mime, bytes } => (
+                        AttachmentMedia::new().src(gpui::ImageSource::Image(std::sync::Arc::new(
+                            gpui::Image::from_bytes(picture_format(mime), bytes.clone()),
+                        ))),
+                        format!("Image {}", n + 1),
+                        size(bytes.len() as u64),
+                    ),
+                    Attached::File(path) => (
+                        AttachmentMedia::new().child(ui::icon("file", 16.)),
+                        path.file_name().map_or_else(
+                            || path.display().to_string(),
+                            |f| f.to_string_lossy().into_owned(),
                         ),
+                        std::fs::metadata(path)
+                            .map(|m| size(m.len()))
+                            .unwrap_or_default(),
+                    ),
+                    Attached::Text(t) => (
+                        AttachmentMedia::new().child(ui::icon("list", 16.)),
+                        "Pasted text".to_owned(),
+                        format!("{} lines · {}", t.lines().count(), size(t.len() as u64)),
+                    ),
+                };
+                row = row.child(
+                    Attachment::new()
+                        .id(SharedString::from(format!("attached-{n}")))
+                        .small()
+                        .media(media)
+                        .content(
+                            AttachmentContent::new()
+                                .title(AttachmentTitle::new(title))
+                                .description(AttachmentDescription::new(about)),
+                        )
+                        .on_remove(cx.listener(move |this, _, _, cx| this.detach(n, cx))),
                 );
             }
             row
@@ -879,4 +889,23 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(13.))
         .text_color(theme::text2())
+}
+
+/// A number of bytes as people read it.
+fn size(bytes: u64) -> String {
+    match bytes {
+        b if b < 1024 => format!("{b} B"),
+        b if b < 1024 * 1024 => format!("{} KB", b / 1024),
+        b => format!("{:.1} MB", b as f64 / (1024. * 1024.)),
+    }
+}
+
+/// The format gpui draws an image of the type `mime` in.
+fn picture_format(mime: &str) -> gpui::ImageFormat {
+    match mime {
+        "image/jpeg" => gpui::ImageFormat::Jpeg,
+        "image/gif" => gpui::ImageFormat::Gif,
+        "image/webp" => gpui::ImageFormat::Webp,
+        _ => gpui::ImageFormat::Png,
+    }
 }

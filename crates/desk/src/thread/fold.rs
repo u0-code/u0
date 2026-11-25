@@ -65,6 +65,14 @@ pub fn rows(
             continue;
         }
         out.push(Row::Item(i));
+        // What went with what you said stays under it, out of the work.
+        while matches!(
+            items.get(i + 1),
+            Some(Item::Image { yours: true, .. } | Item::File { .. })
+        ) {
+            i += 1;
+            out.push(Row::Item(i));
+        }
         // The turn runs to the next thing you said.
         let end = items[i + 1..]
             .iter()
@@ -260,6 +268,28 @@ mod tests {
             .unwrap(),
         );
         s
+    }
+
+    #[test]
+    fn what_went_with_your_message_stays_under_it_when_the_turn_folds() {
+        let mut s = Session::new(7, "x", "/r".into());
+        s.attached.push(
+            serde_json::from_str(
+                r#"{"type":"resource_link","name":"a.pdf","uri":"file:///a.pdf"}"#,
+            )
+            .unwrap(),
+        );
+        s.said("read it");
+        s.apply(
+            serde_json::from_str(
+                r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#,
+            )
+            .unwrap(),
+        );
+        s.ended(Ok(agent_client_protocol::v1::schema::StopReason::EndTurn));
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        assert!(matches!(s.items[1], Item::File { .. }));
+        assert_eq!(rows[..2], [Row::Item(0), Row::Item(1)]);
     }
 
     #[test]

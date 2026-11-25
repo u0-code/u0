@@ -1,9 +1,11 @@
 //! What the composer offers as you type, and what goes with what you say:
 //! the agent's commands after `/`; after `@`, the project's files, its other
-//! sessions and its open pull requests; images pasted or dropped in.
+//! sessions and its open pull requests; what is attached: images and files
+//! pasted, dropped or chosen, and a paste too long for the line.
 //!
-//! A file named goes to the agent as a link to it, a session as what was
-//! said in it, a pull request as `gh` shows it, an image as itself.
+//! A file named or attached goes to the agent as a link to it, a session as
+//! what was said in it, a pull request as `gh` shows it, an image as itself,
+//! a long paste as its text.
 
 use std::path::{Path, PathBuf};
 
@@ -34,7 +36,7 @@ pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
     pub mentions: Vec<Mention>,
-    pub pictures: Vec<Picture>,
+    pub attached: Vec<Attached>,
     pub fanout: bool,
     pub stashed: Vec<String>,
     pub sent: Vec<String>,
@@ -78,7 +80,7 @@ impl Composer {
             input,
             offer: 0,
             mentions: Vec::new(),
-            pictures: Vec::new(),
+            attached: Vec::new(),
             fanout: false,
             stashed: Vec::new(),
             sent: Vec::new(),
@@ -273,12 +275,18 @@ pub struct Mention {
     pub text: Option<String>,
 }
 
-/// An image pasted or dropped in, waiting to go with what is said.
+/// What is attached, waiting to go with what is said: an image, sent as
+/// itself; a file of yours, sent as a link to it; a paste too long for the
+/// line, sent as its text.
 #[derive(Debug, Clone)]
-pub struct Picture {
-    pub mime: String,
-    pub bytes: Vec<u8>,
+pub enum Attached {
+    Image { mime: String, bytes: Vec<u8> },
+    File(PathBuf),
+    Text(String),
 }
+
+/// A paste this long or longer is attached, not put in the line.
+pub const LONG_PASTE: usize = 32 * 1024;
 
 /// At most this many offers show.
 const OFFERS: usize = 8;
@@ -456,8 +464,36 @@ impl Desk {
         cx.notify();
     }
 
+    /// What is pasted in the composer, where it is not put in the line: an
+    /// image, or text too long for it; whether it was taken.
+    pub fn paste(
+        &mut self,
+        item: &gpui::ClipboardItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        for e in item.entries() {
+            match e {
+                gpui::ClipboardEntry::ExternalPaths(p) => {
+                    self.drop_files(p.paths(), window, cx);
+                    return true;
+                }
+                gpui::ClipboardEntry::Image(i) => {
+                    self.paste_picture(i, cx);
+                    return true;
+                }
+                gpui::ClipboardEntry::String(s) if s.text().len() >= LONG_PASTE => {
+                    self.add_attached(Attached::Text(s.text().clone()), cx);
+                    return true;
+                }
+                gpui::ClipboardEntry::String(_) => {}
+            }
+        }
+        false
+    }
+
     /// An image pasted in the composer, of a kind an agent reads.
-    pub fn paste_picture(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
+    fn paste_picture(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
         let mime = match image.format {
             gpui::ImageFormat::Png => "image/png",
             gpui::ImageFormat::Jpeg => "image/jpeg",
@@ -465,8 +501,8 @@ impl Desk {
             gpui::ImageFormat::Webp => "image/webp",
             _ => return,
         };
-        self.add_picture(
-            Picture {
+        self.add_attached(
+            Attached::Image {
                 mime: mime.into(),
                 bytes: image.bytes.clone(),
             },
@@ -474,22 +510,26 @@ impl Desk {
         );
     }
 
-    /// An image pasted or dropped in, unless the agent said, when it last
-    /// started, that it takes none.
-    pub fn add_picture(&mut self, picture: Picture, cx: &mut Context<Self>) {
-        let refused = self
-            .session()
-            .and_then(|s| self.slot(&s.meta.agent))
-            .and_then(crate::hub::Slot::caps)
-            .is_some_and(|known| !known.prompt_capabilities.image);
+    /// Something attached, unless it is an image and the agent said, when
+    /// it last started, that it takes none; a file attached already is
+    /// not attached twice.
+    pub fn add_attached(&mut self, attached: Attached, cx: &mut Context<Self>) {
+        let refused = matches!(attached, Attached::Image { .. })
+            && self
+                .session()
+                .and_then(|s| self.slot(&s.meta.agent))
+                .and_then(crate::hub::Slot::caps)
+                .is_some_and(|known| !known.prompt_capabilities.image);
+        let twice = matches!(&attached, Attached::File(p)
+            if self.composer.attached.iter().any(|a| matches!(a, Attached::File(q) if q == p)));
         if refused {
             let name = self
                 .session()
                 .map(|s| self.name_of(&s.meta.agent))
                 .unwrap_or_default();
             self.trouble(format!("{name} does not take images"), None, None);
-        } else {
-            self.composer.pictures.push(picture);
+        } else if !twice {
+            self.composer.attached.push(attached);
         }
         cx.notify();
     }
@@ -513,32 +553,26 @@ impl Desk {
         cx.notify();
     }
 
-    pub fn drop_picture(&mut self, n: usize, cx: &mut Context<Self>) {
-        if n < self.composer.pictures.len() {
-            self.composer.pictures.remove(n);
+    /// Take out what was attached `n`th.
+    pub fn detach(&mut self, n: usize, cx: &mut Context<Self>) {
+        if n < self.composer.attached.len() {
+            self.composer.attached.remove(n);
         }
         cx.notify();
     }
 
-    /// Images dropped on the composer: each file that is one.
+    /// Files dropped on the composer or chosen for it: an image is read
+    /// (a photo in HEIC, or one too large, made a JPEG that fits), any
+    /// other file is attached, a folder is named as @ names one.
     pub fn drop_files(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
         for p in paths {
-            let mime = match p
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .as_deref()
-            {
-                Some("png") => "image/png",
-                Some("jpg" | "jpeg") => "image/jpeg",
-                Some("gif") => "image/gif",
-                Some("webp") => "image/webp",
-                // Any other file, or a folder, is named, as @ names one.
-                _ => {
-                    self.name_dropped(p, window, cx);
-                    continue;
-                }
-            };
-            hub::read_picture(p.clone(), mime, self.tx.clone());
+            if p.is_dir() {
+                self.name_dropped(p, window, cx);
+            } else if hub::is_picture(p) {
+                hub::read_picture(p.clone(), self.tx.clone());
+            } else {
+                self.add_attached(Attached::File(p.clone()), cx);
+            }
         }
     }
 
@@ -571,18 +605,27 @@ impl Desk {
         cx.notify();
     }
 
-    /// What goes with `text` said in the session `key`: the images waiting,
+    /// What goes with `text` said in the session `key`: what is attached,
     /// and each file, session and pull request it names.
     pub(crate) fn attach(&mut self, key: u64, text: &str) -> Vec<ContentBlock> {
-        let mut blocks: Vec<ContentBlock> = self
-            .composer
-            .pictures
-            .drain(..)
-            .map(|p| {
-                ContentBlock::Image(ImageContent::new(
-                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &p.bytes),
-                    p.mime,
-                ))
+        let mut blocks: Vec<ContentBlock> = (self.composer.attached.drain(..).enumerate())
+            .filter_map(|(n, a)| match a {
+                Attached::Image { mime, bytes } => Some(ContentBlock::Image(ImageContent::new(
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+                    mime,
+                ))),
+                Attached::File(path) => {
+                    let name = path.file_name()?.to_string_lossy().into_owned();
+                    let uri = url::Url::from_file_path(&path).ok()?;
+                    Some(ContentBlock::ResourceLink(ResourceLink::new(
+                        name,
+                        uri.to_string(),
+                    )))
+                }
+                Attached::Text(t) => Some(text_resource(
+                    &format!("{}{}", crate::session::PASTE, n + 1),
+                    &t,
+                )),
             })
             .collect();
         let Some(s) = self.sessions.at(key) else {
