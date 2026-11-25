@@ -143,6 +143,8 @@ pub struct Desk {
     /// line for it.
     pub renaming: Option<u64>,
     pub renaming_project: Option<PathBuf>,
+    /// The image looked at large: the session's key and its item.
+    pub zoom: Option<(u64, usize)>,
     /// The session is renamed in the top bar, not in the sidebar.
     pub renaming_here: bool,
     pub rename: Entity<TextInput>,
@@ -524,6 +526,7 @@ impl Desk {
             renaming: None,
             renaming_project: None,
             renaming_here: false,
+            zoom: None,
             rename,
             undo: None,
             waiting: Vec::new(),
@@ -1367,11 +1370,24 @@ impl Desk {
         };
         let session = self.session_mut(key).expect("found above");
         session.unsent.clear();
+        let pictures: Vec<_> = attached
+            .iter()
+            .filter(|b| matches!(b, agent_client_protocol_schema::v1::ContentBlock::Image(_)))
+            .cloned()
+            .collect();
         session.attached.extend(attached);
         // Something new said in a session done for now brings it back.
         session.flags.settled = None;
         session.flags.snoozed = None;
         session.said(&text);
+        // The images it took show under it, and are kept with its record.
+        for p in pictures {
+            session.apply(
+                agent_client_protocol_schema::v1::SessionUpdate::UserMessageChunk(
+                    agent_client_protocol_schema::v1::ContentChunk::new(p),
+                ),
+            );
+        }
         let (agent, folder, id) = (
             session.agent.clone(),
             session.folder.clone(),
@@ -1821,6 +1837,7 @@ impl Render for Desk {
             .children(right)
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
+            .children(self.zoomed(&faces, window, cx))
     }
 }
 

@@ -109,7 +109,11 @@ pub enum Item {
         trouble: bool,
     },
     /// An image the agent showed.
-    Image(std::sync::Arc<gpui::Image>),
+    Image {
+        image: std::sync::Arc<gpui::Image>,
+        /// It went with what you said, not came from the agent.
+        yours: bool,
+    },
     /// A turn ended, why, and after how long.
     Ended {
         reason: StopReason,
@@ -250,6 +254,16 @@ pub fn text_of(block: &ContentBlock) -> String {
         },
         _ => String::new(),
     }
+}
+
+/// The picture in `block`, if it is one GPUI draws.
+fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<gpui::Image>> {
+    let ContentBlock::Image(image) = block else {
+        return None;
+    };
+    let format = image_format(&image.mime_type)?;
+    let bytes = crate::base64::decode(&image.data)?;
+    Some(std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)))
 }
 
 /// The image format of the MIME type `mime`, where GPUI draws it.
@@ -643,6 +657,11 @@ impl Session {
         }
         match update {
             SessionUpdate::UserMessageChunk(c) => {
+                // An image that went with it shows as itself.
+                if let Some(image) = image_of(&c.content) {
+                    self.items.push(Item::Image { image, yours: true });
+                    return;
+                }
                 // A session being reopened replays what you said.
                 let text = text_of(&c.content);
                 let own = self
@@ -656,14 +675,11 @@ impl Session {
             }
             SessionUpdate::AgentMessageChunk(c) => {
                 // An image shown is an item of its own, drawn as itself.
-                if let ContentBlock::Image(image) = &c.content
-                    && let Some(format) = image_format(&image.mime_type)
-                    && let Some(bytes) = crate::base64::decode(&image.data)
-                {
-                    self.items
-                        .push(Item::Image(std::sync::Arc::new(gpui::Image::from_bytes(
-                            format, bytes,
-                        ))));
+                if let Some(image) = image_of(&c.content) {
+                    self.items.push(Item::Image {
+                        image,
+                        yours: false,
+                    });
                     return;
                 }
                 let text = text_of(&c.content);
@@ -1140,5 +1156,19 @@ mod tests {
         let kept = Session::record_before(events, 1);
         assert_eq!(kept.len(), 4);
         assert!(!kept.iter().any(|e| matches!(e, store::Event::You(_))));
+    }
+
+    #[test]
+    fn an_image_that_went_with_your_message_shows_as_yours() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.said("look");
+        s.apply(update(
+            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}}"#,
+        ));
+        assert!(matches!(s.items[1], Item::Image { yours: true, .. }));
+        assert!(matches!(s.items[2], Item::Image { yours: false, .. }));
     }
 }

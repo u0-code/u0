@@ -731,15 +731,32 @@ impl Desk {
                     .child(div().px(px(4.)).child(drawn::plan(faces, &steps)))
                     .into_any_element()
             }
-            Item::Image(image) => div()
-                .px(px(10.))
-                .child(
-                    gpui::img(image.clone())
-                        .max_w(px(480.))
-                        .max_h(px(360.))
-                        .rounded(px(8.)),
-                )
-                .into_any_element(),
+            // An image, yours under what you said, the agent's in its
+            // reply; a click looks at it large.
+            Item::Image { image, yours } => {
+                let (w, h) = if *yours { (240., 180.) } else { (480., 360.) };
+                let at = (s.key, i);
+                div()
+                    .flex()
+                    .px(px(10.))
+                    .when(*yours, Styled::justify_end)
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("{key}-image")))
+                            .cursor_pointer()
+                            .child(
+                                gpui::img(image.clone())
+                                    .max_w(px(w))
+                                    .max_h(px(h))
+                                    .rounded(px(8.)),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.zoom = Some(at);
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element()
+            }
             // What went wrong in the session is a row of its own; anything
             // else it notes reads as a quiet line.
             Item::Note {
@@ -756,6 +773,98 @@ impl Desk {
                 .ended(faces, s, i, *reason, *secs, cx)
                 .into_any_element(),
         }
+    }
+
+    /// The image looked at large, over the whole window: the session's
+    /// others before and after it a click away; a click outside closes it.
+    pub(crate) fn zoomed(
+        &self,
+        faces: &Faces,
+        window: &gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let (key, item) = self.zoom?;
+        let s = self.sessions.iter().find(|s| s.key == key)?;
+        let images: Vec<usize> = s
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i, Item::Image { .. }))
+            .map(|(n, _)| n)
+            .collect();
+        let Some(Item::Image { image, .. }) = s.items.get(item) else {
+            return None;
+        };
+        let at = images.iter().position(|n| *n == item)?;
+        let size = window.viewport_size();
+        let step = |id: &'static str, icon: &str, tip: &'static str, to: Option<usize>| {
+            ui::icon_button(id, icon, tip)
+                .size(px(36.))
+                .rounded_full()
+                .bg(theme::panel())
+                .text_color(theme::text2())
+                .when(to.is_none(), gpui::Styled::invisible)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(to) = to {
+                        this.zoom = Some((key, to));
+                        cx.notify();
+                    }
+                }))
+        };
+        let before = at.checked_sub(1).map(|n| images[n]);
+        let after = images.get(at + 1).copied();
+        Some(
+            div()
+                .id("zoom")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(16.))
+                .bg(gpui::black().opacity(0.78))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.zoom = None;
+                    cx.notify();
+                }))
+                .child(step(
+                    "zoom-before",
+                    "chevron-left",
+                    "The one before",
+                    before,
+                ))
+                .child(
+                    gpui::img(image.clone())
+                        .max_w(size.width - px(160.))
+                        .max_h(size.height - px(120.))
+                        .rounded(px(8.)),
+                )
+                .child(step("zoom-after", "chevron-right", "The one after", after))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(14.))
+                        .right(px(14.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(
+                            ui::text(faces, format!("{} of {}", at + 1, images.len()))
+                                .text_size(px(12.5))
+                                .text_color(theme::muted()),
+                        )
+                        .child(
+                            ui::icon_button("zoom-close", "x", "Close")
+                                .text_color(theme::text2())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.zoom = None;
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     /// A small button under a message.
