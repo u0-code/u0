@@ -8,14 +8,15 @@ use super::{Choices, select_choices};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
-    session::State,
+    session::{Session, State},
     theme,
     ui::{self, Mark},
 };
 
 impl Desk {
     /// The line you type into, and under it the agent, its model and mode,
-    /// how full its context is, and Send or Stop.
+    /// how full its context is, and Send or Stop; over it what asks for
+    /// you first.
     pub(crate) fn composer(
         &self,
         faces: &Faces,
@@ -26,70 +27,10 @@ impl Desk {
         let Some(s) = self.session() else {
             return div();
         };
+        if let Some(shut) = self.shut(faces, s, column, cx) {
+            return shut;
+        }
         let name = self.name_of(&s.meta.agent);
-        // Archived: read only until it is restored.
-        if s.meta.flags.archived {
-            let key = s.key;
-            return div().flex().flex_none().justify_center().pb(px(18.)).child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .w(px(column))
-                    .px(px(14.))
-                    .py(px(10.))
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon("archive", 16.).text_color(theme::faint()))
-                    .child(
-                        ui::text(faces, "Archived. Restore it to write in it again.")
-                            .flex_1()
-                            .text_size(px(13.))
-                            .text_color(theme::text2()),
-                    )
-                    .child(
-                        ui::button(faces, "restore", "Restore", ui::Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
-                    ),
-            );
-        }
-        // A subagent's session answers to its parent, not to you.
-        if let Some(up) = s.parent {
-            let parent = self
-                .sessions
-                .at(up)
-                .map(|p| ui::fit(&p.meta.title, 40))
-                .unwrap_or_default();
-            return div().flex().flex_none().justify_center().pb(px(18.)).child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .w(px(column))
-                    .px(px(14.))
-                    .py(px(10.))
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon("user", 16.).text_color(theme::faint()))
-                    .child(
-                        ui::text(
-                            faces,
-                            format!("A subagent of “{parent}”: it answers to it."),
-                        )
-                        .flex_1()
-                        .text_size(px(13.))
-                        .text_color(theme::text2()),
-                    )
-                    .child(
-                        ui::button(faces, "to-parent", "Back to it", ui::Weight::Secondary)
-                            .on_click(
-                                cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
-                            ),
-                    ),
-            );
-        }
         self.composer.input.update(cx, |i, cx| {
             i.set_placeholder(
                 &if s.items.is_empty() {
@@ -102,13 +43,104 @@ impl Desk {
         });
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
-        let working = matches!(s.state, State::Working | State::Opening);
-        let empty = self.composer.input.read(cx).is_empty();
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .items_center()
+            .pb(px(18.))
+            .children(self.side_question(faces, s, column, cx))
+            .children(self.sign_in_banner(faces, s, &name, column, cx))
+            .children(Self::approval_card(faces, s, &name, column, cx))
+            .children(self.offers_menu(faces, column, cx))
+            .child(
+                div()
+                    .id("composer")
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .w(px(column))
+                    .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+                        this.drop_files(paths.paths(), cx);
+                    }))
+                    .pl(px(14.))
+                    .pr(px(8.))
+                    .pt(px(10.))
+                    .pb(px(8.))
+                    .rounded(px(14.))
+                    .bg(theme::panel())
+                    .border_1()
+                    .border_color(if focused {
+                        theme::ghost_line()
+                    } else {
+                        theme::border2()
+                    })
+                    .children(Self::queued_list(faces, s, cx))
+                    .children(self.pictures_row(faces, cx))
+                    .child(
+                        div()
+                            .min_h(px(if self.composer.tall { 300. } else { 22. }))
+                            .pr(px(6.))
+                            .child(self.composer.input.clone()),
+                    )
+                    .child(self.bar(faces, s, &name, cx)),
+            )
+    }
 
+    /// In place of the line, for a session you do not write in: one
+    /// archived, until it is restored; a subagent's, which answers to its
+    /// parent, not to you.
+    fn shut(&self, faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
+        let (icon, says, button) = if s.meta.flags.archived {
+            let key = s.key;
+            (
+                "archive",
+                "Archived. Restore it to write in it again.".to_owned(),
+                ui::button(faces, "restore", "Restore", ui::Weight::Secondary)
+                    .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
+            )
+        } else {
+            let up = s.parent?;
+            let parent = self
+                .sessions
+                .at(up)
+                .map(|p| ui::fit(&p.meta.title, 40))
+                .unwrap_or_default();
+            (
+                "user",
+                format!("A subagent of “{parent}”: it answers to it."),
+                ui::button(faces, "to-parent", "Back to it", ui::Weight::Secondary)
+                    .on_click(cx.listener(move |this, _, window, cx| this.show(up, window, cx))),
+            )
+        };
+        Some(
+            div().flex().flex_none().justify_center().pb(px(18.)).child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .w(px(column))
+                    .px(px(14.))
+                    .py(px(10.))
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(ui::icon(icon, 16.).text_color(theme::faint()))
+                    .child(
+                        ui::text(faces, says)
+                            .flex_1()
+                            .text_size(px(13.))
+                            .text_color(theme::text2()),
+                    )
+                    .child(button),
+            ),
+        )
+    }
+
+    /// The agent, its model and mode as words, every other option behind
+    /// the slider mark; what was put aside, and what is to be said later.
+    fn chips(&self, faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
         let draft = s.state == State::Draft && s.items.is_empty();
-        // One line, never two: the agent, its model and mode as words, every
-        // other option behind the slider mark; the context, dictation and
-        // send at the right.
         let agent_choices = if draft {
             self.slots
                 .iter()
@@ -125,7 +157,7 @@ impl Desk {
         };
         let agent_label = match (draft, self.composer.fanout) {
             (true, true) => format!("All {} agents", self.usable_agents()),
-            (true, false) => name.clone(),
+            (true, false) => name.to_owned(),
             (false, _) => String::new(),
         };
         let mut words = div()
@@ -188,7 +220,7 @@ impl Desk {
                 words.child(self.chip(faces, &Popup::Mode, None, &current, "Mode", choices, cx));
         }
         if !more.is_empty() {
-            words = words.child(self.more(faces, &name, more, cx));
+            words = words.child(self.more(faces, name, more, cx));
         }
         if !self.composer.stashed.is_empty() {
             words = words.child(self.stash_menu(faces, cx));
@@ -196,12 +228,19 @@ impl Desk {
         if s.meta.id.is_some() && s.parent.is_none() {
             words = words.child(self.later_menu(faces, s, cx));
         }
+        words
+    }
+
+    /// The line under the text, one line never two: the chips, then the
+    /// context, a window to attach, writing at length, dictation and send
+    /// at the right.
+    fn bar(&self, faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
         let mut bar = div()
             .flex()
             .items_center()
             .h(px(28.))
             .gap(px(2.))
-            .child(words);
+            .child(self.chips(faces, s, name, cx));
         if let Some(u) = s.usage.as_ref().filter(|u| u.size > 0) {
             let share = u.used as f32 / u.size as f32;
             bar = bar.child(
@@ -255,6 +294,14 @@ impl Desk {
                     crate::macos::dictate();
                 }),
         );
+        bar.child(self.send_button(faces, s, cx))
+    }
+
+    /// Send; Stop while a turn goes on and nothing is typed; Force stop
+    /// when asked to stop and still going a while after.
+    fn send_button(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
+        let working = matches!(s.state, State::Working | State::Opening);
+        let empty = self.composer.input.read(cx).is_empty();
         let button = div()
             .size(px(28.))
             .flex()
@@ -268,7 +315,7 @@ impl Desk {
             && self
                 .stopping
                 .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
-        let button = if force {
+        if force {
             button
                 .id("force-stop")
                 .w_auto()
@@ -317,67 +364,76 @@ impl Desk {
                 .on_click(cx.listener(move |_, _, _, cx| {
                     input.update(cx, crate::input::TextInput::send);
                 }))
-        };
-        bar = bar.child(button);
+        }
+    }
 
-        // An agent that wants a sign-in says so above the line, with its
-        // way to sign in, before anything said to it is refused.
-        let sign_in = match self.slot(&s.meta.agent).map(|x| &x.auth) {
-            Some(crate::hub::Auth::Needed(why)) => {
-                let (a, b) = (s.meta.agent.clone(), s.meta.agent.clone());
-                Some(
+    /// An agent that wants a sign-in says so above the line, with its
+    /// way to sign in, before anything said to it is refused.
+    fn sign_in_banner(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        name: &str,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let Some(crate::hub::Auth::Needed(why)) = self.slot(&s.meta.agent).map(|x| &x.auth) else {
+            return None;
+        };
+        let (a, b) = (s.meta.agent.clone(), s.meta.agent.clone());
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .w(px(column))
+                .mb(px(8.))
+                .px(px(14.))
+                .py(px(10.))
+                .rounded(px(12.))
+                .bg(theme::rail())
+                .border_1()
+                .border_color(theme::border2())
+                .child(ui::icon("alert", 16.).text_color(theme::accent()))
+                .child(
                     div()
                         .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .w(px(column))
-                        .mb(px(8.))
-                        .px(px(14.))
-                        .py(px(10.))
-                        .rounded(px(12.))
-                        .bg(theme::rail())
-                        .border_1()
-                        .border_color(theme::border2())
-                        .child(ui::icon("alert", 16.).text_color(theme::accent()))
+                        .flex_col()
+                        .flex_1()
+                        .min_w(px(0.))
                         .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .child(
-                                    ui::text(faces, format!("{name} needs you to sign in"))
-                                        .text_size(px(13.)),
-                                )
-                                .child(ui::one_line(
-                                    ui::text(faces, ui::fit(why, 80))
-                                        .text_size(px(11.5))
-                                        .text_color(theme::faint()),
-                                )),
+                            ui::text(faces, format!("{name} needs you to sign in"))
+                                .text_size(px(13.)),
                         )
-                        .child(
-                            ui::button(faces, "sign-in-now", "Sign in", ui::Weight::Primary)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.sign_in_agent(&a, cx);
-                                })),
-                        )
-                        .child(
-                            ui::button(faces, "signed-in", "I've signed in", ui::Weight::Quiet)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.recheck_auth(&b, cx);
-                                })),
-                        ),
+                        .child(ui::one_line(
+                            ui::text(faces, ui::fit(why, 80))
+                                .text_size(px(11.5))
+                                .text_color(theme::faint()),
+                        )),
                 )
-            }
-            _ => None,
-        };
+                .child(
+                    ui::button(faces, "sign-in-now", "Sign in", ui::Weight::Primary).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.sign_in_agent(&a, cx);
+                        }),
+                    ),
+                )
+                .child(
+                    ui::button(faces, "signed-in", "I've signed in", ui::Weight::Quiet).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.recheck_auth(&b, cx);
+                        }),
+                    ),
+                ),
+        )
+    }
 
-        // What is offered for the word being typed: the agent's commands
-        // after `/`, after `@` files, sessions and pull requests. ↑ and ↓
-        // choose one, Return or Tab takes it.
+    /// What is offered for the word being typed: the agent's commands
+    /// after `/`, after `@` files, sessions and pull requests. ↑ and ↓
+    /// choose one, Return or Tab takes it.
+    fn offers_menu(&self, faces: &Faces, column: f32, cx: &mut Context<Self>) -> Option<Div> {
         let typed = self.composer.input.read(cx).text();
-        let offers = self
-            .offers(&typed)
+        self.offers(&typed)
             .filter(|(_, o)| !o.is_empty())
             .map(|(_, list)| {
                 use crate::desk::mention::Offer;
@@ -428,10 +484,12 @@ impl Desk {
                     );
                 }
                 div().mb(px(8.)).child(ui::menu("offers").child(menu))
-            });
+            })
+    }
 
-        // Images waiting to go with what is said.
-        let pictures = (!self.composer.pictures.is_empty()).then(|| {
+    /// Images waiting to go with what is said.
+    fn pictures_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        (!self.composer.pictures.is_empty()).then(|| {
             let mut row = div().flex().flex_wrap().gap(px(6.));
             for (n, p) in self.composer.pictures.iter().enumerate() {
                 row = row.child(
@@ -466,11 +524,13 @@ impl Desk {
                 );
             }
             row
-        });
+        })
+    }
 
-        // What was said while the turn goes on, waiting its turn: each can
-        // be said now (the turn is stopped first) or taken back to edit.
-        let queued = (!s.meta.queued.is_empty()).then(|| {
+    /// What was said while the turn goes on, waiting its turn: each can
+    /// be said now (the turn is stopped first) or taken back to edit.
+    fn queued_list(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        (!s.meta.queued.is_empty()).then(|| {
             let mut list = div().flex().flex_col().gap(px(4.));
             for (n, text) in s.meta.queued.iter().enumerate() {
                 list = list.child(
@@ -521,10 +581,18 @@ impl Desk {
                 );
             }
             list
-        });
+        })
+    }
 
-        // A question waiting is answered here too.
-        let approval = s.waiting().map(|asked| {
+    /// A question waiting is answered here too.
+    fn approval_card(
+        faces: &Faces,
+        s: &Session,
+        name: &str,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        s.waiting().map(|asked| {
             use agent_client_protocol::v1::schema::{PermissionOptionKind, ToolKind};
             let headline = match asked.kind {
                 Some(ToolKind::Execute) => format!("{name} wants to run a command"),
@@ -580,11 +648,19 @@ impl Desk {
                         ),
                 )
                 .child(buttons)
-        });
+        })
+    }
 
-        // A side question: what is asked here stays out of the session it
-        // was asked of; its answer can be taken back there.
-        let beside = s.beside.map(|up| {
+    /// A side question: what is asked here stays out of the session it
+    /// was asked of; its answer can be taken back there.
+    fn side_question(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        s.beside.map(|up| {
             let title = self
                 .sessions
                 .at(up)
@@ -636,50 +712,7 @@ impl Desk {
                         cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
                     ),
                 )
-        });
-
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .items_center()
-            .pb(px(18.))
-            .children(beside)
-            .children(sign_in)
-            .children(approval)
-            .children(offers)
-            .child(
-                div()
-                    .id("composer")
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .w(px(column))
-                    .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
-                        this.drop_files(paths.paths(), cx);
-                    }))
-                    .pl(px(14.))
-                    .pr(px(8.))
-                    .pt(px(10.))
-                    .pb(px(8.))
-                    .rounded(px(14.))
-                    .bg(theme::panel())
-                    .border_1()
-                    .border_color(if focused {
-                        theme::ghost_line()
-                    } else {
-                        theme::border2()
-                    })
-                    .children(queued)
-                    .children(pictures)
-                    .child(
-                        div()
-                            .min_h(px(if self.composer.tall { 300. } else { 22. }))
-                            .pr(px(6.))
-                            .child(self.composer.input.clone()),
-                    )
-                    .child(bar),
-            )
+        })
     }
 
     /// How many agents a session can be begun with now.
