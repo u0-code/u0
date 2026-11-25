@@ -13,6 +13,7 @@ pub mod drawer;
 pub mod drawn;
 mod fold;
 pub mod kinds;
+mod later;
 mod lines;
 mod modes;
 mod picker;
@@ -548,51 +549,13 @@ impl Desk {
                     .line_height(px(30.))
                     .weight(gpui::FontWeight::SEMIBOLD),
             )
-            .child(
-                div()
-                    .id("folder")
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .h(px(26.))
-                    .px(px(8.))
-                    .rounded(px(7.))
-                    .border_1()
-                    .border_color(theme::tag_line())
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::icon("folder", 14.).text_color(theme::faint()))
-                    .child(
-                        ui::mono(faces, Desk::shown(&s.meta.folder))
-                            .text_size(px(12.))
-                            .text_color(theme::text2()),
-                    )
-                    .children(s.branch.clone().map(|b| {
-                        ui::mono(faces, b)
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                    }))
-                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint()))
-                    .tooltip(ui::tip("The folder it works in"))
-                    .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
-            )
-            .children(self.also_row(faces, s, cx))
-            .when(s.repo, |d| {
-                d.child(Self::where_toggle(faces, s.wants_worktree, cx))
-            })
-            .when(s.repo && s.wants_worktree, |d| {
-                d.child(self.base_chip(faces, s, cx))
-            })
+            .children(Self::also_row(faces, s, cx))
     }
 
-    /// The folders a draft works in beside its own, each can be taken
-    /// away, and one more to add: where its agent says it can.
-    fn also_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
-        let able = self
-            .slot(&s.meta.agent)
-            .and_then(crate::hub::Slot::caps)
-            .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
-        if !able && s.meta.also.is_empty() {
+    /// The folders a draft works in beside its own (the composer's + adds
+    /// one), each can be taken away.
+    fn also_row(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        if s.meta.also.is_empty() {
             return None;
         }
         let key = s.key;
@@ -636,24 +599,6 @@ impl Desk {
                             cx.notify();
                         })),
                     ),
-            );
-        }
-        if able {
-            row = row.child(
-                div()
-                    .id("also-add")
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .h(px(24.))
-                    .px(px(8.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::icon("plus", 12.).text_color(theme::faint()))
-                    .child(meta(faces, "folder"))
-                    .tooltip(ui::tip("Another folder it works in too"))
-                    .on_click(cx.listener(|this, _, _, cx| this.add_folder(cx))),
             );
         }
         Some(row)
@@ -755,37 +700,6 @@ impl Desk {
             }
         }
         list
-    }
-
-    /// Whether the session works in the folder itself or in a worktree of
-    /// its own, on a new branch: two halves of one control.
-    fn where_toggle(faces: &Faces, worktree: bool, cx: &mut Context<Self>) -> Div {
-        let to = |to: bool| -> ui::Pick {
-            Box::new(cx.listener(move |this, _, _, cx| this.set_worktree(to, cx)))
-        };
-        div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(8.))
-            .child(ui::segmented("where",
-                vec![
-                    ("In this folder", !worktree, to(false)),
-                    ("New worktree", worktree, to(true)),
-                ],
-            ))
-            .child(
-                ui::text(
-                    faces,
-                    if worktree {
-                        "A worktree of its own on a new branch: your folder is left as it is."
-                    } else {
-                        "It works in your folder as it is. Each turn is checkpointed and can be undone."
-                    },
-                )
-                .text_size(px(12.5))
-                .text_color(theme::faint()),
-            )
     }
 
     fn item(

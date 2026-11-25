@@ -123,7 +123,8 @@ crates/desk/src/
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette, agents, send, turns, replies, notices
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
-  thread/       the thread as a list (lines), folds, cards, the composer, the model
+  thread/       the thread as a list (lines), folds, cards, the composer and what
+                waits beside it (later), the model
                 picker (picker) and the mode menu (modes), the start,
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output

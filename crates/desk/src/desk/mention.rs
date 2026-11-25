@@ -25,8 +25,8 @@ pub const CONTEXT: &str = "Composer";
 
 /// The line you type into, and what goes with it: the offer Return or Tab
 /// takes, what was named with `@` and images put in, waiting to be sent;
-/// whether it is opened tall to write at length, and whether the draft on
-/// screen goes to every agent that can run once sent; what you put aside
+/// whether the draft on screen goes to every agent that can run once
+/// sent; what you put aside
 /// from it (see `store::Index`); and what was sent from it, the latest
 /// last, with which of that is in the line while ↑ and ↓ go back through it.
 pub struct Composer {
@@ -34,7 +34,6 @@ pub struct Composer {
     pub offer: usize,
     pub mentions: Vec<Mention>,
     pub pictures: Vec<Picture>,
-    pub tall: bool,
     pub fanout: bool,
     pub stashed: Vec<String>,
     pub sent: Vec<String>,
@@ -45,7 +44,7 @@ impl Composer {
     pub(super) fn new(cmd_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(1, 8)
+                .auto_grow(1, 12)
                 .submit_on_enter(!cmd_sends)
                 .placeholder("Ask for anything, or give a task")
         });
@@ -78,7 +77,6 @@ impl Composer {
             offer: 0,
             mentions: Vec::new(),
             pictures: Vec::new(),
-            tall: false,
             fanout: false,
             stashed: Vec::new(),
             sent: Vec::new(),

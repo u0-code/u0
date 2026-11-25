@@ -17,7 +17,7 @@ use gpui::component::{
 };
 use gpui::{Anchor, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
-use super::{composer::over_line, select_choices};
+use super::{composer::over_box, select_choices};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -86,7 +86,7 @@ impl Desk {
             .tooltip(crate::keys::hint(cx, "Choose the model", "model"));
         let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
         let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
-        over_line(Popover::new("model-picker"))
+        over_box(Popover::new("model-picker"), Anchor::BottomRight)
             .p(px(0.))
             .open(open)
             .track_focus(&search)

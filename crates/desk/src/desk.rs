@@ -96,6 +96,8 @@ pub enum Popup {
     Model,
     /// The session's modes, from the model picker's foot.
     ModelMode,
+    /// What can go with what you write: the composer's +.
+    Add,
     /// The choices of one of the session's options, by id, beside it in
     /// the model picker.
     Option(String),
@@ -926,18 +928,40 @@ impl Desk {
             if let Ok(Ok(Some(paths))) = answer.await
                 && let Some(folder) = paths.into_iter().next()
             {
-                let _ = this.update(cx, |this, cx| {
-                    if let Some(s) = this.sessions.at_mut(key)
-                        && s.state == State::Draft
-                    {
-                        let wants = s.wants_worktree;
-                        *s = Session::new(key, &s.meta.agent.clone(), folder.clone());
-                        s.wants_worktree = wants;
-                        this.look(key);
-                    }
-                    this.settings.used(&folder);
-                    this.save_settings();
-                    cx.notify();
+                let _ = this.update(cx, |this, cx| this.work_in(key, &folder, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// The draft `key` works in `folder`, which becomes a project.
+    pub fn work_in(&mut self, key: u64, folder: &Path, cx: &mut Context<Self>) {
+        if let Some(s) = self.sessions.at_mut(key)
+            && s.state == State::Draft
+        {
+            let wants = s.wants_worktree;
+            *s = Session::new(key, &s.meta.agent.clone(), folder.to_path_buf());
+            s.wants_worktree = wants;
+            self.look(key);
+        }
+        self.settings.used(folder);
+        self.save_settings();
+        cx.notify();
+    }
+
+    /// Ask for files to go with what is written: pictures go as pictures,
+    /// the others are named as `@` names them.
+    pub fn attach_files(window: &mut Window, cx: &mut Context<Self>) {
+        let answer = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Add".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = answer.await {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.drop_files(&paths, window, cx);
                 });
             }
         })

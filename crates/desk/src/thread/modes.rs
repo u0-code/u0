@@ -6,7 +6,7 @@ use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
 use gpui::component::{Selectable as _, kbd::Kbd, list::ListItem, popover::Popover};
 use gpui::{Anchor, Context, Div, SharedString, Window, div, prelude::*, px};
 
-use super::composer::over_line;
+use super::composer::over_box;
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -84,12 +84,15 @@ impl Desk {
             )
             .tooltip(crate::keys::hint(cx, "Choose the mode", "mode"));
         let faces = faces.clone();
-        Some(over_line(self.menu(
-            Popup::Mode,
-            chip,
-            move |d, _, cx| d.mode_menu(&faces, cx),
-            cx,
-        )))
+        Some(over_box(
+            self.menu(
+                Popup::Mode,
+                chip,
+                move |d, _, cx| d.mode_menu(&faces, cx),
+                cx,
+            ),
+            Anchor::BottomRight,
+        ))
     }
 
     /// The picker's foot: the mode, its menu opening upward.

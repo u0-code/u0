@@ -1,13 +1,18 @@
-//! The line you type into, and the chips under it: the agent, its model
-//! and mode, how full its context is, and Send or Stop.
+//! The box you write in, as Claude's: a + for what goes with it, the
+//! line, dictation and Send; over it what waits on you, the changes made
+//! and what is queued; under it where the session works and the agent,
+//! its model, its mode and how full its context is.
 
 use gpui::component::{
-    button::Button,
+    Selectable as _,
+    button::{Button, ButtonVariants as _},
     input::{Enter, MoveDown, MoveUp, Textarea},
+    list::ListItem,
     popover::Popover,
     progress::ProgressCircle,
+    separator::Separator,
 };
-use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
 
 use crate::{
     desk::{Desk, Popup, mention},
@@ -18,9 +23,8 @@ use crate::{
 };
 
 impl Desk {
-    /// The line you type into, and under it the agent, its model and mode,
-    /// how full its context is, and Send or Stop; over it what asks for
-    /// you first.
+    /// The box you write in, what asks for you over it, and the chips
+    /// under it; for a session you do not write in, why.
     pub(crate) fn composer(
         &self,
         faces: &Faces,
@@ -36,9 +40,9 @@ impl Desk {
         }
         let name = self.name_of(&s.meta.agent);
         let says = if s.items.is_empty() {
-            format!("Tell {name} what to do…")
+            "Describe a task or ask a question"
         } else {
-            format!("Reply to {name}, or tell it what to do next…")
+            "Reply"
         };
         // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {
@@ -48,33 +52,39 @@ impl Desk {
         });
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
+        // macOS dictation, typed into the line as you speak.
+        let input = self.composer.input.clone();
+        let dictate = ui::icon_button("dictate", "mic", "Dictate")
+            .size(px(28.))
+            .text_color(theme::muted())
+            .on_click(move |_, window, cx| {
+                window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx), cx);
+                crate::macos::dictate();
+            });
         div()
             .flex()
             .flex_col()
             .flex_none()
             .items_center()
-            .pb(px(18.))
+            .pb(px(16.))
             .children(self.side_question(faces, s, column, cx))
             .children(self.sign_in_banner(faces, s, &name, column, cx))
             .children(Self::approval_card(faces, s, &name, column, cx))
             .children(self.offers_menu(faces, column, cx))
+            .children(Self::changes_row(faces, s, column, cx))
+            .children(Self::queued_list(faces, s, column, cx))
             .child(
                 div()
                     .id("composer")
                     .flex()
                     .flex_col()
-                    .gap(px(6.))
                     .w(px(column))
                     .on_drop(
                         cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
                             this.drop_files(paths.paths(), window, cx);
                         }),
                     )
-                    .pl(px(14.))
-                    .pr(px(8.))
-                    .pt(px(10.))
-                    .pb(px(8.))
-                    .rounded(px(14.))
+                    .rounded(px(12.))
                     .bg(theme::panel())
                     .border_1()
                     .border_color(if focused {
@@ -82,16 +92,28 @@ impl Desk {
                     } else {
                         theme::border2()
                     })
-                    .children(Self::queued_list(faces, s, cx))
                     .children(self.pictures_row(faces, cx))
                     .child(
                         div()
-                            .min_h(px(if self.composer.tall { 300. } else { 22. }))
-                            .pr(px(6.))
-                            .child(self.composer_line(cx)),
-                    )
-                    .child(self.bar(faces, s, cx)),
+                            .flex()
+                            .items_end()
+                            .gap(px(4.))
+                            .min_h(px(44.))
+                            .px(px(7.))
+                            .py(px(4.))
+                            .child(self.add_menu(faces, s, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .px(px(2.))
+                                    .child(self.composer_line(cx)),
+                            )
+                            .child(dictate)
+                            .children(self.send_button(s, cx)),
+                    ),
             )
+            .child(self.chips(faces, s, column, cx))
     }
 
     /// The line itself: gpui-kit's text area, with the composer's own keys
@@ -189,40 +211,63 @@ impl Desk {
         )
     }
 
-    /// The agent and its model (the picker) and its mode; what was put
-    /// aside, and what is to be said later.
-    fn chips(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let mut words = div()
+    /// Under the box, as Claude sets them: where it works (its project,
+    /// a worktree of its own, its branch) and what was put aside or is
+    /// to be said later at the left; the agent and its model, its mode
+    /// and how full its context is at the right.
+    fn chips(&self, faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Div {
+        let draft = s.state == State::Draft && s.items.is_empty();
+        let mut row = div()
             .flex()
-            .flex_1()
-            .min_w(px(0.))
             .items_center()
             .gap(px(2.))
-            .ml(px(-6.))
-            .child(self.model_chip(faces, s, cx))
-            .children(self.mode_chip(faces, s, cx));
+            .w(px(column))
+            .h(px(28.))
+            .mt(px(8.))
+            .child(self.project_chip(faces, s, draft, cx));
+        if draft && s.repo {
+            let on = s.wants_worktree;
+            row = row.child(
+                ui::opener("worktree")
+                    .h(px(28.))
+                    .selected(on)
+                    .child(ui::icon("branch", 14.).text_color(theme::faint()))
+                    .child(chip_text(faces, "Worktree"))
+                    .tooltip(if on {
+                        "A worktree of its own on a new branch: your folder is left as it is"
+                    } else {
+                        "In this folder, on its branch"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_worktree(!on, cx))),
+            );
+        }
+        if draft && s.repo && s.wants_worktree {
+            row = row.child(self.base_chip(faces, s, cx));
+        } else if let Some(branch) = &s.branch {
+            row = row.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(7.))
+                    .child(ui::icon("branch", 14.).text_color(theme::faint()))
+                    .child(chip_text(faces, ui::fit(branch, 24))),
+            );
+        }
         if !self.composer.stashed.is_empty() {
-            words = words.child(self.stash_menu(faces, cx));
+            row = row.child(self.stash_menu(faces, cx));
         }
         if s.meta.id.is_some() && s.parent.is_none() {
-            words = words.child(self.later_menu(faces, s, cx));
+            row = row.child(self.later_menu(faces, s, cx));
         }
-        words
-    }
-
-    /// The line under the text, one line never two: the chips, then the
-    /// context, a window to attach, writing at length, dictation and send
-    /// at the right.
-    fn bar(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let mut bar = div()
-            .flex()
-            .items_center()
-            .h(px(28.))
-            .gap(px(2.))
-            .child(self.chips(faces, s, cx));
+        row = row
+            .child(div().flex_1())
+            .child(self.model_chip(faces, s, cx))
+            .children(self.mode_chip(faces, s, cx));
         if let Some(u) = s.usage.as_ref().filter(|u| u.size > 0) {
             let share = u.used as f32 / u.size as f32;
-            bar = bar.child(
+            row = row.child(
                 div()
                     .id("context-used")
                     .flex()
@@ -233,7 +278,7 @@ impl Desk {
                     .child(
                         ProgressCircle::new("context-ring")
                             .value(share * 100.)
-                            .color(theme::muted())
+                            .color(theme::accent())
                             .size(px(16.)),
                     )
                     .tooltip(ui::tip(format!(
@@ -242,112 +287,260 @@ impl Desk {
                     ))),
             );
         }
-        // A window of yours, captured to go with it; the line opened tall.
-        let tall = self.composer.tall;
-        bar = bar
-            .child(
-                ui::icon_button("capture", "camera", "Attach a window")
-                    .text_color(theme::faint())
-                    .on_click(cx.listener(|this, _, _, cx| this.capture(cx))),
-            )
-            .child(
-                ui::icon_button(
-                    "tall",
-                    "expand",
-                    if tall {
-                        "Make it small"
-                    } else {
-                        "Write at length"
-                    },
-                )
-                .text_color(if tall { theme::text2() } else { theme::faint() })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.composer.tall = !this.composer.tall;
-                    let most = if this.composer.tall { 30 } else { 8 };
-                    this.composer
-                        .input
-                        .update(cx, |i, cx| i.set_auto_grow(1, most, cx));
-                    cx.notify();
-                })),
-            );
-        // macOS dictation, typed into the line as you speak.
-        let input = self.composer.input.clone();
-        bar = bar.child(
-            ui::icon_button("dictate", "mic", "Dictate")
-                .text_color(theme::faint())
-                .on_click(move |_, window, cx| {
-                    window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx), cx);
-                    crate::macos::dictate();
-                }),
-        );
-        bar.child(self.send_button(faces, s, cx))
+        row
     }
 
-    /// Send; Stop while a turn goes on and nothing is typed; Force stop
-    /// when asked to stop and still going a while after.
-    fn send_button(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// Where the session works: on a new one, a menu of the projects and a
+    /// folder of your choosing; after, its folder's name.
+    fn project_chip(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        draft: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let named = self.project_name(&s.meta.project);
+        let says = |chevron: bool| {
+            ui::opener("project-chip")
+                .h(px(28.))
+                .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                .child(chip_text(faces, ui::fit(&named, 28)))
+                .when(chevron, |b| {
+                    b.child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
+                })
+        };
+        if !draft {
+            return says(false)
+                .tooltip(Desk::shown(&s.meta.folder))
+                .into_any_element();
+        }
+        let faces = faces.clone();
+        over_line(self.menu(
+            Popup::StartIn,
+            says(true),
+            move |d, _, cx| d.work_in_menu(&faces, cx),
+            cx,
+        ))
+        .into_any_element()
+    }
+
+    /// The projects a new session can work in, and a folder to choose.
+    fn work_in_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let here = self.session().map(|s| s.meta.folder.clone());
+        let mut menu = div().flex().flex_col().w(px(240.));
+        for (n, p) in self.projects().into_iter().enumerate() {
+            let on = here.as_ref() == Some(&p);
+            menu = menu.child(
+                ListItem::new(SharedString::from(format!("work-in-{n}")))
+                    .h(px(28.))
+                    .px(px(8.))
+                    .rounded(px(6.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                            .child(
+                                ui::text(faces, ui::fit(&self.project_name(&p), 28))
+                                    .text_size(px(13.)),
+                            ),
+                    )
+                    .when(on, |d| {
+                        d.suffix(|_, _| ui::icon("check", 13.).text_color(theme::text2()))
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        if let Some(key) = this.current {
+                            this.work_in(key, &p, cx);
+                        }
+                    })),
+            );
+        }
+        menu.child(Separator::horizontal().my(px(4.))).child(
+            ListItem::new("work-in-other")
+                .h(px(28.))
+                .px(px(8.))
+                .rounded(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(ui::icon("plus", 14.).text_color(theme::faint()))
+                        .child(ui::text(faces, "Choose a folder…").text_size(px(13.))),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.close_popup(window, cx);
+                    this.choose_folder(cx);
+                })),
+        )
+    }
+
+    /// The + at the box's left: what can go with what you write.
+    fn add_menu(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
+        let button = ui::icon_button("add", "plus", "Add files, a window, a command")
+            .size(px(28.))
+            .text_color(theme::muted());
+        let able = s.state == State::Draft
+            && self
+                .slot(&s.meta.agent)
+                .and_then(crate::hub::Slot::caps)
+                .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
+        let faces = faces.clone();
+        over_line(self.menu(
+            Popup::Add,
+            button,
+            move |_, _, cx| {
+                let row = |id: &'static str, icon: &'static str, says: &'static str| {
+                    ListItem::new(id)
+                        .h(px(28.))
+                        .px(px(8.))
+                        .rounded(px(6.))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(ui::icon(icon, 16.).text_color(theme::muted()))
+                                .child(ui::text(&faces, says).text_size(px(13.))),
+                        )
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(px(230.))
+                    .child(
+                        row("add-files", "file", "Add files or photos").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.close_popup(window, cx);
+                                Self::attach_files(window, cx);
+                            },
+                        )),
+                    )
+                    .child(
+                        row("add-window", "camera", "Add a window").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.close_popup(window, cx);
+                                this.capture(cx);
+                            },
+                        )),
+                    )
+                    .child(
+                        row("add-command", "terminal", "Slash commands").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.close_popup(window, cx);
+                                this.put_line("/", window, cx);
+                                let line = this.composer.input.clone();
+                                window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
+                            },
+                        )),
+                    )
+                    .when(able, |m| {
+                        m.child(
+                            row("add-folder", "folder", "Add folder").on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    this.close_popup(window, cx);
+                                    this.add_folder(cx);
+                                },
+                            )),
+                        )
+                    })
+            },
+            cx,
+        ))
+    }
+
+    /// Send, once something is written; Stop while a turn goes on and
+    /// nothing is; Force stop when asked to stop and still going a while
+    /// after.
+    fn send_button(&self, s: &Session, cx: &mut Context<Self>) -> Option<Button> {
         let working = matches!(s.state, State::Working | State::Opening);
         let empty = self.composer.input.read(cx).value().trim().is_empty();
-        let button = div()
-            .size(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(8.));
-        // Asked to stop, and still going a while after: stopped by force.
         let key = s.key;
         let force = working
             && self
                 .stopping
                 .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
-        if force {
-            button
-                .id("force-stop")
-                .w_auto()
-                .px(px(10.))
-                .cursor_pointer()
-                .border_1()
-                .border_color(theme::coral().opacity(0.5))
-                .hover(|st| st.bg(theme::hover()))
-                .child(
-                    ui::text(faces, "Force stop")
-                        .text_size(px(12.5))
-                        .text_color(theme::coral()),
-                )
-                .tooltip(ui::tip(
-                    "It would not stop: its process is ended, and started again when wanted",
-                ))
+        let round = |b: Button| b.size(px(28.)).rounded(px(14.));
+        Some(if force {
+            ui::button("force-stop", "Force stop", ui::Weight::Secondary)
+                .danger()
+                .tooltip("It would not stop: its process is ended, and started again when wanted")
                 .on_click(cx.listener(move |this, _, _, cx| this.force_stop(key, cx)))
         } else if working && empty {
-            button
-                .id("stop")
-                .cursor_pointer()
-                .bg(theme::panel2())
-                .hover(|st| st.bg(theme::ghost_line()))
-                .child(div().size(px(8.)).rounded(px(1.5)).bg(theme::text()))
-                .tooltip(ui::tip(crate::keys::hint(cx, "Stop the turn", "stop")))
-                .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
+            round(ui::icon_button(
+                "stop",
+                "square",
+                crate::keys::hint(cx, "Stop the turn", "stop"),
+            ))
+            .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
+        } else if empty {
+            return None;
         } else {
-            let live = !empty;
-            button
-                .id("send")
-                .bg(if live { theme::text() } else { theme::panel2() })
-                .when(live, |d| {
-                    d.cursor_pointer().hover(|st| st.bg(theme::text2()))
-                })
-                .child(ui::icon("arrow-up", 13.).text_color(if live {
-                    theme::bg()
-                } else {
-                    theme::faint()
+            round(
+                ui::icon_button(
+                    "send",
+                    "arrow-up",
+                    if working {
+                        "Queue it for when this turn ends · Return"
+                    } else {
+                        "Send · Return, or ⌘Return to go on in the background"
+                    },
+                )
+                .primary(),
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
+        })
+    }
+
+    /// Over the box, while the session has changed files: where, how
+    /// much, and the way to commit them.
+    fn changes_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
+        let files = s.total.as_ref().filter(|f| !f.is_empty())?;
+        let (added, gone) = files
+            .iter()
+            .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
+        let repo = s.meta.worktree.as_ref().map_or(&s.meta.folder, |w| &w.repo);
+        let repo = repo.file_name().map_or_else(
+            || repo.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .w(px(column))
+                .mb(px(8.))
+                .px(px(12.))
+                .py(px(6.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(theme::border2())
+                .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                .child(chip_text(faces, repo))
+                .children(s.branch.clone().map(|b| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(ui::icon("branch", 13.).text_color(theme::faint()))
+                        .child(chip_text(faces, ui::fit(&b, 24)))
                 }))
-                .tooltip(ui::tip(if working {
-                    "Queue it for when this turn ends · Return"
-                } else {
-                    "Send · Return, or ⌘Return to go on in the background"
-                }))
-                .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
-        }
+                .child(ui::counts(faces, added, gone, 12.))
+                .child(div().flex_1())
+                .child(
+                    ui::button("commit-changes", "Commit changes", ui::Weight::Secondary).on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.show_aside(crate::desk::Aside::Session, cx);
+                            if !this.review.committing {
+                                this.toggle_commit(window, cx);
+                            }
+                        }),
+                    ),
+                ),
+        )
     }
 
     /// An agent that wants a sign-in says so above the line, with its
@@ -473,7 +666,7 @@ impl Desk {
     /// Images waiting to go with what is said.
     fn pictures_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         (!self.composer.pictures.is_empty()).then(|| {
-            let mut row = div().flex().flex_wrap().gap(px(6.));
+            let mut row = div().flex().flex_wrap().gap(px(6.)).px(px(10.)).pt(px(10.));
             for (n, p) in self.composer.pictures.iter().enumerate() {
                 row = row.child(
                     div()
@@ -512,9 +705,28 @@ impl Desk {
 
     /// What was said while the turn goes on, waiting its turn: each can
     /// be said now (the turn is stopped first) or taken back to edit.
-    fn queued_list(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+    fn queued_list(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
         (!s.meta.queued.is_empty()).then(|| {
-            let mut list = div().flex().flex_col().gap(px(4.));
+            let count = s.meta.queued.len();
+            let mut list = div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .w(px(column))
+                .mb(px(8.))
+                .px(px(12.))
+                .py(px(8.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(theme::border2())
+                .child(chip_text(
+                    faces,
+                    if count == 1 {
+                        "1 message queued".to_owned()
+                    } else {
+                        format!("{count} messages queued")
+                    },
+                ));
             for (n, text) in s.meta.queued.iter().enumerate() {
                 list = list.child(
                     div()
@@ -692,231 +904,21 @@ impl Desk {
     }
 }
 
-/// How far above its mark a menu of the composer opens: clear of the line
-/// you write in (the gap, one line, the padding, and 8 more).
-const LIFT: f32 = 6. + 22. + 10. + 8.;
-
-/// A menu of the composer, opened upward from its mark over the line you
-/// write in.
-pub(super) fn over_line(menu: Popover) -> Popover {
-    menu.anchor(gpui::Anchor::BottomLeft).offset(px(LIFT))
+/// A menu of the composer, opened upward from its mark at `corner` over
+/// the box.
+pub(super) fn over_box(menu: Popover, corner: gpui::Anchor) -> Popover {
+    menu.anchor(corner).offset(px(4.))
 }
 
-impl Desk {
-    /// The mark that opens `popup`: its icon, and how many it holds when
-    /// it holds any.
-    fn popup_chip(faces: &Faces, icon: &'static str, count: usize, tip: &'static str) -> Button {
-        ui::opener(SharedString::from(format!("chip-{icon}")))
-            .h(px(26.))
-            .px(px(7.))
-            .text_color(theme::faint())
-            .child(ui::icon(icon, 14.))
-            .when(count > 0, |d| {
-                d.child(ui::text(faces, count.to_string()).text_size(px(12.)))
-            })
-            .tooltip(tip)
-    }
+/// A menu of the composer's at its left.
+pub(super) fn over_line(menu: Popover) -> Popover {
+    over_box(menu, gpui::Anchor::BottomLeft)
+}
 
-    /// What you put aside (⌘S): a mark with how many, and under it each,
-    /// the latest first, to take back into the line or let go.
-    fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
-        let mark = Self::popup_chip(
-            faces,
-            "archive",
-            self.composer.stashed.len(),
-            "Put aside (⌘S), to take back",
-        );
-        let faces = faces.clone();
-        over_line(self.menu(
-            Popup::Stash,
-            mark,
-            move |d, _, cx| d.stashed_list(&faces, cx),
-            cx,
-        ))
-    }
-
-    /// What was put aside, the latest first: a click takes it back.
-    fn stashed_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut list = div().flex().flex_col().w(px(348.)).child(
-            ui::label(faces, "Put aside")
-                .px(px(8.))
-                .pt(px(6.))
-                .pb(px(4.)),
-        );
-        for (n, text) in self.composer.stashed.iter().enumerate().rev() {
-            list = list.child(
-                ui::menu_row(SharedString::from(format!("stash-{n}")), false)
-                    .child(
-                        ui::one_line(
-                            ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
-                                .text_size(px(13.)),
-                        )
-                        .flex_1()
-                        .min_w(px(0.)),
-                    )
-                    .child(
-                        ui::icon_button(
-                            SharedString::from(format!("stash-drop-{n}")),
-                            "x",
-                            "Let it go",
-                        )
-                        .size(px(22.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            if n < this.composer.stashed.len() {
-                                this.composer.stashed.remove(n);
-                                this.save_stash();
-                            }
-                            cx.notify();
-                        })),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.take_stashed(n, window, cx);
-                    })),
-            );
-        }
-        list
-    }
-
-    /// The clock: what is in the composer said later, once or each day,
-    /// and what is waiting to be said, each can be let go.
-    fn later_menu(
-        &self,
-        faces: &Faces,
-        s: &crate::session::Session,
-        cx: &mut Context<Self>,
-    ) -> Popover {
-        let mark = Self::popup_chip(faces, "clock", s.meta.later.len(), "Say it later");
-        let (faces, key) = (faces.clone(), s.key);
-        over_line(self.menu(
-            Popup::Later,
-            mark,
-            move |d, _, cx| d.later_list(&faces, key, cx),
-            cx,
-        ))
-    }
-
-    /// When to say what is written, and what waits to be said.
-    fn later_list(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
-        use crate::desk::Later;
-        let written = !self.typed(cx).trim().is_empty();
-        let mut list = div().flex().flex_col().w(px(308.)).child(
-            ui::label(
-                faces,
-                if written {
-                    "Say what you wrote"
-                } else {
-                    "Write it first, then say when"
-                },
-            )
-            .px(px(8.))
-            .pt(px(6.))
-            .pb(px(4.)),
-        );
-        if written {
-            for (n, (label, when)) in [
-                ("In 30 minutes", Later::In(30)),
-                ("In an hour", Later::In(60)),
-                ("In 3 hours", Later::In(180)),
-                ("Tomorrow at 9:00", Later::Tomorrow),
-                ("Each day at 9:00", Later::Daily),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                list = list.child(
-                    ui::menu_row(SharedString::from(format!("later-{n}")), false)
-                        .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.send_later(when, window, cx);
-                        })),
-                );
-            }
-        }
-        let waiting = self
-            .sessions
-            .at(key)
-            .map(|s| s.meta.later.as_slice())
-            .unwrap_or_default();
-        if !waiting.is_empty() {
-            let now = std::time::SystemTime::now();
-            list = list.child(
-                ui::label(faces, "Waiting to be said")
-                    .px(px(8.))
-                    .pt(px(10.))
-                    .pb(px(4.)),
-            );
-            for (n, l) in waiting.iter().enumerate() {
-                let at = crate::store::time(l.at);
-                let when = if l.daily {
-                    format!("each day {}", crate::when::clock(at, self.settings.twelve))
-                } else {
-                    crate::when::said_at(at, now, self.settings.twelve)
-                };
-                list = list.child(
-                    ui::menu_row(SharedString::from(format!("waiting-{n}")), false)
-                        .child(
-                            ui::text(faces, when)
-                                .flex_none()
-                                .text_size(px(12.))
-                                .text_color(theme::faint()),
-                        )
-                        .child(
-                            ui::one_line(
-                                ui::text(
-                                    faces,
-                                    l.text.lines().next().unwrap_or_default().to_owned(),
-                                )
-                                .text_size(px(13.)),
-                            )
-                            .flex_1()
-                            .min_w(px(0.)),
-                        )
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("later-drop-{n}")),
-                                "x",
-                                "Let it go",
-                            )
-                            .size(px(22.))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if let Some(s) = this.sessions.at_mut(key)
-                                        && n < s.meta.later.len()
-                                    {
-                                        s.meta.later.remove(n);
-                                    }
-                                    this.save_index();
-                                    cx.notify();
-                                },
-                            )),
-                        ),
-                );
-            }
-        }
-        list
-    }
-
-    /// Take back what was put aside `n`th: into the line, after what is
-    /// in it.
-    fn take_stashed(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if n >= self.composer.stashed.len() {
-            return;
-        }
-        let text = self.composer.stashed.remove(n);
-        self.save_stash();
-        self.popup = Popup::Closed;
-        let typed = self.typed(cx);
-        let line = if typed.is_empty() {
-            text
-        } else {
-            format!("{typed}\n{text}")
-        };
-        self.put_line(&line, window, cx);
-        window.focus(
-            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
-            cx,
-        );
-        cx.notify();
-    }
+/// What a chip under the box says.
+fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    ui::text(faces, text)
+        .flex_none()
+        .text_size(px(13.))
+        .text_color(theme::text2())
 }
