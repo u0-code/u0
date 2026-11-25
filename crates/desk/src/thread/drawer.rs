@@ -46,11 +46,12 @@ pub fn cell_width(window: &Window, faces: &Faces) -> f32 {
         .map_or(7.5, |s| f32::from(s.width))
 }
 
-/// The rows and columns a terminal pane `width` wide holds.
-pub fn fits(width: f32, cell: f32) -> (u16, u16) {
+/// The rows and columns a terminal pane `width` by `height` holds, as it
+/// was laid out, inside its padding.
+fn fits(width: f32, height: f32, cell: f32) -> (u16, u16) {
     let count = |room: f32, each: f32| (room / each).floor().clamp(2., 500.) as u16;
     (
-        count(HEIGHT - BAR - 2. * TOP, LINE),
+        count(height - 2. * TOP, LINE),
         count(width - 2. * PAD, cell),
     )
 }
@@ -461,10 +462,31 @@ impl Desk {
                     .opacity(0.7),
             );
         }
+        let (desk, size) = (cx.entity().downgrade(), t.size());
         let pop = t
             .chosen()
             .map(|chosen| self.chosen_pop(faces, id, at, chosen, cols, cell, cx));
 
+        // Its shell is told the size of the grid as it was laid out, not as
+        // the window's width guesses it: a pane narrower than guessed had
+        // the prompt's right side wrap onto a line of its own.
+        let measure = gpui::canvas(
+            move |bounds, _, cx| {
+                let fit = fits(
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                    cell,
+                );
+                if fit != size {
+                    cx.defer(move |cx| {
+                        let _ = desk.update(cx, |d, cx| d.fit_terminal(id, fit.0, fit.1, cx));
+                    });
+                }
+            },
+            |_, (), _, _| {},
+        )
+        .absolute()
+        .inset_0();
         div()
             .id(SharedString::from(format!("term-{id}")))
             .relative()
@@ -475,6 +497,7 @@ impl Desk {
             .px(px(PAD))
             .py(px(TOP))
             .cursor_text()
+            .child(measure)
             .child(screen)
             .children(pop)
             .on_scroll(cx.listener(move |this, e: &ScrollEvent, _, cx| {
@@ -608,7 +631,7 @@ mod tests {
 
     #[test]
     fn a_pane_holds_the_cells_its_room_allows() {
-        assert_eq!(fits(800., 7.5), (14, 102));
-        assert_eq!(fits(10., 7.5), (14, 2));
+        assert_eq!(fits(800., 302., 7.5), (14, 102));
+        assert_eq!(fits(10., 302., 7.5), (14, 2));
     }
 }

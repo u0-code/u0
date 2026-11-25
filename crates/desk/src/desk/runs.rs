@@ -421,12 +421,13 @@ impl Desk {
         cx.notify();
     }
 
-    /// Fit the terminals to the drawer: `cols` by `rows` each.
-    pub(crate) fn fit_terminals(&mut self, rows: u16, cols: u16) {
-        for t in &mut self.drawer.terminals {
-            if let Some(call) = t.resize(rows, cols) {
-                self.transport.send(call);
-            }
+    /// Fit the terminal `id` to its pane as laid out: `cols` by `rows`.
+    pub(crate) fn fit_terminal(&mut self, id: u64, rows: u16, cols: u16, cx: &mut Context<Self>) {
+        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id)
+            && let Some(call) = t.resize(rows, cols)
+        {
+            self.transport.send(call);
+            cx.notify();
         }
     }
 }

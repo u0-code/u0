@@ -1331,19 +1331,7 @@ impl Render for Desk {
             .min_w(px(0.))
             .h_full()
             .child(self.topbar(&faces, lights, pane, cx));
-        // The terminals take the size the drawer gives them.
         let cell = crate::thread::drawer::cell_width(window, &faces);
-        if self.drawer.open {
-            let beside = if self.drawer.split {
-                self.session_terminals()
-                    .len()
-                    .clamp(1, crate::thread::drawer::SIDE_BY_SIDE)
-            } else {
-                1
-            };
-            let (rows, cols) = crate::thread::drawer::fits(pane / beside as f32, cell);
-            self.fit_terminals(rows, cols);
-        }
         let middle = match self.page.clone() {
             Page::Thread => {
                 let column = self.settings.width.column(pane);
