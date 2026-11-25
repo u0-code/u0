@@ -93,6 +93,7 @@ pub fn answer(team: &str, ask_: Ask) -> Answer {
             })
             .map(|d| text(&d, "/issueCreate/issue/url")),
         ),
+        other => super::not_here("Linear", other),
     }
 }
 

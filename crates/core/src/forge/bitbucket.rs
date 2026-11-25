@@ -107,6 +107,7 @@ pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
             Answer::Acted(Some(n), done.map(|_| "Done".into()))
         }
         Ask::Create { .. } => Answer::Acted(None, Err("Bitbucket keeps no issues here".into())),
+        other => super::not_here("Bitbucket", other),
     }
 }
 

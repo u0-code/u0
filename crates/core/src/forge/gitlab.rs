@@ -127,6 +127,7 @@ pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
             )
             .map(|v| text(&v, "/web_url")),
         ),
+        other => super::not_here("GitLab", other),
     }
 }
 

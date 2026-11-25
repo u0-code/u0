@@ -62,6 +62,13 @@ pub struct Forge {
     pub doing: Option<String>,
     /// The Linear team the project's issues are read from, as typed.
     pub team: Entity<InputState>,
+    /// The project's labels and the people who can review or be
+    /// assigned, offered under the line to name one.
+    pub candidates: Option<(PathBuf, Vec<String>, Vec<String>)>,
+    /// What a failed run of the checks printed, by the run's id.
+    pub log: Option<(String, Result<String, String>)>,
+    /// The repository's templates for a new issue: name and body.
+    pub templates: Vec<(String, String)>,
 }
 
 impl Forge {
@@ -75,7 +82,13 @@ impl Forge {
             }
         })
         .detach();
+        // What is typed to name a label or a person narrows those offered.
+        let who =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A label, or someone's login"));
+        cx.subscribe(&who, |_: &mut Desk, _, _: &InputEvent, cx| cx.notify())
+            .detach();
         let team = cx.new(|cx| InputState::new(window, cx).placeholder("Linear team"));
+
         cx.subscribe(&team, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
                 this.bind_linear(cx);
@@ -99,8 +112,7 @@ impl Forge {
                     .auto_grow(2, 10)
                     .placeholder("Say something")
             }),
-            who: cx
-                .new(|cx| InputState::new(window, cx).placeholder("A label, or someone's login")),
+            who,
             title: cx.new(|cx| InputState::new(window, cx).placeholder("Title")),
             body: cx.new(|cx| {
                 TextareaState::new(window, cx)
@@ -111,6 +123,9 @@ impl Forge {
             creating: false,
             doing: None,
             team,
+            candidates: None,
+            log: None,
+            templates: Vec::new(),
         }
     }
 }
@@ -128,6 +143,23 @@ impl Desk {
             self.list_forge(cx);
         }
         self.open_page(Page::Forge(kind), window, cx);
+    }
+
+    /// Read what the failed run `run` of the checks printed.
+    pub(crate) fn read_log(&mut self, run: String, cx: &mut Context<Self>) {
+        self.forge.log = Some((run.clone(), Ok("Reading…".into())));
+        self.ask_forge(self.forge.kind, Ask::Log(run));
+        cx.notify();
+    }
+
+    /// Begin the new issue's words with the template `n`.
+    pub(crate) fn use_template(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((_, body)) = self.forge.templates.get(n) {
+            let body = body.clone();
+            self.forge
+                .body
+                .update(cx, |b, cx| b.set_value(body, window, cx));
+        }
     }
 
     /// Ask `ask` of the page's project's pull requests or issues (`kind`),
@@ -188,6 +220,10 @@ impl Desk {
     /// Read the one numbered `n` whole, and a pull request's changes.
     pub fn read_forge(&mut self, n: u64, cx: &mut Context<Self>) {
         self.forge.chosen = Some(n);
+        self.forge.log = None;
+        if self.forge.candidates.as_ref().map(|c| &c.0) != self.forge.folder.as_ref() {
+            self.ask_forge(self.forge.kind, Ask::Candidates);
+        }
         self.forge.detail = None;
         self.forge.editing = false;
         self.forge.creating = false;
@@ -255,6 +291,9 @@ impl Desk {
             .update(cx, |i, cx| i.set_value(&body, window, cx));
         self.forge.editing = !new;
         self.forge.creating = new;
+        if new {
+            self.ask_forge(Kind::Issue, Ask::Templates);
+        }
         cx.notify();
     }
 
@@ -368,6 +407,11 @@ impl Desk {
                     .collect();
                 self.forge.diff.update(cx, |d, cx| d.set_files(parsed, cx));
             }
+            Answer::Candidates(Ok((labels, people))) => {
+                self.forge.candidates = Some((folder.clone(), labels, people));
+            }
+            Answer::Logged(run, log) => self.forge.log = Some((run, log)),
+            Answer::Templates(templates) => self.forge.templates = templates,
             Answer::Acted(n, result) => {
                 let what = self.forge.doing.take().unwrap_or_default();
                 match result {

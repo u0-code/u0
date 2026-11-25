@@ -100,6 +100,13 @@ pub enum Ask {
         title: String,
         body: String,
     },
+    /// The labels there are and the people who can be asked to review or
+    /// assigned.
+    Candidates,
+    /// What a failed run of the checks printed, by the run's id.
+    Log(String),
+    /// The repository's templates for a new issue.
+    Templates,
 }
 
 /// What can be done to a pull request or an issue.
@@ -145,6 +152,12 @@ pub enum Answer {
     Diffed(u64, Result<Vec<FileDiff>, String>),
     /// Done to the one numbered (none, a new issue): what gh said, or why not.
     Acted(Option<u64>, Result<String, String>),
+    /// The labels there are, and the people.
+    Candidates(Result<(Vec<String>, Vec<String>), String>),
+    /// The end of what a run printed where it failed, by the run's id.
+    Logged(String, Result<String, String>),
+    /// Each template for a new issue: its name and what it begins with.
+    Templates(Vec<(String, String)>),
 }
 
 /// The fields gh is asked for, as each kind has them.
@@ -213,7 +226,75 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
             None,
             gh(&["issue", "create", "--title", &title, "--body", &body]),
         ),
+        Ask::Candidates => Answer::Candidates(
+            gh(&[
+                "label", "list", "--limit", "200", "--json", "name", "-q", ".[].name",
+            ])
+            .and_then(|labels| {
+                let people = gh(&[
+                    "api",
+                    "repos/{owner}/{repo}/assignees",
+                    "--paginate",
+                    "-q",
+                    ".[].login",
+                ])?;
+                let lines = |t: &str| t.lines().map(str::to_owned).collect();
+                Ok((lines(&labels), lines(&people)))
+            }),
+        ),
+        Ask::Log(run) => {
+            let log = gh(&["run", "view", &run, "--log-failed"]);
+            // The end of it, where a failure is said.
+            let tail = |t: String| {
+                let lines: Vec<&str> = t.lines().collect();
+                lines[lines.len().saturating_sub(LOG_LINES)..].join("\n")
+            };
+            Answer::Logged(run, log.map(tail))
+        }
+        Ask::Templates => Answer::Templates(templates(dir)),
     }
+}
+
+/// How many of a failed run's last lines are shown.
+const LOG_LINES: usize = 120;
+
+/// The issue templates in `dir`'s `.github/ISSUE_TEMPLATE/`, Markdown
+/// ones: each by the name its front matter gives, else its file's, and
+/// what follows the front matter.
+pub fn templates(dir: &Path) -> Vec<(String, String)> {
+    let mut files: Vec<_> = std::fs::read_dir(dir.join(".github/ISSUE_TEMPLATE"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "md"))
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|path| {
+            let text = std::fs::read_to_string(&path).ok()?;
+            let stem = path.file_stem()?.to_string_lossy().into_owned();
+            Some(template(&stem, &text))
+        })
+        .collect()
+}
+
+/// A template's name and body, from its text: front matter between `---`
+/// lines (its `name:`), then the body.
+fn template(stem: &str, text: &str) -> (String, String) {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return (stem.to_owned(), text.to_owned());
+    };
+    let (front, body) = rest.split_once("\n---\n").unwrap_or((rest, ""));
+    let name = front
+        .lines()
+        .find_map(|l| l.strip_prefix("name:"))
+        .map_or_else(
+            || stem.to_owned(),
+            |n| n.trim().trim_matches(['"', '\'']).to_owned(),
+        );
+    (name, body.trim_start().to_owned())
 }
 
 /// What gh is told to do `act` to the one numbered `n`.
@@ -505,6 +586,19 @@ mod tests {
         assert_eq!(d.said[0].how, "changes requested");
         assert_eq!(d.checks[2].name, "ci/x");
         assert_eq!(d.item.branch, "bo:fix");
+    }
+
+    #[test]
+    fn an_issue_template_reads_by_the_name_its_front_matter_gives() {
+        let text = "---\nname: \"Bug report\"\nabout: Something broke\n---\n\n**What happened**\n";
+        assert_eq!(
+            template("bug", text),
+            ("Bug report".to_owned(), "**What happened**\n".to_owned())
+        );
+        assert_eq!(
+            template("plain", "Say it."),
+            ("plain".to_owned(), "Say it.".to_owned())
+        );
     }
 
     #[test]

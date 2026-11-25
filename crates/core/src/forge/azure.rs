@@ -168,6 +168,7 @@ pub fn answer(dir: &Path, repo: &Repo, kind: Kind, ask: Ask) -> Answer {
             Answer::Acted(Some(n), done.map(|_| "Done".into()))
         }
         Ask::Create { .. } => Answer::Acted(None, Err("Azure Boards are not written here".into())),
+        other => super::not_here("Azure DevOps", other),
     }
 }
 

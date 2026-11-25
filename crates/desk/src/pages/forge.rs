@@ -22,6 +22,9 @@ use crate::{
     when,
 };
 
+/// How many labels, and how many people, are offered to add at once.
+const CANDIDATES: usize = 12;
+
 /// What a line of the "⋯" menu does.
 type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 
@@ -509,6 +512,13 @@ impl Desk {
                         ui::one_line(ui::text(faces, c.name.clone()).text_size(px(13.))).flex_1(),
                     )
                     .child(ui::fine(faces, c.state.clone()))
+                    .children(run.clone().map(|run| {
+                        ui::button(SharedString::from(format!("log-{n}")), "Log", Weight::Quiet)
+                            .h(px(22.))
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.read_log(run.clone(), cx)),
+                            )
+                    }))
                     .children(run.map(|run| {
                         ui::button(
                             SharedString::from(format!("rerun-{n}")),
@@ -573,15 +583,77 @@ impl Desk {
                         })),
                     ),
             )
+            .children(self.forge_candidates(faces, d, cx))
             .when(!d.checks.is_empty(), |el| {
                 el.child(ui::label(faces, "Checks")).child(checks)
             })
+            .children(self.forge.log.as_ref().map(|(run, log)| {
+                let (text, bad) = match log {
+                    Ok(t) => (t.clone(), false),
+                    Err(e) => (e.clone(), true),
+                };
+                div()
+                    .id("forge-log")
+                    .max_h(px(320.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .child(ui::fine(faces, format!("Run {run}, where it failed")))
+                    .child(ui::fine_mono(faces, text).when(bad, |d| d.text_color(theme::coral())))
+                    .overflow_y_scrollbar()
+            }))
             .child(ui::label(faces, "Description"))
             .child(if d.body.trim().is_empty() {
                 ui::fine(faces, "No description.").into_any_element()
             } else {
                 markdown::render(faces, "forge-body", &d.body, cx).into_any_element()
             })
+    }
+
+    /// The labels not on it yet, and the people, that answer what is on
+    /// the line to name one: each added with a click.
+    fn forge_candidates(&self, faces: &Faces, d: &Detail, cx: &mut Context<Self>) -> Option<Div> {
+        let (_, labels, people) = self.forge.candidates.as_ref()?;
+        let typed = self.forge.who.read(cx).value().trim().to_lowercase();
+        let pr = self.forge.kind == Kind::Pr;
+        let offered = |all: &[String], has: &[String]| -> Vec<String> {
+            all.iter()
+                .filter(|c| !has.contains(c) && c.to_lowercase().contains(&typed))
+                .take(CANDIDATES)
+                .cloned()
+                .collect()
+        };
+        let labels = offered(labels, &d.item.labels);
+        let people = offered(people, if pr { &d.reviewers } else { &d.assignees });
+        if labels.is_empty() && people.is_empty() {
+            return None;
+        }
+        let chip = |id: String, word: String, act: Act| {
+            ui::button(SharedString::from(id), word, Weight::Quiet)
+                .h(px(22.))
+                .on_click(cx.listener(move |this, _, _, cx| this.act_forge(act.clone(), cx)))
+        };
+        Some(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(4.))
+                .child(ui::fine(faces, "Add"))
+                .children(
+                    labels
+                        .into_iter()
+                        .map(|l| chip(format!("cand-label-{l}"), format!("＋{l}"), Act::Label(l))),
+                )
+                .children(people.into_iter().map(|p| {
+                    let act = if pr {
+                        Act::Reviewer(p.clone())
+                    } else {
+                        Act::Assignee(p.clone())
+                    };
+                    chip(format!("cand-person-{p}"), format!("@{p}"), act)
+                })),
+        )
     }
 
     /// Add what is on the line as a label (`0`), or as a reviewer or
@@ -828,6 +900,32 @@ impl Desk {
             .gap(px(10.))
             .p(px(20.))
             .child(ui::label(faces, head))
+            .when(
+                self.forge.creating && !self.forge.templates.is_empty(),
+                |d| {
+                    d.child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(ui::fine(faces, "Begin from"))
+                            .children(self.forge.templates.iter().enumerate().map(
+                                |(n, (name, _))| {
+                                    ui::button(
+                                        SharedString::from(format!("template-{n}")),
+                                        name.clone(),
+                                        Weight::Secondary,
+                                    )
+                                    .h(px(24.))
+                                    .on_click(cx.listener(
+                                        move |this, _, window, cx| this.use_template(n, window, cx),
+                                    ))
+                                },
+                            )),
+                    )
+                },
+            )
             .child(Input::new(&self.forge.title))
             .child(Textarea::new(&self.forge.body))
             .child(

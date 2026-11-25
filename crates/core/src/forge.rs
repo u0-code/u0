@@ -90,6 +90,10 @@ impl Host {
 /// and Azure DevOps over their APIs; its issues from the Linear team
 /// `linear` where the project is bound to one.
 pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer {
+    // Templates are the repository's own, wherever it is kept.
+    if ask == Ask::Templates {
+        return Answer::Templates(crate::github::templates(dir));
+    }
     if let (Kind::Issue, Some(team)) = (kind, linear) {
         return linear::answer(team, ask);
     }
@@ -104,6 +108,16 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer 
         azure::answer(dir, &repo, kind, ask)
     } else {
         crate::github::answer(dir, kind, ask)
+    }
+}
+
+/// The answer to `ask` from `host`, where Ghost asks it only of GitHub.
+fn not_here(host: &str, ask: Ask) -> Answer {
+    let why = format!("{host} is not asked this here");
+    match ask {
+        Ask::Candidates => Answer::Candidates(Err(why)),
+        Ask::Log(run) => Answer::Logged(run, Err(why)),
+        _ => Answer::Acted(None, Err(why)),
     }
 }
 
