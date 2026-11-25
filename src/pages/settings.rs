@@ -292,16 +292,12 @@ impl Desk {
                             .flex_1()
                             .text_size(px(13.5)),
                     )
+                    // Said, not chosen here: the first agent on is it.
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .h(px(26.))
-                            .px(px(8.))
-                            .rounded(px(7.))
-                            .border_1()
-                            .border_color(theme::tag_line())
                             .child(ui::mark(faces, &Mark::of(&id, &name), 14.))
                             .child(
                                 ui::text(faces, name)
