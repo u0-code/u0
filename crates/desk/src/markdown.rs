@@ -63,8 +63,8 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
                 .style(style)
                 .selectable(true)
                 .plugin(Paths(desk))
-                .on_link_click(move |to, click, _, cx| {
-                    follow(&links, to, click.modifiers().platform, cx);
+                .on_link_click(move |to, click, window, cx| {
+                    follow(&links, to, click.modifiers().platform, window, cx);
                 })
                 .code_block_actions(move |block, _, _| {
                     code_actions(&blocks, &block.lang().unwrap_or_default(), &block.code())
@@ -95,14 +95,25 @@ fn bulleted(text: &str) -> SharedString {
         .into()
 }
 
-/// A link clicked: a commit of the session's repository in its Diff tab
-/// (with ⌘, on its host), an address in the browser or in mail, a file in
-/// your editor; any other link does nothing.
-fn follow(desk: &WeakEntity<Desk>, to: &str, outside: bool, cx: &mut App) {
-    let here = commit_of(to).filter(|_| !outside).is_some_and(|id| {
-        desk.update(cx, |d, cx| d.show_commit(id, cx))
-            .unwrap_or(false)
-    });
+/// A link clicked: a commit of the session's repository in its Diff tab,
+/// a pull request on the PRs page (with ⌘, either on its host), an address
+/// in the browser or in mail, a file in your editor; any other link does
+/// nothing.
+fn follow(
+    desk: &WeakEntity<Desk>,
+    to: &str,
+    outside: bool,
+    window: &mut gpui::Window,
+    cx: &mut App,
+) {
+    let here = !outside
+        && desk
+            .update(cx, |d, cx| match (commit_of(to), pull_of(to)) {
+                (Some(id), _) => d.show_commit(id, cx),
+                (_, Some(n)) => d.show_pr(n, window, cx),
+                _ => false,
+            })
+            .unwrap_or(false);
     if here {
         return;
     }
@@ -119,6 +130,12 @@ fn commit_of(address: &str) -> Option<&str> {
     let (_, rest) = address.split_once("/commit/")?;
     let sha = rest.split(['/', '#', '?']).next()?;
     (sha.len() >= 7 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then(|| &sha[..7])
+}
+
+/// The pull request a host's link names (`…/pull/<n>`).
+fn pull_of(address: &str) -> Option<u64> {
+    let (_, rest) = address.split_once("/pull/")?;
+    rest.split(['/', '#', '?']).next()?.parse().ok()
 }
 
 /// Whether a link opens in the browser or in mail. No other scheme is
@@ -260,6 +277,11 @@ mod tests {
         );
         assert_eq!(commit_of("https://github.com/o/r/pull/12"), None);
         assert_eq!(commit_of("https://github.com/o/r/commit/main"), None);
+        assert_eq!(
+            pull_of("https://github.com/o/r/pull/12#issuecomment-1"),
+            Some(12)
+        );
+        assert_eq!(pull_of("https://github.com/o/r/issues/12"), None);
     }
 
     #[test]

@@ -6,11 +6,13 @@
 //! by the `server`, which the desk asks by the agent's id and which answers
 //! with what `proto` defines. Here too are the sessions built from what
 //! the agents say (`session`), what Ghost keeps of them (`store`), git and
-//! its checkpoints (`git`), the process of a terminal (`pty`), and text an agent writes for you
-//! (`writer`). The desk (`ghost-desk`) draws all of it.
+//! its checkpoints (`git`), a project's pull requests and issues
+//! (`github`), the process of a terminal (`pty`), and text an agent
+//! writes for you (`writer`). The desk (`ghost-desk`) draws all of it.
 
 pub mod acp;
 pub mod git;
+pub mod github;
 pub mod path;
 pub mod proto;
 pub mod pty;

@@ -267,6 +267,12 @@ pub enum Call {
     Folders {
         dir: PathBuf,
     },
+    /// Ask the pull requests or issues of the project in `folder`.
+    Forge {
+        folder: PathBuf,
+        kind: crate::github::Kind,
+        ask: crate::github::Ask,
+    },
     /// What the file at `path` holds, for the column's viewer.
     ReadFile {
         path: PathBuf,
@@ -566,6 +572,12 @@ pub enum Event {
         dir: PathBuf,
         names: Vec<String>,
     },
+    /// What came back of a project's pull requests or issues.
+    Forge {
+        folder: PathBuf,
+        kind: crate::github::Kind,
+        answer: crate::github::Answer,
+    },
     /// What the file at `path` holds.
     FileRead {
         path: PathBuf,
@@ -779,6 +791,17 @@ mod tests {
             Call::ReadFile {
                 path: dir.join("a.rs"),
             },
+            Call::Forge {
+                folder: dir.clone(),
+                kind: crate::github::Kind::Pr,
+                ask: crate::github::Ask::Act(
+                    7,
+                    crate::github::Act::Review {
+                        verdict: "approve".into(),
+                        body: "fine".into(),
+                    },
+                ),
+            },
             Call::Create {
                 dir: dir.clone(),
                 name: "new".into(),
@@ -914,6 +937,11 @@ mod tests {
             Event::Folders {
                 dir: dir.clone(),
                 names: vec!["src".into()],
+            },
+            Event::Forge {
+                folder: dir.clone(),
+                kind: crate::github::Kind::Issue,
+                answer: crate::github::Answer::Acted(None, Err("no gh".into())),
             },
             Event::FileRead {
                 path: dir.join("a.pdf"),

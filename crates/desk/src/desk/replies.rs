@@ -153,6 +153,11 @@ impl Desk {
                 self.files.insert(folder, files);
             }
             Event::FileRead { path, body } => self.file_read(&path, body, window, cx),
+            Event::Forge {
+                folder,
+                kind,
+                answer,
+            } => self.forge_answered(&folder, kind, answer, cx),
             Event::Prs {
                 folder,
                 prs,

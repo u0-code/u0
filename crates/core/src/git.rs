@@ -1002,7 +1002,7 @@ pub fn merge_pr(dir: &Path) -> Result<String, String> {
 
 /// Run `program` (git, gh, glab) in `dir` with `args` as you, with your
 /// git and gh configuration; its output, or what it said went wrong.
-fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(program)
         .current_dir(dir)
         .args(args)

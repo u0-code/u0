@@ -830,18 +830,10 @@ impl Desk {
             Act::Open(folder) => self.open_project(&folder, window, cx),
             Act::NewIn(folder) => self.new_in(folder, window, cx),
             Act::FromPr(folder, n, title) => {
-                self.new_in(folder, window, cx);
-                if let Some(key) = self.current
-                    && let Some(s) = self.sessions.at_mut(key)
-                    && s.state == State::Draft
-                {
-                    s.wants_worktree = true;
-                    s.begin = Some(crate::session::Begin::Pr(n, title));
-                }
+                self.start_from_pr(folder, n, title, false, window, cx);
             }
             Act::FromIssue(folder, n, title) => {
-                self.new_in(folder, window, cx);
-                self.put_line(&format!("Issue #{n}: {title}\n\n"), window, cx);
+                self.start_from_issue(folder, n, &title, false, window, cx);
             }
         }
         cx.notify();

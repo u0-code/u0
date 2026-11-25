@@ -159,6 +159,15 @@ impl Desk {
                     .child(title(name))
                     .child(meta(faces, state));
             }
+            Page::Forge(kind) => {
+                bar = bar.child(title(
+                    match kind {
+                        crate::github::Kind::Pr => "Pull requests",
+                        crate::github::Kind::Issue => "Issues",
+                    }
+                    .into(),
+                ));
+            }
         }
         bar
     }

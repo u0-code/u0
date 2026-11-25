@@ -112,6 +112,7 @@ crates/core/src/
   terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
+  github.rs     a project's pull requests and issues as gh lists, reads and changes them
   settings.rs   ~/.ghost/settings.json and the home
   store.rs      sessions.json and each session's record; the writer thread
   whole.rs      a file written whole; a JSON file read back
@@ -133,7 +134,8 @@ crates/desk/src/
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
-                replies, notices, writing
+                replies, notices, writing, forge (the PRs and Issues
+                pages)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
@@ -145,7 +147,8 @@ crates/desk/src/
                 reads the patches (diff), the Files tab and a file read
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
-  pages/        the settings dialog and its tabs (settings, prefs, projects, writing)
+  pages/        the settings dialog and its tabs (settings, prefs, projects, writing),
+                the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons

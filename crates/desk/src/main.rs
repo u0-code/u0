@@ -28,8 +28,8 @@ mod ui;
 // What needs no window is ghost-core's. Named here, `crate::git` and the
 // rest name it alike in every module of the desk.
 use ghost_core::{
-    acp, git, path, proto, registry, remote, repo, scripts, server, session, settings, store, tidy,
-    when, whole, writer,
+    acp, git, github, path, proto, registry, remote, repo, scripts, server, session, settings,
+    store, tidy, when, whole, writer,
 };
 use keys::{
     About, Hide, HideOthers, Minimize, NewSession, OpenSettings, Quit, ShowAll, Stop, ToggleSidebar,

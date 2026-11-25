@@ -303,6 +303,11 @@ impl Server {
                 folder,
             }),
             Call::ReadFile { path } => self.off(move || repo::read_file(path)),
+            Call::Forge { folder, kind, ask } => self.off(move || Event::Forge {
+                answer: crate::github::answer(&folder, kind, ask),
+                folder,
+                kind,
+            }),
             Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,

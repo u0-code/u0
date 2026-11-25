@@ -32,6 +32,7 @@ use gpui::{
 use tokio::sync::mpsc;
 
 mod agents;
+pub(crate) mod forge;
 mod gitview;
 mod kept;
 pub(crate) mod lists;
@@ -75,6 +76,8 @@ pub enum Page {
     Thread,
     /// An agent's page: what it is, what it needs, how to install it.
     Agent(String),
+    /// A project's pull requests, or its issues.
+    Forge(crate::github::Kind),
 }
 
 pub use crate::aside::{Column, Surface, Viewer};
@@ -120,6 +123,10 @@ pub enum Popup {
     Details,
     /// The recent commits, to see one's changes.
     Commits,
+    /// The project the PRs or Issues page is of.
+    ForgeProject,
+    /// What can be done with the pull request or issue read.
+    ForgeActions,
 }
 
 /// Which side columns show.
@@ -269,6 +276,8 @@ pub struct Desk {
     pub side_line: Entity<InputState>,
     /// The Files tab and the file read in the column.
     pub viewer: Viewer,
+    /// The PRs and Issues pages.
+    pub forge: forge::Forge,
     /// How far the column's tabs are scrolled, to bring one opened into view.
     pub tab_scroll: gpui::ScrollHandle,
     /// gpui-kit's view of each edit opened in the thread, by its card.
@@ -528,6 +537,7 @@ impl Desk {
             columns: HashMap::new(),
             side_line,
             viewer: Viewer::new(window, cx),
+            forge: forge::Forge::new(window, cx),
             tab_scroll: gpui::ScrollHandle::new(),
             edits: std::cell::RefCell::default(),
             search: lists::Search::new(window, cx),
@@ -1436,6 +1446,7 @@ impl Render for Desk {
                     .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
+            Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
         };
         let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
         let right = match (&self.page, self.panes.right) {

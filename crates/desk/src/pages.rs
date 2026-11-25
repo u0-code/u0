@@ -3,6 +3,7 @@
 //! the settings (`settings`), a dialog over the
 //! window, where agents are switched on and off.
 
+mod forge;
 mod prefs;
 mod projects;
 mod settings;
