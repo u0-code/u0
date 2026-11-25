@@ -11,7 +11,13 @@
 //! scrolls sideways rather than wrapping a command, as a table wider than
 //! the column does rather than widening it.
 
-use std::{collections::HashSet, mem::take, ops::Range};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    mem::take,
+    ops::Range,
+    rc::Rc,
+};
 
 use gpui::{
     AnyElement, Context, Div, FontStyle, FontWeight, Hsla, InteractiveText, SharedString,
@@ -109,6 +115,37 @@ fn parse(text: &str) -> Vec<Block> {
         read.event(event);
     }
     read.blocks
+}
+
+/// How many messages' blocks are kept before they are all let go: more
+/// than a window shows at once.
+const KEPT: usize = 256;
+
+/// A message's text, and the blocks read from it.
+type Read = (String, Rc<Vec<Block>>);
+
+thread_local! {
+    /// What each message drawn was read as, by its key.
+    static READ: RefCell<HashMap<String, Read>> = RefCell::new(HashMap::new());
+}
+
+/// The blocks of the message `key`, read once for each text it has, not
+/// at every frame it is drawn in: the window draws many while an answer
+/// streams.
+fn blocks(key: &str, text: &str) -> Rc<Vec<Block>> {
+    READ.with_borrow_mut(|read| {
+        if let Some((was, blocks)) = read.get(key)
+            && was == text
+        {
+            return blocks.clone();
+        }
+        if read.len() >= KEPT {
+            read.clear();
+        }
+        let blocks = Rc::new(parse(text));
+        read.insert(key.to_owned(), (text.to_owned(), blocks.clone()));
+        blocks
+    })
 }
 
 /// What the words being read are inside of.
@@ -656,7 +693,7 @@ pub fn render_as(
 ) -> Div {
     let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
-    let blocks = parse(text);
+    let blocks = blocks(key, text);
     // Blocks stand apart by 10, a list's items by 4; a heading has 24
     // above it (20 for the third level) and 14 under it.
     for (i, block) in blocks.iter().enumerate() {
@@ -1278,5 +1315,15 @@ mod tests {
             assert!(!web(launches) && !path_like(launches), "{launches}");
         }
         assert!(path_like("src/a.rs:12"));
+    }
+
+    #[test]
+    fn a_message_is_read_again_only_when_its_text_changes() {
+        let first = blocks("s-1", "Reading the");
+        assert!(Rc::ptr_eq(&first, &blocks("s-1", "Reading the")));
+        let grown = blocks("s-1", "Reading the code");
+        assert!(!Rc::ptr_eq(&first, &grown));
+        assert_eq!(*grown, parse("Reading the code"));
+        assert!(!Rc::ptr_eq(&grown, &blocks("s-2", "Reading the code")));
     }
 }
