@@ -456,6 +456,36 @@ impl Session {
             .map(|(_, id)| id.clone())
     }
 
+    /// How its last turn came out, where that is worth a word in a list:
+    /// a plan made in a mode that only plans, waiting to be carried out;
+    /// or a turn that failed (the agent refused, ran out, or erred).
+    pub fn outcome(&self) -> Option<&'static str> {
+        if !matches!(self.state, State::Idle | State::Closed) {
+            return None;
+        }
+        let start = self.items.iter().rposition(|i| matches!(i, Item::You(_)))?;
+        let turn = &self.items[start..];
+        let failed = turn.iter().any(|i| {
+            matches!(i, Item::Note { trouble: true, .. })
+                || matches!(
+                    i,
+                    Item::Ended {
+                        reason: StopReason::Refusal
+                            | StopReason::MaxTokens
+                            | StopReason::MaxTurnRequests,
+                        ..
+                    }
+                )
+        });
+        if failed {
+            Some("failed")
+        } else if self.planning() && turn.iter().any(|i| matches!(i, Item::Plan(_))) {
+            Some("plan ready")
+        } else {
+            None
+        }
+    }
+
     /// When the message at `item` began, if that is known.
     pub fn time_of(&self, item: usize) -> Option<SystemTime> {
         self.times
@@ -1284,5 +1314,16 @@ mod tests {
         assert!(
             matches!(&s.items[0], Item::Child { title, .. } if title == "Explore the uploader")
         );
+    }
+
+    #[test]
+    fn a_turn_that_failed_says_so_in_a_list() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.said("go");
+        s.ended(Err("the agent stopped".into()));
+        assert_eq!(s.outcome(), Some("failed"));
+        s.said("again");
+        s.ended(Ok(StopReason::EndTurn));
+        assert_eq!(s.outcome(), None);
     }
 }

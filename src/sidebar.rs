@@ -655,7 +655,10 @@ impl Desk {
             State::SignIn => ("sign in".to_owned(), true, false),
             State::Broken(_) => ("stopped".to_owned(), false, true),
             State::Draft => (String::new(), false, false),
-            State::Idle | State::Closed => (when::ago(s.updated, SystemTime::now()), false, false),
+            State::Idle | State::Closed => match s.outcome() {
+                Some(o) => (o.to_owned(), false, o == "failed"),
+                None => (when::ago(s.updated, SystemTime::now()), false, false),
+            },
         };
         // Listed by status, a row says which project it is in.
         let when = if self.settings.by_status {
@@ -954,8 +957,9 @@ impl Desk {
                 && query.is_none_or(|q| self.matches(s, q))
                 && self.settings.only.as_ref().is_none_or(|p| &s.project == p)
         }) {
-            let waiting =
-                s.waiting().is_some() || matches!(s.state, State::SignIn | State::Broken(_));
+            let waiting = s.waiting().is_some()
+                || matches!(s.state, State::SignIn | State::Broken(_))
+                || s.outcome().is_some();
             if s.flags.settled.is_some() {
                 done.push(s);
             } else if waiting {
