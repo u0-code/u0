@@ -179,8 +179,8 @@ impl Desk {
         let Some(s) = self.session() else {
             return div();
         };
-        let row = |id: &'static str, says: &str| {
-            ListItem::new(id)
+        let row = |id: &str, says: &str| {
+            ListItem::new(gpui::SharedString::from(id.to_owned()))
                 .h(px(28.))
                 .px(px(8.))
                 .rounded(px(6.))
@@ -211,6 +211,20 @@ impl Desk {
             );
         }
         let (key, pr) = (s.key, s.git.pr.as_ref().map(|p| p.url.clone()));
+        if s.meta.id.is_some() {
+            for (id, name) in self.others(&s.meta.agent) {
+                menu = menu.child(
+                    row(
+                        &format!("title-continue-{id}"),
+                        &format!("Continue with {name}"),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        this.hand_off(key, &id, window, cx);
+                    })),
+                );
+            }
+        }
         menu = menu
             .child(Separator::horizontal().my(px(4.)))
             .child(

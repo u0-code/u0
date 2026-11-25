@@ -304,16 +304,34 @@ impl Desk {
                 } else {
                     "Stopped at the turn's limit of requests."
                 };
-                step().child(icon("alert")).child(verb(faces, words)).child(
-                    div().flex().flex_1().justify_end().child(
+                let key = s.key;
+                let mut go = div().flex().flex_1().justify_end().gap(px(2.)).child(
+                    ui::button(
+                        SharedString::from(format!("continue-{i}")),
+                        "Continue",
+                        Weight::Quiet,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
+                );
+                // Or go on with another agent, the conversation with it.
+                for (id, other) in self.others(&s.meta.agent) {
+                    go = go.child(
                         ui::button(
-                            SharedString::from(format!("continue-{i}")),
-                            "Continue",
+                            SharedString::from(format!("continue-{i}-{id}")),
+                            format!("Continue with {other}"),
                             Weight::Quiet,
                         )
-                        .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
-                    ),
-                )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.hand_off(key, &id, window, cx);
+                            },
+                        )),
+                    );
+                }
+                step()
+                    .child(icon("alert"))
+                    .child(verb(faces, words))
+                    .child(go)
             }
         };
         div()

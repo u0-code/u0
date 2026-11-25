@@ -14,7 +14,7 @@ use agent_client_protocol::v1::schema::MessageId;
 
 use gpui::component::input::{InputEvent, InputState};
 
-use super::Desk;
+use super::{Desk, mention};
 use crate::{
     hub,
     proto::Call,
@@ -534,6 +534,80 @@ impl Desk {
     pub fn fork(&mut self, key: u64, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         self.branch(key, None, cx);
+    }
+
+    /// The other agents a session of `agent` could go on with: each that
+    /// can run, by id and name.
+    pub(crate) fn others(&self, agent: &str) -> Vec<(String, String)> {
+        (self.slots.iter())
+            .filter(|s| s.entry.id != agent && s.usable())
+            .map(|s| (s.entry.id.clone(), s.entry.name.clone()))
+            .collect()
+    }
+
+    /// Go on with the session `key` with another agent, `agent`: a new
+    /// session of it where `key` works (its folder, its worktree), the
+    /// conversation named in the line (`@`, as a session is) to go with
+    /// what you say first. Nothing is sent until you send it.
+    pub fn hand_off(&mut self, key: u64, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.popup = super::Popup::Closed;
+        let Some(origin) = self.sessions.at(key) else {
+            return;
+        };
+        let (title, folder, project) = (
+            origin.meta.title.clone(),
+            origin.meta.folder.clone(),
+            origin.meta.project.clone(),
+        );
+        let new = self.sessions.take_key();
+        let mut s = self.begun_in(new, agent, project);
+        s.wants_worktree = false;
+        if s.meta.folder != folder {
+            s.meta.folder.clone_from(&folder);
+            self.transport.send(Call::Look { folder, key: new });
+        }
+        let token = mention::token_of(&title);
+        s.meta.unsent = format!("Go on with the work in {token} ");
+        self.sessions.all.push(s);
+        self.composer.mentions.push(mention::Mention {
+            token,
+            what: mention::Offer::Session { key, title },
+            text: None,
+        });
+        self.show(new, window, cx);
+    }
+
+    /// Bring what was done in the branch `key` back to the session it was
+    /// branched off: that one on screen, the branch named in its line.
+    pub fn bring_back(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.at(key) else {
+            return;
+        };
+        let Some(origin) = self.origin_of(s) else {
+            return;
+        };
+        let title = s.meta.title.clone();
+        let token = mention::token_of(&title);
+        self.show(origin, window, cx);
+        let typed = self.typed(cx);
+        let line = format!("{typed}What was done in a branch of this session, {token}: ");
+        self.put_line(line.trim_start(), window, cx);
+        self.composer.mentions.push(mention::Mention {
+            token,
+            what: mention::Offer::Session { key, title },
+            text: None,
+        });
+        cx.notify();
+    }
+
+    /// The session `s` was branched off, when it was and that is here.
+    pub(crate) fn origin_of(&self, s: &Session) -> Option<u64> {
+        let from = s.meta.from.as_ref()?;
+        (self.sessions.all.iter())
+            .find(|o| {
+                o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **from)
+            })
+            .map(|o| o.key)
     }
 
     /// Ask a side question of the session `key`: a branch of it whole, on

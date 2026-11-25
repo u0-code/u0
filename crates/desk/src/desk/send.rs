@@ -55,13 +55,7 @@ impl Desk {
             origin.meta.project.clone(),
             origin.attached.clone(),
         );
-        let others: Vec<String> = self
-            .slots
-            .iter()
-            .filter(|s| s.entry.id != agent && s.usable())
-            .map(|s| s.entry.id.clone())
-            .collect();
-        for other in others {
+        for (other, _) in self.others(&agent) {
             let new = self.sessions.take_key();
             let mut s = self.begun_in(new, &other, folder.clone());
             s.attached.clone_from(&shared);

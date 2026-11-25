@@ -451,11 +451,7 @@ impl Desk {
         parts.extend(Self::mode_name(s));
         parts.push(Desk::shown(&s.meta.folder));
         // Branched off another: which, to go back to it.
-        let origin = s.meta.from.as_ref().and_then(|id| {
-            self.sessions.all.iter().find(|o| {
-                o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
-            })
-        });
+        let origin = self.origin_of(s).and_then(|k| self.sessions.at(k));
         // Scripts run in the new worktree: what they were, whether the
         // session still waits for them, where to see them.
         let setup = (!s.setup.is_empty()).then(|| {
@@ -523,7 +519,7 @@ impl Desk {
                     .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
                     .child(meta(faces, parts.join(" · ")))
                     .children(origin.map(|o| {
-                        let back = o.key;
+                        let (back, here) = (o.key, s.key);
                         div()
                             .id("from")
                             .flex()
@@ -537,6 +533,14 @@ impl Desk {
                             )
                             .on_click(
                                 cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
+                            )
+                            .child(
+                                ui::button("bring-back", "Bring it back", ui::Weight::Quiet)
+                                    .tooltip("Name this branch in what you write there")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.bring_back(here, window, cx);
+                                    })),
                             )
                     })),
             )

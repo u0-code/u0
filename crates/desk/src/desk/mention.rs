@@ -505,9 +505,7 @@ impl Desk {
             Offer::Model { label, .. } => format!("@{label}"),
             Offer::Command { name, .. } => format!("/{name}"),
             Offer::File(f) => format!("@{f}"),
-            Offer::Session { title, .. } => {
-                format!("@{}", crate::ui::fit(title, 32).replace(' ', "-"))
-            }
+            Offer::Session { title, .. } => token_of(title),
             Offer::Pr { number, .. } => format!("@pr#{number}"),
         };
         let line = format!("{}{token} ", &text[..start]);
@@ -735,6 +733,11 @@ impl Desk {
         }
         blocks
     }
+}
+
+/// How a session titled `title` is named in what you write, after `@`.
+pub(crate) fn token_of(title: &str) -> String {
+    format!("@{}", crate::ui::fit(title, 32).replace(' ', "-"))
 }
 
 /// The files whose paths hold `query` (in lower case), a name that starts

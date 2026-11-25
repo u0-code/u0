@@ -816,6 +816,11 @@ impl Desk {
             kept: s.meta.flags.kept,
             busy,
             fork: self.can_fork(s) && !busy,
+            others: if s.meta.id.is_some() {
+                self.others(&s.meta.agent)
+            } else {
+                Vec::new()
+            },
             new_on: s
                 .meta
                 .worktree
@@ -849,6 +854,8 @@ struct Facts {
     kept: bool,
     busy: bool,
     fork: bool,
+    /// The other agents it could go on with, by id and name.
+    others: Vec<(String, String)>,
     /// The branch a new session on its worktree would work on.
     new_on: Option<String>,
     folder: String,
@@ -954,6 +961,26 @@ fn session_menu(
             "branch",
             on(|d, key, _, cx| d.fork(key, cx)),
         ));
+    }
+    if !f.others.is_empty() {
+        let (others, hand) = (f.others.clone(), desk.clone());
+        menu = menu.submenu_with_icon(
+            Some(Icon::empty().path("icons/corner-up-right.svg")),
+            "Continue with",
+            window,
+            cx,
+            move |mut menu, _, _| {
+                for (id, name) in &others {
+                    let (desk, id) = (hand.clone(), id.clone());
+                    menu = menu.item(PopupMenuItem::new(name.clone()).on_click(
+                        move |_, window, cx| {
+                            desk.update(cx, |d, cx| d.hand_off(key, &id, window, cx));
+                        },
+                    ));
+                }
+                menu
+            },
+        );
     }
     let (copy_desk, folder, branch, id) = (
         desk.clone(),
