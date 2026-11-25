@@ -1239,7 +1239,8 @@ fn marked_selection(new_text: &str, start: usize, asked: Option<&Range<usize>>) 
 /// Where the word before `at` begins in `text`: past any spaces, then
 /// back to the start of the word.
 fn word_before(text: &str, at: usize) -> usize {
-    text.split_word_bound_indices().rfind(|(i, w)| *i < at && !w.trim().is_empty())
+    text.split_word_bound_indices()
+        .rfind(|(i, w)| *i < at && !w.trim().is_empty())
         .map_or(0, |(i, _)| i)
 }
 
