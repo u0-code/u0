@@ -296,6 +296,15 @@ impl Slot {
 
     /// How to start it: your command line where you gave one, else the
     /// registry's way.
+    /// Whether a session can be begun with it now: running, starting, or
+    /// ready to start.
+    pub fn usable(&self) -> bool {
+        matches!(
+            self.stage,
+            Stage::Ready | Stage::Starting | Stage::Running { .. }
+        )
+    }
+
     pub fn launch(&self, home: &std::path::Path) -> Result<acp::Launch, Missing> {
         registry::launch_with(&self.entry, home, self.command.as_deref())
     }

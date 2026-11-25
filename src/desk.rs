@@ -108,6 +108,8 @@ pub enum Popup {
     Project(PathBuf),
     /// The branches to check out, in the column beside.
     Branch,
+    /// The session's options beyond its model and mode.
+    More,
     /// The project the sidebar shows, when it lists by status.
     Only,
     /// The project a session begun from the start goes in.
@@ -970,22 +972,16 @@ impl Desk {
             }
             return;
         }
-        let usable = |s: &Slot| {
-            matches!(
-                s.stage,
-                Stage::Ready | Stage::Starting | Stage::Running { .. }
-            )
-        };
         // The project's own agent, else that of the session on screen, else
         // the first that can run.
         let agent = self
             .prefs(&folder)
             .agent
             .and_then(|a| self.slot(&a))
-            .filter(|s| usable(s))
+            .filter(|s| s.usable())
             .or_else(|| self.session().and_then(|s| self.slot(&s.agent)))
-            .filter(|s| usable(s))
-            .or_else(|| self.slots.iter().find(|s| usable(s)))
+            .filter(|s| s.usable())
+            .or_else(|| self.slots.iter().find(|s| s.usable()))
             .or_else(|| self.slots.first())
             .map(|s| s.entry.id.clone());
         match agent {
