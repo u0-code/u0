@@ -675,7 +675,6 @@ impl Desk {
         let menu_open = self.popup == Popup::Session(key);
         // The title has the room the row's other marks leave it: the time
         // or state, the unread dot, the pin, the pull request's number.
-        #[allow(clippy::cast_precision_loss, reason = "a width in points")]
         let room = self.left_width()
             - 108.
             - (ui::fit(&when, 40).chars().count() as f32 * 7.5).max(30.)

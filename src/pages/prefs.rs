@@ -546,7 +546,6 @@ impl Desk {
         {
             let u = s.usage.as_ref().expect("filtered");
             any = true;
-            #[allow(clippy::cast_precision_loss, reason = "a share of a context")]
             let share = if u.size > 0 {
                 u.used as f64 / u.size as f64 * 100.
             } else {

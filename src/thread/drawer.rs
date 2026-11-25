@@ -41,11 +41,6 @@ pub fn cell_width(window: &Window, faces: &Faces) -> f32 {
 
 /// The rows and columns a terminal pane `width` wide holds.
 pub fn fits(width: f32, cell: f32) -> (u16, u16) {
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a count of cells, clamped"
-    )]
     let count = |room: f32, each: f32| (room / each).floor().clamp(2., 500.) as u16;
     (
         count(HEIGHT - BAR - 2. * TOP, LINE),
@@ -481,7 +476,6 @@ impl Desk {
             .children(pop)
             .on_scroll_wheel(cx.listener(move |this, e: &ScrollWheelEvent, _, cx| {
                 let dy = f32::from(e.delta.pixel_delta(px(LINE)).y);
-                #[allow(clippy::cast_possible_truncation, reason = "lines scrolled")]
                 let lines = (dy / LINE).round() as isize;
                 if lines != 0
                     && let Some(t) = this.terminals.iter_mut().find(|t| t.id == id)
@@ -538,11 +532,6 @@ impl Desk {
     fn cell_at(t: &Terminal, position: gpui::Point<gpui::Pixels>, cell: f32) -> (u16, u16) {
         let (rows, cols) = t.size();
         let from = position - t.origin.get();
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a cell's place, clamped to the screen"
-        )]
         let count = |by: f32, each: f32, most: u16| {
             (by / each).floor().clamp(0., f32::from(most - 1)) as u16
         };

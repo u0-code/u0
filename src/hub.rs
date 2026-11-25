@@ -312,8 +312,6 @@ impl Slot {
         }
     }
 
-    /// How to start it: your command line where you gave one, else the
-    /// registry's way.
     /// Whether a session can be begun with it now: running, starting, or
     /// ready to start.
     pub fn usable(&self) -> bool {

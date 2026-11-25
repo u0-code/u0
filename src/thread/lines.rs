@@ -572,7 +572,6 @@ impl Desk {
             .w(px(10.));
         for (i, item) in s.items.iter().enumerate() {
             let Item::You(text) = item else { continue };
-            #[allow(clippy::cast_precision_loss, reason = "a place along the map")]
             let at = i as f32 / n as f32;
             map = map.child(
                 div()

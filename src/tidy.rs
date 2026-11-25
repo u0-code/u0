@@ -124,7 +124,6 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
 
 /// `bytes` as a person reads a size: "12 KB", "3.4 MB".
 pub fn shown(bytes: u64) -> String {
-    #[allow(clippy::cast_precision_loss, reason = "a size to read, not to count")]
     let b = bytes as f64;
     match bytes {
         0..1_024 => format!("{bytes} B"),

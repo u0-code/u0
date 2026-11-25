@@ -2247,14 +2247,13 @@ impl Desk {
         cx.notify();
     }
 
-    /// How wide the right column stands: wider for a file read in it, and
-    /// wider again for its diff side by side.
     /// How wide the sidebar is now.
-    #[allow(clippy::cast_precision_loss, reason = "a width in points")]
     pub fn left_width(&self) -> f32 {
         (self.settings.left as f32).clamp(LEFT_MOST.0, LEFT_MOST.1)
     }
 
+    /// How wide the right column stands: wider for a file read in it, and
+    /// wider again for its diff side by side.
     pub fn right_width(&self) -> f32 {
         match self.aside {
             Aside::File(_) if self.settings.side_by_side => 720.,
@@ -2315,7 +2314,6 @@ impl Render for Desk {
             } else {
                 1
             };
-            #[allow(clippy::cast_precision_loss, reason = "four at most")]
             let (rows, cols) = crate::thread::drawer::fits(pane / beside as f32, cell);
             self.fit_terminals(rows, cols);
         }
@@ -2348,11 +2346,6 @@ impl Render for Desk {
             .when(self.resizing_left, gpui::Styled::cursor_col_resize)
             .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
                 if this.resizing_left && e.pressed_button == Some(MouseButton::Left) {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "a width in points"
-                    )]
                     let w = f32::from(e.position.x).clamp(LEFT_MOST.0, LEFT_MOST.1) as u32;
                     this.settings.left = w;
                     cx.notify();

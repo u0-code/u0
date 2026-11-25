@@ -621,7 +621,6 @@ fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(), Str
             return Err(format!("the download failed: {}", said.trim()));
         }
         let got = std::fs::metadata(to).map_or(0, |m| m.len());
-        #[allow(clippy::cast_possible_truncation, reason = "a share of 0 to 1")]
         match total {
             Some(total) => say(
                 &format!("Downloading · {:.1} of {:.1} MB", mb(got), mb(total)),
