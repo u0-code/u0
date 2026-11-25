@@ -37,7 +37,9 @@ mod ui;
 mod when;
 mod whole;
 
-use keys::{Minimize, NewSession, Quit, Stop, ToggleSidebar};
+use keys::{
+    About, Hide, HideOthers, Minimize, NewSession, OpenSettings, Quit, ShowAll, Stop, ToggleSidebar,
+};
 
 use gpui::{
     App, AppContext as _, Application, Bounds, Focusable as _, Menu, MenuItem, OsAction,
@@ -68,7 +70,17 @@ fn main() {
             cx.set_menus(vec![
                 Menu {
                     name: "Ghost".into(),
-                    items: vec![MenuItem::action("Quit Ghost", Quit)],
+                    items: vec![
+                        MenuItem::action("About Ghost", About),
+                        MenuItem::separator(),
+                        MenuItem::action("Settings…", OpenSettings),
+                        MenuItem::separator(),
+                        MenuItem::action("Hide Ghost", Hide),
+                        MenuItem::action("Hide Others", HideOthers),
+                        MenuItem::action("Show All", ShowAll),
+                        MenuItem::separator(),
+                        MenuItem::action("Quit Ghost", Quit),
+                    ],
                 },
                 Menu {
                     name: "File".into(),

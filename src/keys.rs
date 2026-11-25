@@ -63,7 +63,11 @@ actions!(
         Ahead,
         NextArea,
         GoToFile,
-        SearchWords
+        SearchWords,
+        About,
+        Hide,
+        HideOthers,
+        ShowAll
     ]
 );
 
@@ -303,6 +307,8 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("f6", NextArea, None),
         KeyBinding::new("cmd-p", GoToFile, None),
         KeyBinding::new("cmd-shift-f", SearchWords, None),
+        KeyBinding::new("cmd-h", Hide, None),
+        KeyBinding::new("cmd-alt-h", HideOthers, None),
         KeyBinding::new("cmd-1", Session1, None),
         KeyBinding::new("cmd-2", Session2, None),
         KeyBinding::new("cmd-3", Session3, None),
@@ -360,6 +366,15 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         if quit.unwrap_or(true) {
             cx.quit();
         }
+    });
+    cx.on_action(|_: &Hide, cx| cx.hide());
+    cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    cx.on_action(move |_: &About, cx| {
+        let _ = window.update(cx, |d, _, cx| {
+            d.settings_tab = crate::pages::Tab::About;
+            d.open_page(crate::desk::Page::Settings, cx);
+        });
     });
     cx.on_action(|_: &Minimize, cx| {
         if let Some(w) = cx.active_window() {
