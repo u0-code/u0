@@ -46,14 +46,16 @@ pub fn address(text: &str) -> Option<String> {
 
 /// Your terminals in the drawer under the thread: whether it is open, where
 /// keys go in it, the one they go to, and whether two show side by side;
-/// one asked to close with something running in it, to close at the
-/// second asking; a script being written, and its name and command.
+/// the tab the pointer is over, which shows its close button; one asked
+/// to close with something running in it, to close at the second
+/// asking; a script being written, and its name and command.
 pub struct Drawer {
     pub terminals: Vec<Terminal>,
     pub open: bool,
     pub focus: FocusHandle,
     pub on: Option<u64>,
     pub split: bool,
+    pub hovered: Option<u64>,
     pub closing: Option<u64>,
     pub writing: Option<Writing>,
     pub name: Entity<InputState>,
@@ -68,6 +70,7 @@ impl Drawer {
             focus: cx.focus_handle(),
             on: None,
             split: false,
+            hovered: None,
             closing: None,
             writing: None,
             name: cx.new(|cx| InputState::new(window, cx).placeholder("dev")),

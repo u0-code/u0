@@ -90,7 +90,7 @@ impl Desk {
                 .segmented()
                 .small()
                 .when_some(chosen, TabBar::selected_index)
-                .children(terms.iter().map(|t| Self::tab(faces, t, cx)))
+                .children(terms.iter().map(|t| self.tab(faces, t, cx)))
                 .on_click(cx.listener(move |this, ix: &usize, window, cx| {
                     this.drawer.on = ids.get(*ix).copied();
                     window.focus(&this.drawer.focus, cx);
@@ -313,11 +313,23 @@ impl Desk {
 
     /// A terminal's tab: its title, how it ended, and a button to close it
     /// that shows while the pointer is over the tab.
-    fn tab(faces: &Faces, t: &Terminal, cx: &mut Context<Self>) -> Tab {
+    fn tab(&self, faces: &Faces, t: &Terminal, cx: &mut Context<Self>) -> Tab {
         let id = t.id;
-        let group = SharedString::from(format!("term-tab-{id}"));
+        // The pointer over it is kept by the desk: a hover group's style
+        // never reached the button inside gpui-kit's tab.
+        let closable = self.drawer.hovered == Some(id) || self.drawer.on == Some(id);
         Tab::new()
-            .group(group.clone())
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                let now = if *over {
+                    Some(id)
+                } else {
+                    this.drawer.hovered.filter(|h| *h != id)
+                };
+                if now != this.drawer.hovered {
+                    this.drawer.hovered = now;
+                    cx.notify();
+                }
+            }))
             .label(ui::fit(&t.title, 22))
             .prefix(ui::icon("terminal", 12.).text_color(if t.ended.is_some() {
                 theme::quiet()
@@ -334,25 +346,22 @@ impl Desk {
                             .text_size(px(11.))
                             .text_color(theme::faint())
                     }))
-                    .child(
-                        div()
-                            .invisible()
-                            .group_hover(group, gpui::Styled::visible)
-                            .child(
-                                ui::icon_button(
-                                    SharedString::from(format!("close-term-{id}")),
-                                    "x",
-                                    "Close",
-                                )
-                                .size(px(18.))
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.close_terminal(id, cx);
-                                        cx.stop_propagation();
-                                    },
-                                )),
-                            ),
-                    ),
+                    .when(closable, |d| {
+                        d.child(
+                            ui::icon_button(
+                                SharedString::from(format!("close-term-{id}")),
+                                "x",
+                                "Close",
+                            )
+                            .size(px(18.))
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.close_terminal(id, cx);
+                                },
+                            )),
+                        )
+                    }),
             )
     }
 
