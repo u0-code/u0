@@ -407,15 +407,19 @@ impl Desk {
                     .weight(gpui::FontWeight::SEMIBOLD),
             )
             .child(rows)
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(8.))
-                    .child(button("tidy-records", "Remove records no session keeps", Tidy::Records))
-                    .child(button("tidy-worktrees", "Remove worktrees no session works in", Tidy::Worktrees))
-                    .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
-            )
+            // What no session keeps is known only from the index: while it
+            // does not read, every record, worktree and checkpoint looks so.
+            .when(self.store_refused.is_none(), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(8.))
+                        .child(button("tidy-records", "Remove records no session keeps", Tidy::Records))
+                        .child(button("tidy-worktrees", "Remove worktrees no session works in", Tidy::Worktrees))
+                        .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
+                )
+            })
             .children(self.tidied.clone().map(|said| fine(faces, said)))
             .child(fine(
                 faces,
