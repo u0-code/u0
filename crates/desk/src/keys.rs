@@ -62,6 +62,9 @@ actions!(
         Back,
         Ahead,
         NextArea,
+        PreviousArea,
+        NextTerminal,
+        PreviousTerminal,
         GoToFile,
         SearchWords,
         About,
@@ -87,7 +90,7 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 43] = [
+pub const ACTIONS: [(&str, &str, Make); 46] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -144,6 +147,17 @@ pub const ACTIONS: [(&str, &str, Make); 43] = [
     ("ahead", "Ahead again", || Box::new(Ahead)),
     ("next_area", "Keys to the next part of the window", || {
         Box::new(NextArea)
+    }),
+    (
+        "previous_area",
+        "Keys to the part of the window before",
+        || Box::new(PreviousArea),
+    ),
+    ("next_terminal", "The next terminal", || {
+        Box::new(NextTerminal)
+    }),
+    ("previous_terminal", "The terminal before", || {
+        Box::new(PreviousTerminal)
     }),
     ("go_to_file", "Go to a file", || Box::new(GoToFile)),
     ("search_words", "Search the project's files", || {
@@ -296,8 +310,8 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-j", Drawer, None),
         KeyBinding::new("cmd-k", Palette, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-shift-]", NextSession, None),
-        KeyBinding::new("cmd-shift-[", PreviousSession, None),
+        KeyBinding::new("cmd-}", NextSession, None),
+        KeyBinding::new("cmd-{", PreviousSession, None),
         KeyBinding::new("cmd-shift-m", Model, None),
         KeyBinding::new("cmd-d", Review, None),
         KeyBinding::new("cmd-alt-b", RightColumn, None),
@@ -320,6 +334,9 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-w", CloseSurface, None),
         KeyBinding::new("cmd-alt-]", Ahead, None),
         KeyBinding::new("f6", NextArea, None),
+        KeyBinding::new("shift-f6", PreviousArea, None),
+        KeyBinding::new("cmd-}", NextTerminal, Some(crate::desk::runs::CONTEXT)),
+        KeyBinding::new("cmd-{", PreviousTerminal, Some(crate::desk::runs::CONTEXT)),
         KeyBinding::new("cmd-p", GoToFile, None),
         KeyBinding::new("cmd-shift-f", SearchWords, None),
         KeyBinding::new("ctrl-o", TranscriptView, None),
@@ -495,7 +512,10 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<SearchWords>(cx, shown, |d, window, cx| {
         d.open_palette(crate::desk::palette::Through::Words, window, cx);
     });
-    on::<NextArea>(cx, shown, Desk::next_area);
+    on::<NextArea>(cx, shown, |d, window, cx| d.next_area(false, window, cx));
+    on::<PreviousArea>(cx, shown, |d, window, cx| d.next_area(true, window, cx));
+    on::<NextTerminal>(cx, shown, |d, _, cx| d.next_terminal(false, cx));
+    on::<PreviousTerminal>(cx, shown, |d, _, cx| d.next_terminal(true, cx));
     on::<Session1>(cx, shown, |d, window, cx| d.nth_session(0, window, cx));
     on::<Session2>(cx, shown, |d, window, cx| d.nth_session(1, window, cx));
     on::<Session3>(cx, shown, |d, window, cx| d.nth_session(2, window, cx));

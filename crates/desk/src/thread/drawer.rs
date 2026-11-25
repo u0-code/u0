@@ -227,6 +227,7 @@ impl Desk {
         };
         let mut body = div()
             .id("terminals")
+            .key_context(crate::desk::runs::CONTEXT)
             .track_focus(&self.drawer.focus)
             .flex()
             .when(stacked, gpui::Styled::flex_col)

@@ -180,18 +180,38 @@ impl Desk {
         self.trailing = false;
     }
 
-    /// Keys to the next part of the window (F6): the line you write in,
-    /// the sidebar's list (where ↑ ↓ move and Shift+F10 opens a row's
-    /// menu), the terminals when their drawer is open, and back.
-    pub fn next_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Keys to the next part of the window (F6), or the one before (⇧F6),
+    /// round the sidebar, the composer and the terminals, as t3code cycles
+    /// its areas; those hidden are passed over.
+    pub fn next_area(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        #[derive(PartialEq)]
+        enum Area {
+            Sidebar,
+            Composer,
+            Terminals,
+        }
         let line = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
-        let in_drawer = self.drawer.focus.is_focused(window);
-        if line.is_focused(window) && self.panes.left {
-            self.side.update(cx, |tree, cx| tree.focus(window, cx));
-        } else if !line.is_focused(window) && !in_drawer && self.drawer.open {
-            window.focus(&self.drawer.focus, cx);
+        let mut areas = Vec::new();
+        if self.panes.left {
+            areas.push(Area::Sidebar);
+        }
+        areas.push(Area::Composer);
+        if self.drawer.open {
+            areas.push(Area::Terminals);
+        }
+        let now = if line.contains_focused(window, cx) {
+            Area::Composer
+        } else if self.drawer.focus.contains_focused(window, cx) {
+            Area::Terminals
         } else {
-            window.focus(&line, cx);
+            Area::Sidebar
+        };
+        let at = areas.iter().position(|a| *a == now).unwrap_or(0);
+        let n = areas.len();
+        match &areas[if back { (at + n - 1) % n } else { (at + 1) % n }] {
+            Area::Sidebar => self.side.update(cx, |tree, cx| tree.focus(window, cx)),
+            Area::Composer => window.focus(&line, cx),
+            Area::Terminals => window.focus(&self.drawer.focus, cx),
         }
         cx.notify();
     }
@@ -300,7 +320,8 @@ fn icon_of(name: &str) -> &'static str {
         "open_folder" => "folder",
         "dictate" => "mic",
         "back" => "arrow-left",
-        "ahead" | "next_area" => "arrow-right",
+        "ahead" | "next_area" | "next_terminal" => "arrow-right",
+        "previous_area" | "previous_terminal" => "arrow-left",
         "go_to_file" => "file",
         "search_words" => "text-search",
         _ => "chevron-right",

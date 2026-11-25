@@ -22,6 +22,10 @@ use crate::{
     terminal::{self, Terminal},
 };
 
+/// The key context of the drawer's terminals: keys bound in it (the next
+/// terminal, ⇧⌘]) win over the window's while a terminal has the keys.
+pub const CONTEXT: &str = "Terminal";
+
 /// The size a terminal opens at before the drawer has measured it.
 const FIRST_SIZE: (u16, u16) = (14, 100);
 
@@ -223,6 +227,22 @@ impl Desk {
         cx.notify();
     }
 
+    /// The next terminal of the session on screen, or the one before,
+    /// round from the last to the first.
+    pub fn next_terminal(&mut self, back: bool, cx: &mut Context<Self>) {
+        let ids: Vec<u64> = self.session_terminals().iter().map(|t| t.id).collect();
+        let n = ids.len();
+        if n == 0 {
+            return;
+        }
+        let at = ids
+            .iter()
+            .position(|id| Some(*id) == self.drawer.on)
+            .unwrap_or(0);
+        self.drawer.on = Some(ids[if back { (at + n - 1) % n } else { (at + 1) % n }]);
+        cx.notify();
+    }
+
     /// A key pressed in the drawer: sent to the terminal it is on, as a
     /// terminal sends it; ⌘V pastes. The window's own keys pass.
     pub(crate) fn terminal_key(&mut self, e: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -250,6 +270,22 @@ impl Desk {
         if k.modifiers.platform && k.key == "w" {
             self.close_terminal(id, cx);
             cx.stop_propagation();
+            return;
+        }
+        // ⇧PageUp and ⇧PageDown scroll back a screen and down again;
+        // ⇧⌘Home and ⇧⌘End go to the oldest line and the newest.
+        let page = isize::try_from(t.size().0).unwrap_or(24);
+        let by = match (k.key.as_str(), k.modifiers.shift, k.modifiers.platform) {
+            ("pageup", true, false) => Some(page),
+            ("pagedown", true, false) => Some(-page),
+            ("home", true, true) => Some(isize::MAX / 2),
+            ("end", true, true) => Some(isize::MIN / 2),
+            _ => None,
+        };
+        if let Some(by) = by {
+            t.scroll(by);
+            cx.stop_propagation();
+            cx.notify();
             return;
         }
         if k.modifiers.platform && k.key == "c" {
