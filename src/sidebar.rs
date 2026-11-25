@@ -93,25 +93,18 @@ impl Desk {
                 .filter(|s| s.project == folder && !s.flags.archived)
                 .filter(|s| s.flags.snoozed.is_some_and(|t| t > now))
                 .count();
-            let (done, mut sessions): (Vec<&Session>, Vec<&Session>) = self
+            let found = |s: &&Session| query.as_ref().is_none_or(|q| self.matches(s, q));
+            let sessions: Vec<&Session> =
+                self.in_project(&folder).into_iter().filter(found).collect();
+            let done: Vec<&Session> = self
                 .sessions
                 .iter()
-                .filter(|s| s.project == folder && self.listed_now(s))
-                .filter(|s| query.as_ref().is_none_or(|q| self.matches(s, q)))
-                .partition(|s| s.flags.settled.is_some());
+                .filter(|s| s.project == folder && self.listed_now(s) && s.flags.settled.is_some())
+                .filter(found)
+                .collect();
             if query.is_some() && sessions.is_empty() && done.is_empty() {
                 continue;
             }
-            // Pinned on top in their order; then each where it was put as
-            // it began. What goes on in a session does not move it.
-            sessions.sort_by_key(|s| {
-                (
-                    s.flags.pinned.is_none(),
-                    s.flags.pinned,
-                    s.flags.order,
-                    s.key,
-                )
-            });
             let open = query.is_some() || !self.closed.contains(&folder);
             projects = projects.child(self.project_row(faces, &folder, sessions.len(), open, cx));
             if !open {
@@ -1086,9 +1079,33 @@ impl Desk {
             .child(ui::menu(SharedString::from(format!("session-menu-{key}"))).child(menu))
     }
 
-    /// The sessions by where they stand: needing you, working, pinned,
-    /// recent, and done (folded); in one project, or in all.
-    fn by_status(&self, faces: &Faces, query: Option<&str>, cx: &mut Context<Self>) -> Div {
+    /// The sessions of `folder` as the sidebar lists them: pinned on top
+    /// in their order; then each where it was put as it began. What goes on
+    /// in a session does not move it. None done is among them.
+    pub(crate) fn in_project(&self, folder: &Path) -> Vec<&Session> {
+        let mut here: Vec<&Session> = self
+            .sessions
+            .iter()
+            .filter(|s| s.project == folder && self.listed_now(s) && s.flags.settled.is_none())
+            .collect();
+        here.sort_by_key(|s| {
+            (
+                s.flags.pinned.is_none(),
+                s.flags.pinned,
+                s.flags.order,
+                s.key,
+            )
+        });
+        here
+    }
+
+    /// The sessions by where they stand, as the sidebar groups them: needing
+    /// you, working, pinned and recent; and apart, those done; in one
+    /// project, or in all.
+    pub(crate) fn by_status_groups(
+        &self,
+        query: Option<&str>,
+    ) -> ([(&'static str, Vec<&Session>); 4], Vec<&Session>) {
         let mut needs = Vec::new();
         let mut working = Vec::new();
         let mut pinned = Vec::new();
@@ -1117,6 +1134,21 @@ impl Desk {
         pinned.sort_by_key(|s| s.flags.pinned);
         recent.sort_by_key(|s| (s.flags.order, s.key));
         done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
+        (
+            [
+                ("Needs you", needs),
+                ("Working", working),
+                ("Pinned", pinned),
+                ("Recent", recent),
+            ],
+            done,
+        )
+    }
+
+    /// The sessions by where they stand: needing you, working, pinned,
+    /// recent, and done (folded); in one project, or in all.
+    fn by_status(&self, faces: &Faces, query: Option<&str>, cx: &mut Context<Self>) -> Div {
+        let (groups, done) = self.by_status_groups(query);
         let only = self
             .settings
             .only
@@ -1168,12 +1200,7 @@ impl Desk {
                     )));
         }
         let mut list = div().flex().flex_col().gap(px(2.)).px(px(8.)).child(filter);
-        for (label, sessions) in [
-            ("Needs you", needs),
-            ("Working", working),
-            ("Pinned", pinned),
-            ("Recent", recent),
-        ] {
+        for (label, sessions) in groups {
             if sessions.is_empty() {
                 continue;
             }
