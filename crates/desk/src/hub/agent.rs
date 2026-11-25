@@ -1,31 +1,13 @@
-//! The agents' side of the hub: each agent's slot and where it stands;
-//! installing and starting one, and what is asked of it (sessions opened,
-//! listed, forked, deleted; a turn, a mode, an option; signing in and
-//! out), each answer back to the window as a [`Msg`].
+//! The agents as the desk sees them: each one's slot and where it stands.
+//! The agent itself, once started, is the server's (`ghost_core::server`);
+//! the desk names it by its id.
 
-use std::{
-    path::PathBuf,
-    sync::{Arc, atomic::AtomicBool},
+use agent_client_protocol::v1::schema::{
+    AgentCapabilities, AuthMethod, InitializeResponse, SessionConfigOption, SessionModeState,
 };
 
-use agent_client_protocol::{
-    schema::ProtocolVersion,
-    v1::schema::{
-        AgentCapabilities, AuthMethod, AuthenticateRequest, CancelNotification, ClientCapabilities,
-        CloseSessionRequest, ContentBlock, DeleteSessionRequest, ForkSessionRequest,
-        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest, PermissionOptionId,
-        PromptRequest, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
-        SelectedPermissionOutcome, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
-        SessionConfigValueId, SessionId, SessionModeId, SessionModeState,
-        SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities, TextContent,
-    },
-};
-
-use super::{Msg, Sender, ask, off};
 use crate::{
-    acp::{self, Agent, Error},
-    git,
+    acp,
     registry::{self, Entry, Missing},
 };
 
@@ -38,20 +20,20 @@ pub enum Stage {
     /// It can be started, and is not running.
     Ready,
     Starting,
+    /// It runs, as the process `pid`.
     Running {
-        agent: Arc<Agent>,
+        pid: Option<u32>,
     },
     /// It stopped, or could not be started: why.
     Failed(String),
 }
 
-/// An install going on: what it is doing, how far it is (0 to 1) when
-/// known, and the switch that stops it.
+/// An install or a clone going on: what it is doing, and how far it is (0
+/// to 1) when known.
 #[derive(Clone)]
 pub struct Install {
     pub what: String,
     pub share: Option<f32>,
-    pub stop: Arc<AtomicBool>,
 }
 
 pub struct Slot {
@@ -156,466 +138,20 @@ impl Slot {
     /// The ways it offers, while it runs, to sign in that Ghost can take:
     /// done by the agent itself, or typed in a terminal.
     pub fn sign_ins(&self) -> impl Iterator<Item = &AuthMethod> {
-        self.running()
-            .and(self.known.as_ref())
+        (self.known.as_ref())
+            .filter(|_| self.running())
             .into_iter()
             .flat_map(|k| &k.auth_methods)
             .filter(|m| matches!(m, AuthMethod::Agent(_) | AuthMethod::Terminal(_)))
     }
 
-    pub fn running(&self) -> Option<&Arc<Agent>> {
-        match &self.stage {
-            Stage::Running { agent, .. } => Some(agent),
-            _ => None,
-        }
+    pub fn running(&self) -> bool {
+        matches!(self.stage, Stage::Running { .. })
     }
 
     /// Whether the process `pid` is its agent running now, not one let go
     /// or started before it.
     pub fn runs(&self, pid: Option<u32>) -> bool {
-        self.running().is_some_and(|a| a.pid() == pid)
+        matches!(self.stage, Stage::Running { pid: p } if p == pid)
     }
-}
-
-/// Read the newest registry.
-pub fn fetch(home: PathBuf, tx: Sender) {
-    off(tx, move || Msg::Registry(registry::fetch(&home)));
-}
-
-/// Install `entry` from its archive, until `stop` is set.
-pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
-    off(tx.clone(), move || {
-        let agent = entry.id.clone();
-        let say = |what: &str, share: Option<f32>| {
-            let _ = tx.send(Msg::Installing {
-                agent: agent.clone(),
-                what: what.to_owned(),
-                share,
-            });
-        };
-        let result = registry::install(&entry, &home, &say, &stop);
-        Msg::Installed { agent, result }
-    });
-}
-
-/// Start `slot`'s program and say hello to it. What it says on its own
-/// comes back as [`Msg::Said`], in order with the answers to the desk.
-pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
-    let entry = &slot.entry;
-    let agent = entry.id.clone();
-    let launch = match slot.launch(home) {
-        Ok(l) => l,
-        Err(m) => {
-            let _ = tx.send(Msg::Started {
-                agent,
-                result: Err(Error::internal_error().data(m.say(&entry.name))),
-            });
-            return;
-        }
-    };
-    acp::runtime().spawn(async move {
-        let (said, id) = (tx.clone(), agent.clone());
-        let result = match Agent::start(&launch, move |event| {
-            let _ = said.send(Msg::Said {
-                agent: id.clone(),
-                event: Box::new(event),
-            });
-        })
-        .await
-        {
-            Ok(running) => {
-                let hello = InitializeRequest::new(ProtocolVersion::V1)
-                    .client_capabilities(
-                        ClientCapabilities::new()
-                            .subagents(SubagentCapabilities::new())
-                            // Tasks left going in the background (a
-                            // command), as the JetBrains extension says
-                            // them, are shown.
-                            .meta(serde_json::Map::from_iter([(
-                                "jetbrains".into(),
-                                serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
-                            )])),
-                    )
-                    .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
-                running
-                    .request(hello)
-                    .await
-                    .map(|init| (Arc::new(running), Box::new(init)))
-            }
-            Err(e) => Err(e),
-        };
-        let _ = tx.send(Msg::Started { agent, result });
-    });
-}
-
-/// Open a new session in `folder`, with the folders `also` beside it.
-pub fn open(agent: Arc<Agent>, key: u64, (folder, also): (PathBuf, Vec<PathBuf>), tx: Sender) {
-    let request = NewSessionRequest::new(folder).additional_directories(also);
-    ask(agent, request, tx, move |r| Msg::Opened {
-        key,
-        result: r.map(Box::new),
-    });
-}
-
-/// How many pages of a project's sessions are read from an agent at most:
-/// some page through all they keep, the project's few among them.
-const PAGES: usize = 50;
-
-/// The sessions `agent` keeps in each of `projects` and in Ghost's
-/// worktrees of them (under `home`), each with the project it belongs to.
-pub fn list(
-    agent: Arc<Agent>,
-    name: String,
-    projects: Vec<(PathBuf, PathBuf)>,
-    home: PathBuf,
-    tx: Sender,
-) {
-    acp::runtime().spawn(async move {
-        let under = home.join("worktrees");
-        let mut places: Vec<(PathBuf, PathBuf)> = Vec::new();
-        // Each project's folder (on another machine, its path there), and
-        // here, Ghost's worktrees of it.
-        for (cwd, project) in projects {
-            places.push((cwd.clone(), project.clone()));
-            if cwd != project {
-                continue;
-            }
-            let p = project.clone();
-            let u = under.clone();
-            let worktrees = tokio::task::spawn_blocking(move || git::worktrees(&p, &u))
-                .await
-                .unwrap_or_default();
-            places.extend(worktrees.into_iter().map(|w| (w.path, project.clone())));
-        }
-        let mut found = Vec::new();
-        for (cwd, project) in places {
-            let mut cursor = None;
-            for _ in 0..PAGES {
-                let request = ListSessionsRequest::new().cwd(cwd.clone()).cursor(cursor);
-                match agent.request(request).await {
-                    Ok(page) => {
-                        found.extend(page.sessions.into_iter().map(|s| (project.clone(), s)));
-                        cursor = page.next_cursor;
-                        if cursor.is_none() {
-                            break;
-                        }
-                    }
-                    Err(f) => {
-                        let _ = tx.send(Msg::Listed {
-                            agent: name,
-                            result: Err(f.message),
-                        });
-                        return;
-                    }
-                }
-            }
-        }
-        // The folders it has sessions in that are not projects (nor Ghost's
-        // own), each with how many: what could be added.
-        let known: Vec<PathBuf> = found.iter().map(|(_, s)| s.cwd.clone()).collect();
-        let mut elsewhere = std::collections::BTreeMap::<PathBuf, usize>::default();
-        let mut cursor = None;
-        for _ in 0..PAGES / 5 {
-            let request = ListSessionsRequest::new().cursor(cursor);
-            let Ok(page) = agent.request(request).await else {
-                break;
-            };
-            for s in page.sessions {
-                if !known.contains(&s.cwd) && !s.cwd.starts_with(&home) {
-                    *elsewhere.entry(s.cwd).or_default() += 1;
-                }
-            }
-            cursor = page.next_cursor;
-            if cursor.is_none() {
-                break;
-            }
-        }
-        let _ = tx.send(Msg::Listed {
-            agent: name.clone(),
-            result: Ok(found),
-        });
-        let _ = tx.send(Msg::Elsewhere {
-            agent: name,
-            folders: elsewhere.into_iter().collect(),
-        });
-    });
-}
-
-/// What a session loaded or resumed starts with.
-pub struct Opened {
-    pub modes: Option<SessionModeState>,
-    pub options: Option<Vec<SessionConfigOption>>,
-}
-
-/// Open again the session `id` the agent keeps, in `folder` (and `also`):
-/// resumed, without what was said in it, which the desk has already; or
-/// loaded, and the agent says again all that was said in it, as updates.
-pub fn reopen(
-    agent: Arc<Agent>,
-    key: u64,
-    id: SessionId,
-    (folder, also): (PathBuf, Vec<PathBuf>),
-    resumed: bool,
-    tx: Sender,
-) {
-    let loaded = move |result| Msg::Loaded {
-        key,
-        resumed,
-        result,
-    };
-    if resumed {
-        let request = ResumeSessionRequest::new(id, folder).additional_directories(also);
-        ask(agent, request, tx, move |r| {
-            loaded(r.map(|r| Opened {
-                modes: r.modes,
-                options: r.config_options,
-            }))
-        });
-    } else {
-        let request = LoadSessionRequest::new(id, folder).additional_directories(also);
-        ask(agent, request, tx, move |r| {
-            loaded(r.map(|r| Opened {
-                modes: r.modes,
-                options: r.config_options,
-            }))
-        });
-    }
-}
-
-/// Open a session of `agent` in `dir` to read what a session offers, then
-/// delete it (or close it) again, so that nothing of it is kept.
-pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close: bool, tx: Sender) {
-    acp::runtime().spawn(async move {
-        let result = agent.request(NewSessionRequest::new(dir)).await;
-        if let Ok(r) = &result {
-            let id = r.session_id.clone();
-            if delete {
-                let _ = agent.request(DeleteSessionRequest::new(id)).await;
-            } else if close {
-                let _ = agent.request(CloseSessionRequest::new(id)).await;
-            }
-        }
-        let _ = tx.send(Msg::Probed {
-            agent: name,
-            result: result.map(Box::new),
-        });
-    });
-}
-
-/// Branch the session `id` off into a new one, in `folder`: with all that
-/// was said in it, or, given `upto` (an item of its thread and the last
-/// message the fork keeps), with what was said before that item.
-///
-/// ACP's own fork point is a cursor, which agents announce only on v2. The
-/// adapters of Claude Code and Codex read one from the request's `_meta` on
-/// v1 as well: `jetbrains.air.fork`, the id of the last message to keep.
-pub fn fork(
-    agent: Arc<Agent>,
-    from: u64,
-    id: SessionId,
-    folder: PathBuf,
-    upto: Option<(usize, MessageId)>,
-    tx: Sender,
-) {
-    let mut request = ForkSessionRequest::new(id, folder);
-    if let Some((_, last)) = &upto {
-        let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
-        request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
-    }
-    let at = upto.map(|(at, _)| at);
-    ask(agent, request, tx, move |r| Msg::Forked {
-        from,
-        at,
-        result: r.map(Box::new),
-    });
-}
-
-/// Delete the session `id` from its agent.
-pub fn delete(agent: Arc<Agent>, key: u64, id: SessionId, tx: Sender) {
-    ask(agent, DeleteSessionRequest::new(id), tx, move |r| {
-        Msg::Deleted {
-            key,
-            result: r.map(|_| ()).map_err(|f| f.message),
-        }
-    });
-}
-
-/// Say `text` in the session `id`, and wait for the turn to end.
-pub fn prompt(
-    agent: Arc<Agent>,
-    key: u64,
-    id: SessionId,
-    text: String,
-    attached: Vec<ContentBlock>,
-    tx: Sender,
-) {
-    let mut content = vec![ContentBlock::Text(TextContent::new(text))];
-    content.extend(attached);
-    ask(agent, PromptRequest::new(id, content), tx, move |r| {
-        Msg::Ended {
-            key,
-            result: r.map(|r| r.stop_reason),
-        }
-    });
-}
-
-/// Stop the task `task` going in the background in the session `id`, as
-/// the `JetBrains` extension of ACP asks it.
-pub fn stop_task(agent: Arc<Agent>, id: SessionId, task: String) {
-    acp::runtime().spawn(async move {
-        let _ = agent
-            .request(
-                agent_client_protocol::UntypedMessage::new(
-                    "_session/async_task/stop",
-                    serde_json::json!({"sessionId": id.0, "asyncTaskId": task}),
-                )
-                .expect("a JSON object"),
-            )
-            .await;
-    });
-}
-
-/// Stop the turn going on in `id`.
-pub fn cancel(agent: &Agent, id: SessionId) {
-    agent.cancel(CancelNotification::new(id));
-}
-
-/// Answer the question asked under `request` with `option`, or say it was
-/// cancelled.
-pub fn answer(agent: &Agent, request: u64, option: Option<String>) {
-    let outcome = match option {
-        Some(o) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-            PermissionOptionId::new(o),
-        )),
-        None => RequestPermissionOutcome::Cancelled,
-    };
-    agent.respond(request, RequestPermissionResponse::new(outcome));
-}
-
-/// Put the session in another mode.
-pub fn set_mode(agent: Arc<Agent>, key: u64, id: SessionId, mode: String, tx: Sender) {
-    acp::runtime().spawn(async move {
-        let request = SetSessionModeRequest::new(id, SessionModeId::new(mode));
-        if let Err(f) = agent.request(request).await {
-            let _ = tx.send(Msg::Refused {
-                key,
-                why: f.message,
-            });
-        }
-    });
-}
-
-/// Choose `value` for the option `config` (a model, a level of thought).
-pub fn set_option(
-    agent: Arc<Agent>,
-    key: u64,
-    id: SessionId,
-    config: String,
-    value: String,
-    tx: Sender,
-) {
-    let request = SetSessionConfigOptionRequest::new(
-        id,
-        SessionConfigId::new(config),
-        SessionConfigOptionValue::value_id(SessionConfigValueId::new(value)),
-    );
-    ask(agent, request, tx, move |r| match r {
-        Ok(r) => Msg::Options {
-            key,
-            options: r.config_options,
-        },
-        Err(f) => Msg::Refused {
-            key,
-            why: f.message,
-        },
-    });
-}
-
-/// Sign in to `agent` (the registry id `id`) with its method `method`: the
-/// agent itself does it, often in your browser.
-pub fn authenticate(agent: Arc<Agent>, id: String, method: String, tx: Sender) {
-    ask(agent, AuthenticateRequest::new(method), tx, move |r| {
-        Msg::Signed {
-            agent: id,
-            result: r.map(|_| ()).map_err(|f| f.message),
-        }
-    });
-}
-
-/// Sign `agent` out.
-pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
-    ask(agent, LogoutRequest::new(), tx, move |r| Msg::LoggedOut {
-        agent: name,
-        result: r.map(|_| ()).map_err(|f| f.message),
-    });
-}
-
-/// How much memory each of the `running` agents holds with what it
-/// started (ps), by its id and process id: in kilobytes.
-pub fn weigh(running: Vec<(String, u32)>, tx: Sender) {
-    off(tx, move || {
-        Msg::Weighed(
-            running
-                .into_iter()
-                .filter_map(|(id, pid)| {
-                    let out = std::process::Command::new("ps")
-                        .args(["-o", "rss=", "-g", &pid.to_string()])
-                        .output()
-                        .ok()?;
-                    let kb: u64 = String::from_utf8_lossy(&out.stdout)
-                        .lines()
-                        .filter_map(|l| l.trim().parse::<u64>().ok())
-                        .sum();
-                    Some((id, pid, kb))
-                })
-                .collect(),
-        )
-    });
-}
-
-/// What of an agent is here: whether it can be started, the version
-/// installed, and the CLI of yours it drives.
-#[derive(Debug, Clone, Default)]
-pub struct Here {
-    pub launches: bool,
-    pub installed: Option<String>,
-    pub cli: Option<PathBuf>,
-}
-
-/// Look at what of each of `agents` is here, in `home` and on the PATH.
-pub fn here(agents: Vec<Entry>, home: PathBuf, tx: Sender) {
-    off(tx, move || {
-        Msg::Here(
-            agents
-                .into_iter()
-                .map(|e| {
-                    let here = Here {
-                        launches: e.launch(&home).is_ok(),
-                        installed: e.installed(&home),
-                        cli: e.your_cli().map(|(_, cli)| cli),
-                    };
-                    (e.id, here)
-                })
-                .collect(),
-        )
-    });
-}
-
-/// Ask `cli` its version (`--version`, its first line); none, if it does
-/// not say.
-pub fn cli_version(cli: PathBuf, tx: Sender) {
-    off(tx, move || {
-        let version = std::process::Command::new(&cli)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .ok()
-            .filter(|out| out.status.success())
-            .map(|out| {
-                let said = String::from_utf8_lossy(&out.stdout);
-                said.lines().next().unwrap_or_default().trim().to_owned()
-            })
-            .unwrap_or_default();
-        Msg::CliVersion { cli, version }
-    });
 }

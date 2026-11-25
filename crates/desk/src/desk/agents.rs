@@ -65,19 +65,12 @@ impl Desk {
     /// Look at what of each agent the registry lists is here, for the
     /// pages that show it.
     pub(crate) fn look_here(&self) {
-        hub::here(
-            self.registry.agents.clone(),
-            self.home.clone(),
-            self.tx.clone(),
-        );
+        self.server.here(self.registry.agents.clone());
     }
 
     /// Ask how much memory each running agent holds, for Settings, Usage.
     pub(crate) fn weigh_agents(&self) {
-        let running = (self.slots.iter())
-            .filter_map(|s| Some((s.entry.id.clone(), s.running()?.pid()?)))
-            .collect();
-        hub::weigh(running, self.tx.clone());
+        self.server.weigh();
     }
 
     /// Every five minutes, look again at the agents not running: one now
@@ -99,7 +92,7 @@ impl Desk {
             self.start_ready();
         }
         if self.health_tick.is_multiple_of(60) {
-            hub::fetch(self.home.clone(), self.tx.clone());
+            self.server.fetch();
         }
     }
 
@@ -180,6 +173,10 @@ impl Desk {
             }
         }
         self.slots.extend(remote);
+        // Those switched off are let go.
+        for slot in old {
+            self.server.stop(&slot.entry.id);
+        }
         self.start_ready();
     }
 
@@ -187,7 +184,6 @@ impl Desk {
     /// that the sessions it keeps are listed. One let go after running
     /// idle starts again when it is wanted, not here.
     pub(crate) fn start_ready(&mut self) {
-        let home = self.home.clone();
         // One on another machine starts when it is wanted.
         for slot in &mut self.slots {
             if matches!(slot.stage, Stage::Ready)
@@ -195,7 +191,7 @@ impl Desk {
                 && crate::remote::split(&slot.entry.id).1.is_none()
             {
                 slot.stage = Stage::Starting;
-                hub::start(slot, &home, self.tx.clone());
+                self.server.start(&slot.entry, slot.command.as_deref());
             }
         }
     }
@@ -203,13 +199,11 @@ impl Desk {
     /// Start `agent` if it is not running or starting: something waits on
     /// it.
     pub(crate) fn start_for(&mut self, agent: &str) {
-        let home = self.home.clone();
-        let tx = self.tx.clone();
-        if let Some(slot) = self.slot_mut(agent)
+        if let Some(slot) = self.slots.iter_mut().find(|s| s.entry.id == agent)
             && matches!(slot.stage, Stage::Ready)
         {
             slot.stage = Stage::Starting;
-            hub::start(slot, &home, tx);
+            self.server.start(&slot.entry, slot.command.as_deref());
         }
     }
 
@@ -233,7 +227,7 @@ impl Desk {
     /// it keeps in the projects.
     pub(crate) fn list_sessions(&self, agent: &str) {
         let Some(slot) = self.slot(agent) else { return };
-        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
+        let Some(caps) = slot.caps().filter(|_| slot.running()) else {
             return;
         };
         if caps.session_capabilities.list.is_none() {
@@ -252,20 +246,14 @@ impl Desk {
                 _ => None,
             })
             .collect();
-        hub::list(
-            running.clone(),
-            agent.to_owned(),
-            places,
-            self.home.clone(),
-            self.tx.clone(),
-        );
+        self.server.list(agent, places);
     }
 
     /// Read what a session of `agent` offers before one is opened, and
     /// whether it is signed in, by opening one and deleting it again.
     pub(crate) fn probe_agent(&self, agent: &str) {
         let Some(slot) = self.slot(agent) else { return };
-        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
+        let Some(caps) = slot.caps().filter(|_| slot.running()) else {
             return;
         };
         let caps = &caps.session_capabilities;
@@ -276,14 +264,7 @@ impl Desk {
         } else {
             self.home.clone()
         };
-        hub::probe(
-            running.clone(),
-            agent.to_owned(),
-            dir,
-            caps.delete.is_some(),
-            caps.close.is_some(),
-            self.tx.clone(),
-        );
+        (self.server).probe(agent, dir, caps.delete.is_some(), caps.close.is_some());
     }
 
     /// Sign in to `agent` the way it offers: its own method when it lists
@@ -320,8 +301,8 @@ impl Desk {
 
     /// Sign `agent` out, when it can be.
     pub fn log_out(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if let Some(running) = self.slot(agent).and_then(Slot::running) {
-            hub::logout(running.clone(), agent.to_owned(), self.tx.clone());
+        if self.slot(agent).is_some_and(Slot::running) {
+            self.server.logout(agent);
         }
         cx.notify();
     }
@@ -341,24 +322,20 @@ impl Desk {
         if matches!(self.slot(id).map(|s| &s.stage), Some(Stage::Running { .. })) {
             self.let_go(id);
         }
-        let home = self.home.clone();
-        let tx = self.tx.clone();
-        if let Some(slot) = self.slot_mut(id) {
-            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        if let Some(slot) = self.slots.iter_mut().find(|s| s.entry.id == id) {
             slot.stage = Stage::Installing(hub::Install {
                 what: "Starting".into(),
                 share: None,
-                stop: stop.clone(),
             });
-            hub::install(slot.entry.clone(), home, stop, tx);
+            self.server.install(slot.entry.clone());
         }
         cx.notify();
     }
 
     /// Stop the install of `id` going on; nothing of it is kept.
     pub fn cancel_install(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Some(Stage::Installing(i)) = self.slot(id).map(|s| &s.stage) {
-            i.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(Stage::Installing(_)) = self.slot(id).map(|s| &s.stage) {
+            self.server.cancel_install(id);
             cx.notify();
         }
     }
@@ -384,6 +361,8 @@ impl Desk {
         cx.spawn(async move |this, cx| {
             if answer.await == Ok(0) {
                 let _ = this.update(cx, |this, cx| {
+                    // One running stops first.
+                    this.server.stop(&id);
                     let home = this.home.clone();
                     if let Err(why) = entry.uninstall(&home) {
                         if let Some(slot) = this.slot_mut(&id) {
@@ -402,6 +381,7 @@ impl Desk {
 
     /// Look again for what an agent needs (a runner installed meanwhile).
     pub fn recheck(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.server.stop(id);
         let home = self.home.clone();
         if let Some(slot) = self.slot_mut(id) {
             slot.stage = Stage::Ready;
@@ -420,7 +400,7 @@ impl Desk {
 
     /// Read the registry again.
     pub fn refresh_registry(&mut self, cx: &mut Context<Self>) {
-        hub::fetch(self.home.clone(), self.tx.clone());
+        self.server.fetch();
         self.registry_trouble = None;
         cx.notify();
     }

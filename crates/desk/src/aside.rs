@@ -1002,7 +1002,7 @@ impl Desk {
             .as_ref()
             .filter(|u| u.size > 0)
             .map(|u| u.used as f32 / u.size as f32);
-        let agent = match self.slot(&s.meta.agent).filter(|x| x.running().is_some()) {
+        let agent = match self.slot(&s.meta.agent).filter(|x| x.running()) {
             Some(x) => x
                 .known
                 .as_ref()

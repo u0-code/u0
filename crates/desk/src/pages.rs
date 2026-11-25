@@ -194,7 +194,7 @@ impl Desk {
             .map_or(crate::hub::Auth::Unknown, |s| s.auth.clone());
         let can_log_out = self
             .slot(id)
-            .filter(|s| s.running().is_some())
+            .filter(|s| s.running())
             .and_then(Slot::caps)
             .is_some_and(|c| c.auth.logout.is_some());
         let three = match &auth {

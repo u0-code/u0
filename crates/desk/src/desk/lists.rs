@@ -349,8 +349,8 @@ impl Desk {
             self.forget_session(key, cx);
             return;
         }
-        if let Some(running) = self.slot(&agent).and_then(hub::Slot::running) {
-            hub::delete(running.clone(), key, id, self.tx.clone());
+        if self.slot(&agent).is_some_and(hub::Slot::running) {
+            self.server.delete(&agent, key, id);
         } else {
             self.waiting.push((agent.clone(), Waiting::Delete(key)));
             self.start_for(&agent);
@@ -362,29 +362,18 @@ impl Desk {
         match waiting {
             Waiting::Branch(key, upto) => {
                 if let Some(s) = self.sessions.at(key)
-                    && let (Some(id), Some(running)) = (
-                        s.meta.id.clone(),
-                        self.slot(&s.meta.agent).and_then(hub::Slot::running),
-                    )
+                    && let Some(id) = s.meta.id.clone()
+                    && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    hub::fork(
-                        running.clone(),
-                        key,
-                        id,
-                        s.meta.folder.clone(),
-                        upto,
-                        self.tx.clone(),
-                    );
+                    (self.server).fork(&s.meta.agent, key, id, s.meta.folder.clone(), upto);
                 }
             }
             Waiting::Delete(key) => {
                 if let Some(s) = self.sessions.at(key)
-                    && let (Some(id), Some(running)) = (
-                        s.meta.id.clone(),
-                        self.slot(&s.meta.agent).and_then(hub::Slot::running),
-                    )
+                    && let Some(id) = s.meta.id.clone()
+                    && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    hub::delete(running.clone(), key, id, self.tx.clone());
+                    self.server.delete(&s.meta.agent, key, id);
                 }
             }
         }
@@ -604,7 +593,7 @@ impl Desk {
         let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
             return;
         };
-        if self.slot(&agent).and_then(hub::Slot::running).is_some() {
+        if self.slot(&agent).is_some_and(hub::Slot::running) {
             self.do_waiting(Waiting::Branch(key, upto));
         } else {
             self.waiting

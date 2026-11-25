@@ -67,6 +67,8 @@ core's `git` there too.
 crates/core/src/
   acp.rs        one agent process and its SDK connection; the ACP runtime
   registry.rs   the ACP registry, installing an agent, starting one
+  server.rs     the agents running, held by id; what is asked of them, answered as Events
+  proto.rs      what the server says (Event)
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   session.rs    a session: its thread built from session/update; its turns' checkpoints
@@ -82,8 +84,8 @@ crates/core/src/
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
   terminal.rs   a terminal of yours: its pty and its screen
-  hub.rs        the agents switched on; async work, back to the window as Msg
-  hub/          by subject: agent (what is asked of agents), git
+  hub.rs        async work, back to the window as Msg; the server's Events among them
+  hub/          by subject: agent (each agent's slot, as the desk sees it), git
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
@@ -106,7 +108,7 @@ assets/         fonts and the desk's own icons, built into the app
 
 | Need | Use |
 |---|---|
-| A request to an agent | `acp::Agent::request` with a schema type |
+| A request to an agent | a method of `server::Server`, by the agent's id; inside it, `acp::Agent::request` with a schema type |
 | Work off the window's thread | a function in `hub.rs` that returns a `Msg` |
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |

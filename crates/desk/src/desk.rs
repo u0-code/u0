@@ -157,7 +157,7 @@ pub struct Desk {
     /// as last weighed.
     pub weights: Vec<(String, u32, u64)>,
     /// What of each agent the registry lists is here, by its id.
-    pub here: HashMap<String, hub::Here>,
+    pub here: HashMap<String, crate::proto::Here>,
     /// The programs the desk offers that are on the PATH (`hub::on_path`).
     pub on_path: Vec<&'static str>,
     /// How many sessions need you, as the Dock last said.
@@ -252,6 +252,8 @@ pub struct Desk {
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     tx: hub::Sender,
+    /// What runs the agents, asked by an agent's id.
+    server: crate::server::Server,
 }
 
 /// A strip dragging which moves the window; a double click zooms it.
@@ -393,7 +395,13 @@ impl Desk {
 
         let pages = crate::pages::Pages::new(&settings.branch_prefix, cx);
         let registry = registry::kept(&home).unwrap_or_default();
-        hub::fetch(home.clone(), tx.clone());
+        let server = {
+            let tx = tx.clone();
+            crate::server::Server::new(home.clone(), move |e| {
+                let _ = tx.send(hub::Msg::Event(e));
+            })
+        };
+        server.fetch();
         hub::on_path(tx.clone());
         let mut desk = Self {
             home,
@@ -468,6 +476,7 @@ impl Desk {
             search: lists::Search::new(cx),
             registry_read: None,
             tx,
+            server,
         };
         desk.keep_from(crate::store::load(&desk.home));
         desk.settle_idle();
@@ -1144,7 +1153,7 @@ impl Desk {
             self.pages.command.update(cx, |i, cx| i.set_text(&c, cx));
             self.pages.model.update(cx, |i, cx| i.set_text("", cx));
             if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
-                hub::cli_version(cli, self.tx.clone());
+                self.server.cli_version(cli);
             }
         }
         if page == Page::NewProject {

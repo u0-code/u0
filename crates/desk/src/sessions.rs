@@ -10,7 +10,8 @@ use agent_client_protocol::{
 
 use crate::{
     acp,
-    hub::{Opened, Probe},
+    hub::Probe,
+    proto::Opened,
     session::{Session, State},
     store::{self, Job},
 };
@@ -305,8 +306,6 @@ pub enum Read {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use agent_client_protocol::v1::schema::{RequestPermissionRequest, StopReason};
 
     use super::*;
@@ -390,14 +389,8 @@ mod tests {
             serde_json::from_str(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#)
                 .unwrap();
         let mut slot = Slot::new(entry, home.path(), Some("/bin/sh -c 'sleep 30'".into()));
-        let launch = slot.launch(home.path()).unwrap();
-        let agent = acp::runtime()
-            .block_on(acp::Agent::start(&launch, |_| {}))
-            .unwrap();
-        let pid = agent.pid();
-        slot.stage = Stage::Running {
-            agent: Arc::new(agent),
-        };
+        let pid = Some(4242);
+        slot.stage = Stage::Running { pid };
         assert!(slot.runs(pid));
         assert!(!slot.runs(pid.map(|p| p + 1)));
         assert!(!slot.runs(None));

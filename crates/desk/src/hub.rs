@@ -1,26 +1,19 @@
-//! The agents the desk runs, and the work done with them off the window's
-//! thread.
+//! The work done off the window's thread, and what comes back of it.
 //!
-//! Each agent switched on has a [`Slot`]: what the registry says of it,
-//! whether it can be started, and once started its connection and what it
-//! said it can do. Starting an agent, opening a session, a turn, an install:
-//! each runs on the ACP runtime and comes back to the window as a [`Msg`]
-//! over one channel, which the desk reads in order. What an agent says on
-//! its own comes back the same way.
+//! The agents are the server's (`ghost_core::server`): the desk asks it by
+//! an agent's id, and what it says comes back as [`Msg::Event`]. Each agent
+//! switched on has a [`Slot`] here: what the registry says of it, whether it
+//! can be started, and once started what it said it can do. The rest of the
+//! work (git, files, windows, terminals, searching, tidying) runs on the ACP
+//! runtime too, and all of it comes back to the window as a [`Msg`] over one
+//! channel, which the desk reads in order.
 //!
-//! What is asked of the agents is in `hub/agent.rs`, what of git in
-//! `hub/git.rs`; here, the messages and the rest of the work off the
-//! window's thread (files, windows, terminals, searching, tidying).
+//! The slots are in `hub/agent.rs`, what is asked of git in `hub/git.rs`;
+//! here, the messages and the rest of the work.
 
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
-use agent_client_protocol::{
-    JsonRpcRequest,
-    v1::schema::{
-        ForkSessionResponse, InitializeResponse, NewSessionResponse, SessionConfigOption,
-        SessionInfo, StopReason, ToolCallId,
-    },
-};
+use agent_client_protocol::v1::schema::ToolCallId;
 use tokio::sync::mpsc;
 
 mod agent;
@@ -29,45 +22,12 @@ mod git;
 pub use agent::*;
 pub use git::*;
 
-use crate::{
-    acp::{self, Agent, Error},
-    registry,
-    scripts::Script,
-};
+use crate::{acp, proto::Event, registry, scripts::Script};
 
 /// What comes back to the window.
 pub enum Msg {
-    Registry(Result<registry::Registry, String>),
-    Installing {
-        agent: String,
-        what: String,
-        share: Option<f32>,
-    },
-    Installed {
-        agent: String,
-        result: Result<(), String>,
-    },
-    Started {
-        agent: String,
-        result: Result<(Arc<Agent>, Box<InitializeResponse>), Error>,
-    },
-    Opened {
-        key: u64,
-        result: Result<Box<NewSessionResponse>, Error>,
-    },
-    /// The sessions `agent` keeps in the projects, each with its project.
-    Listed {
-        agent: String,
-        result: Result<Vec<(PathBuf, SessionInfo)>, String>,
-    },
-    /// A session the agent keeps was loaded: what was said in it came
-    /// before this, as updates.
-    Loaded {
-        key: u64,
-        /// Resumed from the desk's record, not loaded with what was said.
-        resumed: bool,
-        result: Result<Opened, Error>,
-    },
+    /// What the server says.
+    Event(Event),
     /// What git says of `folder`, where the session `key` works: its
     /// branch, whether it is in a repository, and the scripts the
     /// repository's `ghost.json` names.
@@ -81,8 +41,6 @@ pub enum Msg {
     /// Your key bindings, as keybindings.json says now, or why it was not
     /// written.
     Keys(Result<Vec<crate::keys::Binding>, String>),
-    /// What of each agent the registry lists is here, by its id.
-    Here(std::collections::HashMap<String, Here>),
     /// The programs the desk offers that are on the PATH.
     OnPath(Vec<&'static str>),
     /// The hosts your SSH config names.
@@ -118,30 +76,6 @@ pub enum Msg {
     },
     Terminal(u64),
     TerminalEnded(u64),
-    /// The folders `agent` has sessions in that are not projects, with how
-    /// many in each.
-    Elsewhere {
-        agent: String,
-        folders: Vec<(PathBuf, usize)>,
-    },
-    /// What a CLI of yours says its version is.
-    CliVersion {
-        cli: PathBuf,
-        version: String,
-    },
-    /// What a session of `agent` offers before it is opened, or why the
-    /// agent would not open one.
-    Probed {
-        agent: String,
-        result: Result<Box<NewSessionResponse>, Error>,
-    },
-    /// A session branched off the session `from` (before the item `at` of
-    /// its thread, or whole), or why it was not.
-    Forked {
-        from: u64,
-        at: Option<usize>,
-        result: Result<Box<ForkSessionResponse>, Error>,
-    },
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Picture(Option<crate::desk::mention::Picture>),
@@ -200,9 +134,6 @@ pub enum Msg {
         dir: PathBuf,
         result: Result<(), String>,
     },
-    /// How much memory each running agent holds: its id, process id and
-    /// kilobytes.
-    Weighed(Vec<(String, u32, u64)>),
     /// How much each part of Ghost's home takes, and what a tidying did.
     Sizes(Vec<(&'static str, u64)>),
     Tidied(String),
@@ -210,40 +141,6 @@ pub enum Msg {
     Found {
         query: String,
         keys: Vec<u64>,
-    },
-    /// A session was deleted from its agent, or could not be.
-    Deleted {
-        key: u64,
-        result: Result<(), String>,
-    },
-    Ended {
-        key: u64,
-        result: Result<StopReason, Error>,
-    },
-    /// An agent signed out, or could not.
-    LoggedOut {
-        agent: String,
-        result: Result<(), String>,
-    },
-    /// Something an agent said on its own.
-    Said {
-        agent: String,
-        event: Box<acp::Event>,
-    },
-    /// Signing in to `agent` is done, or failed: why.
-    Signed {
-        agent: String,
-        result: Result<(), String>,
-    },
-    /// What a session's options are after one was changed.
-    Options {
-        key: u64,
-        options: Vec<SessionConfigOption>,
-    },
-    /// A change asked of a session that the agent refused.
-    Refused {
-        key: u64,
-        why: String,
     },
     /// A worktree was made for the session, with the scripts its
     /// `ghost.json` names, or could not be.
@@ -282,21 +179,6 @@ pub type Sender = mpsc::UnboundedSender<Msg>;
 fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     acp::runtime().spawn_blocking(move || {
         let _ = tx.send(work());
-    });
-}
-
-/// Ask `agent` `request`, and send what `then` makes of the answer back.
-fn ask<R>(
-    agent: Arc<Agent>,
-    request: R,
-    tx: Sender,
-    then: impl FnOnce(Result<R::Response, Error>) -> Msg + Send + 'static,
-) where
-    R: JsonRpcRequest + Send + 'static,
-    R::Response: Send,
-{
-    acp::runtime().spawn(async move {
-        let _ = tx.send(then(agent.request(request).await));
     });
 }
 

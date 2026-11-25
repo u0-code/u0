@@ -6,8 +6,9 @@ use gpui::Context;
 
 use super::Desk;
 use crate::{
-    acp::Event,
+    acp,
     hub::{self, Msg, Slot, Stage},
+    proto::Event,
     session::State,
     sessions::Loaded,
 };
@@ -16,8 +17,7 @@ impl Desk {
     /// Sign in to `agent` with its method `method`.
     pub fn sign_in(&mut self, agent: &str, method: &str, cx: &mut Context<Self>) {
         use agent_client_protocol::v1::schema::AuthMethod;
-        let Some(slot) = self.slot(agent) else { return };
-        let Some(running) = slot.running().cloned() else {
+        let Some(slot) = self.slot(agent).filter(|s| s.running()) else {
             return;
         };
         let terminal = slot.sign_ins().find_map(|m| match m {
@@ -44,12 +44,7 @@ impl Desk {
             }
         } else {
             self.signing = Some(agent.to_owned());
-            hub::authenticate(
-                running,
-                agent.to_owned(),
-                method.to_owned(),
-                self.tx.clone(),
-            );
+            self.server.authenticate(agent, method.to_owned());
         }
         cx.notify();
     }
@@ -136,65 +131,7 @@ impl Desk {
         // No window of Ghost's in front: what needs you is notified.
         self.behind = cx.active_window().is_none();
         match msg {
-            Msg::Registry(Ok(registry)) => {
-                self.registry = registry;
-                self.registry_read = Some(std::time::SystemTime::now());
-                self.registry_trouble = None;
-                // A newer version of an agent replaces its entry; one
-                // running keeps running as it is.
-                for slot in &mut self.slots {
-                    if let Some(e) = self.registry.agents.iter().find(|e| e.id == slot.entry.id) {
-                        slot.entry = e.clone();
-                        slot.restage(&self.home);
-                    }
-                }
-                self.fill_slots();
-                self.install_due(cx);
-                self.look_here();
-            }
-            Msg::Registry(Err(why)) => self.registry_trouble = Some(why),
-            Msg::Installing { agent, what, share } => {
-                if let Some(Stage::Installing(i)) = self.slot_mut(&agent).map(|s| &mut s.stage) {
-                    i.what = what;
-                    i.share = share;
-                }
-            }
-            Msg::Installed { agent, result } => {
-                let home = self.home.clone();
-                let name = self.name_of(&agent);
-                if let Some(slot) = self.slot_mut(&agent) {
-                    match result {
-                        // An update that did not come leaves the version
-                        // here running, and says why.
-                        Err(why)
-                            if why != crate::registry::CANCELLED && slot.launch(&home).is_ok() =>
-                        {
-                            slot.stage = Stage::Ready;
-                            self.trouble(
-                                format!("{name} was not updated"),
-                                Some(why),
-                                Some(super::notices::Way::Agent(agent.clone())),
-                            );
-                        }
-                        Err(why) if why != crate::registry::CANCELLED => {
-                            slot.stage = Stage::Failed(why);
-                        }
-                        _ => {
-                            slot.stage = Stage::Ready;
-                            slot.restage(&home);
-                        }
-                    }
-                }
-                self.look_here();
-                self.start_ready();
-            }
-            Msg::Started { agent, result } => {
-                self.started(&agent, result);
-                self.install_due(cx);
-            }
-            Msg::Opened { key, result } => self.opened(key, result),
-            Msg::Listed { agent, result } => self.listed(&agent, result),
-            Msg::Probed { agent, result } => self.probed(&agent, result),
+            Msg::Event(e) => self.event(e, cx),
             Msg::Terminal(id) => {
                 if let Some(t) = self.drawer.terminals.iter().find(|t| t.id == id) {
                     t.changed.store(false, std::sync::atomic::Ordering::Release);
@@ -207,13 +144,6 @@ impl Desk {
                 }
                 self.setup_ended(id);
             }
-            Msg::CliVersion { cli, version } => {
-                self.cli_versions.insert(cli, version);
-            }
-            Msg::Elsewhere { agent, folders } => {
-                self.elsewhere.insert(agent, folders);
-            }
-            Msg::Forked { from, at, result } => self.forked(from, at, result, cx),
             Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
             Msg::Picture(None) => {}
             Msg::Grepped { words, found } => {
@@ -242,7 +172,7 @@ impl Desk {
                 }
             }
             Msg::Cloning { what, share } => {
-                if let Some(c) = &mut self.adding.cloning {
+                if let Some((c, _)) = &mut self.adding.cloning {
                     c.what = what;
                     c.share = share.or(c.share);
                 }
@@ -305,11 +235,6 @@ impl Desk {
                     self.search.found = keys.into_iter().collect();
                 }
             }
-            Msg::Loaded {
-                key,
-                resumed,
-                result,
-            } => self.loaded(key, resumed, result),
             Msg::Looked {
                 key,
                 folder,
@@ -317,9 +242,7 @@ impl Desk {
                 repo,
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
-            Msg::Weighed(weights) => self.weights = weights,
             Msg::Hosts(hosts) => self.adding.hosts = hosts,
-            Msg::Here(here) => self.here = here,
             Msg::OnPath(found) => self.on_path = found,
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();
@@ -351,7 +274,110 @@ impl Desk {
                     }
                 }
             }
-            Msg::Deleted { key, result } => match result {
+            Msg::Worktree { key, result } => self.worktree_made(key, result, cx),
+            Msg::Checkpoint {
+                key,
+                turn,
+                after,
+                result,
+                then,
+            } => self.checkpointed(key, turn, after, result, then),
+            Msg::Restored {
+                key,
+                turn,
+                undo,
+                result,
+            } => self.restored(key, turn, undo, result),
+            Msg::Git {
+                key,
+                action,
+                result,
+            } => self.gitted(key, &action, result),
+        }
+        cx.notify();
+    }
+
+    /// What the server says.
+    fn event(&mut self, event: Event, cx: &mut Context<Self>) {
+        match event {
+            Event::Registry(Ok(registry)) => {
+                self.registry = registry;
+                self.registry_read = Some(std::time::SystemTime::now());
+                self.registry_trouble = None;
+                // A newer version of an agent replaces its entry; one
+                // running keeps running as it is.
+                for slot in &mut self.slots {
+                    if let Some(e) = self.registry.agents.iter().find(|e| e.id == slot.entry.id) {
+                        slot.entry = e.clone();
+                        slot.restage(&self.home);
+                    }
+                }
+                self.fill_slots();
+                self.install_due(cx);
+                self.look_here();
+            }
+            Event::Registry(Err(why)) => self.registry_trouble = Some(why),
+            Event::Installing { agent, what, share } => {
+                if let Some(Stage::Installing(i)) = self.slot_mut(&agent).map(|s| &mut s.stage) {
+                    i.what = what;
+                    i.share = share;
+                }
+            }
+            Event::Installed { agent, result } => {
+                let home = self.home.clone();
+                let name = self.name_of(&agent);
+                if let Some(slot) = self.slot_mut(&agent) {
+                    match result {
+                        // An update that did not come leaves the version
+                        // here running, and says why.
+                        Err(why)
+                            if why != crate::registry::CANCELLED && slot.launch(&home).is_ok() =>
+                        {
+                            slot.stage = Stage::Ready;
+                            self.trouble(
+                                format!("{name} was not updated"),
+                                Some(why),
+                                Some(super::notices::Way::Agent(agent.clone())),
+                            );
+                        }
+                        Err(why) if why != crate::registry::CANCELLED => {
+                            slot.stage = Stage::Failed(why);
+                        }
+                        _ => {
+                            slot.stage = Stage::Ready;
+                            slot.restage(&home);
+                        }
+                    }
+                }
+                self.look_here();
+                self.start_ready();
+            }
+            Event::Started { agent, result } => {
+                self.started(&agent, result);
+                self.install_due(cx);
+            }
+            Event::Opened { key, result } => self.opened(key, result),
+            Event::Listed { agent, result } => self.listed(&agent, result),
+            Event::Probed { agent, result } => self.probed(&agent, result),
+            Event::CliVersion { cli, version } => {
+                self.cli_versions.insert(cli, version);
+            }
+            Event::Elsewhere { agent, folders } => {
+                self.elsewhere.insert(agent, folders);
+            }
+            Event::Forked { from, at, result } => self.forked(from, at, result, cx),
+            Event::Loaded {
+                key,
+                resumed,
+                result,
+            } => self.loaded(key, resumed, result),
+            Event::Weighed(mut weights) => {
+                // In the order the agents are listed.
+                weights.sort_by_key(|(id, ..)| self.slots.iter().position(|s| &s.entry.id == id));
+                self.weights = weights;
+            }
+            Event::Here(here) => self.here = here,
+            Event::Deleted { key, result } => match result {
                 Ok(()) => self.forget_session(key, cx),
                 Err(why) => {
                     let title = self
@@ -362,7 +388,7 @@ impl Desk {
                     self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
                 }
             },
-            Msg::Ended { key, result } => {
+            Event::Ended { key, result } => {
                 // A turn refused for want of a sign-in marks the agent: the
                 // composer then offers its sign-in.
                 let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
@@ -412,7 +438,7 @@ impl Desk {
                 // What was said meanwhile goes now, in order.
                 self.say_queued(key, cx);
             }
-            Msg::LoggedOut { agent, result } => {
+            Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(&agent) {
                     match result {
                         Ok(()) => slot.auth = hub::Auth::Needed("Signed out".into()),
@@ -420,33 +446,14 @@ impl Desk {
                     }
                 }
             }
-            Msg::Worktree { key, result } => self.worktree_made(key, result, cx),
-            Msg::Checkpoint {
-                key,
-                turn,
-                after,
-                result,
-                then,
-            } => self.checkpointed(key, turn, after, result, then),
-            Msg::Restored {
-                key,
-                turn,
-                undo,
-                result,
-            } => self.restored(key, turn, undo, result),
-            Msg::Git {
-                key,
-                action,
-                result,
-            } => self.gitted(key, &action, result),
-            Msg::Said { agent, event } => self.said(&agent, *event),
-            Msg::Signed { agent, result } => self.signed(&agent, result),
-            Msg::Options { key, options } => {
+            Event::Said { agent, event } => self.said(&agent, *event),
+            Event::Signed { agent, result } => self.signed(&agent, result),
+            Event::Options { key, options } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.options = options;
                 }
             }
-            Msg::Refused { key, why } => {
+            Event::Refused { key, why } => {
                 let name = self
                     .sessions
                     .at(key)
@@ -455,7 +462,6 @@ impl Desk {
                 self.trouble(format!("{name} kept it as it was"), Some(why), None);
             }
         }
-        cx.notify();
     }
 
     pub(super) fn started(
@@ -463,18 +469,21 @@ impl Desk {
         agent: &str,
         result: Result<
             (
-                std::sync::Arc<crate::acp::Agent>,
+                Option<u32>,
                 Box<agent_client_protocol::v1::schema::InitializeResponse>,
             ),
             crate::acp::Error,
         >,
     ) {
         match result {
-            Ok((running, init)) => {
+            Ok((pid, init)) => {
                 if let Some(slot) = self.slot_mut(agent) {
                     slot.known = Some(init);
-                    slot.stage = Stage::Running { agent: running };
+                    slot.stage = Stage::Running { pid };
                     slot.used = std::time::Instant::now();
+                } else {
+                    // Switched off while it started.
+                    self.server.stop(agent);
                 }
                 for key in self.sessions.started(agent, None) {
                     self.open_when_running(agent, key);
@@ -507,7 +516,6 @@ impl Desk {
             crate::acp::Error,
         >,
     ) {
-        let tx = self.tx.clone();
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
@@ -531,19 +539,13 @@ impl Desk {
                 }
                 let agent = s.meta.agent.clone();
                 let id = r.session_id.clone();
-                if let Some(running) = self.slot(&agent).and_then(Slot::running).cloned() {
+                if self.slot(&agent).is_some_and(Slot::running) {
                     if let Some(m) = mode {
-                        hub::set_mode(running.clone(), key, id.clone(), m, tx.clone());
+                        self.server.set_mode(&agent, key, id.clone(), m);
                     }
                     for (config, value) in chosen {
-                        hub::set_option(
-                            running.clone(),
-                            key,
-                            id.clone(),
-                            config,
-                            value,
-                            tx.clone(),
-                        );
+                        self.server
+                            .set_option(&agent, key, id.clone(), config, value);
                     }
                 }
                 self.flush(key);
@@ -632,7 +634,7 @@ impl Desk {
         &mut self,
         key: u64,
         resumed: bool,
-        result: Result<hub::Opened, crate::acp::Error>,
+        result: Result<crate::proto::Opened, crate::acp::Error>,
     ) {
         match self.sessions.loaded(key, resumed, result, &self.home) {
             Loaded::Open(said) => {
@@ -652,17 +654,17 @@ impl Desk {
         }
     }
 
-    pub(super) fn said(&mut self, agent: &str, event: Event) {
+    pub(super) fn said(&mut self, agent: &str, event: acp::Event) {
         if let Some(slot) = self.slot_mut(agent) {
             slot.used = std::time::Instant::now();
         }
         match event {
-            Event::Task { session, task } => {
+            acp::Event::Task { session, task } => {
                 if let Some(s) = self.sessions.by_id(agent, &SessionId::new(session)) {
                     s.task(task);
                 }
             }
-            Event::Update(n) => match self.sessions.update(agent, n) {
+            acp::Event::Update(n) => match self.sessions.update(agent, n) {
                 Ok((key, titled)) => {
                     // A long turn is written as it goes, not only at its end.
                     let long = self.sessions.at(key).is_some_and(|s| s.log.len() >= 400);
@@ -684,7 +686,7 @@ impl Desk {
                     }
                 }
             },
-            Event::Permission { id, request } => {
+            acp::Event::Permission { id, request } => {
                 if let Some(s) = self.sessions.by_id(agent, &request.session_id) {
                     let (key, title) = (s.key, s.meta.title.clone());
                     s.asked(id, request);
@@ -700,11 +702,11 @@ impl Desk {
                     {
                         s.meta.flags.unread = true;
                     }
-                } else if let Some(running) = self.slot(agent).and_then(Slot::running) {
-                    hub::answer(running, id, None);
+                } else if self.slot(agent).is_some_and(Slot::running) {
+                    self.server.answer(agent, id, None);
                 }
             }
-            Event::Exited { pid, why } => {
+            acp::Event::Exited { pid, why } => {
                 // One let go while idle ended as it was meant to, and one
                 // let go before this one started is not this one's end:
                 // one that stops as it starts says so in `Started`.
@@ -712,6 +714,7 @@ impl Desk {
                     return;
                 };
                 slot.stage = Stage::Failed(why.clone());
+                self.server.stop(agent);
                 for key in self.sessions.exited(agent, &why) {
                     self.flush(key);
                 }

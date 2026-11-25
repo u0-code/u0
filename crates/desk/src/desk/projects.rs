@@ -3,7 +3,10 @@
 //! working its new sessions take; and the scratch sessions that have no
 //! project yet, each in a folder of its own until it becomes one.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
 
@@ -33,7 +36,8 @@ pub struct Adding {
     pub remote: Entity<TextInput>,
     pub hosts: Vec<String>,
     pub parent: PathBuf,
-    pub cloning: Option<crate::hub::Install>,
+    /// A clone going on, and the switch that stops it.
+    pub cloning: Option<(crate::hub::Install, Arc<AtomicBool>)>,
     pub trouble: Option<String>,
 }
 
@@ -132,20 +136,20 @@ impl Desk {
         if url.is_empty() || name.is_empty() || self.adding.cloning.is_some() {
             return;
         }
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.adding.cloning = Some(crate::hub::Install {
+        let stop = Arc::new(AtomicBool::new(false));
+        let install = crate::hub::Install {
             what: "Starting".into(),
             share: None,
-            stop: stop.clone(),
-        });
+        };
+        self.adding.cloning = Some((install, stop.clone()));
         self.adding.trouble = None;
         crate::hub::clone(url, self.adding.parent.join(name), stop, self.tx.clone());
         cx.notify();
     }
 
     pub fn cancel_clone(&mut self, cx: &mut Context<Self>) {
-        if let Some(c) = &self.adding.cloning {
-            c.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some((_, stop)) = &self.adding.cloning {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cx.notify();
     }

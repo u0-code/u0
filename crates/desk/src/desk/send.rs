@@ -255,9 +255,7 @@ impl Desk {
             let (base, host) = (base.to_owned(), host.to_owned());
             self.remote_slot(&base, &host);
         }
-        let home = self.home.clone();
-        let tx = self.tx.clone();
-        let (dirs, id, recorded) = self
+        let ((folder, also), id, recorded) = self
             .sessions
             .at(key)
             .map(|s| {
@@ -268,35 +266,34 @@ impl Desk {
                 )
             })
             .unwrap_or_default();
-        let Some(slot) = self.slot_mut(agent) else {
+        let Some(slot) = self.slots.iter_mut().find(|s| s.entry.id == agent) else {
             return;
         };
         let (resume, load) = slot.caps().map_or((false, false), |c| {
             (c.session_capabilities.resume.is_some(), c.load_session)
         });
         match &slot.stage {
-            Stage::Running { agent } => match id {
+            Stage::Running { .. } => match id {
                 Some(id) if recorded && resume => {
-                    hub::reopen(agent.clone(), key, id, dirs, true, tx);
+                    self.server.reopen(agent, key, id, folder, also, true);
                 }
                 Some(id) if load => {
-                    let agent = agent.clone();
                     if recorded {
                         self.sessions.drop_record(key, &self.home);
                     }
-                    hub::reopen(agent, key, id, dirs, false, tx);
+                    self.server.reopen(agent, key, id, folder, also, false);
                 }
                 Some(_) => {
                     if let Some(s) = self.sessions.at_mut(key) {
                         s.state = State::Broken("The agent cannot open a session again".into());
                     }
                 }
-                None => hub::open(agent.clone(), key, dirs, tx),
+                None => self.server.open(agent, key, folder, also),
             },
             Stage::Starting => {}
             _ => {
                 slot.stage = Stage::Starting;
-                hub::start(slot, &home, tx);
+                self.server.start(&slot.entry, slot.command.as_deref());
             }
         }
     }
@@ -305,7 +302,7 @@ impl Desk {
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
-        if let (Some(running), Some(id)) = (self.slot(&agent).and_then(Slot::running), id) {
+        if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
             // Questions still open are answered as cancelled, as ACP asks.
             let open: Vec<_> = s
                 .items
@@ -316,9 +313,9 @@ impl Desk {
                 })
                 .collect();
             for request in open {
-                hub::answer(running, request, None);
+                self.server.answer(&agent, request, None);
             }
-            hub::cancel(running, id);
+            self.server.cancel(&agent, id);
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
                 self.stopping = Some((s.key, std::time::Instant::now()));
             }
@@ -331,11 +328,11 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        if let (Some(running), Some(id)) = (
-            self.slot(&s.meta.agent).and_then(Slot::running),
+        if let (true, Some(id)) = (
+            self.slot(&s.meta.agent).is_some_and(Slot::running),
             s.meta.id.clone(),
         ) {
-            hub::stop_task(running.clone(), id, task);
+            self.server.stop_task(&s.meta.agent, id, task);
         }
         cx.notify();
     }
@@ -345,11 +342,11 @@ impl Desk {
         let Some(c) = self.sessions.at(key) else {
             return;
         };
-        if let (Some(running), Some(id)) = (
-            self.slot(&c.meta.agent).and_then(Slot::running),
+        if let (true, Some(id)) = (
+            self.slot(&c.meta.agent).is_some_and(Slot::running),
             c.meta.id.clone(),
         ) {
-            hub::cancel(running, id);
+            self.server.cancel(&c.meta.agent, id);
         }
         cx.notify();
     }
@@ -359,12 +356,8 @@ impl Desk {
     pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {
         self.stopping = None;
         let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
-        if let Some(running) = agent
-            .as_deref()
-            .and_then(|a| self.slot(a))
-            .and_then(Slot::running)
-        {
-            running.kill();
+        if let Some(agent) = agent.filter(|a| self.slot(a).is_some_and(Slot::running)) {
+            self.server.kill(&agent);
         }
         cx.notify();
     }
@@ -380,8 +373,8 @@ impl Desk {
         let Some(agent) = self.session().map(|s| s.meta.agent.clone()) else {
             return;
         };
-        if let Some(running) = self.slot(&agent).and_then(Slot::running) {
-            hub::answer(running, request, Some(option.option_id.0.to_string()));
+        if self.slot(&agent).is_some_and(Slot::running) {
+            (self.server).answer(&agent, request, Some(option.option_id.0.to_string()));
         }
         if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
@@ -467,10 +460,8 @@ impl Desk {
                 .at_mut(key)
                 .expect("on screen")
                 .choose_mode(&mode);
-        } else if let (Some(running), Some(id)) =
-            (self.slot(&agent).and_then(Slot::running).cloned(), id)
-        {
-            hub::set_mode(running, key, id, mode.clone(), self.tx.clone());
+        } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
+            self.server.set_mode(&agent, key, id, mode.clone());
             if let Some(modes) = &mut self.sessions.at_mut(key).expect("on screen").modes {
                 modes.current_mode_id = agent_client_protocol::v1::schema::SessionModeId::new(mode);
             }
@@ -489,10 +480,8 @@ impl Desk {
                 .at_mut(key)
                 .expect("on screen")
                 .choose(&config, &value);
-        } else if let (Some(running), Some(id)) =
-            (self.slot(&agent).and_then(Slot::running).cloned(), id)
-        {
-            hub::set_option(running, key, id, config, value, self.tx.clone());
+        } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
+            self.server.set_option(&agent, key, id, config, value);
         }
         cx.notify();
     }
