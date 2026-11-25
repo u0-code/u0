@@ -58,6 +58,7 @@ change is held to these rules.
 ## Map
 
 ```
+src/main.rs       the app: the window opened, the menus, the keys bound
 src/acp.rs        one agent process and its SDK connection; the ACP runtime
 src/registry.rs   the ACP registry, installing an agent, starting one
 src/remote.rs     projects on another machine; their agents over SSH
@@ -69,7 +70,10 @@ src/sessions.rs   the sessions on the desk, by key and by the agent's id; what a
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
 src/store.rs      sessions.json and each session's record; the one writer
+src/whole.rs      a file written whole; a JSON file read back
 src/tidy.rs       what Ghost keeps here, measured and tidied
+src/path.rs       the PATH your shell sets up, for an app opened from the Dock
+src/macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
 src/keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
 src/scripts.rs    a repository's own commands, in its ghost.json
 src/desk.rs       the window's state, actions and layout
@@ -77,8 +81,12 @@ src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
                   palette, agents, send, turns, replies, notices
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
 src/thread/       the thread as a list (lines), folds, cards, the composer, the start,
-                  the drawer; drawing helpers: diffs, plans, command output
+                  the drawer, the top bar, words chosen (select); calls read (kinds);
+                  drawing helpers: diffs and plans (drawn), command output
+src/aside/        the column's changes as git reads them (repo)
+src/pages/        the settings page and its tabs (settings, prefs), adding a project
 src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs
+src/fonts.rs, src/assets.rs, src/when.rs   faces, icons, times as read
 src/input/        the input's text shaped and painted (element)
 assets/           fonts and the desk's own icons, built into the binary
 ```

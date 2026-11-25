@@ -3,7 +3,7 @@
 //! first lines, a search as its results, a plan as a checklist, a recall
 //! as its memories, a failed command by how it ended. All of it is text
 //! in and text out, so that it can be tested without a window;
-//! `steps.rs` draws it.
+//! `thread.rs` and `drawn.rs` draw it.
 
 use std::ops::Range;
 

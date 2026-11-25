@@ -41,7 +41,7 @@ cocoa = "0.26"
 objc = "0.2"
 
 [lints.rust]
-# objc's msg_send! (macOS dictation, `icon::dictate`) checks this feature.
+# objc's msg_send! (macOS dictation, `macos::dictate`) checks this feature.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
 
 [lints.clippy]

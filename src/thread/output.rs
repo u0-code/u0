@@ -5,8 +5,6 @@
 //! kept and every other escape is taken out, and a word that says
 //! something failed is red whatever it came as; and output that is not text
 //! is said to be so, not drawn.
-//!
-//! (The files a session's work handed over are `outputs.rs`.)
 
 use std::ops::Range;
 
