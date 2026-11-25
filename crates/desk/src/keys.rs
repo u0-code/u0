@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
-use gpui::{Action, App, KeyBinding, WindowHandle, actions};
+use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Window, actions};
 use serde::Deserialize;
 
 use crate::{desk::Desk, input, pages::Tab};
@@ -352,11 +352,34 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
     cx.bind_keys(yours);
 }
 
+/// The desk, and the window it is drawn in under gpui-kit's root.
+#[derive(Clone)]
+pub struct Shown {
+    pub window: AnyWindowHandle,
+    pub desk: Entity<Desk>,
+}
+
+impl Shown {
+    fn update<R>(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut Desk, &mut Window, &mut Context<Desk>) -> R,
+    ) -> Option<R> {
+        self.window
+            .update(cx, |_, window, cx| {
+                self.desk.update(cx, |d, cx| f(d, window, cx))
+            })
+            .ok()
+    }
+}
+
 /// What each action does in the window.
-pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
+pub fn handle(cx: &mut App, shown: &Shown) {
+    let quitting = shown.clone();
     cx.on_action(move |_: &Quit, cx| {
+        let shown = quitting.clone();
         cx.defer(move |cx| {
-            let quit = window.update(cx, |d, _, cx| {
+            let quit = shown.update(cx, |d, _, cx| {
                 let may = d.may_quit(cx);
                 cx.notify();
                 may
@@ -374,35 +397,35 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }
     });
-    on::<About>(cx, window, |d, window, cx| {
+    on::<About>(cx, shown, |d, window, cx| {
         d.open_tab(Tab::About, window, cx);
     });
-    on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
-    on::<NewSession>(cx, window, Desk::new_default);
-    on::<Find>(cx, window, Desk::toggle_find);
-    on::<Drawer>(cx, window, Desk::toggle_drawer);
-    on::<Palette>(cx, window, Desk::toggle_palette);
-    on::<OpenSettings>(cx, window, |d, window, cx| {
+    on::<Minimize>(cx, shown, |_, window, _| window.minimize_window());
+    on::<NewSession>(cx, shown, Desk::new_default);
+    on::<Find>(cx, shown, Desk::toggle_find);
+    on::<Drawer>(cx, shown, Desk::toggle_drawer);
+    on::<Palette>(cx, shown, Desk::toggle_palette);
+    on::<OpenSettings>(cx, shown, |d, window, cx| {
         if d.pages.open {
             d.close_settings(window, cx);
         } else {
             d.open_tab(d.pages.tab, window, cx);
         }
     });
-    on::<NextSession>(cx, window, |d, window, cx| d.step_session(1, window, cx));
-    on::<PreviousSession>(cx, window, |d, window, cx| d.step_session(-1, window, cx));
-    on::<Model>(cx, window, |d, _, cx| d.open_model(cx));
-    on::<ToggleSidebar>(cx, window, |d, _, cx| d.toggle_sidebar(cx));
-    on::<Stop>(cx, window, |d, _, cx| d.stop(cx));
-    on::<Review>(cx, window, |d, _, cx| {
+    on::<NextSession>(cx, shown, |d, window, cx| d.step_session(1, window, cx));
+    on::<PreviousSession>(cx, shown, |d, window, cx| d.step_session(-1, window, cx));
+    on::<Model>(cx, shown, |d, _, cx| d.open_model(cx));
+    on::<ToggleSidebar>(cx, shown, |d, _, cx| d.toggle_sidebar(cx));
+    on::<Stop>(cx, shown, |d, _, cx| d.stop(cx));
+    on::<Review>(cx, shown, |d, _, cx| {
         d.show_changes(crate::git::Scope::All, cx);
     });
-    on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
-    on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
-    on::<Usage>(cx, window, |d, window, cx| {
+    on::<RightColumn>(cx, shown, |d, _, cx| d.toggle_aside(cx));
+    on::<WholeRight>(cx, shown, |d, _, cx| d.toggle_whole(cx));
+    on::<Usage>(cx, shown, |d, window, cx| {
         d.open_tab(Tab::Usage, window, cx);
     });
-    on::<LightOrDark>(cx, window, |d, _, cx| {
+    on::<LightOrDark>(cx, shown, |d, _, cx| {
         // From the look as drawn now, the other one.
         d.settings.look = if crate::theme::is_light() {
             crate::settings::Look::Dark
@@ -412,71 +435,69 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         d.save_settings();
         cx.notify();
     });
-    on::<Mode>(cx, window, |d, _, cx| d.open_option(&Kind::Mode, cx));
-    on::<Effort>(cx, window, |d, _, cx| {
+    on::<Mode>(cx, shown, |d, _, cx| d.open_option(&Kind::Mode, cx));
+    on::<Effort>(cx, shown, |d, _, cx| {
         d.open_option(&Kind::ThoughtLevel, cx);
     });
-    on::<CopyPr>(cx, window, |d, _, cx| {
+    on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });
-    on::<CopyId>(cx, window, |d, _, cx| {
+    on::<CopyId>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
     });
-    on::<Settle>(cx, window, |d, _, cx| {
+    on::<Settle>(cx, shown, |d, _, cx| {
         if let Some(key) = d.current {
             d.toggle_settled(key, cx);
         }
     });
-    on::<Pin>(cx, window, |d, _, cx| {
+    on::<Pin>(cx, shown, |d, _, cx| {
         if let Some(key) = d.current {
             d.toggle_pin(key, cx);
         }
     });
-    on::<TakeBack>(cx, window, |d, _, cx| d.take_back(cx));
-    on::<OpenFolder>(cx, window, |d, _, _| {
+    on::<TakeBack>(cx, shown, |d, _, cx| d.take_back(cx));
+    on::<OpenFolder>(cx, shown, |d, _, _| {
         if let Some(s) = d.session() {
             d.edit(s.meta.folder.clone(), None);
         }
     });
-    on::<Dictate>(cx, window, |d, window, cx| {
+    on::<Dictate>(cx, shown, |d, window, cx| {
         window.focus(
             &gpui::Focusable::focus_handle(d.composer.input.read(cx), cx),
             cx,
         );
         crate::macos::dictate();
     });
-    on::<NewScratch>(cx, window, Desk::new_scratch);
-    on::<Back>(cx, window, |d, window, cx| d.step_trail(false, window, cx));
-    on::<Ahead>(cx, window, |d, window, cx| d.step_trail(true, window, cx));
-    on::<GoToFile>(cx, window, |d, window, cx| {
+    on::<NewScratch>(cx, shown, Desk::new_scratch);
+    on::<Back>(cx, shown, |d, window, cx| d.step_trail(false, window, cx));
+    on::<Ahead>(cx, shown, |d, window, cx| d.step_trail(true, window, cx));
+    on::<GoToFile>(cx, shown, |d, window, cx| {
         d.open_palette(crate::desk::palette::Through::Files, window, cx);
     });
-    on::<SearchWords>(cx, window, |d, window, cx| {
+    on::<SearchWords>(cx, shown, |d, window, cx| {
         d.open_palette(crate::desk::palette::Through::Words, window, cx);
     });
-    on::<NextArea>(cx, window, Desk::next_area);
-    on::<Session1>(cx, window, |d, window, cx| d.nth_session(0, window, cx));
-    on::<Session2>(cx, window, |d, window, cx| d.nth_session(1, window, cx));
-    on::<Session3>(cx, window, |d, window, cx| d.nth_session(2, window, cx));
-    on::<Session4>(cx, window, |d, window, cx| d.nth_session(3, window, cx));
-    on::<Session5>(cx, window, |d, window, cx| d.nth_session(4, window, cx));
-    on::<Session6>(cx, window, |d, window, cx| d.nth_session(5, window, cx));
-    on::<Session7>(cx, window, |d, window, cx| d.nth_session(6, window, cx));
-    on::<Session8>(cx, window, |d, window, cx| d.nth_session(7, window, cx));
-    on::<Session9>(cx, window, |d, window, cx| d.nth_session(8, window, cx));
+    on::<NextArea>(cx, shown, Desk::next_area);
+    on::<Session1>(cx, shown, |d, window, cx| d.nth_session(0, window, cx));
+    on::<Session2>(cx, shown, |d, window, cx| d.nth_session(1, window, cx));
+    on::<Session3>(cx, shown, |d, window, cx| d.nth_session(2, window, cx));
+    on::<Session4>(cx, shown, |d, window, cx| d.nth_session(3, window, cx));
+    on::<Session5>(cx, shown, |d, window, cx| d.nth_session(4, window, cx));
+    on::<Session6>(cx, shown, |d, window, cx| d.nth_session(5, window, cx));
+    on::<Session7>(cx, shown, |d, window, cx| d.nth_session(6, window, cx));
+    on::<Session8>(cx, shown, |d, window, cx| d.nth_session(7, window, cx));
+    on::<Session9>(cx, shown, |d, window, cx| d.nth_session(8, window, cx));
 }
 
 /// Do `f` to the desk on each `A`, once the action's dispatch is over: a
 /// key or a menu dispatches in the window, which is lent to that dispatch
 /// until it ends, so updating the window from inside it fails.
-fn on<A: Action>(
-    cx: &mut App,
-    window: WindowHandle<Desk>,
-    f: fn(&mut Desk, &mut gpui::Window, &mut gpui::Context<Desk>),
-) {
+fn on<A: Action>(cx: &mut App, shown: &Shown, f: fn(&mut Desk, &mut Window, &mut Context<Desk>)) {
+    let shown = shown.clone();
     cx.on_action(move |_: &A, cx| {
+        let shown = shown.clone();
         cx.defer(move |cx| {
-            let _ = window.update(cx, f);
+            shown.update(cx, f);
         });
     });
 }

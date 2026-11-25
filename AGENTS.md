@@ -145,6 +145,7 @@ assets/         fonts and the desk's own icons, built into the app
 | A program on the PATH | `registry::which` |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
+| A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 
 ## Data
 

@@ -53,9 +53,10 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    gpui_platform::application()
+    gpui::application()
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
+            gpui::init(cx);
             fonts::load(cx);
             macos::set();
             keys::bind(cx, &keys::yours(&settings::home()));
@@ -102,17 +103,19 @@ fn main() {
                 window_min_size: Some(size(px(800.), px(520.))),
                 ..Default::default()
             };
-            let window = cx
-                .open_window(options, |window, cx| {
-                    cx.new(|cx| desk::Desk::new(window, cx))
-                })
-                .expect("open the window");
-            window
-                .update(cx, |desk, window, cx| {
-                    window.focus(&desk.composer.input.focus_handle(cx), cx);
+            let (window, desk) = gpui::open_window(options, cx, |window, cx| {
+                cx.new(|cx| desk::Desk::new(window, cx))
+            })
+            .expect("open the window");
+            let shown = keys::Shown { window, desk };
+            keys::handle(cx, &shown);
+            shown
+                .window
+                .update(cx, |_, window, cx| {
+                    let input = shown.desk.read(cx).composer.input.focus_handle(cx);
+                    window.focus(&input, cx);
                 })
                 .expect("the desk");
-            keys::handle(cx, window);
             cx.activate(true);
         });
 }

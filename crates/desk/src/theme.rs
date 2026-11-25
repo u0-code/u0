@@ -7,7 +7,7 @@
 //! thread and the right column, the way a coding agent's app sets its
 //! panes apart, and all of them are easy on the eyes for a day's use.
 
-use gpui::{Hsla, rgb};
+use gpui::{App, Hsla, px, rgb};
 
 fn c(hex: u32) -> Hsla {
     rgb(hex).into()
@@ -17,8 +17,11 @@ fn c(hex: u32) -> Hsla {
 /// by `set_light` as the window is drawn.
 static LIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn set_light(on: bool) {
-    LIGHT.store(on, std::sync::atomic::Ordering::Relaxed);
+/// Set the look, and with it gpui-kit's, when it changed.
+pub fn set_light(on: bool, cx: &mut App) {
+    if LIGHT.swap(on, std::sync::atomic::Ordering::Relaxed) != on {
+        kit(cx);
+    }
 }
 
 /// Whether the window is drawn in the light look now.
@@ -198,4 +201,57 @@ pub fn brand(id: &str) -> Hsla {
     crate::registry::known(id)
         .and_then(|k| k.3)
         .map_or_else(text, |(dark, light)| pick(dark, light))
+}
+
+/// gpui-kit's theme, in the desk's look: its components take their
+/// colours, faces and corners from here, as Ghost's own draws do from the
+/// functions above. Set as Ghost starts and whenever the look changes.
+pub fn kit(cx: &mut App) {
+    use gpui::component::theme::{Theme, ThemeMode};
+    let faces = crate::fonts::faces(cx).clone();
+    Theme::update(cx, |t| {
+        t.mode = if is_light() {
+            ThemeMode::Light
+        } else {
+            ThemeMode::Dark
+        };
+        t.font_family = faces.ui;
+        t.mono_font_family = faces.mono;
+        t.font_size = px(crate::style::BODY);
+        t.radius = px(8.);
+        t.radius_lg = px(12.);
+        let c = &mut t.colors;
+        c.background = bg();
+        c.foreground = text();
+        c.border = border2();
+        c.input = border2();
+        c.ring = border2();
+        c.caret = text();
+        c.selection = link().opacity(0.3);
+        c.popover = panel();
+        c.popover_foreground = text();
+        c.muted = panel2();
+        c.muted_foreground = muted();
+        c.accent = hover();
+        c.accent_foreground = text();
+        c.primary = text();
+        c.primary_hover = text2();
+        c.primary_active = text2();
+        c.primary_foreground = bg();
+        c.secondary = hover();
+        c.secondary_hover = hover();
+        c.secondary_active = panel2();
+        c.secondary_foreground = text();
+        c.switch = ghost_line();
+        c.switch_thumb = bg();
+        c.danger = coral();
+        c.success = ok();
+        c.warning = accent();
+        c.link = link();
+        c.link_hover = link();
+        c.link_active = link();
+        c.list_hover = hover();
+        c.list_active = panel2();
+        c.overlay = gpui::black().opacity(0.4);
+    });
 }

@@ -3,6 +3,7 @@
 //! each a click from running in a terminal of its own; a dev server's
 //! address to open; and what a terminal shows, handed to the agent.
 
+use gpui::component::{Sizable as _, switch::Switch};
 use gpui::{
     Context, Div, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, ScrollEvent, SharedString, StyledText, TextRun, Window, div, prelude::*, px,
@@ -234,14 +235,14 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(
-                        ui::switch(id, on).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(Switch::new(id).small().checked(on).on_click(cx.listener(
+                        move |this, _, _, cx| {
                             if let Some(w) = &mut this.drawer.writing {
                                 set(w);
                             }
                             cx.notify();
-                        })),
-                    )
+                        },
+                    )))
                     .child(
                         ui::text(faces, label)
                             .text_size(px(12.))

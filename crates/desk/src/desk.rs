@@ -1214,14 +1214,17 @@ impl Desk {
 impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The look, as chosen or as the system is now.
-        theme::set_light(match self.settings.look {
-            settings::Look::Dark => false,
-            settings::Look::Light => true,
-            settings::Look::System => matches!(
-                window.appearance(),
-                gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
-            ),
-        });
+        theme::set_light(
+            match self.settings.look {
+                settings::Look::Dark => false,
+                settings::Look::Light => true,
+                settings::Look::System => matches!(
+                    window.appearance(),
+                    gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+                ),
+            },
+            cx,
+        );
         self.sync_lines();
         self.read_projects();
         let faces = fonts::faces(cx).clone();
@@ -1405,4 +1408,5 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
     fonts::set_mono(cx, settings.mono);
+    theme::kit(cx);
 }

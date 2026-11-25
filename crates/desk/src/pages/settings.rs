@@ -5,6 +5,7 @@
 
 use std::time::SystemTime;
 
+use gpui::component::{Sizable as _, switch::Switch};
 use gpui::{Context, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -287,7 +288,9 @@ impl Desk {
             };
             let (id, page_id) = (e.id.clone(), e.id.clone());
             let control = if installed || on {
-                ui::switch(SharedString::from(format!("toggle-{id}")), on)
+                Switch::new(SharedString::from(format!("toggle-{id}")))
+                    .small()
+                    .checked(on)
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))
                     .into_any_element()
             } else {

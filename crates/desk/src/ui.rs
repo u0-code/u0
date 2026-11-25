@@ -172,32 +172,6 @@ pub fn label(faces: &Faces, text: &str) -> Div {
         .text_color(theme::faint())
 }
 
-/// An on/off switch.
-pub fn switch(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .w(px(30.))
-        .h(px(18.))
-        .p(px(2.))
-        .rounded_full()
-        .cursor_pointer()
-        .bg(if on {
-            theme::text()
-        } else {
-            theme::ghost_line()
-        })
-        .when(on, Styled::justify_end)
-        .child(
-            div()
-                .size(px(14.))
-                .rounded_full()
-                .bg(if on { theme::bg() } else { theme::muted() }),
-        )
-}
-
 /// Something gone wrong, said where it happened (in a thread, on a page):
 /// a mark, and the words, in a frame tinted for trouble.
 pub fn trouble(faces: &Faces, words: impl Into<SharedString>) -> Div {

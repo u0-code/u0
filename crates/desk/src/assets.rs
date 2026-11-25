@@ -76,10 +76,12 @@ impl AssetSource for Assets {
             let file = crate::registry::icon_path(&crate::settings::home(), id);
             return Ok(std::fs::read(file).ok().map(Cow::Owned));
         }
-        Ok(FILES
-            .iter()
-            .find(|(name, _)| *name == path)
-            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
+        // gpui-kit's components ask for icons the desk does not draw (a
+        // close mark, a pair of chevrons): those are gpui-kit's own.
+        match FILES.iter().find(|(name, _)| *name == path) {
+            Some((_, bytes)) => Ok(Some(Cow::Borrowed(*bytes))),
+            None => gpui::assets::Assets.load(path),
+        }
     }
 
     fn list(&self, path: &str) -> anyhow::Result<Vec<SharedString>> {

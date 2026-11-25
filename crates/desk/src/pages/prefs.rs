@@ -3,6 +3,7 @@
 //! write while a turn goes on; how new sessions begin; the keys; and what
 //! Ghost is. Each row says what happens, and its control says the choice.
 
+use gpui::component::{Sizable as _, switch::Switch};
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -56,14 +57,15 @@ impl Desk {
                                 q,
                                 "Keep the Mac awake while an agent works",
                                 "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
-                                ui::switch("awake", self.settings.awake).on_click(cx.listener(
-                                    |this, _, _, cx| {
+                                Switch::new("awake")
+                                    .small()
+                                    .checked(self.settings.awake)
+                                    .on_click(cx.listener(|this, _, _, cx| {
                                         this.settings.awake = !this.settings.awake;
                                         this.save_settings();
                                         this.stay_awake();
                                         cx.notify();
-                                    },
-                                )),
+                                    })),
                             ),
                         ],
                     ),
