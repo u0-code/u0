@@ -337,8 +337,14 @@ impl Desk {
                         .iter()
                         .any(|c| c.id.as_ref() == "more");
                 let count = if more { count - 1 } else { count };
+                let drop = desk.clone();
                 item.child(
                     div()
+                        .id(SharedString::from(format!("shelf-{kind:?}")))
+                        .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
+                        .on_drop(move |d: &Dragged, _, cx| {
+                            drop.update(cx, |this, cx| this.dropped(d.key, &Row::Shelf(kind), cx));
+                        })
                         .flex()
                         .items_center()
                         .gap(px(8.))
@@ -428,11 +434,19 @@ impl Desk {
             .into_any_element()
         };
         let new = folder.to_path_buf();
-        let desk = desk.clone();
+        let (desk, drop, onto) = (
+            desk.clone(),
+            desk.clone(),
+            Row::Project(folder.to_path_buf()),
+        );
         item.child(
             div()
                 .id(group.clone())
                 .group(group.clone())
+                .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
+                .on_drop(move |d: &Dragged, _, cx| {
+                    drop.update(cx, |this, cx| this.dropped(d.key, &onto, cx));
+                })
                 .flex()
                 .items_center()
                 .gap(px(10.))
@@ -645,13 +659,12 @@ impl Desk {
                             .group_hover(group, gpui::Styled::visible)
                             .child(on_hover),
                     )
-                    // Pinned, it is dragged into the order you want.
-                    .when(pinned, |d| {
-                        d.on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
-                            .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
-                            .on_drop(move |d: &Dragged, _, cx| {
-                                drop.update(cx, |this, cx| this.move_session(d.key, key, cx));
-                            })
+                    // Dragged onto another row, it takes that row's place
+                    // in the lists.
+                    .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
+                    .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
+                    .on_drop(move |d: &Dragged, _, cx| {
+                        drop.update(cx, |this, cx| this.dropped(d.key, &Row::Session(key), cx));
                     })
                     // Files dropped on it go with what you write next there.
                     .drag_over::<gpui::ExternalPaths>(|st, _, _, _| st.bg(theme::row_hover()))
@@ -665,6 +678,34 @@ impl Desk {
             .on_click(move |e, window, cx| {
                 click.update(cx, |this, cx| this.side_click(key, e, window, cx));
             })
+    }
+
+    /// The session `moved` dropped on the row `on`, as t3code's sections
+    /// take it: onto a pinned one, pinned there; onto Settled or a settled
+    /// one, settled; onto a folder or a session in one, back among the
+    /// active (unpinned, un-settled, woken). Nothing is snoozed by a drop,
+    /// which needs a time.
+    pub(crate) fn dropped(&mut self, moved: u64, on: &Row, cx: &mut Context<Self>) {
+        let flags = |key: u64| self.sessions.at(key).map(|s| s.meta.flags.clone());
+        match on {
+            Row::Session(key) if flags(*key).is_some_and(|f| f.pinned.is_some()) => {
+                if let Some(s) = self.sessions.at_mut(moved) {
+                    s.meta.flags.settled = None;
+                    s.meta.flags.snoozed = None;
+                }
+                self.move_session(moved, *key, cx);
+            }
+            Row::Shelf(Shelf::Settled) => self.undoable(lists::Undone::Settle, &[moved], cx),
+            Row::Session(key) if flags(*key).is_some_and(|f| f.settled.is_some()) => {
+                self.undoable(lists::Undone::Settle, &[moved], cx);
+            }
+            Row::Session(_) | Row::Project(_) => self.mark(moved, cx, |f| {
+                f.pinned = None;
+                f.settled = None;
+                f.snoozed = None;
+            }),
+            Row::Shelf(Shelf::Snoozed) | Row::More => {}
+        }
     }
 
     /// Keys in the list, past those the tree takes (↑ ↓ → ←): Return

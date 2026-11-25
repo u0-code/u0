@@ -180,7 +180,8 @@ impl Desk {
     }
 
     /// Put the session `moved` just before `before` in the list: among the
-    /// pinned if that one is pinned, else among the rest of its project.
+    /// pinned (of every project) if that one is pinned, else among the
+    /// rest of its project.
     pub fn move_session(&mut self, moved: u64, before: u64, cx: &mut Context<Self>) {
         if moved == before {
             return;
@@ -197,7 +198,7 @@ impl Desk {
             .filter(|s| {
                 s.key != moved
                     && s.meta.flags.pinned.is_some() == pinned
-                    && s.meta.project == project
+                    && (pinned || s.meta.project == project)
                     && s.parent.is_none()
             })
             .collect();
