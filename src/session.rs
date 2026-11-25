@@ -1432,11 +1432,10 @@ mod tests {
 
     #[test]
     fn a_diffs_place_is_found_in_its_file_once_the_call_is_done() {
-        let dir = std::env::temp_dir().join(format!("ghost-line-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("a.rs");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.rs");
         std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
-        let mut s = Session::new(1, "x", dir.clone());
+        let mut s = Session::new(1, "x", dir.path().to_path_buf());
         let json = format!(
             r#"{{"sessionUpdate":"tool_call","toolCallId":"e","title":"Edit","kind":"edit","status":"completed","content":[{{"type":"diff","path":"{}","oldText":"3\n","newText":"three\nfour\n"}}]}}"#,
             file.display()
@@ -1444,7 +1443,6 @@ mod tests {
         s.apply(update(&json));
         let tool = s.tools().next().unwrap();
         assert_eq!(tool.starts, vec![Some(3)]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -447,13 +447,12 @@ mod tests {
 
     #[test]
     fn a_script_written_is_kept_in_ghost_json_and_one_that_does_not_read_is_left_alone() {
-        let dir = std::env::temp_dir().join(format!("ghost-scripts-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("dir");
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .args(args)
-                .current_dir(&dir)
+                .current_dir(dir)
                 .output()
                 .expect("git");
         };
@@ -464,20 +463,19 @@ mod tests {
             worktree: true,
             wait: true,
         };
-        write_script(&dir, None, Some(script("setup"))).expect("written");
-        write_script(&dir, None, Some(script("dev"))).expect("written");
-        write_script(&dir, Some(0), None).expect("taken away");
-        let names: Vec<_> = config(&dir).scripts.into_iter().map(|s| s.name).collect();
+        write_script(dir, None, Some(script("setup"))).expect("written");
+        write_script(dir, None, Some(script("dev"))).expect("written");
+        write_script(dir, Some(0), None).expect("taken away");
+        let names: Vec<_> = config(dir).scripts.into_iter().map(|s| s.name).collect();
         assert_eq!(names, ["dev"]);
         let text = std::fs::read_to_string(dir.join("ghost.json")).expect("file");
         assert!(text.contains("\"wait\": true"), "{text}");
         std::fs::write(dir.join("ghost.json"), "{ not json").expect("broken");
-        assert!(write_script(&dir, None, Some(script("x"))).is_err());
+        assert!(write_script(dir, None, Some(script("x"))).is_err());
         assert_eq!(
             std::fs::read_to_string(dir.join("ghost.json")).expect("kept"),
             "{ not json"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

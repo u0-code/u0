@@ -134,10 +134,13 @@ mod tests {
             assert_eq!(l.args, ["-T", "devbox", "bash -lc 'npx -y @x/c@1 --acp'"]);
         }
         // A folder is gone into whatever it is named, a quote and all.
-        let dir = std::env::temp_dir().join(format!("ghost it's {}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("ghost it's ")
+            .tempdir()
+            .unwrap();
+        let dir = dir.path();
         let out = std::process::Command::new("sh")
-            .args(["-c", &shell_in(&dir, "pwd")])
+            .args(["-c", &shell_in(dir, "pwd")])
             .output()
             .unwrap();
         let shown = String::from_utf8_lossy(&out.stdout);
@@ -145,6 +148,5 @@ mod tests {
             Path::new(shown.trim()).canonicalize().unwrap(),
             dir.canonicalize().unwrap()
         );
-        let _ = std::fs::remove_dir(&dir);
     }
 }

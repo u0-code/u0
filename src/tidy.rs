@@ -140,22 +140,21 @@ mod tests {
 
     #[test]
     fn records_no_session_keeps_are_removed_and_sizes_are_read() {
-        let home = std::env::temp_dir().join(format!("ghost-tidy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
         let dir = home.join("transcripts/a");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("kept.jsonl"), "x").unwrap();
         std::fs::write(dir.join("gone.jsonl"), "yy").unwrap();
-        assert_eq!(sizes(&home)[0], ("Session records", 3));
+        assert_eq!(sizes(home)[0], ("Session records", 3));
         let kept = Kept {
             records: vec![dir.join("kept.jsonl")],
             worktrees: Vec::new(),
             repos: Vec::new(),
             uids: Vec::new(),
         };
-        assert_eq!(tidy(&home, Tidy::Records, &kept), "1 record removed");
+        assert_eq!(tidy(home, Tidy::Records, &kept), "1 record removed");
         assert!(dir.join("kept.jsonl").is_file());
         assert_eq!(shown(1_536), "2 KB");
-        let _ = std::fs::remove_dir_all(&home);
     }
 }

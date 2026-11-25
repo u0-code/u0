@@ -717,8 +717,8 @@ mod tests {
 
     #[test]
     fn an_archive_installs_keeps_running_when_the_registry_moves_on_and_updates_in_place() {
-        let home = std::env::temp_dir().join(format!("ghost-install-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
         let src = home.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("agent"), "#!/bin/sh\n").unwrap();
@@ -743,35 +743,34 @@ mod tests {
         let quiet = |_: &str, _: Option<f32>| {};
 
         let one = at("1");
-        assert_eq!(one.launch(&home), Err(Missing::Download));
-        install(&one, &home, &quiet, &stop).unwrap();
-        assert_eq!(one.installed(&home).as_deref(), Some("1"));
+        assert_eq!(one.launch(home), Err(Missing::Download));
+        install(&one, home, &quiet, &stop).unwrap();
+        assert_eq!(one.installed(home).as_deref(), Some("1"));
 
         // The registry names 2: 1 runs until 2 is installed, which removes it.
         let two = at("2");
-        assert_eq!(two.installed(&home).as_deref(), Some("1"));
-        assert!(two.launch(&home).is_ok());
-        install(&two, &home, &quiet, &stop).unwrap();
-        assert_eq!(two.installed(&home).as_deref(), Some("2"));
-        assert!(!one.dir(&home).exists());
+        assert_eq!(two.installed(home).as_deref(), Some("1"));
+        assert!(two.launch(home).is_ok());
+        install(&two, home, &quiet, &stop).unwrap();
+        assert_eq!(two.installed(home).as_deref(), Some("2"));
+        assert!(!one.dir(home).exists());
 
-        two.uninstall(&home).unwrap();
-        assert_eq!(two.launch(&home), Err(Missing::Download));
-        let _ = std::fs::remove_dir_all(&home);
+        two.uninstall(home).unwrap();
+        assert_eq!(two.launch(home), Err(Missing::Download));
     }
 
     #[test]
     fn an_install_stopped_before_it_starts_leaves_nothing() {
-        let home = std::env::temp_dir().join(format!("ghost-stop-{}", std::process::id()));
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
         let e = entry(&format!(
             r#"{{"id":"b","name":"B","version":"1","distribution":{{"binary":{{"{}":{{"archive":"file:///nowhere/agent.tar.gz","cmd":"./agent"}}}}}}}}"#,
             platform()
         ));
         let stop = AtomicBool::new(true);
-        let got = install(&e, &home, &|_: &str, _: Option<f32>| {}, &stop);
+        let got = install(&e, home, &|_: &str, _: Option<f32>| {}, &stop);
         assert_eq!(got, Err(CANCELLED.to_owned()));
-        assert!(e.installed(&home).is_none());
-        let _ = std::fs::remove_dir_all(&home);
+        assert!(e.installed(home).is_none());
     }
 
     #[test]
@@ -793,7 +792,8 @@ mod tests {
 
     #[test]
     fn an_npm_package_names_its_program_in_its_package_json() {
-        let prefix = std::env::temp_dir().join(format!("ghost-npm-{}", std::process::id()));
+        let prefix = tempfile::tempdir().unwrap();
+        let prefix = prefix.path();
         let root = prefix.join("node_modules/@scope/agent");
         std::fs::create_dir_all(root.join("dist")).unwrap();
         std::fs::write(
@@ -803,10 +803,9 @@ mod tests {
         .unwrap();
         std::fs::write(root.join("dist/main.js"), "").unwrap();
         assert_eq!(
-            npm_bin(&prefix, "@scope/agent@1.2.3"),
+            npm_bin(prefix, "@scope/agent@1.2.3"),
             Some(PathBuf::from("node_modules/@scope/agent/dist/main.js"))
         );
-        assert_eq!(npm_bin(&prefix, "@scope/other@1"), None);
-        let _ = std::fs::remove_dir_all(&prefix);
+        assert_eq!(npm_bin(prefix, "@scope/other@1"), None);
     }
 }
