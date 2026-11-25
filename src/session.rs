@@ -305,13 +305,6 @@ pub struct Session {
     /// The ids the agent gave its messages and yours, each by the item of
     /// the thread it is in: where a fork can end.
     pub marks: Vec<(usize, MessageId)>,
-    /// How far its branch is behind its upstream, and whether the
-    /// repository has an origin.
-    pub upstream: (usize, bool),
-    /// The branch its branch is compared with; none, the main one.
-    pub compare_to: Option<String>,
-    /// The files (as git names them) you left out of the next commit.
-    pub left_out: std::collections::BTreeSet<String>,
     /// How much of its thread there was when you last left it.
     pub seen: Option<usize>,
     /// The scripts run in its new worktree as it was made (ghost.json's),
@@ -355,17 +348,8 @@ pub struct Session {
     /// What goes with the next thing said: images, files and sessions
     /// mentioned.
     pub attached: Vec<ContentBlock>,
-    /// What git says where it works, read when it is on screen: changes in
-    /// a scope git is asked for (the branch, a commit), the recent commits,
-    /// the local branches, its pull request, the step a git action is at.
-    pub scoped: Option<(crate::git::Scope, Vec<git::FileDiff>)>,
-    pub commits: Vec<(String, String, String)>,
-    pub branches: Vec<String>,
-    pub pr: Option<crate::git::Pr>,
-    pub git_step: Option<String>,
-    /// The agent was asked to write a commit message: its answer goes in
-    /// the commit form.
-    pub writing_message: bool,
+    /// What git says where it works, and what you chose of it.
+    pub git: git::View,
     /// The scripts the `ghost.json` of its repository names.
     pub scripts: Vec<crate::desk::runs::Script>,
     /// The calls just ended whose diffs are yet to be placed in their
@@ -689,9 +673,6 @@ impl Session {
             setup: Vec::new(),
             holding: Vec::new(),
             seen: None,
-            upstream: (0, true),
-            compare_to: None,
-            left_out: std::collections::BTreeSet::new(),
             times: Vec::new(),
             stamp: None,
             plan: None,
@@ -706,12 +687,7 @@ impl Session {
             recorded: false,
             commands: Vec::new(),
             attached: Vec::new(),
-            scoped: None,
-            commits: Vec::new(),
-            branches: Vec::new(),
-            pr: None,
-            git_step: None,
-            writing_message: false,
+            git: git::View::default(),
             scripts: Vec::new(),
             placing: Vec::new(),
         }

@@ -664,7 +664,7 @@ impl Desk {
             } else {
                 0.
             }
-            - if s.pr.is_some() { 36. } else { 0. };
+            - if s.git.pr.is_some() { 36. } else { 0. };
         let name: AnyElement = if self.renaming == Some(key) && !self.renaming_here {
             self.rename_field().into_any_element()
         } else {
@@ -724,7 +724,7 @@ impl Desk {
                 d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
             })
             // Its pull request, coloured by its checks.
-            .children(s.pr.as_ref().map(|pr| {
+            .children(s.git.pr.as_ref().map(|pr| {
                 let color = if pr.failed > 0 {
                     theme::coral()
                 } else if pr.going > 0 {

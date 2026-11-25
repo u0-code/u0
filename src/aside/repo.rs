@@ -25,6 +25,7 @@ impl Desk {
             Scope::All => s.total.as_ref(),
             Scope::Turn(n) => s.turns.get(*n).and_then(|t| t.diff.as_ref()),
             scope => s
+                .git
                 .scoped
                 .as_ref()
                 .filter(|(at, _)| at == scope)
@@ -98,7 +99,7 @@ impl Desk {
     /// What the branch is compared with: the main branch, or one chosen.
     fn compare_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let open = self.popup == crate::desk::Popup::Compare;
-        let shown = s.compare_to.clone().unwrap_or_else(|| "main".into());
+        let shown = s.git.compare_to.clone().unwrap_or_else(|| "main".into());
         let key = s.key;
         let mut wrap = div().relative().child(
             div()
@@ -125,6 +126,7 @@ impl Desk {
         if open {
             // The other branches: the one it is on compares with nothing.
             let others: Vec<&String> = s
+                .git
                 .branches
                 .iter()
                 .filter(|b| Some(*b) != s.branch.as_ref())
@@ -153,7 +155,7 @@ impl Desk {
                         .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.session_mut(key) {
-                                s.compare_to = Some(b.clone());
+                                s.git.compare_to = Some(b.clone());
                             }
                             this.popup = crate::desk::Popup::Closed;
                             this.refresh_diffs(key);
@@ -263,7 +265,7 @@ impl Desk {
         if self.committing {
             sec = sec.child(self.commit_form(faces, s, cx));
         }
-        if let Some(step) = &s.git_step {
+        if let Some(step) = &s.git.step {
             sec = sec.child(
                 div()
                     .flex()
@@ -376,11 +378,11 @@ impl Desk {
         s: &Session,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        if s.commits.is_empty() {
+        if s.git.commits.is_empty() {
             return None;
         }
         let mut rows = div().flex().flex_col();
-        for (id, subject, when) in s.commits.iter().take(8) {
+        for (id, subject, when) in s.git.commits.iter().take(8) {
             let on = self.scope == Scope::Commit(id.clone());
             let to = Scope::Commit(id.clone());
             rows = rows.child(
@@ -408,7 +410,7 @@ impl Desk {
             );
         }
         // Behind its upstream, or not on a remote yet: the way on.
-        let (behind, origin) = s.upstream;
+        let (behind, origin) = s.git.upstream;
         let gh = self.on_path.contains(&"gh");
         let note = |text: String,
                     id: &'static str,
@@ -450,7 +452,7 @@ impl Desk {
 
     /// The branch's pull request: its state, its checks, the review asked.
     pub(super) fn pull_request(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
-        let pr = s.pr.as_ref()?;
+        let pr = s.git.pr.as_ref()?;
         let state = if pr.draft {
             "draft".to_owned()
         } else {

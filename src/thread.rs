@@ -675,7 +675,7 @@ impl Desk {
                     }))
             };
             let mut list = div().flex().flex_col().w(px(300.)).p(px(6.));
-            for (n, b) in s.branches.iter().enumerate() {
+            for (n, b) in s.git.branches.iter().enumerate() {
                 let on = match &s.begin {
                     Some(Begin::Branch(f)) => f == b,
                     Some(Begin::Pr(..)) => false,
@@ -695,7 +695,7 @@ impl Desk {
                 for (n, (number, title)) in prs.iter().enumerate() {
                     let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
                     list = list.child(pick(
-                        s.branches.len() + n,
+                        s.git.branches.len() + n,
                         format!("#{number} {}", ui::fit(title, 34)),
                         on,
                         Begin::Pr(*number, title.clone()),

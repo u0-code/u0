@@ -409,7 +409,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         d.open_option(&Kind::ThoughtLevel, cx);
     });
     on::<CopyPr>(cx, window, |d, _, cx| {
-        d.copy_of_session(|s| s.pr.as_ref().map(|p| p.url.clone()), cx);
+        d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });
     on::<CopyId>(cx, window, |d, _, cx| {
         d.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);

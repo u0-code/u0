@@ -474,7 +474,7 @@ impl Desk {
                     // Ticked, it goes in the next commit; not, it stays out.
                     .when(s.repo, |d| {
                         let (key, named) = (s.key, f.path.clone());
-                        let goes = !s.left_out.contains(&f.path);
+                        let goes = !s.git.left_out.contains(&f.path);
                         d.child(
                             div()
                                 .id(SharedString::from(format!("goes-{n}")))
@@ -501,9 +501,9 @@ impl Desk {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
                                     if let Some(s) = this.session_mut(key)
-                                        && !s.left_out.remove(&named)
+                                        && !s.git.left_out.remove(&named)
                                     {
-                                        s.left_out.insert(named.clone());
+                                        s.git.left_out.insert(named.clone());
                                     }
                                     cx.notify();
                                 })),
@@ -586,7 +586,7 @@ impl Desk {
                 "{} file{}{}{}",
                 files.len(),
                 if files.len() == 1 { "" } else { "s" },
-                match s.left_out.len() {
+                match s.git.left_out.len() {
                     0 => String::new(),
                     n => format!(" · {n} left out"),
                 },
@@ -668,7 +668,7 @@ impl Desk {
                     .text_size(px(11.5))
                     .text_color(theme::faint()),
             );
-            for (n, b) in s.branches.iter().enumerate() {
+            for (n, b) in s.git.branches.iter().enumerate() {
                 let (on, name) = (b == branch, b.clone());
                 menu = menu.child(
                     div()

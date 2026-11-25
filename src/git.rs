@@ -1291,3 +1291,46 @@ pub enum Scope {
     Branch,
     Commit(String),
 }
+
+/// What git says where a session works, read while it is on screen, and
+/// what you chose of it for the next commit.
+#[derive(Debug, Clone)]
+pub struct View {
+    /// The changes in a scope git was asked for (the branch, a commit).
+    pub scoped: Option<(Scope, Vec<FileDiff>)>,
+    /// The recent commits: id, subject, when.
+    pub commits: Vec<(String, String, String)>,
+    /// The local branches.
+    pub branches: Vec<String>,
+    /// The pull request of its branch.
+    pub pr: Option<Pr>,
+    /// The step a git action is at.
+    pub step: Option<String>,
+    /// How far its branch is behind its upstream, and whether the
+    /// repository has an origin.
+    pub upstream: (usize, bool),
+    /// The branch its branch is compared with; none, the main one.
+    pub compare_to: Option<String>,
+    /// The files (as git names them) you left out of the next commit.
+    pub left_out: std::collections::BTreeSet<String>,
+    /// The agent was asked to write a commit message: its answer goes in
+    /// the commit form.
+    pub writing_message: bool,
+}
+
+impl Default for View {
+    /// Nothing read yet: taken to have an origin until git says otherwise.
+    fn default() -> Self {
+        Self {
+            scoped: None,
+            commits: Vec::new(),
+            branches: Vec::new(),
+            pr: None,
+            step: None,
+            upstream: (0, true),
+            compare_to: None,
+            left_out: std::collections::BTreeSet::new(),
+            writing_message: false,
+        }
+    }
+}

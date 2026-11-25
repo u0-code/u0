@@ -276,9 +276,9 @@ impl Desk {
             Msg::Diffed { key, scope, result } => {
                 if let Some(s) = self.session_mut(key) {
                     match result {
-                        Ok(files) => s.scoped = Some((scope, files)),
+                        Ok(files) => s.git.scoped = Some((scope, files)),
                         Err(why) => {
-                            s.scoped = Some((scope, Vec::new()));
+                            s.git.scoped = Some((scope, Vec::new()));
                             self.trouble("Couldn't read the changes", Some(why), None);
                         }
                     }
@@ -291,15 +291,15 @@ impl Desk {
                 upstream,
             } => {
                 if let Some(s) = self.session_mut(key) {
-                    s.commits = commits;
-                    s.branches = branches;
-                    s.upstream = upstream;
+                    s.git.commits = commits;
+                    s.git.branches = branches;
+                    s.git.upstream = upstream;
                 }
             }
             Msg::Pr { key, pr } => {
                 let merged = pr.as_ref().is_some_and(|p| p.state == "merged");
                 if let Some(s) = self.session_mut(key) {
-                    s.pr = pr;
+                    s.git.pr = pr;
                     // Its pull request merged: the session is done.
                     if merged && s.meta.flags.settled.is_none() {
                         s.meta.flags.settled =
@@ -310,7 +310,7 @@ impl Desk {
             }
             Msg::GitStep { key, text } => {
                 if let Some(s) = self.session_mut(key) {
-                    s.git_step = Some(text);
+                    s.git.step = Some(text);
                 }
             }
             Msg::Sizes(sizes) => self.sizes = sizes,

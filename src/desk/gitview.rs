@@ -106,12 +106,12 @@ impl Desk {
             return;
         }
         hub::uncommitted(s.meta.folder.clone(), key, self.tx.clone());
-        if let Some((scope, _)) = &s.scoped {
+        if let Some((scope, _)) = &s.git.scoped {
             hub::scope_diff(
                 s.meta.folder.clone(),
                 key,
                 scope.clone(),
-                s.compare_to.clone(),
+                s.git.compare_to.clone(),
                 self.tx.clone(),
             );
         }
@@ -142,8 +142,8 @@ impl Desk {
             return;
         }
         if let Some(s) = self.session_mut(key) {
-            s.scoped = None;
-            let (dir, base) = (s.meta.folder.clone(), s.compare_to.clone());
+            s.git.scoped = None;
+            let (dir, base) = (s.meta.folder.clone(), s.git.compare_to.clone());
             hub::scope_diff(dir, key, scope.clone(), base, self.tx.clone());
         }
     }
@@ -212,7 +212,7 @@ impl Desk {
     /// what a turn spends.
     pub fn ask_message(&mut self, key: u64, cx: &mut Context<Self>) {
         if let Some(s) = self.session_mut(key) {
-            s.writing_message = true;
+            s.git.writing_message = true;
         }
         self.send_in(key, WRITE_MESSAGE, cx);
     }
@@ -223,10 +223,10 @@ impl Desk {
         let Some(s) = self.session_mut(key) else {
             return;
         };
-        if !s.writing_message {
+        if !s.git.writing_message {
             return;
         }
-        s.writing_message = false;
+        s.git.writing_message = false;
         let said = s.items.iter().rev().find_map(|i| match i {
             Item::Agent(t) => Some(t.trim().to_owned()),
             _ => None,

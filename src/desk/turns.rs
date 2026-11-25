@@ -273,10 +273,10 @@ impl Desk {
     pub fn git_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (dir, key) = (s.meta.folder.clone(), s.key);
-        let left_out: Vec<String> = s.left_out.iter().cloned().collect();
+        let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
         if let Some(s) = self.session_mut(key) {
-            s.git_step = Some("Working".into());
-            s.left_out.clear();
+            s.git.step = Some("Working".into());
+            s.git.left_out.clear();
         }
         hub::git_action(
             dir,
@@ -299,7 +299,7 @@ impl Desk {
         let Some(s) = self.session_mut(key) else {
             return;
         };
-        s.git_step = None;
+        s.git.step = None;
         // A branch renamed, or another checked out, is the session's now.
         match (action, &result) {
             (hub::GitAction::RenameBranch(name), Ok(_)) => {
