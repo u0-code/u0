@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use agent_client_protocol::{
     schema::MaybeUndefined,
-    v1::schema::{SessionId, SessionInfo, SessionNotification, SessionUpdate},
+    v1::schema::{SessionId, SessionInfo, SessionUpdate},
 };
 
 use crate::{
@@ -135,38 +135,45 @@ impl Sessions {
         }
     }
 
-    /// An update `agent` sent: the key of the session it went to, and
-    /// whether it named it; or, when it went to none of them (the probe's
-    /// session), the update. A subagent set to work becomes a session of
-    /// its own, under its parent.
-    pub fn update(
+    /// Lines of the record of the session `id` of `agent` that the server
+    /// wrote, made of what the agent said in it, taken into its thread:
+    /// its key, and whether the agent named it. A subagent set to work
+    /// becomes a session of its own, under its parent.
+    pub fn appended(
         &mut self,
         agent: &str,
-        n: SessionNotification,
-    ) -> Result<(u64, bool), Box<SessionUpdate>> {
-        if let SessionUpdate::SubagentUpdate(u) = &n.update
-            && self.by_id(agent, &u.session_id).is_none()
-            && let Some(parent) = self.by_id(agent, &n.session_id)
-        {
-            let up = parent.key;
-            let title = match &u.title {
-                MaybeUndefined::Value(t) => t.clone(),
-                _ => "A subagent".into(),
+        id: &SessionId,
+        events: Vec<store::Event>,
+    ) -> Option<(u64, bool)> {
+        let updates = events.iter().filter_map(|e| match e {
+            store::Event::Update(u) => Some(&**u),
+            _ => None,
+        });
+        let mut titled = false;
+        for update in updates {
+            titled |= matches!(update, SessionUpdate::SessionInfoUpdate(_));
+            let SessionUpdate::SubagentUpdate(u) = update else {
+                continue;
             };
-            self.add_subagent(up, u.session_id.clone(), title, State::Idle);
+            if self.by_id(agent, &u.session_id).is_none()
+                && let Some(parent) = self.by_id(agent, id)
+            {
+                let up = parent.key;
+                let title = match &u.title {
+                    MaybeUndefined::Value(t) => t.clone(),
+                    _ => "A subagent".into(),
+                };
+                self.add_subagent(up, u.session_id.clone(), title, State::Idle);
+            }
+            // What it is doing now, for its row, the column and its tab.
+            if let Some(child) = self.by_id(agent, &u.session_id) {
+                child.sub.take(u);
+            }
         }
-        // What it is doing now, for its row, the column and its tab.
-        if let SessionUpdate::SubagentUpdate(u) = &n.update
-            && let Some(child) = self.by_id(agent, &u.session_id)
-        {
-            child.sub.take(u);
-        }
-        let Some(s) = self.by_id(agent, &n.session_id) else {
-            return Err(Box::new(n.update));
-        };
-        let titled = matches!(n.update, SessionUpdate::SessionInfoUpdate(_));
-        s.apply(n.update);
-        Ok((s.key, titled))
+        let s = self.by_id(agent, id)?;
+        s.meta.updated = std::time::SystemTime::now();
+        s.replay(events);
+        Some((s.key, titled))
     }
 
     /// The process of `agent` stopped, why: each of its sessions open is
@@ -303,9 +310,12 @@ pub enum Read {
 mod tests {
     use agent_client_protocol::v1::schema::{RequestPermissionRequest, StopReason};
 
+    use agent_client_protocol::v1::schema::SessionNotification;
+
     use super::*;
     use crate::hub::{Slot, Stage};
     use crate::session::Item;
+    use ghost_core::records::Records;
 
     /// Sessions of the agents `a` and `b`, each open as `s1`, under keys
     /// 1 and 2.
@@ -331,22 +341,39 @@ mod tests {
         )
     }
 
+    /// What `agent` says in a session, as the server writes it and the
+    /// desk takes it in; `None` where it went to no session open with it.
+    fn heard(
+        records: &Records,
+        sessions: &mut Sessions,
+        agent: &str,
+        n: SessionNotification,
+    ) -> Option<(u64, bool)> {
+        let (id, events) = records.said(agent, n).ok()?;
+        sessions.appended(agent, &id, events)
+    }
+
     #[test]
-    fn a_turns_chunks_go_to_the_session_of_their_agent_and_ended_closes_the_turn() {
+    fn a_turn_is_written_as_it_comes_and_its_record_builds_the_same_thread() {
+        let home = tempfile::tempdir().unwrap();
+        let records = Records::new(home.path().to_path_buf());
         let mut sessions = two();
-        sessions.at_mut(2).unwrap().said("go");
-        assert_eq!(
-            sessions.update("b", said("s1", &chunk("Do"))),
-            Ok((2, false))
-        );
-        assert_eq!(
-            sessions.update("b", said("s1", &chunk("ne."))),
-            Ok((2, false))
-        );
+        let id = SessionId::new("s1");
+        records.open("b", id.clone());
+        // What you said is the desk's, sent to be written first.
+        let s = sessions.at_mut(2).unwrap();
+        s.said("go");
+        records.append("b", &id, std::mem::take(&mut s.log));
+        let done = [chunk("Do"), chunk("ne.")];
+        for text in &done {
+            let n = said("s1", text);
+            assert_eq!(heard(&records, &mut sessions, "b", n), Some((2, false)));
+        }
         // The same id under another agent is another session.
         assert!(sessions.at(1).unwrap().items.is_empty());
         let s = sessions.at_mut(2).unwrap();
         s.ended(Ok(StopReason::EndTurn));
+        records.append("b", &id, std::mem::take(&mut s.log));
         assert!(matches!(&s.items[1], Item::Agent(t) if t == "Done."));
         assert!(matches!(
             s.items[2],
@@ -356,8 +383,24 @@ mod tests {
             }
         ));
         assert_eq!(s.state, State::Idle);
-        // One for no session on the desk (the probe's) is handed back.
-        assert!(sessions.update("b", said("probe", &chunk("x"))).is_err());
+        // One for no session open with its agent (the probe's) is handed back.
+        assert!(records.said("b", said("probe", &chunk("x"))).is_err());
+        // Read back, the record builds the thread the desk has.
+        store::settle();
+        let mut again = Session::new(9, "b", "/p".into());
+        again.replay(store::read(&records.path("b", &id)).unwrap());
+        let shown = |s: &Session| {
+            (s.items.iter())
+                .map(|i| match i {
+                    Item::You(t) | Item::Agent(t) => t.clone(),
+                    Item::Ended { .. } => "ended".into(),
+                    _ => "?".into(),
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shown(&again), ["go", "Done.", "ended"]);
+        assert_eq!(shown(&again), shown(sessions.at(2).unwrap()));
+        assert_eq!(again.times.len(), 2, "when you spoke, and when it did");
     }
 
     #[test]
@@ -433,23 +476,26 @@ mod tests {
 
     #[test]
     fn a_subagent_set_to_work_appears_once_under_its_parent() {
+        let home = tempfile::tempdir().unwrap();
+        let records = Records::new(home.path().to_path_buf());
+        records.open("a", SessionId::new("s1"));
         let mut sessions = two();
         let sub =
             r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Read the papers"}"#;
-        assert_eq!(sessions.update("a", said("s1", sub)), Ok((1, false)));
-        assert_eq!(sessions.update("a", said("s1", sub)), Ok((1, false)));
+        for _ in 0..2 {
+            let n = said("s1", sub);
+            assert_eq!(heard(&records, &mut sessions, "a", n), Some((1, false)));
+        }
         let children: Vec<&Session> = (sessions.all.iter())
             .filter(|s| s.parent == Some(1))
             .collect();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].meta.title, "Read the papers");
         assert_eq!(children[0].meta.agent, "a");
-        // Its own updates go to it.
+        // Its own updates go to it, written in a record of its own.
         let child = children[0].key;
-        assert_eq!(
-            sessions.update("a", said("c1", &chunk("Reading"))),
-            Ok((child, false))
-        );
+        let n = said("c1", &chunk("Reading"));
+        assert_eq!(heard(&records, &mut sessions, "a", n), Some((child, false)));
     }
 
     #[test]

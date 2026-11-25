@@ -13,6 +13,7 @@ pub mod git;
 pub mod path;
 pub mod proto;
 pub mod pty;
+pub mod records;
 pub mod registry;
 pub mod remote;
 pub mod scripts;

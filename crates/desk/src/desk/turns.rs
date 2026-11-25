@@ -101,24 +101,22 @@ impl Desk {
             .at_mut(key)
             .map(|s| std::mem::take(&mut s.attached))
             .unwrap_or_default();
-        match (self.slot(&agent).is_some_and(Slot::running), id) {
-            (true, Some(id)) => {
-                let mut content = vec![ContentBlock::Text(TextContent::new(text))];
-                content.extend(attached);
-                self.transport.send(Call::Prompt {
-                    agent,
-                    key,
-                    session: id,
-                    content,
-                });
+        if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
+            let mut content = vec![ContentBlock::Text(TextContent::new(text))];
+            content.extend(attached);
+            self.transport.send(Call::Prompt {
+                agent,
+                key,
+                session: id,
+                content,
+            });
+        } else {
+            if let Some(s) = self.sessions.at_mut(key) {
+                s.ended(Err(
+                    "The agent is not running; start a new session with it.".into(),
+                ));
             }
-            _ => {
-                if let Some(s) = self.sessions.at_mut(key) {
-                    s.ended(Err(
-                        "The agent is not running; start a new session with it.".into(),
-                    ));
-                }
-            }
+            self.flush(key);
         }
     }
 

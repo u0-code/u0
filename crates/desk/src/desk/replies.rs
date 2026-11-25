@@ -444,6 +444,18 @@ impl Desk {
                 }
             }
             Event::Said { agent, event } => self.said(&agent, *event),
+            Event::Appended { agent, id, events } => {
+                if let Some(slot) = self.slot_mut(&agent) {
+                    slot.used = std::time::Instant::now();
+                }
+                if let Some((key, titled)) = self.sessions.appended(&agent, &id, events) {
+                    self.place(key);
+                    // A title come from the agent names the worktree's branch.
+                    if titled {
+                        self.name_branch(key);
+                    }
+                }
+            }
             Event::Signed { agent, result } => self.signed(&agent, result),
             Event::Options { key, options } => {
                 if let Some(s) = self.sessions.at_mut(key) {
@@ -654,11 +666,13 @@ impl Desk {
     ) {
         match self.sessions.loaded(key, resumed, result) {
             Loaded::Open(said) => {
+                // What you said goes in its record before what the agent
+                // says to it.
+                self.flush(key);
                 if let Some(text) = said {
                     self.begin_turn(key, text);
                 }
                 self.to_bottom();
-                self.flush(key);
                 self.save_index();
             }
             Loaded::Refused => {
@@ -681,28 +695,15 @@ impl Desk {
                     s.task(task);
                 }
             }
-            acp::Event::Update(n) => match self.sessions.update(agent, n) {
-                Ok((key, titled)) => {
-                    // A long turn is written as it goes, not only at its end.
-                    let long = self.sessions.at(key).is_some_and(|s| s.log.len() >= 400);
-                    self.place(key);
-                    if long {
-                        self.flush(key);
-                    }
-                    // A title come from the agent names the worktree's branch.
-                    if titled {
-                        self.name_branch(key);
-                    }
+            // Said in no session open with it: the probe's, which lists the
+            // commands the agent takes.
+            acp::Event::Update(n) => {
+                if let SessionUpdate::AvailableCommandsUpdate(c) = n.update
+                    && let Some(slot) = self.slot_mut(agent)
+                {
+                    slot.commands = c.available_commands;
                 }
-                // The probe's session lists the commands the agent takes.
-                Err(update) => {
-                    if let SessionUpdate::AvailableCommandsUpdate(c) = *update
-                        && let Some(slot) = self.slot_mut(agent)
-                    {
-                        slot.commands = c.available_commands;
-                    }
-                }
-            },
+            }
             acp::Event::Permission { id, request } => {
                 if let Some(s) = self.sessions.by_id(agent, &request.session_id) {
                     let (key, title) = (s.key, s.meta.title.clone());

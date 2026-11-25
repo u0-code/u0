@@ -222,6 +222,8 @@ impl Desk {
             session.meta.id.clone(),
         );
         if id.is_some() {
+            // What you said goes in its record before what the agent says.
+            self.flush(key);
             self.begin_turn(key, text);
         } else {
             let session = self.sessions.at_mut(key).expect("on screen");

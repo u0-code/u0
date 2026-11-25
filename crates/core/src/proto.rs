@@ -171,7 +171,8 @@ pub enum Call {
     },
     /// What you put aside from the composer, the latest last.
     Stash(Vec<String>),
-    /// Add `events` to the end of the record of the session `id`.
+    /// Add `events`, what the desk made (what you said, a turn's end, a
+    /// note), to the end of the record of the session `id`.
     Append {
         agent: String,
         id: SessionId,
@@ -223,7 +224,15 @@ pub enum Event {
         agent: String,
         result: Result<(Option<u32>, Box<InitializeResponse>), Error>,
     },
-    /// Something an agent said on its own.
+    /// Lines of the record of the session `id` of `agent`, made of what
+    /// the agent said in it, as they were written.
+    Appended {
+        agent: String,
+        id: SessionId,
+        events: Vec<store::Event>,
+    },
+    /// Something an agent said on its own, outside the records: a question,
+    /// a task, its end, and what it said in a session not open with it.
     Said {
         agent: String,
         event: Box<acp::Event>,
@@ -551,6 +560,11 @@ mod tests {
                         "content": {"type": "text", "text": "hi"},
                     },
                 })))),
+            },
+            Event::Appended {
+                agent: "a".into(),
+                id: SessionId::new("s1"),
+                events: said.clone(),
             },
             Event::Opened {
                 key: 1,

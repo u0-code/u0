@@ -70,6 +70,7 @@ crates/core/src/
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk)
+  records.rs    the record of each session open with its agent, written as it comes
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   session.rs    a session: its thread built from session/update; its turns' checkpoints
@@ -133,8 +134,13 @@ assets/         fonts and the desk's own icons, built into the app
   without is loaded (`session/load`), and recorded as it comes.
 - The server writes `sessions.json` and the records, and nothing else
   does: the desk reads the index once (`Call::Watch`), sends each meta
-  that changed (`Call::Keep`) and each record's new lines
-  (`Call::Append`), and asks for a record back (`Call::Read`).
+  that changed (`Call::Keep`), and asks for a record back (`Call::Read`).
+  Each line of a record is made once, where it happens: what the agent
+  says, on the server as it arrives (sent to the desk as
+  `Event::Appended`); what you said, a turn's end and a note, on the desk
+  (sent with `Call::Append` before the agent is asked anything more). The
+  desk's thread is built from those lines by the reducer the server's is
+  (`Session::replay`), so a record read back is the thread you saw.
 - In a repository Ghost writes commits no branch points at, under
   `refs/ghost/checkpoints/<session>/`, and worktrees under
   `~/.ghost/worktrees/`. It never changes your index or branch except when

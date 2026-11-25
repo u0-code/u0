@@ -8,7 +8,8 @@
 //!
 //! The server is also the one writer of what Ghost keeps of sessions
 //! (`store`): the index, changed by the metas the desk sends, and each
-//! session's record.
+//! session's record (`records`): what an agent says in a session open with
+//! it is written here and sent on as [`Event::Appended`].
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -33,6 +34,7 @@ use crate::{
     acp::{self, Agent, Error},
     git,
     proto::{Call, Event, Here, Opened},
+    records::Records,
     registry::{self, Entry},
     session::Session,
     store::{self, Index, Job, Meta},
@@ -53,6 +55,7 @@ pub struct Server {
     /// The index of the sessions kept, or why it does not read: then
     /// nothing is saved over it.
     index: Mutex<Result<Index, String>>,
+    records: Arc<Records>,
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -68,6 +71,7 @@ impl Server {
             tracing::warn!("{why}");
         }
         Self {
+            records: Arc::new(Records::new(home.clone())),
             home,
             send: Arc::new(send),
             agents: Running::default(),
@@ -183,15 +187,15 @@ impl Server {
                         index.gone.push((agent.clone(), id.0.to_string()));
                     }
                 });
-                store::queue(Job::Remove(self.record(&agent, &id)));
+                self.records.forget(&agent, &id);
             }
             Call::Stash(stashed) => self.change_index(|index| index.stashed = stashed),
-            Call::Append { agent, id, events } => {
-                store::queue(Job::Append(self.record(&agent, &id), events));
+            Call::Append { agent, id, events } => self.records.append(&agent, &id, events),
+            Call::DropRecord { agent, id } => {
+                store::queue(Job::Remove(self.records.path(&agent, &id)));
             }
-            Call::DropRecord { agent, id } => store::queue(Job::Remove(self.record(&agent, &id))),
             Call::Read { key, agent, id } => {
-                let (path, send) = (self.record(&agent, &id), self.send.clone());
+                let (path, send) = (self.records.path(&agent, &id), self.send.clone());
                 store::queue(Job::Then(Box::new(move || {
                     send(Event::Record {
                         key,
@@ -205,7 +209,10 @@ impl Server {
                 to,
                 yours,
             } => {
-                let (from, to) = (self.record(&agent, &from), self.record(&agent, &to));
+                let (from, to) = (
+                    self.records.path(&agent, &from),
+                    self.records.path(&agent, &to),
+                );
                 // After what is being written to it; and before anything
                 // else is written to the branch.
                 store::queue(Job::Then(Box::new(move || {
@@ -230,11 +237,6 @@ impl Server {
                 });
             }
         }
-    }
-
-    /// Where the record of the session `id` of `agent` is.
-    fn record(&self, agent: &str, id: &SessionId) -> PathBuf {
-        store::record_path(&self.home, agent, &id.0)
     }
 
     /// Change the index by `change` and write it, unless it did not read.
@@ -329,13 +331,11 @@ impl Server {
             }
         };
         let (send, agents) = (self.send.clone(), self.agents.clone());
+        let (records, running) = (self.records.clone(), self.agents.clone());
         acp::runtime().spawn(async move {
             let (said, id) = (send.clone(), agent.clone());
             let result = match Agent::start(&launch, move |event| {
-                said(Event::Said {
-                    agent: id.clone(),
-                    event: Box::new(event),
-                });
+                said(heard(&records, &running, &id, event));
             })
             .await
             {
@@ -370,6 +370,7 @@ impl Server {
     /// asked of it.
     fn stop(&self, id: &str) {
         self.agents.lock().expect("agents").remove(id);
+        self.records.close(id);
     }
 
     /// Stop the agent `id` at once, and all it started: when it would not
@@ -384,9 +385,15 @@ impl Server {
     /// `also` beside it.
     fn open(&self, id: &str, key: u64, folder: PathBuf, also: Vec<PathBuf>) {
         let request = NewSessionRequest::new(folder).additional_directories(also);
-        self.ask(id, request, move |r| Event::Opened {
-            key,
-            result: r.map(Box::new),
+        let (records, agent) = (self.records.clone(), id.to_owned());
+        self.ask(id, request, move |r| {
+            if let Ok(r) = &r {
+                records.open(&agent, r.session_id.clone());
+            }
+            Event::Opened {
+                key,
+                result: r.map(Box::new),
+            }
         });
     }
 
@@ -482,6 +489,9 @@ impl Server {
         also: Vec<PathBuf>,
         resumed: bool,
     ) {
+        // What it says from now on is written: on a load, all that was
+        // said in it.
+        self.records.open(id, session.clone());
         let loaded = move |result| Event::Loaded {
             key,
             resumed,
@@ -554,10 +564,16 @@ impl Server {
             request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
         }
         let at = upto.map(|(at, _)| at);
-        self.ask(id, request, move |r| Event::Forked {
-            from,
-            at,
-            result: r.map(Box::new),
+        let (records, agent) = (self.records.clone(), id.to_owned());
+        self.ask(id, request, move |r| {
+            if let Ok(r) = &r {
+                records.open(&agent, r.session_id.clone());
+            }
+            Event::Forked {
+                from,
+                at,
+                result: r.map(Box::new),
+            }
         });
     }
 
@@ -740,6 +756,37 @@ impl Server {
     }
 }
 
+/// What the agent `agent` said, as the server says it: what it said in a
+/// session open with it is written in its record, and sent as the lines
+/// that makes; the rest as it is. Its process stopping closes its sessions,
+/// unless it is one let go before (another may run in its place).
+fn heard(records: &Records, running: &Running, agent: &str, event: acp::Event) -> Event {
+    let event = match event {
+        acp::Event::Update(n) => match records.said(agent, n) {
+            Ok((id, events)) => {
+                return Event::Appended {
+                    agent: agent.to_owned(),
+                    id,
+                    events,
+                };
+            }
+            Err(n) => acp::Event::Update(*n),
+        },
+        acp::Event::Exited { pid, why } => {
+            let this = running.lock().expect("agents").get(agent).map(|a| a.pid());
+            if this == Some(pid) {
+                records.close(agent);
+            }
+            acp::Event::Exited { pid, why }
+        }
+        other => other,
+    };
+    Event::Said {
+        agent: agent.to_owned(),
+        event: Box::new(event),
+    }
+}
+
 /// Whether `a` and `b` are the same session: of one agent, by one id.
 fn same(a: &Meta, b: &Meta) -> bool {
     a.agent == b.agent && a.id == b.id
@@ -841,5 +888,66 @@ mod tests {
         server.handle(Call::Keep(vec![meta("s1", "first")]));
         Server::settle();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"threads":[]}"#);
+    }
+
+    #[test]
+    fn what_an_agent_says_in_a_session_it_loads_is_written_and_sent_as_its_record() {
+        let home = tempfile::tempdir().unwrap();
+        // An agent that says hello, then, asked to load `s1`, says again
+        // what was said in it, and then stops.
+        let agent = home.path().join("agent.sh");
+        let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
+read line
+printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)"
+read line
+printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}'
+printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"probe","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$(id)"
+read line"#;
+        std::fs::write(&agent, script).unwrap();
+        let (server, rx) = server(home.path());
+        let next = || rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "version": "1", "distribution": {},
+        }))
+        .unwrap();
+        server.handle(Call::Start {
+            entry,
+            command: Some(format!("/bin/sh {}", agent.display())),
+        });
+        assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
+        let s1 = SessionId::new("s1");
+        server.handle(Call::Reopen {
+            agent: "a".into(),
+            key: 1,
+            session: s1.clone(),
+            folder: home.path().to_path_buf(),
+            also: Vec::new(),
+            resumed: false,
+        });
+        let Event::Appended { id, events, .. } = next() else {
+            panic!("not the session's record");
+        };
+        assert_eq!(id, s1);
+        assert!(matches!(
+            &events[..],
+            [store::Event::At(_), store::Event::Update(_)]
+        ));
+        // One said in a session not open here comes as it was said.
+        assert!(
+            matches!(next(), Event::Said { event, .. } if matches!(*event, acp::Event::Update(_)))
+        );
+        assert!(matches!(
+            next(),
+            Event::Loaded {
+                key: 1,
+                result: Ok(_),
+                ..
+            }
+        ));
+        Server::settle();
+        let record = store::read(&store::record_path(home.path(), "a", "s1")).unwrap();
+        assert_eq!(record.len(), 2);
+        assert!(store::read(&store::record_path(home.path(), "a", "probe")).is_none());
     }
 }

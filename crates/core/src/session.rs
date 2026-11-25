@@ -1,6 +1,7 @@
-//! One session with an agent, as the desk holds it: the thread that the
-//! agent's updates build, what it is doing now, and what it offers to be
-//! changed (its modes and its options, such as the model).
+//! One session with an agent, as the desk holds it (and the server, for
+//! its record: `records`): the thread that the agent's updates build, what
+//! it is doing now, and what it offers to be changed (its modes and its
+//! options, such as the model).
 //!
 //! Everything here comes from the agent over ACP. The desk adds only what
 //! you said, the permission questions as they were answered, when things
