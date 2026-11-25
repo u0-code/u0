@@ -3,7 +3,7 @@
 //! write while a turn goes on; how new sessions begin; the keys; and what
 //! Ghost is. Each row says what happens, and its control says the choice.
 
-use gpui::{Context, Div, IntoElement, div, prelude::*, px};
+use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
 use super::{card, fine};
 use crate::{
@@ -194,7 +194,44 @@ impl Desk {
                     .px(px(16.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .child(ui::text(faces, does).flex_1().text_size(px(13.)))
-                    .child(keys),
+                    // A click records new keys for it; the arrow gives it
+                    // back Ghost's.
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("record-{name}")))
+                            .cursor_pointer()
+                            .rounded(px(6.))
+                            .px(px(4.))
+                            .hover(|st| st.bg(theme::hover()))
+                            .child(if self.recording == Some(name) {
+                                ui::text(faces, "Press the keys…  Escape to keep these")
+                                    .text_size(px(12.))
+                                    .text_color(theme::link())
+                                    .into_any_element()
+                            } else {
+                                keys.into_any_element()
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.recording = Some(name);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("unbind-{name}")),
+                            "retry",
+                            "Back to Ghost's keys",
+                        )
+                        .size(px(22.))
+                        .text_color(theme::faint())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let home = this.home.clone();
+                            if let Err(why) = keys::set_yours(cx, &home, name, None) {
+                                this.trouble("Couldn't give the keys back", Some(why), None);
+                            }
+                            cx.notify();
+                        })),
+                    ),
             );
         }
         let path = self.home.join("keybindings.json");

@@ -119,7 +119,7 @@ pub const ACTIONS: [(&str, &str, Make); 29] = [
 ];
 
 /// A binding of yours.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 struct Binding {
     key: String,
@@ -175,6 +175,47 @@ fn shown(m: gpui::Modifiers, key: &str) -> String {
         k => k.to_uppercase(),
     });
     out
+}
+
+/// Bind the action `name` to `key` ("cmd-shift-k") in your
+/// keybindings.json, or with none take yours for it away; then bind the
+/// window's keys again, yours over them. A file that does not read is
+/// left alone.
+pub fn set_yours(cx: &mut App, home: &Path, name: &str, key: Option<&str>) -> Result<(), String> {
+    let path = home.join("keybindings.json");
+    let mut list: Vec<Binding> = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|e| format!("{} does not read: {e}", path.display()))?,
+        Err(_) => Vec::new(),
+    };
+    list.retain(|b| b.action != name);
+    if let Some(key) = key {
+        list.push(Binding {
+            key: key.to_owned(),
+            action: name.to_owned(),
+        });
+    }
+    let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+    crate::whole::write(&path, &text).map_err(|e| e.to_string())?;
+    cx.clear_key_bindings();
+    bind(cx, home);
+    Ok(())
+}
+
+/// The action other than `name` that `key` is bound to now, if one is.
+pub fn taken(cx: &App, name: &str, key: &str) -> Option<&'static str> {
+    let shown_key = shown_of(key)?;
+    ACTIONS
+        .iter()
+        .filter(|(n, _, _)| *n != name)
+        .find(|(n, _, _)| keys_of(cx, n).as_deref() == Some(shown_key.as_str()))
+        .map(|(_, does, _)| *does)
+}
+
+/// A key as keybindings.json writes it, as a Mac shows it.
+fn shown_of(key: &str) -> Option<String> {
+    let k = gpui::Keystroke::parse(key).ok()?;
+    Some(shown(k.modifiers, &k.key))
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none.

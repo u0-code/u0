@@ -155,6 +155,8 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// The action whose keys are being recorded, in Settings, Keyboard.
+    pub recording: Option<&'static str>,
     /// The sessions shown before the one on screen, and those gone back
     /// from; going back or ahead is under way.
     pub trail: Vec<u64>,
@@ -323,6 +325,17 @@ impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
         let (settings, settings_refused) = Settings::load(&home);
+        // Keys pressed while one is being recorded are its, not done.
+        let me = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |e, _, cx| {
+            let took = me
+                .update(cx, |d, cx| d.record_key(&e.keystroke, cx))
+                .unwrap_or(false);
+            if took {
+                cx.stop_propagation();
+            }
+        })
+        .detach();
         let cmd_sends = settings.cmd_sends;
         crate::thread::drawn::set_wrap(settings.diff_wrap);
         crate::git::leave_out_spacing(settings.no_spacing);
@@ -613,6 +626,7 @@ impl Desk {
             trail: Vec::new(),
             ahead: Vec::new(),
             trailing: false,
+            recording: None,
             menu_search,
             reading: None,
             reader,
@@ -1783,6 +1797,39 @@ impl Desk {
         if let Some(key) = self.current {
             self.refresh_diffs(key);
         }
+    }
+
+    /// Take the keys pressed for the action being recorded: bound to it in
+    /// your keybindings.json (a notice if another had them); Escape lets
+    /// it be. Whether the keystroke was taken.
+    pub(crate) fn record_key(&mut self, k: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let Some(name) = self.recording else {
+            return false;
+        };
+        if matches!(
+            k.key.as_str(),
+            "shift" | "control" | "alt" | "platform" | "function" | ""
+        ) {
+            return true;
+        }
+        self.recording = None;
+        if k.key == "escape" && !k.modifiers.modified() {
+            cx.notify();
+            return true;
+        }
+        let key = k.unparse();
+        if let Some(other) = crate::keys::taken(cx, name, &key) {
+            self.trouble(
+                format!("Those keys were “{other}”'s too"),
+                Some("Yours now win; change that one if you want both.".into()),
+                None,
+            );
+        }
+        if let Err(why) = crate::keys::set_yours(cx, &self.home.clone(), name, Some(&key)) {
+            self.trouble("Couldn't keep the keys", Some(why), None);
+        }
+        cx.notify();
+        true
     }
 
     /// Settings, at the agents: to switch one on, or install one.
