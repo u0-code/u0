@@ -47,6 +47,18 @@ actions!(
         Down,
         Tab,
         Cancel,
+        WordLeft,
+        WordRight,
+        SelectWordLeft,
+        SelectWordRight,
+        LineStart,
+        LineEnd,
+        SelectLineStart,
+        SelectLineEnd,
+        DeleteWord,
+        DeleteLine,
+        Undo,
+        Redo,
     ]
 );
 
@@ -114,6 +126,11 @@ pub struct TextInput {
     recalled: Option<usize>,
     /// What is typed stays when it is handed over: a search, not a message.
     keeps: Keeps,
+    /// What it held before each change, to go back to (⌘Z) and forward
+    /// again (⇧⌘Z); typing in a run is one change.
+    undone: Vec<(SharedString, Range<usize>)>,
+    redone: Vec<(SharedString, Range<usize>)>,
+    last_change: Option<std::time::Instant>,
 }
 
 impl EventEmitter<Submitted> for TextInput {}
@@ -143,6 +160,9 @@ impl TextInput {
             history: Vec::new(),
             recalled: None,
             keeps: Keeps::No,
+            undone: Vec::new(),
+            redone: Vec::new(),
+            last_change: None,
             size: BODY,
             line: 22.,
         }
@@ -204,6 +224,11 @@ impl TextInput {
     /// Back through what was handed over before, while the line is empty
     /// or holds one of those.
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        // Up a line first, where what is typed takes several.
+        if let Some(at) = self.line_above(false) {
+            self.move_to(at, cx);
+            return;
+        }
         if self.history.is_empty() {
             cx.emit(Stepped(-1));
             return;
@@ -221,6 +246,10 @@ impl TextInput {
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(at) = self.line_above(true) {
+            self.move_to(at, cx);
+            return;
+        }
         if self.history.is_empty() {
             cx.emit(Stepped(1));
             return;
@@ -233,6 +262,110 @@ impl TextInput {
         } else {
             self.set_text("", cx);
         }
+    }
+
+    fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(word_before(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(word_after(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(word_before(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_right(&mut self, _: &SelectWordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(word_after(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn line_start(&mut self, _: &LineStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(line_of(&self.content, self.cursor_offset()).start, cx);
+    }
+
+    fn line_end(&mut self, _: &LineEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(line_of(&self.content, self.cursor_offset()).end, cx);
+    }
+
+    fn select_line_start(&mut self, _: &SelectLineStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(line_of(&self.content, self.cursor_offset()).start, cx);
+    }
+
+    fn select_line_end(&mut self, _: &SelectLineEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(line_of(&self.content, self.cursor_offset()).end, cx);
+    }
+
+    fn delete_word(&mut self, _: &DeleteWord, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.select_to(word_before(&self.content, self.cursor_offset()), cx);
+        }
+        self.replace_text_in_range(None, "", window, cx);
+    }
+
+    fn delete_line(&mut self, _: &DeleteLine, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.select_to(line_of(&self.content, self.cursor_offset()).start, cx);
+        }
+        self.replace_text_in_range(None, "", window, cx);
+    }
+
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some((text, at)) = self.undone.pop() {
+            self.redone
+                .push((self.content.clone(), self.selected_range.clone()));
+            self.content = text;
+            self.selected_range = self.within(at);
+            self.last_change = None;
+            cx.emit(Changed);
+            cx.notify();
+        }
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some((text, at)) = self.redone.pop() {
+            self.undone
+                .push((self.content.clone(), self.selected_range.clone()));
+            self.content = text;
+            self.selected_range = self.within(at);
+            self.last_change = None;
+            cx.emit(Changed);
+            cx.notify();
+        }
+    }
+
+    /// Keep what it holds before a change, to undo it; typing in a run
+    /// (each change a moment after the last, putting text in) is one.
+    fn before_change(&mut self, typing: bool) {
+        let run = typing
+            && self
+                .last_change
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(800));
+        if !run {
+            self.undone
+                .push((self.content.clone(), self.selected_range.clone()));
+            if self.undone.len() > 200 {
+                self.undone.remove(0);
+            }
+        }
+        self.redone.clear();
+        self.last_change = typing.then(std::time::Instant::now);
+    }
+
+    /// The line above the cursor, where what is typed wraps onto several;
+    /// `None` on the first (or with one line).
+    fn line_above(&self, down: bool) -> Option<usize> {
+        let layout = self.last_layout.as_ref()?;
+        if layout.lines() < 2 {
+            return None;
+        }
+        let now = layout.at(self.cursor_offset());
+        let h = layout.height();
+        let y = if down { now.y + h } else { now.y - h };
+        if y < px(0.) || y >= h * layout.lines() as f32 {
+            return None;
+        }
+        Some(layout.index_at(point(now.x, y + h / 2.)))
     }
 
     fn cancel(_: &mut Self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
@@ -588,6 +721,7 @@ impl EntityInputHandler for TextInput {
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
         let range = self.within(range);
+        self.before_change(range.is_empty() && !new_text.is_empty() && !new_text.contains('\n'));
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -1033,6 +1167,18 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::up))
             .on_action(cx.listener(Self::down))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::word_left))
+            .on_action(cx.listener(Self::word_right))
+            .on_action(cx.listener(Self::select_word_left))
+            .on_action(cx.listener(Self::select_word_right))
+            .on_action(cx.listener(Self::line_start))
+            .on_action(cx.listener(Self::line_end))
+            .on_action(cx.listener(Self::select_line_start))
+            .on_action(cx.listener(Self::select_line_end))
+            .on_action(cx.listener(Self::delete_word))
+            .on_action(cx.listener(Self::delete_line))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -1090,9 +1236,42 @@ fn marked_selection(new_text: &str, start: usize, asked: Option<&Range<usize>>) 
     }
 }
 
+/// Where the word before `at` begins in `text`: past any spaces, then
+/// back to the start of the word.
+fn word_before(text: &str, at: usize) -> usize {
+    text.split_word_bound_indices().rfind(|(i, w)| *i < at && !w.trim().is_empty())
+        .map_or(0, |(i, _)| i)
+}
+
+/// Where the word after `at` ends in `text`.
+fn word_after(text: &str, at: usize) -> usize {
+    text.split_word_bound_indices()
+        .find(|(i, w)| i + w.len() > at && !w.trim().is_empty())
+        .map_or(text.len(), |(i, w)| i + w.len())
+}
+
+/// The line `at` is on in `text`, between its newlines.
+fn line_of(text: &str, at: usize) -> Range<usize> {
+    let at = at.min(text.len());
+    let start = text[..at].rfind('\n').map_or(0, |n| n + 1);
+    let end = text[at..].find('\n').map_or(text.len(), |n| at + n);
+    start..end
+}
+
 #[cfg(test)]
 mod ime_tests {
     use super::*;
+
+    #[test]
+    fn words_and_lines_are_found_from_the_cursor() {
+        let t = "fix the  upload\nthen test";
+        assert_eq!(word_before(t, 9), 4);
+        assert_eq!(word_before(t, 4), 0);
+        assert_eq!(word_after(t, 0), 3);
+        assert_eq!(word_after(t, 3), 7);
+        assert_eq!(line_of(t, 5), 0..15);
+        assert_eq!(line_of(t, 18), 16..25);
+    }
 
     #[test]
     fn a_cursor_an_input_method_places_is_measured_in_what_it_composes() {

@@ -199,6 +199,18 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("up", input::Up, input),
         KeyBinding::new("down", input::Down, input),
         KeyBinding::new("escape", input::Cancel, input),
+        KeyBinding::new("alt-left", input::WordLeft, input),
+        KeyBinding::new("alt-right", input::WordRight, input),
+        KeyBinding::new("alt-shift-left", input::SelectWordLeft, input),
+        KeyBinding::new("alt-shift-right", input::SelectWordRight, input),
+        KeyBinding::new("cmd-left", input::LineStart, input),
+        KeyBinding::new("cmd-right", input::LineEnd, input),
+        KeyBinding::new("cmd-shift-left", input::SelectLineStart, input),
+        KeyBinding::new("cmd-shift-right", input::SelectLineEnd, input),
+        KeyBinding::new("alt-backspace", input::DeleteWord, input),
+        KeyBinding::new("cmd-backspace", input::DeleteLine, input),
+        KeyBinding::new("cmd-z", input::Undo, input),
+        KeyBinding::new("cmd-shift-z", input::Redo, input),
     ]);
     cx.bind_keys(yours(home));
 }
