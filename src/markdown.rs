@@ -447,23 +447,59 @@ fn padded(line: Inline) -> Inline {
     }
 }
 
-/// A line whose links open in the browser when clicked; one without links
-/// is plain styled text.
-fn linked(faces: &Faces, id: String, line: &str, base: &Base) -> AnyElement {
+/// A line whose links open when clicked: an address in the browser, a
+/// file (a link to one, or code that names one) in your editor. One with
+/// neither is plain styled text.
+fn linked(
+    faces: &Faces,
+    id: String,
+    line: &str,
+    base: &Base,
+    desk: &gpui::WeakEntity<Desk>,
+) -> AnyElement {
     let parsed = padded(inline(line));
     let text = styled_from(faces, &parsed, base);
-    if parsed.links.is_empty() {
+    let mut ranges: Vec<Range<usize>> = parsed.links.iter().map(|(r, _)| r.clone()).collect();
+    let mut addresses: Vec<String> = parsed.links.iter().map(|(_, a)| a.clone()).collect();
+    for r in &parsed.code {
+        let named = parsed.text[r.clone()].trim_matches(PAD);
+        if path_like(named) {
+            ranges.push(r.clone());
+            addresses.push(named.to_owned());
+        }
+    }
+    if ranges.is_empty() {
         return text.into_any_element();
     }
-    let ranges: Vec<Range<usize>> = parsed.links.iter().map(|(r, _)| r.clone()).collect();
-    let addresses: Vec<String> = parsed.links.into_iter().map(|(_, a)| a).collect();
+    let desk = desk.clone();
     InteractiveText::new(SharedString::from(id), text)
         .on_click(ranges, move |i, _, cx| {
-            if let Some(address) = addresses.get(i) {
+            let Some(address) = addresses.get(i) else {
+                return;
+            };
+            if address.contains("://") || address.starts_with("mailto:") {
                 cx.open_url(address);
+            } else {
+                let _ = desk.update(cx, |d, cx| d.open_named(address, cx));
             }
         })
         .into_any_element()
+}
+
+/// Whether code reads as a file's path: `src/a.rs`, `a.rs:12`, `./x/y`.
+pub fn path_like(text: &str) -> bool {
+    let name = text.split(':').next().unwrap_or(text);
+    !name.is_empty()
+        && name.len() < 200
+        && !name.contains(char::is_whitespace)
+        && !name.contains("://")
+        && (name.contains('/')
+            || std::path::Path::new(name).extension().is_some_and(|e| {
+                (1..=5).contains(&e.len())
+                    && e.to_str()
+                        .is_some_and(|e| e.chars().all(char::is_alphanumeric))
+            }))
+        && name.chars().any(char::is_alphabetic)
 }
 
 fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
@@ -622,10 +658,15 @@ fn block_element(
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
+    let desk = cx.entity().downgrade();
     match block {
-        Block::Paragraph(text) => {
-            sized(set).child(linked(faces, key.to_owned(), text, &body(faces, set)))
-        }
+        Block::Paragraph(text) => sized(set).child(linked(
+            faces,
+            key.to_owned(),
+            text,
+            &body(faces, set),
+            &desk,
+        )),
         // A heading is in the interface's face, semibold, as the design
         // sets "What changes" over an agent's prose.
         Block::Heading(level, text) => {
@@ -670,6 +711,7 @@ fn block_element(
                     key.to_owned(),
                     text,
                     &body(faces, set),
+                    &desk,
                 )))
         }
         // A quote steps in and goes a shade quieter: no bar beside it.
@@ -681,7 +723,14 @@ fn block_element(
                 ..body(faces, set)
             },
         )),
-        Block::Code { lang, text } => code(faces, key, lang, text),
+        Block::Code { lang, text } => code(
+            faces,
+            key,
+            lang,
+            text,
+            expanded.contains(&format!("{key}:wrap")),
+            cx,
+        ),
         Block::Table { head, right, rows } => table(
             faces,
             key,
@@ -780,12 +829,40 @@ fn table(
         grid = grid.child(column);
     }
     let toggle = format!("{key}:rows");
+    let group = SharedString::from(format!("{key}-table-group"));
+    let (as_md, as_csv) = (table_text(t, false), table_text(t, true));
+    let copy = |what: &str, label: &'static str, text: String| {
+        crate::ui::button(
+            faces,
+            SharedString::from(format!("{key}-{what}")),
+            label,
+            crate::ui::Weight::Quiet,
+        )
+        .h(px(22.))
+        .on_click(move |_, _, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+        })
+    };
     div()
+        .relative()
+        .group(group.clone())
         .flex()
         .flex_col()
         .gap(px(S2))
         .w_full()
         .min_w(px(0.))
+        .child(
+            div()
+                .absolute()
+                .top(px(-26.))
+                .right(px(0.))
+                .flex()
+                .gap(px(2.))
+                .invisible()
+                .group_hover(group, gpui::Styled::visible)
+                .child(copy("md", "Copy as Markdown", as_md))
+                .child(copy("csv", "Copy as CSV", as_csv)),
+        )
         .child(
             ui::sideways(
                 div()
@@ -812,35 +889,96 @@ fn table(
         })
 }
 
+/// A table as Markdown, or as CSV (cells quoted where they need it).
+fn table_text(t: &Table, csv: bool) -> String {
+    let row = |cells: &[String]| {
+        if csv {
+            cells
+                .iter()
+                .map(|c| {
+                    if c.contains([',', '"', '\n']) {
+                        format!("\"{}\"", c.replace('"', "\"\""))
+                    } else {
+                        c.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        } else {
+            format!("| {} |", cells.join(" | "))
+        }
+    };
+    let mut out = vec![row(t.head)];
+    if !csv {
+        out.push(format!("|{}|", vec!["---"; t.head.len()].join("|")));
+    }
+    out.extend(t.rows.iter().map(|r| row(r)));
+    out.join("\n")
+}
+
 /// A fenced block: its text in mono, coloured by its language, in a
-/// hairline well that scrolls sideways so that a long line keeps its shape.
-fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
+/// hairline well that scrolls sideways so that a long line keeps its shape,
+/// or wraps when you ask. From its corner, on hover: wrap, run it in a
+/// terminal of yours (a shell's), copy.
+fn code(
+    faces: &Faces,
+    key: &str,
+    lang: &str,
+    text: &str,
+    wrap: bool,
+    cx: &mut Context<Desk>,
+) -> Div {
     let group = SharedString::from(format!("{key}-code-group"));
     let copy = text.to_owned();
+    let shell = matches!(lang, "bash" | "sh" | "zsh" | "shell" | "console" | "fish");
+    let command: String = text
+        .lines()
+        .map(|l| l.strip_prefix("$ ").unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let toggle = format!("{key}:wrap");
+    let button = |what: &str, icon: &str, tip: &'static str| {
+        crate::ui::icon_button(SharedString::from(format!("{key}-{what}")), icon, tip)
+            .size(px(24.))
+            .bg(theme::panel())
+    };
     div()
         .w_full()
         .relative()
         .group(group.clone())
         .child(
-            // Its text copied with a click, from the corner, on hover.
             div()
                 .absolute()
                 .top(px(6.))
                 .right(px(6.))
+                .flex()
+                .gap(px(2.))
                 .invisible()
                 .group_hover(group, gpui::Styled::visible)
                 .child(
-                    crate::ui::icon_button(
-                        SharedString::from(format!("{key}-copy")),
-                        "copy",
-                        "Copy",
+                    button(
+                        "wrap",
+                        "list",
+                        if wrap {
+                            "Keep lines whole"
+                        } else {
+                            "Wrap lines"
+                        },
                     )
-                    .size(px(24.))
-                    .bg(theme::panel())
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                    }),
-                ),
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx))),
+                )
+                .when(shell, |d| {
+                    d.child(
+                        button("run", "play", "Run it in a terminal of yours").on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.open_terminal(Some(&command), window, cx);
+                            }),
+                        ),
+                    )
+                })
+                .child(button("copy", "copy", "Copy").on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                })),
         )
         .child(
             div()
@@ -852,14 +990,14 @@ fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
                 .overflow_x_scroll()
                 .child(
                     div()
-                        .flex_none()
+                        .when(!wrap, |d| d.flex_none().whitespace_nowrap())
+                        .when(wrap, |d| d.flex_1().min_w(px(0.)))
                         .px(px(14.))
                         .py(px(10.))
                         .font_family(faces.mono.clone())
                         .text_size(px(MONO))
                         .line_height(px(MONO_LINE))
                         .text_color(theme::text2())
-                        .whitespace_nowrap()
                         .child(crate::syntax::styled(faces, text, lang)),
                 ),
         )
@@ -868,6 +1006,24 @@ fn code(faces: &Faces, key: &str, lang: &str, text: &str) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_table_copies_as_markdown_or_csv_and_code_naming_a_file_is_a_path() {
+        let head = vec!["a".to_owned(), "b".to_owned()];
+        let rows = vec![vec!["1".to_owned(), "x, y".to_owned()]];
+        let t = Table {
+            head: &head,
+            right: &[],
+            rows: &rows,
+        };
+        assert_eq!(table_text(&t, false), "| a | b |\n|---|---|\n| 1 | x, y |");
+        assert_eq!(table_text(&t, true), "a,b\n1,\"x, y\"");
+        assert!(path_like("src/upload/s3.rs"));
+        assert!(path_like("main.rs:12"));
+        assert!(!path_like("Uploader::send"));
+        assert!(!path_like("let x = 1"));
+        assert!(!path_like("1.5"));
+    }
 
     fn item(marker: &str, text: &str, depth: u8) -> Block {
         Block::Item {

@@ -74,9 +74,44 @@ impl Desk {
                     let room = ui::cols(pane - 240.);
                     let shown = ui::fit(&shown, 48.min(room * 3 / 5));
                     let place = ui::fit(&place, room.saturating_sub(ui::width(&shown) + 2));
+                    // A double click on the title renames it where it is.
+                    let key = s.key;
+                    let named: gpui::AnyElement = if self.renaming == Some(key)
+                        && self.renaming_here
+                    {
+                        div()
+                            .w(px(320.))
+                            .h(px(26.))
+                            .flex()
+                            .items_center()
+                            .px(px(6.))
+                            .rounded(px(6.))
+                            .bg(theme::panel())
+                            .border_1()
+                            .border_color(theme::ghost_line())
+                            .child(self.rename.clone())
+                            .into_any_element()
+                    } else {
+                        div()
+                            .id("title")
+                            .flex_none()
+                            .child(title(shown))
+                            // Not the bar's: a double click here renames, it
+                            // does not zoom the window.
+                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                                if e.click_count() == 2 {
+                                    this.renaming_here = true;
+                                    this.begin_rename(key, window, cx);
+                                }
+                            }))
+                            .into_any_element()
+                    };
                     bar = bar
                         .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
-                        .child(title(shown).flex_none())
+                        .child(named)
                         .child(
                             ui::one_line(meta(faces, place))
                                 .w_auto()

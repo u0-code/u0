@@ -273,6 +273,7 @@ impl Desk {
         if self.finish_rename_project(text, cx) {
             return;
         }
+        self.renaming_here = false;
         let Some(key) = self.renaming.take() else {
             return;
         };
@@ -289,6 +290,7 @@ impl Desk {
 
     pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         self.renaming = None;
+        self.renaming_here = false;
         self.renaming_project = None;
         cx.notify();
     }

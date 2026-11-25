@@ -683,7 +683,7 @@ impl Desk {
             - if s.flags.unread && !on { 12. } else { 0. }
             - if s.flags.pinned.is_some() { 18. } else { 0. }
             - if s.pr.is_some() { 36. } else { 0. };
-        let name: AnyElement = if self.renaming == Some(key) {
+        let name: AnyElement = if self.renaming == Some(key) && !self.renaming_here {
             self.rename_field().into_any_element()
         } else {
             ui::one_line(

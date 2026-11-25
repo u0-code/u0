@@ -143,6 +143,8 @@ pub struct Desk {
     /// line for it.
     pub renaming: Option<u64>,
     pub renaming_project: Option<PathBuf>,
+    /// The session is renamed in the top bar, not in the sidebar.
+    pub renaming_here: bool,
     pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
@@ -521,6 +523,7 @@ impl Desk {
             store_refused: None,
             renaming: None,
             renaming_project: None,
+            renaming_here: false,
             rename,
             undo: None,
             waiting: Vec::new(),
@@ -1818,6 +1821,29 @@ impl Render for Desk {
             .children(right)
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
+    }
+}
+
+impl Desk {
+    /// Open a file the agent named (`src/a.rs`, `/x/y.rs:12`), from the
+    /// folder of the session on screen, in your editor.
+    pub fn open_named(&mut self, named: &str, cx: &mut Context<Self>) {
+        let name = named.split(':').next().unwrap_or(named);
+        let path = Path::new(name);
+        let full = match self.session() {
+            Some(s) if path.is_relative() => s.folder.join(path),
+            _ => path.to_path_buf(),
+        };
+        if full.exists() {
+            open_in_editor(&full);
+        } else {
+            self.trouble(
+                format!("There is no {name} here"),
+                Some(full.display().to_string()),
+                None,
+            );
+        }
+        cx.notify();
     }
 }
 

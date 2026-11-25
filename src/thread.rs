@@ -562,6 +562,16 @@ impl Desk {
                         )
                         .children(rewinding.then(|| Self::rewind_menu(faces, s, i, cx)));
                 }
+                // A long message shows its first lines, the rest a click away.
+                let full_key = format!("{key}:full");
+                let long = text.lines().count() > 12 || text.len() > 1500;
+                let shown = if long && !self.expanded.contains(&full_key) {
+                    let head: String = text.lines().take(10).collect::<Vec<_>>().join("\n");
+                    format!("{}…", head.chars().take(1200).collect::<String>())
+                } else {
+                    text.clone()
+                };
+                let open = self.expanded.contains(&full_key);
                 div()
                     .flex()
                     .flex_col()
@@ -569,7 +579,7 @@ impl Desk {
                     .gap(px(4.))
                     .group(group)
                     .child(
-                        ui::text(faces, text.clone())
+                        ui::text(faces, shown)
                             .max_w(px(520.))
                             .px(px(16.))
                             .py(px(12.))
@@ -578,6 +588,27 @@ impl Desk {
                             .text_size(px(14.))
                             .line_height(px(21.)),
                     )
+                    .when(long, |d| {
+                        d.child(
+                            div()
+                                .id(SharedString::from(full_key.clone()))
+                                .cursor_pointer()
+                                .child(
+                                    meta(
+                                        faces,
+                                        if open {
+                                            "Show less"
+                                        } else {
+                                            "Show full message"
+                                        },
+                                    )
+                                    .hover(|st| st.text_color(theme::text2())),
+                                )
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.toggle(&full_key, cx)),
+                                ),
+                        )
+                    })
                     .child(tools)
                     .into_any_element()
             }
