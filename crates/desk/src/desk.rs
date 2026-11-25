@@ -46,6 +46,7 @@ use crate::{
     fonts,
     hub::{self, Slot, Stage},
     input::{Submitted, TextInput},
+    proto::Call,
     registry::{self, Registry},
     session::{Session, State},
     settings::{self, Settings},
@@ -252,8 +253,8 @@ pub struct Desk {
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     tx: hub::Sender,
-    /// What runs the agents, asked by an agent's id.
-    server: crate::server::Server,
+    /// The way to the server, which runs the agents.
+    transport: hub::Transport,
 }
 
 /// A strip dragging which moves the window; a double click zooms it.
@@ -395,13 +396,8 @@ impl Desk {
 
         let pages = crate::pages::Pages::new(&settings.branch_prefix, cx);
         let registry = registry::kept(&home).unwrap_or_default();
-        let server = {
-            let tx = tx.clone();
-            crate::server::Server::new(home.clone(), move |e| {
-                let _ = tx.send(hub::Msg::Event(e));
-            })
-        };
-        server.fetch();
+        let transport = hub::Transport::local(home.clone(), tx.clone());
+        transport.send(Call::Fetch);
         hub::on_path(tx.clone());
         let mut desk = Self {
             home,
@@ -476,7 +472,7 @@ impl Desk {
             search: lists::Search::new(cx),
             registry_read: None,
             tx,
-            server,
+            transport,
         };
         desk.keep_from(crate::store::load(&desk.home));
         desk.settle_idle();
@@ -1153,7 +1149,7 @@ impl Desk {
             self.pages.command.update(cx, |i, cx| i.set_text(&c, cx));
             self.pages.model.update(cx, |i, cx| i.set_text("", cx));
             if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
-                self.server.cli_version(cli);
+                self.transport.send(Call::CliVersion { cli });
             }
         }
         if page == Page::NewProject {

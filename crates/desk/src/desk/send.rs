@@ -4,9 +4,12 @@
 
 use gpui::{Context, Window};
 
+use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SelectedPermissionOutcome};
+
 use super::{Desk, Later, Popup};
 use crate::{
     hub::{self, Slot, Stage},
+    proto::Call,
     session::{Item, State},
 };
 
@@ -275,25 +278,47 @@ impl Desk {
         match &slot.stage {
             Stage::Running { .. } => match id {
                 Some(id) if recorded && resume => {
-                    self.server.reopen(agent, key, id, folder, also, true);
+                    self.transport.send(Call::Reopen {
+                        agent: agent.to_owned(),
+                        key,
+                        session: id,
+                        folder,
+                        also,
+                        resumed: true,
+                    });
                 }
                 Some(id) if load => {
                     if recorded {
                         self.sessions.drop_record(key, &self.home);
                     }
-                    self.server.reopen(agent, key, id, folder, also, false);
+                    self.transport.send(Call::Reopen {
+                        agent: agent.to_owned(),
+                        key,
+                        session: id,
+                        folder,
+                        also,
+                        resumed: false,
+                    });
                 }
                 Some(_) => {
                     if let Some(s) = self.sessions.at_mut(key) {
                         s.state = State::Broken("The agent cannot open a session again".into());
                     }
                 }
-                None => self.server.open(agent, key, folder, also),
+                None => self.transport.send(Call::Open {
+                    agent: agent.to_owned(),
+                    key,
+                    folder,
+                    also,
+                }),
             },
             Stage::Starting => {}
             _ => {
                 slot.stage = Stage::Starting;
-                self.server.start(&slot.entry, slot.command.as_deref());
+                self.transport.send(Call::Start {
+                    entry: slot.entry.clone(),
+                    command: slot.command.clone(),
+                });
             }
         }
     }
@@ -313,9 +338,13 @@ impl Desk {
                 })
                 .collect();
             for request in open {
-                self.server.answer(&agent, request, None);
+                self.transport.send(Call::Answer {
+                    agent: agent.clone(),
+                    request,
+                    outcome: RequestPermissionOutcome::Cancelled,
+                });
             }
-            self.server.cancel(&agent, id);
+            self.transport.send(Call::Cancel { agent, session: id });
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
                 self.stopping = Some((s.key, std::time::Instant::now()));
             }
@@ -332,7 +361,11 @@ impl Desk {
             self.slot(&s.meta.agent).is_some_and(Slot::running),
             s.meta.id.clone(),
         ) {
-            self.server.stop_task(&s.meta.agent, id, task);
+            self.transport.send(Call::StopTask {
+                agent: s.meta.agent.clone(),
+                session: id,
+                task,
+            });
         }
         cx.notify();
     }
@@ -346,7 +379,10 @@ impl Desk {
             self.slot(&c.meta.agent).is_some_and(Slot::running),
             c.meta.id.clone(),
         ) {
-            self.server.cancel(&c.meta.agent, id);
+            self.transport.send(Call::Cancel {
+                agent: c.meta.agent.clone(),
+                session: id,
+            });
         }
         cx.notify();
     }
@@ -357,7 +393,7 @@ impl Desk {
         self.stopping = None;
         let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
         if let Some(agent) = agent.filter(|a| self.slot(a).is_some_and(Slot::running)) {
-            self.server.kill(&agent);
+            self.transport.send(Call::Kill { agent });
         }
         cx.notify();
     }
@@ -374,7 +410,13 @@ impl Desk {
             return;
         };
         if self.slot(&agent).is_some_and(Slot::running) {
-            (self.server).answer(&agent, request, Some(option.option_id.0.to_string()));
+            self.transport.send(Call::Answer {
+                agent,
+                request,
+                outcome: RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                    option.option_id.clone(),
+                )),
+            });
         }
         if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
@@ -461,7 +503,12 @@ impl Desk {
                 .expect("on screen")
                 .choose_mode(&mode);
         } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
-            self.server.set_mode(&agent, key, id, mode.clone());
+            self.transport.send(Call::SetMode {
+                agent,
+                key,
+                session: id,
+                mode: mode.clone(),
+            });
             if let Some(modes) = &mut self.sessions.at_mut(key).expect("on screen").modes {
                 modes.current_mode_id = agent_client_protocol::v1::schema::SessionModeId::new(mode);
             }
@@ -481,7 +528,13 @@ impl Desk {
                 .expect("on screen")
                 .choose(&config, &value);
         } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
-            self.server.set_option(&agent, key, id, config, value);
+            self.transport.send(Call::SetOption {
+                agent,
+                key,
+                session: id,
+                config,
+                value,
+            });
         }
         cx.notify();
     }

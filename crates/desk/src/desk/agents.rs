@@ -11,6 +11,7 @@ use gpui::{Context, Window};
 use super::Desk;
 use crate::{
     hub::{self, Slot, Stage},
+    proto::Call,
     registry::Entry,
 };
 
@@ -65,12 +66,14 @@ impl Desk {
     /// Look at what of each agent the registry lists is here, for the
     /// pages that show it.
     pub(crate) fn look_here(&self) {
-        self.server.here(self.registry.agents.clone());
+        self.transport.send(Call::Here {
+            agents: self.registry.agents.clone(),
+        });
     }
 
     /// Ask how much memory each running agent holds, for Settings, Usage.
     pub(crate) fn weigh_agents(&self) {
-        self.server.weigh();
+        self.transport.send(Call::Weigh);
     }
 
     /// Every five minutes, look again at the agents not running: one now
@@ -92,7 +95,7 @@ impl Desk {
             self.start_ready();
         }
         if self.health_tick.is_multiple_of(60) {
-            self.server.fetch();
+            self.transport.send(Call::Fetch);
         }
     }
 
@@ -175,7 +178,9 @@ impl Desk {
         self.slots.extend(remote);
         // Those switched off are let go.
         for slot in old {
-            self.server.stop(&slot.entry.id);
+            self.transport.send(Call::Stop {
+                agent: slot.entry.id,
+            });
         }
         self.start_ready();
     }
@@ -191,7 +196,10 @@ impl Desk {
                 && crate::remote::split(&slot.entry.id).1.is_none()
             {
                 slot.stage = Stage::Starting;
-                self.server.start(&slot.entry, slot.command.as_deref());
+                self.transport.send(Call::Start {
+                    entry: slot.entry.clone(),
+                    command: slot.command.clone(),
+                });
             }
         }
     }
@@ -203,7 +211,10 @@ impl Desk {
             && matches!(slot.stage, Stage::Ready)
         {
             slot.stage = Stage::Starting;
-            self.server.start(&slot.entry, slot.command.as_deref());
+            self.transport.send(Call::Start {
+                entry: slot.entry.clone(),
+                command: slot.command.clone(),
+            });
         }
     }
 
@@ -246,7 +257,10 @@ impl Desk {
                 _ => None,
             })
             .collect();
-        self.server.list(agent, places);
+        self.transport.send(Call::List {
+            agent: agent.to_owned(),
+            places,
+        });
     }
 
     /// Read what a session of `agent` offers before one is opened, and
@@ -264,7 +278,12 @@ impl Desk {
         } else {
             self.home.clone()
         };
-        (self.server).probe(agent, dir, caps.delete.is_some(), caps.close.is_some());
+        self.transport.send(Call::Probe {
+            agent: agent.to_owned(),
+            dir,
+            delete: caps.delete.is_some(),
+            close: caps.close.is_some(),
+        });
     }
 
     /// Sign in to `agent` the way it offers: its own method when it lists
@@ -302,7 +321,9 @@ impl Desk {
     /// Sign `agent` out, when it can be.
     pub fn log_out(&mut self, agent: &str, cx: &mut Context<Self>) {
         if self.slot(agent).is_some_and(Slot::running) {
-            self.server.logout(agent);
+            self.transport.send(Call::SignOut {
+                agent: agent.to_owned(),
+            });
         }
         cx.notify();
     }
@@ -327,7 +348,9 @@ impl Desk {
                 what: "Starting".into(),
                 share: None,
             });
-            self.server.install(slot.entry.clone());
+            self.transport.send(Call::Install {
+                entry: slot.entry.clone(),
+            });
         }
         cx.notify();
     }
@@ -335,7 +358,9 @@ impl Desk {
     /// Stop the install of `id` going on; nothing of it is kept.
     pub fn cancel_install(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(Stage::Installing(_)) = self.slot(id).map(|s| &s.stage) {
-            self.server.cancel_install(id);
+            self.transport.send(Call::CancelInstall {
+                agent: id.to_owned(),
+            });
             cx.notify();
         }
     }
@@ -362,7 +387,7 @@ impl Desk {
             if answer.await == Ok(0) {
                 let _ = this.update(cx, |this, cx| {
                     // One running stops first.
-                    this.server.stop(&id);
+                    this.transport.send(Call::Stop { agent: id.clone() });
                     let home = this.home.clone();
                     if let Err(why) = entry.uninstall(&home) {
                         if let Some(slot) = this.slot_mut(&id) {
@@ -381,7 +406,9 @@ impl Desk {
 
     /// Look again for what an agent needs (a runner installed meanwhile).
     pub fn recheck(&mut self, id: &str, cx: &mut Context<Self>) {
-        self.server.stop(id);
+        self.transport.send(Call::Stop {
+            agent: id.to_owned(),
+        });
         let home = self.home.clone();
         if let Some(slot) = self.slot_mut(id) {
             slot.stage = Stage::Ready;
@@ -400,7 +427,7 @@ impl Desk {
 
     /// Read the registry again.
     pub fn refresh_registry(&mut self, cx: &mut Context<Self>) {
-        self.server.fetch();
+        self.transport.send(Call::Fetch);
         self.registry_trouble = None;
         cx.notify();
     }

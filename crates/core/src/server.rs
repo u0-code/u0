@@ -4,7 +4,7 @@
 //! signing in and out) runs on the ACP runtime, each answer sent back as an
 //! [`Event`]. What an agent says on its own is sent the same way, in order
 //! with the answers. The desk names an agent by its id and never holds its
-//! connection.
+//! connection: what it asks comes in as a [`Call`], to [`Server::handle`].
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -19,17 +19,16 @@ use agent_client_protocol::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
         ContentBlock, DeleteSessionRequest, ForkSessionRequest, Implementation, InitializeRequest,
         ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
-        PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-        ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigId, SessionConfigOptionValue,
-        SessionConfigValueId, SessionId, SessionModeId, SetSessionConfigOptionRequest,
-        SetSessionModeRequest, SubagentCapabilities,
+        PromptRequest, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
+        SessionConfigId, SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId,
+        SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities,
     },
 };
 
 use crate::{
     acp::{self, Agent, Error},
     git,
-    proto::{Event, Here, Opened},
+    proto::{Call, Event, Here, Opened},
     registry::{self, Entry},
 };
 
@@ -60,6 +59,86 @@ impl Server {
             send: Arc::new(send),
             agents: Running::default(),
             installs: Mutex::default(),
+        }
+    }
+
+    /// Do what `call` asks.
+    pub fn handle(&self, call: Call) {
+        match call {
+            Call::Fetch => self.fetch(),
+            Call::Install { entry } => self.install(entry),
+            Call::CancelInstall { agent } => self.cancel_install(&agent),
+            Call::Start { entry, command } => self.start(&entry, command.as_deref()),
+            Call::Stop { agent } => self.stop(&agent),
+            Call::Kill { agent } => self.kill(&agent),
+            Call::Open {
+                agent,
+                key,
+                folder,
+                also,
+            } => self.open(&agent, key, folder, also),
+            Call::List { agent, places } => self.list(&agent, places),
+            Call::Reopen {
+                agent,
+                key,
+                session,
+                folder,
+                also,
+                resumed,
+            } => self.reopen(&agent, key, session, folder, also, resumed),
+            Call::Probe {
+                agent,
+                dir,
+                delete,
+                close,
+            } => self.probe(&agent, dir, delete, close),
+            Call::Fork {
+                agent,
+                from,
+                session,
+                folder,
+                upto,
+            } => self.fork(&agent, from, session, folder, upto),
+            Call::Delete {
+                agent,
+                key,
+                session,
+            } => self.delete(&agent, key, session),
+            Call::Prompt {
+                agent,
+                key,
+                session,
+                content,
+            } => self.prompt(&agent, key, session, content),
+            Call::StopTask {
+                agent,
+                session,
+                task,
+            } => self.stop_task(&agent, session, task),
+            Call::Cancel { agent, session } => self.cancel(&agent, session),
+            Call::Answer {
+                agent,
+                request,
+                outcome,
+            } => self.answer(&agent, request, outcome),
+            Call::SetMode {
+                agent,
+                key,
+                session,
+                mode,
+            } => self.set_mode(&agent, key, session, mode),
+            Call::SetOption {
+                agent,
+                key,
+                session,
+                config,
+                value,
+            } => self.set_option(&agent, key, session, config, value),
+            Call::SignIn { agent, method } => self.authenticate(&agent, method),
+            Call::SignOut { agent } => self.logout(&agent),
+            Call::Weigh => self.weigh(),
+            Call::Here { agents } => self.here(agents),
+            Call::CliVersion { cli } => self.cli_version(cli),
         }
     }
 
@@ -96,13 +175,13 @@ impl Server {
     }
 
     /// Read the newest registry.
-    pub fn fetch(&self) {
+    fn fetch(&self) {
         let home = self.home.clone();
         self.off(move || Event::Registry(registry::fetch(&home)));
     }
 
     /// Install `entry` from its archive, until it is cancelled.
-    pub fn install(&self, entry: Entry) {
+    fn install(&self, entry: Entry) {
         let stop = Arc::new(AtomicBool::new(false));
         (self.installs.lock().expect("installs")).insert(entry.id.clone(), stop.clone());
         let (home, send) = (self.home.clone(), self.send.clone());
@@ -121,7 +200,7 @@ impl Server {
     }
 
     /// Stop the install of `agent` going on; nothing of it is kept.
-    pub fn cancel_install(&self, agent: &str) {
+    fn cancel_install(&self, agent: &str) {
         if let Some(stop) = self.installs.lock().expect("installs").get(agent) {
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
         }
@@ -130,7 +209,7 @@ impl Server {
     /// Start `entry`'s program (by `command`, a command line of yours,
     /// where you gave one) and say hello to it. What it says on its own
     /// comes back as [`Event::Said`], in order with the answers.
-    pub fn start(&self, entry: &Entry, command: Option<&str>) {
+    fn start(&self, entry: &Entry, command: Option<&str>) {
         let agent = entry.id.clone();
         let launch = match registry::launch_with(entry, &self.home, command) {
             Ok(l) => l,
@@ -182,13 +261,13 @@ impl Server {
 
     /// Let go of the agent `id`: its process stops once nothing more is
     /// asked of it.
-    pub fn stop(&self, id: &str) {
+    fn stop(&self, id: &str) {
         self.agents.lock().expect("agents").remove(id);
     }
 
     /// Stop the agent `id` at once, and all it started: when it would not
     /// stop a turn.
-    pub fn kill(&self, id: &str) {
+    fn kill(&self, id: &str) {
         if let Some(agent) = self.running(id) {
             agent.kill();
         }
@@ -196,7 +275,7 @@ impl Server {
 
     /// Open a new session of the agent `id` in `folder`, with the folders
     /// `also` beside it.
-    pub fn open(&self, id: &str, key: u64, folder: PathBuf, also: Vec<PathBuf>) {
+    fn open(&self, id: &str, key: u64, folder: PathBuf, also: Vec<PathBuf>) {
         let request = NewSessionRequest::new(folder).additional_directories(also);
         self.ask(id, request, move |r| Event::Opened {
             key,
@@ -207,7 +286,7 @@ impl Server {
     /// The sessions the agent `id` keeps in each of `places` (where it
     /// works, and the project that is) and in Ghost's worktrees of them,
     /// each with the project it belongs to.
-    pub fn list(&self, id: &str, places: Vec<(PathBuf, PathBuf)>) {
+    fn list(&self, id: &str, places: Vec<(PathBuf, PathBuf)>) {
         let Some(agent) = self.running(id) else {
             return;
         };
@@ -287,7 +366,7 @@ impl Server {
     /// (and `also`): resumed, without what was said in it, which the desk
     /// has already; or loaded, and the agent says again all that was said
     /// in it, as updates.
-    pub fn reopen(
+    fn reopen(
         &self,
         id: &str,
         key: u64,
@@ -323,7 +402,7 @@ impl Server {
     /// Open a session of the agent `id` in `dir` to read what a session
     /// offers, then delete it (or close it) again, so that nothing of it is
     /// kept.
-    pub fn probe(&self, id: &str, dir: PathBuf, delete: bool, close: bool) {
+    fn probe(&self, id: &str, dir: PathBuf, delete: bool, close: bool) {
         let Some(agent) = self.running(id) else {
             return;
         };
@@ -354,7 +433,7 @@ impl Server {
     /// The adapters of Claude Code and Codex read one from the request's
     /// `_meta` on v1 as well: `jetbrains.air.fork`, the id of the last
     /// message to keep.
-    pub fn fork(
+    fn fork(
         &self,
         id: &str,
         from: u64,
@@ -376,7 +455,7 @@ impl Server {
     }
 
     /// Delete the session `session` from the agent `id`.
-    pub fn delete(&self, id: &str, key: u64, session: SessionId) {
+    fn delete(&self, id: &str, key: u64, session: SessionId) {
         self.ask(id, DeleteSessionRequest::new(session), move |r| {
             Event::Deleted {
                 key,
@@ -387,7 +466,7 @@ impl Server {
 
     /// Say `content` in the session `session`, and wait for the turn to
     /// end.
-    pub fn prompt(&self, id: &str, key: u64, session: SessionId, content: Vec<ContentBlock>) {
+    fn prompt(&self, id: &str, key: u64, session: SessionId, content: Vec<ContentBlock>) {
         self.ask(id, PromptRequest::new(session, content), move |r| {
             Event::Ended {
                 key,
@@ -398,7 +477,7 @@ impl Server {
 
     /// Stop the task `task` going on in the background in the session
     /// `session`, as the `JetBrains` extension of ACP asks it.
-    pub fn stop_task(&self, id: &str, session: SessionId, task: String) {
+    fn stop_task(&self, id: &str, session: SessionId, task: String) {
         let Some(agent) = self.running(id) else {
             return;
         };
@@ -416,28 +495,21 @@ impl Server {
     }
 
     /// Stop the turn going on in `session`.
-    pub fn cancel(&self, id: &str, session: SessionId) {
+    fn cancel(&self, id: &str, session: SessionId) {
         if let Some(agent) = self.running(id) {
             agent.cancel(CancelNotification::new(session));
         }
     }
 
-    /// Answer the question the agent `id` asked under `request` with
-    /// `option`, or say it was cancelled.
-    pub fn answer(&self, id: &str, request: u64, option: Option<String>) {
-        let outcome = match option {
-            Some(o) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                PermissionOptionId::new(o),
-            )),
-            None => RequestPermissionOutcome::Cancelled,
-        };
+    /// Answer the question the agent `id` asked under `request`.
+    fn answer(&self, id: &str, request: u64, outcome: RequestPermissionOutcome) {
         if let Some(agent) = self.running(id) {
             agent.respond(request, RequestPermissionResponse::new(outcome));
         }
     }
 
     /// Put the session in another mode.
-    pub fn set_mode(&self, id: &str, key: u64, session: SessionId, mode: String) {
+    fn set_mode(&self, id: &str, key: u64, session: SessionId, mode: String) {
         let Some(agent) = self.running(id) else {
             return;
         };
@@ -455,14 +527,7 @@ impl Server {
 
     /// Choose `value` for the option `config` (a model, a level of
     /// thought).
-    pub fn set_option(
-        &self,
-        id: &str,
-        key: u64,
-        session: SessionId,
-        config: String,
-        value: String,
-    ) {
+    fn set_option(&self, id: &str, key: u64, session: SessionId, config: String, value: String) {
         let request = SetSessionConfigOptionRequest::new(
             session,
             SessionConfigId::new(config),
@@ -482,7 +547,7 @@ impl Server {
 
     /// Sign in to the agent `id` with its method `method`: the agent itself
     /// does it, often in your browser.
-    pub fn authenticate(&self, id: &str, method: String) {
+    fn authenticate(&self, id: &str, method: String) {
         let agent = id.to_owned();
         self.ask(id, AuthenticateRequest::new(method), move |r| {
             Event::Signed {
@@ -493,7 +558,7 @@ impl Server {
     }
 
     /// Sign the agent `id` out.
-    pub fn logout(&self, id: &str) {
+    fn logout(&self, id: &str) {
         let agent = id.to_owned();
         self.ask(id, LogoutRequest::new(), move |r| Event::LoggedOut {
             agent,
@@ -503,7 +568,7 @@ impl Server {
 
     /// How much memory each agent running holds with what it started (ps),
     /// by its id and process id: in kilobytes.
-    pub fn weigh(&self) {
+    fn weigh(&self) {
         let running: Vec<(String, u32)> = (self.agents.lock().expect("agents").iter())
             .filter_map(|(id, a)| Some((id.clone(), a.pid()?)))
             .collect();
@@ -529,7 +594,7 @@ impl Server {
 
     /// Look at what of each of `agents` is here, in the home and on the
     /// PATH.
-    pub fn here(&self, agents: Vec<Entry>) {
+    fn here(&self, agents: Vec<Entry>) {
         let home = self.home.clone();
         self.off(move || {
             Event::Here(
@@ -550,7 +615,7 @@ impl Server {
 
     /// Ask `cli` its version (`--version`, its first line); none, if it
     /// does not say.
-    pub fn cli_version(&self, cli: PathBuf) {
+    fn cli_version(&self, cli: PathBuf) {
         self.off(move || {
             let version = std::process::Command::new(&cli)
                 .arg("--version")

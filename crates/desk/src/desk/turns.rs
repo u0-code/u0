@@ -8,6 +8,7 @@ use super::{Aside, Desk};
 use crate::git::Scope;
 use crate::{
     hub::{self, Slot},
+    proto::Call,
     session::{Item, State},
 };
 
@@ -104,7 +105,12 @@ impl Desk {
             (true, Some(id)) => {
                 let mut content = vec![ContentBlock::Text(TextContent::new(text))];
                 content.extend(attached);
-                self.server.prompt(&agent, key, id, content);
+                self.transport.send(Call::Prompt {
+                    agent,
+                    key,
+                    session: id,
+                    content,
+                });
             }
             _ => {
                 if let Some(s) = self.sessions.at_mut(key) {

@@ -241,7 +241,9 @@ impl Desk {
                 s.recorded = true;
             }
         }
-        self.server.stop(agent);
+        self.transport.send(crate::proto::Call::Stop {
+            agent: agent.to_owned(),
+        });
         if let Some(slot) = self.slot_mut(agent) {
             slot.stage = crate::hub::Stage::Ready;
         }

@@ -1,14 +1,14 @@
 //! What comes back to the window: signing in, and every message from the
 //! agents and the work done off the window's thread.
 
-use agent_client_protocol::v1::schema::{SessionId, SessionUpdate};
+use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SessionId, SessionUpdate};
 use gpui::Context;
 
 use super::Desk;
 use crate::{
     acp,
     hub::{self, Msg, Slot, Stage},
-    proto::Event,
+    proto::{Call, Event},
     session::State,
     sessions::Loaded,
 };
@@ -44,7 +44,10 @@ impl Desk {
             }
         } else {
             self.signing = Some(agent.to_owned());
-            self.server.authenticate(agent, method.to_owned());
+            self.transport.send(Call::SignIn {
+                agent: agent.to_owned(),
+                method: method.to_owned(),
+            });
         }
         cx.notify();
     }
@@ -483,7 +486,9 @@ impl Desk {
                     slot.used = std::time::Instant::now();
                 } else {
                     // Switched off while it started.
-                    self.server.stop(agent);
+                    self.transport.send(Call::Stop {
+                        agent: agent.to_owned(),
+                    });
                 }
                 for key in self.sessions.started(agent, None) {
                     self.open_when_running(agent, key);
@@ -541,11 +546,21 @@ impl Desk {
                 let id = r.session_id.clone();
                 if self.slot(&agent).is_some_and(Slot::running) {
                     if let Some(m) = mode {
-                        self.server.set_mode(&agent, key, id.clone(), m);
+                        self.transport.send(Call::SetMode {
+                            agent: agent.clone(),
+                            key,
+                            session: id.clone(),
+                            mode: m,
+                        });
                     }
                     for (config, value) in chosen {
-                        self.server
-                            .set_option(&agent, key, id.clone(), config, value);
+                        self.transport.send(Call::SetOption {
+                            agent: agent.clone(),
+                            key,
+                            session: id.clone(),
+                            config,
+                            value,
+                        });
                     }
                 }
                 self.flush(key);
@@ -703,7 +718,11 @@ impl Desk {
                         s.meta.flags.unread = true;
                     }
                 } else if self.slot(agent).is_some_and(Slot::running) {
-                    self.server.answer(agent, id, None);
+                    self.transport.send(Call::Answer {
+                        agent: agent.to_owned(),
+                        request: id,
+                        outcome: RequestPermissionOutcome::Cancelled,
+                    });
                 }
             }
             acp::Event::Exited { pid, why } => {
@@ -714,7 +733,9 @@ impl Desk {
                     return;
                 };
                 slot.stage = Stage::Failed(why.clone());
-                self.server.stop(agent);
+                self.transport.send(Call::Stop {
+                    agent: agent.to_owned(),
+                });
                 for key in self.sessions.exited(agent, &why) {
                     self.flush(key);
                 }

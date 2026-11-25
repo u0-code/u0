@@ -19,6 +19,7 @@ use super::Desk;
 use crate::{
     hub,
     input::{Cancelled, Changed, TextInput},
+    proto::Call,
     session::{Item, Session, State},
     store, when,
 };
@@ -350,7 +351,11 @@ impl Desk {
             return;
         }
         if self.slot(&agent).is_some_and(hub::Slot::running) {
-            self.server.delete(&agent, key, id);
+            self.transport.send(Call::Delete {
+                agent,
+                key,
+                session: id,
+            });
         } else {
             self.waiting.push((agent.clone(), Waiting::Delete(key)));
             self.start_for(&agent);
@@ -365,7 +370,13 @@ impl Desk {
                     && let Some(id) = s.meta.id.clone()
                     && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    (self.server).fork(&s.meta.agent, key, id, s.meta.folder.clone(), upto);
+                    self.transport.send(Call::Fork {
+                        agent: s.meta.agent.clone(),
+                        from: key,
+                        session: id,
+                        folder: s.meta.folder.clone(),
+                        upto,
+                    });
                 }
             }
             Waiting::Delete(key) => {
@@ -373,7 +384,11 @@ impl Desk {
                     && let Some(id) = s.meta.id.clone()
                     && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    self.server.delete(&s.meta.agent, key, id);
+                    self.transport.send(Call::Delete {
+                        agent: s.meta.agent.clone(),
+                        key,
+                        session: id,
+                    });
                 }
             }
         }

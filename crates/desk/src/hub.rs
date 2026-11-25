@@ -1,7 +1,8 @@
 //! The work done off the window's thread, and what comes back of it.
 //!
 //! The agents are the server's (`ghost_core::server`): the desk asks it by
-//! an agent's id, and what it says comes back as [`Msg::Event`]. Each agent
+//! an agent's id, with a `proto::Call` through the [`Transport`], and what
+//! it says comes back as [`Msg::Event`]. Each agent
 //! switched on has a [`Slot`] here: what the registry says of it, whether it
 //! can be started, and once started what it said it can do. The rest of the
 //! work (git, files, windows, terminals, searching, tidying) runs on the ACP
@@ -22,7 +23,13 @@ mod git;
 pub use agent::*;
 pub use git::*;
 
-use crate::{acp, proto::Event, registry, scripts::Script};
+use crate::{
+    acp,
+    proto::{Call, Event},
+    registry,
+    scripts::Script,
+    server::Server,
+};
 
 /// What comes back to the window.
 pub enum Msg {
@@ -174,6 +181,32 @@ pub enum Msg {
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
+
+/// The way to the server: each [`Call`] goes to it in order, and what it
+/// says comes back as [`Msg::Event`]. The server runs in this process, on
+/// the ACP runtime, and the calls reach it as they are, not written out.
+pub struct Transport(mpsc::UnboundedSender<Call>);
+
+impl Transport {
+    /// A server for Ghost's home `home` in this process, saying what it
+    /// has to say to `tx`.
+    pub fn local(home: PathBuf, tx: Sender) -> Self {
+        let (calls, mut rx) = mpsc::unbounded_channel();
+        let server = Server::new(home, move |event| {
+            let _ = tx.send(Msg::Event(event));
+        });
+        acp::runtime().spawn(async move {
+            while let Some(call) = rx.recv().await {
+                server.handle(call);
+            }
+        });
+        Self(calls)
+    }
+
+    pub fn send(&self, call: Call) {
+        let _ = self.0.send(call);
+    }
+}
 
 /// Do `work` off the window's thread, and send what it comes to back.
 fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {

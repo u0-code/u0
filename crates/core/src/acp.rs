@@ -69,7 +69,7 @@ pub struct Launch {
 }
 
 /// What an agent says to the desk without being asked.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     /// Something happened in one of its sessions.
     Update(SessionNotification),
@@ -90,7 +90,7 @@ pub enum Event {
 
 /// What the `JetBrains` extension of ACP (`air`, `asyncTasks`) says of a
 /// task going on in the background: begun, under way, or over.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "sessionUpdate")]
 pub enum Task {
     #[serde(rename = "async_task_spawned")]

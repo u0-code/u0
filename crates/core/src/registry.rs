@@ -25,20 +25,20 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{acp::Launch, whole};
 
 /// Where the newest registry is read from.
 pub const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Registry {
     #[serde(default)]
     pub agents: Vec<Entry>,
     /// The agents whose logo the home holds, by id: read with the
     /// registry, not from it.
-    #[serde(skip)]
+    #[serde(default)]
     pub logos: std::collections::HashSet<String>,
 }
 
@@ -54,7 +54,7 @@ impl Registry {
 }
 
 /// One agent the registry lists.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     pub id: String,
     pub name: String,
@@ -69,7 +69,7 @@ pub struct Entry {
     pub distribution: Distribution,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Distribution {
     /// An archive for each platform, keyed like `darwin-aarch64`.
     #[serde(default)]
@@ -80,7 +80,7 @@ pub struct Distribution {
     pub uvx: Option<Package>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Binary {
     pub archive: String,
     /// The program inside the archive, from its top.
@@ -91,7 +91,7 @@ pub struct Binary {
     pub env: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(
     clippy::struct_field_names,
     reason = "the registry's own name for the field"
