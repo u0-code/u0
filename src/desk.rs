@@ -893,6 +893,18 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // In a project on another machine, the agent is the one there.
+        let there = match crate::remote::parse(&folder) {
+            Some((host, _)) if crate::remote::split(agent).1.is_none() => {
+                let Some(id) = self.remote_slot(agent, &host) else {
+                    self.open_agents(cx);
+                    return;
+                };
+                Some(id)
+            }
+            _ => None,
+        };
+        let agent = there.as_deref().unwrap_or(agent);
         if !matches!(
             self.slot(agent).map(|s| &s.stage),
             Some(Stage::Ready | Stage::Starting | Stage::Running { .. })
@@ -910,27 +922,33 @@ impl Desk {
             s.key
         } else {
             let key = self.take_key();
-            let worktree = self
-                .prefs(&folder)
-                .worktree
-                .unwrap_or(self.settings.worktree);
-            let there = crate::remote::parse(&folder);
-            let mut s = Session::new(key, agent, folder);
-            // On another machine it works in the path there, whose git the
-            // desk does not read.
-            if let Some((_, path)) = there {
-                s.folder = path;
-                s.repo = false;
-                s.branch = None;
-            }
-            s.wants_worktree = s.repo && worktree;
-            if let Some(slot) = self.slot(agent) {
-                slot.seed(&mut s);
-            }
+            let s = self.begun_in(key, agent, folder);
             self.sessions.push(s);
             key
         };
         self.show(key, window, cx);
+    }
+
+    /// A new session of `agent` in the project `folder`: on another
+    /// machine it works in the path there, whose git the desk does not
+    /// read.
+    fn begun_in(&self, key: u64, agent: &str, folder: PathBuf) -> Session {
+        let worktree = self
+            .prefs(&folder)
+            .worktree
+            .unwrap_or(self.settings.worktree);
+        let there = crate::remote::parse(&folder);
+        let mut s = Session::new(key, agent, folder);
+        if let Some((_, path)) = there {
+            s.folder = path;
+            s.repo = false;
+            s.branch = None;
+        }
+        s.wants_worktree = s.repo && worktree;
+        if let Some(slot) = self.slot(agent) {
+            slot.seed(&mut s);
+        }
+        s
     }
 
     /// Put the session `key` on screen.
@@ -1178,7 +1196,8 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let (agent, folder) = (s.agent.clone(), s.project.clone());
         let key = self.take_key();
-        self.sessions.push(Session::new(key, &agent, folder));
+        let s = self.begun_in(key, &agent, folder);
+        self.sessions.push(s);
         self.show(key, window, cx);
     }
 
@@ -1371,6 +1390,13 @@ impl Desk {
 
     /// Open the session `key` once its agent runs, starting it if need be.
     fn open_when_running(&mut self, agent: &str, key: u64) {
+        // One on another machine has no slot after a restart until wanted.
+        if self.slot(agent).is_none()
+            && let (base, Some(host)) = crate::remote::split(agent)
+        {
+            let (base, host) = (base.to_owned(), host.to_owned());
+            self.remote_slot(&base, &host);
+        }
         let home = self.home.clone();
         let tx = self.tx.clone();
         let (folder, id, recorded) = self
