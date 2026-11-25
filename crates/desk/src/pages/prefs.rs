@@ -265,6 +265,19 @@ impl Desk {
                         row(
                             faces,
                             q,
+                            "Size",
+                            "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
+                            Self::pick(
+                                "scale",
+                                crate::settings::SCALES.map(|s| (format!("{s}%"), s)),
+                                self.settings.scale,
+                                |s, v| s.scale = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
                             "Contrast",
                             "More draws the greys of what matters less, and the edges, stronger.",
                             Self::pick(
@@ -637,7 +650,7 @@ impl Desk {
     /// sets it with `set` and keeps the settings.
     fn pick<T: Copy + PartialEq + 'static, const N: usize>(
         id: &str,
-        choices: [(&'static str, T); N],
+        choices: [(impl Into<SharedString>, T); N],
         now: T,
         set: fn(&mut crate::settings::Settings, T),
         cx: &mut Context<Self>,

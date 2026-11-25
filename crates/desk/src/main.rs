@@ -96,6 +96,10 @@ fn main() {
             Menu::new("View").items(vec![
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),
                 MenuItem::separator(),
+                MenuItem::action("Actual Size", keys::ActualSize),
+                MenuItem::action("Zoom In", keys::ZoomIn),
+                MenuItem::action("Zoom Out", keys::ZoomOut),
+                MenuItem::separator(),
                 MenuItem::action("Enter Full Screen", keys::FullScreen),
             ]),
             Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),

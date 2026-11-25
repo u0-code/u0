@@ -93,3 +93,9 @@ gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-
 gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
 gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
 gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
+# Temporary, until Zed's gpui has it and gpui-kit moves to a gpui-pre built
+# from it: a window's contents can be drawn zoomed (Window::set_zoom), so
+# the whole interface scales (https://github.com/zed-industries/zed/pull/67479).
+# The branch is zed@f126950, the commit gpui-pre 0.3.14 snapshots, with that
+# change, built as gpui-pre; the other gpui-pre crates stay crates.io's.
+gpui-pre = { git = "https://github.com/mizorewww/zed", branch = "gpui-window-zoom-pre" }

@@ -88,6 +88,10 @@ pub struct Settings {
     /// The window's grounds let the desktop show through, blurred.
     #[serde(default)]
     pub glass: bool,
+    /// How large the whole window is drawn, in percent of its natural size:
+    /// one of `SCALES`.
+    #[serde(default = "natural")]
+    pub scale: u16,
     /// The face code and numbers are set in.
     #[serde(default)]
     pub mono: CodeFont,
@@ -484,6 +488,25 @@ fn left() -> u32 {
     LEFT
 }
 
+/// The sizes the window can be drawn at, in percent, smallest first; ⌘+
+/// and ⌘− step through them.
+pub const SCALES: [u16; 8] = [80, 90, 100, 110, 125, 150, 175, 200];
+
+fn natural() -> u16 {
+    100
+}
+
+/// The size after `now` among `SCALES`, larger or smaller; `now` at either
+/// end.
+pub fn next_scale(now: u16, larger: bool) -> u16 {
+    if larger {
+        SCALES.into_iter().find(|&s| s > now)
+    } else {
+        SCALES.into_iter().rev().find(|&s| s < now)
+    }
+    .unwrap_or(now)
+}
+
 fn prefix() -> String {
     "ghost/".into()
 }
@@ -539,6 +562,7 @@ impl Default for Settings {
             blue_orange: false,
             contrast: false,
             glass: false,
+            scale: natural(),
             mono: CodeFont::default(),
             side_by_side: false,
             steer: false,
@@ -609,6 +633,17 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zooming_steps_through_the_sizes_and_stops_at_either_end() {
+        assert_eq!(next_scale(100, true), 110);
+        assert_eq!(next_scale(100, false), 90);
+        assert_eq!(next_scale(200, true), 200);
+        assert_eq!(next_scale(80, false), 80);
+        // A size written by hand steps to the nearest listed beyond it.
+        assert_eq!(next_scale(133, true), 150);
+        assert_eq!(next_scale(133, false), 125);
+    }
 
     #[test]
     fn return_sends_a_multiline_draft_only_where_it_always_sends() {

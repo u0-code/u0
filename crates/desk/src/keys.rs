@@ -83,14 +83,17 @@ actions!(
         EditQueued,
         PreviousTurn,
         NextTurn,
-        FullScreen
+        FullScreen,
+        ZoomIn,
+        ZoomOut,
+        ActualSize
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 46] = [
+pub const ACTIONS: [(&str, &str, Make); 49] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -189,6 +192,11 @@ pub const ACTIONS: [(&str, &str, Make); 46] = [
         "Transcript view: normal, thinking, verbose",
         || Box::new(TranscriptView),
     ),
+    ("zoom_in", "Everything larger", || Box::new(ZoomIn)),
+    ("zoom_out", "Everything smaller", || Box::new(ZoomOut)),
+    ("actual_size", "Everything at its actual size", || {
+        Box::new(ActualSize)
+    }),
 ];
 
 /// A binding of yours: `action` is a name in `ACTIONS`, or "none" to
@@ -389,6 +397,11 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-7", Session7, None),
         KeyBinding::new("cmd-8", Session8, None),
         KeyBinding::new("cmd-9", Session9, None),
+        // ⌘+ is ⌘= on most keyboards, and the key written for it.
+        KeyBinding::new("cmd-+", ZoomIn, None),
+        KeyBinding::new("cmd-=", ZoomIn, None),
+        KeyBinding::new("cmd--", ZoomOut, None),
+        KeyBinding::new("cmd-0", ActualSize, None),
         KeyBinding::new("cmd-s", Stash, composer),
         KeyBinding::new("cmd-shift-enter", SendAside, composer),
         KeyBinding::new("alt-up", EditQueued, composer),
@@ -496,6 +509,13 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<PreviousTurn>(cx, shown, |d, _, cx| d.step_turn(false, cx));
     on::<NextTurn>(cx, shown, |d, _, cx| d.step_turn(true, cx));
     on::<FullScreen>(cx, shown, |_, window, _| window.toggle_fullscreen());
+    on::<ZoomIn>(cx, shown, |d, _, cx| {
+        rescale(d, crate::settings::next_scale(d.settings.scale, true), cx);
+    });
+    on::<ZoomOut>(cx, shown, |d, _, cx| {
+        rescale(d, crate::settings::next_scale(d.settings.scale, false), cx);
+    });
+    on::<ActualSize>(cx, shown, |d, _, cx| rescale(d, 100, cx));
     on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });
@@ -552,6 +572,13 @@ pub fn handle(cx: &mut App, shown: &Shown) {
 /// Do `f` to the desk on each `A`, once the action's dispatch is over: a
 /// key or a menu dispatches in the window, which is lent to that dispatch
 /// until it ends, so updating the window from inside it fails.
+/// The whole window drawn at `scale` percent, kept for the next run.
+fn rescale(d: &mut Desk, scale: u16, cx: &mut Context<Desk>) {
+    d.settings.scale = scale;
+    d.save_settings();
+    cx.notify();
+}
+
 fn on<A: Action>(cx: &mut App, shown: &Shown, f: fn(&mut Desk, &mut Window, &mut Context<Desk>)) {
     let shown = shown.clone();
     cx.on_action(move |_: &A, cx| {

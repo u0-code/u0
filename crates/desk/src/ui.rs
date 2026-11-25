@@ -166,7 +166,7 @@ pub type Pick = Box<dyn Fn(&Vec<usize>, &mut Window, &mut App)>;
 
 /// A few choices side by side in one frame, each a word, the one chosen
 /// lit: gpui-kit's button group, a button to each choice.
-pub fn segmented(id: &str, choices: Vec<(&'static str, bool, Pick)>) -> ButtonGroup {
+pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) -> ButtonGroup {
     let (buttons, picks): (Vec<Button>, Vec<Pick>) = choices
         .into_iter()
         .enumerate()

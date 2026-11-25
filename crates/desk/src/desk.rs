@@ -1457,6 +1457,26 @@ impl Render for Desk {
             },
             cx,
         );
+        // The whole window as large as it is set, once this frame is drawn:
+        // a zoom changes the size everything is laid out in.
+        let zoom = f32::from(self.settings.scale.clamp(
+            settings::SCALES[0],
+            settings::SCALES[settings::SCALES.len() - 1],
+        )) / 100.;
+        if (window.zoom() - zoom).abs() > f32::EPSILON {
+            // Outside the desk's update: a zoom tells the window's bounds
+            // observers, the desk among them.
+            window.defer(cx, move |window, cx| {
+                window.set_zoom(zoom, cx);
+                // macOS draws the lights at their own size: they stay in the
+                // middle of the top row, 44 points high however large.
+                #[cfg(target_os = "macos")]
+                window.set_traffic_light_position(gpui::point(
+                    gpui::px(18.),
+                    gpui::px(22. - 6. / zoom),
+                ));
+            });
+        }
         // The window behind the grounds: blurred where glass is on.
         if self.glassed != theme::glass() {
             self.glassed = theme::glass();
