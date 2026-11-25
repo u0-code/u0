@@ -245,8 +245,14 @@ impl Desk {
                 }
             }
             Msg::Pr { key, pr } => {
+                let merged = pr.as_ref().is_some_and(|p| p.state == "merged");
                 if let Some(s) = self.session_mut(key) {
                     s.pr = pr;
+                    // Its pull request merged: the session is done.
+                    if merged && s.flags.settled.is_none() {
+                        s.flags.settled = Some(crate::store::secs(std::time::SystemTime::now()));
+                        self.save_index();
+                    }
                 }
             }
             Msg::GitStep { key, text } => {

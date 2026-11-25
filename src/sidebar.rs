@@ -533,7 +533,7 @@ impl Desk {
             wrap = wrap.child(gpui::deferred(
                 gpui::anchored()
                     .anchor(gpui::Corner::TopRight)
-                    .child(self.project_menu(faces, folder, count, cx)),
+                    .child(self.project_menu(faces, folder, cx)),
             ));
         }
         wrap.into_any_element()
@@ -541,13 +541,7 @@ impl Desk {
 
     /// What can be done with a project: name it, pin it, the agent and the
     /// way of working its new sessions take, find it, put it away.
-    fn project_menu(
-        &self,
-        faces: &Faces,
-        folder: &Path,
-        count: usize,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn project_menu(&self, faces: &Faces, folder: &Path, cx: &mut Context<Self>) -> Div {
         let prefs = self.prefs(folder);
         let id = folder.display().to_string();
         let item = |n: usize, icon: &'static str, label: String| {
@@ -633,7 +627,7 @@ impl Desk {
             menu.child(item(8, "archive", "Archive".into()).on_click(
                 cx.listener(move |this, _, _, cx| this.archive_project(&archive_dir, cx)),
             ));
-        if count == 0 {
+        if self.can_forget_project(&dir) {
             let forget_dir = dir.clone();
             menu =
                 menu.child(item(9, "x", "Remove from the list".into()).on_click(

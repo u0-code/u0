@@ -1172,8 +1172,14 @@ impl Desk {
     }
 
     /// Take `folder` off the projects; one with sessions open stays.
+    /// Whether the project `folder` can be taken off the list: no session
+    /// of any kind is in it, or it would come back with that session.
+    pub fn can_forget_project(&self, folder: &Path) -> bool {
+        !self.sessions.iter().any(|s| s.project == folder)
+    }
+
     pub fn forget_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
-        if self.sessions.iter().any(|s| s.project == folder) {
+        if !self.can_forget_project(folder) {
             return;
         }
         self.settings.forget(folder);

@@ -195,7 +195,7 @@ impl Desk {
                 .child(row(
                     faces,
                     "The agents come from",
-                    "The ACP registry, read again each day.",
+                    "The ACP registry, read again every six hours.",
                     registry,
                 )),
         )

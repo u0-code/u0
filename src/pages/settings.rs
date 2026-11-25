@@ -453,12 +453,18 @@ impl Desk {
                     .py(px(10.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
+                    // Opened to read, it says it is archived, with Restore.
                     .child(
                         div()
+                            .id(SharedString::from(format!("read-{key}")))
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w(px(0.))
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.show(key, window, cx);
+                            }))
                             .child(ui::one_line(
                                 ui::text(faces, s.title.clone()).text_size(px(13.5)),
                             ))
