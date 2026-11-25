@@ -44,6 +44,8 @@ pub enum Way {
     Undo,
     /// An update of Ghost's own, to see and install.
     Update,
+    /// A clone that failed, of the address into the folder, to try again.
+    Clone(String, std::path::PathBuf),
 }
 
 impl Desk {
@@ -132,6 +134,7 @@ impl Desk {
             Some(Way::Show(_)) => "Show",
             Some(Way::Undo) => "Undo",
             Some(Way::Update) => "See",
+            Some(Way::Clone(..)) => "Retry",
             None if n.trouble => "Copy details",
             None => return note,
         };
@@ -146,6 +149,7 @@ impl Desk {
                 Some(Way::Show(key)) => d.show(key, window, cx),
                 Some(Way::Undo) => d.take_back(cx),
                 Some(Way::Update) => d.open_tab(crate::pages::Tab::About, window, cx),
+                Some(Way::Clone(url, dir)) => d.clone_into(url, dir, cx),
                 None => cx.write_to_clipboard(ClipboardItem::new_string(details.clone())),
             });
         };

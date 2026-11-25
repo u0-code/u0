@@ -339,17 +339,15 @@ impl Desk {
                         c.what,
                         share.unwrap_or_default()
                     )));
-                } else if let Some(name) = crate::desk::projects::cloned_name(typed) {
+                } else if let Some(source) = crate::desk::projects::Source::read(typed) {
+                    let dir = source.dir(&self.projects_in(), self.settings.host_folders);
                     rows.push(
                         Row::new(
                             "branch",
-                            format!("Clone {typed}"),
+                            format!("Clone {}", source.url),
                             Act::Clone(typed.to_owned()),
                         )
-                        .sub(format!(
-                            "into {}",
-                            Desk::shown(&self.adding.parent.join(name))
-                        )),
+                        .sub(format!("into {}", Desk::shown(&dir))),
                     );
                 }
                 rows.push(self.parent_row());
@@ -358,17 +356,25 @@ impl Desk {
             Sub::Make => {
                 let mut rows = Vec::new();
                 if !typed.is_empty() {
+                    let at = Desk::shown(&self.projects_in());
                     rows.push(
                         Row::new(
                             "folder-plus",
                             format!("Make {typed}"),
-                            Act::Make(typed.to_owned()),
+                            Act::Make(typed.to_owned(), false),
                         )
-                        .sub(format!(
-                            "A repository with a README, in {}",
-                            Desk::shown(&self.adding.parent)
-                        )),
+                        .sub(format!("A repository with a README, in {at}")),
                     );
+                    if self.on_path.contains(&"gh") {
+                        rows.push(
+                            Row::new(
+                                "globe",
+                                format!("Make {typed}, and a private repository on GitHub"),
+                                Act::Make(typed.to_owned(), true),
+                            )
+                            .sub(format!("In {at}, pushed to GitHub by gh")),
+                        );
+                    }
                 }
                 rows.push(self.parent_row());
                 rows
@@ -400,7 +406,7 @@ impl Desk {
     /// Where new and cloned projects go, and the way to choose another.
     fn parent_row(&self) -> Row {
         Row::new("folder", "Put new projects in…", Act::ChooseParent)
-            .sub(Desk::shown(&self.adding.parent))
+            .sub(Desk::shown(&self.projects_in()))
     }
 }
 

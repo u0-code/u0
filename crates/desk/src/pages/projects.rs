@@ -64,12 +64,38 @@ impl Desk {
             })
             .map(|row| div().child(row))
             .collect();
+        let adding = vec![
+            setting(
+                faces,
+                "New projects go in",
+                &format!(
+                    "{}: a project made or cloned in the palette.",
+                    Desk::shown(&self.projects_in())
+                ),
+                ui::button("projects-in", "Choose…", ui::Weight::Secondary)
+                    .on_click(cx.listener(|_, _, _, cx| Desk::choose_parent(cx))),
+            ),
+            setting(
+                faces,
+                "Clone into host folders",
+                "A clone goes in <host>/<owner>/<repo> there, as ghq lays them out.",
+                Switch::new("host-folders")
+                    .small()
+                    .checked(self.settings.host_folders)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings.host_folders = !this.settings.host_folders;
+                        this.save_settings();
+                        cx.notify();
+                    })),
+            ),
+        ];
         page(
             faces,
             "Projects",
             "The folders you work in, and how each one's sessions begin.",
         )
         .child(group_of(rows))
+        .child(group_of(adding))
     }
 
     /// One project's page.

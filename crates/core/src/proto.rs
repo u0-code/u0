@@ -290,10 +290,12 @@ pub enum Call {
         words: String,
         how: git::Match,
     },
-    /// Make the new project `name` in `dir`: a folder, a repository.
+    /// Make the new project `name` in `dir`: a folder, a repository; and
+    /// (`publish`) a private repository of yours on GitHub, pushed to.
     Create {
         dir: PathBuf,
         name: String,
+        publish: bool,
     },
     /// Clone `url` into `dir`; the clone going on stops at `CancelClone`.
     Clone {
@@ -826,6 +828,7 @@ mod tests {
             Call::Create {
                 dir: dir.clone(),
                 name: "new".into(),
+                publish: true,
             },
             Call::Clone {
                 url: "https://example.com/a.git".into(),

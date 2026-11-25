@@ -180,6 +180,13 @@ pub struct Settings {
     /// How far a new worktree's submodules are checked out.
     #[serde(default)]
     pub submodules: Submodules,
+    /// The folder new and cloned projects go in; none, ~/Documents/Ghost.
+    #[serde(default)]
+    pub projects_in: Option<PathBuf>,
+    /// A clone goes in `<host>/<owner>/<repo>` under that folder, as ghq
+    /// lays them out.
+    #[serde(default)]
+    pub host_folders: bool,
 }
 
 /// How far a new worktree's submodules are checked out, as t3code's: all
@@ -682,6 +689,8 @@ impl Default for Settings {
             frame: None,
             worktrees: None,
             submodules: Submodules::default(),
+            projects_in: None,
+            host_folders: false,
         }
     }
 }

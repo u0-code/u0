@@ -39,34 +39,101 @@ fn made_here() -> PathBuf {
 }
 
 /// Adding a project from the palette: the machines your SSH configuration
-/// names, the folder a clone or a new one goes in, and a clone going on.
+/// names, and a clone going on, from the address `url` (none for a new
+/// project being made).
+#[derive(Default)]
 pub struct Adding {
     pub hosts: Vec<String>,
-    pub parent: PathBuf,
-    /// A clone going on, and the switch that stops it.
     pub cloning: Option<crate::hub::Install>,
+    pub url: Option<String>,
 }
 
-impl Default for Adding {
-    fn default() -> Self {
-        Self {
-            hosts: Vec::new(),
-            parent: made_here(),
-            cloning: None,
+/// The hosts whose page of a repository (a branch, a file) names it in
+/// its first parts: GitLab's up to its `-`, the others' the first two.
+const FORGES: [&str; 5] = [
+    "github.com",
+    "gitlab.com",
+    "codeberg.org",
+    "bitbucket.org",
+    "gitcafe.com",
+];
+
+/// A repository to clone, from what was pasted: the address to clone, the
+/// host it is on, and its path there (`owner`, `repo`), its name last.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Source {
+    pub url: String,
+    pub host: Option<String>,
+    pub path: Vec<String>,
+}
+
+impl Source {
+    /// Read what was pasted: a clone address (HTTPS, SSH, a folder), or a
+    /// page of a repository on a known host, which clones that
+    /// repository's default branch; none for what names no repository.
+    pub fn read(typed: &str) -> Option<Self> {
+        let typed = typed.trim().trim_end_matches('/');
+        let web = ["https://", "http://", "ssh://"]
+            .iter()
+            .find_map(|p| typed.strip_prefix(p));
+        let (host, rest) = match web {
+            Some(rest) => {
+                let (authority, path) = rest.split_once('/')?;
+                let host = authority.rsplit('@').next()?;
+                (host.split(':').next(), path)
+            }
+            None => match typed.split_once(':') {
+                Some((who, path)) if who.contains('@') && !path.starts_with('/') => {
+                    (who.split_once('@').map(|(_, h)| h), path)
+                }
+                _ if typed.contains('/') => (None, typed),
+                _ => return None,
+            },
+        };
+        let mut path: Vec<String> = rest
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let forge = host.filter(|h| FORGES.contains(h));
+        if let Some(h) = forge {
+            let end = path.iter().position(|p| p == "-").unwrap_or(path.len());
+            path.truncate(if h == "gitlab.com" { end } else { end.min(2) });
+        }
+        let last = path.last_mut()?;
+        *last = last.trim_end_matches(".git").to_owned();
+        if last.is_empty() {
+            return None;
+        }
+        let url = match forge {
+            Some(h) if web.is_some() && !typed.starts_with("ssh://") => {
+                format!("https://{h}/{}.git", path.join("/"))
+            }
+            _ => typed.to_owned(),
+        };
+        if host.is_none() {
+            path.drain(..path.len() - 1);
+        }
+        Some(Self {
+            url,
+            host: host.map(str::to_owned),
+            path,
+        })
+    }
+
+    /// Its name: the folder it is cloned into.
+    pub fn name(&self) -> &str {
+        self.path.last().map_or("", String::as_str)
+    }
+
+    /// Where it is cloned under `base`: in a folder of its name, or, with
+    /// `host_folders`, in `<host>/<owner>/<repo>`, as ghq lays them out.
+    pub fn dir(&self, base: &Path, host_folders: bool) -> PathBuf {
+        match (&self.host, host_folders) {
+            (Some(host), true) => self.path.iter().fold(base.join(host), |d, p| d.join(p)),
+            _ => base.join(self.name()),
         }
     }
-}
-
-/// The folder a repository at `url` is cloned into: its last part, without
-/// ".git"; none for an address with none.
-pub fn cloned_name(url: &str) -> Option<&str> {
-    let name = url
-        .trim()
-        .trim_end_matches('/')
-        .rsplit(['/', ':'])
-        .next()?
-        .trim_end_matches(".git");
-    (!name.is_empty() && url.contains(['/', ':'])).then_some(name)
 }
 
 /// A project on another machine as typed, `host:/path`: its machine and
@@ -126,10 +193,22 @@ impl Desk {
         self.set_prefs(folder, cx, |p| p.worktree = Some(on));
     }
 
-    /// Clone `url` into a folder of its name under the folder chosen, its
+    /// The folder new and cloned projects go in.
+    pub fn projects_in(&self) -> PathBuf {
+        self.settings.projects_in.clone().unwrap_or_else(made_here)
+    }
+
+    /// Clone what was typed, `typed`, into the folder projects go in, its
     /// progress shown; it becomes a project once cloned.
-    pub fn start_clone(&mut self, url: &str, cx: &mut Context<Self>) {
-        let Some(name) = cloned_name(url) else { return };
+    pub fn start_clone(&mut self, typed: &str, cx: &mut Context<Self>) {
+        if let Some(source) = Source::read(typed) {
+            let dir = source.dir(&self.projects_in(), self.settings.host_folders);
+            self.clone_into(source.url, dir, cx);
+        }
+    }
+
+    /// Clone `url` into `dir`, unless a clone goes on already.
+    pub fn clone_into(&mut self, url: String, dir: PathBuf, cx: &mut Context<Self>) {
         if self.adding.cloning.is_some() {
             return;
         }
@@ -137,10 +216,8 @@ impl Desk {
             what: "Starting".into(),
             share: None,
         });
-        self.transport.send(crate::proto::Call::Clone {
-            url: url.trim().to_owned(),
-            dir: self.adding.parent.join(name),
-        });
+        self.adding.url = Some(url.clone());
+        self.transport.send(crate::proto::Call::Clone { url, dir });
         cx.notify();
     }
 
@@ -151,15 +228,18 @@ impl Desk {
         cx.notify();
     }
 
-    /// Make the new project `name` under the folder chosen.
-    pub fn create_project(&mut self, name: &str, cx: &mut Context<Self>) {
+    /// Make the new project `name` in the folder projects go in, and
+    /// (`publish`) a private repository on GitHub for it.
+    pub fn create_project(&mut self, name: &str, publish: bool, cx: &mut Context<Self>) {
         let name = name.trim().to_owned();
         if name.is_empty() {
             return;
         }
+        self.adding.url = None;
         self.transport.send(crate::proto::Call::Create {
-            dir: self.adding.parent.join(&name),
+            dir: self.projects_in().join(&name),
             name,
+            publish,
         });
         cx.notify();
     }
@@ -195,7 +275,14 @@ impl Desk {
 
     /// Ask for the folder new and cloned projects go in.
     pub fn choose_parent(cx: &mut Context<Self>) {
-        Self::ask_folder("Put it here", |d, folder| d.adding.parent = folder, cx);
+        Self::ask_folder(
+            "Put them here",
+            |d, folder| {
+                d.settings.projects_in = Some(folder);
+                d.save_settings();
+            },
+            cx,
+        );
     }
 
     /// Ask for a folder, the button saying `prompt`, and hand the one
@@ -304,5 +391,30 @@ impl Desk {
         self.popup = Popup::Closed;
         self.save_settings();
         Some(folder)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_of_a_repository_clones_the_repository_into_its_host_folders() {
+        let s =
+            Source::read("https://github.com/zed-industries/zed/tree/main/crates/gpui").unwrap();
+        assert_eq!(s.url, "https://github.com/zed-industries/zed.git");
+        assert_eq!(
+            s.dir(Path::new("/g"), true),
+            Path::new("/g/github.com/zed-industries/zed")
+        );
+        assert_eq!(s.dir(Path::new("/g"), false), Path::new("/g/zed"));
+        let s = Source::read("https://gitlab.com/group/sub/app/-/blob/main/x.rs").unwrap();
+        assert_eq!(s.url, "https://gitlab.com/group/sub/app.git");
+        let s = Source::read("git@github.com:o/r.git").unwrap();
+        assert_eq!((s.url.as_str(), s.name()), ("git@github.com:o/r.git", "r"));
+        assert_eq!(s.dir(Path::new("/g"), true), Path::new("/g/github.com/o/r"));
+        let s = Source::read("/Users/me/code/thing.git").unwrap();
+        assert_eq!(s.dir(Path::new("/g"), true), Path::new("/g/thing"));
+        assert_eq!(Source::read("just words"), None);
     }
 }

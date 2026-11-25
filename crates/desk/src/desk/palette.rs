@@ -41,7 +41,7 @@ enum Act {
     ChooseParent,
     Clone(String),
     CancelClone,
-    Make(String),
+    Make(String, bool),
     Remote(String),
     /// What to type in the palette's line, put there.
     Fill(String),
@@ -831,7 +831,7 @@ impl Desk {
             Act::Sub(_) | Act::Fill(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
             Act::Adopt(folder) => self.add_and_begin(&folder, window, cx),
             Act::Choose => Self::add_project(window, cx),
-            Act::Make(name) => self.create_project(&name, cx),
+            Act::Make(name, publish) => self.create_project(&name, publish, cx),
             Act::Remote(typed) => self.add_remote(&typed, cx),
             Act::Key(name) => {
                 if let Some(action) = crate::keys::action(name) {

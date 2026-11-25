@@ -366,7 +366,10 @@ pub fn git_action(
     }
 }
 
-/// Clone `url` into `dir`, saying how it goes, until `stop` is set.
+/// Clone `url` into `dir`, saying how it goes, until `stop` is set. Where
+/// the host refuses this machine's SSH key, it is cloned over HTTPS with
+/// git's credentials for that host instead, as t3code does, and its
+/// remote is the HTTPS address.
 pub fn clone(url: &str, dir: PathBuf, stop: &AtomicBool, say: &dyn Fn(Event)) -> Event {
     let cloning = |what: &str, share: Option<f32>| {
         say(Event::Cloning {
@@ -374,8 +377,34 @@ pub fn clone(url: &str, dir: PathBuf, stop: &AtomicBool, say: &dyn Fn(Event)) ->
             share,
         });
     };
-    let result = git::clone(url, &dir, &cloning, stop);
+    let mut result = git::clone(url, &dir, &cloning, stop);
+    if let (Err(why), Some(https)) = (&result, over_https(url))
+        && [
+            "Permission denied (publickey",
+            "Host key verification failed",
+        ]
+        .iter()
+        .any(|s| why.contains(s))
+    {
+        cloning("Your SSH key was refused: cloning over HTTPS", None);
+        result = git::clone(&https, &dir, &cloning, stop);
+    }
     Event::Cloned { dir, result }
+}
+
+/// The HTTPS address of a repository named by its SSH address
+/// (`git@host:owner/repo`, `ssh://git@host:22/owner/repo`).
+fn over_https(url: &str) -> Option<String> {
+    let (host, path) = if let Some(rest) = url.strip_prefix("ssh://") {
+        let (authority, path) = rest.split_once('/')?;
+        let host = authority.rsplit('@').next()?;
+        (host.split(':').next()?, path)
+    } else {
+        let (who, path) = url.split_once(':')?;
+        (who.split_once('@')?.1, path)
+    };
+    (!host.is_empty() && !path.is_empty() && !path.starts_with('/'))
+        .then(|| format!("https://{host}/{path}"))
 }
 
 /// What a file holds, as the column's viewer shows it.
@@ -489,6 +518,20 @@ fn line_of(file: &Path, text: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::session::Session;
+
+    #[test]
+    fn an_ssh_address_has_an_https_one_and_others_have_none() {
+        assert_eq!(
+            over_https("git@github.com:o/r.git").as_deref(),
+            Some("https://github.com/o/r.git")
+        );
+        assert_eq!(
+            over_https("ssh://git@gitlab.com:22/g/sub/r").as_deref(),
+            Some("https://gitlab.com/g/sub/r")
+        );
+        assert_eq!(over_https("https://github.com/o/r"), None);
+        assert_eq!(over_https("/Users/me/repo"), None);
+    }
 
     #[test]
     fn a_file_reads_as_text_a_picture_or_bytes_by_what_it_holds() {

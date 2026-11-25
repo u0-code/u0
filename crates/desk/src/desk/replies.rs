@@ -194,13 +194,18 @@ impl Desk {
             }
             Event::Cloned { dir, result } => {
                 self.adding.cloning = None;
+                let url = self.adding.url.take();
                 match result {
                     Ok(()) => {
                         self.close_palette(window, cx);
                         self.add_and_begin(&dir, window, cx);
                     }
                     Err(why) if why == crate::registry::CANCELLED => {}
-                    Err(why) => self.trouble("Couldn't add the project", Some(why), None),
+                    Err(why) => self.trouble(
+                        "Couldn't add the project",
+                        Some(why),
+                        url.map(|u| super::notices::Way::Clone(u, dir)),
+                    ),
                 }
             }
             Event::Folders { dir, names } => {

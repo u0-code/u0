@@ -332,8 +332,14 @@ impl Server {
                 found: git::grep(&folder, &words, how),
                 words,
             }),
-            Call::Create { dir, name } => self.off(move || Event::Cloned {
-                result: git::create(&dir, &name),
+            Call::Create { dir, name, publish } => self.off(move || Event::Cloned {
+                result: git::create(&dir, &name).and_then(|()| {
+                    if publish {
+                        git::publish(&dir, false).map(|_| ())
+                    } else {
+                        Ok(())
+                    }
+                }),
                 dir,
             }),
             Call::Clone { url, dir } => {
