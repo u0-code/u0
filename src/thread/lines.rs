@@ -56,11 +56,12 @@ impl Desk {
     }
 
     /// Bring the list in step with the session on screen: another session
-    /// starts it afresh at its foot; in the same one, what follows the
-    /// first line that changed is measured again.
+    /// starts it afresh; in the same one, what follows the first line that
+    /// changed is measured again, and a thread read at its foot stays there.
     pub(crate) fn sync_lines(&mut self) {
         let lines = self.lines_now();
         if self.lines_of == self.current {
+            let follow = self.at_foot();
             let same = self
                 .lines
                 .iter()
@@ -69,6 +70,9 @@ impl Desk {
                 .count();
             if same < self.lines.len() || same < lines.len() {
                 self.list.splice(same..self.lines.len(), lines.len() - same);
+                if follow {
+                    self.to_bottom();
+                }
             }
         } else {
             self.lines_of = self.current;
@@ -83,6 +87,13 @@ impl Desk {
         {
             self.list.scroll_to_reveal_item(ix);
         }
+    }
+
+    /// Whether the thread is read at its foot, within a line of it.
+    fn at_foot(&self) -> bool {
+        let below = self.list.max_offset_for_scrollbar().height
+            + self.list.scroll_px_offset_for_scrollbar().y;
+        below <= px(24.)
     }
 
     /// Go to the foot of the thread.
@@ -190,6 +201,7 @@ impl Desk {
             },
         };
         div()
+            .w_full()
             .flex()
             .justify_center()
             .child(

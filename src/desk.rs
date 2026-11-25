@@ -535,7 +535,7 @@ impl Desk {
             input,
             expanded: HashSet::new(),
             closed: HashSet::new(),
-            list: gpui::ListState::new(0, gpui::ListAlignment::Bottom, px(800.)),
+            list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(800.)),
             lines: Vec::new(),
             lines_of: None,
             reveal: None,
