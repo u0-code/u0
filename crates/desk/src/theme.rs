@@ -261,6 +261,6 @@ pub fn kit(cx: &mut App) {
         c.link_active = link();
         c.list_hover = hover();
         c.list_active = panel2();
-        c.overlay = gpui::black().opacity(0.4);
+        c.overlay = bg().opacity(0.64);
     });
 }

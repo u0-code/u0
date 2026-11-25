@@ -9,6 +9,10 @@ pin.svg, archive.svg, clock.svg, branch.svg, mic.svg, play.svg,
 sliders.svg, reply.svg, arrow-down.svg, expand.svg, camera.svg,
 keyboard.svg, sun.svg
                Line icons drawn for the desk.
+square-pen.svg, square-dashed.svg, text-search.svg, folder-plus.svg,
+undo-2.svg, arrow-left.svg
+               Lucide's (lucide.dev, ISC licence), drawn at the desk's
+               1.5 stroke.
 
 An agent's logo is not here: it is the one the ACP registry publishes for
 that agent, and belongs to its company.

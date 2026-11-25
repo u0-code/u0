@@ -865,6 +865,70 @@ impl Desk {
     }
 }
 
+/// Where a session stands, as its row says at its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Working,
+    /// A permission it asks for.
+    Approval,
+    SignIn,
+    Failed,
+    /// A plan ready for you.
+    Plan,
+    /// Finished, and not read since.
+    Done,
+}
+
+impl Status {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Working => "Working",
+            Self::Approval => "Approval",
+            Self::SignIn => "Sign in",
+            Self::Failed => "Failed",
+            Self::Plan => "Plan",
+            Self::Done => "Done",
+        }
+    }
+
+    pub fn color(self) -> gpui::Hsla {
+        match self {
+            Self::Working | Self::Plan => crate::theme::link(),
+            Self::Approval | Self::SignIn => crate::theme::accent(),
+            Self::Failed => crate::theme::coral(),
+            Self::Done => crate::theme::ok(),
+        }
+    }
+}
+
+/// Where the session `s` stands, when that is anything to say.
+pub fn status(s: &Session) -> Option<Status> {
+    match &s.state {
+        State::Working | State::Opening if s.waiting().is_some() => Some(Status::Approval),
+        State::Working | State::Opening => Some(Status::Working),
+        State::SignIn => Some(Status::SignIn),
+        State::Broken(_) => Some(Status::Failed),
+        State::Idle | State::Closed => match s.outcome() {
+            Some("failed") => Some(Status::Failed),
+            Some(_) => Some(Status::Plan),
+            None => s.meta.flags.unread.then_some(Status::Done),
+        },
+        State::Draft => None,
+    }
+}
+
+/// When you last used the session `s`: your last message in it, where its
+/// thread is here; else when anything last happened in it.
+pub fn used(s: &Session) -> SystemTime {
+    s.items
+        .iter()
+        .enumerate()
+        .rev()
+        .filter(|(_, i)| matches!(i, Item::You(_)))
+        .find_map(|(n, _)| s.time_of(n))
+        .unwrap_or(s.meta.updated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

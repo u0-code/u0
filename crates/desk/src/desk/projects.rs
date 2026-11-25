@@ -12,6 +12,23 @@ use gpui::component::input::{InputEvent, InputState};
 use super::{Desk, Popup};
 use crate::settings::Prefs;
 
+/// A project's icon: its own icon file where it has one, else a folder,
+/// or a server for one on another machine; never one made up.
+pub fn project_icon(folder: &Path, icon: Option<PathBuf>, size: f32) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, ParentElement as _, Styled as _};
+    match (icon, crate::remote::parse(folder).is_some()) {
+        (Some(icon), false) => gpui::div()
+            .size(gpui::px(size))
+            .flex_none()
+            .child(gpui::img(icon).size(gpui::px(size)).rounded(gpui::px(3.)))
+            .into_any_element(),
+        (_, remote) => crate::ui::icon(if remote { "server" } else { "folder" }, size)
+            .flex_none()
+            .text_color(crate::theme::muted())
+            .into_any_element(),
+    }
+}
+
 /// Where a project made or cloned in Ghost goes unless you choose
 /// another folder: ~/Documents/Ghost, as Codex keeps its own in
 /// ~/Documents/Codex. It is made with the first project.

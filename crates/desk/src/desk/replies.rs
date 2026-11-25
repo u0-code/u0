@@ -154,7 +154,7 @@ impl Desk {
         match event {
             Event::Grepped { words, found } => {
                 // Only what answers what is typed now.
-                if self.palette.input.read(cx).value().trim() == words {
+                if self.palette.state.read(cx).query(cx).trim() == words {
                     self.palette.grep = found;
                 }
             }

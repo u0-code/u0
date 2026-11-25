@@ -38,7 +38,7 @@ mod lists;
 pub(crate) mod mention;
 pub(crate) mod notices;
 pub(crate) mod palette;
-mod projects;
+pub(crate) mod projects;
 mod rank;
 pub(crate) mod runs;
 
@@ -261,6 +261,32 @@ pub struct Desk {
     tx: hub::Sender,
     /// The way to the server, which runs the agents.
     transport: hub::Transport,
+}
+
+/// A dialog's view of the desk, drawn by `draw`. gpui-kit's dialog layer
+/// is the window root's, drawn apart from the desk, so this view is drawn
+/// again whenever the desk is.
+pub struct Over {
+    desk: Entity<Desk>,
+    draw: fn(&mut Desk, &mut Window, &mut Context<Desk>) -> gpui::AnyElement,
+}
+
+impl Over {
+    pub fn new(
+        desk: Entity<Desk>,
+        draw: fn(&mut Desk, &mut Window, &mut Context<Desk>) -> gpui::AnyElement,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        cx.observe(&desk, |_, _, cx| cx.notify()).detach();
+        Self { desk, draw }
+    }
+}
+
+impl Render for Over {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let draw = self.draw;
+        self.desk.update(cx, |d, cx| draw(d, window, cx))
+    }
 }
 
 /// A strip dragging which moves the window; a double click zooms it.
@@ -1103,7 +1129,7 @@ impl Desk {
         if self.popup != Popup::Closed {
             self.close_popup(window, cx);
         } else if self.palette.open {
-            self.toggle_palette(window, cx);
+            self.palette_back(window, cx);
         } else if self.renaming.is_some() {
             self.cancel_rename(cx);
         } else if self.find.open && typing_in(&self.find.input, cx) {
@@ -1212,7 +1238,21 @@ impl Desk {
         if !self.pages.open {
             self.pages.open = true;
             let desk = cx.entity();
-            let shown = cx.new(|cx| crate::pages::Shown::new(desk.clone(), cx));
+            let shown = cx.new(|cx| {
+                Over::new(
+                    desk.clone(),
+                    |d, window, cx| {
+                        let faces = fonts::faces(cx).clone();
+                        // Held to the dialog's height, not grown to what it
+                        // holds, so each column scrolls on its own.
+                        div()
+                            .h(crate::pages::settings_height(window))
+                            .child(d.settings_dialog(&faces, cx))
+                            .into_any_element()
+                    },
+                    cx,
+                )
+            });
             window.open_dialog(cx, move |dialog, window, _| {
                 let tall = crate::pages::settings_height(window);
                 let desk = desk.clone();
@@ -1395,17 +1435,7 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
-            // Under the palette, the rest of the window: a click there
-            // closes it and does nothing else. A menu is a Popover and the
-            // settings a Dialog, each closed by a click outside it.
-            .when(self.palette.open, |d| {
-                d.child(div().absolute().inset_0().occlude().on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| this.toggle_palette(window, cx)),
-                ))
-            })
             .children(self.notices_view(&faces, cx))
-            .children(self.palette_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))
             .children(self.reading_view(&faces, cx))
     }

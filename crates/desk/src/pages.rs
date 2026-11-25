@@ -7,7 +7,7 @@ mod new_project;
 mod prefs;
 mod settings;
 
-pub use settings::{Shown, Tab, height as settings_height};
+pub use settings::{Tab, height as settings_height};
 
 use gpui::component::{
     Sizable as _,

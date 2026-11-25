@@ -84,8 +84,8 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
 }
 
 /// A raised panel with a soft edge, over the page, for what floats but
-/// opens from no trigger: the palette, the settings, the composer's
-/// offers, what a terminal's chosen cells offer. A menu that opens from a
+/// opens from no trigger: the composer's offers, what a terminal's chosen
+/// cells offer. A menu that opens from a
 /// trigger is a Popover (`Desk::menu`).
 pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
     div()

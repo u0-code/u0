@@ -65,6 +65,12 @@ const FILES: &[(&str, &[u8])] = icons![
     "arrow-up",
     "keyboard",
     "sun",
+    "square-pen",
+    "square-dashed",
+    "text-search",
+    "folder-plus",
+    "undo-2",
+    "arrow-left",
 ];
 
 impl AssetSource for Assets {

@@ -13,7 +13,7 @@ use gpui::component::{
     sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
     switch::Switch,
 };
-use gpui::{Context, Entity, Pixels, SharedString, Window, div, prelude::*, px};
+use gpui::{Context, Pixels, SharedString, Window, div, prelude::*, px};
 
 use super::card;
 use crate::fonts::Weighted as _;
@@ -25,31 +25,6 @@ use crate::{
     ui::{self, Weight},
     when,
 };
-
-/// The settings as gpui-kit's dialog layer draws them. That layer is the
-/// window root's, drawn apart from the desk, so this view of the desk is
-/// drawn again whenever the desk is.
-pub struct Shown {
-    desk: Entity<Desk>,
-}
-
-impl Shown {
-    pub fn new(desk: Entity<Desk>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&desk, |_, _, cx| cx.notify()).detach();
-        Self { desk }
-    }
-}
-
-impl Render for Shown {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let faces = crate::fonts::faces(cx).clone();
-        // Held to the dialog's height, not grown to what it holds, so each
-        // column scrolls on its own rather than the dialog's body.
-        div()
-            .h(height(window))
-            .child(self.desk.update(cx, |d, cx| d.settings_dialog(&faces, cx)))
-    }
-}
 
 /// How tall the settings dialog stands in `window`.
 pub fn height(window: &Window) -> Pixels {
