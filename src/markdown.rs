@@ -473,8 +473,8 @@ fn padded(line: &Inline) -> Inline {
 }
 
 /// A line whose links open when clicked: an address in the browser, a
-/// file (a link to one, or code that names one) in your editor. One with
-/// neither is plain styled text.
+/// file (a link to one, or code that names one) in your editor; any other
+/// link does nothing. A line with neither is plain styled text.
 fn linked(
     faces: &Faces,
     id: String,
@@ -507,14 +507,23 @@ fn linked(
             let Some(address) = addresses.get(i) else {
                 return;
             };
-            if address.contains("://") || address.starts_with("mailto:") {
+            if web(address) {
                 cx.open_url(address);
-            } else {
+            } else if path_like(address) {
                 let _ = desk.update(cx, |d, cx| d.open_named(address, cx));
             }
         },
     );
     select::Selectable::new(id, layout, words, linked).into_any_element()
+}
+
+/// Whether a link opens in the browser or in mail. No other scheme is
+/// opened: a link's words hide where it goes, and `file:` or an app's own
+/// scheme would launch what it names.
+fn web(address: &str) -> bool {
+    ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|s| address.starts_with(s))
 }
 
 /// Whether code reads as a file's path: `src/a.rs`, `a.rs:12`, `./x/y`.
@@ -1256,5 +1265,18 @@ mod tests {
         assert_eq!(inline("2 * 3 = 6").text, "2 * 3 = 6");
         assert_eq!(inline("a `b").text, "a `b");
         assert_eq!(inline("snake_case_name").text, "snake_case_name");
+    }
+
+    #[test]
+    fn a_link_opens_only_the_web_mail_or_a_file_never_an_app() {
+        assert!(web("https://example.com") && web("http://x.y") && web("mailto:a@b.c"));
+        for launches in [
+            "file:///Applications/X.app",
+            "x-app://run",
+            "javascript:go()",
+        ] {
+            assert!(!web(launches) && !path_like(launches), "{launches}");
+        }
+        assert!(path_like("src/a.rs:12"));
     }
 }
