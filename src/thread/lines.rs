@@ -548,7 +548,10 @@ impl Desk {
         if self.find.open {
             window.focus(&gpui::Focusable::focus_handle(self.find.input.read(cx), cx));
         } else {
-            window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+            window.focus(&gpui::Focusable::focus_handle(
+                self.composer.input.read(cx),
+                cx,
+            ));
         }
         cx.notify();
     }

@@ -334,9 +334,13 @@ impl Desk {
                 .to_string();
             let _ = writeln!(text, "- {path}:{line} — {said}");
         }
-        self.input
+        self.composer
+            .input
             .update(cx, |i, cx| i.set_text(text.trim_end(), cx));
-        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        window.focus(&gpui::Focusable::focus_handle(
+            self.composer.input.read(cx),
+            cx,
+        ));
         cx.notify();
     }
 

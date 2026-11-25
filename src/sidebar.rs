@@ -79,8 +79,9 @@ impl Desk {
         // A search begins with its first letter: until then the sidebar is
         // as it was.
         let query = self
-            .searching
-            .then(|| self.search.read(cx).text().to_lowercase())
+            .search
+            .open
+            .then(|| self.search.input.read(cx).text().to_lowercase())
             .filter(|q| !q.is_empty());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
         for folder in self.projects() {
@@ -231,7 +232,7 @@ impl Desk {
             .min_h(px(0.))
             .overflow_y_scroll()
             .gap(px(14.))
-            .children(self.searching.then(|| {
+            .children(self.search.open.then(|| {
                 div().px(px(8.)).child(
                     div()
                         .flex()
@@ -242,7 +243,7 @@ impl Desk {
                         .bg(theme::well())
                         .border_1()
                         .border_color(theme::border2())
-                        .child(div().flex_1().child(self.search.clone())),
+                        .child(div().flex_1().child(self.search.input.clone())),
                 )
             }))
             .child(
@@ -1263,7 +1264,7 @@ impl Desk {
     /// Whether the session `s` answers the search `query`: by its title,
     /// or by what was said in it.
     fn matches(&self, s: &Session, query: &str) -> bool {
-        s.meta.title.to_lowercase().contains(query) || self.found.contains(&s.key)
+        s.meta.title.to_lowercase().contains(query) || self.search.found.contains(&s.key)
     }
 }
 

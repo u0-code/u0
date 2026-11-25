@@ -45,7 +45,7 @@ mod turns;
 use crate::{
     fonts,
     hub::{self, Slot, Stage},
-    input::{Submitted, SubmittedAside, TextInput},
+    input::{Submitted, TextInput},
     registry::{self, Registry},
     session::{Session, State},
     settings::{self, Settings},
@@ -162,8 +162,6 @@ pub struct Desk {
     pub on_path: Vec<&'static str>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
-    /// The action whose keys are being recorded, in Settings, Keyboard.
-    pub recording: Option<&'static str>,
     /// The sessions shown before the one on screen, and those gone back
     /// from; going back or ahead is under way.
     pub trail: Vec<u64>,
@@ -175,8 +173,6 @@ pub struct Desk {
     pub chosen: std::collections::BTreeSet<u64>,
     /// The sidebar's edge is being dragged.
     pub resizing_left: bool,
-    /// The composer opened tall, to write at length.
-    pub tall: bool,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
     /// What was just deleted or archived, while it can be taken back.
@@ -195,19 +191,12 @@ pub struct Desk {
     pub submenu: Option<&'static str>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
-    /// What you put aside from the composer (see `store::Index`).
-    pub stashed: Vec<String>,
     /// Sessions deleted whose agent cannot delete them (see `store::Index`).
     pub gone: Vec<(String, String)>,
     /// What Ghost tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
-    /// The sessions whose records hold what is searched for.
-    pub found: HashSet<u64>,
-    /// The settings page's tab.
-    pub settings_tab: crate::pages::Tab,
+    pub pages: crate::pages::Pages,
     pub adding: projects::Adding,
-    /// The draft on screen goes to every agent that can run, once sent.
-    pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
     /// What keeps the Mac awake while an agent works, when it is kept so.
@@ -218,23 +207,7 @@ pub struct Desk {
     pub pr_tick: u32,
     pub health_tick: u32,
     pub review: gitview::Review,
-    /// On an agent's page: the command of yours that starts it, a model id
-    /// to add.
-    pub agent_command: Entity<TextInput>,
-    pub agent_model: Entity<TextInput>,
     pub palette: palette::Palette,
-    /// What the composer offers that Return or Tab takes.
-    pub offer_at: usize,
-    /// How much each part of Ghost's home takes, and what the last tidying
-    /// did, for the settings.
-    pub sizes: Vec<(&'static str, u64)>,
-    pub tidied: Option<String>,
-    /// The search over the registry's agents, in the settings.
-    pub agent_search: Entity<TextInput>,
-    /// What is looked for among the settings.
-    pub settings_search: Entity<TextInput>,
-    /// What worktree branches begin with, as you write it in settings.
-    pub prefix_input: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -244,9 +217,6 @@ pub struct Desk {
     pub issues: HashMap<PathBuf, Vec<(u64, String)>>,
     /// What each CLI of yours an agent runs says its version is.
     pub cli_versions: HashMap<PathBuf, String>,
-    /// What was named with `@` and images put in, waiting to be sent.
-    pub mentions: Vec<mention::Mention>,
-    pub pictures: Vec<mention::Picture>,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -260,7 +230,7 @@ pub struct Desk {
     /// The project chosen on the start, for a session begun there.
     pub start_in: Option<PathBuf>,
     pub panes: Panes,
-    pub input: Entity<TextInput>,
+    pub composer: mention::Composer,
     /// Cards and lines opened in the thread, by key.
     pub expanded: HashSet<String>,
     /// Projects folded shut down the left.
@@ -278,9 +248,7 @@ pub struct Desk {
     pub signing: Option<String>,
     /// What the right column shows.
     pub aside: Aside,
-    /// The search over sessions, and whether it is open.
-    pub search: Entity<TextInput>,
-    pub searching: bool,
+    pub search: lists::Search,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     tx: hub::Sender,
@@ -324,61 +292,8 @@ impl Desk {
             }
         })
         .detach();
-        let cmd_sends = settings.cmd_sends;
         mirror(&settings, cx);
-        let input = cx.new(|cx| {
-            let mut i = TextInput::new(cx, "Ask for anything, or give a task")
-                .wrapping(8)
-                .padded(5.);
-            i.set_enter_breaks(cmd_sends);
-            i
-        });
-        cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
-            .detach();
-        cx.subscribe(&input, |this, _, crate::input::Stashed(text), cx| {
-            this.stashed.push(text.clone());
-            this.save_index();
-            this.done(
-                "Put aside: take it back from the stack under the line",
-                None,
-            );
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe_in(
-            &input,
-            window,
-            |this, _, SubmittedAside(text), window, cx| {
-                this.send_aside(text, window, cx);
-            },
-        )
-        .detach();
-        cx.subscribe(&input, |this, input, _: &crate::input::Changed, cx| {
-            this.offer_at = 0;
-            if input.read(cx).text().contains('@') {
-                this.want_offers();
-            }
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, crate::input::PastedImage(image), cx| {
-            let mime = match image.format {
-                gpui::ImageFormat::Png => "image/png",
-                gpui::ImageFormat::Jpeg => "image/jpeg",
-                gpui::ImageFormat::Gif => "image/gif",
-                gpui::ImageFormat::Webp => "image/webp",
-                _ => return,
-            };
-            this.add_picture(
-                mention::Picture {
-                    mime: mime.into(),
-                    bytes: image.bytes.clone(),
-                },
-                cx,
-            );
-        })
-        .detach();
-        let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
+        let composer = mention::Composer::new(settings.cmd_sends, window, cx);
         let reader = cx.new(|cx| TextInput::new(cx, "").wrapping(24).keeping());
         let menu_search = cx.new(|cx| {
             TextInput::new(cx, "Search, or a while: 3h")
@@ -406,59 +321,18 @@ impl Desk {
             cx.notify();
         })
         .detach();
-        let prefix = cx.new(|cx| {
-            let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
-            i.set_text(&settings.branch_prefix, cx);
-            i
-        });
-        cx.subscribe(&prefix, |this, input, _: &crate::input::Changed, cx| {
-            this.settings.branch_prefix = input.read(cx).text();
-            this.save_settings();
-        })
-        .detach();
         let rename = cx.new(|cx| {
             TextInput::new(cx, "Name")
                 .sized(13.5, 20.)
                 .padded(0.)
                 .submitting_empty()
         });
-        let agent_command = cx.new(|cx| {
-            TextInput::new(cx, "/path/to/agent --acp")
-                .padded(4.)
-                .keeping()
-        });
-        let agent_model = cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping());
-        let agent_search = cx.new(|cx| {
-            TextInput::new(cx, "Search the ACP registry")
-                .padded(4.)
-                .keeping()
-        });
-        cx.subscribe(&agent_search, |_, _, _: &crate::input::Changed, cx| {
-            cx.notify();
-        })
-        .detach();
-        let settings_search =
-            cx.new(|cx| TextInput::new(cx, "Search settings").padded(4.).keeping());
-        cx.subscribe(&settings_search, |_, _, _: &crate::input::Changed, cx| {
-            cx.notify();
-        })
-        .detach();
         cx.subscribe(&rename, |this, _, Submitted(text), cx| {
             this.finish_rename(text, cx);
         })
         .detach();
         cx.subscribe(&rename, |this, _, _: &crate::input::Cancelled, cx| {
             this.cancel_rename(cx);
-        })
-        .detach();
-        cx.subscribe(&search, |this, _, _: &crate::input::Changed, cx| {
-            this.search_records(cx);
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe(&search, |this, _, _: &crate::input::Cancelled, cx| {
-            this.searching = false;
-            cx.notify();
         })
         .detach();
 
@@ -517,6 +391,7 @@ impl Desk {
         })
         .detach();
 
+        let pages = crate::pages::Pages::new(&settings.branch_prefix, cx);
         let registry = registry::kept(&home).unwrap_or_default();
         hub::fetch(home.clone(), tx.clone());
         hub::on_path(tx.clone());
@@ -527,14 +402,12 @@ impl Desk {
             store_refused: None,
             renaming: None,
             zoom: None,
-            tall: false,
             resizing_left: false,
             chosen: std::collections::BTreeSet::new(),
             tunnels: Vec::new(),
             trail: Vec::new(),
             ahead: Vec::new(),
             trailing: false,
-            recording: None,
             stopping: None,
             quit_asked: None,
             badge: 0,
@@ -553,34 +426,21 @@ impl Desk {
             submenu: None,
             closed_tabs: HashSet::new(),
             gone: Vec::new(),
-            stashed: Vec::new(),
             notices: Vec::new(),
-            found: HashSet::new(),
-            settings_tab: crate::pages::Tab::General,
+            pages,
             adding: projects::Adding::new(cx),
-            fanout: false,
             behind: false,
             awake: None,
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
             drawer: runs::Drawer::new(cx),
-            agent_command,
-            agent_model,
-            agent_search,
-            settings_search,
-            prefix_input: prefix,
-            sizes: Vec::new(),
             palette: palette::Palette::new(window, cx),
-            offer_at: 0,
-            tidied: None,
             pr_tick: 0,
             health_tick: 0,
             review: gitview::Review::new(cx),
             prs: HashMap::new(),
             issues: HashMap::new(),
             cli_versions: HashMap::new(),
-            mentions: Vec::new(),
-            pictures: Vec::new(),
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -594,7 +454,7 @@ impl Desk {
                 right: true,
                 whole: false,
             },
-            input,
+            composer,
             expanded: HashSet::new(),
             closed: HashSet::new(),
             held: HashMap::new(),
@@ -605,8 +465,7 @@ impl Desk {
             find: crate::thread::Find::new(window, cx),
             signing: None,
             aside: Aside::Session,
-            search,
-            searching: false,
+            search: lists::Search::new(cx),
             registry_read: None,
             tx,
         };
@@ -769,7 +628,7 @@ impl Desk {
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         self.bring(key, cx);
-        window.focus(&self.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx));
     }
 
     /// Put the session `key` on screen, opening it if it is closed.
@@ -785,7 +644,7 @@ impl Desk {
             }
             // What was being written stays with its session, and the
             // session shown brings back what was being written in it.
-            let typed = self.input.read(cx).text();
+            let typed = self.composer.input.read(cx).text();
             if let Some(old) = self.current
                 && let Some(s) = self.sessions.at_mut(old)
             {
@@ -797,7 +656,9 @@ impl Desk {
                 .at(key)
                 .map(|s| s.meta.unsent.clone())
                 .unwrap_or_default();
-            self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
+            self.composer
+                .input
+                .update(cx, |i, cx| i.set_text(&unsent, cx));
             self.aside = Aside::Session;
             self.review.scope = crate::git::Scope::All;
             self.review.committing = false;
@@ -895,17 +756,6 @@ impl Desk {
             if let (Some(slot), Some(s)) = (slot, self.sessions.at_mut(key)) {
                 slot.seed(s);
             }
-        }
-        cx.notify();
-    }
-
-    /// Open or close the search over sessions.
-    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.searching = !self.searching;
-        if self.searching {
-            window.focus(&self.search.focus_handle(cx));
-        } else {
-            self.search.update(cx, |s, cx| s.set_text("", cx));
         }
         cx.notify();
     }
@@ -1170,7 +1020,9 @@ impl Desk {
     /// composer sends with.
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         let breaks = self.settings.cmd_sends;
-        self.input.update(cx, |i, _| i.set_enter_breaks(breaks));
+        self.composer
+            .input
+            .update(cx, |i, _| i.set_enter_breaks(breaks));
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
@@ -1206,7 +1058,7 @@ impl Desk {
         self.popup = Popup::Closed;
         self.menu_search.update(cx, |i, cx| i.set_text("", cx));
         if self.menu_search.focus_handle(cx).is_focused(window) {
-            window.focus(&self.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx));
         }
         cx.notify();
     }
@@ -1220,17 +1072,17 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if k.modifiers.modified() || !self.input.focus_handle(cx).is_focused(window) {
+        if k.modifiers.modified() || !self.composer.input.focus_handle(cx).is_focused(window) {
             return false;
         }
-        let text = self.input.read(cx).text();
+        let text = self.composer.input.read(cx).text();
         let Some(count) = self.offers(&text).map(|(_, o)| o.len()).filter(|n| *n > 0) else {
             return false;
         };
         match k.key.as_str() {
-            "up" => self.offer_at = (self.offer_at + count - 1) % count,
-            "down" => self.offer_at = (self.offer_at + 1) % count,
-            "enter" | "tab" => self.take_offer(self.offer_at.min(count - 1), window, cx),
+            "up" => self.composer.offer = (self.composer.offer + count - 1) % count,
+            "down" => self.composer.offer = (self.composer.offer + 1) % count,
+            "enter" | "tab" => self.take_offer(self.composer.offer.min(count - 1), window, cx),
             _ => return false,
         }
         cx.notify();
@@ -1241,7 +1093,7 @@ impl Desk {
     /// your keybindings.json (a notice if another had them); Escape lets
     /// it be. Whether the keystroke was taken.
     pub(crate) fn record_key(&mut self, k: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
-        let Some(name) = self.recording else {
+        let Some(name) = self.pages.recording else {
             return false;
         };
         if matches!(
@@ -1250,7 +1102,7 @@ impl Desk {
         ) {
             return true;
         }
-        self.recording = None;
+        self.pages.recording = None;
         if k.key == "escape" && !k.modifiers.modified() {
             cx.notify();
             return true;
@@ -1270,7 +1122,7 @@ impl Desk {
 
     /// Settings, at the agents: to switch one on, or install one.
     pub fn open_agents(&mut self, cx: &mut Context<Self>) {
-        self.settings_tab = crate::pages::Tab::Agents;
+        self.pages.tab = crate::pages::Tab::Agents;
         self.open_page(Page::Settings, cx);
     }
 
@@ -1278,8 +1130,8 @@ impl Desk {
         // An agent's page shows the command of yours that starts it.
         if let Page::Agent(id) = &page {
             let c = self.settings.commands.get(id).cloned().unwrap_or_default();
-            self.agent_command.update(cx, |i, cx| i.set_text(&c, cx));
-            self.agent_model.update(cx, |i, cx| i.set_text("", cx));
+            self.pages.command.update(cx, |i, cx| i.set_text(&c, cx));
+            self.pages.model.update(cx, |i, cx| i.set_text("", cx));
             if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
                 hub::cli_version(cli, self.tx.clone());
             }

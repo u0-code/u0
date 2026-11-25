@@ -90,7 +90,7 @@ impl Desk {
                     ),
             );
         }
-        self.input.update(cx, |i, cx| {
+        self.composer.input.update(cx, |i, cx| {
             i.set_placeholder(
                 &if s.items.is_empty() {
                     format!("Tell {name} what to do…")
@@ -100,9 +100,10 @@ impl Desk {
                 cx,
             );
         });
-        let focused = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
+        let focused =
+            gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
         let working = matches!(s.state, State::Working | State::Opening);
-        let empty = self.input.read(cx).is_empty();
+        let empty = self.composer.input.read(cx).is_empty();
 
         let draft = s.state == State::Draft && s.items.is_empty();
         // One line, never two: the agent, its model and mode as words, every
@@ -122,7 +123,7 @@ impl Desk {
         } else {
             Vec::new()
         };
-        let agent_label = match (draft, self.fanout) {
+        let agent_label = match (draft, self.composer.fanout) {
             (true, true) => format!("All {} agents", self.usable_agents()),
             (true, false) => name.clone(),
             (false, _) => String::new(),
@@ -189,7 +190,7 @@ impl Desk {
         if !more.is_empty() {
             words = words.child(self.more(faces, &name, more, cx));
         }
-        if !self.stashed.is_empty() {
+        if !self.composer.stashed.is_empty() {
             words = words.child(self.stash_menu(faces, cx));
         }
         if s.meta.id.is_some() && s.parent.is_none() {
@@ -219,7 +220,7 @@ impl Desk {
             );
         }
         // A window of yours, captured to go with it; the line opened tall.
-        let tall = self.tall;
+        let tall = self.composer.tall;
         bar = bar
             .child(
                 ui::icon_button("capture", "camera", "Attach a window")
@@ -238,14 +239,14 @@ impl Desk {
                 )
                 .text_color(if tall { theme::text2() } else { theme::faint() })
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.tall = !this.tall;
-                    let most = if this.tall { 30 } else { 8 };
-                    this.input.update(cx, |i, cx| i.set_most(most, cx));
+                    this.composer.tall = !this.composer.tall;
+                    let most = if this.composer.tall { 30 } else { 8 };
+                    this.composer.input.update(cx, |i, cx| i.set_most(most, cx));
                     cx.notify();
                 })),
             );
         // macOS dictation, typed into the line as you speak.
-        let input = self.input.clone();
+        let input = self.composer.input.clone();
         bar = bar.child(
             ui::icon_button("dictate", "mic", "Dictate")
                 .text_color(theme::faint())
@@ -295,7 +296,7 @@ impl Desk {
                 .tooltip(ui::tip("Stop the turn · ⌘."))
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         } else {
-            let input = self.input.clone();
+            let input = self.composer.input.clone();
             let live = !empty;
             button
                 .id("send")
@@ -374,14 +375,14 @@ impl Desk {
         // What is offered for the word being typed: the agent's commands
         // after `/`, after `@` files, sessions and pull requests. ↑ and ↓
         // choose one, Return or Tab takes it.
-        let typed = self.input.read(cx).text();
+        let typed = self.composer.input.read(cx).text();
         let offers = self
             .offers(&typed)
             .filter(|(_, o)| !o.is_empty())
             .map(|(_, list)| {
                 use crate::desk::mention::Offer;
                 let mut menu = div().flex().flex_col().p(px(6.)).w(px(column));
-                let chosen = self.offer_at.min(list.len() - 1);
+                let chosen = self.composer.offer.min(list.len() - 1);
                 for (n, offer) in list.into_iter().enumerate() {
                     let (icon, name, about) = match offer {
                         Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
@@ -430,9 +431,9 @@ impl Desk {
             });
 
         // Images waiting to go with what is said.
-        let pictures = (!self.pictures.is_empty()).then(|| {
+        let pictures = (!self.composer.pictures.is_empty()).then(|| {
             let mut row = div().flex().flex_wrap().gap(px(6.));
-            for (n, p) in self.pictures.iter().enumerate() {
+            for (n, p) in self.composer.pictures.iter().enumerate() {
                 row = row.child(
                     div()
                         .flex()
@@ -673,9 +674,9 @@ impl Desk {
                     .children(pictures)
                     .child(
                         div()
-                            .min_h(px(if self.tall { 300. } else { 22. }))
+                            .min_h(px(if self.composer.tall { 300. } else { 22. }))
                             .pr(px(6.))
-                            .child(self.input.clone()),
+                            .child(self.composer.input.clone()),
                     )
                     .child(bar),
             )
@@ -823,7 +824,7 @@ impl Desk {
             // A new session can go to every agent at once, one each.
             let usable = self.usable_agents();
             if *popup == Popup::Agent && usable > 1 {
-                let on = self.fanout;
+                let on = self.composer.fanout;
                 menu = menu
                     .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
                     .child(
@@ -840,7 +841,7 @@ impl Desk {
                                     .text_color(theme::faint()),
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.fanout = !this.fanout;
+                                this.composer.fanout = !this.composer.fanout;
                                 this.popup = Popup::Closed;
                                 cx.notify();
                             })),
@@ -994,7 +995,7 @@ impl Desk {
             faces,
             Popup::Stash,
             "archive",
-            self.stashed.len(),
+            self.composer.stashed.len(),
             "Put aside (⌘S), to take back",
             cx,
         ));
@@ -1005,7 +1006,7 @@ impl Desk {
                     .pt(px(6.))
                     .pb(px(4.)),
             );
-            for (n, text) in self.stashed.iter().enumerate().rev() {
+            for (n, text) in self.composer.stashed.iter().enumerate().rev() {
                 list = list.child(
                     ui::menu_row(SharedString::from(format!("stash-{n}")), false)
                         .child(
@@ -1026,8 +1027,8 @@ impl Desk {
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     cx.stop_propagation();
-                                    if n < this.stashed.len() {
-                                        this.stashed.remove(n);
+                                    if n < this.composer.stashed.len() {
+                                        this.composer.stashed.remove(n);
                                         this.save_index();
                                     }
                                     cx.notify();
@@ -1070,7 +1071,7 @@ impl Desk {
             cx,
         ));
         if open {
-            let written = !self.input.read(cx).text().trim().is_empty();
+            let written = !self.composer.input.read(cx).text().trim().is_empty();
             let mut list = div().flex().flex_col().w(px(320.)).p(px(6.)).child(
                 ui::label(
                     faces,
@@ -1173,20 +1174,25 @@ impl Desk {
     /// Take back what was put aside `n`th: into the line, after what is
     /// in it.
     fn take_stashed(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if n >= self.stashed.len() {
+        if n >= self.composer.stashed.len() {
             return;
         }
-        let text = self.stashed.remove(n);
+        let text = self.composer.stashed.remove(n);
         self.save_index();
         self.popup = Popup::Closed;
-        let typed = self.input.read(cx).text();
+        let typed = self.composer.input.read(cx).text();
         let line = if typed.is_empty() {
             text
         } else {
             format!("{typed}\n{text}")
         };
-        self.input.update(cx, |i, cx| i.set_text(&line, cx));
-        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_text(&line, cx));
+        window.focus(&gpui::Focusable::focus_handle(
+            self.composer.input.read(cx),
+            cx,
+        ));
         cx.notify();
     }
 }

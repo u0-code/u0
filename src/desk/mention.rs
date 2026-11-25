@@ -11,13 +11,95 @@ use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResource, EmbeddedResourceResource, ImageContent, ResourceLink,
     TextResourceContents,
 };
-use gpui::Context;
+use gpui::{AppContext as _, Context, Entity, Window};
 
 use super::Desk;
 use crate::{
     hub,
+    input::{Changed, PastedImage, Stashed, Submitted, SubmittedAside, TextInput},
     session::{Item, Session},
 };
+
+/// The line you type into, and what goes with it: the offer Return or Tab
+/// takes, what was named with `@` and images put in, waiting to be sent;
+/// whether it is opened tall to write at length, and whether the draft on
+/// screen goes to every agent that can run once sent; and what you put
+/// aside from it (see `store::Index`).
+pub struct Composer {
+    pub input: Entity<TextInput>,
+    pub offer: usize,
+    pub mentions: Vec<Mention>,
+    pub pictures: Vec<Picture>,
+    pub tall: bool,
+    pub fanout: bool,
+    pub stashed: Vec<String>,
+}
+
+impl Composer {
+    pub(super) fn new(cmd_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let input = cx.new(|cx| {
+            let mut i = TextInput::new(cx, "Ask for anything, or give a task")
+                .wrapping(8)
+                .padded(5.);
+            i.set_enter_breaks(cmd_sends);
+            i
+        });
+        cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
+            .detach();
+        cx.subscribe(&input, |this, _, Stashed(text), cx| {
+            this.composer.stashed.push(text.clone());
+            this.save_index();
+            this.done(
+                "Put aside: take it back from the stack under the line",
+                None,
+            );
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe_in(
+            &input,
+            window,
+            |this, _, SubmittedAside(text), window, cx| {
+                this.send_aside(text, window, cx);
+            },
+        )
+        .detach();
+        cx.subscribe(&input, |this, input, _: &Changed, cx| {
+            this.composer.offer = 0;
+            if input.read(cx).text().contains('@') {
+                this.want_offers();
+            }
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, PastedImage(image), cx| {
+            let mime = match image.format {
+                gpui::ImageFormat::Png => "image/png",
+                gpui::ImageFormat::Jpeg => "image/jpeg",
+                gpui::ImageFormat::Gif => "image/gif",
+                gpui::ImageFormat::Webp => "image/webp",
+                _ => return,
+            };
+            this.add_picture(
+                Picture {
+                    mime: mime.into(),
+                    bytes: image.bytes.clone(),
+                },
+                cx,
+            );
+        })
+        .detach();
+        Self {
+            input,
+            offer: 0,
+            mentions: Vec::new(),
+            pictures: Vec::new(),
+            tall: false,
+            fanout: false,
+            stashed: Vec::new(),
+        }
+    }
+}
 
 /// Something offered as you type.
 /// Ghost's own commands after `/`, beside the agent's: done at once.
@@ -183,7 +265,7 @@ impl Desk {
 
     /// Take the offer `n` for what is typed: it replaces the word.
     pub fn take_offer(&mut self, n: usize, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        let text = self.input.read(cx).text();
+        let text = self.composer.input.read(cx).text();
         let Some((start, offers)) = self.offers(&text) else {
             return;
         };
@@ -193,13 +275,15 @@ impl Desk {
         // A model is switched to, and its word taken out.
         if let Offer::Model { config, value, .. } = &offer {
             let line = text[..start].to_owned();
-            self.input.update(cx, |i, cx| i.set_text(&line, cx));
+            self.composer
+                .input
+                .update(cx, |i, cx| i.set_text(&line, cx));
             self.set_option(config.clone(), value.clone(), cx);
             return;
         }
         // One of Ghost's own is done, not written.
         if let Offer::Own { name, .. } = offer {
-            self.input.update(cx, |i, cx| i.set_text("", cx));
+            self.composer.input.update(cx, |i, cx| i.set_text("", cx));
             let key = self.current;
             match name {
                 "clear" => self.new_default(window, cx),
@@ -228,14 +312,16 @@ impl Desk {
             Offer::Pr { number, .. } => format!("@pr#{number}"),
         };
         let line = format!("{}{token} ", &text[..start]);
-        self.input.update(cx, |i, cx| i.set_text(&line, cx));
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_text(&line, cx));
         if !matches!(offer, Offer::Command { .. }) {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
             {
                 hub::pr_text(s.meta.project.clone(), *number, self.tx.clone());
             }
-            self.mentions.push(Mention {
+            self.composer.mentions.push(Mention {
                 token,
                 what: offer,
                 text: None,
@@ -259,7 +345,7 @@ impl Desk {
                 .unwrap_or_default();
             self.trouble(format!("{name} does not take images"), None, None);
         } else {
-            self.pictures.push(picture);
+            self.composer.pictures.push(picture);
         }
         cx.notify();
     }
@@ -273,16 +359,21 @@ impl Desk {
             q.push('\n');
             q
         });
-        let typed = self.input.read(cx).text();
+        let typed = self.composer.input.read(cx).text();
         let line = format!("{quoted}\n{typed}");
-        self.input.update(cx, |i, cx| i.set_text(&line, cx));
-        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_text(&line, cx));
+        window.focus(&gpui::Focusable::focus_handle(
+            self.composer.input.read(cx),
+            cx,
+        ));
         cx.notify();
     }
 
     pub fn drop_picture(&mut self, n: usize, cx: &mut Context<Self>) {
-        if n < self.pictures.len() {
-            self.pictures.remove(n);
+        if n < self.composer.pictures.len() {
+            self.composer.pictures.remove(n);
         }
         cx.notify();
     }
@@ -323,14 +414,16 @@ impl Desk {
             .and_then(|s| p.strip_prefix(&s.meta.folder).ok())
             .map_or_else(|| p.display().to_string(), |r| r.display().to_string());
         let token = format!("@{named}");
-        let typed = self.input.read(cx).text();
+        let typed = self.composer.input.read(cx).text();
         let line = if typed.is_empty() {
             format!("{token} ")
         } else {
             format!("{typed} {token} ")
         };
-        self.input.update(cx, |i, cx| i.set_text(&line, cx));
-        self.mentions.push(Mention {
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_text(&line, cx));
+        self.composer.mentions.push(Mention {
             token,
             what: Offer::File(named),
             text: None,
@@ -342,6 +435,7 @@ impl Desk {
     /// and each file, session and pull request it names.
     pub(crate) fn attach(&mut self, key: u64, text: &str) -> Vec<ContentBlock> {
         let mut blocks: Vec<ContentBlock> = self
+            .composer
             .pictures
             .drain(..)
             .map(|p| {
@@ -355,7 +449,7 @@ impl Desk {
             return blocks;
         };
         let folder = s.meta.folder.clone();
-        let mentions = std::mem::take(&mut self.mentions);
+        let mentions = std::mem::take(&mut self.composer.mentions);
         for m in mentions.iter().filter(|m| text.contains(&m.token)) {
             match &m.what {
                 Offer::File(f) => blocks.extend(link(&folder, f)),

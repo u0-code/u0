@@ -197,11 +197,15 @@ impl Desk {
     /// Keys to the next part of the window (F6): the line you write in,
     /// the terminals when their drawer is open, and back.
     pub fn next_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let in_line = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
+        let in_line =
+            gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
         if in_line && self.drawer.open {
             window.focus(&self.drawer.focus);
         } else {
-            window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+            window.focus(&gpui::Focusable::focus_handle(
+                self.composer.input.read(cx),
+                cx,
+            ));
         }
         cx.notify();
     }
@@ -286,7 +290,7 @@ impl Desk {
             self.palette.input.update(cx, |i, cx| i.set_text("", cx));
             window.focus(&self.palette.input.focus_handle(cx));
         } else {
-            window.focus(&self.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx));
         }
         cx.notify();
     }
@@ -531,7 +535,7 @@ impl Desk {
             return;
         };
         self.palette.open = false;
-        window.focus(&self.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx));
         match line.act {
             Act::NewSession => self.new_default(window, cx),
             Act::Scratch => self.new_scratch(window, cx),
@@ -553,7 +557,7 @@ impl Desk {
                 }
             }
             Act::Tab(tab) => {
-                self.settings_tab = tab;
+                self.pages.tab = tab;
                 self.open_page(Page::Settings, cx);
             }
             Act::File(name) if name.is_empty() => self.open_palette(Through::Files, window, cx),
@@ -576,7 +580,7 @@ impl Desk {
             }
             Act::FromIssue(folder, n, title) => {
                 self.new_in(folder, window, cx);
-                self.input.update(cx, |i, cx| {
+                self.composer.input.update(cx, |i, cx| {
                     i.set_text(&format!("Issue #{n}: {title}\n\n"), cx);
                 });
             }

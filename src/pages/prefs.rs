@@ -355,7 +355,7 @@ impl Desk {
                                 .border_color(theme::border2())
                                 .font_family(faces.mono.clone())
                                 .text_size(px(12.5))
-                                .child(self.prefix_input.clone()),
+                                .child(self.pages.prefix.clone()),
                         ),
                     ],
                 )],
@@ -467,7 +467,7 @@ impl Desk {
                             .rounded(px(6.))
                             .px(px(4.))
                             .hover(|st| st.bg(theme::hover()))
-                            .child(if self.recording == Some(name) {
+                            .child(if self.pages.recording == Some(name) {
                                 ui::text(faces, "Press the keys…  Escape to keep these")
                                     .text_size(px(12.))
                                     .text_color(theme::link())
@@ -476,7 +476,7 @@ impl Desk {
                                 keys.into_any_element()
                             })
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.recording = Some(name);
+                                this.pages.recording = Some(name);
                                 cx.notify();
                             })),
                     )

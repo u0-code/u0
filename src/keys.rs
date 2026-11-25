@@ -368,7 +368,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         }
     });
     on::<About>(cx, window, |d, _, cx| {
-        d.settings_tab = crate::pages::Tab::About;
+        d.pages.tab = crate::pages::Tab::About;
         d.open_page(crate::desk::Page::Settings, cx);
     });
     on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
@@ -390,7 +390,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
     on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
     on::<Usage>(cx, window, |d, _, cx| {
-        d.settings_tab = crate::pages::Tab::Usage;
+        d.pages.tab = crate::pages::Tab::Usage;
         d.weigh_agents();
         d.open_page(crate::desk::Page::Settings, cx);
     });
@@ -431,7 +431,10 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         }
     });
     on::<Dictate>(cx, window, |d, window, cx| {
-        window.focus(&gpui::Focusable::focus_handle(d.input.read(cx), cx));
+        window.focus(&gpui::Focusable::focus_handle(
+            d.composer.input.read(cx),
+            cx,
+        ));
         crate::macos::dictate();
     });
     on::<NewScratch>(cx, window, Desk::new_scratch);

@@ -129,7 +129,7 @@ fn main() {
                 .expect("open the window");
             window
                 .update(cx, |desk, window, cx| {
-                    window.focus(&desk.input.focus_handle(cx));
+                    window.focus(&desk.composer.input.focus_handle(cx));
                 })
                 .expect("the desk");
             keys::handle(cx, window);

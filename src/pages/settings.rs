@@ -82,10 +82,10 @@ impl Desk {
                         div()
                             .flex_1()
                             .text_size(px(13.))
-                            .child(self.settings_search.clone()),
+                            .child(self.pages.search.clone()),
                     ),
             );
-        let q = self.settings_search.read(cx).text().trim().to_lowercase();
+        let q = self.pages.search.read(cx).text().trim().to_lowercase();
         for (tab, label) in [
             (Tab::General, "General"),
             (Tab::Appearance, "Appearance"),
@@ -97,7 +97,7 @@ impl Desk {
             (Tab::Usage, "Usage"),
             (Tab::About, "About"),
         ] {
-            let on = q.is_empty() && self.settings_tab == tab;
+            let on = q.is_empty() && self.pages.tab == tab;
             nav = nav.child(
                 div()
                     .id(SharedString::from(format!("tab-{label}")))
@@ -111,8 +111,8 @@ impl Desk {
                     .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
                     .child(ui::text(faces, label).text_size(px(13.5)))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.settings_search.update(cx, |i, cx| i.set_text("", cx));
-                        this.settings_tab = tab;
+                        this.pages.search.update(cx, |i, cx| i.set_text("", cx));
+                        this.pages.tab = tab;
                         if tab == Tab::Sessions {
                             this.measure();
                         }
@@ -124,11 +124,11 @@ impl Desk {
             );
         }
         let own = if q.is_empty() {
-            self.own_tab(faces, self.settings_tab, "", cx)
+            self.own_tab(faces, self.pages.tab, "", cx)
         } else {
             Some(self.found(faces, &q, cx))
         };
-        if self.settings_tab == Tab::Sessions || own.is_some() {
+        if self.pages.tab == Tab::Sessions || own.is_some() {
             let tab = match own {
                 Some(page) => page,
                 None => self.sessions_tab(faces, cx),
@@ -153,7 +153,13 @@ impl Desk {
 
         let mut list = card().overflow_hidden();
         // What runs here, and what answers the search, from the registry.
-        let query = self.agent_search.read(cx).text().trim().to_lowercase();
+        let query = self
+            .pages
+            .agent_search
+            .read(cx)
+            .text()
+            .trim()
+            .to_lowercase();
         let mut agents: Vec<_> = self
             .registry
             .agents
@@ -334,7 +340,7 @@ impl Desk {
                     .border_1()
                     .border_color(theme::border2())
                     .child(ui::icon("search", 14.).text_color(theme::faint()))
-                    .child(div().flex_1().child(self.agent_search.clone())),
+                    .child(div().flex_1().child(self.pages.agent_search.clone())),
             )
             .child(list)
             .child(
@@ -378,7 +384,7 @@ impl Desk {
     fn storage(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
         use crate::tidy::Tidy;
         let mut rows = card().overflow_hidden();
-        for (n, (label, bytes)) in self.sizes.iter().enumerate() {
+        for (n, (label, bytes)) in self.pages.sizes.iter().enumerate() {
             rows = rows.child(
                 div()
                     .flex()
@@ -417,7 +423,7 @@ impl Desk {
                         .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
                 )
             })
-            .children(self.tidied.clone().map(|said| ui::fine(faces, said)))
+            .children(self.pages.tidied.clone().map(|said| ui::fine(faces, said)))
             .child(ui::fine(
                 faces,
                 format!(

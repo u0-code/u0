@@ -234,7 +234,7 @@ impl Desk {
                 self.issues.insert(folder, issues);
             }
             Msg::PrText { number, text } => {
-                for m in &mut self.mentions {
+                for m in &mut self.composer.mentions {
                     if matches!(m.what, crate::desk::mention::Offer::Pr { number: n, .. } if n == number)
                     {
                         m.text.clone_from(&text);
@@ -298,11 +298,11 @@ impl Desk {
                     s.git.step = Some(text);
                 }
             }
-            Msg::Sizes(sizes) => self.sizes = sizes,
-            Msg::Tidied(said) => self.tidied = Some(said),
+            Msg::Sizes(sizes) => self.pages.sizes = sizes,
+            Msg::Tidied(said) => self.pages.tidied = Some(said),
             Msg::Found { query, keys } => {
-                if self.searching && self.search.read(cx).text().to_lowercase() == query {
-                    self.found = keys.into_iter().collect();
+                if self.search.open && self.search.input.read(cx).text().to_lowercase() == query {
+                    self.search.found = keys.into_iter().collect();
                 }
             }
             Msg::Loaded {

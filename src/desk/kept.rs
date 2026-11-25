@@ -17,7 +17,7 @@ impl Desk {
         match index {
             Ok(index) => {
                 self.gone = index.gone;
-                self.stashed = index.stashed;
+                self.composer.stashed = index.stashed;
                 for meta in index.sessions {
                     let key = self.sessions.take_key();
                     self.sessions.all.push(Session::stored(key, meta));
@@ -96,7 +96,7 @@ impl Desk {
                 .cloned()
                 .collect(),
             gone: self.gone.clone(),
-            stashed: self.stashed.clone(),
+            stashed: self.composer.stashed.clone(),
         };
         store::queue(Job::Write(
             store::index_path(&self.home),
@@ -281,7 +281,7 @@ impl Desk {
                 .map(Session::uid)
                 .collect(),
         };
-        self.tidied = None;
+        self.pages.tidied = None;
         crate::hub::tidy(self.home.clone(), what, kept, self.tx.clone());
         cx.notify();
     }

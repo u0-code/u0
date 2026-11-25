@@ -8,18 +8,77 @@ mod settings;
 
 pub use settings::Tab;
 
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
     hub::{Slot, Stage},
+    input::{Changed, TextInput},
     registry::{Missing, Way},
     session::State,
     theme,
     ui::{self, Weight},
 };
+
+/// What the pages hold as you use them: the settings' tab, what is looked
+/// for among the settings and among the registry's agents, what worktree
+/// branches begin with as you write it, the action whose keys are being
+/// recorded, how much each part of Ghost's home takes and what the last
+/// tidying did; on an agent's page, the command of yours that starts it
+/// and a model id to add.
+pub struct Pages {
+    pub tab: Tab,
+    pub search: Entity<TextInput>,
+    pub agent_search: Entity<TextInput>,
+    pub prefix: Entity<TextInput>,
+    pub recording: Option<&'static str>,
+    pub sizes: Vec<(&'static str, u64)>,
+    pub tidied: Option<String>,
+    pub command: Entity<TextInput>,
+    pub model: Entity<TextInput>,
+}
+
+impl Pages {
+    pub fn new(prefix: &str, cx: &mut Context<Desk>) -> Self {
+        let search = cx.new(|cx| TextInput::new(cx, "Search settings").padded(4.).keeping());
+        let agent_search = cx.new(|cx| {
+            TextInput::new(cx, "Search the ACP registry")
+                .padded(4.)
+                .keeping()
+        });
+        for input in [&search, &agent_search] {
+            cx.subscribe(input, |_, _, _: &Changed, cx| cx.notify())
+                .detach();
+        }
+        let prefix = cx.new(|cx| {
+            let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
+            i.set_text(prefix, cx);
+            i
+        });
+        cx.subscribe(&prefix, |this, input, _: &Changed, cx| {
+            this.settings.branch_prefix = input.read(cx).text();
+            this.save_settings();
+        })
+        .detach();
+        Self {
+            tab: Tab::General,
+            search,
+            agent_search,
+            prefix,
+            recording: None,
+            sizes: Vec::new(),
+            tidied: None,
+            command: cx.new(|cx| {
+                TextInput::new(cx, "/path/to/agent --acp")
+                    .padded(4.)
+                    .keeping()
+            }),
+            model: cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping()),
+        }
+    }
+}
 
 /// The width of a page's column.
 const PAGE: f32 = 560.;
@@ -457,7 +516,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(field(self.agent_command.clone()))
+                    .child(field(self.pages.command.clone()))
                     .child(
                         ui::button(faces, "save-command", "Use this command", Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
@@ -475,7 +534,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(field(self.agent_model.clone()))
+                    .child(field(self.pages.model.clone()))
                     .child(
                         ui::button(faces, "add-model", "Add a model", Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.add_model(&b, cx))),

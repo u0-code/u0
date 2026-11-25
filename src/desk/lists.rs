@@ -3,13 +3,14 @@
 //! until later (snoozed), archived, deleted after a moment to take it back.
 
 use std::{
+    collections::HashSet,
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
 };
 
 use gpui::{
-    Context, Focusable as _, ParentElement as _, StatefulInteractiveElement as _, Styled as _,
-    Window, px,
+    AppContext as _, Context, Entity, Focusable as _, ParentElement as _,
+    StatefulInteractiveElement as _, Styled as _, Window, px,
 };
 
 use agent_client_protocol::v1::schema::MessageId;
@@ -17,6 +18,7 @@ use agent_client_protocol::v1::schema::MessageId;
 use super::Desk;
 use crate::{
     hub,
+    input::{Cancelled, Changed, TextInput},
     session::{Item, Session, State},
     store, when,
 };
@@ -29,6 +31,35 @@ pub enum Renaming {
     Session { key: u64, here: bool },
     /// A project, in the sidebar.
     Project(PathBuf),
+}
+
+/// The search over sessions: whether it is open, what is typed, and the
+/// sessions whose records hold it.
+pub struct Search {
+    pub open: bool,
+    pub input: Entity<TextInput>,
+    pub found: HashSet<u64>,
+}
+
+impl Search {
+    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
+        let input = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
+        cx.subscribe(&input, |this, _, _: &Changed, cx| {
+            this.search_records(cx);
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, _: &Cancelled, cx| {
+            this.search.open = false;
+            cx.notify();
+        })
+        .detach();
+        Self {
+            open: false,
+            input,
+            found: HashSet::new(),
+        }
+    }
 }
 
 /// How long a deleted or archived session can be taken back.
@@ -739,11 +770,22 @@ impl Desk {
         cx.notify();
     }
 
+    /// Open or close the search over sessions.
+    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.open = !self.search.open;
+        if self.search.open {
+            window.focus(&self.search.input.focus_handle(cx));
+        } else {
+            self.search.input.update(cx, |s, cx| s.set_text("", cx));
+        }
+        cx.notify();
+    }
+
     /// Search what was said in each session for what is typed in the
     /// search, a moment after typing stops.
     pub(crate) fn search_records(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.read(cx).text().trim().to_lowercase();
-        self.found.clear();
+        let query = self.search.input.read(cx).text().trim().to_lowercase();
+        self.search.found.clear();
         if query.chars().count() < 2 {
             return;
         }
@@ -756,7 +798,7 @@ impl Desk {
                 _ => false,
             });
             if said {
-                self.found.insert(s.key);
+                self.search.found.insert(s.key);
             }
         }
         let paths: Vec<(u64, std::path::PathBuf)> = self
@@ -775,7 +817,7 @@ impl Desk {
                 .await;
             let still = this
                 .update(cx, |this, cx| {
-                    this.search.read(cx).text().trim().to_lowercase() == query
+                    this.search.input.read(cx).text().trim().to_lowercase() == query
                 })
                 .unwrap_or(false);
             if still {

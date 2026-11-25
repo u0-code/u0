@@ -24,8 +24,8 @@ impl Desk {
             .session()
             .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
         self.send_in(key, text, cx);
-        if draft && self.fanout {
-            self.fanout = false;
+        if draft && self.composer.fanout {
+            self.composer.fanout = false;
             self.fan_out(key, text, cx);
         }
     }
@@ -103,7 +103,7 @@ impl Desk {
     /// Say what is in the composer later in the session on screen, when
     /// `when` says.
     pub fn send_later(&mut self, when: Later, cx: &mut Context<Self>) {
-        let text = self.input.read(cx).text().trim().to_owned();
+        let text = self.composer.input.read(cx).text().trim().to_owned();
         let now = std::time::SystemTime::now();
         let at = when.at(now);
         let Some(key) = self.current else { return };
@@ -118,7 +118,7 @@ impl Desk {
             });
             s.meta.later.sort_by_key(|l| l.at);
         }
-        self.input.update(cx, |i, cx| i.set_text("", cx));
+        self.composer.input.update(cx, |i, cx| i.set_text("", cx));
         self.popup = Popup::Closed;
         self.save_index();
         self.done(
@@ -446,7 +446,9 @@ impl Desk {
             return;
         }
         let text = s.meta.queued.remove(n);
-        self.input.update(cx, |i, cx| i.set_text(&text, cx));
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_text(&text, cx));
         self.save_index();
         cx.notify();
     }

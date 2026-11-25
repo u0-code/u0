@@ -276,7 +276,7 @@ impl Desk {
                 window.focus(&self.drawer.focus);
             }
         } else {
-            window.focus(&self.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx));
         }
         cx.notify();
     }
@@ -333,11 +333,12 @@ impl Desk {
             return;
         };
         t.selection = None;
-        let typed = self.input.read(cx).text();
+        let typed = self.composer.input.read(cx).text();
         let text = format!("{typed}\n\nFrom my terminal:\n```\n{chosen}\n```\n");
-        self.input
+        self.composer
+            .input
             .update(cx, |i, cx| i.set_text(text.trim_start(), cx));
-        window.focus(&self.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx));
         cx.notify();
     }
 
