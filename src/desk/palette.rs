@@ -96,8 +96,12 @@ impl Desk {
         out
     }
 
-    /// Go to the session `n` in the sidebar's order.
+    /// Go to the `n`th session in the sidebar's order; while a menu of
+    /// choices is open, choose its `n`th instead.
     pub fn nth_session(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.choose_nth(n, cx) {
+            return;
+        }
         if let Some(key) = self.ordered().get(n).copied() {
             self.show(key, window, cx);
         }

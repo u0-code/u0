@@ -45,6 +45,7 @@ actions!(
         Session9,
         Review,
         RightColumn,
+        WholeRight,
         Mode,
         Effort,
         CopyPr,
@@ -66,7 +67,7 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 29] = [
+pub const ACTIONS: [(&str, &str, Make); 30] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("find", "Find in the session", || Box::new(Find)),
@@ -87,6 +88,11 @@ pub const ACTIONS: [(&str, &str, Make); 29] = [
     ("right_column", "Show or hide the right column", || {
         Box::new(RightColumn)
     }),
+    (
+        "whole_right",
+        "Widen the right column over the thread",
+        || Box::new(WholeRight),
+    ),
     ("mode", "Choose the mode", || Box::new(Mode)),
     ("effort", "Choose how hard it thinks", || Box::new(Effort)),
     ("copy_pr", "Copy the pull request's address", || {
@@ -265,6 +271,7 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-shift-m", Model, None),
         KeyBinding::new("cmd-d", Review, None),
         KeyBinding::new("cmd-alt-b", RightColumn, None),
+        KeyBinding::new("cmd-shift-b", WholeRight, None),
         KeyBinding::new("cmd-shift-a", Mode, None),
         KeyBinding::new("cmd-shift-e", Effort, None),
         KeyBinding::new("cmd-shift-k", CopyPr, None),
@@ -379,6 +386,9 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     cx.on_action(move |_: &RightColumn, cx| {
         let _ = window.update(cx, |d, _, cx| d.toggle_aside(cx));
+    });
+    cx.on_action(move |_: &WholeRight, cx| {
+        let _ = window.update(cx, |d, _, cx| d.toggle_whole(cx));
     });
     cx.on_action(move |_: &Mode, cx| {
         let _ = window.update(cx, |d, _, cx| d.open_option(&Kind::Mode, cx));

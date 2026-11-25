@@ -130,6 +130,8 @@ pub enum Popup {
 pub struct Panes {
     pub left: bool,
     pub right: bool,
+    /// The right column takes the thread's place too.
+    pub whole: bool,
 }
 
 #[allow(
@@ -726,6 +728,7 @@ impl Desk {
             panes: Panes {
                 left: true,
                 right: true,
+                whole: false,
             },
             input,
             expanded: HashSet::new(),
@@ -1862,6 +1865,14 @@ impl Desk {
 
     pub fn toggle_aside(&mut self, cx: &mut Context<Self>) {
         self.panes.right = !self.panes.right;
+        self.panes.whole = false;
+        cx.notify();
+    }
+
+    /// Widen the right column over the thread, or give the thread back.
+    pub fn toggle_whole(&mut self, cx: &mut Context<Self>) {
+        self.panes.whole = !self.panes.whole;
+        self.panes.right = true;
         cx.notify();
     }
 
@@ -2110,7 +2121,9 @@ impl Render for Desk {
             Page::Settings => middle.child(self.settings_page(&faces, cx)),
             Page::NewProject => middle.child(self.new_project_page(&faces, cx)),
         };
+        let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
         let right = match (&self.page, self.panes.right) {
+            (Page::Thread, true) if whole => Some(self.aside(&faces, cx).flex_1()),
             (Page::Thread, true) if self.session().is_some() => {
                 Some(self.aside(&faces, cx).w(px(self.right_width())))
             }
@@ -2152,7 +2165,7 @@ impl Render for Desk {
             .when(self.panes.left, |d| {
                 d.child(self.sidebar(&faces, lights, cx))
             })
-            .child(middle)
+            .when(!whole, |d| d.child(middle))
             .children(right)
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))

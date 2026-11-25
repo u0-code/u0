@@ -179,7 +179,8 @@ impl Desk {
                 s.branch
                     .as_deref()
                     .map(|b| self.branch_chip(faces, s, b, cx)),
-            );
+            )
+            .child(self.whole_button(cx));
         let body = div()
             .id("aside")
             .flex()
@@ -219,6 +220,21 @@ impl Desk {
             .child(self.context(faces, s, cx))
         };
         frame(head).child(body)
+    }
+
+    /// Widen the column over the thread (⇧⌘B), or give the thread back.
+    fn whole_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        ui::icon_button(
+            "whole",
+            "expand",
+            if self.panes.whole {
+                "Back beside the thread  ⇧⌘B"
+            } else {
+                "Widen over the thread  ⇧⌘B"
+            },
+        )
+        .when(self.panes.whole, |d| d.text_color(theme::text()))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_whole(cx)))
     }
 
     /// A file's diff with the files changed beside it, to go from one to
@@ -1080,7 +1096,8 @@ impl Desk {
             .child(
                 ui::icon_button("open-editor", "pencil", "Open in your editor")
                     .on_click(move |_, _, _| crate::desk::open_in_editor(&full)),
-            );
+            )
+            .child(self.whole_button(cx));
         let mut body = div()
             .id("aside-file")
             .flex()

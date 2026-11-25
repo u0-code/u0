@@ -159,17 +159,9 @@ impl Desk {
         options.sort_by_key(rank);
         let mut more: Vec<More> = Vec::new();
         for option in options {
-            let Some((current, mut choices)) = select_choices(&option.kind) else {
+            let Some((current, choices)) = self.option_choices(s, option) else {
                 continue;
             };
-            // Model ids of yours, beside those the agent lists.
-            if option.category == Some(SessionConfigOptionCategory::Model) {
-                for m in self.settings.models.get(&s.agent).into_iter().flatten() {
-                    if !choices.iter().any(|(v, _, _)| v == m) {
-                        choices.push((m.clone(), m.clone(), false));
-                    }
-                }
-            }
             let id = option.id.0.to_string();
             if rank(&option) < 2 {
                 let head = format!("{name} {}", option.name.to_lowercase());
@@ -191,23 +183,7 @@ impl Desk {
                 });
             }
         }
-        if let Some(modes) = s.modes.as_ref().filter(|_| !mode_option) {
-            let current = modes
-                .available_modes
-                .iter()
-                .find(|m| m.id == modes.current_mode_id)
-                .map_or_else(|| modes.current_mode_id.0.to_string(), |m| m.name.clone());
-            let choices = modes
-                .available_modes
-                .iter()
-                .map(|m| {
-                    (
-                        m.id.0.to_string(),
-                        m.name.clone(),
-                        m.id == modes.current_mode_id,
-                    )
-                })
-                .collect();
+        if let Some((current, choices)) = mode_choices(s).filter(|_| !mode_option) {
             words =
                 words.child(self.chip(faces, &Popup::Mode, None, &current, "Mode", choices, cx));
         }
@@ -780,13 +756,14 @@ impl Desk {
                 .flex_col()
                 .max_h(px(360.))
                 .overflow_y_scroll();
+            let mut shown = 0;
             for (n, (value, label, on)) in choices.into_iter().enumerate() {
-                if !query.is_empty()
-                    && !label.to_lowercase().contains(&query)
-                    && !value.to_lowercase().contains(&query)
-                {
+                if !shown_by(&query, &value, &label) {
                     continue;
                 }
+                shown += 1;
+                // ⌘1 to ⌘9 choose among the first nine, while it is open.
+                let numbered = (shown <= 9 && *popup != Popup::Agent).then(|| format!("⌘{shown}"));
                 let popup = popup.clone();
                 let agent_mark = (popup == Popup::Agent).then(|| Mark::of(&value, &label));
                 scroll = scroll.child(
@@ -796,6 +773,11 @@ impl Desk {
                         .when(on, |d| {
                             d.child(ui::icon("check", 13.).text_color(theme::muted()))
                         })
+                        .children(numbered.map(|k| {
+                            ui::text(faces, k)
+                                .text_size(px(11.5))
+                                .text_color(theme::faint())
+                        }))
                         .on_click(cx.listener(move |this, _, _, cx| match &popup {
                             Popup::Mode => this.set_mode(value.clone(), cx),
                             Popup::Option(config) => {
@@ -1059,4 +1041,85 @@ fn row(id: SharedString, on: bool) -> Stateful<Div> {
         .cursor_pointer()
         .when(on, |d| d.bg(theme::hover()))
         .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+}
+
+/// Whether a menu's choice stands when `query` (lower case) is typed.
+fn shown_by(query: &str, value: &str, label: &str) -> bool {
+    query.is_empty() || label.to_lowercase().contains(query) || value.to_lowercase().contains(query)
+}
+
+/// The session's modes, when it says them as modes: the one it is in, and
+/// each to choose.
+fn mode_choices(s: &crate::session::Session) -> Option<(String, Choices)> {
+    let modes = s.modes.as_ref()?;
+    let current = modes
+        .available_modes
+        .iter()
+        .find(|m| m.id == modes.current_mode_id)
+        .map_or_else(|| modes.current_mode_id.0.to_string(), |m| m.name.clone());
+    let choices = modes
+        .available_modes
+        .iter()
+        .map(|m| {
+            (
+                m.id.0.to_string(),
+                m.name.clone(),
+                m.id == modes.current_mode_id,
+            )
+        })
+        .collect();
+    Some((current, choices))
+}
+
+impl Desk {
+    /// An option's value now and its choices, with the model ids of yours
+    /// beside those the agent lists for its model.
+    fn option_choices(
+        &self,
+        s: &crate::session::Session,
+        option: &agent_client_protocol_schema::v1::SessionConfigOption,
+    ) -> Option<(String, Choices)> {
+        let (current, mut choices) = select_choices(&option.kind)?;
+        if option.category == Some(SessionConfigOptionCategory::Model) {
+            for m in self.settings.models.get(&s.agent).into_iter().flatten() {
+                if !choices.iter().any(|(v, _, _)| v == m) {
+                    choices.push((m.clone(), m.clone(), false));
+                }
+            }
+        }
+        Some((current, choices))
+    }
+
+    /// Choose the `n`th of the choices shown in the open menu of an option
+    /// or the modes; false when no such menu is open.
+    pub(crate) fn choose_nth(&mut self, n: usize, cx: &mut Context<Self>) -> bool {
+        let Some(s) = self.session() else {
+            return false;
+        };
+        let choices = match &self.popup {
+            Popup::Mode => mode_choices(s).map(|c| c.1),
+            Popup::Option(id) => s
+                .options
+                .iter()
+                .find(|o| o.id.0.as_ref() == id)
+                .and_then(|o| self.option_choices(s, o))
+                .map(|c| c.1),
+            _ => None,
+        };
+        let Some(choices) = choices else { return false };
+        let query = self.menu_search.read(cx).text().to_lowercase();
+        let Some((value, _, _)) = choices
+            .into_iter()
+            .filter(|(v, l, _)| shown_by(&query, v, l))
+            .nth(n)
+        else {
+            return true;
+        };
+        match self.popup.clone() {
+            Popup::Mode => self.set_mode(value, cx),
+            Popup::Option(config) => self.set_option(config, value, cx),
+            _ => {}
+        }
+        true
+    }
 }
