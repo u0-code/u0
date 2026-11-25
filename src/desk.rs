@@ -1112,10 +1112,7 @@ impl Desk {
             _ => None,
         };
         let agent = there.as_deref().unwrap_or(agent);
-        if !matches!(
-            self.slot(agent).map(|s| &s.stage),
-            Some(Stage::Ready | Stage::Starting | Stage::Running { .. })
-        ) {
+        if !self.slot(agent).is_some_and(Slot::usable) {
             self.page = Page::Agent(agent.to_owned());
             cx.notify();
             return;

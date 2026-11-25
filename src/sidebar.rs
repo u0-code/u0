@@ -376,10 +376,7 @@ impl Desk {
     fn agent_row(&self, faces: &Faces, slot: &Slot, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let id = slot.entry.id.clone();
         let on = self.page == Page::Agent(id.clone());
-        let usable = matches!(
-            slot.stage,
-            Stage::Ready | Stage::Starting | Stage::Running { .. }
-        );
+        let usable = slot.usable();
         let running = self
             .sessions
             .iter()
@@ -1120,13 +1117,11 @@ impl Desk {
         pinned.sort_by_key(|s| s.flags.pinned);
         recent.sort_by_key(|s| (s.flags.order, s.key));
         done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
-        let only = self.settings.only.as_ref().map_or_else(
-            || "All projects".to_owned(),
-            |p| {
-                p.file_name()
-                    .map_or_else(|| Desk::shown(p), |n| n.to_string_lossy().into_owned())
-            },
-        );
+        let only = self
+            .settings
+            .only
+            .as_ref()
+            .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
         let filter_open = self.popup == Popup::Only;
         let mut filter = div().relative().child(
             session_shell("only-project", false)
@@ -1147,13 +1142,9 @@ impl Desk {
             let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
             let choices = std::iter::once(None).chain(self.projects().into_iter().map(Some));
             for (n, p) in choices.enumerate() {
-                let label = p.as_ref().map_or_else(
-                    || "All projects".to_owned(),
-                    |p| {
-                        p.file_name()
-                            .map_or_else(|| Desk::shown(p), |n| n.to_string_lossy().into_owned())
-                    },
-                );
+                let label = p
+                    .as_ref()
+                    .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
                 let on = self.settings.only == p;
                 menu = menu.child(
                     div()
