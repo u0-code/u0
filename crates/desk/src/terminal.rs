@@ -1,11 +1,12 @@
 //! A terminal of yours in the drawer under the thread, as t3code's: a real
-//! shell in a pseudo-terminal, in the session's folder (or on the machine
-//! a remote project is on, over SSH), whose screen is kept by a VT parser
-//! and drawn by the desk. What you type goes to it as a terminal sends
-//! keys; what it prints wakes the window through the hub's channel.
+//! shell in a pseudo-terminal (ghost-core's `pty`), in the session's folder
+//! (or on the machine a remote project is on, over SSH), whose screen is
+//! kept by a VT parser and drawn by the desk. What you type goes to it as a
+//! terminal sends keys; what it prints wakes the window through the hub's
+//! channel.
 
 use std::{
-    io::{Read as _, Write as _},
+    io::Read as _,
     num::NonZeroU16,
     path::Path,
     sync::{
@@ -14,8 +15,8 @@ use std::{
     },
 };
 
+use ghost_core::pty::Pty;
 use gpui::{Hsla, Keystroke};
-use portable_pty::{CommandBuilder, MasterPty, PtySize};
 
 use crate::{
     hub::{Msg, Sender},
@@ -37,11 +38,7 @@ pub struct Terminal {
     /// Set by the reader when the screen changed and the window has not
     /// been told since.
     pub changed: Arc<AtomicBool>,
-    /// What is sent to it, written by a thread of its own: a program that
-    /// does not read would otherwise hold the window as the pty fills.
-    writer: std::sync::mpsc::Sender<Vec<u8>>,
-    master: Box<dyn MasterPty + Send>,
-    child: Box<dyn portable_pty::Child + Send + Sync>,
+    pty: Pty,
     /// How it ended, once it has.
     pub ended: Option<String>,
     size: (u16, u16),
@@ -63,10 +60,9 @@ pub struct Stretch {
 }
 
 impl Terminal {
-    /// Open your login shell in `dir`, or over SSH on `host` in `dir`
-    /// there, `rows` by `cols`; `first`, if given, is typed into it once it
-    /// starts (a script's command). Blocking: it starts a process. What it
-    /// prints comes from the reader handed back with it (see `reader`).
+    /// Open a shell as [`Pty::open`] does, with a screen for it. Blocking:
+    /// it starts a process. What it prints comes from the reader handed
+    /// back with it (see `reader`).
     pub fn open(
         id: u64,
         session: u64,
@@ -75,77 +71,19 @@ impl Terminal {
         first: Option<&str>,
         (rows, cols): (u16, u16),
     ) -> Result<(Self, Box<dyn std::io::Read + Send>), String> {
-        let pty = portable_pty::native_pty_system()
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("no terminal could be opened: {e}"))?;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-        let (mut command, title) = if let Some(host) = host {
-            let mut c = CommandBuilder::new("ssh");
-            let there = crate::remote::shell_in(dir, "exec \"$SHELL\" -l");
-            c.args(["-t", host, &there]);
-            if let Some(home) = std::env::var_os("HOME") {
-                c.cwd(home);
-            }
-            (c, format!("ssh {host}"))
-        } else {
-            let mut c = CommandBuilder::new(&shell);
-            c.arg("-l");
-            c.cwd(dir);
-            let name = Path::new(&shell)
-                .file_name()
-                .map_or_else(|| shell.clone(), |n| n.to_string_lossy().into_owned());
-            (c, name)
-        };
-        command.env("TERM", "xterm-256color");
-        command.env("COLORTERM", "truecolor");
-        // macOS's bash would otherwise open every terminal with a notice
-        // that zsh is the default now.
-        command.env("BASH_SILENCE_DEPRECATION_WARNING", "1");
-        let child = pty
-            .slave
-            .spawn_command(command)
-            .map_err(|e| format!("{title} could not be started: {e}"))?;
-        let reader = pty.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let mut writer = pty.master.take_writer().map_err(|e| e.to_string())?;
+        let (pty, title, reader) = Pty::open(dir, host, first, (rows, cols))?;
         let screen = Arc::new(Mutex::new(vt100::Parser::new(
             NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
             NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
             SCROLLBACK,
         )));
-        let changed = Arc::new(AtomicBool::new(false));
-        let (to_writer, sent) = std::sync::mpsc::channel::<Vec<u8>>();
-        std::thread::spawn(move || {
-            for bytes in sent {
-                if writer
-                    .write_all(&bytes)
-                    .and_then(|()| writer.flush())
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-        let title = match first {
-            Some(line) => {
-                let _ = to_writer.send(format!("{line}\r").into_bytes());
-                line.to_owned()
-            }
-            None => title,
-        };
         let t = Self {
             id,
             session,
             title,
             screen,
-            changed,
-            writer: to_writer,
-            master: pty.master,
-            child,
+            changed: Arc::new(AtomicBool::new(false)),
+            pty,
             ended: None,
             size: (rows, cols),
             selection: None,
@@ -192,7 +130,7 @@ impl Terminal {
         // Typing brings the screen back to its bottom.
         self.parser().screen_mut().set_scrollback(0);
         self.selection = None;
-        let _ = self.writer.send(bytes.to_vec());
+        self.pty.send(bytes);
     }
 
     /// Paste `text`, marked as a paste where the program asked for that.
@@ -213,12 +151,7 @@ impl Terminal {
             return;
         }
         self.size = (rows, cols);
-        let _ = self.master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        });
+        self.pty.resize(rows, cols);
         self.parser().screen_mut().set_size(
             NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
             NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
@@ -286,12 +219,9 @@ impl Terminal {
         (word.starts_with("https://") || word.starts_with("http://")).then_some(word)
     }
 
-    /// Whether something runs in it besides its shell: a command not yet
-    /// done holds the terminal's foreground, which the shell holds
-    /// otherwise.
+    /// Whether something runs in it besides its shell.
     pub fn busy(&self) -> bool {
-        let shell = self.child.process_id();
-        (self.master.process_group_leader()).is_some_and(|front| u32::try_from(front).ok() != shell)
+        self.pty.busy()
     }
 
     /// The text of the cells chosen.
@@ -320,28 +250,13 @@ impl Terminal {
         self.parser().screen().contents()
     }
 
-    /// Stop what runs in it.
-    pub fn kill(&mut self) {
-        let _ = self.child.kill();
-    }
-
     /// Note how it ended.
     pub fn end(&mut self) {
-        self.ended = Some(match self.child.try_wait() {
-            Ok(Some(status)) if status.success() => "exited".to_owned(),
-            Ok(Some(status)) => format!("exit {}", status.exit_code()),
-            _ => "ended".to_owned(),
-        });
+        self.ended = Some(self.pty.ended());
     }
 
     fn parser(&self) -> std::sync::MutexGuard<'_, vt100::Parser> {
         self.screen.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-impl Drop for Terminal {
-    fn drop(&mut self) {
-        self.kill();
     }
 }
 
@@ -529,28 +444,6 @@ mod tests {
         );
         assert_eq!(rows[1][0].background, Some(theme::text2()));
         assert_eq!(cursor, Some((1, 3)));
-    }
-
-    #[test]
-    fn what_is_sent_to_a_program_that_does_not_read_does_not_wait() {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let (mut t, from) = Terminal::open(
-            1,
-            1,
-            &std::env::temp_dir(),
-            None,
-            // Raw, so that its input fills rather than being dropped.
-            Some("stty raw -echo; sleep 5"),
-            (6, 40),
-        )
-        .expect("a terminal opens");
-        let read = t.reader(from);
-        std::thread::spawn(move || read(&tx));
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        assert!(t.busy(), "sleep holds the terminal");
-        let began = std::time::Instant::now();
-        t.send(&vec![b'x'; 1 << 20]);
-        assert!(began.elapsed() < std::time::Duration::from_secs(1));
     }
 
     #[test]

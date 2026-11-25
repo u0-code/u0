@@ -32,7 +32,7 @@ impl Global for Faces {}
 
 macro_rules! shipped {
     ($($name:literal),* $(,)?) => {
-        &[$(($name, include_bytes!(concat!("../assets/fonts/", $name)) as &[u8])),*]
+        &[$(($name, include_bytes!(concat!("../../../assets/fonts/", $name)) as &[u8])),*]
     };
 }
 
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn every_face_in_the_fonts_folder_is_built_in() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
         let mut on_disk: Vec<String> = std::fs::read_dir(dir)
             .unwrap()
             .flatten()

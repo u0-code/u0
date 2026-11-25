@@ -10,7 +10,7 @@
 
 /// The 1024-pixel picture, built into the binary.
 #[cfg(target_os = "macos")]
-const PNG: &[u8] = include_bytes!("../assets/app/icon.png");
+const PNG: &[u8] = include_bytes!("../../../assets/app/icon.png");
 
 /// Give the running app its icon. Call once the app has started.
 #[cfg(target_os = "macos")]

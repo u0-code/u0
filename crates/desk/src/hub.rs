@@ -501,3 +501,32 @@ pub fn read_record(path: PathBuf, key: u64, tx: Sender) {
         let _ = tx.send(Msg::Record { key, events });
     })));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::Session;
+
+    #[test]
+    fn a_diffs_place_is_found_in_its_file_off_the_window_once_the_call_is_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.rs");
+        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
+        let mut s = Session::new(1, "x", dir.path().to_path_buf());
+        let json = format!(
+            r#"{{"sessionUpdate":"tool_call","toolCallId":"e","title":"Edit","kind":"edit","status":"completed","content":[{{"type":"diff","path":"{}","oldText":"3\n","newText":"three\nfour\n"}}]}}"#,
+            file.display()
+        );
+        s.apply(serde_json::from_str(&json).unwrap());
+        assert!(s.tools().next().unwrap().starts.is_empty());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        place(1, std::mem::take(&mut s.placing), tx);
+        let Some(Msg::Placed { starts, .. }) = rx.blocking_recv() else {
+            panic!("the diffs were not placed");
+        };
+        for (id, starts) in starts {
+            s.placed(&id, starts);
+        }
+        assert_eq!(s.tools().next().unwrap().starts, vec![Some(3)]);
+    }
+}

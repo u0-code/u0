@@ -57,38 +57,49 @@ change is held to these rules.
 
 ## Map
 
+Two crates. `crates/core` (`ghost-core`) is what touches the machine and
+builds without GPUI; `crates/desk` (`ghost-desk`, the app) draws it. Nothing
+in core may depend on gpui: `cargo tree -p ghost-core | grep gpui` finds
+nothing. The desk names core's modules at its root, so `crate::git` is
+core's `git` there too.
+
 ```
-src/main.rs       the app: the window opened, the menus, the keys bound
-src/acp.rs        one agent process and its SDK connection; the ACP runtime
-src/registry.rs   the ACP registry, installing an agent, starting one
-src/remote.rs     projects on another machine; their agents over SSH
-src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
-src/hub.rs        the agents switched on; async work, back to the window as Msg
-src/hub/          by subject: agent (what is asked of agents), git
-src/session.rs    a session: its thread built from session/update; its turns' checkpoints
-src/sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
-src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
-src/settings.rs   ~/.ghost/settings.json and the home
-src/store.rs      sessions.json and each session's record; the one writer
-src/whole.rs      a file written whole; a JSON file read back
-src/tidy.rs       what Ghost keeps here, measured and tidied
-src/path.rs       the PATH your shell sets up, for an app opened from the Dock
-src/macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
-src/keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
-src/scripts.rs    a repository's own commands, in its ghost.json
-src/desk.rs       the window's state, actions and layout
-src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
-                  palette, agents, send, turns, replies, notices
-src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
-src/thread/       the thread as a list (lines), folds, cards, the composer, the start,
-                  the drawer, the top bar, words chosen (select); calls read (kinds);
-                  drawing helpers: diffs and plans (drawn), command output
-src/aside/        the column's changes as git reads them (repo)
-src/pages/        the settings page and its tabs (settings, prefs), adding a project
-src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs
-src/fonts.rs, src/assets.rs, src/when.rs   faces, icons, times as read
-src/input/        the input's text shaped and painted (element)
-assets/           fonts and the desk's own icons, built into the binary
+crates/core/src/
+  acp.rs        one agent process and its SDK connection; the ACP runtime
+  registry.rs   the ACP registry, installing an agent, starting one
+  remote.rs     projects on another machine; their agents over SSH
+  pty.rs        a shell in a pseudo-terminal: its process, input and size
+  session.rs    a session: its thread built from session/update; its turns' checkpoints
+  git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
+  settings.rs   ~/.ghost/settings.json and the home
+  store.rs      sessions.json and each session's record; the one writer
+  whole.rs      a file written whole; a JSON file read back
+  tidy.rs       what Ghost keeps here, measured and tidied
+  path.rs       the PATH your shell sets up, for an app opened from the Dock
+  scripts.rs    a repository's own commands, in its ghost.json
+  when.rs       times as read
+  fixtures/     answers recorded from real agents
+crates/desk/src/
+  main.rs       the app: the window opened, the menus, the keys bound
+  terminal.rs   a terminal of yours: its pty and its screen
+  hub.rs        the agents switched on; async work, back to the window as Msg
+  hub/          by subject: agent (what is asked of agents), git
+  sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
+  macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
+  keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
+  desk.rs       the window's state, actions and layout
+  desk/         by subject: kept, lists, projects, mention, gitview, runs,
+                palette, agents, send, turns, replies, notices
+  sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
+  thread/       the thread as a list (lines), folds, cards, the composer, the start,
+                the drawer, the top bar, words chosen (select); calls read (kinds);
+                drawing helpers: diffs and plans (drawn), command output
+  aside/        the column's changes as git reads them (repo)
+  pages/        the settings page and its tabs (settings, prefs), adding a project
+  markdown.rs, syntax.rs, input.rs, ui.rs, theme.rs, style.rs
+  fonts.rs, assets.rs   faces, icons
+  input/        the input's text shaped and painted (element)
+assets/         fonts and the desk's own icons, built into the app
 ```
 
 ## Canonical helpers
@@ -134,7 +145,7 @@ assets/           fonts and the desk's own icons, built into the binary
 ## Tests
 
 No network. An agent in a test is a shell script speaking JSON-RPC; an
-answer recorded from a real agent is a fixture in `src/fixtures/`. Name each
+answer recorded from a real agent is a fixture in `crates/core/src/fixtures/`. Name each
 test for the behaviour it proves.
 
 ## Documentation

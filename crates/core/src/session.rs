@@ -114,7 +114,7 @@ pub enum Item {
     },
     /// An image the agent showed.
     Image {
-        image: std::sync::Arc<gpui::Image>,
+        image: std::sync::Arc<Picture>,
         /// It went with what you said, not came from the agent.
         yours: bool,
     },
@@ -373,8 +373,34 @@ pub fn text_of(block: &ContentBlock) -> String {
     }
 }
 
-/// The picture in `block`, if it is one GPUI draws.
-fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<gpui::Image>> {
+/// A picture in a thread, in a format the desk draws.
+#[derive(Debug)]
+pub struct Picture {
+    pub format: Format,
+    pub bytes: Vec<u8>,
+    /// A hash of the bytes, taken once: the desk knows a picture it has
+    /// decoded by it, without reading the bytes again each time it draws.
+    id: u64,
+}
+
+impl std::hash::Hash for Picture {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.id);
+    }
+}
+
+/// The formats a picture can be in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    Png,
+    Jpeg,
+    Gif,
+    Webp,
+    Svg,
+}
+
+/// The picture in `block`, if it is one the desk draws.
+fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
     let ContentBlock::Image(image) = block else {
         return None;
     };
@@ -389,17 +415,20 @@ fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<gpui::Image>> {
         .decode(&data)
         .or_else(|_| GeneralPurpose::new(&alphabet::URL_SAFE, loose).decode(&data))
         .ok()?;
-    Some(std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)))
+    let mut id = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&bytes, &mut id);
+    let id = std::hash::Hasher::finish(&id);
+    Some(std::sync::Arc::new(Picture { format, bytes, id }))
 }
 
-/// The image format of the MIME type `mime`, where GPUI draws it.
-fn image_format(mime: &str) -> Option<gpui::ImageFormat> {
+/// The format of the MIME type `mime`, where the desk draws it.
+fn image_format(mime: &str) -> Option<Format> {
     Some(match mime {
-        "image/png" => gpui::ImageFormat::Png,
-        "image/jpeg" | "image/jpg" => gpui::ImageFormat::Jpeg,
-        "image/gif" => gpui::ImageFormat::Gif,
-        "image/webp" => gpui::ImageFormat::Webp,
-        "image/svg+xml" => gpui::ImageFormat::Svg,
+        "image/png" => Format::Png,
+        "image/jpeg" | "image/jpg" => Format::Jpeg,
+        "image/gif" => Format::Gif,
+        "image/webp" => Format::Webp,
+        "image/svg+xml" => Format::Svg,
         _ => return None,
     })
 }
@@ -1091,7 +1120,7 @@ impl Session {
                 let ToolCallContent::Diff(d) = c else {
                     continue;
                 };
-                let crate::git::FileDiff { added, gone, .. } = crate::thread::kinds::diff(d, None);
+                let crate::git::FileDiff { added, gone, .. } = crate::git::edit_diff(d, None);
                 match files.iter_mut().find(|f| f.path == d.path) {
                     Some(f) => {
                         f.added += added;
@@ -1355,29 +1384,6 @@ mod tests {
         s.apply(update(r#"{"sessionUpdate":"plan","entries":[{"content":"a","priority":"high","status":"completed"}]}"#));
         assert!(matches!(&s.items[1], Item::Thought { secs: Some(_), .. }));
         assert_eq!(s.items.len(), 3);
-    }
-
-    #[test]
-    fn a_diffs_place_is_found_in_its_file_off_the_window_once_the_call_is_done() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("a.rs");
-        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
-        let mut s = Session::new(1, "x", dir.path().to_path_buf());
-        let json = format!(
-            r#"{{"sessionUpdate":"tool_call","toolCallId":"e","title":"Edit","kind":"edit","status":"completed","content":[{{"type":"diff","path":"{}","oldText":"3\n","newText":"three\nfour\n"}}]}}"#,
-            file.display()
-        );
-        s.apply(update(&json));
-        assert!(s.tools().next().unwrap().starts.is_empty());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::hub::place(1, std::mem::take(&mut s.placing), tx);
-        let Some(crate::hub::Msg::Placed { starts, .. }) = rx.blocking_recv() else {
-            panic!("the diffs were not placed");
-        };
-        for (id, starts) in starts {
-            s.placed(&id, starts);
-        }
-        assert_eq!(s.tools().next().unwrap().starts, vec![Some(3)]);
     }
 
     #[test]

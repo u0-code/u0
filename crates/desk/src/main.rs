@@ -8,37 +8,30 @@
 //! program, with its own tools and its own sign-in, spoken to over the
 //! Agent Client Protocol.
 
-mod acp;
 mod aside;
 mod assets;
 mod desk;
 mod fonts;
-mod git;
 mod hub;
 mod input;
 mod keys;
 mod macos;
 mod markdown;
 mod pages;
-mod path;
-mod registry;
-mod remote;
-mod scripts;
-mod session;
 mod sessions;
-mod settings;
 mod sidebar;
-mod store;
 mod style;
 mod syntax;
 mod terminal;
 mod theme;
 mod thread;
-mod tidy;
 mod ui;
-mod when;
-mod whole;
 
+// What needs no window is ghost-core's. Named here, `crate::git` and the
+// rest name it alike in every module of the desk.
+use ghost_core::{
+    acp, git, path, registry, remote, scripts, session, settings, store, tidy, when, whole,
+};
 use keys::{
     About, Hide, HideOthers, Minimize, NewSession, OpenSettings, Quit, ShowAll, Stop, ToggleSidebar,
 };
@@ -54,7 +47,7 @@ fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ghost_desk=info".into()),
+                .unwrap_or_else(|_| "ghost_desk=info,ghost_core=info".into()),
         )
         .with_writer(std::io::stderr)
         .init();

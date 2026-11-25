@@ -15,6 +15,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use agent_client_protocol::v1::schema::Diff;
+use similar::{ChangeTag, TextDiff};
+
 /// Where the checkpoints of a repository are kept.
 const REFS: &str = "refs/ghost/checkpoints";
 
@@ -354,6 +357,65 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
     /// Whether git called it binary.
     pub binary: bool,
+}
+
+/// An edit as git would show it: each stretch that changed, with a line of
+/// context either side, numbered from `start`, the line of the file its
+/// text begins on (one where that is not known).
+pub fn edit_diff(d: &Diff, start: Option<usize>) -> FileDiff {
+    let old = d.old_text.as_deref().unwrap_or("");
+    let at = start.unwrap_or(1);
+    let text = TextDiff::from_lines(old, &d.new_text);
+    let (mut added, mut gone) = (0, 0);
+    let hunks = text
+        .grouped_ops(1)
+        .iter()
+        .map(|group| {
+            let (first, last) = (&group[0], &group[group.len() - 1]);
+            let (o, n) = (first.old_range().start, first.new_range().start);
+            let (o_len, n_len) = (last.old_range().end - o, last.new_range().end - n);
+            let lines = group
+                .iter()
+                .flat_map(|op| text.iter_changes(op))
+                .map(|c| {
+                    let text = c.value().trim_end_matches(['\r', '\n']).to_owned();
+                    let (old, new) = (c.old_index().map(|i| i + at), c.new_index().map(|i| i + at));
+                    match (c.tag(), old, new) {
+                        (ChangeTag::Delete, Some(old), _) => {
+                            gone += 1;
+                            Line::Gone { old, text }
+                        }
+                        (ChangeTag::Insert, _, Some(new)) => {
+                            added += 1;
+                            Line::Added { new, text }
+                        }
+                        (_, old, new) => Line::Same {
+                            old: old.unwrap_or_default(),
+                            new: new.unwrap_or_default(),
+                            text,
+                        },
+                    }
+                })
+                .collect();
+            Hunk {
+                head: format!("@@ -{},{o_len} +{},{n_len} @@", o + at, n + at),
+                lines,
+            }
+        })
+        .collect();
+    FileDiff {
+        path: d.path.display().to_string(),
+        from: None,
+        status: if d.old_text.is_none() {
+            Status::Added
+        } else {
+            Status::Modified
+        },
+        added,
+        gone,
+        hunks,
+        binary: false,
+    }
 }
 
 /// What changed in `dir` from the checkpoint `from` to `to`; with
@@ -949,6 +1011,59 @@ fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn edit(old: Option<&str>, new: &str) -> Diff {
+        Diff::new("a.rs", new).old_text(old.map(str::to_owned))
+    }
+
+    #[test]
+    fn an_edit_shows_what_went_and_what_came_with_a_line_either_side() {
+        let d = edit(Some("fn a() {\n    1\n}\n"), "fn a() {\n    2\n    3\n}\n");
+        let file = edit_diff(&d, Some(10));
+        assert_eq!(
+            file.hunks[0].lines,
+            [
+                Line::Same {
+                    old: 10,
+                    new: 10,
+                    text: "fn a() {".into()
+                },
+                Line::Gone {
+                    old: 11,
+                    text: "    1".into()
+                },
+                Line::Added {
+                    new: 11,
+                    text: "    2".into()
+                },
+                Line::Added {
+                    new: 12,
+                    text: "    3".into()
+                },
+                Line::Same {
+                    old: 12,
+                    new: 13,
+                    text: "}".into()
+                },
+            ]
+        );
+        assert_eq!((file.gone, file.added), (1, 2));
+    }
+
+    #[test]
+    fn two_changes_apart_are_two_hunks() {
+        let old = (0..20)
+            .map(|i| format!("line {i}\n"))
+            .collect::<Vec<_>>()
+            .concat();
+        let new = old
+            .replace("line 2\n", "two\n")
+            .replace("line 17\n", "seventeen\n");
+        let file = edit_diff(&edit(Some(&old), &new), Some(1));
+        assert_eq!(file.hunks.len(), 2);
+        assert_eq!((file.gone, file.added), (2, 2));
+        assert_eq!(file.hunks[1].head, "@@ -17,3 +17,3 @@");
+    }
 
     /// A repository in a temporary folder with one committed file.
     fn repo(name: &str) -> PathBuf {

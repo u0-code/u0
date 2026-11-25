@@ -21,7 +21,7 @@ pub mod output;
 pub mod select;
 mod topbar;
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
@@ -33,13 +33,49 @@ use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
-    markdown,
-    session::{Item, Session, Tool, text_of},
+    git, markdown,
+    session::{Format, Item, Picture, Session, Tool, text_of},
     style::BUBBLE_RADIUS,
     theme,
     ui::{self, Mark},
     when,
 };
+
+/// A picture of the session's as GPUI draws it: decoded once, and known
+/// after that by its hash, as GPUI keeps an image of its own.
+fn picture(picture: &Arc<Picture>) -> gpui::ImageSource {
+    let picture = picture.clone();
+    gpui::ImageSource::Custom(Arc::new(move |window, cx| {
+        window.use_asset::<Decoded>(&picture, cx)
+    }))
+}
+
+/// Pictures decoded for drawing.
+enum Decoded {}
+
+impl gpui::Asset for Decoded {
+    type Source = Arc<Picture>;
+    type Output = Result<Arc<gpui::RenderImage>, gpui::ImageCacheError>;
+
+    fn load(
+        picture: Self::Source,
+        cx: &mut gpui::App,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        let renderer = cx.svg_renderer();
+        let format = match picture.format {
+            Format::Png => gpui::ImageFormat::Png,
+            Format::Jpeg => gpui::ImageFormat::Jpeg,
+            Format::Gif => gpui::ImageFormat::Gif,
+            Format::Webp => gpui::ImageFormat::Webp,
+            Format::Svg => gpui::ImageFormat::Svg,
+        };
+        async move {
+            gpui::Image::from_bytes(format, picture.bytes.clone())
+                .to_image_data(renderer)
+                .map_err(Into::into)
+        }
+    }
+}
 
 /// The parts of a tool call's row.
 struct Row {
@@ -1076,7 +1112,7 @@ impl Desk {
                             .id(SharedString::from(format!("{key}-image")))
                             .cursor_pointer()
                             .child(
-                                gpui::img(image.clone())
+                                gpui::img(picture(image))
                                     .max_w(px(w))
                                     .max_h(px(h))
                                     .rounded(px(8.)),
@@ -1200,7 +1236,7 @@ impl Desk {
                     before,
                 ))
                 .child(
-                    gpui::img(image.clone())
+                    gpui::img(picture(image))
                         .max_w(size.width - px(160.))
                         .max_h(size.height - px(120.))
                         .rounded(px(8.)),
@@ -1474,7 +1510,7 @@ impl Desk {
         let failed = call.status == ToolCallStatus::Failed;
         let (added, gone) = call.content.iter().fold((0, 0), |(a, g), c| match c {
             ToolCallContent::Diff(d) => {
-                let file = kinds::diff(d, None);
+                let file = git::edit_diff(d, None);
                 (a + file.added, g + file.gone)
             }
             _ => (a, g),
@@ -1627,7 +1663,7 @@ impl Desk {
                 ToolCallContent::Diff(d) => {
                     let start = tool.starts.get(diff_n).copied().flatten();
                     diff_n += 1;
-                    let (file, more) = kinds::cut(kinds::diff(d, start), kinds::LINES_SHOWN);
+                    let (file, more) = kinds::cut(git::edit_diff(d, start), kinds::LINES_SHOWN);
                     body = body.child(
                         drawn::hunks(
                             faces,

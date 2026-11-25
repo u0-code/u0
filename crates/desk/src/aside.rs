@@ -14,7 +14,7 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 use crate::{
     desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
-    hub,
+    git, hub,
     registry::{self, Way},
     session::{Change, Session, State},
     theme,
@@ -1290,7 +1290,7 @@ impl Desk {
                         body = body.child(
                             drawn::hunks(
                                 faces,
-                                &kinds::diff(d, start),
+                                &git::edit_diff(d, start),
                                 self.settings.diff_wrap,
                                 drawn::Fit::Column,
                                 None,

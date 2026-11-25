@@ -63,12 +63,14 @@ shows its ways to sign in in the thread, and the session opens once you are
 in. u0 never sees a credential.
 
 ```
-src/
+crates/core/   everything that touches the machine, built without a window
   acp.rs        one agent: its process and its ACP connection
   registry.rs   the ACP registry; installing an agent from it
-  hub.rs        the agents switched on, and their work off the window's thread
   session.rs    a session's thread, built from the agent's updates
   git.rs        worktrees, checkpoints, diffs, commit / push / pull request
+  store.rs      what Ghost keeps of each session
+crates/desk/   the app, which draws it
+  hub.rs        the agents switched on, and their work off the window's thread
   desk.rs       the window: its state and what happens when you or an agent act
   sidebar.rs, thread.rs, aside.rs, pages.rs    the three columns and the pages
 ```

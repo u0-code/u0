@@ -12,7 +12,7 @@ pub struct Assets;
 
 macro_rules! icons {
     ($($name:literal),* $(,)?) => {
-        &[$((concat!("icons/", $name, ".svg"), include_bytes!(concat!("../assets/icons/", $name, ".svg")) as &[u8])),*]
+        &[$((concat!("icons/", $name, ".svg"), include_bytes!(concat!("../../../assets/icons/", $name, ".svg")) as &[u8])),*]
     };
 }
 
