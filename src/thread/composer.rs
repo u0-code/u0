@@ -756,13 +756,11 @@ impl Desk {
             chip = chip
                 .cursor_pointer()
                 .hover(|st| st.bg(theme::hover()))
-                .when(mark.is_some(), |d| {
-                    d.child(
-                        ui::icon("chevron-down", 11.)
-                            .flex_none()
-                            .text_color(theme::faint()),
-                    )
-                })
+                .child(
+                    ui::icon("chevron-down", 11.)
+                        .flex_none()
+                        .text_color(theme::faint()),
+                )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.toggle_popup(for_click.clone(), cx);
                     // What is typed then narrows the list.
