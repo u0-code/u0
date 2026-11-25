@@ -149,12 +149,17 @@ impl Shared {
                 if t.same && t.session.is_none() {
                     t.session.clone_from(&session);
                 }
+                let done = error.is_none() && matches!(t.schedule, tasks::Schedule::Once(_));
                 t.last = Some(Run {
                     at: now,
                     session,
                     going: false,
                     error,
                 });
+                // One said once is done with once it was said.
+                if done {
+                    all.tasks.retain(|t| t.id != task.id);
+                }
             });
         });
     }

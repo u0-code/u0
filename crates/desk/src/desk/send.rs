@@ -11,6 +11,7 @@ use crate::{
     hub::{Slot, Stage},
     proto::Call,
     session::{Item, State},
+    tasks::{Schedule, Task},
 };
 
 impl Desk {
@@ -64,83 +65,64 @@ impl Desk {
         }
     }
 
-    /// Say what was written for later and is due now, in its session;
-    /// one said each day is kept for the next.
-    pub(crate) fn send_due(&mut self, cx: &mut Context<Self>) {
-        let now = crate::store::secs(std::time::SystemTime::now());
-        let mut due = Vec::new();
-        for s in &mut self.sessions.all {
-            for l in &mut s.meta.later {
-                if l.at <= now {
-                    due.push((s.key, l.text.clone()));
-                    while l.daily && l.at <= now {
-                        l.at += 86_400;
-                    }
-                }
-            }
-            s.meta.later.retain(|l| l.at > now);
-        }
-        if due.is_empty() {
-            return;
-        }
-        for (key, text) in due {
-            match self.sessions.at_mut(key) {
-                // A turn going on: it waits its turn, as one queued.
-                Some(s) if matches!(s.state, State::Working | State::Opening) => {
-                    s.meta.queued.push(text);
-                }
-                Some(_) => self.send_in(key, &text, cx),
-                None => {}
-            }
-        }
-        self.save_index();
-        cx.notify();
-    }
-
     /// Say "Continue" in the session `key` at `at`: when a limit it hit
     /// resets.
     pub fn retry_at(&mut self, key: u64, at: std::time::SystemTime, cx: &mut Context<Self>) {
-        if let Some(s) = self.sessions.at_mut(key) {
-            s.meta.later.push(crate::store::Later {
-                at: crate::store::secs(at),
-                text: "Continue".into(),
-                daily: false,
-            });
-            s.meta.later.sort_by_key(|l| l.at);
-        }
-        self.save_index();
-        let now = std::time::SystemTime::now();
-        self.done(
-            format!(
-                "To be tried again at {}",
-                crate::when::said_at(at, now, self.settings.twelve)
-            ),
-            None,
-        );
-        cx.notify();
+        self.say_later(key, "Continue".into(), Later::At(at), cx);
     }
 
     /// Say what is in the composer later in the session on screen, when
     /// `when` says.
     pub fn send_later(&mut self, when: Later, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.typed(cx);
-        let now = std::time::SystemTime::now();
-        let at = when.at(now);
         let Some(key) = self.current else { return };
-        if text.is_empty() {
+        if text.is_empty() || !self.say_later(key, text, when, cx) {
             return;
-        }
-        if let Some(s) = self.sessions.at_mut(key) {
-            s.meta.later.push(crate::store::Later {
-                at: crate::store::secs(at),
-                text,
-                daily: when == Later::Daily,
-            });
-            s.meta.later.sort_by_key(|l| l.at);
         }
         self.put_line("", window, cx);
         self.popup = Popup::Closed;
-        self.save_index();
+        cx.notify();
+    }
+
+    /// Say `text` in the session `key` when `when` says: a scheduled task
+    /// of that session, which the server runs. Whether there was one to
+    /// say it in: a session is one once its agent has it.
+    fn say_later(&mut self, key: u64, text: String, when: Later, cx: &mut Context<Self>) -> bool {
+        let Some(s) = self.sessions.at(key).filter(|s| s.meta.id.is_some()) else {
+            self.trouble(
+                "Say something first: a session is kept once its agent has it",
+                None,
+                None,
+            );
+            return false;
+        };
+        let now = std::time::SystemTime::now();
+        let at = when.at(now);
+        let schedule = if when == Later::Daily {
+            Schedule::Daily {
+                minute: crate::when::minute_of_day(at),
+                days: Vec::new(),
+            }
+        } else {
+            Schedule::Once(crate::store::secs(at))
+        };
+        self.transport.send(Call::SetTask(Task {
+            id: 0,
+            title: crate::ui::fit(text.lines().next().unwrap_or_default(), 40),
+            prompt: text,
+            agent: s.meta.agent.clone(),
+            model: None,
+            mode: None,
+            project: s.meta.project.clone(),
+            schedule,
+            paused: false,
+            same: true,
+            worktree: false,
+            session: s.meta.id.clone(),
+            next: None,
+            last: None,
+            runs: 0,
+        }));
         self.done(
             format!(
                 "To be said at {}",
@@ -149,6 +131,7 @@ impl Desk {
             None,
         );
         cx.notify();
+        true
     }
 
     /// Say `text` in the session `key`.

@@ -719,7 +719,6 @@ impl Session {
                 queued: Vec::new(),
                 unsent: String::new(),
                 from: None,
-                later: Vec::new(),
                 also: Vec::new(),
                 subagents: Vec::new(),
             },

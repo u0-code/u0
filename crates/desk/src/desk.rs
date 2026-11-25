@@ -484,7 +484,6 @@ impl Desk {
                         this.release_idle(cx);
                         this.refresh_projects();
                         this.update_due();
-                        this.send_due(cx);
                         this.poll_prs();
                         this.check_agents();
                     })

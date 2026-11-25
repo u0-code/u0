@@ -103,7 +103,7 @@ impl Desk {
         s: &crate::session::Session,
         cx: &mut Context<Self>,
     ) -> Popover {
-        let mark = Self::popup_chip(faces, "clock", s.meta.later.len(), "Say it later");
+        let mark = Self::popup_chip(faces, "clock", self.waiting_in(s).len(), "Say it later");
         let (faces, key) = (faces.clone(), s.key);
         over_line(self.menu(
             Popup::Later,
@@ -153,7 +153,7 @@ impl Desk {
         let waiting = self
             .sessions
             .at(key)
-            .map(|s| s.meta.later.as_slice())
+            .map(|s| self.waiting_in(s))
             .unwrap_or_default();
         if !waiting.is_empty() {
             let now = std::time::SystemTime::now();
@@ -163,15 +163,16 @@ impl Desk {
                     .pt(px(10.))
                     .pb(px(4.)),
             );
-            for (n, l) in waiting.iter().enumerate() {
-                let at = crate::store::time(l.at);
-                let when = if l.daily {
-                    format!("each day {}", crate::when::clock(at, self.settings.twelve))
-                } else {
-                    crate::when::said_at(at, now, self.settings.twelve)
+            for task in waiting {
+                let id = task.id;
+                let when = match &task.schedule {
+                    crate::tasks::Schedule::Once(at) => {
+                        crate::when::said_at(crate::store::time(*at), now, self.settings.twelve)
+                    }
+                    other => other.said(self.settings.twelve),
                 };
                 list = list.child(
-                    ui::menu_row(SharedString::from(format!("waiting-{n}")), false)
+                    ui::menu_row(SharedString::from(format!("waiting-{id}")), false)
                         .child(
                             ui::text(faces, when)
                                 .flex_none()
@@ -182,7 +183,7 @@ impl Desk {
                             ui::one_line(
                                 ui::text(
                                     faces,
-                                    l.text.lines().next().unwrap_or_default().to_owned(),
+                                    task.prompt.lines().next().unwrap_or_default().to_owned(),
                                 )
                                 .text_size(px(13.)),
                             )
@@ -191,19 +192,14 @@ impl Desk {
                         )
                         .child(
                             ui::icon_button(
-                                SharedString::from(format!("later-drop-{n}")),
+                                SharedString::from(format!("later-drop-{id}")),
                                 "x",
                                 "Let it go",
                             )
                             .size(px(22.))
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
-                                    if let Some(s) = this.sessions.at_mut(key)
-                                        && n < s.meta.later.len()
-                                    {
-                                        s.meta.later.remove(n);
-                                    }
-                                    this.save_index();
+                                    this.drop_task(id);
                                     cx.notify();
                                 },
                             )),
@@ -212,6 +208,20 @@ impl Desk {
             }
         }
         list
+    }
+
+    /// The scheduled tasks said in the session `s` that are still to run.
+    fn waiting_in(&self, s: &crate::session::Session) -> Vec<&crate::tasks::Task> {
+        let tasks = self
+            .tasks
+            .list
+            .as_ref()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        (tasks.iter())
+            .filter(|t| t.same && !t.paused && t.next.is_some() && t.agent == s.meta.agent)
+            .filter(|t| t.session.is_some() && t.session == s.meta.id)
+            .collect()
     }
 
     /// Take back what was put aside `n`th: into the line, after what is
