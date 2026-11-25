@@ -143,15 +143,6 @@ pub struct Turn {
     pub diff: Option<Vec<git::FileDiff>>,
 }
 
-/// What the last git action said: a commit, a push, a pull request.
-#[derive(Debug, Clone)]
-pub struct GitNote {
-    pub text: String,
-    pub trouble: bool,
-    /// An address to open: a pull request.
-    pub url: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -188,7 +179,6 @@ pub struct Session {
     pub total: Option<Vec<git::FileDiff>>,
     /// A turn undone, and the checkpoint that puts it back.
     pub redo: Option<(usize, String)>,
-    pub git_note: Option<GitNote>,
     pub title: String,
     pub state: State,
     pub items: Vec<Item>,
@@ -498,7 +488,6 @@ impl Session {
             turns: Vec::new(),
             total: None,
             redo: None,
-            git_note: None,
             project: folder.clone(),
             folder,
             title,

@@ -183,12 +183,11 @@ impl Desk {
                     t.before = Some(snap.commit);
                 }
             }
-            Err(why) => s.items.push(Item::Note {
-                text: format!(
-                    "The files could not be checkpointed, so this turn cannot be undone: {why}"
-                ),
-                trouble: true,
-            }),
+            Err(why) => self.trouble(
+                "This turn can't be undone",
+                Some(format!("Its files could not be checkpointed: {why}")),
+                None,
+            ),
         }
         if let Some(text) = then {
             self.prompt(key, text);
@@ -258,10 +257,7 @@ impl Desk {
                     });
                 }
             }
-            Err(why) => s.items.push(Item::Note {
-                text: format!("The files could not be put back: {why}"),
-                trouble: true,
-            }),
+            Err(why) => self.trouble("Couldn't put the files back", Some(why), None),
         }
     }
 
@@ -271,11 +267,7 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let (dir, key) = (s.folder.clone(), s.key);
         if let Some(s) = self.session_mut(key) {
-            s.git_note = Some(crate::session::GitNote {
-                text: "Working…".into(),
-                trouble: false,
-                url: None,
-            });
+            s.git_step = Some("Working".into());
         }
         hub::git_action(
             dir,
@@ -319,30 +311,18 @@ impl Desk {
         if s.turns.is_empty() && s.repo && !removed {
             hub::uncommitted(s.folder.clone(), key, tx);
         }
-        s.git_note = Some(match result {
-            Ok(text) => {
-                let url = text.starts_with("https://").then(|| text.clone());
-                crate::session::GitNote {
-                    text: if url.is_some() {
-                        "Pull request opened".into()
-                    } else {
-                        text
-                    },
-                    trouble: false,
-                    url,
-                }
-            }
-            Err(why) => crate::session::GitNote {
-                text: why,
-                trouble: true,
-                url: None,
-            },
-        });
         if removed {
             s.worktree = None;
             s.id = None;
             s.state =
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
+        }
+        match result {
+            Ok(text) if text.starts_with("https://") => {
+                self.done("Pull request opened", Some(super::notices::Way::Open(text)));
+            }
+            Ok(text) => self.done(text, None),
+            Err(why) => self.trouble(format!("Couldn't {}", action.doing()), Some(why), None),
         }
         self.refresh_git(key);
     }

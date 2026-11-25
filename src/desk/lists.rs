@@ -5,8 +5,8 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use gpui::{
-    Context, Focusable as _, IntoElement as _, ParentElement as _, StatefulInteractiveElement as _,
-    Styled as _, Window, div, px,
+    Context, Focusable as _, ParentElement as _, StatefulInteractiveElement as _, Styled as _,
+    Window, px,
 };
 
 use agent_client_protocol_schema::v1::MessageId;
@@ -243,11 +243,11 @@ impl Desk {
 
     /// The note at the foot of the window while what was just deleted or
     /// archived can be taken back.
-    pub(crate) fn undo_toast(
+    pub(crate) fn undo_notice(
         &self,
         faces: &crate::fonts::Faces,
         cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
+    ) -> Option<gpui::Div> {
         let u = self.undo.as_ref()?;
         let title = self
             .sessions
@@ -260,27 +260,30 @@ impl Desk {
             Undone::Archive => "Archived",
         };
         Some(
-            div()
-                .absolute()
-                .bottom(px(18.))
-                .left(px(18.))
-                .flex()
+            super::notices::frame()
                 .items_center()
-                .gap(px(12.))
-                .pl(px(14.))
-                .pr(px(6.))
-                .py(px(6.))
-                .rounded(px(10.))
-                .bg(crate::theme::panel())
-                .border_1()
-                .border_color(crate::theme::border2())
-                .shadow_lg()
-                .child(crate::ui::text(faces, format!("{what} “{title}”")).text_size(px(13.)))
+                .py(px(8.))
+                .child(
+                    crate::ui::icon(
+                        match u.what {
+                            Undone::Delete => "trash",
+                            Undone::Archive => "archive",
+                        },
+                        16.,
+                    )
+                    .text_color(crate::theme::muted()),
+                )
+                .child(
+                    crate::ui::one_line(
+                        crate::ui::text(faces, format!("{what} “{title}”")).text_size(px(13.)),
+                    )
+                    .flex_1()
+                    .min_w(px(0.)),
+                )
                 .child(
                     crate::ui::button(faces, "undo", "Undo", crate::ui::Weight::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.take_back(cx))),
-                )
-                .into_any_element(),
+                ),
         )
     }
 
@@ -351,9 +354,14 @@ impl Desk {
         let r = match result {
             Ok(r) => r,
             Err(f) => {
-                if let Some(s) = self.session_mut(from) {
-                    s.note(&format!("It could not be branched off: {}", f.message));
-                }
+                self.trouble(
+                    format!(
+                        "Couldn't branch off “{}”",
+                        crate::ui::fit(&origin.title, 40)
+                    ),
+                    Some(f.message),
+                    None,
+                );
                 cx.notify();
                 return;
             }

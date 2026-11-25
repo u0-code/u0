@@ -196,7 +196,7 @@ impl Desk {
         } else if let Stage::Missing(m) = &stage
             && !matches!(m, Missing::Download)
         {
-            download = download.child(fine(faces, m.say(&name)).text_color(theme::coral()));
+            download = download.child(ui::trouble(faces, m.say(&name)));
         } else {
             download = download.child(
                 ui::mono(faces, Desk::shown(&entry.dir(&self.home)))
@@ -424,14 +424,7 @@ impl Desk {
                         ),
                 )
                 .child(steps)
-                .children(trouble.map(|why| {
-                    crate::thread::well(faces)
-                        .px(px(12.))
-                        .py(px(8.))
-                        .text_size(px(12.))
-                        .text_color(theme::coral())
-                        .child(why)
-                }))
+                .children(trouble.map(|why| ui::trouble(faces, why)))
                 .child(actions)
                 .child(self.agent_own(faces, id, &stage, cx)),
         )
@@ -532,16 +525,13 @@ impl Desk {
         if let Stage::Running { init, .. } = stage
             && init.protocol_version != agent_client_protocol_schema::ProtocolVersion::V1
         {
-            own = own.child(
-                fine(
-                    faces,
-                    format!(
-                        "It speaks ACP version {:?}; Ghost speaks version 1. Some of what it says may not show.",
-                        init.protocol_version
-                    ),
-                )
-                .text_color(theme::coral()),
-            );
+            own = own.child(ui::trouble(
+                faces,
+                format!(
+                    "It speaks ACP version {:?}; Ghost speaks version 1. Some of what it says may not show.",
+                    init.protocol_version
+                ),
+            ));
         }
         own
     }

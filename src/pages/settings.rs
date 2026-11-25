@@ -261,12 +261,12 @@ impl Desk {
             .children(
                 self.settings_refused
                     .clone()
-                    .map(|why| fine(faces, why).text_color(theme::coral())),
+                    .map(|why| ui::trouble(faces, why)),
             )
             .children(
                 self.registry_trouble
                     .clone()
-                    .map(|why| fine(faces, why).text_color(theme::coral())),
+                    .map(|why| ui::trouble(faces, why)),
             )
             .when(
                 self.registry.agents.is_empty() && self.registry_trouble.is_none(),
@@ -518,7 +518,7 @@ impl Desk {
             .children(
                 self.store_refused
                     .clone()
-                    .map(|why| fine(faces, why).text_color(theme::coral())),
+                    .map(|why| ui::trouble(faces, why)),
             )
     }
 }

@@ -75,12 +75,11 @@ impl Desk {
             .iter()
             .any(|o| o.folder == dir && matches!(o.state, State::Working | State::Opening));
         if busy {
-            if let Some(s) = self.session_mut(key) {
-                s.items.push(Item::Note {
-                    text: "A session is at work in this checkout: the branch is not switched under it.".into(),
-                    trouble: true,
-                });
-            }
+            self.trouble(
+                "The branch is not switched",
+                Some("A session is at work in this checkout.".into()),
+                None,
+            );
             cx.notify();
             return;
         }

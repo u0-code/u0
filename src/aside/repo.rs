@@ -190,26 +190,6 @@ impl Desk {
                     .child(fine(faces, format!("{step}…")).text_color(theme::accent())),
             );
         }
-        if let Some(note) = &s.git_note {
-            let line = fine(faces, note.text.clone()).text_color(if note.trouble {
-                theme::coral()
-            } else {
-                theme::text2()
-            });
-            sec = sec.child(match note.url.clone() {
-                Some(url) => div()
-                    .id("git-url")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .cursor_pointer()
-                    .child(line)
-                    .child(fine(faces, url.clone()).text_color(theme::link()))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
-                    .into_any_element(),
-                None => line.into_any_element(),
-            });
-        }
         Some(sec)
     }
 

@@ -32,6 +32,7 @@ mod gitview;
 mod kept;
 mod lists;
 pub(crate) mod mention;
+pub(crate) mod notices;
 mod palette;
 mod projects;
 pub(crate) mod runs;
@@ -143,6 +144,8 @@ pub struct Desk {
     pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
+    /// What Ghost tells you at the foot of the window, the oldest first.
+    pub notices: Vec<notices::Notice>,
     /// The sessions whose records hold what is searched for.
     pub found: HashSet<u64>,
     /// The settings page's tab.
@@ -502,6 +505,7 @@ impl Desk {
             renaming_project: None,
             rename,
             undo: None,
+            notices: Vec::new(),
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::General,
             clone_url,
@@ -1712,7 +1716,7 @@ impl Render for Desk {
             })
             .child(middle)
             .children(right)
-            .children(self.undo_toast(&faces, cx))
+            .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
     }
 }

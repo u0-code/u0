@@ -649,15 +649,17 @@ impl Desk {
                         .rounded(px(8.)),
                 )
                 .into_any_element(),
-            Item::Note { text, trouble } => ui::text(faces, text.clone())
+            // What went wrong in the session is a row of its own; anything
+            // else it notes reads as a quiet line.
+            Item::Note {
+                text,
+                trouble: true,
+            } => ui::trouble(faces, text.clone()).into_any_element(),
+            Item::Note { text, .. } => ui::text(faces, text.clone())
                 .px(px(10.))
                 .text_size(px(13.))
                 .line_height(px(20.))
-                .text_color(if *trouble {
-                    theme::coral()
-                } else {
-                    theme::muted()
-                })
+                .text_color(theme::muted())
                 .into_any_element(),
             Item::Ended { reason, secs } => self
                 .ended(faces, s, i, *reason, *secs, cx)

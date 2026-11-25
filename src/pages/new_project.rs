@@ -287,7 +287,7 @@ impl Desk {
                 .children(
                     self.adding_trouble
                         .clone()
-                        .map(|why| fine(faces, why).text_color(theme::coral())),
+                        .map(|why| ui::trouble(faces, why)),
                 )
                 .child(
                     card()

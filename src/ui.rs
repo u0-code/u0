@@ -215,6 +215,35 @@ pub fn switch(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
         )
 }
 
+/// Something gone wrong, said where it happened (in a thread, on a page):
+/// a mark, and the words, in a frame tinted for trouble.
+pub fn trouble(faces: &Faces, words: impl Into<SharedString>) -> Div {
+    div()
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .px(px(12.))
+        .py(px(9.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(theme::coral().opacity(0.28))
+        .bg(theme::coral().opacity(0.06))
+        .child(
+            icon("alert", 15.)
+                .mt(px(2.))
+                .flex_none()
+                .text_color(theme::coral()),
+        )
+        .child(
+            text(faces, words)
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(px(13.))
+                .line_height(px(19.))
+                .text_color(theme::text2()),
+        )
+}
+
 /// What a choice of a [`segmented`] control does when clicked.
 pub type Pick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
 

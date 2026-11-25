@@ -36,7 +36,12 @@ impl Desk {
                 launch.args.extend(t.args);
                 launch.env.extend(t.env);
                 if let Err(e) = hub::in_terminal(&launch.program, &launch.args, &launch.env) {
-                    self.note_sessions(agent, &format!("A terminal could not be opened: {e}"));
+                    let name = self.name_of(agent);
+                    self.trouble(
+                        format!("Couldn't open a terminal to sign in to {name}"),
+                        Some(e.to_string()),
+                        None,
+                    );
                 }
             }
         } else {
@@ -85,21 +90,14 @@ impl Desk {
                     self.open_when_running(agent, key);
                 }
             }
-            Err(why) => self.note_sessions(agent, &format!("Signing in failed: {why}")),
-        }
-    }
-
-    /// Put a line of trouble in each session of `agent` waiting to sign in.
-    pub(super) fn note_sessions(&mut self, agent: &str, text: &str) {
-        for s in self
-            .sessions
-            .iter_mut()
-            .filter(|s| s.agent == agent && s.state == State::SignIn)
-        {
-            s.items.push(Item::Note {
-                text: text.to_owned(),
-                trouble: true,
-            });
+            Err(why) => {
+                let name = self.name_of(agent);
+                self.trouble(
+                    format!("Signing in to {name} failed"),
+                    Some(why),
+                    Some(super::notices::Way::Agent(agent.to_owned())),
+                );
+            }
         }
     }
 
@@ -231,11 +229,7 @@ impl Desk {
                         Ok(files) => s.scoped = Some((scope, files)),
                         Err(why) => {
                             s.scoped = Some((scope, Vec::new()));
-                            s.git_note = Some(crate::session::GitNote {
-                                text: why,
-                                trouble: true,
-                                url: None,
-                            });
+                            self.trouble("Couldn't read the changes", Some(why), None);
                         }
                     }
                 }
@@ -287,12 +281,13 @@ impl Desk {
             Msg::Deleted { key, result } => match result {
                 Ok(()) => self.forget_session(key, cx),
                 Err(why) => {
-                    if let Some(s) = self.session_mut(key) {
-                        s.items.push(Item::Note {
-                            text: format!("It could not be deleted: {why}"),
-                            trouble: true,
-                        });
-                    }
+                    let title = self
+                        .sessions
+                        .iter()
+                        .find(|s| s.key == key)
+                        .map(|s| crate::ui::fit(&s.title, 40))
+                        .unwrap_or_default();
+                    self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
                 }
             },
             Msg::Ended { key, result } => {
@@ -371,12 +366,13 @@ impl Desk {
                 }
             }
             Msg::Refused { key, why } => {
-                if let Some(s) = self.session_mut(key) {
-                    s.items.push(Item::Note {
-                        text: why,
-                        trouble: true,
-                    });
-                }
+                let name = self
+                    .sessions
+                    .iter()
+                    .find(|s| s.key == key)
+                    .map(|s| self.name_of(&s.agent))
+                    .unwrap_or_default();
+                self.trouble(format!("{name} kept it as it was"), Some(why), None);
             }
         }
         cx.notify();

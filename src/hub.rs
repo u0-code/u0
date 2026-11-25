@@ -371,6 +371,20 @@ pub enum GitAction {
     RenameBranch(String),
 }
 
+impl GitAction {
+    /// What it does, as "Couldn't …" ends.
+    pub fn doing(&self) -> &'static str {
+        match self {
+            Self::Commit(_) => "commit",
+            Self::CommitPush(_) => "commit and push",
+            Self::PullRequest(_) => "open the pull request",
+            Self::RemoveWorktree(_) => "remove the worktree",
+            Self::Switch(_) => "switch the branch",
+            Self::RenameBranch(_) => "rename the branch",
+        }
+    }
+}
+
 /// Read the newest registry.
 pub fn fetch(home: PathBuf, tx: Sender) {
     acp::runtime().spawn_blocking(move || {

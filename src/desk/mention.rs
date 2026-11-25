@@ -185,15 +185,14 @@ impl Desk {
             .session()
             .and_then(|s| self.slot(&s.agent))
             .is_some_and(|slot| slot.images == Some(false));
-        if !refused {
+        if refused {
+            let name = self
+                .session()
+                .map(|s| self.name_of(&s.agent))
+                .unwrap_or_default();
+            self.trouble(format!("{name} does not take images"), None, None);
+        } else {
             self.pictures.push(picture);
-        } else if let Some(key) = self.current
-            && let Some(s) = self.session_mut(key)
-        {
-            s.items.push(Item::Note {
-                text: "This agent does not take images.".into(),
-                trouble: true,
-            });
         }
         cx.notify();
     }
