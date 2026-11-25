@@ -56,6 +56,9 @@ pub struct Settings {
     /// Ghost is not in front.
     #[serde(default)]
     pub notify: Notify,
+    /// Which of what a session does is told.
+    #[serde(default)]
+    pub notify_on: NotifyOn,
     /// Keep the Mac from sleeping while an agent works.
     #[serde(default = "yes")]
     pub awake: bool,
@@ -152,6 +155,29 @@ pub struct Writer {
 pub struct Favourite {
     pub agent: String,
     pub model: String,
+}
+
+/// Which of what a session does is told: a turn finished, one that
+/// failed, a question asked before it goes on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotifyOn {
+    #[serde(default = "yes")]
+    pub finished: bool,
+    #[serde(default = "yes")]
+    pub failed: bool,
+    #[serde(default = "yes")]
+    pub asks: bool,
+}
+
+impl Default for NotifyOn {
+    fn default() -> Self {
+        Self {
+            finished: true,
+            failed: true,
+            asks: true,
+        }
+    }
 }
 
 /// What macOS says when a session ends a turn or needs you.
@@ -299,6 +325,7 @@ impl Default for Settings {
             models: std::collections::BTreeMap::new(),
             favourites: Vec::new(),
             notify: Notify::default(),
+            notify_on: NotifyOn::default(),
             awake: yes(),
             settle_days: week(),
             width: Width::default(),

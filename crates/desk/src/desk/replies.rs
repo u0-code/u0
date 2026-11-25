@@ -79,15 +79,6 @@ impl Desk {
         }
     }
 
-    /// Say through macOS what a session did, as you asked it to.
-    fn tell(&self, title: &str, body: &str) {
-        match self.settings.notify {
-            crate::settings::Notify::Off => {}
-            crate::settings::Notify::Banner => hub::notify(title, body, false),
-            crate::settings::Notify::BannerAndSound => hub::notify(title, body, true),
-        }
-    }
-
     /// How many sessions need you, on the Dock's icon, when it changes.
     pub(crate) fn show_badge(&mut self) {
         let n = self
@@ -414,13 +405,18 @@ impl Desk {
                 }
 
                 // With Ghost behind other windows, macOS says so; in front,
-                // with another session on screen, a notice leads to it.
-                if let Some(s) = self.sessions.at(key) {
+                // with another session on screen, a notice leads to it; each
+                // as you asked for it.
+                let on = &self.settings.notify_on;
+                if let Some(s) = self.sessions.at(key)
+                    && (if ok { on.finished } else { on.failed })
+                {
                     let name = self.name_of(&s.meta.agent);
                     let title = crate::ui::fit(&s.meta.title, 40);
                     if behind {
                         self.tell(
-                            &format!("{name} · {title}"),
+                            key,
+                            format!("{name} · {title}"),
                             if ok { "Finished its turn" } else { "Stopped" },
                         );
                     } else if away && s.parent.is_none() {
@@ -712,11 +708,16 @@ impl Desk {
                 if let Some(s) = self.sessions.by_id(agent, &request.session_id) {
                     let (key, title) = (s.key, s.meta.title.clone());
                     s.asked(id, request);
-                    if self.behind {
-                        let name = self.name_of(agent);
-                        self.tell(
-                            &format!("{name} · {}", crate::ui::fit(&title, 40)),
-                            "Asks before it goes on",
+                    let name = self.name_of(agent);
+                    let title = crate::ui::fit(&title, 40);
+                    if !self.settings.notify_on.asks {
+                        // Not told, as you asked.
+                    } else if self.behind {
+                        self.tell(key, format!("{name} · {title}"), "Asks before it goes on");
+                    } else if self.current != Some(key) {
+                        self.done(
+                            format!("{name} asks before it goes on in “{title}”"),
+                            Some(super::notices::Way::Show(key)),
                         );
                     }
                     if self.current != Some(key)

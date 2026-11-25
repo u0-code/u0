@@ -143,12 +143,6 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
     });
 }
 
-/// Show a notification from macOS (`macos::notify`).
-pub fn notify(title: &str, body: &str, sound: bool) {
-    let (title, body) = (title.to_owned(), body.to_owned());
-    acp::runtime().spawn_blocking(move || crate::macos::notify(&title, &body, sound));
-}
-
 /// Bind the action `name` to `key` in your keybindings.json (none: give
 /// it Ghost's keys back), on the writer, so that two binds made quickly
 /// are kept in the order they were made.

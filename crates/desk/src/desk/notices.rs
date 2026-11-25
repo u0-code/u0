@@ -1,30 +1,34 @@
-//! What Ghost tells you outside the thread, at the foot of the window: a
-//! thing you asked for that did not happen, and why, with the way on; a
-//! thing done that can be followed (a pull request) or taken back (Undo).
-//! One frame for all of them. The thread keeps only what happened in its
-//! session.
+//! What Ghost tells you outside the thread, as gpui-kit's notifications at
+//! the window's top right: a thing you asked for that did not happen, and
+//! why; a thing done, with the way on from it (a pull request, a session);
+//! what can still be taken back. While Ghost is behind other windows, what
+//! a session did goes to macOS's notification centre instead, and a click
+//! there brings the window up on that session. The thread keeps only what
+//! happened in its session.
+//!
+//! A notification is pushed through the window, which what happens off it
+//! (an answer from the server) does not have: notices wait in the desk
+//! and are pushed as it is drawn next.
 
-use gpui::{ClipboardItem, Context, SharedString, div, prelude::*, px};
+use gpui::component::{
+    Sizable as _, WindowExt as _,
+    button::{Button, ButtonVariants as _},
+    notification::{Notification, NotificationDelivery, NotificationType},
+};
+use gpui::{ClipboardItem, Context, Window};
 
 use super::Desk;
-use crate::{
-    fonts::Faces,
-    theme,
-    ui::{self, Weight},
-};
+use crate::settings::Notify;
 
-/// How many notices stand at once; a new one lets the oldest go.
-const MOST: usize = 3;
-
-/// A notice: what happened, why, and the way on.
+/// A notice: what happened, why, and the way on; told by macOS when
+/// `system`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
-    pub id: u64,
-    /// Something you asked for did not happen.
     pub trouble: bool,
     pub text: String,
     pub why: Option<String>,
     pub way: Option<Way>,
+    pub system: bool,
 }
 
 /// The one way on from a notice.
@@ -36,6 +40,8 @@ pub enum Way {
     Agent(String),
     /// A session, to put it on screen.
     Show(u64),
+    /// What was just deleted or archived, to take it back.
+    Undo,
 }
 
 impl Desk {
@@ -46,174 +52,112 @@ impl Desk {
         why: Option<String>,
         way: Option<Way>,
     ) {
-        self.tell_notice(true, text.into(), why, way);
+        let why = why.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty());
+        self.notice(true, text.into(), why, way, false);
     }
 
     /// Say that something was done, with the way on from it.
     pub(crate) fn done(&mut self, text: impl Into<String>, way: Option<Way>) {
-        self.tell_notice(false, text.into(), None, way);
+        self.notice(false, text.into(), None, way, false);
     }
 
-    fn tell_notice(&mut self, trouble: bool, text: String, why: Option<String>, way: Option<Way>) {
-        // The same said again stands once, lowest.
-        self.notices.retain(|n| n.text != text);
-        let id = self.sessions.take_key();
+    /// Say through macOS what the session `key` did, as you asked it to:
+    /// a click on it brings the session up.
+    pub(crate) fn tell(&mut self, key: u64, title: String, body: &str) {
+        if self.settings.notify == Notify::Off {
+            return;
+        }
+        if self.settings.notify == Notify::BannerAndSound {
+            crate::macos::chime();
+        }
+        self.notice(
+            false,
+            title,
+            Some(body.to_owned()),
+            Some(Way::Show(key)),
+            true,
+        );
+    }
+
+    fn notice(
+        &mut self,
+        trouble: bool,
+        text: String,
+        why: Option<String>,
+        way: Option<Way>,
+        system: bool,
+    ) {
         self.notices.push(Notice {
-            id,
             trouble,
             text,
-            why: why.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty()),
+            why,
             way,
+            system,
         });
-        if self.notices.len() > MOST {
-            self.notices.remove(0);
+    }
+
+    /// The notices waiting, pushed as notifications: as the window is
+    /// drawn, where it is at hand.
+    pub(crate) fn show_notices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for n in std::mem::take(&mut self.notices) {
+            let note = Self::notification(&n, cx);
+            window.push_notification(note, cx);
         }
     }
 
-    /// The notices, and Undo while it stands, at the foot of the window.
-    pub(crate) fn notices_view(
-        &self,
-        faces: &Faces,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        let undo = self.undo_notice(faces, cx);
-        if self.notices.is_empty() && undo.is_none() {
-            return None;
-        }
-        let mut stack = div()
-            .absolute()
-            .bottom(px(18.))
-            .right(px(18.))
-            .flex()
-            .flex_col()
-            .items_end()
-            .gap(px(8.));
-        for n in &self.notices {
-            stack = stack.child(Self::notice(faces, n, cx));
-        }
-        Some(stack.children(undo).into_any_element())
-    }
-
-    fn notice(faces: &Faces, n: &Notice, cx: &mut Context<Self>) -> gpui::Div {
-        let id = n.id;
-        let mut words = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .gap(px(2.))
-            .child(
-                ui::text(faces, n.text.clone())
-                    .text_size(px(13.))
-                    .line_height(px(19.)),
-            );
+    fn notification(n: &Notice, cx: &mut Context<Self>) -> Notification {
+        let desk = cx.entity().downgrade();
+        let mut note = Notification::new()
+            .title(n.text.clone())
+            .with_type(if n.trouble {
+                NotificationType::Error
+            } else {
+                NotificationType::Success
+            });
         if let Some(why) = &n.why {
-            words = words.child(
-                ui::text(faces, ui::fit(why, 160))
-                    .text_size(px(12.))
-                    .line_height(px(17.))
-                    .text_color(theme::muted()),
-            );
+            note = note.message(crate::ui::fit(why, 160));
         }
-        let mut ways = div().flex().gap(px(6.)).mt(px(8.));
-        let mut any = false;
-        match n.way.clone() {
-            Some(Way::Open(url)) => {
-                any = true;
-                ways = ways.child(
-                    ui::button(
-                        SharedString::from(format!("way-{id}")),
-                        "Open",
-                        Weight::Secondary,
-                    )
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
-                );
-            }
-            Some(Way::Agent(agent)) => {
-                any = true;
-                ways = ways.child(
-                    ui::button(
-                        SharedString::from(format!("way-{id}")),
-                        "Open the agent",
-                        Weight::Secondary,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_page(crate::desk::Page::Agent(agent.clone()), window, cx);
-                    })),
-                );
-            }
-            Some(Way::Show(key)) => {
-                any = true;
-                let id = n.id;
-                ways = ways.child(
-                    ui::button(
-                        SharedString::from(format!("way-{id}")),
-                        "Show",
-                        Weight::Secondary,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.notices.retain(|n| n.id != id);
-                        this.show(key, window, cx);
-                    })),
-                );
-            }
-            None => {}
+        if n.system {
+            note = note.delivery(NotificationDelivery::System);
         }
-        if n.trouble {
-            any = true;
-            let details = match &n.why {
-                Some(why) => format!("{}\n{why}", n.text),
-                None => n.text.clone(),
-            };
-            ways = ways.child(
-                ui::button(
-                    SharedString::from(format!("copy-{id}")),
-                    "Copy details",
-                    Weight::Quiet,
-                )
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(details.clone()));
-                }),
-            );
+        let label = match &n.way {
+            Some(Way::Open(_)) => "Open",
+            Some(Way::Agent(_)) => "Open the agent",
+            Some(Way::Show(_)) => "Show",
+            Some(Way::Undo) => "Undo",
+            None if n.trouble => "Copy details",
+            None => return note,
+        };
+        let details = match &n.why {
+            Some(why) => format!("{}\n{why}", n.text),
+            None => n.text.clone(),
+        };
+        let go = move |way: &Option<Way>, window: &mut Window, cx: &mut gpui::App| {
+            let _ = desk.update(cx, |d, cx| match way.clone() {
+                Some(Way::Open(url)) => cx.open_url(&url),
+                Some(Way::Agent(agent)) => d.open_page(super::Page::Agent(agent), window, cx),
+                Some(Way::Show(key)) => d.show(key, window, cx),
+                Some(Way::Undo) => d.take_back(cx),
+                None => cx.write_to_clipboard(ClipboardItem::new_string(details.clone())),
+            });
+        };
+        let (way, clicked) = (n.way.clone(), go.clone());
+        // A session's notification goes to it wherever it is clicked: the
+        // only way on from one in macOS's centre.
+        if matches!(n.way, Some(Way::Show(_))) {
+            let way = n.way.clone();
+            note = note.on_click(move |_, window, cx| clicked(&way, window, cx));
         }
-        if any {
-            words = words.child(ways);
-        }
-        frame()
-            .items_start()
-            .child(
-                ui::icon(if n.trouble { "alert" } else { "check" }, 16.)
-                    .mt(px(2.))
-                    .text_color(if n.trouble {
-                        theme::coral()
-                    } else {
-                        theme::muted()
-                    }),
-            )
-            .child(words)
-            .child(
-                ui::icon_button(SharedString::from(format!("close-{id}")), "x", "Close")
-                    .size(px(24.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.notices.retain(|n| n.id != id);
-                        cx.notify();
-                    })),
-            )
+        note.action(move |_, _, cx| {
+            let (way, go) = (way.clone(), go.clone());
+            Button::new("way")
+                .label(label)
+                .small()
+                .ghost()
+                .on_click(cx.listener(move |note, _, window, cx| {
+                    go(&way, window, cx);
+                    note.dismiss(window, cx);
+                }))
+        })
     }
-}
-
-/// The frame of a notice: 380 wide on the panel, raised.
-pub(crate) fn frame() -> gpui::Div {
-    div()
-        .flex()
-        .gap(px(12.))
-        .w(px(380.))
-        .pl(px(14.))
-        .pr(px(8.))
-        .py(px(10.))
-        .rounded(px(12.))
-        .bg(theme::panel())
-        .border_1()
-        .border_color(theme::border2())
-        .shadow_lg()
 }

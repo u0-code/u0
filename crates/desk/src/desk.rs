@@ -1389,6 +1389,7 @@ impl Render for Desk {
             self.numbers_shown = false;
             self.command_down = None;
         }
+        self.show_notices(window, cx);
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let left = self
@@ -1466,7 +1467,6 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
-            .children(self.notices_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))
             .children(self.reading_view(&faces, cx))
     }

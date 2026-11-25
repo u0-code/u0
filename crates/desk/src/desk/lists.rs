@@ -8,9 +8,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use gpui::{
-    AppContext as _, Context, Entity, Focusable as _, ParentElement as _, Styled as _, Window, px,
-};
+use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
 
 use agent_client_protocol::v1::schema::MessageId;
 
@@ -243,6 +241,7 @@ impl Desk {
             what: Undone::Archive,
             at: Instant::now(),
         });
+        self.say_undo();
         Self::after_undo(cx);
         if self.current == Some(key) {
             self.current = None;
@@ -266,6 +265,7 @@ impl Desk {
         if self.current == Some(key) {
             self.current = None;
         }
+        self.say_undo();
         Self::after_undo(cx);
         cx.notify();
     }
@@ -350,6 +350,20 @@ impl Desk {
                     })
             });
         });
+    }
+
+    /// Say what was just deleted or archived, with Undo, for as long as
+    /// it can be taken back.
+    fn say_undo(&mut self) {
+        let Some(u) = &self.undo else { return };
+        let title = (self.sessions.at(u.key))
+            .map(|s| crate::ui::fit(&s.meta.title, 32))
+            .unwrap_or_default();
+        let what = match u.what {
+            Undone::Delete => "Deleted",
+            Undone::Archive => "Archived",
+        };
+        self.done(format!("{what} “{title}”"), Some(super::notices::Way::Undo));
     }
 
     /// Take back what was just deleted or archived.
@@ -503,51 +517,6 @@ impl Desk {
     pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         self.renaming = None;
         cx.notify();
-    }
-
-    /// The note at the foot of the window while what was just deleted or
-    /// archived can be taken back.
-    pub(crate) fn undo_notice(
-        &self,
-        faces: &crate::fonts::Faces,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
-        let u = self.undo.as_ref()?;
-        let title = self
-            .sessions
-            .at(u.key)
-            .map(|s| crate::ui::fit(&s.meta.title, 32))
-            .unwrap_or_default();
-        let what = match u.what {
-            Undone::Delete => "Deleted",
-            Undone::Archive => "Archived",
-        };
-        Some(
-            super::notices::frame()
-                .items_center()
-                .py(px(8.))
-                .child(
-                    crate::ui::icon(
-                        match u.what {
-                            Undone::Delete => "trash",
-                            Undone::Archive => "archive",
-                        },
-                        16.,
-                    )
-                    .text_color(crate::theme::muted()),
-                )
-                .child(
-                    crate::ui::one_line(
-                        crate::ui::text(faces, format!("{what} “{title}”")).text_size(px(13.)),
-                    )
-                    .flex_1()
-                    .min_w(px(0.)),
-                )
-                .child(
-                    crate::ui::button("undo", "Undo", crate::ui::Weight::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.take_back(cx))),
-                ),
-        )
     }
 
     /// Whether the agent of `s` can branch a session off, as it said when

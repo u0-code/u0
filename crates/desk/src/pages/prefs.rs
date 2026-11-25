@@ -4,7 +4,7 @@
 //! Ghost is. Each row says what happens, and its control says the choice.
 
 use gpui::component::button::ButtonGroup;
-use gpui::component::{Sizable as _, input::Input, kbd::Kbd, switch::Switch};
+use gpui::component::{Disableable as _, Sizable as _, input::Input, kbd::Kbd, switch::Switch};
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -39,7 +39,7 @@ impl Desk {
                                 faces,
                                 q,
                                 "When a session ends a turn or needs you",
-                                "A notification from macOS, only while Ghost is not in front.",
+                                "From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen.",
                                 Self::pick(
                                     "notify",
                                     [
@@ -51,6 +51,33 @@ impl Desk {
                                     |s, v| s.notify = v,
                                     cx,
                                 ),
+                            ),
+                            self.told(
+                                faces,
+                                q,
+                                ("A turn finished", "Its answer is in."),
+                                |n| &mut n.finished,
+                                cx,
+                            ),
+                            self.told(
+                                faces,
+                                q,
+                                (
+                                    "A turn failed or was stopped",
+                                    "It ended in an error, or you stopped it.",
+                                ),
+                                |n| &mut n.failed,
+                                cx,
+                            ),
+                            self.told(
+                                faces,
+                                q,
+                                (
+                                    "An agent asks before it goes on",
+                                    "A permission or a question waits on you.",
+                                ),
+                                |n| &mut n.asks,
+                                cx,
                             ),
                             row(
                                 faces,
@@ -356,6 +383,37 @@ impl Desk {
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();
         (!groups.is_empty()).then(|| page(faces, tab.title(), lede).children(groups))
+    }
+
+    /// Whether what a session did, `name` (`about` saying more), is told:
+    /// the switch for it in
+    /// `settings.notify_on`.
+    fn told(
+        &self,
+        faces: &Faces,
+        q: &str,
+        (name, about): (&'static str, &str),
+        of: fn(&mut crate::settings::NotifyOn) -> &mut bool,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let mut on = self.settings.notify_on.clone();
+        let now = *of(&mut on);
+        row(
+            faces,
+            q,
+            name,
+            about,
+            Switch::new(SharedString::from(name))
+                .small()
+                .checked(now)
+                .disabled(self.settings.notify == Notify::Off)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let told = of(&mut this.settings.notify_on);
+                    *told = !*told;
+                    this.save_settings();
+                    cx.notify();
+                })),
+        )
     }
 
     /// A choice among `choices`, the one equal to `now` lit; picking one

@@ -126,7 +126,7 @@ crates/desk/src/
   hub.rs        the Transport to the server; the window's own work, back as Msg
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
-  macos.rs      what Ghost asks of macOS: icon, badge, dictation, notifications
+  macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's sound
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,

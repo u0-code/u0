@@ -1,5 +1,5 @@
 //! What Ghost asks of macOS: its icon, the Dock's badge, dictation, a
-//! notification, a Terminal window.
+//! notification's sound, a Terminal window.
 //!
 //! The app's own icon is the ghost, on the body macOS app icons sit on. A
 //! bundle built with `bundle.sh` carries it as `Ghost.icns`, and Finder,
@@ -93,24 +93,27 @@ fn apple_quoted(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Show a notification from macOS, with its sound if `sound`: a turn
-/// ended, or a question is asked, while Ghost is not in front. Blocking.
-pub fn notify(title: &str, body: &str, sound: bool) {
-    let mut script = format!(
-        "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
-        apple_quoted(body),
-        apple_quoted(title)
-    );
-    if sound {
-        script.push_str(" sound name \"Glass\"");
+/// Play macOS's Glass, the sound a notification is asked to make.
+#[cfg(target_os = "macos")]
+pub fn chime() {
+    use cocoa::{
+        base::{id, nil},
+        foundation::NSString,
+    };
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: called on the main thread; NSSound's named sounds are the
+    // system's, and the name a Foundation string made here.
+    unsafe {
+        let name = NSString::alloc(nil).init_str("Glass");
+        let sound: id = msg_send![class!(NSSound), soundNamed: name];
+        if sound != nil {
+            let _: bool = msg_send![sound, play];
+        }
     }
-    let _ = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn chime() {}
 
 /// Run `program` with `args` and `env` in a Terminal window, for a sign-in
 /// that is done by typing: the agent's own login, which it says how to run.
