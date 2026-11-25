@@ -69,6 +69,9 @@ pub struct Meta {
     /// What you wrote to be said in it later.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub later: Vec<Later>,
+    /// Folders it works in beside its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<PathBuf>,
 }
 
 /// A message to be said in a session at a time; each day at that time

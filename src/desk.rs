@@ -1394,6 +1394,34 @@ impl Desk {
     }
 
     /// Ask for the folder the draft on screen works in.
+    /// Ask for a folder the draft on screen works in too, beside its own.
+    pub fn add_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        let answer = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: true,
+            prompt: Some("Work here too".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = answer.await {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(s) = this.session_mut(key)
+                        && s.state == State::Draft
+                    {
+                        for p in paths {
+                            if p != s.folder && !s.also.contains(&p) {
+                                s.also.push(p);
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     pub fn choose_folder(&mut self, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
         let answer = cx.prompt_for_paths(PathPromptOptions {
@@ -1663,11 +1691,11 @@ impl Desk {
         }
         let home = self.home.clone();
         let tx = self.tx.clone();
-        let (folder, id, recorded) = self
+        let (dirs, id, recorded) = self
             .sessions
             .iter()
             .find(|s| s.key == key)
-            .map(|s| (s.folder.clone(), s.id.clone(), s.recorded))
+            .map(|s| ((s.folder.clone(), s.also.clone()), s.id.clone(), s.recorded))
             .unwrap_or_default();
         let Some(slot) = self.slot_mut(agent) else {
             return;
@@ -1682,16 +1710,16 @@ impl Desk {
                             .resume
                             .is_some() =>
                 {
-                    hub::resume(agent.clone(), key, id, folder, tx);
+                    hub::resume(agent.clone(), key, id, dirs, tx);
                 }
                 Some(id) => {
                     let agent = agent.clone();
                     if recorded {
                         self.drop_record(key);
                     }
-                    hub::load(agent, key, id, folder, tx);
+                    hub::load(agent, key, id, dirs, tx);
                 }
-                None => hub::open(agent.clone(), key, folder, tx),
+                None => hub::open(agent.clone(), key, dirs, tx),
             },
             Stage::Starting => {}
             _ => {

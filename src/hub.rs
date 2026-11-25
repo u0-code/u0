@@ -495,11 +495,14 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
     });
 }
 
-/// Open a new session in `folder`.
-pub fn open(agent: Arc<Agent>, key: u64, folder: PathBuf, tx: Sender) {
+/// Open a new session in `folder`, with the folders `also` beside it.
+pub fn open(agent: Arc<Agent>, key: u64, (folder, also): (PathBuf, Vec<PathBuf>), tx: Sender) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, NewSessionResponse>("session/new", NewSessionRequest::new(folder))
+            .request::<_, NewSessionResponse>(
+                "session/new",
+                NewSessionRequest::new(folder).additional_directories(also),
+            )
             .await
             .map(Box::new);
         let _ = tx.send(Msg::Opened { key, result });
@@ -602,12 +605,21 @@ pub struct Opened {
     pub options: Option<Vec<SessionConfigOption>>,
 }
 
-/// Load the session `id` the agent keeps, in `folder`: it says again all
-/// that was said in it, as updates.
-pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+/// Load the session `id` the agent keeps, in `folder` (and `also`): it
+/// says again all that was said in it, as updates.
+pub fn load(
+    agent: Arc<Agent>,
+    key: u64,
+    id: SessionId,
+    (folder, also): (PathBuf, Vec<PathBuf>),
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
         let result = agent
-            .request::<_, LoadSessionResponse>("session/load", LoadSessionRequest::new(id, folder))
+            .request::<_, LoadSessionResponse>(
+                "session/load",
+                LoadSessionRequest::new(id, folder).additional_directories(also),
+            )
             .await
             .map(|r| Opened {
                 modes: r.modes,
@@ -621,14 +633,20 @@ pub fn load(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sen
     });
 }
 
-/// Resume the session `id` the agent keeps, in `folder`, without what was
-/// said in it: the desk has that already.
-pub fn resume(agent: Arc<Agent>, key: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+/// Resume the session `id` the agent keeps, in `folder` (and `also`),
+/// without what was said in it: the desk has that already.
+pub fn resume(
+    agent: Arc<Agent>,
+    key: u64,
+    id: SessionId,
+    (folder, also): (PathBuf, Vec<PathBuf>),
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
         let result = agent
             .request::<_, ResumeSessionResponse>(
                 "session/resume",
-                ResumeSessionRequest::new(id, folder),
+                ResumeSessionRequest::new(id, folder).additional_directories(also),
             )
             .await
             .map(|r| Opened {

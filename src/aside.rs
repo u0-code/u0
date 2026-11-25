@@ -921,6 +921,13 @@ impl Desk {
                     },
                 )
             }));
+        for folder in &s.also {
+            sec = sec.child(key_value(
+                faces,
+                "And in",
+                fine_mono(faces, ui::fit(&Desk::shown(folder), 24)),
+            ));
+        }
         if let Some(wt) = &s.worktree {
             let removable = !matches!(s.state, State::Working | State::Opening);
             let wt_for_click = wt.clone();

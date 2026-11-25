@@ -228,6 +228,8 @@ pub struct Session {
     /// The session this one asks a side question of: branched off it
     /// whole, not listed, its answer taken back to it if you want.
     pub beside: Option<u64>,
+    /// Folders it works in beside its own (ACP's additional directories).
+    pub also: Vec<PathBuf>,
     /// When each message (yours, the agent's) began, by its item; and the
     /// time read from the record for the next one.
     pub times: Vec<(usize, SystemTime)>,
@@ -401,6 +403,7 @@ impl Session {
         s.unsent = meta.unsent;
         s.from = meta.from;
         s.later = meta.later;
+        s.also = meta.also;
         s.state = State::Closed;
         s
     }
@@ -425,6 +428,7 @@ impl Session {
             unsent: self.unsent.clone(),
             from: self.from.clone(),
             later: self.later.clone(),
+            also: self.also.clone(),
         })
     }
 
@@ -619,6 +623,7 @@ impl Session {
             from: None,
             parent: None,
             beside: None,
+            also: Vec::new(),
             setup: Vec::new(),
             holding: Vec::new(),
             seen: None,

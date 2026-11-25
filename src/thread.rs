@@ -522,12 +522,87 @@ impl Desk {
                     .tooltip(ui::tip("The folder it works in"))
                     .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
             )
+            .children(self.also_row(faces, s, cx))
             .when(s.repo, |d| {
                 d.child(Self::where_toggle(faces, s.wants_worktree, cx))
             })
             .when(s.repo && s.wants_worktree, |d| {
                 d.child(self.base_chip(faces, s, cx))
             })
+    }
+
+    /// The folders a draft works in beside its own, each can be taken
+    /// away, and one more to add: where its agent says it can.
+    fn also_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        let able = self
+            .slot(&s.agent)
+            .and_then(|x| x.known.as_ref())
+            .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
+        if !able && s.also.is_empty() {
+            return None;
+        }
+        let key = s.key;
+        let mut row = div()
+            .flex()
+            .flex_wrap()
+            .justify_center()
+            .items_center()
+            .gap(px(6.));
+        for (n, folder) in s.also.iter().enumerate() {
+            row = row.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .h(px(24.))
+                    .pl(px(8.))
+                    .pr(px(2.))
+                    .rounded(px(7.))
+                    .border_1()
+                    .border_color(theme::tag_line())
+                    .child(meta(faces, "also"))
+                    .child(
+                        ui::mono(faces, Desk::shown(folder))
+                            .text_size(px(12.))
+                            .text_color(theme::text2()),
+                    )
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("also-x-{n}")),
+                            "x",
+                            "Not this one",
+                        )
+                        .size(px(20.))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(s) = this.session_mut(key)
+                                && n < s.also.len()
+                            {
+                                s.also.remove(n);
+                            }
+                            cx.notify();
+                        })),
+                    ),
+            );
+        }
+        if able {
+            row = row.child(
+                div()
+                    .id("also-add")
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .h(px(24.))
+                    .px(px(8.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::icon("plus", 12.).text_color(theme::faint()))
+                    .child(meta(faces, "folder"))
+                    .tooltip(ui::tip("Another folder it works in too"))
+                    .on_click(cx.listener(|this, _, _, cx| this.add_folder(cx))),
+            );
+        }
+        Some(row)
     }
 
     /// What a new worktree begins from: where the folder is, unless
