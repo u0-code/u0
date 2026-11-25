@@ -19,7 +19,12 @@ impl Desk {
         match index {
             Ok(index) => {
                 self.gone = index.gone;
-                self.composer.stashed = index.stashed;
+                self.composer.stashed = (index.stashed.into_iter())
+                    .map(|text| super::mention::Stashed {
+                        text,
+                        attached: Vec::new(),
+                    })
+                    .collect();
                 for meta in index.sessions {
                     let key = self.sessions.take_key();
                     if let Some(id) = &meta.id {
@@ -115,11 +120,14 @@ impl Desk {
         });
     }
 
-    /// Send the server what you put aside from the composer.
+    /// Send the server what you put aside from the composer: its text.
     pub(crate) fn save_stash(&self) {
         if self.store_refused.is_none() {
-            self.transport
-                .send(Call::Stash(self.composer.stashed.clone()));
+            self.transport.send(Call::Stash(
+                (self.composer.stashed.iter())
+                    .map(|s| s.text.clone())
+                    .collect(),
+            ));
         }
     }
 

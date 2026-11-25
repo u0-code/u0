@@ -76,7 +76,8 @@ actions!(
         CloseSurface,
         PullRequests,
         Issues,
-        ClearTerminal
+        ClearTerminal,
+        EditQueued
     ]
 );
 
@@ -325,6 +326,7 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-9", Session9, None),
         KeyBinding::new("cmd-s", Stash, composer),
         KeyBinding::new("cmd-shift-enter", SendAside, composer),
+        KeyBinding::new("alt-up", EditQueued, composer),
         // Pasted as text, however long, not attached.
         KeyBinding::new("cmd-shift-v", gpui::component::input::Paste, composer),
     ]);

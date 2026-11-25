@@ -358,7 +358,7 @@ impl Desk {
         })
         .detach();
         mirror(&settings, cx);
-        let composer = mention::Composer::new(settings.cmd_sends, window, cx);
+        let composer = mention::Composer::new(settings.send.return_sends(""), window, cx);
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
         let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         cx.subscribe_in(
@@ -1141,10 +1141,7 @@ impl Desk {
     /// What a setting changes now, not only when next read: the keys the
     /// composer sends with.
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
-        let breaks = self.settings.cmd_sends;
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_submit_on_enter(!breaks, cx));
+        self.sync_send_key(cx);
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {

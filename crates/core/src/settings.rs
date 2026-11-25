@@ -111,9 +111,9 @@ pub struct Settings {
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
-    /// ⌘Return sends what you write, and Return breaks the line.
+    /// What sends what you write.
     #[serde(default)]
-    pub cmd_sends: bool,
+    pub send: SendKey,
     /// How an agent's work shows in the thread: Claude's transcript views.
     #[serde(default)]
     pub view: View,
@@ -301,6 +301,29 @@ impl View {
     }
 }
 
+/// What sends what you write: Return; Return while it is one line and
+/// ⌘Return once it is more; ⌘Return always. Where Return does not send,
+/// it breaks the line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendKey {
+    #[default]
+    Return,
+    Multiline,
+    Command,
+}
+
+impl SendKey {
+    /// Whether Return sends `text`, as it stands.
+    pub fn return_sends(self, text: &str) -> bool {
+        match self {
+            Self::Return => true,
+            Self::Multiline => !text.contains('\n'),
+            Self::Command => false,
+        }
+    }
+}
+
 /// The face code is set in: the one shipped, or one macOS has.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -430,7 +453,7 @@ impl Default for Settings {
             shell: Shell::default(),
             terminal_size: TermSize::default(),
             view: View::default(),
-            cmd_sends: false,
+            send: SendKey::default(),
             left: left(),
             diff_wrap: yes(),
             editor: None,
@@ -488,6 +511,15 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn return_sends_a_multiline_draft_only_where_it_always_sends() {
+        let two = "one\ntwo";
+        assert!(SendKey::Return.return_sends(two));
+        assert!(SendKey::Multiline.return_sends("one"));
+        assert!(!SendKey::Multiline.return_sends(two));
+        assert!(!SendKey::Command.return_sends("one"));
+    }
 
     #[test]
     fn a_new_project_comes_first_and_one_used_again_keeps_its_place() {

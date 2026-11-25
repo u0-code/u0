@@ -18,7 +18,7 @@ use gpui::{AppContext as _, Context, Entity, Window};
 use super::Desk;
 use crate::{
     hub,
-    session::{Item as Said, Session},
+    session::{Item as Said, Session, State},
 };
 use gpui::component::input::{InputEvent, TextareaState};
 
@@ -27,29 +27,45 @@ pub const CONTEXT: &str = "Composer";
 
 /// The line you type into, and what goes with it: the offer Return or Tab
 /// takes, what was named with `@` and images put in, waiting to be sent;
-/// whether the draft on screen goes to every agent that can run once
-/// sent; what you put aside
-/// from it (see `store::Index`); and what was sent from it, the latest
-/// last, with which of that is in the line while ↑ and ↓ go back through it;
-/// what the writer thinks you will say next in a session, by its key.
+/// how many pictures are still being read for it, and whether what is
+/// typed goes once they are (and how: `Some(true)` the other way, see
+/// `Desk::send_typed`); whether the draft on screen goes to every agent
+/// that can run once sent; what you put aside from it; and what was sent
+/// from it, the latest last, with which of that is in the line while ↑
+/// and ↓ go back through it; what the writer thinks you will say next in
+/// a session, by its key.
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
     pub mentions: Vec<Mention>,
     pub attached: Vec<Attached>,
+    pub reading: usize,
+    pub held: Option<bool>,
     pub fanout: bool,
-    pub stashed: Vec<String>,
+    pub stashed: Vec<Stashed>,
     pub sent: Vec<String>,
     pub recalled: Option<usize>,
     pub suggested: Option<(u64, String)>,
 }
 
+/// What was put aside (⌘S): its text, kept between runs (see
+/// `store::Index`), and what was attached to it, kept while Ghost runs.
+#[derive(Debug, Clone)]
+pub struct Stashed {
+    pub text: String,
+    pub attached: Vec<Attached>,
+}
+
+/// The most a message may hold, in characters; one longer stays in the
+/// line, to be cut or split.
+pub const LIMIT: usize = 120_000;
+
 impl Composer {
-    pub(super) fn new(cmd_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
+    pub(super) fn new(return_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 12)
-                .submit_on_enter(!cmd_sends)
+                .submit_on_enter(return_sends)
                 .placeholder("Ask for anything, or give a task")
         });
         cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
@@ -57,21 +73,26 @@ impl Composer {
                 InputEvent::Change => {
                     this.composer.offer = 0;
                     this.composer.recalled = None;
+                    // Editing what waits to go keeps it back.
+                    this.composer.held = None;
                     if input.read(cx).value().contains('@') {
                         this.want_offers();
                     }
+                    this.sync_send_key(cx);
                     cx.notify();
                 }
-                // Return sends, and ⌘Return sends aside; where Return
-                // breaks the line, ⌘Return sends. ⇧Return is a new line.
+                // The key that sends sends; the other one (⌘Return where
+                // Return sends, else ⇧⌘Return) sends the other way.
+                // ⇧Return is a new line.
                 InputEvent::PressEnter {
                     secondary,
                     shift: false,
-                } => match (this.settings.cmd_sends, secondary) {
-                    (true, false) => {}
-                    (false, true) => this.send_typed(true, window, cx),
-                    _ => this.send_typed(false, window, cx),
-                },
+                } => {
+                    let sends = this.return_sends(cx);
+                    if sends || *secondary {
+                        this.send_typed(sends && *secondary, window, cx);
+                    }
+                }
                 _ => {}
             }
         })
@@ -81,6 +102,8 @@ impl Composer {
             offer: 0,
             mentions: Vec::new(),
             attached: Vec::new(),
+            reading: 0,
+            held: None,
             fanout: false,
             stashed: Vec::new(),
             sent: Vec::new(),
@@ -105,39 +128,82 @@ impl Desk {
         });
     }
 
+    /// Whether Return sends what is typed now.
+    pub(crate) fn return_sends(&self, cx: &gpui::App) -> bool {
+        (self.settings.send).return_sends(&self.composer.input.read(cx).value())
+    }
+
+    /// Have the line send on Return or break there, as the setting says
+    /// for what is typed now.
+    pub(crate) fn sync_send_key(&self, cx: &mut Context<Self>) {
+        let sends = self.return_sends(cx);
+        self.composer
+            .input
+            .update(cx, |i, cx| i.set_submit_on_enter(sends, cx));
+    }
+
     /// Hand over what is typed, if anything, and clear the line: said in
-    /// the session, or (`aside`) said and left to go on while a new one is
-    /// begun beside it.
-    pub(crate) fn send_typed(&mut self, aside: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// the session, or (`other`) the other way: while a turn goes on,
+    /// steering it where it would wait and waiting where it would steer;
+    /// else said and left to go on while a new one is begun beside it.
+    /// While a picture is still being read for it, it waits for that.
+    pub(crate) fn send_typed(&mut self, other: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.typed(cx);
         if text.is_empty() {
             return;
         }
+        if text.chars().count() > LIMIT {
+            self.trouble(
+                format!("Too long to send: at most {LIMIT} characters"),
+                Some("Cut it, or send it in parts".into()),
+                None,
+            );
+            return;
+        }
+        if self.composer.reading > 0 {
+            self.composer.held = Some(other);
+            cx.notify();
+            return;
+        }
+        self.composer.held = None;
         if self.composer.sent.last() != Some(&text) {
             self.composer.sent.push(text.clone());
         }
         self.put_line("", window, cx);
-        if aside {
-            self.send_aside(&text, window, cx);
-        } else {
-            self.send(&text, cx);
+        let working = self
+            .session()
+            .is_some_and(|s| matches!(s.state, State::Working | State::Opening));
+        match (other, working) {
+            (true, true) => {
+                if let Some(key) = self.current {
+                    self.follow_up(key, &text, !self.settings.steer, cx);
+                }
+            }
+            (true, false) => self.send_aside(&text, window, cx),
+            (false, _) => self.send(&text, cx),
         }
         cx.notify();
     }
 
-    /// Put what is typed aside (⌘S), and clear the line.
+    /// Put what is typed aside (⌘S), with what is attached, and clear the
+    /// line; with nothing typed, take back what was put aside: the one
+    /// there is, or the list to choose from.
     pub(crate) fn stash_typed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.typed(cx);
-        if text.is_empty() {
+        if text.is_empty() && self.composer.attached.is_empty() {
+            match self.composer.stashed.len() {
+                0 => {}
+                1 => self.take_stashed(0, window, cx),
+                _ => self.popup = crate::desk::Popup::Stash,
+            }
+            cx.notify();
             return;
         }
         self.put_line("", window, cx);
-        self.composer.stashed.push(text);
+        let attached = std::mem::take(&mut self.composer.attached);
+        self.composer.stashed.push(Stashed { text, attached });
         self.save_stash();
-        self.done(
-            "Put aside: take it back from the stack under the line",
-            None,
-        );
+        self.done("Put aside: ⌘S on an empty line takes it back", None);
         cx.notify();
     }
 
@@ -482,7 +548,11 @@ impl Desk {
                     self.paste_picture(i, cx);
                     return true;
                 }
-                gpui::ClipboardEntry::String(s) if s.text().len() >= LONG_PASTE => {
+                // Too long for the line, or for a message with what is in it.
+                gpui::ClipboardEntry::String(s)
+                    if s.text().len() >= LONG_PASTE
+                        || s.text().chars().count() + self.typed(cx).chars().count() > LIMIT =>
+                {
                     self.add_attached(Attached::Text(s.text().clone()), cx);
                     return true;
                 }
@@ -569,6 +639,7 @@ impl Desk {
             if p.is_dir() {
                 self.name_dropped(p, window, cx);
             } else if hub::is_picture(p) {
+                self.composer.reading += 1;
                 hub::read_picture(p.clone(), self.tx.clone());
             } else {
                 self.add_attached(Attached::File(p.clone()), cx);
@@ -578,6 +649,7 @@ impl Desk {
 
     /// Let you choose a window to capture and go with what you write.
     pub fn capture(&mut self, cx: &mut Context<Self>) {
+        self.composer.reading += 1;
         hub::capture_window(self.tx.clone());
         cx.notify();
     }

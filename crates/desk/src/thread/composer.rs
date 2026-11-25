@@ -21,7 +21,7 @@ use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
 use crate::{
     desk::{Desk, Popup, mention},
     fonts::Faces,
-    keys::{SendAside, Stash},
+    keys::{EditQueued, SendAside, Stash},
     session::{Session, State},
     theme, ui,
 };
@@ -78,6 +78,7 @@ impl Desk {
             .children(self.offers_menu(faces, column, cx))
             .children(Self::changes_row(faces, s, column, cx))
             .children(Self::queued_list(faces, s, column, cx))
+            .children(self.held_banner(column, cx))
             .child(
                 div()
                     .id("composer")
@@ -115,27 +116,46 @@ impl Desk {
                                     .child(self.composer_line(cx)),
                             )
                             .child(dictate)
-                            .children(self.send_button(s, cx)),
-                    ),
+                            .children(self.send_button(s, window, cx)),
+                    )
+                    .children(self.over_limit(faces, cx)),
             )
             .child(self.chips(faces, s, column, cx))
     }
 
     /// The line itself: gpui-kit's text area, with the composer's own keys
-    /// over it. ⌘S puts what is typed aside, ⇧⌘Return sends it aside; a
-    /// new line in a list begins its next item; ↑ and ↓ on its first and
-    /// last lines go back through what was sent; an image pasted goes
-    /// with what you say.
+    /// over it. ⌘S puts what is typed aside (or takes it back), ⇧⌘Return
+    /// sends it the other way, or with nothing typed steers in what was
+    /// queued first; ⌥↑ at its start takes back the last queued to edit;
+    /// a new line in a list begins its next item; ↑ and ↓ on its first
+    /// and last lines go back through what was sent; Escape lets go of a
+    /// send waiting for its pictures; an image pasted goes with what you
+    /// say.
     fn composer_line(&self, cx: &mut Context<Self>) -> Div {
         let desk = cx.entity().downgrade();
         div()
             .key_context(mention::CONTEXT)
             .on_action(cx.listener(|this, _: &Stash, window, cx| this.stash_typed(window, cx)))
             .on_action(cx.listener(|this, _: &SendAside, window, cx| {
-                this.send_typed(true, window, cx);
+                let queued = this.session().is_some_and(|s| {
+                    matches!(s.state, State::Working | State::Opening) && !s.meta.queued.is_empty()
+                });
+                if this.typed(cx).is_empty() && queued {
+                    this.steer(0, cx);
+                } else {
+                    this.send_typed(true, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditQueued, window, cx| {
+                let last = this.session().map_or(0, |s| s.meta.queued.len());
+                if this.composer.input.read(cx).cursor() == 0 && last > 0 {
+                    this.unqueue(last - 1, window, cx);
+                } else {
+                    cx.propagate();
+                }
             }))
             .capture_action(cx.listener(|this, enter: &Enter, window, cx| {
-                let breaks = !enter.secondary && (enter.shift || this.settings.cmd_sends);
+                let breaks = !enter.secondary && (enter.shift || !this.return_sends(cx));
                 if breaks && this.continue_list(window, cx) {
                     cx.stop_propagation();
                 }
@@ -150,7 +170,10 @@ impl Desk {
                 }
             }))
             .capture_action(cx.listener(|this, _: &Escape, _, cx| {
-                if this.current.and_then(|k| this.suggestion(k, cx)).is_some() {
+                if this.composer.held.take().is_some() {
+                    cx.notify();
+                    cx.stop_propagation();
+                } else if this.current.and_then(|k| this.suggestion(k, cx)).is_some() {
                     this.composer.suggested = None;
                     cx.notify();
                     cx.stop_propagation();
@@ -476,47 +499,106 @@ impl Desk {
         ))
     }
 
-    /// Send, once something is written; Stop while a turn goes on and
-    /// nothing is; Force stop when asked to stop and still going a while
-    /// after.
-    fn send_button(&self, s: &Session, cx: &mut Context<Self>) -> Option<Button> {
+    /// Send, once something is written; while a turn goes on, as it will
+    /// be sent: queued or steering it, the other with ⌘ held (a click
+    /// with ⌘ sends it so); Stop while a turn goes on and nothing is
+    /// written; Force stop when asked to stop and still going a while
+    /// after. Nothing while what is written is too long to send.
+    fn send_button(&self, s: &Session, window: &Window, cx: &mut Context<Self>) -> Option<Button> {
         let working = matches!(s.state, State::Working | State::Opening);
-        let empty = self.composer.input.read(cx).value().trim().is_empty();
+        let typed = self.typed(cx);
         let key = s.key;
         let force = working
             && self
                 .stopping
                 .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
         let round = |b: Button| b.size(px(28.)).rounded(px(14.));
+        let other = if self.return_sends(cx) {
+            "⌘Return"
+        } else {
+            "⇧⌘Return"
+        };
         Some(if force {
             ui::button("force-stop", "Force stop", ui::Weight::Secondary)
                 .danger()
                 .tooltip("It would not stop: its process is ended, and started again when wanted")
                 .on_click(cx.listener(move |this, _, _, cx| this.force_stop(key, cx)))
-        } else if working && empty {
+        } else if working && typed.is_empty() {
             round(ui::icon_button(
                 "stop",
                 "square",
                 crate::keys::hint(cx, "Stop the turn", "stop"),
             ))
             .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
-        } else if empty {
+        } else if typed.is_empty() || typed.chars().count() > mention::LIMIT {
             return None;
         } else {
-            round(
-                ui::icon_button(
-                    "send",
+            let (icon, tip) = if !working {
+                (
                     "arrow-up",
-                    if working {
-                        "Queue it for when this turn ends · Return"
-                    } else {
-                        "Send · Return, or ⌘Return to go on in the background"
-                    },
+                    format!("Send · {other} to go on in the background"),
                 )
-                .primary(),
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
+            } else if self.settings.steer != window.modifiers().platform {
+                (
+                    "corner-up-right",
+                    format!("Steer: stop the turn and say it now · ⌘-click or {other} to queue it"),
+                )
+            } else {
+                (
+                    "list-plus",
+                    format!("Queue it for when this turn ends · ⌘-click or {other} to steer"),
+                )
+            };
+            round(ui::icon_button("send", icon, tip).primary()).on_click(cx.listener(
+                move |this, e: &gpui::ClickEvent, window, cx| {
+                    this.send_typed(working && e.modifiers().platform, window, cx);
+                },
+            ))
         })
+    }
+
+    /// Under the line, once what is written is longer than a message may
+    /// be: by how much.
+    fn over_limit(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        let count = self.typed(cx).chars().count();
+        (count > mention::LIMIT).then(|| {
+            div().px(px(14.)).pb(px(8.)).child(
+                ui::text(
+                    faces,
+                    format!(
+                        "{count} characters: {} over the {} a message may hold. Cut it, or send it in parts.",
+                        count - mention::LIMIT,
+                        mention::LIMIT
+                    ),
+                )
+                .text_size(px(12.))
+                .text_color(theme::coral()),
+            )
+        })
+    }
+
+    /// Over the box, while what you sent waits for its pictures to be
+    /// read: that it goes once they are, and the way to keep it back.
+    fn held_banner(&self, column: f32, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        self.composer.held?;
+        let n = self.composer.reading;
+        let desk = cx.entity().downgrade();
+        Some(
+            gpui::component::alert::Alert::info("held", "Edit, or press Escape, to keep it back")
+                .title(if n == 1 {
+                    "Sending once the picture is ready".to_owned()
+                } else {
+                    format!("Sending once {n} pictures are ready")
+                })
+                .w(px(column))
+                .mb(px(8.))
+                .on_close(move |_, _, cx| {
+                    let _ = desk.update(cx, |this, cx| {
+                        this.composer.held = None;
+                        cx.notify();
+                    });
+                }),
+        )
     }
 
     /// Over the box, while the session has changed files: where, how

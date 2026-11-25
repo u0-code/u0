@@ -73,6 +73,8 @@ const FILES: &[(&str, &[u8])] = icons![
     "arrow-left",
     "diff",
     "pull-request",
+    "list-plus",
+    "corner-up-right",
 ];
 
 impl AssetSource for Assets {

@@ -28,13 +28,14 @@ impl Desk {
     }
 
     /// What you put aside (⌘S): a mark with how many, and under it each,
-    /// the latest first, to take back into the line or let go.
+    /// the latest first, with how many things are attached to it, to take
+    /// back into the line or let go.
     pub(super) fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
         let mark = Self::popup_chip(
             faces,
             "archive",
             self.composer.stashed.len(),
-            "Put aside (⌘S), to take back",
+            "Put aside (⌘S), to take back (⌘S on an empty line)",
         );
         let faces = faces.clone();
         over_line(self.menu(
@@ -53,17 +54,23 @@ impl Desk {
                 .pt(px(6.))
                 .pb(px(4.)),
         );
-        for (n, text) in self.composer.stashed.iter().enumerate().rev() {
+        for (n, stashed) in self.composer.stashed.iter().enumerate().rev() {
+            let first = stashed.text.lines().next().unwrap_or_default().to_owned();
+            let with = stashed.attached.len();
             list = list.child(
                 ui::menu_row(SharedString::from(format!("stash-{n}")), false)
                     .child(
-                        ui::one_line(
-                            ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
-                                .text_size(px(13.)),
-                        )
-                        .flex_1()
-                        .min_w(px(0.)),
+                        ui::one_line(ui::text(faces, first).text_size(px(13.)))
+                            .flex_1()
+                            .min_w(px(0.)),
                     )
+                    .when(with > 0, |d| {
+                        d.child(
+                            ui::text(faces, format!("+{with}"))
+                                .text_size(px(12.))
+                                .text_color(theme::faint()),
+                        )
+                    })
                     .child(
                         ui::icon_button(
                             SharedString::from(format!("stash-drop-{n}")),
@@ -208,12 +215,13 @@ impl Desk {
     }
 
     /// Take back what was put aside `n`th: into the line, after what is
-    /// in it.
-    fn take_stashed(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// in it, and what was attached to it with it.
+    pub(crate) fn take_stashed(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         if n >= self.composer.stashed.len() {
             return;
         }
-        let text = self.composer.stashed.remove(n);
+        let crate::desk::mention::Stashed { text, attached } = self.composer.stashed.remove(n);
+        self.composer.attached.extend(attached);
         self.save_stash();
         self.popup = Popup::Closed;
         let typed = self.typed(cx);

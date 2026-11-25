@@ -126,8 +126,18 @@ impl Desk {
         self.behind = cx.active_window().is_none();
         match msg {
             Msg::Event(e) => self.event(e, window, cx),
-            Msg::Attached(Some(attached)) => self.add_attached(attached, cx),
-            Msg::Attached(None) => {}
+            Msg::Attached(attached) => {
+                self.composer.reading = self.composer.reading.saturating_sub(1);
+                if let Some(attached) = attached {
+                    self.add_attached(attached, cx);
+                }
+                // What waited for its pictures goes now.
+                if self.composer.reading == 0
+                    && let Some(other) = self.composer.held
+                {
+                    self.send_typed(other, window, cx);
+                }
+            }
             Msg::OnPath(found) => self.on_path = found,
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();

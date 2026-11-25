@@ -145,23 +145,9 @@ impl Desk {
             return;
         };
         if session.state == State::Working || session.state == State::Opening {
-            if !on_screen {
-                return;
+            if on_screen {
+                self.follow_up(key, &text, self.settings.steer, cx);
             }
-            // Said while a turn goes on: it waits its turn, and is said as
-            // the one going on ends, with what goes with it.
-            session.meta.queued.push(text.clone());
-            let last = session.meta.queued.len() - 1;
-            let attached = self.attach(key, &text);
-            if let Some(s) = self.sessions.at_mut(key) {
-                s.attached.extend(attached);
-            }
-            self.save_index();
-            // Or it goes in now, the turn stopped for it, as you asked.
-            if self.settings.steer {
-                self.steer(last, cx);
-            }
-            cx.notify();
             return;
         }
         if session.state == State::Closed {
@@ -233,6 +219,26 @@ impl Desk {
             }
         }
         self.to_bottom();
+        cx.notify();
+    }
+
+    /// Say `text` while a turn goes on in the session `key`: it waits its
+    /// turn, and is said as the one going on ends, with what goes with
+    /// it; or (`steer`) it goes in now, the turn stopped for it.
+    pub(crate) fn follow_up(&mut self, key: u64, text: &str, steer: bool, cx: &mut Context<Self>) {
+        let Some(session) = self.sessions.at_mut(key) else {
+            return;
+        };
+        session.meta.queued.push(text.to_owned());
+        let last = session.meta.queued.len() - 1;
+        let attached = self.attach(key, text);
+        if let Some(s) = self.sessions.at_mut(key) {
+            s.attached.extend(attached);
+        }
+        self.save_index();
+        if steer {
+            self.steer(last, cx);
+        }
         cx.notify();
     }
 
