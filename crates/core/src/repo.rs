@@ -47,16 +47,16 @@ pub enum GitAction {
     Switch(String),
     /// Rename the worktree's branch, unless it is pushed.
     RenameBranch(String),
-    /// Merge the branch's pull request (squashed), as gh does.
-    Merge,
+    /// Merge the branch's pull request, as gh does.
+    Merge(git::Method),
     /// Make this branch, from where it is, and check it out.
     NewBranch(String),
     /// Bring in what the upstream has.
     Pull,
     /// Make the folder a repository.
     Init,
-    /// Put the repository on GitHub, private.
-    Publish,
+    /// Put the repository on GitHub: public, or private.
+    Publish(bool),
 }
 
 impl GitAction {
@@ -69,11 +69,11 @@ impl GitAction {
             Self::RemoveWorktree(_) => "remove the worktree",
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
-            Self::Merge => "merge the pull request",
+            Self::Merge(_) => "merge the pull request",
             Self::Pull => "pull",
             Self::NewBranch(_) => "make the branch",
             Self::Init => "make it a repository",
-            Self::Publish => "put it on GitHub",
+            Self::Publish(_) => "put it on GitHub",
         }
     }
 }
@@ -309,13 +309,20 @@ pub fn git_action(
             })
         }),
         GitAction::Switch(b) => git::switch(dir, b).map(|()| format!("On {b}")),
-        GitAction::Merge => git::merge_pr(dir).map(|_| "The pull request is merged".into()),
+        GitAction::Merge(how) => {
+            git::merge_pr(dir, *how).map(|_| "The pull request is merged".into())
+        }
         GitAction::Pull => git::pull(dir).map(|_| "Pulled".into()),
         GitAction::NewBranch(b) => git::branch_off(dir, b).map(|()| format!("On {b}, new")),
         GitAction::Init => {
             git::init_here(dir).map(|_| "It is a repository now, all of it committed".into())
         }
-        GitAction::Publish => git::publish(dir).map(|_| "It is on GitHub now, private".into()),
+        GitAction::Publish(public) => git::publish(dir, *public).map(|_| {
+            format!(
+                "It is on GitHub now, {}",
+                if *public { "public" } else { "private" }
+            )
+        }),
         GitAction::RenameBranch(b) => git::rename_branch(dir, b).map(|()| b.clone()),
         GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
             .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),

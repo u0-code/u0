@@ -158,6 +158,9 @@ pub struct Settings {
     /// Which builds Ghost updates to.
     #[serde(default)]
     pub channel: crate::update::Channel,
+    /// How a pull request is merged from the column beside.
+    #[serde(default)]
+    pub merge: crate::git::Method,
     /// Ghost looks for an update as it starts and every four hours.
     #[serde(default = "yes")]
     pub check_updates: bool,
@@ -648,6 +651,7 @@ impl Default for Settings {
             confirm: Confirm::default(),
             voice: Voice::default(),
             channel: crate::update::Channel::default(),
+            merge: crate::git::Method::default(),
             check_updates: yes(),
             frame: None,
         }

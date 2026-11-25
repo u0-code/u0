@@ -109,6 +109,27 @@ impl Desk {
                     ),
                     group(
                         faces,
+                        "Pull requests",
+                        vec![row(
+                            faces,
+                            q,
+                            "Merged as",
+                            "How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each.",
+                            Self::pick(
+                                "merge",
+                                [
+                                    ("Squash", crate::git::Method::Squash),
+                                    ("Merge commit", crate::git::Method::Merge),
+                                    ("Rebase", crate::git::Method::Rebase),
+                                ],
+                                self.settings.merge,
+                                |s, v| s.merge = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                    group(
+                        faces,
                         "Done for now",
                         vec![
                             row(

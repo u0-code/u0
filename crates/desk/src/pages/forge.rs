@@ -673,7 +673,7 @@ impl Desk {
             entry(
                 "merge-auto",
                 "Merge when its checks pass".into(),
-                merge("squash", true),
+                merge(self.settings.merge.gh(), true),
             );
             entry(
                 "ready",

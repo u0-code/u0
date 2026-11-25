@@ -788,11 +788,12 @@ pub fn init_here(dir: &Path) -> Result<String, String> {
 }
 
 /// Put the repository at `dir` on GitHub, private, as gh does, and push.
-pub fn publish(dir: &Path) -> Result<String, String> {
+pub fn publish(dir: &Path, public: bool) -> Result<String, String> {
+    let seen = if public { "--public" } else { "--private" };
     yours(
         dir,
         "gh",
-        &["repo", "create", "--private", "--source", ".", "--push"],
+        &["repo", "create", seen, "--source", ".", "--push"],
     )
 }
 
@@ -1013,9 +1014,34 @@ pub struct Match {
     pub regex: bool,
 }
 
-/// Merge the pull request of the branch `dir` is on, squashed, as gh does.
-pub fn merge_pr(dir: &Path) -> Result<String, String> {
-    yours(dir, "gh", &["pr", "merge", "--squash"])
+/// How a pull request is merged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Method {
+    /// Its commits squashed into one.
+    #[default]
+    Squash,
+    /// With a merge commit.
+    Merge,
+    /// Its commits put on the base one by one.
+    Rebase,
+}
+
+impl Method {
+    /// What gh is told: `squash`, `merge` or `rebase`.
+    pub fn gh(self) -> &'static str {
+        match self {
+            Self::Squash => "squash",
+            Self::Merge => "merge",
+            Self::Rebase => "rebase",
+        }
+    }
+}
+
+/// Merge the pull request of the branch `dir` is on, as `how` says, as gh
+/// does.
+pub fn merge_pr(dir: &Path, how: Method) -> Result<String, String> {
+    yours(dir, "gh", &["pr", "merge", &format!("--{}", how.gh())])
 }
 
 /// Run `program` (git, gh, glab) in `dir` with `args` as you, with your

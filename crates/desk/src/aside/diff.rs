@@ -769,13 +769,16 @@ impl Desk {
                             )
                     })
                     .when(s.repo && !origin && gh, |d| {
-                        d.child(
-                            ui::button("publish", "Publish, private", Weight::Quiet)
-                                .h(px(24.))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.git_action(crate::repo::GitAction::Publish, cx);
-                                })),
-                        )
+                        d.children([("Publish, private", false), ("Public", true)].map(
+                            |(label, public)| {
+                                ui::button(label, label, Weight::Quiet).h(px(24.)).on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        let publish = crate::repo::GitAction::Publish(public);
+                                        this.git_action(publish, cx);
+                                    }),
+                                )
+                            },
+                        ))
                     }),
             )
             .when(self.review.committing && s.repo, |d| {
