@@ -654,6 +654,12 @@ impl Desk {
                                 },
                             ))
                             .child(
+                                Self::under(&key, "choose", "list", "Choose words from it")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.read_from(at, i, window, cx);
+                                    })),
+                            )
+                            .child(
                                 Self::under(&key, "quote", "reply", "Quote in your reply")
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.quote(&quoted, window, cx);
@@ -869,6 +875,113 @@ impl Desk {
                                     this.zoom = None;
                                     cx.notify();
                                 })),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// Open the agent's message at `item` of the session `key` to choose
+    /// words from: to copy them, or quote them in your reply.
+    pub fn read_from(
+        &mut self,
+        key: u64,
+        item: usize,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Item::Agent(text)) = self
+            .sessions
+            .iter()
+            .find(|s| s.key == key)
+            .and_then(|s| s.items.get(item))
+        else {
+            return;
+        };
+        let text = text.clone();
+        self.reader.update(cx, |i, cx| i.set_text(&text, cx));
+        self.reading = Some((key, item));
+        window.focus(&gpui::Focusable::focus_handle(self.reader.read(cx), cx));
+        cx.notify();
+    }
+
+    /// The message open to choose words from, over the thread.
+    pub(crate) fn reading_view(
+        &self,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        self.reading?;
+        Some(
+            div()
+                .id("reading")
+                .absolute()
+                .inset_0()
+                .flex()
+                .justify_center()
+                .pt(px(72.))
+                .bg(gpui::black().opacity(0.45))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.reading = None;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .id("reading-panel")
+                        .flex()
+                        .flex_col()
+                        .gap(px(10.))
+                        .w(px(680.))
+                        .max_h(px(560.))
+                        .p(px(14.))
+                        .rounded(px(14.))
+                        .bg(theme::panel())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .shadow_lg()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(
+                                    meta(
+                                        faces,
+                                        "Choose the words, then copy them (⌘C) or quote them.",
+                                    )
+                                    .flex_1(),
+                                )
+                                .child(
+                                    ui::button(
+                                        faces,
+                                        "reading-quote",
+                                        "Quote in your reply",
+                                        ui::Weight::Secondary,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            let chosen = this.reader.read(cx).chosen();
+                                            let text = chosen
+                                                .unwrap_or_else(|| this.reader.read(cx).text());
+                                            this.reading = None;
+                                            this.quote(&text, window, cx);
+                                        },
+                                    )),
+                                )
+                                .child(ui::icon_button("reading-close", "x", "Close").on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.reading = None;
+                                        cx.notify();
+                                    }),
+                                )),
+                        )
+                        .child(
+                            div()
+                                .id("reading-text")
+                                .overflow_y_scroll()
+                                .px(px(4.))
+                                .child(self.reader.clone()),
                         ),
                 )
                 .into_any_element(),

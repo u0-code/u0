@@ -406,6 +406,12 @@ impl TextInput {
         }
     }
 
+    /// What is chosen in the line, if anything is.
+    pub fn chosen(&self) -> Option<String> {
+        (!self.selected_range.is_empty())
+            .then(|| self.content[self.within(self.selected_range.clone())].to_string())
+    }
+
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(

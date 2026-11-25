@@ -143,6 +143,10 @@ pub struct Desk {
     /// line for it.
     pub renaming: Option<u64>,
     pub renaming_project: Option<PathBuf>,
+    /// A message open to choose words from: the session's key and its
+    /// item, and the line it is in.
+    pub reading: Option<(u64, usize)>,
+    pub reader: Entity<TextInput>,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
     /// The session is renamed in the top bar, not in the sidebar.
@@ -334,6 +338,7 @@ impl Desk {
         })
         .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
+        let reader = cx.new(|cx| TextInput::new(cx, "").wrapping(24).keeping());
         let prefix = cx.new(|cx| {
             let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
             i.set_text(&settings.branch_prefix, cx);
@@ -527,6 +532,8 @@ impl Desk {
             renaming_project: None,
             renaming_here: false,
             zoom: None,
+            reading: None,
+            reader,
             rename,
             undo: None,
             waiting: Vec::new(),
@@ -1838,6 +1845,7 @@ impl Render for Desk {
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))
+            .children(self.reading_view(&faces, cx))
     }
 }
 
