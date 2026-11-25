@@ -6,7 +6,7 @@ use gpui::Context;
 
 use super::Desk;
 use crate::{
-    session::Session,
+    session::{Session, State},
     store::{self, Index, Job},
 };
 
@@ -160,24 +160,42 @@ impl Desk {
         store::settle();
     }
 
-    /// Read back the record of the closed session `key`, if it has one: the
-    /// thread shows at once, and the agent is asked only when you write.
-    pub(crate) fn read_record(&mut self, key: u64) -> bool {
-        let home = self.home.clone();
-        let Some(s) = self.session_at(key) else {
-            return false;
+    /// Read back the record of the closed session `key`, off the window's
+    /// thread (see `record_read`).
+    pub(crate) fn read_record(&mut self, key: u64) {
+        let (home, tx) = (self.home.clone(), self.tx.clone());
+        let Some(s) = self.session_mut(key) else {
+            return;
         };
-        let Some(id) = &s.id else { return false };
-        let Some(events) =
-            store::read(&store::record_path(&home, &s.agent, &id.0)).filter(|e| !e.is_empty())
-        else {
-            return false;
+        match &s.id {
+            Some(id) => {
+                let path = store::record_path(&home, &s.agent, &id.0);
+                // Taken to have one until it is read, so it is read once.
+                s.recorded = true;
+                crate::hub::read_record(path, key, tx);
+            }
+            None => self.open_unrecorded(key),
+        }
+    }
+
+    /// The record of the session `key`, read back: the thread shows at once,
+    /// and the agent is asked only when you write. A session without one
+    /// comes from its agent. One opened meanwhile is left as it is.
+    pub(crate) fn record_read(&mut self, key: u64, events: Option<Vec<store::Event>>) {
+        let Some(s) = self.session_at(key).filter(|s| s.state == State::Closed) else {
+            return;
         };
         let agent = s.agent.clone();
         // A subagent has no other copy; any other is loaded from its agent.
-        if s.parent.is_none() && store::cut_short(&events) {
+        let cut = |e: &[store::Event]| s.parent.is_none() && store::cut_short(e);
+        let Some(events) = events.filter(|e| !e.is_empty()) else {
+            self.open_unrecorded(key);
+            return;
+        };
+        if cut(&events) {
             self.drop_record(key);
-            return false;
+            self.open_unrecorded(key);
+            return;
         }
         let slot = self.slots.iter().find(|x| x.entry.id == agent);
         let s = self
@@ -197,7 +215,26 @@ impl Desk {
         self.place(key);
         // A record from before its index named its subagents names them.
         self.subagents_back(key);
-        true
+    }
+
+    /// Open the session `key`, which has no record, from its agent. A
+    /// subagent opens from its record only: its agent does not load it.
+    fn open_unrecorded(&mut self, key: u64) {
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        s.recorded = false;
+        if s.parent.is_some() {
+            return;
+        }
+        s.forget();
+        s.plan = None;
+        s.turns.clear();
+        s.total = None;
+        s.redo = None;
+        s.state = State::Opening;
+        let agent = s.agent.clone();
+        self.open_when_running(&agent, key);
     }
 
     /// Drop the record of the session `key`: it is loaded from its agent

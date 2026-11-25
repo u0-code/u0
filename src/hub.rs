@@ -82,6 +82,11 @@ pub enum Msg {
         key: u64,
         starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
     },
+    /// The record of the session `key`, read back: none where there is none.
+    Record {
+        key: u64,
+        events: Option<Vec<crate::store::Event>>,
+    },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
         key: u64,
@@ -882,6 +887,15 @@ fn line_of(file: &std::path::Path, text: &str) -> Option<usize> {
     let whole = std::fs::read_to_string(file).ok()?;
     let at = whole.find(text)?;
     Some(whole[..at].matches('\n').count() + 1)
+}
+
+/// Read back the record of the session `key` at `path`, after what is being
+/// written to it.
+pub fn read_record(path: PathBuf, key: u64, tx: Sender) {
+    let then = move |events| {
+        let _ = tx.send(Msg::Record { key, events });
+    };
+    crate::store::queue(crate::store::Job::Read(path, Box::new(then)));
 }
 
 /// Read what is not committed in `dir`.

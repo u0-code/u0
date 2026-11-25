@@ -337,6 +337,7 @@ impl Desk {
                     }
                 }
             }
+            Msg::Record { key, events } => self.record_read(key, events),
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.session_mut(key)
                     && s.turns.is_empty()

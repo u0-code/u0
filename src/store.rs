@@ -242,12 +242,16 @@ pub enum Job {
     /// A file the desk keeps, written whole (`whole::write`).
     Write(PathBuf, Vec<u8>),
     Remove(PathBuf),
+    /// Read the record at the path, after what was asked before is
+    /// written, and hand it on.
+    Read(PathBuf, Box<dyn FnOnce(Option<Vec<Event>>) + Send>),
     /// Answer once everything asked before is done.
     Done(std::sync::mpsc::Sender<()>),
 }
 
 /// Hand `job` to the one thread that writes the desk's files, so that the
-/// window never waits on the disk and two writes of one file never cross.
+/// window never waits on the disk, two writes of one file never cross, and
+/// a record is read back with all that was written to it.
 pub fn queue(job: Job) {
     use std::sync::{Mutex, OnceLock, mpsc};
     static WRITER: OnceLock<Mutex<mpsc::Sender<Job>>> = OnceLock::new();
@@ -264,6 +268,10 @@ pub fn queue(job: Job) {
                             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
                             _ => Ok(()),
                         },
+                        Job::Read(path, then) => {
+                            then(read(&path));
+                            Ok(())
+                        }
                         Job::Done(tx) => {
                             let _ = tx.send(());
                             Ok(())
@@ -337,6 +345,22 @@ mod tests {
         assert!(matches!(events[2], Event::Ended { secs: 3, .. }));
         assert!(matches!(&events[3], Event::You(t) if t == "next"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_read_back_holds_what_was_queued_to_it_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = record_path(dir.path(), "x", "read-after");
+        queue(Job::Append(path.clone(), vec![Event::You("go".into())]));
+        let (tx, rx) = std::sync::mpsc::channel();
+        queue(Job::Read(
+            path,
+            Box::new(move |events| {
+                let _ = tx.send(events);
+            }),
+        ));
+        let events = rx.recv().unwrap().expect("a record");
+        assert!(matches!(&events[..], [Event::You(t)] if t == "go"));
     }
 
     #[test]

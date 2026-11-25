@@ -1177,25 +1177,9 @@ impl Desk {
         let closed = self
             .session_at(key)
             .is_some_and(|s| s.state == State::Closed && !s.recorded);
-        // A session with a record reads from it at once, and its agent is
-        // asked only when you write; one without comes from its agent.
-        // A subagent opens from its record only: its agent does not load it.
         if closed {
             self.look(key);
-        }
-        if closed
-            && !self.read_record(key)
-            && let Some(s) = self.session_mut(key)
-            && s.parent.is_none()
-        {
-            s.forget();
-            s.plan = None;
-            s.turns.clear();
-            s.total = None;
-            s.redo = None;
-            s.state = State::Opening;
-            let agent = s.agent.clone();
-            self.open_when_running(&agent, key);
+            self.read_record(key);
         }
         self.to_bottom();
         cx.notify();
