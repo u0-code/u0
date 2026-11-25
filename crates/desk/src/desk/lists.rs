@@ -70,6 +70,8 @@ pub enum Later {
     NextWeek,
     /// At the next nine o'clock, and each day after.
     Daily,
+    /// At a time said: when a limit the agent hit resets.
+    At(SystemTime),
 }
 
 impl Later {
@@ -78,6 +80,7 @@ impl Later {
         match self {
             Self::In(minutes) => now + Duration::from_secs(minutes * 60),
             Self::Tomorrow => when::at_hour(now, 1, 9),
+            Self::At(at) => at,
             Self::NextWeek => when::at_hour(now, when::to_monday(now), 9),
             Self::Daily => match when::at_hour(now, 0, 9) {
                 today if today > now => today,

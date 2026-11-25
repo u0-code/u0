@@ -147,7 +147,8 @@ crates/desk/src/
                 reads the patches (diff), the Files tab and a file read
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
-  pages/        the settings dialog and its tabs (settings, prefs, projects, writing),
+  pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
+                usage),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

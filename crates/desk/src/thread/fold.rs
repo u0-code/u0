@@ -1,8 +1,8 @@
 //! What of a thread is folded away, as Claude folds it: in a turn that is
 //! over, the agent's work from its first call to its answer becomes one
 //! line ("Read 3 files, ran 2 commands, and 4 more steps"); what it said
-//! before that call and its answer stay out. Inside a fold opened again,
-//! a run of three or more quiet tool calls
+//! before that call and its answer (or the notes it ended with) stay out.
+//! Inside a fold opened again, a run of three or more quiet tool calls
 //! becomes one line of its own. A turn still going on is never folded: it
 //! is what you are watching. A turn loaded from an agent has no end
 //! marked; it is over when another follows it or nothing is going on.
@@ -96,7 +96,15 @@ pub fn rows(
                             .iter()
                             .all(|x| matches!(x, Item::Note { .. }))
                     });
-                Some((i + 1, answer.unwrap_or(e), e))
+                // Without one, the notes it ended with stay out: what went
+                // wrong is not folded away.
+                let to = answer.unwrap_or_else(|| {
+                    (i + 1..e)
+                        .rev()
+                        .find(|&k| !matches!(items[k], Item::Note { .. }))
+                        .map_or(i + 1, |k| k + 1)
+                });
+                Some((i + 1, to, e))
             }
             None => None,
         };

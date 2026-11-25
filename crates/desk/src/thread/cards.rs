@@ -341,6 +341,71 @@ impl Desk {
             .children(Self::turn_tools(s, i, cx))
     }
 
+    /// What went wrong in a turn; where it is a limit the agent hit, the
+    /// ways on under it: try again now, or when it says the limit resets
+    /// (said then, or the session snoozed till then), or go on with
+    /// another agent.
+    pub(super) fn trouble_note(
+        &self,
+        s: &Session,
+        i: usize,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let note = div().child(ui::trouble(text.to_owned()));
+        let latest = !s.items[i..].iter().any(|x| matches!(x, Item::You(_)));
+        if !latest || !text.to_lowercase().contains("limit") {
+            return note;
+        }
+        let key = s.key;
+        let now = std::time::SystemTime::now();
+        let mut ways = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(2.))
+            .pt(px(6.))
+            .child(
+                ui::button("limit-retry", "Try again", Weight::Quiet)
+                    .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
+            );
+        if let Some(at) = when::reset_at(text, now) {
+            let clock = when::said_at(at, now, self.settings.twelve);
+            ways = ways
+                .child(
+                    ui::button(
+                        "limit-later",
+                        format!("Try again at {clock}"),
+                        Weight::Quiet,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.retry_at(key, at, cx))),
+                )
+                .child(
+                    ui::button(
+                        "limit-snooze",
+                        format!("Snooze till {clock}"),
+                        Weight::Quiet,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.snooze(key, crate::desk::Later::At(at), cx);
+                    })),
+                );
+        }
+        for (id, other) in self.others(&s.meta.agent) {
+            ways = ways.child(
+                ui::button(
+                    SharedString::from(format!("limit-{id}")),
+                    format!("Continue with {other}"),
+                    Weight::Quiet,
+                )
+                .on_click(
+                    cx.listener(move |this, _, window, cx| this.hand_off(key, &id, window, cx)),
+                ),
+            );
+        }
+        note.child(ways)
+    }
+
     /// The agent stopped, or the session could not be opened.
     pub(super) fn broken(
         &self,

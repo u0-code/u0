@@ -97,6 +97,56 @@ pub fn ago(t: SystemTime, now: SystemTime) -> String {
     }
 }
 
+/// When a limit an agent hit resets, as its words say after "reset":
+/// "resets at 5pm", "resets 17:30", "reset in 2 hours"; the next such time
+/// of day after `now`. None where they say no time.
+pub fn reset_at(text: &str, now: SystemTime) -> Option<SystemTime> {
+    let text = text.to_lowercase();
+    let after = &text[text.find("reset")?..];
+    let words: Vec<&str> = after
+        .split(|c: char| c.is_whitespace() || c == ',' || c == '.' || c == '(' || c == ')')
+        .filter(|w| !w.is_empty())
+        .skip(1)
+        .take(4)
+        .collect();
+    let words: Vec<&str> = words
+        .into_iter()
+        .skip_while(|w| matches!(*w, "at" | "on"))
+        .collect();
+    if words.first() == Some(&"in") {
+        return span(&words.get(1..3)?.join(" ")).map(|d| now + d);
+    }
+    let first = *words.first()?;
+    let (clock, rest) = first.split_at(
+        first
+            .find(|c: char| !c.is_ascii_digit() && c != ':')
+            .unwrap_or(first.len()),
+    );
+    let half = match (rest, words.get(1).copied()) {
+        ("am", _) | ("", Some("am")) => Some(false),
+        ("pm", _) | ("", Some("pm")) => Some(true),
+        _ => None,
+    };
+    let (h, m) = clock.split_once(':').unwrap_or((clock, "0"));
+    let (mut hour, minute): (i8, i8) = (h.parse().ok()?, m.parse().ok()?);
+    match half {
+        Some(pm) if (1..=12).contains(&hour) => hour = hour % 12 + if pm { 12 } else { 0 },
+        None if clock.contains(':') => {}
+        _ => return None,
+    }
+    let today = local(now)
+        .with()
+        .time(civil::Time::new(hour, minute, 0, 0).ok()?)
+        .build()
+        .ok()?;
+    let at = if SystemTime::try_from(today.clone()).ok()? > now {
+        today
+    } else {
+        today.checked_add(1.days()).ok()?
+    };
+    SystemTime::try_from(at).ok()
+}
+
 /// A time written as RFC 3339 says ("2026-11-24T10:42:07.123Z", or with
 /// an offset such as "+08:00"), as agents date their sessions.
 pub fn parse(text: &str) -> Option<SystemTime> {
@@ -112,6 +162,22 @@ mod tests {
         let t = at_hour(SystemTime::now(), 0, 15);
         assert_eq!(clock(t, false), "15:00");
         assert_eq!(clock(t, true), "3:00 pm");
+    }
+
+    #[test]
+    fn a_limit_s_reset_is_read_from_what_the_agent_said() {
+        let now = at_hour(SystemTime::now(), 0, 9);
+        let in_two = reset_at("Usage limit reached. Resets in 2 hours.", now);
+        assert_eq!(in_two, Some(now + Duration::from_secs(7200)));
+        assert_eq!(
+            reset_at("Limit reached; it resets at 5pm (Europe/London)", now),
+            Some(at_hour(now, 0, 17))
+        );
+        assert_eq!(
+            reset_at("limit resets 08:00", now),
+            Some(at_hour(now, 1, 8))
+        );
+        assert_eq!(reset_at("Usage limit reached", now), None);
     }
 
     #[test]

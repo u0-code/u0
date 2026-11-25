@@ -480,6 +480,7 @@ impl Desk {
             }
             Event::Index(index) => self.keep_from(index),
             Event::Record { key, events } => self.record_read(key, events),
+            Event::Spent(spent) => self.spent = spent.into_iter().collect(),
             Event::Found { query, keys } => {
                 if self.search.input.read(cx).value().trim().to_lowercase() == query {
                     self.search.found = keys.into_iter().collect();

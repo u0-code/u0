@@ -208,6 +208,11 @@ pub enum Call {
         query: String,
         records: Vec<(u64, String, SessionId)>,
     },
+    /// What each of the sessions `records` (by key, agent and id) cost,
+    /// as their records say.
+    Spent {
+        records: Vec<(u64, String, SessionId)>,
+    },
     /// What git says of `folder`, where the session `key` works.
     Look {
         key: u64,
@@ -510,6 +515,8 @@ pub enum Event {
         query: String,
         keys: Vec<u64>,
     },
+    /// What sessions cost, by key, as their agents said (`store::spent`).
+    Spent(Vec<(u64, Vec<store::Spend>)>),
     /// What git says of `folder`, where the session `key` works: its
     /// branch, whether it is in a repository, and the scripts the
     /// repository's `ghost.json` names.
@@ -1177,6 +1184,9 @@ mod tests {
             },
             Call::Search {
                 query: "go".into(),
+                records: vec![(1, "a".into(), session.clone())],
+            },
+            Call::Spent {
                 records: vec![(1, "a".into(), session)],
             },
         ];
@@ -1296,6 +1306,14 @@ mod tests {
                 query: "go".into(),
                 keys: vec![1],
             },
+            Event::Spent(vec![(
+                1,
+                vec![store::Spend {
+                    at: 1,
+                    amount: 0.5,
+                    currency: "USD".into(),
+                }],
+            )]),
         ];
         let (machine_calls, machine_events) = machine();
         let calls: Vec<Call> = calls.into_iter().chain(machine_calls).collect();

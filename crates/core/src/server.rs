@@ -241,6 +241,20 @@ impl Server {
                     }
                 })));
             }
+            Call::Spent { records } => {
+                let home = self.home.clone();
+                self.off(move || {
+                    Event::Spent(
+                        (records.into_iter())
+                            .map(|(key, agent, id)| {
+                                let events = store::read(&store::record_path(&home, &agent, &id.0));
+                                (key, store::spent(&events.unwrap_or_default()))
+                            })
+                            .filter(|(_, spent)| !spent.is_empty())
+                            .collect(),
+                    )
+                });
+            }
             Call::Search { query, records } => {
                 let home = self.home.clone();
                 self.off(move || Event::Found {

@@ -97,6 +97,29 @@ impl Desk {
         cx.notify();
     }
 
+    /// Say "Continue" in the session `key` at `at`: when a limit it hit
+    /// resets.
+    pub fn retry_at(&mut self, key: u64, at: std::time::SystemTime, cx: &mut Context<Self>) {
+        if let Some(s) = self.sessions.at_mut(key) {
+            s.meta.later.push(crate::store::Later {
+                at: crate::store::secs(at),
+                text: "Continue".into(),
+                daily: false,
+            });
+            s.meta.later.sort_by_key(|l| l.at);
+        }
+        self.save_index();
+        let now = std::time::SystemTime::now();
+        self.done(
+            format!(
+                "To be tried again at {}",
+                crate::when::said_at(at, now, self.settings.twelve)
+            ),
+            None,
+        );
+        cx.notify();
+    }
+
     /// Say what is in the composer later in the session on screen, when
     /// `when` says.
     pub fn send_later(&mut self, when: Later, window: &mut Window, cx: &mut Context<Self>) {

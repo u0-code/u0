@@ -296,8 +296,9 @@ fn next_item(line: &str) -> Option<Item> {
 
 /// Something offered as you type.
 /// Ghost's own commands after `/`, beside the agent's: done at once.
-const OWN: [(&str, &str); 4] = [
+const OWN: [(&str, &str); 5] = [
     ("clear", "Begin afresh: a new session here"),
+    ("usage-limits", "What sessions cost, as agents said"),
     ("model", "Choose the model"),
     ("branch", "Branch off a copy of this session"),
     ("copy", "Copy the conversation"),
@@ -487,6 +488,7 @@ impl Desk {
             match name {
                 "clear" => self.new_default(window, cx),
                 "model" => self.open_model(window, cx),
+                "usage-limits" => self.open_tab(crate::pages::Tab::Usage, window, cx),
                 "branch" => {
                     if let Some(key) = key {
                         self.fork(key, cx);

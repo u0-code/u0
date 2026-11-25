@@ -7,6 +7,7 @@ mod forge;
 mod prefs;
 mod projects;
 mod settings;
+mod usage;
 mod writing;
 
 pub use settings::{Tab, height as settings_height};
@@ -54,6 +55,8 @@ pub struct Pages {
     pub changes: Entity<TextareaState>,
     pub titles: Entity<TextareaState>,
     pub branches: Entity<TextareaState>,
+    /// The days the usage page reads over; none, all.
+    pub period: Option<u64>,
 }
 
 impl Pages {
@@ -95,6 +98,7 @@ impl Pages {
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
             project: None,
+            period: Some(30),
             changes: instructions_field(
                 &settings.writer.changes,
                 "As the repository's recent commits do",

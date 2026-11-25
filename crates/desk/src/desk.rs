@@ -163,6 +163,9 @@ pub struct Desk {
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
+    /// What sessions cost, by key, as their records say: read for the
+    /// usage page.
+    pub spent: std::collections::HashMap<u64, Vec<crate::store::Spend>>,
     /// The forms agents asked for, by the number each answer goes back
     /// under, as questions to be answered over the composer.
     pub forms:
@@ -354,6 +357,7 @@ impl Desk {
                         || d.offer_keys(&e.keystroke, window, cx)
                         || d.picker_keys(&e.keystroke, window, cx)
                         || d.surface_key(&e.keystroke, cx)
+                        || d.usage_keys(&e.keystroke, cx)
                 })
                 .unwrap_or(false);
             if took {
@@ -477,6 +481,7 @@ impl Desk {
             ahead: Vec::new(),
             trailing: false,
             stopping: None,
+            spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
             badge: 0,
@@ -721,6 +726,14 @@ impl Desk {
             s.choose(&config, &value);
         }
         s
+    }
+
+    /// Read what each session kept here cost, from its record.
+    pub(crate) fn read_spent(&self) {
+        let records = (self.sessions.all.iter())
+            .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
+            .collect();
+        self.transport.send(crate::proto::Call::Spent { records });
     }
 
     /// Put the session `key` on screen.
@@ -1278,7 +1291,10 @@ impl Desk {
             .update(cx, |i, cx| i.set_value("", window, cx));
         match tab {
             crate::pages::Tab::Sessions => self.measure(),
-            crate::pages::Tab::Usage => self.weigh_agents(),
+            crate::pages::Tab::Usage => {
+                self.weigh_agents();
+                self.read_spent();
+            }
             _ => {}
         }
         if !self.pages.open {
