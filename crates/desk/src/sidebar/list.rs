@@ -536,7 +536,14 @@ impl Desk {
                 .child(ui::icon(icon, 14.))
                 .tooltip(tip.to_owned())
         };
-        let on_hover = div().flex().items_center().gap(px(2.));
+        let pinned = s.meta.flags.pinned.is_some();
+        let unpin = desk.clone();
+        let on_hover = div().flex().items_center().gap(px(2.)).when(pinned, |d| {
+            d.child(act("unpin", "pin", "Unpin").on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                unpin.update(cx, |d, cx| d.unpin(vec![key], cx));
+            }))
+        });
         let on_hover = if snoozed || settled {
             let desk = desk.clone();
             on_hover.child(
@@ -588,7 +595,6 @@ impl Desk {
             key,
             title: SharedString::from(ui::fit(&title, 40)),
         };
-        let pinned = s.meta.flags.pinned.is_some();
         let (click, drop, files) = (desk.clone(), desk.clone(), desk.clone());
         item.when(in_folder, |d| d.pl(px(36.)))
             .when(self.chosen.contains(&key), |d| d.bg(theme::row_chosen()))
@@ -931,16 +937,36 @@ fn session_menu(
             on(|d, key, _, cx| d.mark_unread(key, cx)),
         ));
     }
-    menu = menu.item(item(
-        "Filter by project",
-        "folder",
-        on(|d, key, _, cx| {
-            if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
-                d.filter = vec![p];
-                cx.notify();
-            }
-        }),
-    ));
+    menu = menu
+        .item(item(
+            "Find in session",
+            "search",
+            on(|d, key, window, cx| {
+                d.show(key, window, cx);
+                if !d.find.open {
+                    d.toggle_find(window, cx);
+                }
+            }),
+        ))
+        .item(item(
+            "Filter by project",
+            "folder",
+            on(|d, key, _, cx| {
+                if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
+                    d.filter = vec![d.listed_under(&p)];
+                    cx.notify();
+                }
+            }),
+        ))
+        .item(item(
+            "Project settings",
+            "settings",
+            on(|d, key, window, cx| {
+                if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
+                    d.project_settings(&p, window, cx);
+                }
+            }),
+        ));
     if let Some(branch) = &f.new_on {
         menu = menu.item(item(
             format!("New session on {}", ui::fit(branch, 22)),
