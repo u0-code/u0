@@ -413,33 +413,6 @@ struct Base {
     face: SharedString,
 }
 
-/// How a message is set: as prose, the serif at 15 on 23, as the design
-/// sets an agent's words.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Setting {
-    Prose,
-}
-
-impl Setting {
-    fn size(self) -> (f32, f32) {
-        match self {
-            Setting::Prose => (PROSE, PROSE_LINE),
-        }
-    }
-
-    fn face(self, faces: &Faces) -> SharedString {
-        match self {
-            Setting::Prose => faces.serif.clone(),
-        }
-    }
-
-    fn color(self) -> Hsla {
-        match self {
-            Setting::Prose => theme::text(),
-        }
-    }
-}
-
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
 fn styled(faces: &Faces, id: &str, line: &Inline, base: &Base) -> StyledText {
@@ -679,18 +652,6 @@ pub fn render(
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
-    render_as(faces, key, text, Setting::Prose, expanded, cx)
-}
-
-/// A message, drawn in the setting given.
-pub fn render_as(
-    faces: &Faces,
-    key: &str,
-    text: &str,
-    set: Setting,
-    expanded: &HashSet<String>,
-    cx: &mut Context<Desk>,
-) -> Div {
     let mut column = div().flex().flex_col().w_full().min_w(px(0.));
     let mut before: Option<&Block> = None;
     let blocks = blocks(key, text);
@@ -704,7 +665,7 @@ pub fn render_as(
             (Some(_), Block::Heading(..)) => 20.,
             _ => BLOCK_GAP,
         };
-        let el = block_element(faces, &format!("{key}-{i}"), block, set, expanded, cx);
+        let el = block_element(faces, &format!("{key}-{i}"), block, expanded, cx);
         column = column.child(el.mt(px(gap)));
         before = Some(block);
     }
@@ -719,41 +680,34 @@ const ITEM_GAP: f32 = 4.;
 /// How far a list's words stand in from its marker's edge, at each level.
 const LIST_INDENT: f32 = 22.;
 
-/// Body text in a setting: what a paragraph, a list item or a cell is set in.
-fn body(faces: &Faces, set: Setting) -> Base {
+/// Body text: what a paragraph, a list item or a cell is set in, the
+/// serif, as the design sets an agent's words.
+fn body(faces: &Faces) -> Base {
     Base {
         weight: FontWeight::NORMAL,
-        color: set.color(),
-        strong: match set {
-            Setting::Prose => theme::text(),
-        },
-        face: set.face(faces),
+        color: theme::text(),
+        strong: theme::text(),
+        face: faces.serif.clone(),
     }
 }
 
-/// A block of text in a setting's size.
-fn sized(set: Setting) -> Div {
-    let (size, line) = set.size();
-    div().text_size(px(size)).line_height(px(line))
+/// A block of text in prose's size: 15 on 23.
+fn sized() -> Div {
+    div().text_size(px(PROSE)).line_height(px(PROSE_LINE))
 }
 
 fn block_element(
     faces: &Faces,
     key: &str,
     block: &Block,
-    set: Setting,
     expanded: &HashSet<String>,
     cx: &mut Context<Desk>,
 ) -> Div {
     let desk = cx.entity().downgrade();
     match block {
-        Block::Paragraph(text) => sized(set).child(linked(
-            faces,
-            key.to_owned(),
-            text,
-            &body(faces, set),
-            &desk,
-        )),
+        Block::Paragraph(text) => {
+            sized().child(linked(faces, key.to_owned(), text, &body(faces), &desk))
+        }
         // A heading is in the interface's face, semibold, as the design
         // sets "What changes" over an agent's prose.
         Block::Heading(level, text) => {
@@ -764,9 +718,9 @@ fn block_element(
             };
             let base = Base {
                 weight: FontWeight::SEMIBOLD,
-                color: body(faces, set).strong,
+                color: body(faces).strong,
                 face: faces.ui.clone(),
-                ..body(faces, set)
+                ..body(faces)
             };
             div()
                 .text_size(px(size))
@@ -786,29 +740,29 @@ fn block_element(
                 .flex()
                 .pl(px(f32::from(*depth) * LIST_INDENT))
                 .child(
-                    sized(set)
+                    sized()
                         .w(px(LIST_INDENT))
                         .flex_none()
-                        .font_family(set.face(faces))
+                        .font_family(faces.serif.clone())
                         .text_color(theme::muted())
                         .child(marker.clone()),
                 )
-                .child(sized(set).flex_1().min_w(px(0.)).child(linked(
+                .child(sized().flex_1().min_w(px(0.)).child(linked(
                     faces,
                     key.to_owned(),
                     text,
-                    &body(faces, set),
+                    &body(faces),
                     &desk,
                 )))
         }
         // A quote steps in and goes a shade quieter: no bar beside it.
-        Block::Quote(text) => sized(set).pl(px(S4)).child(choosable_line(
+        Block::Quote(text) => sized().pl(px(S4)).child(choosable_line(
             faces,
             key,
             text,
             &Base {
                 color: theme::text2(),
-                ..body(faces, set)
+                ..body(faces)
             },
         )),
         Block::Code { lang, text } => code(
@@ -823,7 +777,6 @@ fn block_element(
             faces,
             key,
             &Table { head, right, rows },
-            set,
             expanded.contains(&format!("{key}:rows")),
             cx,
         ),
@@ -865,29 +818,22 @@ struct Table<'a> {
 /// the width of its widest cell without anything being measured here;
 /// every cell of a row is given the same height in points, so the rows
 /// line up across the columns.
-fn table(
-    faces: &Faces,
-    key: &str,
-    t: &Table,
-    set: Setting,
-    all: bool,
-    cx: &mut Context<Desk>,
-) -> Div {
-    let (_, line) = set.size();
+fn table(faces: &Faces, key: &str, t: &Table, all: bool, cx: &mut Context<Desk>) -> Div {
+    let line = PROSE_LINE;
     let (shown, folded) = table_rows(t.rows, all);
     let strong = Base {
-        weight: strong_weight(faces, &set.face(faces)),
-        color: body(faces, set).strong,
-        ..body(faces, set)
+        weight: strong_weight(faces, &faces.serif),
+        color: body(faces).strong,
+        ..body(faces)
     };
-    let plain = body(faces, set);
+    let plain = body(faces);
     let empty = Inline::default();
     let mut grid = div().flex().flex_none();
     for (i, title) in t.head.iter().enumerate() {
         let gap = i + 1 < t.head.len();
         let right = t.right.get(i).copied().unwrap_or(false);
         let cell = || {
-            sized(set)
+            sized()
                 .flex()
                 .flex_none()
                 .whitespace_nowrap()
