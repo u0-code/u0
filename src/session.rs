@@ -7,7 +7,7 @@
 //! started and ended, and what went wrong between the two.
 
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -397,6 +397,9 @@ pub struct Session {
     /// The agent was asked to write a commit message: its answer goes in
     /// the commit form.
     pub writing_message: bool,
+    /// The calls just ended whose diffs are yet to be placed in their
+    /// files, each diff's file and new text (see `hub::place`).
+    pub placing: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,
 }
 
 /// The text of a content block, or a word for what it is.
@@ -444,16 +447,6 @@ fn image_format(mime: &str) -> Option<gpui::ImageFormat> {
         "image/svg+xml" => gpui::ImageFormat::Svg,
         _ => return None,
     })
-}
-
-/// The line of `file` that `text` starts on, counting from one.
-fn line_of(file: &Path, text: &str) -> Option<usize> {
-    if text.is_empty() {
-        return None;
-    }
-    let whole = std::fs::read_to_string(file).ok()?;
-    let at = whole.find(text)?;
-    Some(whole[..at].matches('\n').count() + 1)
 }
 
 impl Session {
@@ -646,6 +639,7 @@ impl Session {
     /// Empty the thread, to build it again.
     pub fn forget(&mut self) {
         self.items.clear();
+        self.placing.clear();
         self.marks.clear();
         self.times.clear();
     }
@@ -777,6 +771,7 @@ impl Session {
             pr: None,
             git_step: None,
             writing_message: false,
+            placing: Vec::new(),
         }
     }
 
@@ -1058,8 +1053,8 @@ impl Session {
         self.settle(&id);
     }
 
-    /// A call that has just ended is timed, and its diffs placed in their
-    /// files.
+    /// A call that has just ended is timed, and its diffs are to be placed
+    /// in their files.
     fn settle(&mut self, id: &ToolCallId) {
         let Some(tool) = self.tool_mut(id) else {
             return;
@@ -1072,15 +1067,25 @@ impl Session {
             return;
         }
         tool.took = Some(tool.started.elapsed());
-        tool.starts = tool
+        let diffs: Vec<(PathBuf, String)> = tool
             .call
             .content
             .iter()
             .filter_map(|c| match c {
-                ToolCallContent::Diff(d) => Some(line_of(&d.path, &d.new_text)),
+                ToolCallContent::Diff(d) => Some((d.path.clone(), d.new_text.clone())),
                 _ => None,
             })
             .collect();
+        if !diffs.is_empty() {
+            self.placing.push((id.clone(), diffs));
+        }
+    }
+
+    /// Where the diffs of the call `id` start in their files, as read.
+    pub fn placed(&mut self, id: &ToolCallId, starts: Vec<Option<usize>>) {
+        if let Some(tool) = self.tool_mut(id) {
+            tool.starts = starts;
+        }
     }
 
     /// A question the agent asks before it goes on.
@@ -1430,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn a_diffs_place_is_found_in_its_file_once_the_call_is_done() {
+    fn a_diffs_place_is_found_in_its_file_off_the_window_once_the_call_is_done() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("a.rs");
         std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
@@ -1440,8 +1445,16 @@ mod tests {
             file.display()
         );
         s.apply(update(&json));
-        let tool = s.tools().next().unwrap();
-        assert_eq!(tool.starts, vec![Some(3)]);
+        assert!(s.tools().next().unwrap().starts.is_empty());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        crate::hub::place(1, std::mem::take(&mut s.placing), tx);
+        let Some(crate::hub::Msg::Placed { starts, .. }) = rx.blocking_recv() else {
+            panic!("the diffs were not placed");
+        };
+        for (id, starts) in starts {
+            s.placed(&id, starts);
+        }
+        assert_eq!(s.tools().next().unwrap().starts, vec![Some(3)]);
     }
 
     #[test]

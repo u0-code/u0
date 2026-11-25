@@ -330,6 +330,13 @@ impl Desk {
                 branch,
                 repo,
             } => self.looked(key, &folder, branch, repo),
+            Msg::Placed { key, starts } => {
+                if let Some(s) = self.session_mut(key) {
+                    for (id, starts) in starts {
+                        s.placed(&id, starts);
+                    }
+                }
+            }
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.session_mut(key)
                     && s.turns.is_empty()
@@ -731,6 +738,7 @@ impl Desk {
                 s.apply(n.update);
                 // A long turn is written as it goes, not only at its end.
                 let (key, long) = (s.key, s.log.len() >= 400);
+                self.place(key);
                 if long {
                     self.flush(key);
                 }

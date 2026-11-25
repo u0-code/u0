@@ -194,6 +194,7 @@ impl Desk {
             s.modes.clone_from(&p.modes);
             s.options.clone_from(&p.options);
         }
+        self.place(key);
         // A record from before its index named its subagents names them.
         self.subagents_back(key);
         true

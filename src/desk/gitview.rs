@@ -82,6 +82,20 @@ impl Desk {
         }
     }
 
+    /// Find where the diffs of the calls of the session `key` that have
+    /// just ended start in their files; not on another machine, whose
+    /// files are not here.
+    pub(crate) fn place(&mut self, key: u64) {
+        let tx = self.tx.clone();
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        let calls = std::mem::take(&mut s.placing);
+        if !calls.is_empty() && crate::remote::parse(&s.project).is_none() {
+            hub::place(key, calls, tx);
+        }
+    }
+
     /// Read again what the session `key` shows changed, as git says it now.
     pub(crate) fn refresh_diffs(&self, key: u64) {
         let Some(s) = self.session_at(key) else {

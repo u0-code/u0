@@ -25,7 +25,7 @@ use agent_client_protocol::{
         RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
         SessionConfigId, SessionConfigOption, SessionConfigOptionValue, SessionConfigValueId,
         SessionId, SessionInfo, SessionModeId, SessionModeState, SetSessionConfigOptionRequest,
-        SetSessionModeRequest, StopReason, SubagentCapabilities, TextContent,
+        SetSessionModeRequest, StopReason, SubagentCapabilities, TextContent, ToolCallId,
     },
 };
 use tokio::sync::mpsc;
@@ -76,6 +76,11 @@ pub enum Msg {
         folder: PathBuf,
         branch: Option<String>,
         repo: bool,
+    },
+    /// Where the diffs of calls of the session `key` start in their files.
+    Placed {
+        key: u64,
+        starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
     },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
@@ -855,6 +860,28 @@ pub fn look(folder: PathBuf, key: u64, tx: Sender) {
         repo: git::root(&folder).is_some(),
         folder,
     });
+}
+
+/// Find the line each diff of the calls `calls` of the session `key` starts
+/// on in its file.
+pub fn place(key: u64, calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>, tx: Sender) {
+    off(tx, move || Msg::Placed {
+        key,
+        starts: calls
+            .into_iter()
+            .map(|(id, diffs)| (id, diffs.iter().map(|(f, t)| line_of(f, t)).collect()))
+            .collect(),
+    });
+}
+
+/// The line of `file` that `text` starts on, counting from one.
+fn line_of(file: &std::path::Path, text: &str) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+    let whole = std::fs::read_to_string(file).ok()?;
+    let at = whole.find(text)?;
+    Some(whole[..at].matches('\n').count() + 1)
 }
 
 /// Read what is not committed in `dir`.
