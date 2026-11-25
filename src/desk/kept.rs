@@ -16,6 +16,7 @@ impl Desk {
         match index {
             Ok(index) => {
                 self.gone = index.gone;
+                self.stashed = index.stashed;
                 for meta in index.sessions {
                     let key = self.take_key();
                     self.sessions.push(Session::stored(key, meta));
@@ -37,6 +38,7 @@ impl Desk {
         let index = Index {
             sessions: self.sessions.iter().filter_map(Session::meta).collect(),
             gone: self.gone.clone(),
+            stashed: self.stashed.clone(),
         };
         store::queue(Job::Save(self.home.clone(), store::bytes(&index)));
     }

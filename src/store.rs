@@ -33,6 +33,9 @@ pub struct Index {
     /// id, so that its list does not bring them back.
     #[serde(default)]
     pub gone: Vec<(String, String)>,
+    /// What you put aside from the composer (⌘S), the latest last.
+    #[serde(default)]
+    pub stashed: Vec<String>,
 }
 
 /// What the desk keeps of one session.

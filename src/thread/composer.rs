@@ -214,6 +214,9 @@ impl Desk {
         if !more.is_empty() {
             words = words.child(self.more(faces, &name, more, cx));
         }
+        if !self.stashed.is_empty() {
+            words = words.child(self.stash_menu(faces, cx));
+        }
         let mut bar = div()
             .flex()
             .items_center()
@@ -830,6 +833,102 @@ impl Desk {
 /// How far above the foot of the bar its menus open: clear of the line
 /// you write in (the bar, the gap, one line, the padding, and 8 more).
 const LIFT: f32 = 28. + 6. + 22. + 10. + 8.;
+
+impl Desk {
+    /// What you put aside (⌘S): a mark with how many, and under it each,
+    /// the latest first, to take back into the line or let go.
+    fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let open = self.popup == Popup::Stash;
+        let mut wrap = div().relative().flex().flex_none().child(
+            div()
+                .id("chip-stash")
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(26.))
+                .px(px(7.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .text_color(theme::faint())
+                .hover(|st| st.bg(theme::hover()))
+                .when(open, |d| d.bg(theme::hover()))
+                .child(ui::icon("archive", 14.))
+                .child(ui::text(faces, self.stashed.len().to_string()).text_size(px(12.)))
+                .tooltip(ui::tip("Put aside (⌘S), to take back"))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Stash, cx))),
+        );
+        if open {
+            let mut list = div().flex().flex_col().w(px(360.)).p(px(6.)).child(
+                ui::label(faces, "Put aside")
+                    .px(px(10.))
+                    .pt(px(6.))
+                    .pb(px(4.)),
+            );
+            for (n, text) in self.stashed.iter().enumerate().rev() {
+                list = list.child(
+                    row(SharedString::from(format!("stash-{n}")), false)
+                        .child(
+                            ui::one_line(
+                                ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
+                                    .text_size(px(13.)),
+                            )
+                            .flex_1()
+                            .min_w(px(0.)),
+                        )
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("stash-drop-{n}")),
+                                "x",
+                                "Let it go",
+                            )
+                            .size(px(22.))
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if n < this.stashed.len() {
+                                        this.stashed.remove(n);
+                                        this.save_index();
+                                    }
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.take_stashed(n, window, cx);
+                        })),
+                );
+            }
+            wrap = wrap.child(gpui::deferred(
+                div()
+                    .absolute()
+                    .bottom(px(LIFT))
+                    .left(px(0.))
+                    .child(ui::menu("stash-menu").child(list)),
+            ));
+        }
+        wrap
+    }
+
+    /// Take back what was put aside `n`th: into the line, after what is
+    /// in it.
+    fn take_stashed(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if n >= self.stashed.len() {
+            return;
+        }
+        let text = self.stashed.remove(n);
+        self.save_index();
+        self.popup = Popup::Closed;
+        let typed = self.input.read(cx).text();
+        let line = if typed.is_empty() {
+            text
+        } else {
+            format!("{typed}\n{text}")
+        };
+        self.input.update(cx, |i, cx| i.set_text(&line, cx));
+        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        cx.notify();
+    }
+}
 
 /// An option kept behind the slider mark: its id, name, value now, and
 /// what it can be.

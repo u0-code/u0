@@ -111,6 +111,8 @@ pub enum Popup {
     Branch,
     /// The session's options beyond its model and mode.
     More,
+    /// What you put aside from the composer, to take back.
+    Stash,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
     /// The project the sidebar shows, when it lists by status.
@@ -159,6 +161,8 @@ pub struct Desk {
     pub rewinding: Option<u64>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
+    /// What you put aside from the composer (see `store::Index`).
+    pub stashed: Vec<String>,
     /// Sessions deleted whose agent cannot delete them (see `store::Index`).
     pub gone: Vec<(String, String)>,
     /// What Ghost tells you at the foot of the window, the oldest first.
@@ -301,6 +305,16 @@ impl Desk {
         });
         cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
             .detach();
+        cx.subscribe(&input, |this, _, crate::input::Stashed(text), cx| {
+            this.stashed.push(text.clone());
+            this.save_index();
+            this.done(
+                "Put aside: take it back from the stack under the line",
+                None,
+            );
+            cx.notify();
+        })
+        .detach();
         cx.subscribe_in(
             &input,
             window,
@@ -539,6 +553,7 @@ impl Desk {
             waiting: Vec::new(),
             rewinding: None,
             gone: Vec::new(),
+            stashed: Vec::new(),
             notices: Vec::new(),
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::General,

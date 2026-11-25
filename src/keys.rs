@@ -211,6 +211,7 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-backspace", input::DeleteLine, input),
         KeyBinding::new("cmd-z", input::Undo, input),
         KeyBinding::new("cmd-shift-z", input::Redo, input),
+        KeyBinding::new("cmd-s", input::Stash, input),
     ]);
     cx.bind_keys(yours(home));
 }

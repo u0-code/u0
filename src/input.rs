@@ -59,6 +59,7 @@ actions!(
         DeleteLine,
         Undo,
         Redo,
+        Stash,
     ]
 );
 
@@ -93,6 +94,9 @@ pub struct Stepped(pub isize);
 
 /// Tab was pressed: what is offered for the word being typed is taken.
 pub struct Complete;
+
+/// What is typed, put aside (⌘S) to come back to.
+pub struct Stashed(pub String);
 
 /// An image was pasted, not text.
 pub struct PastedImage(pub gpui::Image);
@@ -140,6 +144,7 @@ impl EventEmitter<Cancelled> for TextInput {}
 impl EventEmitter<Stepped> for TextInput {}
 impl EventEmitter<Complete> for TextInput {}
 impl EventEmitter<PastedImage> for TextInput {}
+impl EventEmitter<Stashed> for TextInput {}
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
@@ -308,6 +313,17 @@ impl TextInput {
             self.select_to(line_of(&self.content, self.cursor_offset()).start, cx);
         }
         self.replace_text_in_range(None, "", window, cx);
+    }
+
+    /// Put what is typed aside, and clear the line.
+    fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self.text();
+        if !text.is_empty() {
+            self.reset();
+            cx.emit(Stashed(text));
+            cx.emit(Changed);
+            cx.notify();
+        }
     }
 
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
@@ -1179,6 +1195,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::delete_line))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .on_action(cx.listener(Self::stash))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
