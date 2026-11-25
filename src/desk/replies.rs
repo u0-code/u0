@@ -215,6 +215,7 @@ impl Desk {
                     t.changed.store(false, std::sync::atomic::Ordering::Release);
                 }
             }
+            Msg::TerminalOpened { id, result } => self.terminal_opened(id, result),
             Msg::TerminalEnded(id) => {
                 if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) {
                     t.end();

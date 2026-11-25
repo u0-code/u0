@@ -143,15 +143,31 @@ impl Desk {
             .map(|(host, _)| host);
         let id = self.take_key();
         let size = self.terminals.last().map_or(FIRST_SIZE, Terminal::size);
-        match Terminal::open(id, key, dir, host.as_deref(), first, size, self.tx.clone()) {
-            Ok(t) => {
-                self.terminals.push(t);
-                self.term_on = Some(id);
-                self.drawer = true;
-            }
-            Err(why) => tracing::warn!("{why}"),
-        }
+        let first = first.map(str::to_owned);
+        crate::hub::open_terminal(
+            id,
+            key,
+            dir.to_path_buf(),
+            host,
+            first,
+            size,
+            self.tx.clone(),
+        );
+        self.term_on = Some(id);
+        self.drawer = true;
         cx.notify();
+    }
+
+    /// A terminal opened, or why not: one a session's first message
+    /// waited for no longer holds it.
+    pub(crate) fn terminal_opened(&mut self, id: u64, result: Result<Box<Terminal>, String>) {
+        match result {
+            Ok(t) => self.terminals.push(*t),
+            Err(why) => {
+                tracing::warn!("{why}");
+                self.setup_ended(id);
+            }
+        }
     }
 
     /// Open a terminal beside the session on screen, in its folder; `first`

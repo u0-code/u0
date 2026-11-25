@@ -418,7 +418,11 @@ impl Desk {
             .whitespace_nowrap()
             .child(
                 gpui::canvas(
-                    move |bounds, _, _| origin.set(bounds.origin),
+                    move |bounds, _, _| {
+                        *origin
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) = bounds.origin;
+                    },
                     |_, (), _, _| {},
                 )
                 .absolute()
@@ -529,7 +533,10 @@ impl Desk {
     /// The cell of `t` under the mouse at `position` on the window.
     fn cell_at(t: &Terminal, position: gpui::Point<gpui::Pixels>, cell: f32) -> (u16, u16) {
         let (rows, cols) = t.size();
-        let from = position - t.origin.get();
+        let from = position
+            - *t.origin
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         let count = |by: f32, each: f32, most: u16| {
             (by / each).floor().clamp(0., f32::from(most - 1)) as u16
         };

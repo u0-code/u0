@@ -50,7 +50,7 @@ pub struct Terminal {
     pub selection: Option<((u16, u16), (u16, u16))>,
     /// Where on the window its first cell was last drawn, to tell which
     /// cell the mouse is over.
-    pub origin: std::rc::Rc<std::cell::Cell<gpui::Point<gpui::Pixels>>>,
+    pub origin: Arc<Mutex<gpui::Point<gpui::Pixels>>>,
 }
 
 /// A stretch of a row drawn one way.
@@ -65,7 +65,8 @@ pub struct Stretch {
 impl Terminal {
     /// Open your login shell in `dir`, or over SSH on `host` in `dir`
     /// there, `rows` by `cols`; `first`, if given, is typed into it once it
-    /// starts (a script's command).
+    /// starts (a script's command). Blocking: it starts a process. What it
+    /// prints comes from the reader handed back with it (see `reader`).
     pub fn open(
         id: u64,
         session: u64,
@@ -73,8 +74,7 @@ impl Terminal {
         host: Option<&str>,
         first: Option<&str>,
         (rows, cols): (u16, u16),
-        tx: Sender,
-    ) -> Result<Self, String> {
+    ) -> Result<(Self, Box<dyn std::io::Read + Send>), String> {
         let pty = portable_pty::native_pty_system()
             .openpty(PtySize {
                 rows,
@@ -110,7 +110,7 @@ impl Terminal {
             .slave
             .spawn_command(command)
             .map_err(|e| format!("{title} could not be started: {e}"))?;
-        let mut reader = pty.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let reader = pty.master.try_clone_reader().map_err(|e| e.to_string())?;
         let mut writer = pty.master.take_writer().map_err(|e| e.to_string())?;
         let screen = Arc::new(Mutex::new(vt100::Parser::new(
             NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
@@ -118,25 +118,6 @@ impl Terminal {
             SCROLLBACK,
         )));
         let changed = Arc::new(AtomicBool::new(false));
-        let (into, told) = (screen.clone(), changed.clone());
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 16 * 1024];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        into.lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .process(&buf[..n]);
-                        // Once per drawing, however much comes before it.
-                        if !told.swap(true, Ordering::AcqRel) {
-                            let _ = tx.send(Msg::Terminal(id));
-                        }
-                    }
-                }
-            }
-            let _ = tx.send(Msg::TerminalEnded(id));
-        });
         let (to_writer, sent) = std::sync::mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
             for bytes in sent {
@@ -156,7 +137,7 @@ impl Terminal {
             }
             None => title,
         };
-        Ok(Self {
+        let t = Self {
             id,
             session,
             title,
@@ -168,8 +149,37 @@ impl Terminal {
             ended: None,
             size: (rows, cols),
             selection: None,
-            origin: std::rc::Rc::default(),
-        })
+            origin: Arc::default(),
+        };
+        Ok((t, reader))
+    }
+
+    /// What reads its output (`from`) onto its screen until its shell ends,
+    /// telling the window over `tx`: run on a thread of its own once the
+    /// terminal is the window's.
+    pub fn reader(
+        &self,
+        mut from: Box<dyn std::io::Read + Send>,
+    ) -> impl FnOnce(&Sender) + Send + 'static {
+        let (id, into, told) = (self.id, self.screen.clone(), self.changed.clone());
+        move |tx| {
+            let mut buf = [0u8; 16 * 1024];
+            loop {
+                match from.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        into.lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .process(&buf[..n]);
+                        // Once per drawing, however much comes before it.
+                        if !told.swap(true, Ordering::AcqRel) {
+                            let _ = tx.send(Msg::Terminal(id));
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(Msg::TerminalEnded(id));
+        }
     }
 
     /// Its rows and columns.
@@ -524,7 +534,7 @@ mod tests {
     #[test]
     fn what_is_sent_to_a_program_that_does_not_read_does_not_wait() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut t = Terminal::open(
+        let (mut t, from) = Terminal::open(
             1,
             1,
             &std::env::temp_dir(),
@@ -532,9 +542,10 @@ mod tests {
             // Raw, so that its input fills rather than being dropped.
             Some("stty raw -echo; sleep 5"),
             (6, 40),
-            tx,
         )
         .expect("a terminal opens");
+        let read = t.reader(from);
+        std::thread::spawn(move || read(&tx));
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert!(t.busy(), "sleep holds the terminal");
         let began = std::time::Instant::now();
@@ -546,8 +557,10 @@ mod tests {
     fn a_shell_opens_in_a_terminal_and_answers() {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let dir = std::env::temp_dir();
-        let mut t = Terminal::open(1, 1, &dir, None, Some("echo ghost-$((40+2))"), (6, 40), tx)
+        let (mut t, from) = Terminal::open(1, 1, &dir, None, Some("echo ghost-$((40+2))"), (6, 40))
             .expect("a terminal opens");
+        let read = t.reader(from);
+        std::thread::spawn(move || read(&tx));
         let mut seen = false;
         for _ in 0..100 {
             while rx.try_recv().is_ok() {

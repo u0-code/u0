@@ -112,7 +112,12 @@ pub enum Msg {
         key: u64,
         result: Result<Vec<git::FileDiff>, String>,
     },
-    /// A terminal's screen changed; a terminal's shell ended.
+    /// A terminal was opened, or why not; its screen changed; its shell
+    /// ended.
+    TerminalOpened {
+        id: u64,
+        result: Result<Box<crate::terminal::Terminal>, String>,
+    },
     Terminal(u64),
     TerminalEnded(u64),
     /// The folders `agent` has sessions in that are not projects, with how
@@ -821,6 +826,44 @@ pub fn notify(title: &str, body: &str, sound: bool) {
 pub fn set_keys(home: PathBuf, name: &'static str, key: Option<String>, tx: Sender) {
     off(tx, move || {
         Msg::Keys(crate::keys::set_yours(&home, name, key))
+    });
+}
+
+/// Open the terminal `id` beside the session `session` in `dir` (on
+/// `host`, if it is on another machine), `first` typed into it, and read
+/// what it prints on the same thread, after it is the window's.
+pub fn open_terminal(
+    id: u64,
+    session: u64,
+    dir: PathBuf,
+    host: Option<String>,
+    first: Option<String>,
+    size: (u16, u16),
+    tx: Sender,
+) {
+    std::thread::spawn(move || {
+        let opened = crate::terminal::Terminal::open(
+            id,
+            session,
+            &dir,
+            host.as_deref(),
+            first.as_deref(),
+            size,
+        );
+        match opened {
+            Ok((t, from)) => {
+                let read = t.reader(from);
+                let result = Ok(Box::new(t));
+                let _ = tx.send(Msg::TerminalOpened { id, result });
+                read(&tx);
+            }
+            Err(why) => {
+                let _ = tx.send(Msg::TerminalOpened {
+                    id,
+                    result: Err(why),
+                });
+            }
+        }
     });
 }
 
