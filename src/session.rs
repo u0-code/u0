@@ -197,6 +197,9 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// The scripts run in its new worktree as it was made (ghost.json's),
+    /// each in a terminal: said at its head until put away.
+    pub setup: Vec<String>,
     /// The session whose agent set this one to work as its subagent: shown,
     /// not listed, not kept, not written in.
     pub parent: Option<u64>,
@@ -555,6 +558,7 @@ impl Session {
             marks: Vec::new(),
             from: None,
             parent: None,
+            setup: Vec::new(),
             times: Vec::new(),
             stamp: None,
             plan: None,

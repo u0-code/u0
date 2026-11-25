@@ -843,7 +843,7 @@ impl Desk {
         self.sessions.iter().find(|s| s.key == key)
     }
 
-    fn session_mut(&mut self, key: u64) -> Option<&mut Session> {
+    pub(crate) fn session_mut(&mut self, key: u64) -> Option<&mut Session> {
         self.sessions.iter_mut().find(|s| s.key == key)
     }
 

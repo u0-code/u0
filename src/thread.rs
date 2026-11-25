@@ -402,29 +402,78 @@ impl Desk {
                 .iter()
                 .find(|o| o.agent == s.agent && o.id.as_ref().is_some_and(|i| *i.0 == **id))
         });
+        // Scripts run in the new worktree: what they were, where to see them.
+        let setup = (!s.setup.is_empty()).then(|| {
+            let key = s.key;
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .mt(px(10.))
+                .px(px(12.))
+                .py(px(8.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(theme::border())
+                .child(icon("terminal"))
+                .child(
+                    ui::text(
+                        faces,
+                        format!("Set up in its new worktree: {}", s.setup.join(", ")),
+                    )
+                    .flex_1()
+                    .text_size(px(13.))
+                    .text_color(theme::text2()),
+                )
+                .child(
+                    ui::button(faces, "setup-show", "Show the terminals", ui::Weight::Quiet)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.drawer = true;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    ui::icon_button("setup-done", "x", "Put this away").on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            if let Some(s) = this.session_mut(key) {
+                                s.setup.clear();
+                            }
+                            cx.notify();
+                        },
+                    )),
+                )
+        });
         div()
             .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(10.))
+            .flex_col()
             .mb(px(12.))
-            .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
-            .child(meta(faces, parts.join(" · ")))
-            .children(origin.map(|o| {
-                let back = o.key;
+            .child(
                 div()
-                    .id("from")
                     .flex()
                     .items_center()
-                    .gap(px(4.))
-                    .cursor_pointer()
-                    .child(ui::icon("branch", 12.).text_color(theme::faint()))
-                    .child(
-                        meta(faces, format!("from “{}”", ui::fit(&o.title, 32)))
-                            .hover(|st| st.text_color(theme::text2())),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| this.show(back, window, cx)))
-            }))
+                    .gap(px(8.))
+                    .px(px(10.))
+                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
+                    .child(meta(faces, parts.join(" · ")))
+                    .children(origin.map(|o| {
+                        let back = o.key;
+                        div()
+                            .id("from")
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .cursor_pointer()
+                            .child(ui::icon("branch", 12.).text_color(theme::faint()))
+                            .child(
+                                meta(faces, format!("from “{}”", ui::fit(&o.title, 32)))
+                                    .hover(|st| st.text_color(theme::text2())),
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
+                            )
+                    })),
+            )
+            .children(setup)
     }
 
     /// A session begun, before anything is said: where it will work.

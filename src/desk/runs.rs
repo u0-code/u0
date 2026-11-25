@@ -226,6 +226,9 @@ impl Desk {
     pub(crate) fn run_worktree_scripts(&mut self, key: u64, dir: &Path, cx: &mut Context<Self>) {
         for script in config(dir).scripts.into_iter().filter(|s| s.worktree) {
             self.open_terminal_in(key, dir, Some(&script.command), cx);
+            if let Some(s) = self.sessions.iter_mut().find(|s| s.key == key) {
+                s.setup.push(script.name);
+            }
         }
     }
 
