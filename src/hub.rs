@@ -783,7 +783,7 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
 
 /// What changed in `scope` (the branch against its base, or a commit)
 /// where the session `key` works.
-pub fn scope_diff(dir: PathBuf, key: u64, (scope, base): (git::Scope, Option<String>), tx: Sender) {
+pub fn scope_diff(dir: PathBuf, key: u64, scope: git::Scope, base: Option<String>, tx: Sender) {
     off(tx, move || {
         let result = match &scope {
             git::Scope::Commit(id) => git::commit_diff(&dir, id),
@@ -972,7 +972,8 @@ pub fn make_worktree(
     dir: PathBuf,
     about: String,
     home: PathBuf,
-    (prefix, from): (String, Option<crate::session::Begin>),
+    prefix: String,
+    from: Option<crate::session::Begin>,
     key: u64,
     tx: Sender,
 ) {
@@ -987,46 +988,46 @@ pub fn make_worktree(
     });
 }
 
-/// What a checkpoint is to take, and what to compare it with.
-pub struct Take {
-    pub dir: PathBuf,
-    pub name: String,
-    pub key: u64,
-    pub turn: usize,
-    pub after: bool,
-    /// The turn's checkpoint before, and the session's first.
-    pub before: Option<String>,
-    pub first: Option<String>,
-    pub then: Option<String>,
-}
-
 /// Take a checkpoint; after a turn, read what changed in it and in all.
-pub fn checkpoint(take: Take, tx: Sender) {
+///
+/// `after` says it is taken after the turn `turn`, and `before` and `first`
+/// are the turn's checkpoint before it and the session's first; `then` is
+/// what is said once it is taken.
+pub fn checkpoint(
+    dir: PathBuf,
+    name: String,
+    key: u64,
+    turn: usize,
+    after: bool,
+    before: Option<String>,
+    first: Option<String>,
+    then: Option<String>,
+    tx: Sender,
+) {
     off(tx, move || {
-        let result = git::checkpoint(&take.dir, &take.name).map(|commit| {
+        let result = git::checkpoint(&dir, &name).map(|commit| {
             let diff = |from: &Option<String>| {
                 from.as_deref()
-                    .filter(|_| take.after)
-                    .and_then(|f| git::diff(&take.dir, f, &commit).ok())
+                    .filter(|_| after)
+                    .and_then(|f| git::diff(&dir, f, &commit).ok())
             };
             Snapshot {
-                turn: diff(&take.before),
-                total: diff(&take.first),
+                turn: diff(&before),
+                total: diff(&first),
                 commit,
             }
         });
         Msg::Checkpoint {
-            key: take.key,
-            turn: take.turn,
-            after: take.after,
+            key,
+            turn,
+            after,
             result,
-            then: take.then,
+            then,
         }
     });
 }
 
 /// Put the session's files back as `target` had them.
-#[allow(clippy::too_many_arguments, reason = "each is one fact of the restore")]
 pub fn restore(
     dir: PathBuf,
     target: String,
@@ -1058,7 +1059,8 @@ pub fn restore(
 pub fn git_action(
     dir: PathBuf,
     action: GitAction,
-    (prefix, left_out): (String, Vec<String>),
+    prefix: String,
+    left_out: Vec<String>,
     key: u64,
     tx: Sender,
 ) {

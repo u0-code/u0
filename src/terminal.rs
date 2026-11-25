@@ -65,7 +65,8 @@ impl Terminal {
     /// there, `rows` by `cols`; `first`, if given, is typed into it once it
     /// starts (a script's command).
     pub fn open(
-        (id, session): (u64, u64),
+        id: u64,
+        session: u64,
         dir: &Path,
         host: Option<&str>,
         first: Option<&str>,
@@ -514,15 +515,8 @@ mod tests {
     fn a_shell_opens_in_a_terminal_and_answers() {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let dir = std::env::temp_dir();
-        let mut t = Terminal::open(
-            (1, 1),
-            &dir,
-            None,
-            Some("echo ghost-$((40+2))"),
-            (6, 40),
-            tx,
-        )
-        .expect("a terminal opens");
+        let mut t = Terminal::open(1, 1, &dir, None, Some("echo ghost-$((40+2))"), (6, 40), tx)
+            .expect("a terminal opens");
         let mut seen = false;
         for _ in 0..100 {
             while rx.try_recv().is_ok() {

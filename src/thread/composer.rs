@@ -687,10 +687,6 @@ impl Desk {
     /// A word that opens a menu of choices, `(id, name, current)` each;
     /// with none, a word alone. An agent's is its mark, named with its menu
     /// in a new session.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "a chip is all of these, each once"
-    )]
     fn chip(
         &self,
         faces: &Faces,

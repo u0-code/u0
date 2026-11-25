@@ -458,9 +458,9 @@ impl Desk {
                     .opacity(0.7),
             );
         }
-        let pop = t.chosen().map(|((r0, c0), (r1, _))| {
-            self.chosen_pop(faces, id, at, (r0, c0, r1), cols, cell, cx)
-        });
+        let pop = t
+            .chosen()
+            .map(|chosen| self.chosen_pop(faces, id, at, chosen, cols, cell, cx));
 
         div()
             .id(SharedString::from(format!("term-{id}")))
@@ -543,16 +543,12 @@ impl Desk {
 
     /// Over the cells chosen, under the last of them (over the first when
     /// there is no room below): what can be done with them.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "where the cells are, to stand by them"
-    )]
     fn chosen_pop(
         &self,
         faces: &Faces,
         id: u64,
         at: impl Fn((u16, u16)) -> (f32, f32),
-        (r0, c0, r1): (u16, u16, u16),
+        ((r0, c0), (r1, _)): ((u16, u16), (u16, u16)),
         cols: u16,
         cell: f32,
         cx: &mut Context<Self>,

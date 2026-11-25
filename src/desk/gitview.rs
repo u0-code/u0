@@ -47,7 +47,8 @@ impl Desk {
             hub::scope_diff(
                 s.folder.clone(),
                 key,
-                (scope.clone(), s.compare_to.clone()),
+                scope.clone(),
+                s.compare_to.clone(),
                 self.tx.clone(),
             );
         }
@@ -80,7 +81,7 @@ impl Desk {
         if let Some(s) = self.session_mut(key) {
             s.scoped = None;
             let (dir, base) = (s.folder.clone(), s.compare_to.clone());
-            hub::scope_diff(dir, key, (scope.clone(), base), self.tx.clone());
+            hub::scope_diff(dir, key, scope.clone(), base, self.tx.clone());
         }
     }
 
@@ -120,7 +121,8 @@ impl Desk {
         hub::git_action(
             dir,
             action,
-            (self.settings.branch_prefix.clone(), Vec::new()),
+            self.settings.branch_prefix.clone(),
+            Vec::new(),
             key,
             self.tx.clone(),
         );
@@ -235,7 +237,8 @@ impl Desk {
             hub::git_action(
                 wt.path.clone(),
                 hub::GitAction::RenameBranch(name),
-                (prefix.clone(), Vec::new()),
+                prefix.clone(),
+                Vec::new(),
                 key,
                 self.tx.clone(),
             );

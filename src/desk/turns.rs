@@ -64,17 +64,17 @@ impl Desk {
         };
         if s.repo {
             let turn = s.turn_count().saturating_sub(1);
-            let take = hub::Take {
-                dir: s.folder.clone(),
-                name: format!("{}/{turn}-before", s.uid()),
+            hub::checkpoint(
+                s.folder.clone(),
+                format!("{}/{turn}-before", s.uid()),
                 key,
                 turn,
-                after: false,
-                before: None,
-                first: None,
-                then: Some(text),
-            };
-            hub::checkpoint(take, self.tx.clone());
+                false,
+                None,
+                None,
+                Some(text),
+                self.tx.clone(),
+            );
         } else {
             self.prompt(key, text);
         }
@@ -116,17 +116,17 @@ impl Desk {
             return;
         }
         let turn = s.turns.len() - 1;
-        let take = hub::Take {
-            dir: s.folder.clone(),
-            name: format!("{}/{turn}-after", s.uid()),
+        hub::checkpoint(
+            s.folder.clone(),
+            format!("{}/{turn}-after", s.uid()),
             key,
             turn,
-            after: true,
-            before: s.turns[turn].before.clone(),
-            first: s.first().map(str::to_owned),
-            then: None,
-        };
-        hub::checkpoint(take, self.tx.clone());
+            true,
+            s.turns[turn].before.clone(),
+            s.first().map(str::to_owned),
+            None,
+            self.tx.clone(),
+        );
     }
 
     pub(super) fn worktree_made(
@@ -275,7 +275,8 @@ impl Desk {
         hub::git_action(
             dir,
             action,
-            (self.settings.branch_prefix.clone(), left_out),
+            self.settings.branch_prefix.clone(),
+            left_out,
             key,
             self.tx.clone(),
         );

@@ -146,14 +146,7 @@ impl Desk {
             .map(|(host, _)| host);
         let id = self.take_key();
         let size = self.terminals.last().map_or(FIRST_SIZE, Terminal::size);
-        match Terminal::open(
-            (id, key),
-            dir,
-            host.as_deref(),
-            first,
-            size,
-            self.tx.clone(),
-        ) {
+        match Terminal::open(id, key, dir, host.as_deref(), first, size, self.tx.clone()) {
             Ok(t) => {
                 self.terminals.push(t);
                 self.term_on = Some(id);
