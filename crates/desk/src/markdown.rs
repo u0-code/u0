@@ -1,17 +1,21 @@
 //! What an agent says, drawn the way it was written: gpui-kit's Markdown
 //! view reads it, sets it, colours its code and lets its words be chosen
 //! and copied. Ghost adds what only the desk can say: where a link may go,
-//! that a name in code which reads as a file opens it in your editor, and
+//! that a name in code which reads as a file opens it in your editor (its
+//! menu copies where it is), GitHub's alerts (`> [!NOTE]`) set apart, and
 //! what the buttons on a code block and a table do.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Write as _};
 
 use gpui::{
     App, ClickEvent, Context, Div, IntoElement, Overflow, SharedString, StyleRefinement,
     WeakEntity, WhiteSpace, Window,
-    component::text::{
-        MarkdownNode, MarkdownParseContext, MarkdownPlugin, TableData, TextView, TextViewStyle,
-        markdown_ast::Node,
+    component::{
+        menu::{ContextMenuExt as _, PopupMenuItem},
+        text::{
+            MarkdownExtensions, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TableData,
+            TextView, TextViewStyle, markdown_ast::Node,
+        },
     },
     div,
     prelude::*,
@@ -62,6 +66,7 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
             TextView::markdown(SharedString::from(format!("{key}-words")), bulleted(text))
                 .style(style)
                 .selectable(true)
+                .markdown_extensions(extensions())
                 .plugin(Paths(desk))
                 .on_link_click(move |to, click, window, cx| {
                     follow(&links, to, click.modifiers().platform, window, cx);
@@ -71,6 +76,47 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
                 })
                 .table_actions(|table, _, _| table_actions(table)),
         )
+}
+
+/// What of Markdown is read: no HTML (a tag shows as the text it is), and
+/// GitHub's alerts, each a block set apart by a line down its left in its
+/// colour, under its name: `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+/// `[!WARNING]`, `[!CAUTION]`, and Claude's `[!INSIGHT]`.
+fn extensions() -> MarkdownExtensions {
+    type Colour = fn() -> gpui::Hsla;
+    let kinds: [(&str, &str, &str, Colour); 6] = [
+        ("note", "Note", "alert", theme::link),
+        ("tip", "Tip", "bulb", theme::ok),
+        ("important", "Important", "alert", theme::accent),
+        ("warning", "Warning", "alert", theme::coral),
+        ("caution", "Caution", "alert", theme::gone),
+        ("insight", "Insight", "bulb", theme::accent),
+    ];
+    kinds.into_iter().fold(
+        MarkdownExtensions::default(),
+        |e, (name, title, icon, colour)| {
+            e.block_surface(name, move |_, _| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .pl(px(12.))
+                    .py(px(2.))
+                    .border_l_2()
+                    .border_color(colour())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .text_color(colour())
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(ui::icon(icon, 14.))
+                            .child(title),
+                    )
+            })
+        },
+    )
 }
 
 /// `text` with each line begun with `• `, as models write a list, made a
@@ -184,18 +230,41 @@ impl MarkdownPlugin for Paths {
 
     fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let (desk, path) = (self.0.clone(), node.as_text().to_owned());
+        let full = (desk.upgrade())
+            .map(|d| d.read(cx).full_path(&path).display().to_string())
+            .unwrap_or_default();
+        let (opens, written) = (desk.clone(), path.clone());
         div()
             .id(SharedString::from(format!("path-{path}")))
             .px(px(3.))
             .rounded(px(4.))
             // The shade the kit sets code on: its accent (`theme::kit`).
             .bg(theme::hover())
-            .font_family(crate::fonts::faces(cx).mono.clone())
             .text_color(theme::link())
             .cursor_pointer()
-            .child(path.clone())
+            // The face on the words only: the menu is in the window's.
+            .child(
+                div()
+                    .font_family(crate::fonts::faces(cx).mono.clone())
+                    .child(path.clone()),
+            )
             .on_click(move |_: &ClickEvent, _, cx| {
                 let _ = desk.update(cx, |d, _| d.open_named(&path));
+            })
+            .context_menu(move |menu, _, _| {
+                let copy = |label: &str, text: String| {
+                    PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                    })
+                };
+                let (desk, path) = (opens.clone(), written.clone());
+                menu.item(
+                    PopupMenuItem::new("Open in your editor").on_click(move |_, _, cx| {
+                        let _ = desk.update(cx, |d, _| d.open_named(&path));
+                    }),
+                )
+                .item(copy("Copy the path", written.clone()))
+                .item(copy("Copy the full path", full.clone()))
             })
     }
 }
@@ -242,6 +311,28 @@ fn table_actions(table: &TableData) -> Div {
         .gap(px(2.))
         .child(copy("md", "Copy as Markdown", table.markdown.clone()))
         .child(copy("csv", "Copy as CSV", csv(table)))
+        .child(copy("html", "Copy as HTML", html(table)))
+}
+
+/// A table's words as an HTML table, what HTML gives meaning escaped.
+fn html(table: &TableData) -> String {
+    let escape = |c: &str| {
+        c.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
+    let row = |cells: &[String], tag: &str| {
+        let mut out = String::from("<tr>");
+        for c in cells {
+            let _ = write!(out, "<{tag}>{}</{tag}>", escape(c));
+        }
+        out + "</tr>"
+    };
+    let body: String = table.rows.iter().map(|r| row(r, "td")).collect();
+    format!(
+        "<table><thead>{}</thead><tbody>{body}</tbody></table>",
+        row(&table.headers, "th")
+    )
 }
 
 /// A table's words as CSV, cells quoted where they need it.
@@ -292,6 +383,19 @@ mod tests {
             ..TableData::default()
         };
         assert_eq!(csv(&table), "a,b\n1,\"x, y\"");
+    }
+
+    #[test]
+    fn a_table_copies_as_html_escaping_its_cells() {
+        let table = TableData {
+            headers: vec!["a".into()],
+            rows: vec![vec!["<b> & c".into()]],
+            ..TableData::default()
+        };
+        assert_eq!(
+            html(&table),
+            "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>&lt;b&gt; &amp; c</td></tr></tbody></table>"
+        );
     }
 
     #[test]

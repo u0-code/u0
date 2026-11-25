@@ -77,14 +77,16 @@ actions!(
         PullRequests,
         Issues,
         ClearTerminal,
-        EditQueued
+        EditQueued,
+        PreviousTurn,
+        NextTurn
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 40] = [
+pub const ACTIONS: [(&str, &str, Make); 42] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -160,6 +162,10 @@ pub const ACTIONS: [(&str, &str, Make); 40] = [
     ("clear_terminal", "Clear the terminal", || {
         Box::new(ClearTerminal)
     }),
+    ("previous_turn", "To what you said before", || {
+        Box::new(PreviousTurn)
+    }),
+    ("next_turn", "To what you said next", || Box::new(NextTurn)),
     (
         "transcript_view",
         "Transcript view: normal, thinking, verbose",
@@ -313,6 +319,8 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-p", GoToFile, None),
         KeyBinding::new("cmd-shift-f", SearchWords, None),
         KeyBinding::new("ctrl-o", TranscriptView, None),
+        KeyBinding::new("ctrl-shift-up", PreviousTurn, None),
+        KeyBinding::new("ctrl-shift-down", NextTurn, None),
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("cmd-alt-h", HideOthers, None),
         KeyBinding::new("cmd-1", Session1, None),
@@ -441,6 +449,8 @@ pub fn handle(cx: &mut App, shown: &Shown) {
         d.open_model(window, cx);
     });
     on::<TranscriptView>(cx, shown, |d, _, cx| d.set_view(d.settings.view.next(), cx));
+    on::<PreviousTurn>(cx, shown, |d, _, cx| d.step_turn(false, cx));
+    on::<NextTurn>(cx, shown, |d, _, cx| d.step_turn(true, cx));
     on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });

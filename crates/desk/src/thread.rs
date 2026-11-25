@@ -455,9 +455,11 @@ impl Desk {
                 o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
             })
         });
-        // Scripts run in the new worktree: what they were, where to see them.
+        // Scripts run in the new worktree: what they were, whether the
+        // session still waits for them, where to see them.
         let setup = (!s.setup.is_empty()).then(|| {
             let key = s.key;
+            let waiting = !s.holding.is_empty();
             div()
                 .flex()
                 .items_center()
@@ -468,11 +470,21 @@ impl Desk {
                 .rounded(px(10.))
                 .border_1()
                 .border_color(theme::border())
-                .child(icon("terminal"))
+                .child(if waiting {
+                    gpui::component::spinner::Spinner::new()
+                        .color(theme::faint())
+                        .into_any_element()
+                } else {
+                    icon("check").into_any_element()
+                })
                 .child(
                     ui::text(
                         faces,
-                        format!("Set up in its new worktree: {}", s.setup.join(", ")),
+                        if waiting {
+                            format!("Setting up its new worktree: {}", s.setup.join(", "))
+                        } else {
+                            format!("Its new worktree is set up: {}", s.setup.join(", "))
+                        },
                     )
                     .flex_1()
                     .text_size(px(13.))
@@ -804,6 +816,18 @@ impl Desk {
                     .into_any_element()
             }
             Item::Agent(text) => {
+                // What is still streaming in shows whole paragraphs only,
+                // where that is asked for.
+                let streaming = self.settings.paragraphs
+                    && i + 1 == s.items.len()
+                    && matches!(s.state, crate::session::State::Working);
+                let streamed = |t: &str| -> String {
+                    if streaming {
+                        t[..t.rfind("\n\n").unwrap_or(0)].to_owned()
+                    } else {
+                        t.to_owned()
+                    }
+                };
                 // Under what the agent said, on hover: copy it, answer it,
                 // or branch off after it.
                 let group = SharedString::from(format!("{key}-said"));
@@ -828,11 +852,12 @@ impl Desk {
                     .flex_col()
                     .gap(px(2.))
                     .group(group.clone())
-                    .child(
-                        div()
-                            .px(px(10.))
-                            .child(markdown::render(faces, &key, text, cx)),
-                    )
+                    .child(div().px(px(10.)).child(markdown::render(
+                        faces,
+                        &key,
+                        &streamed(text),
+                        cx,
+                    )))
                     .child(
                         div()
                             .flex()

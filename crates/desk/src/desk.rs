@@ -1500,13 +1500,18 @@ impl Desk {
     /// Open a file the agent named (`src/a.rs`, `/x/y.rs:12`), from the
     /// folder of the session on screen, in your editor.
     pub fn open_named(&self, named: &str) {
+        self.edit(self.full_path(named), None);
+    }
+
+    /// Where the file `named` (`src/a.rs`, `a.rs:12`) is: from the folder
+    /// of the session on screen, where it is not whole.
+    pub fn full_path(&self, named: &str) -> PathBuf {
         let name = named.split(':').next().unwrap_or(named);
         let path = Path::new(name);
-        let full = match self.session() {
+        match self.session() {
             Some(s) if path.is_relative() => s.meta.folder.join(path),
             _ => path.to_path_buf(),
-        };
-        self.edit(full, None);
+        }
     }
 
     /// Bind the action `name` to `key` in your keybindings.json, or with

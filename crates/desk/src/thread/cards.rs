@@ -336,12 +336,23 @@ impl Desk {
                     .text_size(px(12.))
                     .child(why.to_owned()),
             )
-            .child(
-                div().flex().gap(px(6.)).child(
-                    ui::button("restart", "Restart session", Weight::Secondary)
-                        .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
-                ),
-            )
+            .child({
+                let why = why.to_owned();
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(
+                        ui::button("restart", "Restart session", Weight::Secondary)
+                            .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
+                    )
+                    .child(
+                        ui::button("copy-why", "Copy the error", Weight::Quiet).on_click(
+                            move |_, _, cx| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(why.clone()));
+                            },
+                        ),
+                    )
+            })
     }
 
     /// The agent asks to be signed in before it opens the session.

@@ -66,6 +66,36 @@ pub enum Line {
     Since,
 }
 
+/// Whether `row` of `items` is drawn in the view `view`: thinking only in
+/// the thinking and verbose views; a call that went well not in the quiet
+/// one; in zen, what you said, its answers and its questions.
+fn shown(view: crate::settings::View, items: &[Item], row: &fold::Row) -> bool {
+    use crate::settings::View;
+    let went_well = |i: usize| {
+        matches!(&items[i], Item::Tool(t)
+            if t.call.status == agent_client_protocol::v1::schema::ToolCallStatus::Completed)
+    };
+    match (view, row) {
+        (View::Thinking | View::Verbose, _) => true,
+        (View::Zen, fold::Row::Item(i)) => matches!(
+            items[*i],
+            Item::You(_)
+                | Item::Agent(_)
+                | Item::Asked(_)
+                | Item::Note { .. }
+                | Item::Image { yours: true, .. }
+                | Item::File { .. }
+        ),
+        (View::Zen, _) => false,
+        (View::Quiet, fold::Row::Group { from, to, .. }) => !(*from..*to).all(went_well),
+        (_, fold::Row::Item(i)) => {
+            let thought = matches!(items[*i], Item::Thought { .. });
+            !thought && (view != View::Quiet || !went_well(*i))
+        }
+        _ => true,
+    }
+}
+
 impl Desk {
     /// The lines of the session on screen, now; none for a draft not begun.
     fn lines_now(&self) -> Vec<Line> {
@@ -86,14 +116,10 @@ impl Desk {
             matches!(s.state, State::Working | State::Opening),
             self.settings.view != crate::settings::View::Verbose,
         );
-        // Its thinking is left out of the normal view.
-        let rows: Vec<fold::Row> = if self.settings.view == crate::settings::View::Normal {
-            rows.into_iter()
-                .filter(|r| !matches!(r, fold::Row::Item(i) if matches!(s.items[*i], Item::Thought { .. })))
-                .collect()
-        } else {
-            rows
-        };
+        let rows: Vec<fold::Row> = rows
+            .into_iter()
+            .filter(|r| shown(self.settings.view, &s.items, r))
+            .collect();
         let mut out = vec![Line::Head];
         // What came while you were away is marked where it begins.
         let since = s.seen.filter(|n| *n > 0 && *n < s.items.len());
@@ -201,6 +227,30 @@ impl Desk {
         }
         self.reveal = Some(item);
         cx.notify();
+    }
+
+    /// Bring into view what you said next (`ahead`) or before, from the
+    /// line at the top of the thread.
+    pub fn step_turn(&mut self, ahead: bool, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        let top = self.list.logical_scroll_top().item_ix;
+        let at = (self.lines.iter().take(top + 1).rev()).find_map(|l| match l {
+            Line::Row(
+                fold::Row::Item(i)
+                | fold::Row::Group { from: i, .. }
+                | fold::Row::Turn { from: i, .. },
+            ) => Some(*i),
+            _ => None,
+        });
+        let yours = |i: &usize| matches!(s.items[*i], Item::You(_));
+        let to = if ahead {
+            (at.map_or(0, |a| a + 1)..s.items.len()).find(yours)
+        } else {
+            (0..at.unwrap_or(0)).rev().find(yours)
+        };
+        if let Some(to) = to {
+            self.reveal_item(to, cx);
+        }
     }
 
     /// The thread as a list, with find over it and the map of its turns
@@ -582,7 +632,7 @@ impl Desk {
                     .bg(theme::faint())
                     .cursor_pointer()
                     .hover(|st| st.bg(theme::text()))
-                    .tooltip(ui::tip(ui::fit(text, 60)))
+                    .tooltip(ui::tip(format!("{} · ⌃⇧↑ ⌃⇧↓", ui::fit(text, 60))))
                     .on_click(cx.listener(move |this, _, _, cx| this.reveal_item(i, cx))),
             );
         }

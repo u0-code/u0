@@ -362,23 +362,40 @@ impl Desk {
                     group(
                         faces,
                         "The agent's work",
-                        vec![row(
-                            faces,
-                            q,
-                            "Transcript view (⌃O)",
-                            "Normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
-                            Self::pick(
-                                "view",
-                                [
-                                    ("Normal", crate::settings::View::Normal),
-                                    ("Thinking", crate::settings::View::Thinking),
-                                    ("Verbose", crate::settings::View::Verbose),
-                                ],
-                                self.settings.view,
-                                |s, v| s.view = v,
-                                cx,
+                        vec![
+                            row(
+                                faces,
+                                q,
+                                "Transcript view (⌃O)",
+                                "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
+                                Self::pick(
+                                    "view",
+                                    [
+                                        ("Answers", crate::settings::View::Zen),
+                                        ("Quiet", crate::settings::View::Quiet),
+                                        ("Normal", crate::settings::View::Normal),
+                                        ("Thinking", crate::settings::View::Thinking),
+                                        ("Verbose", crate::settings::View::Verbose),
+                                    ],
+                                    self.settings.view,
+                                    |s, v| s.view = v,
+                                    cx,
+                                ),
                             ),
-                        )],
+                            row(
+                                faces,
+                                q,
+                                "An answer streams in",
+                                "A paragraph at a time holds each back until it is whole.",
+                                Self::pick(
+                                    "paragraphs",
+                                    [("Word by word", false), ("A paragraph at a time", true)],
+                                    self.settings.paragraphs,
+                                    |s, v| s.paragraphs = v,
+                                    cx,
+                                ),
+                            ),
+                        ],
                     ),
                 ],
             ),

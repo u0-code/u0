@@ -195,6 +195,8 @@ impl Desk {
                 .text_color(theme::faint()),
         );
         for (id, says, view) in [
+            ("view-zen", "Answers only", View::Zen),
+            ("view-quiet", "Calls that went wrong", View::Quiet),
             ("view-normal", "Normal", View::Normal),
             ("view-thinking", "Thinking", View::Thinking),
             ("view-verbose", "Verbose", View::Verbose),
