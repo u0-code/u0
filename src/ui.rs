@@ -310,11 +310,16 @@ pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> A
     }
 }
 
+/// The widest a tip stands before it wraps.
+const TIP_WIDTH: f32 = 320.;
+
 struct Tip(SharedString);
 
 impl Render for Tip {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A long tip wraps, a column wide, not across the window.
         div()
+            .max_w(px(TIP_WIDTH))
             .px(px(8.))
             .py(px(4.))
             .rounded(px(6.))

@@ -739,7 +739,7 @@ impl Desk {
         // On hover, a card: its whole title, where it works, and the last
         // thing the agent said.
         let last = s.items.iter().rev().find_map(|i| match i {
-            crate::session::Item::Agent(t) => Some(ui::fit(t.trim(), 160)),
+            crate::session::Item::Agent(t) => Some(gist(t)).filter(|g| !g.is_empty()),
             _ => None,
         });
         let mut card = format!("{}\n{} · {}", s.title, agent, Desk::shown(&s.folder));
@@ -1357,4 +1357,48 @@ fn project_icon(folder: &std::path::Path) -> Option<std::path::PathBuf> {
     .iter()
     .map(|name| folder.join(name))
     .find(|p| p.is_file())
+}
+
+/// What an agent said, as a line of plain words for a card: its prose
+/// only (no code, no drawn trees or tables), the marks of Markdown taken
+/// off, about two lines of a tip.
+fn gist(said: &str) -> String {
+    let mut words = String::new();
+    let mut code = false;
+    for line in said.lines() {
+        let line = line.trim();
+        if line.starts_with("```") {
+            code = !code;
+            continue;
+        }
+        let drawn = line.contains(['│', '├', '└', '┌', '─']) || line.starts_with('|');
+        if code || drawn || line.is_empty() {
+            continue;
+        }
+        let line = line
+            .trim_start_matches(['#', '>', '-', '*', ' '])
+            .replace(['`', '*'], "");
+        if !words.is_empty() {
+            words.push(' ');
+        }
+        words.push_str(line.trim());
+        if words.chars().count() > 120 {
+            break;
+        }
+    }
+    ui::fit(&words, 110)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gist;
+
+    #[test]
+    fn a_cards_words_are_the_prose_without_code_trees_or_marks() {
+        let said = "这次调研生成的文件都在 `/Users/x/jepa` 下：\n```\n/Users/x/jepa/\n├── README.md\n└── reports/\n```\n## 结论\n- **核心思想**：JEPA 在表征空间里预测。";
+        assert_eq!(
+            gist(said),
+            "这次调研生成的文件都在 /Users/x/jepa 下： 结论 核心思想：JEPA 在表征空间里预测。"
+        );
+    }
 }
