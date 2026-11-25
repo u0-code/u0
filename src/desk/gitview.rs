@@ -52,6 +52,7 @@ impl Desk {
         folder: &std::path::Path,
         branch: Option<String>,
         repo: bool,
+        scripts: Vec<super::runs::Script>,
     ) {
         let under = self.home.join("worktrees");
         let Some(s) = self.session_mut(key).filter(|s| s.folder == folder) else {
@@ -59,6 +60,7 @@ impl Desk {
         };
         s.branch = branch;
         s.repo = repo;
+        s.scripts = scripts;
         if s.state == State::Draft {
             return;
         }

@@ -329,7 +329,10 @@ impl Desk {
                 folder,
                 branch,
                 repo,
-            } => self.looked(key, &folder, branch, repo),
+                scripts,
+            } => self.looked(key, &folder, branch, repo, scripts),
+            Msg::Notice(Ok(text)) => self.done(text, None),
+            Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
             Msg::Placed { key, starts } => {
                 if let Some(s) = self.session_mut(key) {
                     for (id, starts) in starts {

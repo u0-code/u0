@@ -1247,6 +1247,7 @@ impl Desk {
             let mut new = Session::new(key, agent, s.folder.clone());
             new.project = std::mem::take(&mut s.project);
             (new.branch, new.repo) = (s.branch.take(), s.repo);
+            new.scripts = std::mem::take(&mut s.scripts);
             new.wants_worktree = s.wants_worktree;
             *s = new;
         }

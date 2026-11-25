@@ -59,12 +59,10 @@ impl Desk {
             .term_on
             .filter(|id| terms.iter().any(|t| t.id == *id))
             .or_else(|| terms.last().map(|t| t.id));
-        let folder = self.session().map(|s| s.folder.clone());
-        let scripts = folder
-            .as_deref()
-            .map(runs::config)
-            .unwrap_or_default()
-            .scripts;
+        let scripts = self
+            .session()
+            .map(|s| s.scripts.clone())
+            .unwrap_or_default();
 
         let mut bar = div()
             .flex()

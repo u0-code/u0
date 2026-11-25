@@ -397,6 +397,8 @@ pub struct Session {
     /// The agent was asked to write a commit message: its answer goes in
     /// the commit form.
     pub writing_message: bool,
+    /// The scripts the `ghost.json` of its repository names.
+    pub scripts: Vec<crate::desk::runs::Script>,
     /// The calls just ended whose diffs are yet to be placed in their
     /// files, each diff's file and new text (see `hub::place`).
     pub placing: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,
@@ -771,6 +773,7 @@ impl Session {
             pr: None,
             git_step: None,
             writing_message: false,
+            scripts: Vec::new(),
             placing: Vec::new(),
         }
     }

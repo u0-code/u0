@@ -99,7 +99,7 @@ fn read_config(dir: &Path) -> Result<(PathBuf, Config), String> {
 
 /// Put `script` at `at` in `ghost.json` (a new one at the end), or take
 /// the one at `at` away when `script` is none.
-fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
+pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
     let (path, mut config) = read_config(dir)?;
     match (at, script) {
         (Some(at), Some(script)) if at < config.scripts.len() => config.scripts[at] = script,
@@ -114,13 +114,10 @@ fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result
     crate::whole::write(&path, text.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// The commands `ghost.json` names in the repository at `dir`; none where
-/// there is no such file, and none (said once in the log) where it does not
-/// read.
-pub fn config(dir: &Path) -> Config {
-    let Some(root) = crate::git::root(dir) else {
-        return Config::default();
-    };
+/// The commands `ghost.json` names in the repository whose root is `root`;
+/// none where there is no such file, and none (said once in the log) where
+/// it does not read.
+pub fn config(root: &Path) -> Config {
     match std::fs::read_to_string(root.join("ghost.json")) {
         Err(_) => Config::default(),
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
@@ -305,7 +302,8 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> bool {
         let mut held = false;
-        for script in config(dir).scripts.into_iter().filter(|s| s.worktree) {
+        let scripts = self.session_at(key).map(|s| s.scripts.clone());
+        for script in scripts.into_iter().flatten().filter(|s| s.worktree) {
             let command = if script.wait {
                 format!("{}; exit", script.command)
             } else {
@@ -341,10 +339,7 @@ impl Desk {
     /// repository on screen, or a new one.
     pub fn write_script(&mut self, at: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
         let script = at
-            .and_then(|n| {
-                let dir = self.session()?.folder.clone();
-                config(&dir).scripts.into_iter().nth(n)
-            })
+            .and_then(|n| self.session()?.scripts.get(n).cloned())
             .unwrap_or_default();
         self.script_name
             .update(cx, |i, cx| i.set_text(&script.name, cx));
@@ -362,7 +357,10 @@ impl Desk {
     /// Keep the script being written in `ghost.json`, or (`keep` false)
     /// take it away.
     pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
-        let (Some(w), Some(dir)) = (self.writing, self.session().map(|s| s.folder.clone())) else {
+        let (Some(w), Some((key, dir))) = (
+            self.writing,
+            self.session().map(|s| (s.key, s.folder.clone())),
+        ) else {
             return;
         };
         let script = keep.then(|| Script {
@@ -379,10 +377,8 @@ impl Desk {
             cx.notify();
             return;
         }
-        match write_script(&dir, w.at, script) {
-            Ok(()) => self.writing = None,
-            Err(why) => self.trouble("Couldn't write ghost.json", Some(why), None),
-        }
+        self.writing = None;
+        crate::hub::save_script(dir, w.at, script, key, self.tx.clone());
         cx.notify();
     }
 

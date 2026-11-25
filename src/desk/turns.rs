@@ -132,16 +132,17 @@ impl Desk {
     pub(super) fn worktree_made(
         &mut self,
         key: u64,
-        result: Result<crate::git::Worktree, String>,
+        result: Result<(crate::git::Worktree, Vec<super::runs::Script>), String>,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(s) = self.session_mut(key) else {
             return;
         };
         match result {
-            Ok(wt) => {
+            Ok((wt, scripts)) => {
                 s.folder.clone_from(&wt.path);
                 s.branch = Some(wt.branch.clone());
+                s.scripts = scripts;
                 let path = wt.path.clone();
                 s.worktree = Some(wt);
                 let agent = s.agent.clone();

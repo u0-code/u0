@@ -32,6 +32,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     acp::{self, Agent, Error},
+    desk::runs::{self, Script},
     git,
     registry::{self, Entry, Missing},
 };
@@ -70,13 +71,18 @@ pub enum Msg {
         result: Result<Opened, Error>,
     },
     /// What git says of `folder`, where the session `key` works: its
-    /// branch, and whether it is in a repository.
+    /// branch, whether it is in a repository, and the scripts the
+    /// repository's `ghost.json` names.
     Looked {
         key: u64,
         folder: PathBuf,
         branch: Option<String>,
         repo: bool,
+        scripts: Vec<Script>,
     },
+    /// Something done off the window's thread, to be said: what was done,
+    /// or what was not and why.
+    Notice(Result<String, (String, String)>),
     /// Where the diffs of calls of the session `key` start in their files.
     Placed {
         key: u64,
@@ -219,10 +225,11 @@ pub enum Msg {
         key: u64,
         why: String,
     },
-    /// A worktree was made for the session, or could not be.
+    /// A worktree was made for the session, with the scripts its
+    /// `ghost.json` names, or could not be.
     Worktree {
         key: u64,
-        result: Result<git::Worktree, String>,
+        result: Result<(git::Worktree, Vec<Script>), String>,
     },
     /// A turn's checkpoint was taken; after it, what changed. `then` is
     /// what to say once the checkpoint before a turn is taken.
@@ -856,14 +863,29 @@ pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
     });
 }
 
-/// Read the branch of `folder`, where the session `key` works, and
-/// whether it is in a repository.
+/// Read the branch of `folder`, where the session `key` works, whether it
+/// is in a repository, and the scripts its `ghost.json` names.
 pub fn look(folder: PathBuf, key: u64, tx: Sender) {
-    off(tx, move || Msg::Looked {
+    off(tx, move || looked(key, folder));
+}
+
+fn looked(key: u64, folder: PathBuf) -> Msg {
+    let root = git::root(&folder);
+    Msg::Looked {
         key,
         branch: git::branch(&folder),
-        repo: git::root(&folder).is_some(),
+        repo: root.is_some(),
+        scripts: root.map(|r| runs::config(&r).scripts).unwrap_or_default(),
         folder,
+    }
+}
+
+/// Put `script` at `at` in the `ghost.json` of the repository at `dir`, or
+/// take the one at `at` away; then read the session `key`'s folder again.
+pub fn save_script(dir: PathBuf, at: Option<usize>, script: Option<Script>, key: u64, tx: Sender) {
+    off(tx, move || match runs::write_script(&dir, at, script) {
+        Ok(()) => looked(key, dir),
+        Err(why) => Msg::Notice(Err(("Couldn't write ghost.json".into(), why))),
     });
 }
 
@@ -1044,6 +1066,10 @@ pub fn make_worktree(
             Some(Begin::Branch(b)) => git::worktree(&dir, &about, &home, &prefix, &b),
             None => git::worktree(&dir, &about, &home, &prefix, "HEAD"),
         };
+        let result = result.map(|wt| {
+            let scripts = runs::config(&wt.path).scripts;
+            (wt, scripts)
+        });
         Msg::Worktree { key, result }
     });
 }

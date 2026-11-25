@@ -69,6 +69,7 @@ impl Desk {
         let mut child = Session::new(key, &p.agent, p.folder.clone());
         child.project.clone_from(&p.project);
         (child.branch, child.repo) = (p.branch.clone(), p.repo);
+        child.scripts.clone_from(&p.scripts);
         child.id = Some(id);
         child.parent = Some(parent);
         child.title = title;
@@ -86,6 +87,7 @@ impl Desk {
         s.project.clone_from(&o.project);
         s.worktree.clone_from(&o.worktree);
         (s.branch, s.repo) = (o.branch.clone(), o.repo);
+        s.scripts.clone_from(&o.scripts);
         if let Some(slot) = self.slot(&s.agent) {
             slot.seed(&mut s);
         }
