@@ -18,6 +18,7 @@ mod start;
 
 pub use lines::Line;
 pub mod output;
+pub mod select;
 mod topbar;
 
 use std::path::Path;
@@ -812,7 +813,10 @@ impl Desk {
                     .gap(px(4.))
                     .group(group)
                     .child(
-                        ui::text(faces, shown)
+                        div()
+                            .font_family(faces.ui.clone())
+                            .text_color(theme::text())
+                            .child(select::plain(format!("{key}-you-words"), shown))
                             .max_w(px(520.))
                             .px(px(16.))
                             .py(px(12.))

@@ -21,7 +21,9 @@ use crate::{
     desk::Desk,
     fonts::{self, Faces},
     style::{H1, H2, H3, MONO, MONO_LINE, PROSE, PROSE_LINE, S2, S4, SMALL, WELL_RADIUS},
-    theme, ui,
+    theme,
+    thread::select,
+    ui,
 };
 
 /// One block of a message.
@@ -401,8 +403,28 @@ impl Setting {
 
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
-fn styled(faces: &Faces, line: &str, base: &Base) -> StyledText {
-    styled_from(faces, &padded(inline(line)), base)
+fn styled(faces: &Faces, id: &str, line: &str, base: &Base) -> StyledText {
+    styled_from(faces, id, &padded(inline(line)), base)
+}
+
+/// `text`, which draws `words`, drawn so that they can be chosen with the
+/// mouse, as the paragraph `id`.
+fn choosable(id: &str, text: StyledText, words: &str) -> AnyElement {
+    let layout = text.layout().clone();
+    select::Selectable::new(
+        id.to_owned(),
+        layout,
+        SharedString::from(words.to_owned()),
+        text,
+    )
+    .into_any_element()
+}
+
+/// A line with its marks drawn, its words choosable, as the paragraph `id`.
+fn choosable_line(faces: &Faces, id: &str, line: &str, base: &Base) -> AnyElement {
+    let parsed = padded(inline(line));
+    let text = styled_from(faces, id, &parsed, base);
+    choosable(id, text, &parsed.text)
 }
 
 /// What stands either side of inline code, inside its shade: a thin space
@@ -458,7 +480,7 @@ fn linked(
     desk: &gpui::WeakEntity<Desk>,
 ) -> AnyElement {
     let parsed = padded(inline(line));
-    let text = styled_from(faces, &parsed, base);
+    let text = styled_from(faces, &id, &parsed, base);
     let mut ranges: Vec<Range<usize>> = parsed.links.iter().map(|(r, _)| r.clone()).collect();
     let mut addresses: Vec<String> = parsed.links.iter().map(|(_, a)| a.clone()).collect();
     for r in &parsed.code {
@@ -469,11 +491,16 @@ fn linked(
         }
     }
     if ranges.is_empty() {
-        return text.into_any_element();
+        return choosable(&id, text, &parsed.text);
     }
     let desk = desk.clone();
-    InteractiveText::new(SharedString::from(id), text)
-        .on_click(ranges, move |i, _, cx| {
+    let (layout, words) = (
+        text.layout().clone(),
+        SharedString::from(parsed.text.clone()),
+    );
+    let linked = InteractiveText::new(SharedString::from(id.clone()), text).on_click(
+        ranges,
+        move |i, _, cx| {
             let Some(address) = addresses.get(i) else {
                 return;
             };
@@ -482,8 +509,9 @@ fn linked(
             } else {
                 let _ = desk.update(cx, |d, cx| d.open_named(address, cx));
             }
-        })
-        .into_any_element()
+        },
+    );
+    select::Selectable::new(id, layout, words, linked).into_any_element()
 }
 
 /// Whether code reads as a file's path: `src/a.rs`, `a.rs:12`, `./x/y`.
@@ -502,7 +530,7 @@ pub fn path_like(text: &str) -> bool {
         && name.chars().any(char::is_alphabetic)
 }
 
-fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
+fn styled_from(faces: &Faces, id: &str, parsed: &Inline, base: &Base) -> StyledText {
     let face = |family: &SharedString, weight, style| gpui::Font {
         family: family.clone(),
         features: gpui::FontFeatures::default(),
@@ -579,6 +607,7 @@ fn styled_from(faces: &Faces, parsed: &Inline, base: &Base) -> StyledText {
             }
         })
         .collect();
+    let runs = select::tinted(id, parsed.text.len(), runs);
     StyledText::new(SharedString::from(parsed.text.clone())).with_runs(runs)
 }
 
@@ -684,7 +713,7 @@ fn block_element(
             div()
                 .text_size(px(size))
                 .line_height(px(line))
-                .child(styled(faces, text, &base))
+                .child(choosable_line(faces, key, text, &base))
         }
         Block::Item {
             marker,
@@ -715,8 +744,9 @@ fn block_element(
                 )))
         }
         // A quote steps in and goes a shade quieter: no bar beside it.
-        Block::Quote(text) => sized(set).pl(px(S4)).child(styled(
+        Block::Quote(text) => sized(set).pl(px(S4)).child(choosable_line(
             faces,
+            key,
             text,
             &Base {
                 color: theme::text2(),
@@ -813,7 +843,7 @@ fn table(
                 .pb(px(CELL_PAD))
                 .border_b_1()
                 .border_color(theme::rule())
-                .child(styled(faces, title, &strong)),
+                .child(styled(faces, "", title, &strong)),
         );
         for (r, cells) in shown.iter().enumerate() {
             let ruled = r + 1 < shown.len();
@@ -823,7 +853,7 @@ fn table(
                     .h(px(line + 2. * CELL_PAD + if ruled { 1. } else { 0. }))
                     .py(px(CELL_PAD))
                     .when(ruled, |d| d.border_b_1().border_color(theme::panel()))
-                    .child(styled(faces, text, &plain)),
+                    .child(styled(faces, "", text, &plain)),
             );
         }
         grid = grid.child(column);
@@ -998,7 +1028,11 @@ fn code(
                         .text_size(px(MONO))
                         .line_height(px(MONO_LINE))
                         .text_color(theme::text2())
-                        .child(crate::syntax::styled(faces, text, lang)),
+                        .child(choosable(
+                            &format!("{key}-code"),
+                            crate::syntax::styled(faces, &format!("{key}-code"), text, lang),
+                            text,
+                        )),
                 ),
         )
 }

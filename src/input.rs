@@ -602,8 +602,12 @@ impl TextInput {
         }
     }
 
+    /// Copy what is chosen in it; with nothing chosen, ⌘C goes on to
+    /// what else it copies (the words chosen in the thread).
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if self.selected_range.is_empty() {
+            cx.propagate();
+        } else {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.within(self.selected_range.clone())].to_string(),
             ));

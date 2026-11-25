@@ -199,6 +199,8 @@ pub struct Desk {
     pub rewinding: Option<u64>,
     /// The session a side question is being branched off.
     pub asking_beside: Option<u64>,
+    /// Words in the thread are being chosen with the mouse.
+    pub choosing: bool,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
     /// What you put aside from the composer (see `store::Index`).
@@ -679,6 +681,7 @@ impl Desk {
             waiting: Vec::new(),
             rewinding: None,
             asking_beside: None,
+            choosing: false,
             gone: Vec::new(),
             stashed: Vec::new(),
             notices: Vec::new(),
@@ -1132,6 +1135,7 @@ impl Desk {
     /// Put the session `key` on screen, opening it if it is closed.
     pub(crate) fn bring(&mut self, key: u64, cx: &mut Context<Self>) {
         if self.current != Some(key) {
+            crate::thread::select::clear();
             // Where you were, to go back to; going back keeps the way ahead.
             if !self.trailing {
                 if let Some(old) = self.current {

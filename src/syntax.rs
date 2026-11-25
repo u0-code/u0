@@ -223,7 +223,8 @@ pub fn spans(code: &str, lang_name: &str) -> Vec<(Range<usize>, Kind)> {
 }
 
 /// `code` set in mono with its colours, ready to draw.
-pub fn styled(faces: &Faces, code: &str, lang_name: &str) -> StyledText {
+/// `id` is the paragraph it is, for the words chosen in it.
+pub fn styled(faces: &Faces, id: &str, code: &str, lang_name: &str) -> StyledText {
     let runs = spans(code, lang_name)
         .into_iter()
         .map(|(r, kind)| TextRun {
@@ -248,6 +249,7 @@ pub fn styled(faces: &Faces, code: &str, lang_name: &str) -> StyledText {
             strikethrough: None,
         })
         .collect();
+    let runs = crate::thread::select::tinted(id, code.len(), runs);
     StyledText::new(SharedString::from(code.to_owned())).with_runs(runs)
 }
 

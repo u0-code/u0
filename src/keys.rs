@@ -46,6 +46,7 @@ actions!(
         Review,
         RightColumn,
         WholeRight,
+        CopyChosen,
         Usage,
         LightOrDark,
         Mode,
@@ -69,7 +70,7 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 32] = [
+pub const ACTIONS: [(&str, &str, Make); 33] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("find", "Find in the session", || Box::new(Find)),
@@ -99,6 +100,9 @@ pub const ACTIONS: [(&str, &str, Make); 32] = [
         Box::new(Usage)
     }),
     ("light_or_dark", "Light or dark", || Box::new(LightOrDark)),
+    ("copy_chosen", "Copy the words chosen in the thread", || {
+        Box::new(CopyChosen)
+    }),
     ("mode", "Choose the mode", || Box::new(Mode)),
     ("effort", "Choose how hard it thinks", || Box::new(Effort)),
     ("copy_pr", "Copy the pull request's address", || {
@@ -279,6 +283,7 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-alt-b", RightColumn, None),
         KeyBinding::new("cmd-shift-b", WholeRight, None),
         KeyBinding::new("cmd-u", Usage, None),
+        KeyBinding::new("cmd-c", CopyChosen, None),
         KeyBinding::new("cmd-alt-a", LightOrDark, None),
         KeyBinding::new("cmd-shift-a", Mode, None),
         KeyBinding::new("cmd-shift-e", Effort, None),
@@ -397,6 +402,11 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     cx.on_action(move |_: &WholeRight, cx| {
         let _ = window.update(cx, |d, _, cx| d.toggle_whole(cx));
+    });
+    cx.on_action(move |_: &CopyChosen, cx| {
+        if let Some(text) = crate::thread::select::text() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        }
     });
     cx.on_action(move |_: &Usage, cx| {
         let _ = window.update(cx, |d, _, cx| {

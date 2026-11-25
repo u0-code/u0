@@ -183,6 +183,7 @@ impl Desk {
         })
         .size_full();
         let faces = fonts::faces(cx).clone();
+        super::select::new_frame();
         div()
             .relative()
             .flex()
@@ -191,7 +192,30 @@ impl Desk {
             .min_h(px(0.))
             .w_full()
             .children(self.finding.then(|| self.find_bar(&faces, cx)))
-            .child(div().flex_1().min_h(px(0.)).child(list))
+            // Words are chosen by pressing on them and dragging.
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .child(list)
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, e: &gpui::MouseDownEvent, _, cx| {
+                            this.choosing = super::select::press(e.position);
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
+                        if this.choosing && e.pressed_button == Some(gpui::MouseButton::Left) {
+                            super::select::drag(e.position);
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.choosing = false),
+                    ),
+            )
             // Read back up the thread: the way down again.
             .when(!self.at_foot(), |d| {
                 d.child(
