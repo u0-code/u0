@@ -199,6 +199,7 @@ impl Desk {
                 })
         };
         let forge = |kind| self.page == Page::Forge(kind);
+        let usage = self.pages.open && self.pages.tab == crate::pages::Tab::Usage;
         let foot = div()
             .flex()
             .flex_none()
@@ -207,7 +208,12 @@ impl Desk {
             .px(px(8.))
             .pt(px(4.))
             .pb(px(8.))
-            .child(nav("settings", "settings", "Settings", self.pages.open))
+            .child(nav(
+                "settings",
+                "settings",
+                "Settings",
+                self.pages.open && !usage,
+            ))
             .child(nav(
                 "pull_requests",
                 "pull-request",
@@ -220,12 +226,7 @@ impl Desk {
                 "Issues",
                 forge(crate::github::Kind::Issue),
             ))
-            .child(nav(
-                "usage",
-                "gauge",
-                "Usage",
-                self.pages.open && self.pages.tab == crate::pages::Tab::Usage,
-            ))
+            .child(nav("usage", "gauge", "Usage", usage))
             .child(div().flex_1())
             .child(pills);
 
