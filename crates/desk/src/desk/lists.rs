@@ -34,17 +34,16 @@ pub enum Renaming {
     Project(PathBuf),
 }
 
-/// The search over sessions: whether it is open, what is typed, and the
-/// sessions whose records hold it.
+/// The search over sessions: what is typed, and the sessions whose
+/// records hold it.
 pub struct Search {
-    pub open: bool,
     pub input: Entity<InputState>,
     pub found: HashSet<u64>,
 }
 
 impl Search {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         cx.subscribe(&input, |this, _, e: &InputEvent, cx| {
             if let InputEvent::Change = e {
                 this.search_records(cx);
@@ -53,7 +52,6 @@ impl Search {
         })
         .detach();
         Self {
-            open: false,
             input,
             found: HashSet::new(),
         }
@@ -161,7 +159,6 @@ impl Desk {
         };
         let pinned = target.meta.flags.pinned.is_some();
         let project = target.meta.project.clone();
-        let whole = pinned && self.settings.by_status;
         let mut group: Vec<&Session> = self
             .sessions
             .all
@@ -169,7 +166,7 @@ impl Desk {
             .filter(|s| {
                 s.key != moved
                     && s.meta.flags.pinned.is_some() == pinned
-                    && (whole || s.meta.project == project)
+                    && s.meta.project == project
                     && s.parent.is_none()
             })
             .collect();
@@ -762,30 +759,13 @@ impl Desk {
         self.send_in(key, "Carry out the plan.", cx);
     }
 
-    /// List sessions by where they stand, or by project.
-    pub fn toggle_grouping(&mut self, cx: &mut Context<Self>) {
-        self.settings.by_status = !self.settings.by_status;
-        self.save_settings();
-        cx.notify();
-    }
-
-    /// Show, by status, the sessions of `project` only, or of all.
-    pub fn show_only(&mut self, project: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
-        self.settings.only = project;
-        self.popup = super::Popup::Closed;
-        self.save_settings();
-        cx.notify();
-    }
-
-    /// Open or close the search over sessions.
-    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.search.open = !self.search.open;
-        if self.search.open {
-            window.focus(&self.search.input.focus_handle(cx), cx);
+    /// Show the project `folder` in the sidebar among those chosen, or no
+    /// longer; with none chosen, all are shown.
+    pub fn toggle_filter(&mut self, folder: &std::path::Path, cx: &mut Context<Self>) {
+        if let Some(at) = self.filter.iter().position(|f| f == folder) {
+            self.filter.remove(at);
         } else {
-            self.search
-                .input
-                .update(cx, |s, cx| s.set_value("", window, cx));
+            self.filter.push(folder.to_path_buf());
         }
         cx.notify();
     }

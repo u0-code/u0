@@ -6,17 +6,22 @@
 
 use std::{path::Path, time::SystemTime};
 
+use gpui::component::InteractiveElementExt as _;
 use gpui::component::{
-    Sizable as _, input::Input, kbd::Kbd, popover::Popover, scroll::ScrollableElement as _,
+    Selectable as _, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    input::Input,
+    popover::Popover,
+    resizable::{HandleEdge, resize_handle},
+    scroll::ScrollableElement as _,
     separator::Separator,
 };
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
-use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Later, Page, Popup, Renaming, TOPBAR, draggable},
     fonts::Faces,
-    hub::{Slot, Stage},
+    hub::Stage,
     session::{Session, State},
     theme, ui, when,
 };
@@ -32,59 +37,102 @@ impl Desk {
             .child(Input::new(&self.rename).xsmall())
     }
 
-    pub(crate) fn sidebar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn sidebar(
+        &self,
+        faces: &Faces,
+        lights: f32,
+        width: f32,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        // The window's lights, and back and ahead through the sessions seen
+        // at the end of the sidebar's part of the bar.
+        let step = |id: &'static str, icon: &'static str, tip: &str, name: &str, ahead: bool| {
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .child(ui::icon(icon, 14.))
+                .tooltip(crate::keys::hint(cx, tip, name))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.step_trail(ahead, window, cx);
+                }))
+        };
         let head = draggable()
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(8.))
+            .gap(px(2.))
             .h(px(TOPBAR))
             .pl(px(lights))
-            .pr(px(10.))
+            .pr(px(8.))
             .child(div().flex_1())
-            .child(
-                ui::icon_button("search", "search", "Search sessions")
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx))),
-            );
+            .child(step("back", "arrow-left", "Back", "back", false))
+            .child(step("ahead", "arrow-right", "Ahead", "ahead", true));
 
-        let new = div().px(px(8.)).pt(px(8.)).pb(px(12.)).child(
-            div()
-                .id("new-session")
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .w_full()
-                .h(px(34.))
-                .px(px(12.))
-                .rounded(px(8.))
-                .border_1()
-                .border_color(theme::tag_line())
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(ui::icon("plus", 16.).text_color(theme::faint()))
-                .child(
-                    ui::text(faces, "New session")
-                        .flex_1()
-                        .text_size(px(13.))
-                        .weight(gpui::FontWeight::MEDIUM),
+        // t3code's row under it: the search, the projects to show, and a
+        // new session (⇧-click: in the project on screen).
+        let projects_faces = faces.clone();
+        let controls = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(4.))
+            .px(px(8.))
+            .pb(px(8.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .h(px(32.))
+                    .px(px(8.))
+                    .rounded(px(8.))
+                    .hover(|d| d.bg(theme::row_hover()))
+                    .child(
+                        Input::new(&self.search.input)
+                            .appearance(false)
+                            .cleanable(true)
+                            .prefix(ui::icon("search", 16.).text_color(theme::muted())),
+                    ),
+            )
+            .child(
+                self.menu(
+                    Popup::Projects,
+                    Button::new("projects")
+                        .ghost()
+                        .small()
+                        .child(ui::icon("folder", 16.))
+                        .tooltip("Projects")
+                        .selected(!self.filter.is_empty()),
+                    move |d, _, cx| d.projects_menu(&projects_faces, cx),
+                    cx,
                 )
-                .children(
-                    crate::keys::keys_of(cx, "new_session")
-                        .into_iter()
-                        .map(Kbd::new),
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
-        );
+                .anchor(gpui::Anchor::TopRight),
+            )
+            .child(
+                Button::new("new-session")
+                    .ghost()
+                    .small()
+                    .child(ui::icon("square-pen", 16.))
+                    .tooltip(crate::keys::hint(cx, "New session", "new_session"))
+                    .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
+                        let here = this.session().map(|s| s.meta.project.clone());
+                        match here.filter(|_| e.modifiers().shift) {
+                            Some(project) => this.new_in(project, window, cx),
+                            None => this.new_default(window, cx),
+                        }
+                    })),
+            );
 
         // A search begins with its first letter: until then the sidebar is
         // as it was.
-        let query = self
-            .search
-            .open
-            .then(|| self.search.input.read(cx).value().trim().to_lowercase())
+        let query = Some(self.search.input.read(cx).value().trim().to_lowercase())
             .filter(|q| !q.is_empty());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
-        for folder in self.projects() {
+        // The projects chosen in the picker, or all.
+        let shown = self
+            .projects()
+            .into_iter()
+            .filter(|f| self.filter.is_empty() || self.filter.contains(f));
+        for folder in shown {
             let now = crate::store::secs(SystemTime::now());
             let snoozed = self
                 .sessions
@@ -175,243 +223,88 @@ impl Desk {
             );
         }
 
-        let mut agents = div().flex().flex_col().gap(px(2.)).px(px(8.));
-        for slot in &self.slots {
-            agents = agents.child(self.agent_row(faces, slot, cx));
-        }
+        let list = div()
+            .id("sidebar-list")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .child(projects);
 
-        // Agents switched off that are on this machine still, then the
-        // rest of the registry, one click away.
-        let mut more = div().flex().flex_col().gap(px(2.)).px(px(8.));
-        let off: Vec<&crate::registry::Entry> = self
-            .registry
-            .agents
-            .iter()
-            .filter(|e| !self.settings.enabled.contains(&e.id))
-            .collect();
-        for entry in off.iter().filter(|e| e.downloaded(&self.home)) {
-            let id = entry.id.clone();
-            let on = self.page == Page::Agent(id.clone());
-            more = more.child(
-                agent_shell(SharedString::from(format!("more-{id}")), on)
-                    .child(
-                        div()
-                            .opacity(0.45)
-                            .child(ui::mark(faces, &self.mark_of(&id), 16.)),
-                    )
-                    .child(
-                        ui::one_line(ui::text(faces, entry.name.clone()).text_size(px(13.5)))
-                            .opacity(0.45),
-                    )
-                    .child(fine(faces, "Off"))
+        // t3code's foot: a row of icons, and at its end what the agents
+        // need of you, each a click from its page.
+        let mut pills = div().flex().items_center().gap(px(4.));
+        for slot in &self.slots {
+            let word = match &slot.stage {
+                Stage::Ready | Stage::Running { .. }
+                    if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
+                {
+                    "Sign in"
+                }
+                Stage::Missing(_) => "Install",
+                Stage::Installing(_) => "Installing",
+                Stage::Failed(_) => "Stopped",
+                _ => continue,
+            };
+            let id = slot.entry.id.clone();
+            pills = pills.child(
+                Button::new(SharedString::from(format!("pill-{id}")))
+                    .outline()
+                    .xsmall()
+                    .child(ui::mark(faces, &self.mark_of(&id), 12.))
+                    .child(word)
+                    .tooltip(slot.entry.name.clone())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_page(Page::Agent(id.clone()), window, cx);
                     })),
             );
         }
-        let rest = off.iter().filter(|e| !e.downloaded(&self.home)).count();
-        more = more.child(
-            agent_shell("add-agents", false)
-                .child(ui::icon("plus", 16.).mx(px(2.)).text_color(theme::faint()))
-                .child(
-                    ui::text(faces, "Add from the ACP registry")
-                        .flex_1()
-                        .text_size(px(13.))
-                        .text_color(theme::muted()),
-                )
-                .when(rest > 0, |d| d.child(fine(faces, rest.to_string())))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_tab(crate::pages::Tab::Agents, window, cx);
-                })),
-        );
-
-        let list = div()
-            .id("agents")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .gap(px(14.))
-            .children(self.search.open.then(|| {
-                div().px(px(8.)).child(
-                    Input::new(&self.search.input)
-                        .small()
-                        .prefix(ui::icon("search", 13.).text_color(theme::faint())),
-                )
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .pl(px(16.))
-                            .pr(px(10.))
-                            .child(
-                                ui::label(
-                                    faces,
-                                    if self.settings.by_status {
-                                        "Sessions"
-                                    } else {
-                                        "Projects"
-                                    },
-                                )
-                                .flex_1(),
-                            )
-                            .child(
-                                ui::icon_button(
-                                    "group-by",
-                                    "list",
-                                    if self.settings.by_status {
-                                        "Group by project"
-                                    } else {
-                                        "Group by status"
-                                    },
-                                )
-                                .size(px(20.))
-                                .text_color(theme::faint())
-                                .on_click(cx.listener(|this, _, _, cx| this.toggle_grouping(cx))),
-                            )
-                            .child(
-                                ui::icon_button("add-project", "plus", "Add a project")
-                                    .size(px(20.))
-                                    .text_color(theme::faint())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.add_project_page(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(if self.settings.by_status {
-                        self.by_status(faces, query.as_deref(), cx)
-                            .into_any_element()
-                    } else {
-                        projects.into_any_element()
-                    }),
-            )
-            .when(query.is_none(), |d| {
-                d.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(ui::label(faces, "Agents").px(px(16.)))
-                        .child(agents),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(ui::label(faces, "More agents").px(px(16.)))
-                        .child(more),
-                )
-            });
-
-        let settings_on = self.pages.open;
         let foot = div()
             .flex()
             .flex_none()
+            .items_center()
             .px(px(8.))
-            .py(px(10.))
-            .border_t_1()
-            .border_color(theme::border())
+            .pt(px(4.))
+            .pb(px(8.))
             .child(
-                agent_shell("settings", settings_on)
-                    .flex_1()
-                    .child(ui::icon("settings", 16.).text_color(theme::faint()))
-                    .child(ui::text(faces, "Settings").flex_1().text_size(px(13.)))
+                Button::new("settings")
+                    .ghost()
+                    .child(ui::icon("settings", 16.))
+                    .tooltip(crate::keys::hint(cx, "Settings", "settings"))
+                    .selected(self.pages.open)
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_tab(this.pages.tab, window, cx);
                     })),
-            );
+            )
+            .child(div().flex_1())
+            .child(pills);
 
         div()
             .relative()
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(self.left_width()))
+            .w(px(width))
             .h_full()
             .bg(theme::rail())
             .border_r_1()
             .border_color(theme::border())
-            // Its edge, to drag it wider or narrower.
-            .child(
-                div()
-                    .id("left-edge")
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right(px(-3.))
-                    .w(px(6.))
-                    .cursor_col_resize()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            this.resizing_left = true;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }),
-                    ),
-            )
             .child(head)
-            .child(new)
+            .child(controls)
             .child(list.overflow_y_scrollbar())
             .children(self.chosen_bar(faces, cx))
             .child(foot)
-    }
-
-    fn agent_row(&self, faces: &Faces, slot: &Slot, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
-        let id = slot.entry.id.clone();
-        let on = self.page == Page::Agent(id.clone());
-        let usable = slot.usable();
-        let running = self
-            .sessions
-            .all
-            .iter()
-            .any(|s| s.meta.agent == id && matches!(s.state, State::Working | State::Opening));
-        let word = match &slot.stage {
-            Stage::Ready | Stage::Running { .. }
-                if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
-            {
-                Some(("Sign in", true))
-            }
-            Stage::Missing(_) => Some(("Install", false)),
-            Stage::Installing(_) => Some(("Installing", true)),
-            Stage::Starting => Some(("Starting", true)),
-            Stage::Failed(_) => Some(("Stopped", false)),
-            _ => None,
-        };
-        let mark: AnyElement = if usable {
-            ui::mark(faces, &self.mark_of(&id), 16.)
-        } else {
-            div()
-                .opacity(0.45)
-                .child(ui::mark(faces, &self.mark_of(&id), 16.))
-                .into_any_element()
-        };
-        let target = id.clone();
-        agent_shell(SharedString::from(format!("agent-{id}")), on)
-            .child(mark)
-            .child(ui::one_line(
-                ui::text(faces, slot.entry.name.clone())
-                    .text_size(px(13.5))
-                    .text_color(if usable {
-                        theme::text()
-                    } else {
-                        theme::muted()
-                    }),
-            ))
-            .when(running, |d| d.child(ui::live_dot()))
-            .children(
-                word.map(|(w, live)| fine(faces, w).when(live, |d| d.text_color(theme::accent()))),
+            // Its edge: dragged, its width; double-clicked, t3code's.
+            .child(
+                resize_handle::<LeftEdge, LeftEdge>("left-edge", gpui::Axis::Horizontal)
+                    .inside(HandleEdge::Trailing)
+                    .on_drag(LeftEdge, |edge, _, _, cx| cx.new(|_| edge.clone()))
+                    .on_double_click(cx.listener(|this, _, _, cx| {
+                        this.settings.left = crate::settings::LEFT;
+                        this.save_settings();
+                        cx.notify();
+                    })),
             )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_page(Page::Agent(target.clone()), window, cx);
-            }))
     }
 
     /// A project: its folder's name, how many sessions it has when it is
@@ -628,17 +521,6 @@ impl Desk {
                 None => (when::ago(s.meta.updated, SystemTime::now()), false, false),
             },
         };
-        // Listed by status, a row says which project it is in.
-        let when = if self.settings.by_status {
-            let p = ui::fit(&self.project_name(&s.meta.project), 12);
-            if when.is_empty() {
-                p
-            } else {
-                format!("{p} · {when}")
-            }
-        } else {
-            when
-        };
         let agent = self
             .entry(&s.meta.agent)
             .map_or_else(|| s.meta.agent.clone(), |e| e.name.clone());
@@ -703,9 +585,9 @@ impl Desk {
             .when(!menu_open, |d| d.tooltip(ui::tip(card)))
             // Dragged onto another, it goes before it.
             .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
-            .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::hover()))
+            .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
             .on_drop(cx.listener(move |this, d: &Dragged, _, cx| this.move_session(d.key, key, cx)))
-            .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+            .when(!on, |d| d.hover(|st| st.bg(theme::row_hover())))
             .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
                 faces,
                 &self.mark_of(&s.meta.agent),
@@ -775,9 +657,7 @@ impl Desk {
                     }),
             )
             // ⌘-click chooses it among others, to act on them together.
-            .when(self.chosen.contains(&key), |d| {
-                d.bg(theme::link().opacity(0.16))
-            })
+            .when(self.chosen.contains(&key), |d| d.bg(theme::row_chosen()))
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                 if e.modifiers().platform {
                     if !this.chosen.remove(&key) {
@@ -1091,139 +971,40 @@ impl Desk {
         here
     }
 
-    /// The sessions by where they stand, as the sidebar groups them: needing
-    /// you, working, pinned and recent; and apart, those done; in one
-    /// project, or in all.
-    pub(crate) fn by_status_groups(
-        &self,
-        query: Option<&str>,
-    ) -> ([(&'static str, Vec<&Session>); 4], Vec<&Session>) {
-        let mut needs = Vec::new();
-        let mut working = Vec::new();
-        let mut pinned = Vec::new();
-        let mut recent = Vec::new();
-        let mut done = Vec::new();
-        for s in self.sessions.all.iter().filter(|s| {
-            self.listed_now(s)
-                && query.is_none_or(|q| self.matches(s, q))
-                && self
-                    .settings
-                    .only
-                    .as_ref()
-                    .is_none_or(|p| &s.meta.project == p)
-        }) {
-            let waiting = s.waiting().is_some()
-                || matches!(s.state, State::SignIn | State::Broken(_))
-                || s.outcome().is_some();
-            if s.meta.flags.settled.is_some() {
-                done.push(s);
-            } else if waiting {
-                needs.push(s);
-            } else if matches!(s.state, State::Working | State::Opening) {
-                working.push(s);
-            } else if s.meta.flags.pinned.is_some() {
-                pinned.push(s);
-            } else {
-                recent.push(s);
-            }
-        }
-        pinned.sort_by_key(|s| s.meta.flags.pinned);
-        recent.sort_by_key(|s| (s.meta.flags.order, s.key));
-        done.sort_by_key(|s| std::cmp::Reverse(s.meta.flags.settled));
-        (
-            [
-                ("Needs you", needs),
-                ("Working", working),
-                ("Pinned", pinned),
-                ("Recent", recent),
-            ],
-            done,
-        )
-    }
-
-    /// The projects the list by status can be narrowed to, or all.
-    fn only_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut menu = div().flex().flex_col().w(px(208.));
-        let choices = std::iter::once(None).chain(self.projects().into_iter().map(Some));
-        for (n, p) in choices.enumerate() {
-            let label = p
-                .as_ref()
-                .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
-            let on = self.settings.only == p;
-            menu = menu.child(
-                ui::menu_row(SharedString::from(format!("only-{n}")), on)
-                    .child(ui::text(faces, label).text_size(px(13.)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.show_only(p.clone(), cx))),
-            );
-        }
-        menu
-    }
-
-    /// The sessions by where they stand: needing you, working, pinned,
-    /// recent, and done (folded); in one project, or in all.
-    fn by_status(&self, faces: &Faces, query: Option<&str>, cx: &mut Context<Self>) -> Div {
-        let (groups, done) = self.by_status_groups(query);
-        let only = self
-            .settings
-            .only
-            .as_ref()
-            .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
-        let line = ui::opener("only-project")
-            .w_full()
-            .h(px(28.))
-            .px(px(8.))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(ui::icon("folder", 14.).text_color(theme::faint()))
-                    .child(
-                        ui::text(faces, only)
-                            .flex_1()
-                            .text_size(px(12.5))
-                            .text_color(theme::text2()),
-                    )
-                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint())),
-            );
-        let menu_faces = faces.clone();
-        let filter = self
-            .menu(
-                Popup::Only,
-                line,
-                move |d, _, cx| d.only_menu(&menu_faces, cx),
-                cx,
-            )
-            .trigger_style(gpui::StyleRefinement::default().w_full());
-        let mut list = div().flex().flex_col().gap(px(2.)).px(px(8.)).child(filter);
-        for (label, sessions) in groups {
-            if sessions.is_empty() {
+    /// The projects the sidebar shows, as t3code's picker: searched, each
+    /// chosen or not (none chosen, all shown), and a project added.
+    fn projects_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let typed = self.menu_search.read(cx).value().trim().to_owned();
+        let query = crate::desk::rank::Query::new(&typed);
+        let mut menu = div().flex().flex_col().w(px(240.)).child(
+            div()
+                .pb(px(4.))
+                .child(Input::new(&self.menu_search).xsmall()),
+        );
+        for (n, p) in self.projects().into_iter().enumerate() {
+            let name = self.project_name(&p);
+            if !query.is_empty() && crate::desk::rank::terms(&query, &name, &[], true).is_none() {
                 continue;
             }
-            list = list.child(
-                ui::text(faces, label)
-                    .px(px(8.))
-                    .pt(px(8.))
-                    .pb(px(2.))
-                    .text_size(px(11.5))
-                    .text_color(theme::faint()),
+            let on = self.filter.contains(&p);
+            let icon = self.held.get(&p).and_then(|h| h.icon.clone());
+            menu = menu.child(
+                ui::menu_row(SharedString::from(format!("filter-{n}")), on)
+                    .child(crate::desk::projects::project_icon(&p, icon, 14.))
+                    .child(ui::one_line(ui::text(faces, name).text_size(px(13.))).flex_1())
+                    .when(on, |d| d.child(ui::icon("check", 14.)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_filter(&p, cx))),
             );
-            for s in sessions {
-                list = list.child(self.session_row(faces, s, cx));
-            }
         }
-        if !done.is_empty() {
-            let key = "done-all".to_owned();
-            let shown = query.is_some() || self.expanded.contains(&key);
-            list = list.child(Self::shelf_row(faces, key, "Done", done.len(), shown, cx));
-            if shown {
-                for s in done {
-                    list = list.child(self.session_row(faces, s, cx));
-                }
-            }
-        }
-        list
+        menu.child(Separator::horizontal().my(px(4.))).child(
+            ui::menu_row("filter-add", false)
+                .child(ui::icon("folder-plus", 14.))
+                .child(ui::text(faces, "Add project").text_size(px(13.)))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.close_popup(window, cx);
+                    this.add_project_page(window, cx);
+                })),
+        )
     }
 
     /// A folded shelf under a project: its sessions done for now, or
@@ -1239,7 +1020,7 @@ impl Desk {
         let toggle = key.clone();
         session_shell(SharedString::from(key), false)
             .cursor_pointer()
-            .hover(|st| st.bg(theme::hover()))
+            .hover(|st| st.bg(theme::row_hover()))
             .child(
                 ui::icon(
                     if open {
@@ -1279,8 +1060,8 @@ fn agent_shell(id: impl Into<SharedString>, on: bool) -> gpui::Stateful<Div> {
         .px(px(8.))
         .rounded(px(8.))
         .cursor_pointer()
-        .when(on, |d| d.bg(theme::panel2()))
-        .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
+        .when(on, |d| d.bg(theme::row_open()))
+        .when(!on, |d| d.hover(|s| s.bg(theme::row_hover())))
 }
 
 /// A row for a session under its project: 28 high, in by 34.
@@ -1294,7 +1075,7 @@ fn session_shell(id: impl Into<SharedString>, on: bool) -> gpui::Stateful<Div> {
         .pl(px(34.))
         .pr(px(8.))
         .rounded(px(8.))
-        .when(on, |d| d.bg(theme::panel2()))
+        .when(on, |d| d.bg(theme::row_open()))
 }
 
 /// A line of a session's menu, `n`th: its icon and what it does.
@@ -1317,6 +1098,16 @@ fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .text_size(px(11.5))
         .line_height(px(16.))
         .text_color(theme::faint())
+}
+
+/// The sidebar's edge, dragged.
+#[derive(Clone)]
+pub struct LeftEdge;
+
+impl gpui::Render for LeftEdge {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
 }
 
 /// A session's row being dragged, as it shows under the pointer.

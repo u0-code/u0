@@ -37,13 +37,6 @@ pub struct Settings {
     /// its own: the choice last made.
     #[serde(default)]
     pub worktree: bool,
-    /// Whether the sidebar lists sessions by where they stand (needing
-    /// you, working, pinned, recent, done) rather than by project.
-    #[serde(default)]
-    pub by_status: bool,
-    /// The one project the sidebar shows by status, if it shows one.
-    #[serde(default)]
-    pub only: Option<PathBuf>,
     /// What you set for each project: its name, whether it is pinned or
     /// archived, the agent and the way of working its new sessions take.
     #[serde(default)]
@@ -225,8 +218,11 @@ fn week() -> Option<u32> {
     Some(7)
 }
 
+/// How wide the sidebar stands until you drag it: t3code's.
+pub const LEFT: u32 = 256;
+
 fn left() -> u32 {
-    264
+    LEFT
 }
 
 fn prefix() -> String {
@@ -263,8 +259,6 @@ impl Default for Settings {
                 .collect(),
             folders: Vec::new(),
             worktree: false,
-            by_status: false,
-            only: None,
             prefs: std::collections::BTreeMap::new(),
             commands: std::collections::BTreeMap::new(),
             models: std::collections::BTreeMap::new(),

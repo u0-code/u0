@@ -39,7 +39,7 @@ pub(crate) mod mention;
 pub(crate) mod notices;
 pub(crate) mod palette;
 pub(crate) mod projects;
-mod rank;
+pub(crate) mod rank;
 pub(crate) mod runs;
 
 pub use lists::{Later, Renaming};
@@ -58,8 +58,10 @@ use crate::{
     theme,
 };
 
-/// How narrow and how wide the sidebar can be dragged.
-const LEFT_MOST: (f32, f32) = (220., 440.);
+/// How narrow the sidebar can be dragged, and how wide the middle stays
+/// beside it: t3code's.
+const LEFT_LEAST: f32 = 208.;
+const MIDDLE_LEAST: f32 = 640.;
 pub const RIGHT: f32 = 320.;
 pub const TOPBAR: f32 = 44.;
 /// Room the window's lights take at the left of the top row.
@@ -118,8 +120,8 @@ pub enum Popup {
     Compare,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
-    /// The project the sidebar shows, when it lists by status.
-    Only,
+    /// The projects the sidebar shows.
+    Projects,
     /// The project a new session works in, from its chip.
     StartIn,
 }
@@ -178,8 +180,8 @@ pub struct Desk {
     pub tunnels: Vec<(u16, std::process::Child)>,
     /// The sessions chosen with ⌘-click in the sidebar.
     pub chosen: std::collections::BTreeSet<u64>,
-    /// The sidebar's edge is being dragged.
-    pub resizing_left: bool,
+    /// The projects the sidebar shows; none chosen, all.
+    pub filter: Vec<PathBuf>,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
     /// What was just deleted or archived, while it can be taken back.
@@ -426,7 +428,7 @@ impl Desk {
             store_refused: None,
             renaming: None,
             zoom: None,
-            resizing_left: false,
+            filter: Vec::new(),
             chosen: std::collections::BTreeSet::new(),
             tunnels: Vec::new(),
             trail: Vec::new(),
@@ -1133,8 +1135,11 @@ impl Desk {
             self.cancel_rename(cx);
         } else if self.find.open && typing_in(&self.find.input, cx) {
             self.toggle_find(window, cx);
-        } else if self.search.open && typing_in(&self.search.input, cx) {
-            self.search.open = false;
+        } else if typing_in(&self.search.input, cx) {
+            self.search
+                .input
+                .update(cx, |i, cx| i.set_value("", window, cx));
+            window.focus(&self.composer.input.focus_handle(cx), cx);
             cx.notify();
         } else if self.pages.open {
             self.close_settings(window, cx);
@@ -1309,7 +1314,20 @@ impl Desk {
 
     /// How wide the sidebar is now.
     pub fn left_width(&self) -> f32 {
-        (self.settings.left as f32).clamp(LEFT_MOST.0, LEFT_MOST.1)
+        (self.settings.left as f32).max(LEFT_LEAST)
+    }
+
+    /// The sidebar's edge dragged to `x`: its width, leaving the middle
+    /// t3code's least; dragged to under a quarter of its least, hidden.
+    fn drag_left(&mut self, x: f32, window: &Window, cx: &mut Context<Self>) {
+        if x < LEFT_LEAST / 4. {
+            self.panes.left = false;
+        } else {
+            let most = f32::from(window.viewport_size().width) - MIDDLE_LEAST;
+            self.settings.left = x.clamp(LEFT_LEAST, most.max(LEFT_LEAST)) as u32;
+            self.panes.left = true;
+        }
+        cx.notify();
     }
 
     /// How wide the right column stands: wider for a file read in it, and
@@ -1350,12 +1368,12 @@ impl Render for Desk {
         self.read_projects();
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
+        let left = self
+            .left_width()
+            .min(f32::from(window.viewport_size().width) - MIDDLE_LEAST)
+            .max(LEFT_LEAST);
         let pane = f32::from(window.viewport_size().width)
-            - if self.panes.left {
-                self.left_width()
-            } else {
-                0.
-            }
+            - if self.panes.left { left } else { 0. }
             - if self.panes.right && self.page == Page::Thread {
                 self.right_width()
             } else {
@@ -1392,25 +1410,16 @@ impl Render for Desk {
             .relative()
             .flex()
             .size_full()
-            // The sidebar's edge dragged: its width follows, and is kept.
-            .when(self.resizing_left, gpui::Styled::cursor_col_resize)
-            .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
-                if this.resizing_left && e.pressed_button == Some(MouseButton::Left) {
-                    let w = f32::from(e.position.x).clamp(LEFT_MOST.0, LEFT_MOST.1) as u32;
-                    this.settings.left = w;
-                    cx.notify();
-                }
+            // The sidebar's edge dragged: its width follows, and is kept
+            // once let go.
+            .on_drag_move(cx.listener(
+                |this, e: &gpui::DragMoveEvent<crate::sidebar::LeftEdge>, window, cx| {
+                    this.drag_left(f32::from(e.event.position.x), window, cx);
+                },
+            ))
+            .on_drop(cx.listener(|this, _: &crate::sidebar::LeftEdge, _, _| {
+                this.save_settings();
             }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    if this.resizing_left {
-                        this.resizing_left = false;
-                        this.save_settings();
-                        cx.notify();
-                    }
-                }),
-            )
             // A swipe between pages, or a mouse's back and forward
             // buttons: back and ahead through the sessions seen.
             .on_mouse_down(
@@ -1426,7 +1435,7 @@ impl Render for Desk {
             .text_size(px(BODY))
             .text_color(theme::text())
             .when(self.panes.left, |d| {
-                d.child(self.sidebar(&faces, lights, cx))
+                d.child(self.sidebar(&faces, lights, left, cx))
             })
             .when(!whole, |d| d.child(middle))
             .children(right)

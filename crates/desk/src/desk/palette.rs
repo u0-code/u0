@@ -108,16 +108,11 @@ impl Desk {
     /// The sessions as the sidebar lists them, by project or by status;
     /// none done or put away.
     pub(crate) fn ordered(&self) -> Vec<u64> {
-        let lists: Vec<Vec<&crate::session::Session>> = if self.settings.by_status {
-            self.by_status_groups(None)
-                .0
-                .into_iter()
-                .map(|(_, v)| v)
-                .collect()
-        } else {
-            self.projects().iter().map(|f| self.in_project(f)).collect()
-        };
-        lists.into_iter().flatten().map(|s| s.key).collect()
+        self.projects()
+            .iter()
+            .flat_map(|f| self.in_project(f))
+            .map(|s| s.key)
+            .collect()
     }
 
     /// Go to the `n`th session in the sidebar's order; while a menu of

@@ -121,6 +121,20 @@ pub fn hover() -> Hsla {
     pick(0x2A2A_2A, 0xEDED_EB)
 }
 /// Text.
+/// A row in the sidebar under the pointer, open, and chosen among others:
+/// the text's colour over the ground, as t3code mixes them.
+pub fn row_hover() -> Hsla {
+    text().opacity(0.08)
+}
+
+pub fn row_open() -> Hsla {
+    text().opacity(0.11)
+}
+
+pub fn row_chosen() -> Hsla {
+    text().opacity(0.07)
+}
+
 pub fn text() -> Hsla {
     pick(0xEFEF_EF, 0x1C1C_1C)
 }
