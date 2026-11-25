@@ -321,7 +321,7 @@ impl Desk {
                         .gap(px(6.))
                         .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
                             d.child(ui::button("merge-pr", "Merge", Weight::Secondary).on_click(
-                                cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Merge(this.settings.merge), cx)),
+                                cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Merge(this.settings.merge, this.settings.uncredit), cx)),
                             ))
                         })
                         .when(open && pr.failed > 0, |d| {

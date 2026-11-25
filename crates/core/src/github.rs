@@ -106,11 +106,13 @@ pub enum Ask {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Act {
     /// Merge it: squash, merge or rebase; when its checks pass (auto);
-    /// its branch deleted after.
+    /// its branch deleted after; a squash's message with the agents'
+    /// credits taken out (uncredit).
     Merge {
         how: String,
         auto: bool,
         delete: bool,
+        uncredit: bool,
     },
     Close,
     Reopen,
@@ -149,10 +151,10 @@ pub enum Answer {
 fn fields(kind: Kind, whole: bool) -> &'static str {
     match (kind, whole) {
         (Kind::Pr, false) => {
-            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments"
+            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner"
         }
         (Kind::Pr, true) => {
-            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,body,reviews,assignees,reviewRequests,mergeable,headRefOid"
+            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner,body,reviews,assignees,reviewRequests,mergeable,headRefOid"
         }
         (Kind::Issue, false) => "number,title,state,author,labels,updatedAt,url,comments",
         (Kind::Issue, true) => {
@@ -191,7 +193,19 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
         ),
         Ask::Act(n, act) => {
             let number = n.to_string();
-            let args = act_args(kind, &number, &act);
+            let mut args = act_args(kind, &number, &act);
+            if let Act::Merge {
+                how,
+                uncredit: true,
+                ..
+            } = &act
+                && how == "squash"
+            {
+                match squash_message(dir, Some(&number)) {
+                    Ok(body) => args.extend(["--body".into(), body]),
+                    Err(e) => return Answer::Acted(Some(n), Err(e)),
+                }
+            }
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             Answer::Acted(Some(n), gh(&args))
         }
@@ -207,7 +221,9 @@ fn act_args(kind: Kind, n: &str, act: &Act) -> Vec<String> {
     let k = kind.gh();
     let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     match act {
-        Act::Merge { how, auto, delete } => {
+        Act::Merge {
+            how, auto, delete, ..
+        } => {
             let mut a = words(&["pr", "merge", n, &format!("--{how}")]);
             if *auto {
                 a.push("--auto".into());
@@ -234,6 +250,40 @@ fn act_args(kind: Kind, n: &str, act: &Act) -> Vec<String> {
     }
 }
 
+/// The message GitHub squashes the pull request numbered `n` (or the
+/// branch's in `dir`) with, its agents' credits taken out: one commit's
+/// body, or each commit's message listed.
+pub fn squash_message(dir: &Path, n: Option<&str>) -> Result<String, String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Commit {
+        message_headline: String,
+        message_body: String,
+    }
+    #[derive(Deserialize)]
+    struct Commits {
+        commits: Vec<Commit>,
+    }
+    let mut args = vec!["pr", "view"];
+    args.extend(n);
+    args.extend(["--json", "commits"]);
+    let read: Commits =
+        serde_json::from_str(&git::yours(dir, "gh", &args)?).map_err(|e| e.to_string())?;
+    let message = match &read.commits[..] {
+        [one] => one.message_body.clone(),
+        all => all
+            .iter()
+            .map(|c| {
+                format!("* {}\n\n{}", c.message_headline, c.message_body)
+                    .trim()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    };
+    Ok(crate::forge::uncredited(&message))
+}
+
 /// What gh says of one, as it says it.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -257,6 +307,8 @@ struct Raw {
     review_requests: Vec<Who>,
     mergeable: String,
     head_ref_oid: String,
+    is_cross_repository: bool,
+    head_repository_owner: Who,
 }
 
 #[derive(Deserialize, Default)]
@@ -336,7 +388,15 @@ impl Raw {
             labels: self.labels.into_iter().map(|l| l.name).collect(),
             updated: self.updated_at,
             url: self.url,
-            branch: self.head_ref_name,
+            // A fork's branch, by its owner, as GitHub writes it.
+            branch: if self.is_cross_repository {
+                format!(
+                    "{}:{}",
+                    self.head_repository_owner.login, self.head_ref_name
+                )
+            } else {
+                self.head_ref_name
+            },
             base: self.base_ref_name,
             review: self.review_decision.to_lowercase().replace('_', " "),
             checks,
@@ -428,7 +488,7 @@ mod tests {
             {"context":"ci/x","state":"PENDING"}],
             "comments":[{"author":{"login":"bo"},"body":"later","createdAt":"2026-11-25T12:00:00Z"}],
             "reviews":[{"author":{"login":"cy"},"body":"no","submittedAt":"2026-11-25T11:00:00Z","state":"CHANGES_REQUESTED"}],
-            "body":"why","headRefOid":"abc"}"#,
+            "body":"why","headRefOid":"abc","isCrossRepository":true,"headRepositoryOwner":{"login":"bo"}}"#,
         )
         .unwrap();
         let d = raw.detail();
@@ -444,6 +504,7 @@ mod tests {
         );
         assert_eq!(d.said[0].how, "changes requested");
         assert_eq!(d.checks[2].name, "ci/x");
+        assert_eq!(d.item.branch, "bo:fix");
     }
 
     #[test]
@@ -452,7 +513,9 @@ mod tests {
             how: "squash".into(),
             auto: true,
             delete: true,
+            uncredit: true,
         };
+
         assert_eq!(
             act_args(Kind::Pr, "7", &merge),
             ["pr", "merge", "7", "--squash", "--auto", "--delete-branch"]

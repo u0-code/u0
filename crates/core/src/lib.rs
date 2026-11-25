@@ -11,6 +11,7 @@
 //! writes for you (`writer`). The desk (`ghost-desk`) draws all of it.
 
 pub mod acp;
+pub mod forge;
 pub mod git;
 pub mod github;
 pub mod path;

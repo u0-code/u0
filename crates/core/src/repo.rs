@@ -49,7 +49,9 @@ pub enum GitAction {
     /// Rename the worktree's branch, unless it is pushed.
     RenameBranch(String),
     /// Merge the branch's pull request, as gh does.
-    Merge(git::Method),
+    /// Merge it as the method says; a squash without the agents' credits
+    /// where the second is so.
+    Merge(git::Method, bool),
     /// Make this branch, from where it is, and check it out.
     NewBranch(String),
     /// Bring in what the upstream has.
@@ -70,7 +72,7 @@ impl GitAction {
             Self::RemoveWorktree(_) => "remove the worktree",
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
-            Self::Merge(_) => "merge the pull request",
+            Self::Merge(..) => "merge the pull request",
             Self::Pull => "pull",
             Self::NewBranch(_) => "make the branch",
             Self::Init => "make it a repository",
@@ -341,9 +343,10 @@ pub fn git_action(
             })
         }),
         GitAction::Switch(b) => git::switch(dir, b).map(|()| format!("On {b}")),
-        GitAction::Merge(how) => {
-            git::merge_pr(dir, *how).map(|_| "The pull request is merged".into())
+        GitAction::Merge(how, uncredit) => {
+            git::merge_pr(dir, *how, *uncredit).map(|_| "The pull request is merged".into())
         }
+
         GitAction::Pull => git::pull(dir).map(|_| "Pulled".into()),
         GitAction::NewBranch(b) => git::branch_off(dir, b).map(|()| format!("On {b}, new")),
         GitAction::Init => {

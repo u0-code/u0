@@ -22,6 +22,11 @@ pub fn get(account: &str) -> Result<Option<String>, String> {
     keychain::get(&service(), account)
 }
 
+/// The accounts something is kept as.
+pub fn kept() -> Vec<String> {
+    keychain::accounts(&service())
+}
+
 /// Keep `value` as `account`, or, with none, keep nothing there.
 pub fn set(account: &str, value: Option<&str>) -> Result<(), String> {
     match value {
@@ -65,6 +70,7 @@ pub fn env(
 
 #[cfg(target_os = "macos")]
 mod keychain {
+    use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
     use security_framework::passwords;
 
     /// errSecItemNotFound: nothing is kept there.
@@ -89,6 +95,21 @@ mod keychain {
             _ => Ok(()),
         }
     }
+
+    /// The accounts under `service`, read without their secrets.
+    pub fn accounts(service: &str) -> Vec<String> {
+        let found = ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .service(service)
+            .load_attributes(true)
+            .limit(Limit::All)
+            .search()
+            .unwrap_or_default();
+        found
+            .iter()
+            .filter_map(|r| r.simplify_dict()?.remove("acct"))
+            .collect()
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -105,6 +126,10 @@ mod keychain {
 
     pub fn remove(_: &str, _: &str) -> Result<(), String> {
         Err(NONE.into())
+    }
+
+    pub fn accounts(_: &str) -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -136,6 +161,8 @@ mod tests {
             keychain::get(&service, "env/a/KEY").unwrap().as_deref(),
             Some("s3cret")
         );
+        assert_eq!(keychain::accounts(&service), ["env/a/KEY"]);
+
         keychain::remove(&service, "env/a/KEY").unwrap();
         assert_eq!(keychain::get(&service, "env/a/KEY").unwrap(), None);
     }

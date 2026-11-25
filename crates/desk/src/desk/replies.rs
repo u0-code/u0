@@ -285,6 +285,7 @@ impl Desk {
             }
             Event::TermClosed { id, busy } => self.terminal_closed(id, busy, cx),
             Event::Hosts(hosts) => self.adding.hosts = hosts,
+            Event::Forges(seen) => self.pages.forges = seen,
             Event::Held { folder, held } => {
                 self.held.insert(folder, held);
             }

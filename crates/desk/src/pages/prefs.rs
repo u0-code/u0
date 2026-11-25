@@ -639,6 +639,7 @@ impl Desk {
             Tab::Writing => return self.writing_tab(faces, q, cx),
             Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
             Tab::About => return self.about_ghost(faces, q, cx),
+            Tab::SourceControl => return self.source_control(faces, q, cx),
             Tab::Agents | Tab::Sessions | Tab::Projects => return None,
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();

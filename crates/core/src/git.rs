@@ -1092,15 +1092,33 @@ impl Method {
 }
 
 /// Merge the pull request of the branch `dir` is on, as `how` says, as gh
-/// does.
-pub fn merge_pr(dir: &Path, how: Method) -> Result<String, String> {
-    yours(dir, "gh", &["pr", "merge", &format!("--{}", how.gh())])
+/// does; a squash's message with the agents' credits taken out where
+/// `uncredit`.
+pub fn merge_pr(dir: &Path, how: Method, uncredit: bool) -> Result<String, String> {
+    let mut args = vec![
+        "pr".to_owned(),
+        "merge".to_owned(),
+        format!("--{}", how.gh()),
+    ];
+    if uncredit && how == Method::Squash {
+        args.extend(["--body".into(), crate::github::squash_message(dir, None)?]);
+    }
+    yours(
+        dir,
+        "gh",
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+    )
 }
 
 /// Run `program` (git, gh, glab) in `dir` with `args` as you, with your
 /// git and gh configuration; its output, or what it said went wrong.
 pub(crate) fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new(program)
+    let mut command = Command::new(program);
+    // A token you gave for the host whose CLI this is, over its own sign-in.
+    if let Some((var, token)) = crate::forge::Host::token_for(program) {
+        command.env(var, token);
+    }
+    let out = command
         .current_dir(dir)
         .args(args)
         .stdin(Stdio::null())

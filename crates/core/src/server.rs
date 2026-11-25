@@ -443,6 +443,7 @@ impl Server {
                 });
             }
             Call::Hosts => self.off(|| Event::Hosts(crate::remote::hosts())),
+            Call::Forges => self.off(|| Event::Forges(crate::forge::seen())),
             Call::TermOpen {
                 id,
                 dir,

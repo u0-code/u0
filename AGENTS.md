@@ -113,6 +113,7 @@ crates/core/src/
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
+  forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   settings.rs   ~/.ghost/settings.json and the home
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
@@ -153,7 +154,8 @@ crates/desk/src/
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
-                usage, voice: dictation's settings, updates: on About),
+                usage, voice: dictation's settings, updates: on About, hosts:
+                Source control),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

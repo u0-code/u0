@@ -371,3 +371,22 @@ impl Desk {
         cx.notify();
     }
 }
+
+impl Desk {
+    /// Keep `token` for `host`, or, with none, take it out of the Keychain.
+    pub(crate) fn set_token(
+        &mut self,
+        host: crate::forge::Host,
+        token: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(seen) = self.pages.forges.iter_mut().find(|s| s.host == host) {
+            seen.token = token.is_some();
+        }
+        self.transport.send(Call::Secret {
+            account: host.account(),
+            value: token,
+        });
+        cx.notify();
+    }
+}

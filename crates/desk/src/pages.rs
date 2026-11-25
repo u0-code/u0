@@ -4,6 +4,7 @@
 //! window, where agents are switched on and off.
 
 mod forge;
+mod hosts;
 mod prefs;
 mod projects;
 mod settings;
@@ -69,6 +70,10 @@ pub struct Pages {
     pub dictionary: Entity<TextareaState>,
     /// The days the usage page reads over; none, all.
     pub period: Option<u64>,
+    /// What is known of each forge here, and a token of yours for each,
+    /// as it is typed (by `forge::Host::ALL`).
+    pub forges: Vec<crate::forge::Seen>,
+    pub tokens: [Entity<InputState>; 5],
 }
 
 impl Pages {
@@ -135,6 +140,15 @@ impl Pages {
             var_secret: true,
             project: None,
             period: Some(30),
+            forges: Vec::new(),
+            tokens: crate::forge::Host::ALL.map(|_| {
+                cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .placeholder("a token")
+                        .masked(true)
+                })
+            }),
+
             changes: instructions_field(
                 &settings.writer.changes,
                 "As the repository's recent commits do",

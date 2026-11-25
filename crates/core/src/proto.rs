@@ -384,6 +384,8 @@ pub enum Call {
     },
     /// The hosts your SSH config names.
     Hosts,
+    /// What is known of each forge here (`forge::seen`).
+    Forges,
     /// Open the terminal `id` in `dir` (on `host`, over SSH), running
     /// `shell` (your login shell when none), `size` rows by columns, `first`
     /// typed into it; one open already is said again.
@@ -673,6 +675,8 @@ pub enum Event {
     Tidied(String),
     /// The hosts your SSH config names.
     Hosts(Vec<String>),
+    /// What is known of each forge here.
+    Forges(Vec<crate::forge::Seen>),
     /// The terminal `id` opened, called what it is called in its tab, or
     /// why it did not.
     TermOpened {
@@ -901,6 +905,7 @@ mod tests {
                 })),
             },
             Call::Hosts,
+            Call::Forges,
             Call::TermOpen {
                 id: 2,
                 dir: dir.clone(),
@@ -1039,6 +1044,11 @@ mod tests {
             Event::Sizes(vec![("Session records".into(), 3)]),
             Event::Tidied("1 record removed".into()),
             Event::Hosts(vec!["box".into()]),
+            Event::Forges(vec![crate::forge::Seen {
+                host: crate::forge::Host::GitLab,
+                cli: Some("glab 1.50".into()),
+                token: true,
+            }]),
             Event::TermOpened {
                 id: 2,
                 result: Ok("zsh".into()),

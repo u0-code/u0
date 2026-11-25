@@ -1346,6 +1346,7 @@ impl Desk {
             .update(cx, |i, cx| i.set_value("", window, cx));
         match tab {
             crate::pages::Tab::Sessions => self.measure(),
+            crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
             crate::pages::Tab::Usage => {
                 self.weigh_agents();
                 self.read_spent();

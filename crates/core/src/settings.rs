@@ -166,6 +166,9 @@ pub struct Settings {
     /// How a pull request is merged from the column beside.
     #[serde(default)]
     pub merge: crate::git::Method,
+    /// A squash takes the agents' credits out of its message.
+    #[serde(default)]
+    pub uncredit: bool,
     /// How many days of Ghost's log are kept in its home (`logs/`).
     #[serde(default = "fortnight")]
     pub log_days: u16,
@@ -711,6 +714,8 @@ impl Default for Settings {
             voice: Voice::default(),
             channel: crate::update::Channel::default(),
             merge: crate::git::Method::default(),
+            uncredit: false,
+
             log_days: fortnight(),
             check_updates: yes(),
             frame: None,

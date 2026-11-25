@@ -653,6 +653,7 @@ impl Desk {
                         how: how.into(),
                         auto,
                         delete: true,
+                        uncredit: d.settings.uncredit,
                     },
                     cx,
                 );
