@@ -79,8 +79,9 @@ pub enum Event {
         id: u64,
         request: RequestPermissionRequest,
     },
-    /// It stopped, with the last of what it wrote to its standard error.
-    Exited(String),
+    /// The process `pid` stopped, with the last of what it wrote to its
+    /// standard error.
+    Exited { pid: Option<u32>, why: String },
     /// A task it set going in the background in the session `session` (a
     /// command left running), as the `JetBrains` extension of ACP says it:
     /// not in the schema.
@@ -257,7 +258,7 @@ impl Agent {
                     None => "it was stopped".into(),
                 };
             }
-            said(Event::Exited(why));
+            said(Event::Exited { pid, why });
         });
         let connection = connection
             .await
@@ -425,7 +426,7 @@ echo "$line" >&2"#,
                 agent_client_protocol::v1::schema::RequestPermissionOutcome::Cancelled,
             ),
         );
-        let Event::Exited(why) = runtime().block_on(rx.recv()).unwrap() else {
+        let Event::Exited { why, .. } = runtime().block_on(rx.recv()).unwrap() else {
             panic!("expected the agent to exit");
         };
         assert!(
@@ -442,7 +443,7 @@ read line
 echo "$line" >&2
 exit 3"#,
         );
-        let Event::Exited(why) = runtime().block_on(rx.recv()).unwrap() else {
+        let Event::Exited { why, .. } = runtime().block_on(rx.recv()).unwrap() else {
             panic!("expected the agent to exit");
         };
         assert!(why.contains("-32601"), "{why}");

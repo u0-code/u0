@@ -817,12 +817,14 @@ impl Desk {
                     hub::answer(running, id, None);
                 }
             }
-            Event::Exited(why) => {
-                // One let go while idle ended as it was meant to.
+            Event::Exited { pid, why } => {
+                // One let go while idle ended as it was meant to, and one
+                // let go before this one started is not this one's end:
+                // one that stops as it starts says so in `Started`.
                 let Some(slot) = self.slot_mut(agent) else {
                     return;
                 };
-                if !matches!(slot.stage, Stage::Running { .. } | Stage::Starting) {
+                if !matches!(&slot.stage, Stage::Running { agent, .. } if agent.pid() == pid) {
                     return;
                 }
                 slot.stage = Stage::Failed(why.clone());
