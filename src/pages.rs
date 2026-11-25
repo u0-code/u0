@@ -131,6 +131,8 @@ impl Desk {
         let two = match &stage {
             Stage::Running { .. } => Step::Done,
             Stage::Starting => Step::Now,
+            // Let go while idle, it was heard from all the same.
+            Stage::Ready if self.slot(id).is_some_and(|s| s.known.is_some()) => Step::Done,
             _ => Step::Todo,
         };
         let auth = self
@@ -228,7 +230,8 @@ impl Desk {
                 .py(px(14.))
                 .when(n > 1, |d| d.border_t_1().border_color(theme::border()))
                 .child(step_number(faces, n, st))
-                .child(body)
+                // Its words wrap inside the card.
+                .child(body.min_w(px(0.)))
         };
         let simple = |title: String, text: String, st: Step| {
             div()
