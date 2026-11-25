@@ -238,10 +238,7 @@ impl Desk {
                     .into_iter()
                     .enumerate()
                     .map(|(n, p)| Row {
-                        lead: Lead::Project(
-                            p.clone(),
-                            self.held.get(&p).and_then(|h| h.icon.clone()),
-                        ),
+                        lead: Lead::Project(p.clone(), self.icon_of(&p)),
                         keys: (n < 9)
                             .then(|| crate::keys::numbered(n + 1))
                             .into_iter()

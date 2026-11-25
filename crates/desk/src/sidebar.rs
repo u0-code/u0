@@ -280,7 +280,7 @@ impl Desk {
                 continue;
             }
             let on = self.filter.contains(&p);
-            let icon = self.held.get(&p).and_then(|h| h.icon.clone());
+            let icon = self.icon_of(&p);
             menu = menu.child(
                 ui::menu_row(SharedString::from(format!("filter-{n}")), on)
                     .child(crate::desk::projects::project_icon(&p, icon, 14.))

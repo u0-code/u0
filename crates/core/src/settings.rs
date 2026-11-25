@@ -633,6 +633,19 @@ pub struct Prefs {
     /// it is checked out with nothing changed.
     #[serde(default)]
     pub pull: bool,
+    /// Its icon as you chose it; none, its own icon file where it has one.
+    #[serde(default)]
+    pub icon: Option<Icon>,
+}
+
+/// A project's icon as you chose it, as t3code's: a picture, or a mark
+/// (one or two letters, or an emoji) on a colour, by its place among the
+/// desk's marks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Icon {
+    Picture(PathBuf),
+    Mark { text: String, colour: u8 },
 }
 
 impl Default for Settings {

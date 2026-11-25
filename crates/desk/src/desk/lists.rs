@@ -30,6 +30,8 @@ pub enum Renaming {
     Session { key: u64, here: bool },
     /// A project, in the sidebar.
     Project(PathBuf),
+    /// A project's mark: its letters, or an emoji.
+    Mark(PathBuf),
 }
 
 /// The search over sessions: what is typed, and the sessions whose
@@ -577,6 +579,10 @@ impl Desk {
                 .map(|s| s.meta.title.clone())
                 .unwrap_or_default(),
             Renaming::Project(folder) => self.project_name(folder),
+            Renaming::Mark(folder) => match self.prefs(folder).icon {
+                Some(crate::settings::Icon::Mark { text, .. }) => text,
+                _ => super::projects::monogram(&self.project_name(folder)),
+            },
         };
         self.popup = super::Popup::Closed;
         self.renaming = Some(what);
@@ -605,6 +611,21 @@ impl Desk {
             }
             Some(Renaming::Project(folder)) => {
                 self.set_prefs(&folder, cx, |p| p.name = (!text.is_empty()).then_some(text));
+            }
+            // Two letters at most, or one emoji however it is made.
+            Some(Renaming::Mark(folder)) => {
+                let text: String =
+                    unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true)
+                        .take(2)
+                        .collect();
+                let colour = match self.prefs(&folder).icon {
+                    Some(crate::settings::Icon::Mark { colour, .. }) => colour,
+                    _ => 5,
+                };
+                self.set_prefs(&folder, cx, |p| {
+                    p.icon =
+                        (!text.is_empty()).then_some(crate::settings::Icon::Mark { text, colour });
+                });
             }
             None => return,
         }

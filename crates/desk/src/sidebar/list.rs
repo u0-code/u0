@@ -452,7 +452,7 @@ impl Desk {
                 .gap(px(10.))
                 .child(crate::desk::projects::project_icon(
                     folder,
-                    self.held.get(folder).and_then(|h| h.icon.clone()),
+                    self.icon_of(folder),
                     16.,
                 ))
                 .child(name)

@@ -9,23 +9,67 @@ use std::path::{Path, PathBuf};
 use gpui::{Context, Window};
 
 use super::{Desk, Popup};
-use crate::settings::Prefs;
+use crate::settings::{Icon, Prefs};
 
-/// A project's icon: its own icon file where it has one, else a folder,
-/// or a server for one on another machine; never one made up.
-pub fn project_icon(folder: &Path, icon: Option<PathBuf>, size: f32) -> gpui::AnyElement {
+/// A project's icon: the one you chose, or its own icon file where it has
+/// one, else a folder, or a server for one on another machine.
+pub fn project_icon(folder: &Path, icon: Option<Icon>, size: f32) -> gpui::AnyElement {
     use gpui::{IntoElement as _, ParentElement as _, Styled as _};
-    match (icon, crate::remote::parse(folder).is_some()) {
-        (Some(icon), false) => gpui::div()
+    let remote = crate::remote::parse(folder).is_some();
+    match icon {
+        Some(Icon::Picture(icon)) if !remote => gpui::div()
             .size(gpui::px(size))
             .flex_none()
             .child(gpui::img(icon).size(gpui::px(size)).rounded(gpui::px(3.)))
             .into_any_element(),
-        (_, remote) => crate::ui::icon(if remote { "server" } else { "folder" }, size)
+        Some(Icon::Mark { text, colour }) => gpui::div()
+            .size(gpui::px(size))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(gpui::px(size / 4.))
+            .bg(gpui::rgb(MARKS[usize::from(colour) % MARKS.len()].1))
+            .text_color(gpui::white())
+            .text_size(gpui::px(size * 0.55))
+            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .child(text)
+            .into_any_element(),
+        _ => crate::ui::icon(if remote { "server" } else { "folder" }, size)
             .flex_none()
             .text_color(crate::theme::muted())
             .into_any_element(),
     }
+}
+
+/// The colours a project's mark can be on, as t3code's icon palette.
+pub const MARKS: [(&str, u32); 8] = [
+    ("Red", 0xE5_48_4D),
+    ("Orange", 0xF7_6B_15),
+    ("Amber", 0xD9_9A_1E),
+    ("Green", 0x30_A4_6C),
+    ("Teal", 0x12_A5_94),
+    ("Blue", 0x00_90_FF),
+    ("Violet", 0x8E_4E_C6),
+    ("Pink", 0xD6_40_9F),
+];
+
+/// The mark a project called `name` is given, as t3code makes one: the
+/// first letters of its first two words; of one word, its first and last;
+/// of a name in Chinese, Japanese or Korean, its first character.
+pub fn monogram(name: &str) -> String {
+    let words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let first = |w: &str| w.chars().next();
+    let text: String = match words.as_slice() {
+        [] => String::new(),
+        [w, ..] if first(w).is_some_and(|c| c as u32 >= 0x2E80) => first(w).into_iter().collect(),
+        [w] => first(w).into_iter().chain(w.chars().last()).collect(),
+        [a, b, ..] => first(a).into_iter().chain(first(b)).collect(),
+    };
+    text.to_uppercase()
 }
 
 /// Where a project made or cloned in Ghost goes unless you choose
@@ -144,6 +188,57 @@ pub fn remote_typed(typed: &str) -> Option<(&str, &str)> {
 }
 
 impl Desk {
+    /// The icon the project `folder` shows: the one you chose, else its
+    /// own icon file.
+    pub fn icon_of(&self, folder: &Path) -> Option<Icon> {
+        self.prefs(folder)
+            .icon
+            .or_else(|| Some(Icon::Picture(self.held.get(folder)?.icon.clone()?)))
+    }
+
+    /// Ask for a picture to be the project `folder`'s icon.
+    pub fn choose_icon(folder: &Path, cx: &mut Context<Self>) {
+        let answer = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Use as icon".into()),
+        });
+        let folder = folder.to_path_buf();
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = answer.await
+                && let Some(picture) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    this.set_prefs(&folder, cx, |p| p.icon = Some(Icon::Picture(picture)));
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Put the project `folder`'s mark on the colour `colour`, its letters
+    /// kept (or made from its name).
+    pub fn mark_colour(&mut self, folder: &Path, colour: u8, cx: &mut Context<Self>) {
+        let text = match self.prefs(folder).icon {
+            Some(Icon::Mark { text, .. }) => text,
+            _ => monogram(&self.project_name(folder)),
+        };
+        self.set_prefs(folder, cx, |p| p.icon = Some(Icon::Mark { text, colour }));
+    }
+
+    /// Take away the worktree `wt`, which the session `key` works in (and
+    /// any others in it): as Remove does in that session's details.
+    pub fn remove_checkout(&mut self, wt: crate::git::Worktree, key: u64) {
+        self.transport.send(crate::proto::Call::Git {
+            dir: wt.repo.clone(),
+            action: crate::repo::GitAction::RemoveWorktree(wt),
+            prefix: self.settings.branch_prefix.clone(),
+            left_out: Vec::new(),
+            key,
+        });
+    }
+
     /// Change what is set for the project `folder`, and keep it.
     pub(crate) fn set_prefs(
         &mut self,
@@ -416,5 +511,13 @@ mod tests {
         let s = Source::read("/Users/me/code/thing.git").unwrap();
         assert_eq!(s.dir(Path::new("/g"), true), Path::new("/g/thing"));
         assert_eq!(Source::read("just words"), None);
+    }
+
+    #[test]
+    fn a_mark_is_made_as_t3code_makes_one() {
+        assert_eq!(monogram("Nebula"), "NA");
+        assert_eq!(monogram("Silver Orchard"), "SO");
+        assert_eq!(monogram("M7 Forge"), "MF");
+        assert_eq!(monogram("健康顾问"), "健");
     }
 }

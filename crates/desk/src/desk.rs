@@ -998,13 +998,7 @@ impl Desk {
                 .iter()
                 .any(|o| o.meta.worktree.as_ref().is_some_and(|w| w.path == wt.path))
         {
-            self.transport.send(Call::Git {
-                dir: wt.repo.clone(),
-                action: crate::repo::GitAction::RemoveWorktree(wt),
-                prefix: self.settings.branch_prefix.clone(),
-                left_out: Vec::new(),
-                key,
-            });
+            self.remove_checkout(wt, key);
         }
         if self.current == Some(key) {
             self.current = None;

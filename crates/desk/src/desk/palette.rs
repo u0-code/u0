@@ -243,7 +243,7 @@ enum Lead {
     Icon(&'static str),
     Mark(ui::Mark),
     /// A project: its folder, and its own icon file if it has one.
-    Project(PathBuf, Option<PathBuf>),
+    Project(PathBuf, Option<crate::settings::Icon>),
 }
 
 /// A row of the palette: what leads it, its title (the characters in
@@ -686,7 +686,7 @@ impl Desk {
                 .projects()
                 .into_iter()
                 .map(|p| Row {
-                    lead: Lead::Project(p.clone(), self.held.get(&p).and_then(|h| h.icon.clone())),
+                    lead: Lead::Project(p.clone(), self.icon_of(&p)),
                     words: vec![p.display().to_string()],
                     ..Row::new("", self.project_name(&p), Act::Open(p.clone())).sub(Desk::shown(&p))
                 })

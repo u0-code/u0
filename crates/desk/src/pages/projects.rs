@@ -13,7 +13,7 @@ use gpui::component::{
 };
 use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
 
-use super::prefs::{group_of, page, setting};
+use super::prefs::{group, group_of, page, setting};
 use crate::{
     desk::{Desk, Renaming},
     fonts::Faces,
@@ -34,7 +34,7 @@ impl Desk {
             .map(|(n, folder)| {
                 let prefs = self.prefs(&folder);
                 let open = folder.clone();
-                let icon = self.held.get(&folder).and_then(|h| h.icon.clone());
+                let icon = self.icon_of(&folder);
                 div()
                     .id(SharedString::from(format!("project-{n}")))
                     .flex()
@@ -124,7 +124,7 @@ impl Desk {
                 )
                 .into_any_element()
         };
-        let icon = self.held.get(folder).and_then(|h| h.icon.clone());
+        let icon = self.icon_of(folder);
         let agent_name = prefs
             .agent
             .as_deref()
@@ -162,8 +162,8 @@ impl Desk {
             setting(
                 faces,
                 "Icon",
-                "Its own icon file (favicon, app icon) where it has one; else a folder.",
-                crate::desk::projects::project_icon(folder, icon, 20.),
+                "A picture, or letters or an emoji on a colour; Automatic, its own icon file (favicon, app icon) where it has one.",
+                self.icon_control(folder, icon, cx),
             ),
             setting(
                 faces,
@@ -228,7 +228,7 @@ impl Desk {
                     }
                 })),
         ));
-        rows.push(setting(
+        let danger = setting(
             faces,
             "Remove project",
             "Forgets the project and its sessions here. Files on disk are not touched.",
@@ -237,7 +237,7 @@ impl Desk {
                 .small()
                 .label("Remove…")
                 .on_click(Self::on_project(cx, &dir, Desk::ask_remove_project)),
-        ));
+        );
         page(faces, &self.project_name(folder), &Desk::shown(folder))
             .child(
                 div().flex().child(
@@ -253,6 +253,108 @@ impl Desk {
                 ),
             )
             .child(group_of(rows))
+            .children(group(faces, "Checkouts", self.checkouts(faces, folder, cx)))
+            .children(group(faces, "Danger zone", vec![Some(danger)]))
+    }
+
+    /// Where the project is checked out: its folder, and each of Ghost's
+    /// worktrees of it, with the sessions in it, each one removable.
+    fn checkouts(&self, faces: &Faces, folder: &Path, cx: &mut Context<Self>) -> Vec<Option<Div>> {
+        let mut worktrees: Vec<(crate::git::Worktree, u64, usize)> = Vec::new();
+        for s in self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| s.meta.project == folder)
+        {
+            let Some(wt) = &s.meta.worktree else { continue };
+            match worktrees.iter_mut().find(|(w, ..)| w.path == wt.path) {
+                Some((.., n)) => *n += 1,
+                None => worktrees.push((wt.clone(), s.key, 1)),
+            }
+        }
+        let mut rows = vec![setting(
+            faces,
+            &Desk::shown(folder),
+            "The project's own folder.",
+            div(),
+        )];
+        for (n, (wt, key, sessions)) in worktrees.into_iter().enumerate() {
+            let about = format!(
+                "{} · {sessions} session{}",
+                wt.branch,
+                if sessions == 1 { "" } else { "s" }
+            );
+            rows.push(setting(
+                faces,
+                &Desk::shown(&wt.path),
+                &about,
+                Button::new(SharedString::from(format!("remove-checkout-{n}")))
+                    .ghost()
+                    .small()
+                    .label("Remove")
+                    .tooltip("Its branch is kept; one with changes not committed is refused")
+                    .on_click(cx.listener(move |this, _, _, _| {
+                        this.remove_checkout(wt.clone(), key);
+                    })),
+            ));
+        }
+        rows.into_iter().map(Some).collect()
+    }
+
+    /// The project's icon, and the menu that changes it; its mark's
+    /// letters typed in place.
+    fn icon_control(
+        &self,
+        folder: &Path,
+        icon: Option<crate::settings::Icon>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        use crate::desk::projects::MARKS;
+        let marking = matches!(&self.renaming, Some(Renaming::Mark(f)) if f == folder);
+        let (desk, dir) = (cx.entity(), folder.to_path_buf());
+        let menu = Button::new("project-icon")
+            .outline()
+            .small()
+            .label("Change")
+            .dropdown_menu(move |mut menu, _, _| {
+                let on = |f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
+                    let (desk, dir) = (desk.clone(), dir.clone());
+                    move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
+                        desk.update(cx, |d, cx| f(d, &dir, window, cx));
+                    }
+                };
+                menu = menu
+                    .item(PopupMenuItem::new("Automatic").on_click(on(|d, f, _, cx| {
+                        d.set_prefs(f, cx, |p| p.icon = None);
+                    })))
+                    .item(
+                        PopupMenuItem::new("Choose a picture…")
+                            .on_click(on(|_, f, _, cx| Desk::choose_icon(f, cx))),
+                    )
+                    .item(
+                        PopupMenuItem::new("Letters or an emoji…").on_click(on(|d, f, w, cx| {
+                            d.begin_rename(Renaming::Mark(f.to_path_buf()), w, cx);
+                        })),
+                    )
+                    .separator();
+                for (n, (name, _)) in MARKS.iter().enumerate() {
+                    let (desk, dir) = (desk.clone(), dir.clone());
+                    menu = menu.item(PopupMenuItem::new(*name).on_click(move |_, _, cx| {
+                        desk.update(cx, |d, cx| d.mark_colour(&dir, n as u8, cx));
+                    }));
+                }
+                menu
+            });
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(crate::desk::projects::project_icon(folder, icon, 20.))
+            .when(marking, |d| {
+                d.child(div().w(px(80.)).child(Input::new(&self.rename).small()))
+            })
+            .child(menu)
     }
 
     /// A listener doing `f` to the project `dir`, whatever its event.
