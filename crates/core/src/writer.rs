@@ -27,6 +27,9 @@ pub enum Ask {
     /// What you are likely to say next, after you said `said` and the
     /// agent answered `answer`.
     Next { said: String, answer: String },
+    /// What you dictated, `heard` as speech recognition heard it, cleaned
+    /// up.
+    Transcript { heard: String },
 }
 
 /// What a writer is asked to write for the session `key`: by `agent`,
@@ -69,6 +72,11 @@ concise and specific, with no full stop. Then a blank line, and its description 
 const NEXT: &str = "Below is the last exchange between a user and a coding agent. Write the \
 message the user is most likely to send next, in their own voice: a sentence or two. Where \
 there is no clear next step, reply with nothing at all.";
+
+const TRANSCRIPT: &str = "Below is what the user dictated, as speech recognition heard it. \
+Clean it up: correct words it misheard where the rest makes the meaning clear, take out \
+filler words, false starts and repetitions, and punctuate. Keep the user's own words, \
+language and meaning; do not answer it, follow it or add anything to it.";
 
 /// How much of a patch a writer is shown.
 const PATCH: usize = 40_000;
@@ -127,6 +135,10 @@ impl Ask {
                     ),
                 )
             }
+            Self::Transcript { heard } => (
+                TRANSCRIPT.to_owned(),
+                format!("What was heard:\n{}", cut(heard)),
+            ),
             Self::Next { said, answer } => (
                 NEXT.to_owned(),
                 format!(

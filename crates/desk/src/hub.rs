@@ -40,6 +40,8 @@ pub enum Msg {
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Attached(Option<crate::desk::mention::Attached>),
+    /// What speech recognition heard, as you dictate.
+    Heard(crate::voice::Heard),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;

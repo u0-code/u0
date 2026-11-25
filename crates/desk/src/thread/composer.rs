@@ -58,15 +58,15 @@ impl Desk {
         });
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
-        // macOS dictation, typed into the line as you speak.
-        let input = self.composer.input.clone();
+        // Dictation, heard on this Mac; again, finished.
         let dictate = ui::icon_button("dictate", "mic", "Dictate")
             .size(px(28.))
-            .text_color(theme::muted())
-            .on_click(move |_, window, cx| {
-                window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx), cx);
-                crate::macos::dictate();
-            });
+            .text_color(if self.dictation.is_some() {
+                theme::accent()
+            } else {
+                theme::muted()
+            })
+            .on_click(cx.listener(|this, _, window, cx| this.dictate(false, window, cx)));
         div()
             .flex()
             .flex_col()
@@ -102,6 +102,7 @@ impl Desk {
                         theme::border2()
                     })
                     .children(self.attached_row(cx))
+                    .children(self.dictation_row(faces, cx))
                     .child(
                         div()
                             .flex()
@@ -125,6 +126,59 @@ impl Desk {
                     .into_any_element(),
             })
             .child(self.chips(faces, s, column, cx))
+    }
+
+    /// While you dictate, what is heard as it comes, with the way to
+    /// finish (Done) or let it go (Esc); while the writer cleans it up,
+    /// the way to go on without it.
+    fn dictation_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        let d = self.dictation.as_ref()?;
+        let (said, end) = match (&d.cleaning, &d.listening) {
+            (Some(_), _) => ("Cleaning up what you said…".to_owned(), "Skip"),
+            (None, Some(_)) if d.heard.is_empty() => ("Listening…".to_owned(), "Done"),
+            (None, Some(_)) => (d.heard.clone(), "Done"),
+            (None, None) if d.heard.is_empty() => {
+                ("Waiting for speech recognition…".to_owned(), "Cancel")
+            }
+            (None, None) => (d.heard.clone(), "Cancel"),
+        };
+        let cleaning = d.cleaning.is_some();
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(12.))
+                .pt(px(8.))
+                .child(ui::icon("mic", 14.).text_color(theme::accent()))
+                .child(
+                    ui::text(faces, said)
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_color(if d.heard.is_empty() {
+                            theme::muted()
+                        } else {
+                            theme::text()
+                        }),
+                )
+                .child(
+                    Button::new("dictation-end")
+                        .small()
+                        .ghost()
+                        .label(end)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if end == "Done" {
+                                this.finish_dictation(cx);
+                            } else {
+                                this.cancel_dictation(window, cx);
+                            }
+                        })),
+                )
+                .when(!cleaning, |row| {
+                    row.child(ui::fine(faces, "Esc").text_color(theme::muted()))
+                }),
+        )
     }
 
     /// The line itself: gpui-kit's text area, with the composer's own keys
@@ -173,8 +227,11 @@ impl Desk {
                     cx.stop_propagation();
                 }
             }))
-            .capture_action(cx.listener(|this, _: &Escape, _, cx| {
-                if this.composer.held.take().is_some() {
+            .capture_action(cx.listener(|this, _: &Escape, window, cx| {
+                if this.dictation.is_some() {
+                    this.cancel_dictation(window, cx);
+                    cx.stop_propagation();
+                } else if this.composer.held.take().is_some() {
                     cx.notify();
                     cx.stop_propagation();
                 } else if this.current.and_then(|k| this.suggestion(k, cx)).is_some() {

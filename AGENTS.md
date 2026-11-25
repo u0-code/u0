@@ -129,14 +129,16 @@ crates/desk/src/
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's sound
+  voice.rs      what you say, heard by Apple's speech recognition on this Mac alone;
+                text read aloud
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
-                replies, notices, writing, forge (the PRs and Issues
-                pages), links (the ghost:// links and folders macOS
-                opens Ghost with)
+                replies, notices, writing, dictation, forge (the PRs and
+                Issues pages), links (the ghost:// links and folders
+                macOS opens Ghost with)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
@@ -149,7 +151,7 @@ crates/desk/src/
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
-                usage),
+                usage, voice: dictation's settings),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

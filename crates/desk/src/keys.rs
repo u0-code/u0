@@ -86,7 +86,9 @@ actions!(
         FullScreen,
         ZoomIn,
         ZoomOut,
-        ActualSize
+        ActualSize,
+        StartSpeaking,
+        StopSpeaking
     ]
 );
 
@@ -538,13 +540,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
             d.edit(s.meta.folder.clone(), None);
         }
     });
-    on::<Dictate>(cx, shown, |d, window, cx| {
-        window.focus(
-            &gpui::Focusable::focus_handle(d.composer.input.read(cx), cx),
-            cx,
-        );
-        crate::macos::dictate();
-    });
+    on::<StartSpeaking>(cx, shown, |d, _, cx| d.read_aloud(cx));
+    cx.on_action(|_: &StopSpeaking, _| crate::voice::stop_speaking());
+    on::<Dictate>(cx, shown, |d, window, cx| d.dictate(true, window, cx));
     on::<NewScratch>(cx, shown, Desk::new_scratch);
     on::<Back>(cx, shown, |d, window, cx| d.step_trail(false, window, cx));
     on::<Ahead>(cx, shown, |d, window, cx| d.step_trail(true, window, cx));

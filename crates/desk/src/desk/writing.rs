@@ -31,6 +31,7 @@ impl Desk {
             Ask::Branch { .. } => w.branches.clone(),
             Ask::Commit { .. } | Ask::Pr { .. } => w.changes.clone(),
             Ask::Next { .. } => String::new(),
+            Ask::Transcript { .. } => w.transcripts.clone(),
         };
         let Some((dir, delete, close)) = self.aside_place(&agent) else {
             self.waiting.push((agent.clone(), Waiting::Write(key, ask)));
@@ -121,12 +122,17 @@ impl Desk {
             // A suggestion that did not come is no news.
             Err(_) if matches!(ask, Ask::Next { .. }) => return,
             Err(why) => {
+                // What you dictated goes in as it was heard all the same.
+                if let Ask::Transcript { heard } = &ask {
+                    self.cleaned(heard, heard, window, cx);
+                }
                 let what = match ask {
                     Ask::Title { .. } => "a title",
                     Ask::Branch { .. } => "the branch's name",
                     Ask::Commit { .. } => "the commit message",
                     Ask::Pr { .. } => "the pull request",
                     Ask::Next { .. } => "what to say next",
+                    Ask::Transcript { .. } => "what you dictated, cleaned up",
                 };
                 self.trouble(format!("The writer couldn't write {what}"), Some(why), None);
                 return;
@@ -186,6 +192,7 @@ impl Desk {
                     self.composer.suggested = Some((key, text));
                 }
             }
+            Ask::Transcript { heard } => self.cleaned(&heard, &text, window, cx),
         }
         cx.notify();
     }

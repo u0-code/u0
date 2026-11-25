@@ -492,6 +492,7 @@ impl Desk {
                             ),
                         )],
                     ),
+                    self.dictation_group(faces, q, cx),
                     group(
                         faces,
                         "The agent's work",
@@ -648,7 +649,7 @@ impl Desk {
 
     /// A choice among `choices`, the one equal to `now` lit; picking one
     /// sets it with `set` and keeps the settings.
-    fn pick<T: Copy + PartialEq + 'static, const N: usize>(
+    pub(super) fn pick<T: Copy + PartialEq + 'static, const N: usize>(
         id: &str,
         choices: [(impl Into<SharedString>, T); N],
         now: T,
@@ -890,7 +891,13 @@ pub(super) fn said(q: &str, words: &[&str]) -> bool {
 
 /// A setting: what happens, said plainly, and its control; none when
 /// what is looked for, `q`, is in neither.
-fn row(faces: &Faces, q: &str, name: &str, about: &str, control: impl IntoElement) -> Option<Div> {
+pub(super) fn row(
+    faces: &Faces,
+    q: &str,
+    name: &str,
+    about: &str,
+    control: impl IntoElement,
+) -> Option<Div> {
     said(q, &[name, about]).then(|| setting(faces, name, about, control))
 }
 

@@ -64,6 +64,8 @@ cat > "$app/Contents/Info.plist" <<EOF
         <key>LSItemContentTypes</key><array><string>public.folder</string></array>
     </dict></array>
     <key>NSDesktopFolderUsageDescription</key><string>The agents you start work in the folders you choose, which may be in your Desktop folder.</string>
+    <key>NSMicrophoneUsageDescription</key><string>What you dictate is heard through the microphone, on this Mac.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>What you dictate is turned into text by speech recognition on this Mac.</string>
 </dict>
 </plist>
 EOF

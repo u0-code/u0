@@ -74,6 +74,12 @@ impl Desk {
                 "Your style for them, over the repository's own and its template.",
                 &self.pages.changes,
             ),
+            field(
+                &["dictation", "dictated", "clean", "instructions"],
+                "Dictation, cleaned up",
+                "Where you asked for what you dictate to be cleaned up before it goes in.",
+                &self.pages.transcripts,
+            ),
         ];
         let groups: Vec<Div> = [
             group(faces, "The writer", vec![who, next]),
@@ -219,7 +225,7 @@ impl Desk {
 }
 
 /// A field for your instructions under what it is for.
-fn instructions(
+pub(super) fn instructions(
     faces: &Faces,
     name: &str,
     about: &str,

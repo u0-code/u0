@@ -24,6 +24,7 @@ mod terminal;
 mod theme;
 mod thread;
 mod ui;
+mod voice;
 
 // What needs no window is ghost-core's. Named here, `crate::git` and the
 // rest name it alike in every module of the desk.
@@ -92,6 +93,11 @@ fn main() {
                     gpui::component::input::SelectAll,
                     OsAction::SelectAll,
                 ),
+                MenuItem::separator(),
+                MenuItem::submenu(Menu::new("Speech").items(vec![
+                    MenuItem::action("Start Speaking", keys::StartSpeaking),
+                    MenuItem::action("Stop Speaking", keys::StopSpeaking),
+                ])),
             ]),
             Menu::new("View").items(vec![
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),

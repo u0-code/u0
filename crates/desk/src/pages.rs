@@ -8,6 +8,7 @@ mod prefs;
 mod projects;
 mod settings;
 mod usage;
+mod voice;
 mod writing;
 
 pub use settings::{Tab, height as settings_height};
@@ -55,6 +56,9 @@ pub struct Pages {
     pub changes: Entity<TextareaState>,
     pub titles: Entity<TextareaState>,
     pub branches: Entity<TextareaState>,
+    pub transcripts: Entity<TextareaState>,
+    /// Your dictation's dictionary, a word or "heard = written" to a line.
+    pub dictionary: Entity<TextareaState>,
     /// The days the usage page reads over; none, all.
     pub period: Option<u64>,
 }
@@ -120,6 +124,14 @@ impl Pages {
                 window,
                 cx,
             ),
+            transcripts: instructions_field(
+                &settings.writer.transcripts,
+                "Correct what was misheard, take out fillers, punctuate",
+                |w| &mut w.transcripts,
+                window,
+                cx,
+            ),
+            dictionary: dictionary_field(&settings.voice.dictionary, window, cx),
         }
     }
 }
@@ -146,6 +158,32 @@ fn instructions_field(
                 .value()
                 .trim()
                 .clone_into(set(&mut this.settings.writer));
+            this.save_settings();
+        }
+    })
+    .detach();
+    input
+}
+
+/// The dictionary's field: a line each, kept as you type.
+fn dictionary_field(
+    now: &[String],
+    window: &mut Window,
+    cx: &mut Context<Desk>,
+) -> Entity<TextareaState> {
+    let input = cx.new(|cx| {
+        TextareaState::new(window, cx)
+            .auto_grow(2, 8)
+            .placeholder("Ghost\ngpui kit = gpui-kit")
+            .default_value(now.join("\n"))
+    });
+    cx.subscribe(&input, |this, input, e: &InputEvent, cx| {
+        if let InputEvent::Change = e {
+            this.settings.voice.dictionary = (input.read(cx).value().lines())
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_owned)
+                .collect();
             this.save_settings();
         }
     })

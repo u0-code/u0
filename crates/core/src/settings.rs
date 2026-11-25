@@ -152,6 +152,9 @@ pub struct Settings {
     /// Who writes what Ghost has written for you.
     #[serde(default)]
     pub writer: Writer,
+    /// What you say into the composer, heard on this Mac.
+    #[serde(default)]
+    pub voice: Voice,
     /// What Ghost asks before it does it.
     #[serde(default)]
     pub confirm: Confirm,
@@ -233,6 +236,58 @@ pub struct Writer {
     /// taken with Tab.
     #[serde(default)]
     pub suggest: bool,
+    /// Your instructions for cleaning up what you dictated.
+    #[serde(default)]
+    pub transcripts: String,
+}
+
+/// Dictation: what you say heard by Apple's speech recognition on this
+/// Mac, and put in the composer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Voice {
+    /// How the dictation key listens.
+    #[serde(default)]
+    pub key: VoiceKey,
+    /// The language listened for, as a locale ("en-US"); none, the
+    /// system's.
+    #[serde(default)]
+    pub language: Option<String>,
+    /// Words to listen for (a name, a term), one to a line; a line
+    /// "heard = written" writes what is heard otherwise.
+    #[serde(default)]
+    pub dictionary: Vec<String>,
+    /// "Um", "uh" and the like are left out.
+    #[serde(default = "yes")]
+    pub no_fillers: bool,
+    /// The writer cleans up what was heard before it goes in.
+    #[serde(default)]
+    pub clean: bool,
+}
+
+impl Default for Voice {
+    fn default() -> Self {
+        Self {
+            key: VoiceKey::default(),
+            language: None,
+            dictionary: Vec::new(),
+            no_fillers: true,
+            clean: false,
+        }
+    }
+}
+
+/// How the dictation key (⇧⌘D) listens.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceKey {
+    /// A press begins, a press ends; held down, it listens till let go.
+    #[default]
+    Auto,
+    /// A press begins, a press ends.
+    Toggle,
+    /// It listens while held.
+    Hold,
 }
 
 /// The shell a terminal runs: your login shell ($SHELL), or one named.
@@ -581,6 +636,7 @@ impl Default for Settings {
             no_spacing: false,
             writer: Writer::default(),
             confirm: Confirm::default(),
+            voice: Voice::default(),
         }
     }
 }

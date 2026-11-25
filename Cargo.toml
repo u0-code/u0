@@ -42,6 +42,13 @@ tempfile = "3.27"
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"
 cocoa = "0.26"
+# Speech to text on this Mac (Apple's Speech framework, on device) and the
+# microphone it hears (AVFAudio), with the blocks they call back.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSBundle", "NSError", "NSLocale", "NSObject"] }
+objc2-speech = { version = "0.3", default-features = false, features = ["std", "block2", "SFSpeechRecognizer", "SFSpeechRecognitionRequest", "SFSpeechRecognitionResult", "SFSpeechRecognitionTask", "SFSpeechRecognitionTaskHint", "SFTranscription", "objc2-avf-audio"] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioEngine", "AVAudioNode", "AVAudioIONode", "AVAudioBuffer", "AVAudioFormat", "AVAudioTime", "AVAudioTypes", "AVSpeechSynthesis"] }
 objc = "0.2"
 
 [workspace.lints.rust]

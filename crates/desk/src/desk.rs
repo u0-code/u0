@@ -32,6 +32,7 @@ use gpui::{
 use tokio::sync::mpsc;
 
 mod agents;
+pub(crate) mod dictation;
 pub(crate) mod forge;
 mod gitview;
 mod kept;
@@ -126,6 +127,8 @@ pub enum Popup {
     Commits,
     /// The project the PRs or Issues page is of.
     ForgeProject,
+    /// The language dictation listens for, in the settings.
+    Language,
     /// What can be done with the pull request or issue read.
     ForgeActions,
 }
@@ -166,6 +169,8 @@ pub struct Desk {
     pub stopping: Option<(u64, std::time::Instant)>,
     /// Whether the window was last set blurred behind, for glass.
     glassed: bool,
+    /// What you dictate, while you do.
+    pub dictation: Option<dictation::Dictation>,
     /// What sessions cost, by key, as their records say: read for the
     /// usage page.
     pub spent: std::collections::HashMap<u64, Vec<crate::store::Spend>>,
@@ -493,6 +498,7 @@ impl Desk {
             trailing: false,
             stopping: None,
             glassed: false,
+            dictation: None,
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
@@ -1553,6 +1559,13 @@ impl Render for Desk {
             ))
             .on_drop(cx.listener(|this, _: &crate::sidebar::LeftEdge, _, _| {
                 this.save_settings();
+            }))
+            // The dictation key let go, which ends talking while it is held.
+            .on_key_up(cx.listener(|this, e: &gpui::KeyUpEvent, _, cx| {
+                let key = crate::keys::keys_of(cx, "dictate");
+                if key.last().is_some_and(|k| k.key == e.keystroke.key) {
+                    this.dictate_key_up(cx);
+                }
             }))
             .on_modifiers_changed(cx.listener(|this, e: &gpui::ModifiersChangedEvent, _, cx| {
                 let m = e.modifiers;
