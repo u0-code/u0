@@ -268,7 +268,10 @@ impl Desk {
             Msg::Cloned { dir, result } => {
                 self.cloning = None;
                 match result {
-                    Ok(()) => self.adopt(&dir),
+                    Ok(()) => {
+                        self.new_name.update(cx, |i, cx| i.set_text("", cx));
+                        self.adopt(&dir);
+                    }
                     Err(why) if why == crate::registry::CANCELLED => {}
                     Err(why) => self.adding_trouble = Some(why),
                 }

@@ -133,14 +133,8 @@ impl Desk {
         if name.is_empty() {
             return;
         }
-        let dir = self.parent.join(&name);
-        match crate::git::create(&dir, &name) {
-            Ok(()) => {
-                self.new_name.update(cx, |i, cx| i.set_text("", cx));
-                self.adopt(&dir);
-            }
-            Err(why) => self.adding_trouble = Some(why),
-        }
+        self.adding_trouble = None;
+        crate::hub::create(self.parent.join(&name), name, self.tx.clone());
         cx.notify();
     }
 

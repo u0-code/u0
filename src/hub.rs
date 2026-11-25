@@ -179,7 +179,7 @@ pub enum Msg {
         number: u64,
         text: Option<String>,
     },
-    /// How a clone goes, and how it ended.
+    /// How a clone goes, and how it (or a new project made) ended.
     Cloning {
         what: String,
         share: Option<f32>,
@@ -797,6 +797,14 @@ pub fn list_prs(folder: PathBuf, tx: Sender) {
         prs: git::open_on_github(&folder, "pr"),
         issues: git::open_on_github(&folder, "issue"),
         folder,
+    });
+}
+
+/// Make the new project `name` in `dir`: a folder, a repository.
+pub fn create(dir: PathBuf, name: String, tx: Sender) {
+    off(tx, move || Msg::Cloned {
+        result: git::create(&dir, &name),
+        dir,
     });
 }
 
