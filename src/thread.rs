@@ -733,14 +733,72 @@ impl Desk {
                     .iter()
                     .filter(|(st, _)| *st == kinds::Status::Done)
                     .count();
+                // On hover: copied as a checklist, or kept in the folder.
+                let written = steps.iter().fold(String::new(), |mut w, (st, text)| {
+                    w.push_str(if *st == kinds::Status::Done {
+                        "- [x] "
+                    } else {
+                        "- [ ] "
+                    });
+                    w.push_str(text);
+                    w.push('\n');
+                    w
+                });
+                let (copy, keep) = (written.clone(), written);
+                let group = SharedString::from(format!("{key}-plan"));
+                let folder = s.folder.clone();
                 boxed()
+                    .group(group.clone())
                     .child(
                         step()
                             .px(px(2.))
                             .min_h(px(22.))
                             .child(icon("list"))
                             .child(verb(faces, "Plan"))
-                            .child(right(faces, format!("{done} of {} done", steps.len()))),
+                            .child(right(faces, format!("{done} of {} done", steps.len())))
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap(px(2.))
+                                    .invisible()
+                                    .group_hover(group, Styled::visible)
+                                    .child(
+                                        Self::under(&key, "plan-copy", "copy", "Copy the plan")
+                                            .on_click(move |_, _, cx| {
+                                                cx.write_to_clipboard(
+                                                    gpui::ClipboardItem::new_string(copy.clone()),
+                                                );
+                                            }),
+                                    )
+                                    .child(
+                                        Self::under(
+                                            &key,
+                                            "plan-keep",
+                                            "file-plus",
+                                            "Keep it as PLAN.md in the folder",
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                let path = folder.join("PLAN.md");
+                                                match crate::whole::write(&path, keep.as_bytes()) {
+                                                    Ok(()) => this.done(
+                                                        format!(
+                                                            "The plan is in {}",
+                                                            Desk::shown(&path)
+                                                        ),
+                                                        None,
+                                                    ),
+                                                    Err(e) => this.trouble(
+                                                        "Couldn't keep the plan",
+                                                        Some(e.to_string()),
+                                                        None,
+                                                    ),
+                                                }
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    ),
+                            ),
                     )
                     .child(div().px(px(4.)).child(drawn::plan(faces, &steps)))
                     .into_any_element()
@@ -1194,7 +1252,7 @@ impl Desk {
             ToolCallContent::Diff(d) => Some(d.path.clone()),
             _ => None,
         });
-        let open_diff = diff_of.filter(|_| !running).map(|path| {
+        let open_diff = diff_of.clone().filter(|_| !running).map(|path| {
             ui::button(
                 faces,
                 SharedString::from(format!("{key}-open-diff")),
@@ -1206,9 +1264,49 @@ impl Desk {
                 this.show_aside(crate::desk::Aside::File(path.clone()), cx);
             }))
         });
+        // On hover, at its end: a command copied, or run again in a
+        // terminal of yours; an edited file opened in your editor.
+        let group = SharedString::from(format!("{key}-call"));
+        let mut handy = div()
+            .flex()
+            .flex_none()
+            .gap(px(2.))
+            .invisible()
+            .group_hover(group.clone(), Styled::visible);
+        if call.kind == ToolKind::Execute && !running {
+            let (copy, again) = (tool.command_line(), tool.command_line());
+            handy = handy
+                .child(
+                    Self::under(&key, "copy-cmd", "copy", "Copy the command").on_click(
+                        move |_, _, cx| {
+                            cx.stop_propagation();
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                        },
+                    ),
+                )
+                .child(
+                    Self::under(&key, "again", "play", "Run it in a terminal of yours").on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.open_terminal(Some(&again), window, cx);
+                        }),
+                    ),
+                );
+        }
+        if let Some(path) = diff_of.clone().filter(|_| !running) {
+            handy = handy.child(
+                Self::under(&key, "editor", "file", "Open in your editor").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.open_named(&path.display().to_string(), cx);
+                    },
+                )),
+            );
+        }
         let toggle = key.clone();
         let mut line = step()
             .id(SharedString::from(format!("{key}-row")))
+            .group(group)
             .rounded(px(8.))
             .child(mark)
             .child(verb(faces, row.verb).when(running, |d| d.text_color(theme::accent())))
@@ -1217,7 +1315,9 @@ impl Desk {
                 d.child(counts(faces, added, gone))
             })
             .children(tail)
-            .children(open_diff.map(|b| div().flex_1().flex().justify_end().child(b)));
+            .child(div().flex_1())
+            .children(open_diff)
+            .child(handy);
         if has_body(tool) {
             line = line
                 .cursor_pointer()

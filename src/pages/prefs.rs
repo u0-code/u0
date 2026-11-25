@@ -55,11 +55,17 @@ impl Desk {
                         Self::pick(faces, "diff", [("Stacked", false), ("Side by side", true)],
                             self.settings.side_by_side, |s, v| s.side_by_side = v, cx)),
                 ])),
-            Tab::Chat => page(faces, "Chat", "What happens to what you write.")
+            Tab::Chat => page(faces, "Chat", "What you write, and what the agent did.")
                 .child(group(faces, "While a turn goes on", vec![
                     row(faces, "What you send waits, or steers", "Steer stops the turn and says it now; waiting says it once the turn ends.",
                         Self::pick(faces, "steer", [("Wait its turn", false), ("Steer", true)],
                             self.settings.steer, |s, v| s.steer = v, cx)),
+                ]))
+                .child(group(faces, "The agent's work", vec![
+                    row(faces, "Its calls and thinking in the thread", "Folded keeps a finished turn's work in one line, a click away; hidden shows only what was said.",
+                        Self::pick(faces, "calls", [
+                            ("Shown", crate::settings::Calls::Shown), ("Folded", crate::settings::Calls::Folded), ("Hidden", crate::settings::Calls::Hidden),
+                        ], self.settings.calls, |s, v| s.calls = v, cx)),
                 ])),
             Tab::NewSessions => page(faces, "New sessions", "How a session begins in a repository.")
                 .child(group(faces, "In a repository", vec![

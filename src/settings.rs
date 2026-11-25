@@ -80,6 +80,10 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// How the work an agent did in a turn (its calls, its thinking) shows
+    /// in the thread.
+    #[serde(default)]
+    pub calls: Calls,
     /// What a worktree's branch begins with, before the session's title.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
@@ -93,6 +97,17 @@ pub enum Notify {
     #[default]
     Banner,
     BannerAndSound,
+}
+
+/// How an agent's work shows in the thread: every call; a finished
+/// turn's work folded into one line; or none, only what was said.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Calls {
+    Shown,
+    #[default]
+    Folded,
+    Hidden,
 }
 
 /// How wide the thread reads.
@@ -171,6 +186,7 @@ impl Default for Settings {
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),
+            calls: Calls::default(),
         }
     }
 }

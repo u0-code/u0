@@ -53,6 +53,7 @@ pub fn rows(
     expanded: &HashSet<String>,
     open_call: impl Fn(usize) -> bool,
     going: bool,
+    fold_turns: bool,
 ) -> Vec<Row> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -91,7 +92,7 @@ pub fn rows(
             None => None,
         };
         match work {
-            Some((from, to, e)) if to - from >= 2 => {
+            Some((from, to, e)) if fold_turns && to - from >= 2 => {
                 let secs = match items.get(e) {
                     Some(Item::Ended { secs, .. }) => Some(*secs),
                     _ => None,
@@ -247,7 +248,7 @@ mod tests {
     #[test]
     fn a_turn_going_on_shows_every_row() {
         let s = session();
-        let rows = rows(7, &s.items, &HashSet::new(), |_| false, true);
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, true, true);
         assert_eq!(rows.len(), s.items.len());
         assert!(rows.iter().all(|r| matches!(r, Row::Item(_))));
     }
@@ -256,7 +257,7 @@ mod tests {
     fn a_finished_turn_folds_its_work_and_keeps_the_answer() {
         let mut s = session();
         s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
-        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false);
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
         // You, the fold over four calls, the answer, the end.
         assert_eq!(
             rows,
@@ -283,7 +284,7 @@ mod tests {
         let mut s = session();
         s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
         let open: HashSet<String> = [turn_key(7, 1)].into_iter().collect();
-        let rows = rows(7, &s.items, &open, |i| i == 4, false);
+        let rows = rows(7, &s.items, &open, |i| i == 4, false, true);
         // The fourth call is open, so only the first three are a group.
         assert_eq!(
             rows[1..4],
@@ -307,7 +308,7 @@ mod tests {
     #[test]
     fn a_turn_loaded_without_an_end_folds_once_nothing_goes_on() {
         let s = session();
-        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false);
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
         assert_eq!(
             rows,
             vec![
@@ -321,5 +322,19 @@ mod tests {
                 Row::Item(5)
             ]
         );
+    }
+
+    #[test]
+    fn with_turns_unfolded_every_row_of_a_finished_turn_shows() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.said("go");
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"b","title":"u","kind":"edit","status":"completed"}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}"#).unwrap());
+        s.ended(Ok(agent_client_protocol_schema::v1::StopReason::EndTurn));
+        let folded = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        assert!(folded.iter().any(|r| matches!(r, Row::Turn { .. })));
+        let shown = rows(7, &s.items, &HashSet::new(), |_| false, false, false);
+        assert!(!shown.iter().any(|r| matches!(r, Row::Turn { .. })));
     }
 }

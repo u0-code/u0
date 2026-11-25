@@ -46,7 +46,22 @@ impl Desk {
                 _ => false,
             },
             matches!(s.state, State::Working | State::Opening),
+            self.settings.calls == crate::settings::Calls::Folded,
         );
+        // Only what was said, if you asked for it: the work is left out.
+        let rows: Vec<fold::Row> = if self.settings.calls == crate::settings::Calls::Hidden {
+            rows.into_iter()
+                .filter(|r| match r {
+                    fold::Row::Item(i) => !matches!(
+                        s.items[*i],
+                        Item::Tool(_) | Item::Thought { .. } | Item::Plan(_)
+                    ),
+                    _ => false,
+                })
+                .collect()
+        } else {
+            rows
+        };
         let mut out = vec![Line::Head];
         out.extend(rows.into_iter().map(Line::Row));
         if matches!(s.state, State::Opening | State::SignIn | State::Broken(_)) {
@@ -120,6 +135,7 @@ impl Desk {
                     _ => false,
                 },
                 matches!(s.state, State::Working | State::Opening),
+                self.settings.calls == crate::settings::Calls::Folded,
             );
             for row in rows {
                 match row {
