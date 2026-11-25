@@ -1,6 +1,6 @@
 [package]
 name = "ghost-desk"
-version = "0.0.1"
+version = "0.1.0-pre.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Ghost: one desktop app for the coding agents you already use (Claude Code, Codex, Antigravity, ...), driven over the Agent Client Protocol."
