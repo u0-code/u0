@@ -131,11 +131,11 @@ pub struct TextInput {
     recalled: Option<usize>,
     /// What is typed stays when it is handed over: a search, not a message.
     keeps: Keeps,
-    /// What it held before each change, to go back to (⌘Z) and forward
-    /// again (⇧⌘Z); typing in a run is one change.
     /// Return breaks the line, and ⌘Return hands it over (⇧⌘Return aside),
     /// where lines wrap and you asked for it.
     enter_breaks: bool,
+    /// What it held before each change, to go back to (⌘Z) and forward
+    /// again (⇧⌘Z); typing in a run is one change.
     undone: Vec<(SharedString, Range<usize>)>,
     redone: Vec<(SharedString, Range<usize>)>,
     last_change: Option<std::time::Instant>,
@@ -231,7 +231,7 @@ impl TextInput {
     /// the other way (Find goes back).
     fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
         if self.most > 1 {
-            self.replace_text_in_range(None, "\n", window, cx);
+            self.break_line(window, cx);
         } else {
             cx.emit(SubmittedAside(self.text()));
         }
@@ -405,9 +405,26 @@ impl TextInput {
         self.enter_breaks = breaks && self.most > 1;
     }
 
+    /// A new line; in a list, its next item begun, or after an item left
+    /// empty, the list ended there.
+    fn break_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.selected_range.start;
+        let begins = self.content[..at].rfind('\n').map_or(0, |i| i + 1);
+        match next_item(&self.content[begins..at]) {
+            Some(Item::Next(marker)) => {
+                self.replace_text_in_range(None, &format!("\n{marker}"), window, cx);
+            }
+            Some(Item::End) => {
+                self.selected_range = begins..self.selected_range.end;
+                self.replace_text_in_range(None, "", window, cx);
+            }
+            None => self.replace_text_in_range(None, "\n", window, cx),
+        }
+    }
+
     fn submit(&mut self, _: &Submit, window: &mut Window, cx: &mut Context<Self>) {
         if self.enter_breaks {
-            self.replace_text_in_range(None, "\n", window, cx);
+            self.break_line(window, cx);
         } else {
             self.send(cx);
         }
@@ -1351,5 +1368,57 @@ mod ime_tests {
         assert_eq!(within("哦a", 1..4), 0..4);
         let (end, start) = (1, 2);
         assert_eq!(within("abc", start..end), 1..2, "put in order");
+    }
+}
+
+/// What a new line after a list's item does.
+#[derive(Debug, PartialEq, Eq)]
+enum Item {
+    /// Begins the next item with this.
+    Next(String),
+    /// The item was left empty: its mark goes, and the list ends.
+    End,
+}
+
+/// What a new line after `line` does, where it is a list's item: the same
+/// mark ("- ", "* ", "> ") or the next number ("3. "), under the same
+/// indent; none where it is not a list.
+fn next_item(line: &str) -> Option<Item> {
+    let rest = line.trim_start();
+    let indent = &line[..line.len() - rest.len()];
+    let (mark, after) = if let Some(found) = ["- ", "* ", "> "]
+        .iter()
+        .find_map(|m| rest.strip_prefix(m).map(|a| ((*m).to_owned(), a)))
+    {
+        found
+    } else {
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let after = rest[digits..].strip_prefix(". ")?;
+        let n: u64 = rest[..digits].parse().ok()?;
+        (format!("{}. ", n + 1), after)
+    };
+    Some(if after.trim().is_empty() {
+        Item::End
+    } else {
+        Item::Next(format!("{indent}{mark}"))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Item, next_item};
+
+    #[test]
+    fn a_list_goes_on_to_its_next_item_and_ends_at_an_empty_one() {
+        let next = |m: &str| Some(Item::Next(m.into()));
+        assert_eq!(next_item("- milk"), next("- "));
+        assert_eq!(next_item("  * eggs"), next("  * "));
+        assert_eq!(next_item("9. ten"), next("10. "));
+        assert_eq!(next_item("> said"), next("> "));
+        assert_eq!(next_item("- "), Some(Item::End));
+        assert_eq!(next_item("3. "), Some(Item::End));
+        assert_eq!(next_item("plain"), None);
+        assert_eq!(next_item("-not a list"), None);
+        assert_eq!(next_item(". no number"), None);
     }
 }

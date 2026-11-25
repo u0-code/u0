@@ -34,6 +34,7 @@ enum Act {
     CopyThread,
     Restart,
     Beside,
+    Look(crate::settings::Look),
     Tab(crate::pages::Tab),
     Go(u64),
     NewIn(PathBuf),
@@ -333,6 +334,24 @@ impl Desk {
             act("Copy this conversation", "", Act::CopyThread, "copy"),
             act("Restart the session", "", Act::Restart, "retry"),
             act("Ask a side question", "", Act::Beside, "bulb"),
+            act(
+                "Look: dark",
+                "",
+                Act::Look(crate::settings::Look::Dark),
+                "settings",
+            ),
+            act(
+                "Look: light",
+                "",
+                Act::Look(crate::settings::Look::Light),
+                "settings",
+            ),
+            act(
+                "Look: as the system",
+                "",
+                Act::Look(crate::settings::Look::System),
+                "settings",
+            ),
             act("Go to a file", "⌘P", Act::File(String::new()), "file"),
             act(
                 "Settings: General",
@@ -491,6 +510,10 @@ impl Desk {
                 }
             }
             Act::Restart => self.restart(window, cx),
+            Act::Look(look) => {
+                self.settings.look = look;
+                self.save_settings();
+            }
             Act::Beside => {
                 if let Some(key) = self.current {
                     self.ask_beside(key, cx);
