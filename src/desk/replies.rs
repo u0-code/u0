@@ -102,8 +102,8 @@ impl Desk {
     fn tell(&self, title: &str, body: &str) {
         match self.settings.notify {
             crate::settings::Notify::Off => {}
-            crate::settings::Notify::Banner => crate::macos::notify(title, body, false),
-            crate::settings::Notify::BannerAndSound => crate::macos::notify(title, body, true),
+            crate::settings::Notify::Banner => hub::notify(title, body, false),
+            crate::settings::Notify::BannerAndSound => hub::notify(title, body, true),
         }
     }
 

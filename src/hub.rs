@@ -801,6 +801,23 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
     });
 }
 
+/// Show a notification from macOS (`macos::notify`).
+pub fn notify(title: &str, body: &str, sound: bool) {
+    let (title, body) = (title.to_owned(), body.to_owned());
+    acp::runtime().spawn_blocking(move || crate::macos::notify(&title, &body, sound));
+}
+
+/// Write `text` to `path` whole, and say that it is there, or why not.
+pub fn write(path: PathBuf, text: String, tx: Sender) {
+    off(tx, move || {
+        let shown = crate::desk::Desk::shown(&path);
+        Msg::Notice(match crate::whole::write(&path, text.as_bytes()) {
+            Ok(()) => Ok(format!("It is in {shown}")),
+            Err(e) => Err((format!("Couldn't write {shown}"), e.to_string())),
+        })
+    });
+}
+
 /// Drop the checkpoints of the session `uid` in the repository at `dir`.
 pub fn drop_checkpoints(dir: PathBuf, uid: String) {
     acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));

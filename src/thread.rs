@@ -1042,23 +1042,8 @@ impl Desk {
                                             "Keep it as PLAN.md in the folder",
                                         )
                                         .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                let path = folder.join("PLAN.md");
-                                                match crate::whole::write(&path, keep.as_bytes()) {
-                                                    Ok(()) => this.done(
-                                                        format!(
-                                                            "The plan is in {}",
-                                                            Desk::shown(&path)
-                                                        ),
-                                                        None,
-                                                    ),
-                                                    Err(e) => this.trouble(
-                                                        "Couldn't keep the plan",
-                                                        Some(e.to_string()),
-                                                        None,
-                                                    ),
-                                                }
-                                                cx.notify();
+                                            cx.listener(move |this, _, _, _| {
+                                                this.write(folder.join("PLAN.md"), keep.clone());
                                             }),
                                         ),
                                     ),

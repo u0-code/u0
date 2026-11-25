@@ -94,7 +94,7 @@ fn apple_quoted(text: &str) -> String {
 }
 
 /// Show a notification from macOS, with its sound if `sound`: a turn
-/// ended, or a question is asked, while Ghost is not in front.
+/// ended, or a question is asked, while Ghost is not in front. Blocking.
 pub fn notify(title: &str, body: &str, sound: bool) {
     let mut script = format!(
         "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
@@ -109,7 +109,7 @@ pub fn notify(title: &str, body: &str, sound: bool) {
         .arg(script)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn();
+        .status();
 }
 
 /// Run `program` with `args` and `env` in a Terminal window, for a sign-in

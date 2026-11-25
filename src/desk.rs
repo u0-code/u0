@@ -2389,6 +2389,11 @@ impl Desk {
         self.edit(full, None);
     }
 
+    /// Write `text` to `path` whole, off the window's thread, and say so.
+    pub fn write(&self, path: PathBuf, text: String) {
+        hub::write(path, text, self.tx.clone());
+    }
+
     /// Open `path` in your editor, off the window's thread (`hub::edit`).
     pub fn edit(&self, path: PathBuf, start: Option<&'static [u8]>) {
         hub::edit(path, self.settings.editor.clone(), start, self.tx.clone());
