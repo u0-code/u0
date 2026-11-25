@@ -225,6 +225,9 @@ pub struct Session {
     /// The session whose agent set this one to work as its subagent: shown,
     /// not listed, not kept, not written in.
     pub parent: Option<u64>,
+    /// The session this one asks a side question of: branched off it
+    /// whole, not listed, its answer taken back to it if you want.
+    pub beside: Option<u64>,
     /// When each message (yours, the agent's) began, by its item; and the
     /// time read from the record for the next one.
     pub times: Vec<(usize, SystemTime)>,
@@ -615,6 +618,7 @@ impl Session {
             marks: Vec::new(),
             from: None,
             parent: None,
+            beside: None,
             setup: Vec::new(),
             holding: Vec::new(),
             seen: None,

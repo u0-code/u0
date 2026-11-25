@@ -452,6 +452,31 @@ impl Desk {
         self.branch(key, None, cx);
     }
 
+    /// Ask a side question of the session `key`: a branch of it whole, on
+    /// screen, not listed, so that what is asked there does not go in it.
+    pub fn ask_beside(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.popup = super::Popup::Closed;
+        self.asking_beside = Some(key);
+        self.branch(key, None, cx);
+    }
+
+    /// Take the last answer of the side question `key` back to the session
+    /// it was asked of, quoted in what you are writing there.
+    pub fn answer_back(&mut self, key: u64, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let Some(to) = s.beside else { return };
+        let answer = s.items.iter().rev().find_map(|i| match i {
+            Item::Agent(t) => Some(t.clone()),
+            _ => None,
+        });
+        self.show(to, window, cx);
+        if let Some(answer) = answer {
+            self.quote(&answer, window, cx);
+        }
+    }
+
     /// Branch the session `key` off before your message at `item` of its
     /// thread: a new session with what was said up to it, and the message
     /// in the composer to say another way.
@@ -548,6 +573,7 @@ impl Desk {
             Ok(r) => r,
             Err(f) => {
                 self.rewinding = None;
+                self.asking_beside = None;
                 self.trouble(
                     format!(
                         "Couldn't branch off “{}”",
@@ -569,6 +595,7 @@ impl Desk {
         // Taken back to a message: the branch is the session now, in its
         // place; the old one is archived.
         let rewound = self.rewinding.take_if(|k| *k == from).is_some();
+        let side = self.asking_beside.take_if(|k| *k == from).is_some();
         let mut s = Session::new(key, &origin.agent, origin.folder.clone());
         s.project.clone_from(&origin.project);
         s.worktree.clone_from(&origin.worktree);
@@ -596,9 +623,14 @@ impl Desk {
                 o.flags.pinned = None;
             }
         } else {
-            s.title = format!("{} (fork)", origin.title);
+            s.title = if side {
+                format!("Beside “{}”", origin.title)
+            } else {
+                format!("{} (fork)", origin.title)
+            };
             s.renamed = true;
             s.from = origin.id.as_ref().map(|id| id.0.to_string());
+            s.beside = side.then_some(from);
         }
         s.id = Some(r.session_id.clone());
         s.modes = r.modes;
@@ -760,6 +792,7 @@ impl Desk {
     pub fn listed_now(&self, s: &Session) -> bool {
         let now = store::secs(SystemTime::now());
         s.parent.is_none()
+            && s.beside.is_none()
             && !s.flags.archived
             && !self.deleting(s.key)
             && s.flags.snoozed.is_none_or(|t| t <= now)

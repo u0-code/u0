@@ -197,6 +197,8 @@ pub struct Desk {
     /// The session being taken back to one of your messages: the fork
     /// made for it takes its place.
     pub rewinding: Option<u64>,
+    /// The session a side question is being branched off.
+    pub asking_beside: Option<u64>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
     /// What you put aside from the composer (see `store::Index`).
@@ -678,6 +680,7 @@ impl Desk {
             undo: None,
             waiting: Vec::new(),
             rewinding: None,
+            asking_beside: None,
             gone: Vec::new(),
             stashed: Vec::new(),
             notices: Vec::new(),

@@ -614,12 +614,70 @@ impl Desk {
                 .child(buttons)
         });
 
+        // A side question: what is asked here stays out of the session it
+        // was asked of; its answer can be taken back there.
+        let beside = s.beside.map(|up| {
+            let title = self
+                .sessions
+                .iter()
+                .find(|p| p.key == up)
+                .map(|p| ui::fit(&p.title, 40))
+                .unwrap_or_default();
+            let key = s.key;
+            let answered = s
+                .items
+                .iter()
+                .any(|i| matches!(i, crate::session::Item::Agent(_)));
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .w(px(column))
+                .mb(px(8.))
+                .px(px(14.))
+                .py(px(8.))
+                .rounded(px(12.))
+                .border_1()
+                .border_color(theme::border2())
+                .child(ui::icon("bulb", 15.).text_color(theme::faint()))
+                .child(
+                    ui::text(
+                        faces,
+                        format!("A side question of “{title}”: it does not go in it."),
+                    )
+                    .flex_1()
+                    .text_size(px(13.))
+                    .text_color(theme::text2()),
+                )
+                .when(answered, |d| {
+                    d.child(
+                        ui::button(
+                            faces,
+                            "answer-back",
+                            "Add the answer to it",
+                            ui::Weight::Secondary,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.answer_back(key, window, cx);
+                            },
+                        )),
+                    )
+                })
+                .child(
+                    ui::button(faces, "beside-back", "Back to it", ui::Weight::Quiet).on_click(
+                        cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
+                    ),
+                )
+        });
+
         div()
             .flex()
             .flex_col()
             .flex_none()
             .items_center()
             .pb(px(18.))
+            .children(beside)
             .children(sign_in)
             .children(approval)
             .children(offers)

@@ -33,6 +33,7 @@ enum Act {
     Grouping,
     CopyThread,
     Restart,
+    Beside,
     Tab(crate::pages::Tab),
     Go(u64),
     NewIn(PathBuf),
@@ -331,6 +332,7 @@ impl Desk {
             act("Settings", "⌘,", Act::Settings, "settings"),
             act("Copy this conversation", "", Act::CopyThread, "copy"),
             act("Restart the session", "", Act::Restart, "retry"),
+            act("Ask a side question", "", Act::Beside, "bulb"),
             act("Go to a file", "⌘P", Act::File(String::new()), "file"),
             act(
                 "Settings: General",
@@ -489,6 +491,11 @@ impl Desk {
                 }
             }
             Act::Restart => self.restart(window, cx),
+            Act::Beside => {
+                if let Some(key) = self.current {
+                    self.ask_beside(key, cx);
+                }
+            }
             Act::Tab(tab) => {
                 self.settings_tab = tab;
                 self.open_page(Page::Settings, cx);

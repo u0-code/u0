@@ -827,6 +827,21 @@ impl Desk {
                                         })),
                                 )
                             })
+                            .when(after && s.beside.is_none(), |d| {
+                                d.child(
+                                    Self::under(
+                                        &key,
+                                        "beside",
+                                        "bulb",
+                                        "Ask a side question of it",
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.ask_beside(at, cx);
+                                        },
+                                    )),
+                                )
+                            })
                             .children(s.time_of(i).map(|t| {
                                 meta(faces, when::said_at(t, std::time::SystemTime::now()))
                                     .ml(px(6.))
