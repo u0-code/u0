@@ -348,6 +348,7 @@ impl Desk {
                                 .h(px(30.))
                                 .flex()
                                 .items_center()
+                                .px(px(8.))
                                 .rounded(px(8.))
                                 .bg(theme::well())
                                 .border_1()
