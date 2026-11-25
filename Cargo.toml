@@ -45,6 +45,9 @@ tempfile = "3.27"
 hayro = "0.9"
 # Which release of Ghost is newer: the updater.
 semver = "1.0"
+# The macOS Keychain, where secrets are kept: the crate rustls already
+# brings into the tree.
+security-framework = "3.7"
 cocoa = "0.26"
 # Speech to text on this Mac (Apple's Speech framework, on device) and the
 # microphone it hears (AVFAudio), with the blocks they call back.

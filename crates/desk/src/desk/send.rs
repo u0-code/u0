@@ -330,6 +330,12 @@ impl Desk {
                 self.transport.send(Call::Start {
                     entry: slot.entry.clone(),
                     command: slot.command.clone(),
+                    env: self
+                        .settings
+                        .env
+                        .get(&slot.entry.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 });
             }
         }

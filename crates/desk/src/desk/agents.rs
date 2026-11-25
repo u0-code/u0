@@ -25,16 +25,64 @@ impl Desk {
         } else {
             self.settings.commands.insert(id.to_owned(), line.clone());
         }
+        if let Some(slot) = self.slot_mut(id) {
+            slot.command = (!line.is_empty()).then_some(line);
+        }
+        self.start_again(id, cx);
+    }
+
+    /// What runs of the agent `id` is let go, and it starts again as the
+    /// settings, saved now, say.
+    fn start_again(&mut self, id: &str, cx: &mut Context<Self>) {
         self.save_settings();
-        // What runs is let go; it starts again the new way.
         self.let_go(id);
         let home = self.home.clone();
         if let Some(slot) = self.slot_mut(id) {
-            slot.command = (!line.is_empty()).then_some(line);
             slot.restage(&home);
         }
         self.start_ready();
         cx.notify();
+    }
+
+    /// The variable typed on the agent `id`'s page, kept in the Keychain
+    /// where it is marked secret; it starts again with it.
+    pub fn add_var(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.pages.var_name.read(cx).value().trim().to_owned();
+        let value = self.pages.var_value.read(cx).value().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let secret = self.pages.var_secret;
+        if secret {
+            self.transport.send(Call::Secret {
+                account: crate::secrets::env_account(id, &name),
+                value: Some(value.clone()),
+            });
+        }
+        let vars = self.settings.env.entry(id.to_owned()).or_default();
+        vars.insert(name, (!secret).then_some(value));
+        for input in [&self.pages.var_name, &self.pages.var_value] {
+            input.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+        self.start_again(id, cx);
+    }
+
+    /// Take the variable `name` from the agent `id`, and out of the
+    /// Keychain where it was kept there.
+    pub fn drop_var(&mut self, id: &str, name: &str, cx: &mut Context<Self>) {
+        let Some(vars) = self.settings.env.get_mut(id) else {
+            return;
+        };
+        if let Some(None) = vars.remove(name) {
+            self.transport.send(Call::Secret {
+                account: crate::secrets::env_account(id, name),
+                value: None,
+            });
+        }
+        if vars.is_empty() {
+            self.settings.env.remove(id);
+        }
+        self.start_again(id, cx);
     }
 
     /// A model id of yours for the agent `id`, typed on its page.
@@ -201,6 +249,12 @@ impl Desk {
                 self.transport.send(Call::Start {
                     entry: slot.entry.clone(),
                     command: slot.command.clone(),
+                    env: self
+                        .settings
+                        .env
+                        .get(&slot.entry.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -216,6 +270,12 @@ impl Desk {
             self.transport.send(Call::Start {
                 entry: slot.entry.clone(),
                 command: slot.command.clone(),
+                env: self
+                    .settings
+                    .env
+                    .get(&slot.entry.id)
+                    .cloned()
+                    .unwrap_or_default(),
             });
         }
     }

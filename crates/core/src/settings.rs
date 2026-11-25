@@ -45,6 +45,11 @@ pub struct Settings {
     /// the registry's way: your own build, a version manager's.
     #[serde(default)]
     pub commands: std::collections::BTreeMap<String, String>,
+    /// The variables each agent starts with, by its id and their names:
+    /// a value written here, or none where it is kept secret, in the
+    /// Keychain (`secrets`).
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Option<String>>>,
     /// Model ids of your own, by agent, offered beside those it lists.
     #[serde(default)]
     pub models: std::collections::BTreeMap<String, Vec<String>>,
@@ -668,6 +673,7 @@ impl Default for Settings {
             worktree: false,
             prefs: std::collections::BTreeMap::new(),
             commands: std::collections::BTreeMap::new(),
+            env: std::collections::BTreeMap::new(),
             models: std::collections::BTreeMap::new(),
             favourites: Vec::new(),
             notify: Notify::default(),

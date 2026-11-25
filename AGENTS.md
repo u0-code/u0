@@ -114,6 +114,7 @@ crates/core/src/
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
   settings.rs   ~/.ghost/settings.json and the home
+  secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
@@ -181,6 +182,9 @@ assets/         fonts and the desk's own icons, built into the app
   Ghost writes that a person may care about. Their fields are
   `deny_unknown_fields`; a file that does not read is left alone and
   nothing is saved over it.
+- A secret (an agent's variable marked so, a forge's token) is kept in the
+  macOS Keychain under the service `Ghost <home>`, never in a file;
+  `settings.json` names it only.
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry. `logs/` is Ghost's own log, a file a day, the last
   `log_days` kept.

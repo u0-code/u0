@@ -41,10 +41,18 @@ pub enum Call {
         agent: String,
     },
     /// Start `entry`'s program (by `command`, a command line of yours,
-    /// where you gave one) and say hello to it.
+    /// where you gave one) with the variables `env` (as in the settings'
+    /// `env`) and say hello to it.
     Start {
         entry: Entry,
         command: Option<String>,
+        env: std::collections::BTreeMap<String, Option<String>>,
+    },
+    /// Keep `value` secret as `account` (`secrets`), or nothing, with none;
+    /// answered as a `Notice` where it could not be.
+    Secret {
+        account: String,
+        value: Option<String>,
     },
     /// Let go of `agent`: its process stops once nothing more is asked of
     /// it.
@@ -1083,6 +1091,11 @@ mod tests {
             Call::Start {
                 entry: entry.clone(),
                 command: Some("a --acp".into()),
+                env: [("K".to_owned(), None)].into(),
+            },
+            Call::Secret {
+                account: "env/a/K".into(),
+                value: Some("v".into()),
             },
             Call::Stop { agent: "a".into() },
             Call::Kill { agent: "a".into() },

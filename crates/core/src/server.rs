@@ -108,7 +108,18 @@ impl Server {
             Call::Fetch => self.fetch(),
             Call::Install { entry } => self.install(entry),
             Call::CancelInstall { agent } => self.cancel_install(&agent),
-            Call::Start { entry, command } => self.start(&entry, command.as_deref()),
+            Call::Start {
+                entry,
+                command,
+                env,
+            } => self.start(&entry, command.as_deref(), &env),
+            Call::Secret { account, value } => self.off(move || {
+                Event::Notice(match crate::secrets::set(&account, value.as_deref()) {
+                    Ok(()) if value.is_some() => Ok("Kept in the Keychain".into()),
+                    Ok(()) => Ok("Taken out of the Keychain".into()),
+                    Err(e) => Err(("The Keychain refused it".into(), e)),
+                })
+            }),
             Call::Stop { agent } => self.stop(&agent),
             Call::Kill { agent } => self.kill(&agent),
             Call::Open {
@@ -528,9 +539,9 @@ impl Server {
     /// Start `entry`'s program (by `command`, a command line of yours,
     /// where you gave one) and say hello to it. What it says on its own
     /// comes back as [`Event::Said`], in order with the answers.
-    fn start(&self, entry: &Entry, command: Option<&str>) {
+    fn start(&self, entry: &Entry, command: Option<&str>, env: &BTreeMap<String, Option<String>>) {
         let agent = entry.id.clone();
-        let launch = match registry::launch_with(entry, &self.home, command) {
+        let mut launch = match registry::launch_with(entry, &self.home, command) {
             Ok(l) => l,
             Err(m) => {
                 (self.send)(Event::Started {
@@ -543,7 +554,17 @@ impl Server {
         let (send, agents) = (self.send.clone(), self.agents.clone());
         let (records, running) = (self.records.clone(), self.agents.clone());
         let writing = self.writing.clone();
+        let (vars, of) = (env.clone(), agent.clone());
         acp::runtime().spawn(async move {
+            // Read from the Keychain, or 1Password, which may ask you first.
+            let vars = tokio::task::spawn_blocking(move || crate::secrets::env(&of, &vars)).await;
+            match vars.expect("the variables read") {
+                Ok(vars) => launch.env.extend(vars),
+                Err(why) => {
+                    let result = Err(Error::internal_error().data(why));
+                    return send(Event::Started { agent, result });
+                }
+            }
             let (said, id) = (send.clone(), agent.clone());
             let result = match Agent::start(&launch, move |event| {
                 if let Some(event) = heard(&records, &running, &writing, &id, event) {
@@ -1249,6 +1270,7 @@ read line"#;
         server.handle(Call::Start {
             entry,
             command: Some(format!("/bin/sh {}", agent.display())),
+            env: BTreeMap::new(),
         });
         assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
         let s1 = SessionId::new("s1");
@@ -1329,6 +1351,7 @@ read line"#,
         server.handle(Call::Start {
             entry,
             command: Some(format!("/bin/sh {}", agent.display())),
+            env: BTreeMap::new(),
         });
         assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
         let ask = writer::Ask::Commit { dir: repo };

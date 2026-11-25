@@ -53,6 +53,11 @@ pub struct Pages {
     pub tidied: Option<String>,
     pub command: Entity<InputState>,
     pub model: Entity<InputState>,
+    /// A variable for an agent: its name, its value (hidden as it is
+    /// typed), and whether it is kept secret.
+    pub var_name: Entity<InputState>,
+    pub var_value: Entity<InputState>,
+    pub var_secret: bool,
     /// The project whose page Settings → Projects shows, if one.
     pub project: Option<std::path::PathBuf>,
     /// Your instructions to the writer, by what it writes.
@@ -121,6 +126,13 @@ impl Pages {
             tidied: None,
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
+            var_name: field("NAME", window, cx),
+            var_value: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("value, or op://vault/item/field")
+                    .masked(true)
+            }),
+            var_secret: true,
             project: None,
             period: Some(30),
             changes: instructions_field(
@@ -694,6 +706,7 @@ impl Desk {
             faces,
             "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
         ));
+        own = own.child(self.agent_vars(faces, id, cx));
         // The version of ACP it speaks, where it is not Ghost's.
         if let Stage::Running { .. } = stage
             && let Some(init) = self.slot(id).and_then(|s| s.known.as_ref())
@@ -706,5 +719,90 @@ impl Desk {
             ));
         }
         own
+    }
+
+    /// The variables the agent `id` starts with, a secret one's value
+    /// hidden (it is in the Keychain, not here); and a line to add one.
+    fn agent_vars(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
+        let mut list = card().overflow_hidden();
+        for (n, (name, value)) in self.settings.env.get(id).into_iter().flatten().enumerate() {
+            let (agent, var) = (id.to_owned(), name.clone());
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(12.))
+                    .py(px(6.))
+                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                    .child(ui::mono(faces, name.clone()).text_size(px(12.5)))
+                    .child(
+                        ui::one_line(ui::mono(
+                            faces,
+                            value.clone().unwrap_or_else(|| "••••••••".into()),
+                        ))
+                        .flex_1()
+                        .text_color(theme::muted()),
+                    )
+                    .child(ui::fine(
+                        faces,
+                        if value.is_some() {
+                            "Plain text"
+                        } else {
+                            "In the Keychain"
+                        },
+                    ))
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("drop-var-{n}")),
+                            "x",
+                            "Take it out",
+                        )
+                        .size(px(22.))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.drop_var(&agent, &var, cx)),
+                        ),
+                    ),
+            );
+        }
+        let agent = id.to_owned();
+        let secret = self.pages.var_secret;
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .pt(px(8.))
+            .child(ui::label(faces, "Variables"))
+            .when(self.settings.env.contains_key(id), |d| d.child(list))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().w(px(180.)).child(Input::new(&self.pages.var_name).small()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(Input::new(&self.pages.var_value).small().mask_toggle()),
+                    )
+                    .child(
+                        gpui::component::switch::Switch::new("var-secret")
+                            .small()
+                            .checked(secret)
+                            .label("Secret")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.pages.var_secret = !this.pages.var_secret;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        ui::button("add-var", "Add", Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, window, cx| this.add_var(&agent, window, cx))),
+                    ),
+            )
+            .child(ui::fine(
+                faces,
+                "Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in Ghost's files; a value may be a 1Password reference, read by op as it starts.",
+            ))
     }
 }

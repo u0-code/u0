@@ -7,7 +7,7 @@
 //! with what `proto` defines. Here too are the sessions built from what
 //! the agents say (`session`), what Ghost keeps of them (`store`), git and
 //! its checkpoints (`git`), a project's pull requests and issues
-//! (`github`), the process of a terminal (`pty`), and text an agent
+//! (`github`), what is kept secret (`secrets`), the process of a terminal (`pty`), and text an agent
 //! writes for you (`writer`). The desk (`ghost-desk`) draws all of it.
 
 pub mod acp;
@@ -21,6 +21,7 @@ pub mod registry;
 pub mod remote;
 pub mod repo;
 pub mod scripts;
+pub mod secrets;
 pub mod server;
 pub mod session;
 pub mod settings;
