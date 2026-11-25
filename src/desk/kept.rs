@@ -7,6 +7,7 @@ use gpui::Context;
 use super::Desk;
 use crate::{
     session::{Session, State},
+    sessions::Read,
     store::{self, Index, Job},
 };
 
@@ -166,35 +167,19 @@ impl Desk {
     /// and the agent is asked only when you write. A session without one
     /// comes from its agent. One opened meanwhile is left as it is.
     pub(crate) fn record_read(&mut self, key: u64, events: Option<Vec<store::Event>>) {
-        let Some(s) = self.sessions.at(key).filter(|s| s.state == State::Closed) else {
-            return;
-        };
-        let agent = s.meta.agent.clone();
-        // A subagent has no other copy; any other is loaded from its agent.
-        let cut = |e: &[store::Event]| s.parent.is_none() && store::cut_short(e);
-        let Some(events) = events.filter(|e| !e.is_empty()) else {
-            self.open_unrecorded(key);
-            return;
-        };
-        if cut(&events) {
-            self.drop_record(key);
-            self.open_unrecorded(key);
-            return;
+        let agent = self.sessions.at(key).map(|s| &s.meta.agent);
+        let probe = (self.slots.iter())
+            .find(|slot| Some(&slot.entry.id) == agent)
+            .and_then(|slot| slot.probe.as_ref());
+        match self.sessions.read_back(key, events, probe, &self.home) {
+            Read::Replayed => {
+                self.place(key);
+                // A record from before its index named its subagents names them.
+                self.subagents_back(key);
+            }
+            Read::Unrecorded => self.open_unrecorded(key),
+            Read::Left => {}
         }
-        let slot = self.slots.iter().find(|x| x.entry.id == agent);
-        let s = self.sessions.at_mut(key).expect("found above");
-        s.forget();
-        s.replay(events);
-        s.recorded = true;
-        if s.options.is_empty()
-            && let Some(p) = slot.and_then(|x| x.probe.as_ref())
-        {
-            s.modes.clone_from(&p.modes);
-            s.options.clone_from(&p.options);
-        }
-        self.place(key);
-        // A record from before its index named its subagents names them.
-        self.subagents_back(key);
     }
 
     /// Open the session `key`, which has no record, from its agent. A
@@ -215,20 +200,6 @@ impl Desk {
         s.state = State::Opening;
         let agent = s.meta.agent.clone();
         self.open_when_running(&agent, key);
-    }
-
-    /// Drop the record of the session `key`: it is loaded from its agent
-    /// again, and written afresh as it comes.
-    pub(crate) fn drop_record(&mut self, key: u64) {
-        let home = self.home.clone();
-        if let Some(s) = self.sessions.at_mut(key) {
-            if let Some(id) = &s.meta.id {
-                store::queue(Job::Remove(store::record_path(&home, &s.meta.agent, &id.0)));
-            }
-            s.forget();
-            s.log.clear();
-            s.recorded = false;
-        }
     }
 
     /// Let go of each agent idle for a while, with nothing going on in its

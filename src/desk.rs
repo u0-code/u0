@@ -1722,7 +1722,7 @@ impl Desk {
                 Some(id) if load => {
                     let agent = agent.clone();
                     if recorded {
-                        self.drop_record(key);
+                        self.sessions.drop_record(key, &self.home);
                     }
                     hub::reopen(agent, key, id, dirs, false, tx);
                 }

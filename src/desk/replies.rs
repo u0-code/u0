@@ -1,14 +1,15 @@
 //! What comes back to the window: signing in, and every message from the
 //! agents and the work done off the window's thread.
 
-use agent_client_protocol::v1::schema::SessionUpdate;
+use agent_client_protocol::v1::schema::{SessionId, SessionUpdate};
 use gpui::Context;
 
 use super::Desk;
 use crate::{
     acp::Event,
     hub::{self, Msg, Slot, Stage},
-    session::{Item, Session, State},
+    session::State,
+    sessions::Loaded,
 };
 
 impl Desk {
@@ -55,17 +56,7 @@ impl Desk {
 
     /// Try again to open the sessions of `agent` that wait to be signed in.
     pub fn retry_open(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let keys: Vec<u64> = self
-            .sessions
-            .all
-            .iter()
-            .filter(|s| s.meta.agent == agent && s.state == State::SignIn)
-            .map(|s| s.key)
-            .collect();
-        for key in keys {
-            if let Some(s) = self.sessions.at_mut(key) {
-                s.state = State::Opening;
-            }
+        for key in self.sessions.signed_in(agent) {
             self.open_when_running(agent, key);
         }
         cx.notify();
@@ -75,17 +66,7 @@ impl Desk {
         self.signing = None;
         match result {
             Ok(()) => {
-                let keys: Vec<u64> = self
-                    .sessions
-                    .all
-                    .iter()
-                    .filter(|s| s.meta.agent == agent && s.state == State::SignIn)
-                    .map(|s| s.key)
-                    .collect();
-                for key in keys {
-                    if let Some(s) = self.sessions.at_mut(key) {
-                        s.state = State::Opening;
-                    }
+                for key in self.sessions.signed_in(agent) {
                     self.open_when_running(agent, key);
                 }
             }
@@ -488,13 +469,6 @@ impl Desk {
             crate::acp::Error,
         >,
     ) {
-        let waiting: Vec<u64> = self
-            .sessions
-            .all
-            .iter()
-            .filter(|s| s.meta.agent == agent && s.state == State::Opening && !s.needs_worktree())
-            .map(|s| s.key)
-            .collect();
         match result {
             Ok((running, init)) => {
                 if let Some(slot) = self.slot_mut(agent) {
@@ -502,7 +476,7 @@ impl Desk {
                     slot.stage = Stage::Running { agent: running };
                     slot.used = std::time::Instant::now();
                 }
-                for key in waiting {
+                for key in self.sessions.started(agent, None) {
                     self.open_when_running(agent, key);
                 }
                 // What waited for it to start, now.
@@ -520,11 +494,7 @@ impl Desk {
                 if let Some(slot) = self.slot_mut(agent) {
                     slot.stage = Stage::Failed(f.message.clone());
                 }
-                for key in waiting {
-                    if let Some(s) = self.sessions.at_mut(key) {
-                        s.state = State::Broken(f.message.clone());
-                    }
-                }
+                self.sessions.started(agent, Some(&f.message));
             }
         }
     }
@@ -620,33 +590,7 @@ impl Desk {
                 return;
             }
         };
-        for (project, info) in found {
-            if self
-                .gone
-                .iter()
-                .any(|(a, id)| a == agent && *id == *info.session_id.0)
-            {
-                continue;
-            }
-            if let Some(s) = self.sessions.by_id(agent, &info.session_id) {
-                if s.state == State::Closed {
-                    if let Some(t) = info
-                        .title
-                        .filter(|t| !t.trim().is_empty() && !s.meta.renamed)
-                    {
-                        s.meta.title = t;
-                    }
-                    if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
-                        s.meta.updated = t;
-                    }
-                }
-                continue;
-            }
-            let key = self.sessions.take_key();
-            self.sessions
-                .all
-                .push(Session::listed(key, agent, info, project));
-        }
+        self.sessions.listed(agent, found, &self.gone);
         self.settle_idle();
         self.save_index();
     }
@@ -690,30 +634,21 @@ impl Desk {
         resumed: bool,
         result: Result<hub::Opened, crate::acp::Error>,
     ) {
-        let Some(s) = self.sessions.at_mut(key) else {
-            return;
-        };
-        match result {
-            Ok(r) => {
-                s.modes = r.modes;
-                s.options = r.options.unwrap_or_default();
-                s.state = State::Idle;
-                if let Some(text) = s.pending.take() {
-                    s.said(&text);
+        match self.sessions.loaded(key, resumed, result, &self.home) {
+            Loaded::Open(said) => {
+                if let Some(text) = said {
                     self.begin_turn(key, text);
                 }
                 self.to_bottom();
                 self.flush(key);
                 self.save_index();
             }
-            Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => s.state = State::SignIn,
-            // The agent would not resume it: it is loaded, said again.
-            Err(_) if resumed => {
-                let agent = s.meta.agent.clone();
-                self.drop_record(key);
-                self.open_when_running(&agent, key);
+            Loaded::Refused => {
+                if let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) {
+                    self.open_when_running(&agent, key);
+                }
             }
-            Err(f) => s.state = State::Broken(f.message),
+            Loaded::Stays => {}
         }
     }
 
@@ -723,55 +658,32 @@ impl Desk {
         }
         match event {
             Event::Task { session, task } => {
-                if let Some(s) = self.sessions.all.iter_mut().find(|s| {
-                    s.meta.agent == agent && s.meta.id.as_ref().is_some_and(|i| *i.0 == *session)
-                }) {
+                if let Some(s) = self.sessions.by_id(agent, &SessionId::new(session)) {
                     s.task(task);
                 }
             }
-            Event::Update(n) => {
-                // A subagent set to work: a session of its own, under its
-                // parent, that its updates go to.
-                if let SessionUpdate::SubagentUpdate(u) = &n.update
-                    && self.sessions.by_id(agent, &u.session_id).is_none()
-                    && let Some(parent) = self.sessions.by_id(agent, &n.session_id)
-                {
-                    let up = parent.key;
-                    let title = match &u.title {
-                        agent_client_protocol::schema::MaybeUndefined::Value(t) => t.clone(),
-                        _ => "A subagent".into(),
-                    };
-                    self.sessions
-                        .add_subagent(up, u.session_id.clone(), title, State::Idle);
+            Event::Update(n) => match self.sessions.update(agent, n) {
+                Ok((key, titled)) => {
+                    // A long turn is written as it goes, not only at its end.
+                    let long = self.sessions.at(key).is_some_and(|s| s.log.len() >= 400);
+                    self.place(key);
+                    if long {
+                        self.flush(key);
+                    }
+                    // A title come from the agent names the worktree's branch.
+                    if titled {
+                        self.name_branch(key);
+                    }
                 }
-                // What it is doing now, for its row, the column and its tab.
-                if let SessionUpdate::SubagentUpdate(u) = &n.update
-                    && let Some(child) = self.sessions.by_id(agent, &u.session_id)
-                {
-                    child.sub.take(u);
-                }
-                let Some(s) = self.sessions.by_id(agent, &n.session_id) else {
-                    // The probe's session lists the commands the agent takes.
-                    if let SessionUpdate::AvailableCommandsUpdate(c) = n.update
+                // The probe's session lists the commands the agent takes.
+                Err(update) => {
+                    if let SessionUpdate::AvailableCommandsUpdate(c) = *update
                         && let Some(slot) = self.slot_mut(agent)
                     {
                         slot.commands = c.available_commands;
                     }
-                    return;
-                };
-                let title = matches!(n.update, SessionUpdate::SessionInfoUpdate(_));
-                s.apply(n.update);
-                // A long turn is written as it goes, not only at its end.
-                let (key, long) = (s.key, s.log.len() >= 400);
-                self.place(key);
-                if long {
-                    self.flush(key);
                 }
-                // A title come from the agent names the worktree's branch.
-                if title {
-                    self.name_branch(key);
-                }
-            }
+            },
             Event::Permission { id, request } => {
                 if let Some(s) = self.sessions.by_id(agent, &request.session_id) {
                     let (key, title) = (s.key, s.meta.title.clone());
@@ -796,35 +708,11 @@ impl Desk {
                 // One let go while idle ended as it was meant to, and one
                 // let go before this one started is not this one's end:
                 // one that stops as it starts says so in `Started`.
-                let Some(slot) = self.slot_mut(agent) else {
+                let Some(slot) = self.slot_mut(agent).filter(|s| s.runs(pid)) else {
                     return;
                 };
-                if !matches!(&slot.stage, Stage::Running { agent, .. } if agent.pid() == pid) {
-                    return;
-                }
                 slot.stage = Stage::Failed(why.clone());
-                for s in self
-                    .sessions
-                    .all
-                    .iter_mut()
-                    .filter(|s| s.meta.agent == agent)
-                {
-                    let open = !matches!(s.state, State::Draft | State::Closed);
-                    if s.meta.id.is_some() && open {
-                        // The agent keeps it: opened again, it is loaded.
-                        s.items.push(Item::Note {
-                            text: format!("The agent stopped: {why}"),
-                            trouble: true,
-                        });
-                        s.pending = None;
-                        s.since = None;
-                        s.state = State::Closed;
-                    } else if s.state == State::Opening {
-                        s.pending = None;
-                        s.since = None;
-                        s.state = State::Broken(format!("The agent stopped: {why}"));
-                    }
-                }
+                self.sessions.exited(agent, &why);
             }
         }
     }

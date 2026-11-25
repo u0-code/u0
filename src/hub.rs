@@ -418,6 +418,12 @@ impl Slot {
             _ => None,
         }
     }
+
+    /// Whether the process `pid` is its agent running now, not one let go
+    /// or started before it.
+    pub fn runs(&self, pid: Option<u32>) -> bool {
+        self.running().is_some_and(|a| a.pid() == pid)
+    }
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
