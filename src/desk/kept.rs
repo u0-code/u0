@@ -145,17 +145,7 @@ impl Desk {
             .iter()
             .filter(|s| matches!(s.stage, crate::hub::Stage::Running { .. }))
             .filter(|s| s.used.elapsed() >= IDLE)
-            .filter(|slot| {
-                !self.sessions.iter().any(|s| {
-                    s.agent == slot.entry.id
-                        && (matches!(
-                            s.state,
-                            crate::session::State::Working
-                                | crate::session::State::Opening
-                                | crate::session::State::SignIn
-                        ) || s.waiting().is_some())
-                })
-            })
+            .filter(|slot| !self.agent_busy(&slot.entry.id))
             .map(|s| s.entry.id.clone())
             .collect();
         for agent in idle {

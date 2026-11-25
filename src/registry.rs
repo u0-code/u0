@@ -10,10 +10,13 @@
 //! An archive is downloaded, checked against the digest the registry gives,
 //! and unpacked under `<home>/agents/<id>/<version>/`; a newer version goes
 //! beside it, so an agent is never half replaced, and the one before runs
-//! until the newer is in place, which then removes it. A package needs only
-//! `npx` or `uvx`, which fetches and caches it on the first start. The
-//! downloading, checking and unpacking is done by `curl`, `shasum`,
-//! `unzip` and `tar`, which macOS and Linux have.
+//! until the newer is in place, which then removes it. A package is
+//! installed there the same way, with npm or uv, so that what it depends on
+//! (an agent's own CLI, such as Codex's) is the newest it allows as it is
+//! installed, not what a runner's cache once fetched. The desk keeps each
+//! one current (`Desk::keep_current`). The downloading, checking and
+//! unpacking is done by `curl`, `shasum`, `unzip` and `tar`, which macOS
+//! and Linux have.
 
 use std::{
     collections::BTreeMap,
@@ -102,7 +105,8 @@ pub fn platform() -> String {
 pub enum Way<'a> {
     /// An archive to download for this platform.
     Archive,
-    /// A package a runner (`npx`, `uvx`) fetches; the runner must be here.
+    /// A package of the runner `npx` or `uvx`, installed here with npm or
+    /// uv, which must be here.
     Runner {
         runner: &'static str,
         package: &'a str,
@@ -114,7 +118,7 @@ pub enum Way<'a> {
 /// Why an agent cannot be started yet, and what would let it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Missing {
-    /// Its archive is not downloaded: installing it is one click.
+    /// It is not installed here yet: installing it is one click.
     Download,
     /// It runs through `runner`, which is not installed.
     Runner(&'static str),
@@ -224,6 +228,12 @@ impl Entry {
             })
     }
 
+    /// When what is installed here was installed.
+    pub fn installed_at(&self, home: &Path) -> Option<std::time::SystemTime> {
+        let dir = self.dir_of(home, &self.installed(home)?);
+        std::fs::metadata(dir).and_then(|m| m.modified()).ok()
+    }
+
     /// Take its archives off this machine.
     pub fn uninstall(&self, home: &Path) -> Result<(), String> {
         let dir = home.join("agents").join(&self.id);
@@ -235,8 +245,7 @@ impl Entry {
         }
     }
 
-    /// Whether its archive is on this machine: an agent run through a
-    /// runner never is, the runner fetching it each time.
+    /// Whether it is installed on this machine.
     pub fn downloaded(&self, home: &Path) -> bool {
         self.installed(home).is_some()
     }
@@ -263,33 +272,20 @@ impl Entry {
                     d.uvx.as_ref()
                 }
                 .expect("the package the way names");
-                // Installed in Ghost's folder, it starts from there, at its
-                // version, with nothing fetched.
-                if let Some(program) = self
+                // Installed in Ghost's folder, it starts from there.
+                let installed = self
                     .installed(home)
-                    .and_then(|v| self.program_in(&self.dir_of(home, &v)))
-                {
-                    return Ok(Launch {
+                    .and_then(|v| self.program_in(&self.dir_of(home, &v)));
+                match installed {
+                    Some(program) => Ok(Launch {
                         program,
                         args: p.args.clone(),
                         env: p.env.clone().into_iter().collect(),
                         dir: None,
-                    });
+                    }),
+                    None if which(installer(runner)).is_some() => Err(Missing::Download),
+                    None => Err(Missing::Runner(runner)),
                 }
-                let program = which(runner).ok_or(Missing::Runner(runner))?;
-                let mut args = if runner == "npx" {
-                    vec!["-y".to_owned()]
-                } else {
-                    vec![]
-                };
-                args.push(p.package.clone());
-                args.extend(p.args.iter().cloned());
-                Ok(Launch {
-                    program,
-                    args,
-                    env: p.env.clone().into_iter().collect(),
-                    dir: None,
-                })
             }
             Way::None => Err(Missing::Unsupported),
         }
@@ -399,6 +395,11 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
 /// The file in a package's install folder that names its program.
 const PROGRAM: &str = "program";
 
+/// What installs a runner's package: npm for npx's, uv for uvx's.
+fn installer(runner: &str) -> &'static str {
+    if runner == "npx" { "npm" } else { "uv" }
+}
+
 /// Install `entry`'s package at its version into Ghost's folder, with npm
 /// (an npx package) or uv (a uvx one): it then starts from there, with
 /// nothing fetched each time, and is updated as an archive is.
@@ -410,7 +411,7 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     let mut command = if let Some(p) = &d.npx {
         say(&format!("Installing {} with npm", p.package), None);
-        let npm = which("npm").ok_or_else(|| Missing::Runner("npx").say(&entry.name))?;
+        let npm = which(installer("npx")).ok_or_else(|| Missing::Runner("npx").say(&entry.name))?;
         let mut c = Command::new(npm);
         c.args([
             "install",
@@ -424,7 +425,7 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
         c
     } else if let Some(p) = &d.uvx {
         say(&format!("Installing {} with uv", p.package), None);
-        let uv = which("uv").ok_or_else(|| Missing::Runner("uvx").say(&entry.name))?;
+        let uv = which(installer("uvx")).ok_or_else(|| Missing::Runner("uvx").say(&entry.name))?;
         let mut c = Command::new(uv);
         c.args(["tool", "install", "--force", &p.package])
             .env("UV_TOOL_DIR", staging.join("tools"))
@@ -673,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn a_package_runs_through_its_runner_with_the_arguments_the_registry_gives() {
+    fn a_package_is_installed_here_before_it_runs() {
         let e = entry(
             r#"{"id":"gemini","name":"Gemini CLI","version":"1","distribution":{"npx":{"package":"@google/gemini-cli@1","args":["--acp"]}}}"#,
         );
@@ -684,9 +685,12 @@ mod tests {
                 package: "@google/gemini-cli@1"
             }
         );
-        if let Ok(launch) = e.launch(Path::new("/nowhere")) {
-            assert_eq!(launch.args, ["-y", "@google/gemini-cli@1", "--acp"]);
-        }
+        // Not installed: never run from a runner's cache.
+        let missing = e.launch(Path::new("/nowhere")).expect_err("not installed");
+        assert!(matches!(
+            missing,
+            Missing::Download | Missing::Runner("npx")
+        ));
     }
 
     #[test]

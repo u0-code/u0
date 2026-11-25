@@ -167,6 +167,7 @@ impl Desk {
                     }
                 }
                 self.fill_slots();
+                self.keep_current(cx);
             }
             Msg::Registry(Err(why)) => self.registry_trouble = Some(why),
             Msg::Installing { agent, what, share } => {
@@ -177,8 +178,21 @@ impl Desk {
             }
             Msg::Installed { agent, result } => {
                 let home = self.home.clone();
+                let name = self.name_of(&agent);
                 if let Some(slot) = self.slot_mut(&agent) {
                     match result {
+                        // An update that did not come leaves the version
+                        // here running, and says why.
+                        Err(why)
+                            if why != crate::registry::CANCELLED && slot.launch(&home).is_ok() =>
+                        {
+                            slot.stage = Stage::Ready;
+                            self.trouble(
+                                format!("{name} was not updated"),
+                                Some(why),
+                                Some(super::notices::Way::Agent(agent.clone())),
+                            );
+                        }
                         Err(why) if why != crate::registry::CANCELLED => {
                             slot.stage = Stage::Failed(why);
                         }
