@@ -14,7 +14,7 @@
 //! so nothing comes twice.
 
 use std::{
-    io::Write as _,
+    io::{Read as _, Seek as _, Write as _},
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -201,8 +201,18 @@ pub fn append(path: &Path, events: &[Event]) -> std::io::Result<()> {
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(path)?;
+    // A line a crash cut short is ended first, so that it does not take
+    // the first of these with it.
+    if file.seek(std::io::SeekFrom::End(-1)).is_ok() {
+        let mut last = [0u8];
+        file.read_exact(&mut last)?;
+        if last[0] != b'\n' {
+            text.insert(0, '\n');
+        }
+    }
     file.write_all(text.as_bytes())
 }
 
@@ -297,7 +307,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_record_reads_back_in_order_and_a_line_cut_short_is_left_out() {
+    fn a_record_reads_back_in_order_and_a_line_cut_short_loses_only_itself() {
         let dir = std::env::temp_dir().join(format!("ghost-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = record_path(&dir, "claude-acp", "a/b");
@@ -324,10 +334,12 @@ mod tests {
             .open(&path)
             .unwrap();
         f.write_all(b"{\"you\":\"cut sh").unwrap();
+        append(&path, &[Event::You("next".into())]).unwrap();
         let events = read(&path).unwrap();
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 4);
         assert!(matches!(&events[0], Event::You(t) if t == "go"));
         assert!(matches!(events[2], Event::Ended { secs: 3, .. }));
+        assert!(matches!(&events[3], Event::You(t) if t == "next"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
