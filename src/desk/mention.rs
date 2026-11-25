@@ -382,7 +382,7 @@ impl Desk {
         let mentions = std::mem::take(&mut self.mentions);
         for m in mentions.iter().filter(|m| text.contains(&m.token)) {
             match &m.what {
-                Offer::File(f) => blocks.push(link(&folder, f)),
+                Offer::File(f) => blocks.extend(link(&folder, f)),
                 Offer::Session { key, title } => {
                     if let Some(other) = self.sessions.iter().find(|o| o.key == *key) {
                         blocks.push(text_resource(
@@ -405,20 +405,21 @@ impl Desk {
                 && !mentions.iter().any(|m| m.token == word)
                 && folder.join(f).is_file()
             {
-                blocks.push(link(&folder, f));
+                blocks.extend(link(&folder, f));
             }
         }
         blocks
     }
 }
 
-/// A link to the file `f` in `folder`.
-fn link(folder: &Path, f: &str) -> ContentBlock {
-    let path = folder.join(f);
-    ContentBlock::ResourceLink(ResourceLink::new(
+/// A link to the file `f` in `folder`, by a `file:` URI with what needs
+/// escaping in the path escaped; none where `folder` is not absolute.
+fn link(folder: &Path, f: &str) -> Option<ContentBlock> {
+    let uri = url::Url::from_file_path(folder.join(f)).ok()?;
+    Some(ContentBlock::ResourceLink(ResourceLink::new(
         f.to_owned(),
-        format!("file://{}", path.display()),
-    ))
+        uri.to_string(),
+    )))
 }
 
 fn text_resource(uri: &str, text: &str) -> ContentBlock {
@@ -456,5 +457,21 @@ impl Desk {
             self.done("The conversation is copied", None);
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_named_with_a_space_and_a_hash_is_linked_by_a_uri_that_reads_back() {
+        let Some(ContentBlock::ResourceLink(l)) = link(Path::new("/tmp/my project"), "a #1.rs")
+        else {
+            panic!("not a link");
+        };
+        assert_eq!(l.uri, "file:///tmp/my%20project/a%20%231.rs");
+        let back = url::Url::parse(&l.uri).unwrap().to_file_path().unwrap();
+        assert_eq!(back, Path::new("/tmp/my project/a #1.rs"));
     }
 }
