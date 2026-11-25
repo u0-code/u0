@@ -7,6 +7,7 @@
 use gpui::component::list::ListItem;
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
+use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -50,6 +51,19 @@ impl Desk {
                     )
             };
         let mut steps: Vec<ListItem> = Vec::new();
+        // Settings that did not read, as Ghost started: read again once
+        // the file is mended or moved away.
+        if self.settings_refused.is_some() {
+            steps.push(
+                row(
+                    "step-settings".into(),
+                    "alert",
+                    "Your settings did not read: read them again".into(),
+                    None,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.read_settings_again(cx))),
+            );
+        }
         if self.projects().is_empty() {
             steps.push(
                 row(
@@ -116,20 +130,59 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx))),
             );
         }
-        if steps.is_empty() {
-            return div();
-        }
-        div().flex().flex_col().items_center().mt(px(160.)).child(
+        // A session not begun asks, as t3code's does, what to build, in a
+        // project picked from its name.
+        let headline = self.session().filter(|_| fresh).map(|s| {
+            let name = self.project_name(&s.meta.project);
             div()
                 .flex()
-                .flex_col()
-                .w(px(width.min(420.)))
-                .p(px(4.))
-                .rounded(px(10.))
-                .border_1()
-                .border_color(theme::border2())
-                .children(steps),
-        )
+                .flex_wrap()
+                .items_baseline()
+                .justify_center()
+                .child(ui::text(faces, "What should we build in").text_size(px(26.)))
+                .child(
+                    div()
+                        .id("start-project")
+                        .ml(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .cursor_pointer()
+                        .child(
+                            ui::text(faces, name)
+                                .text_size(px(26.))
+                                .weight(gpui::FontWeight::MEDIUM),
+                        )
+                        .child(ui::icon("chevron-down", 14.).text_color(theme::faint()))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if !this.palette.open {
+                                this.toggle_palette(window, cx);
+                            }
+                            this.new_in_page(window, cx);
+                        })),
+                )
+                .child(ui::text(faces, "?").text_size(px(26.)))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(28.))
+            .mt(px(if headline.is_some() { 120. } else { 160. }))
+            .children(headline)
+            .when(!steps.is_empty(), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w(px(width.min(420.)))
+                        .p(px(4.))
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_color(theme::border2())
+                        .children(steps),
+                )
+            })
     }
 
     /// The sessions that wait on you, then the others most lately touched.

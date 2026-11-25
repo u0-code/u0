@@ -31,6 +31,22 @@ impl Desk {
         self.start_again(id, cx);
     }
 
+    /// Read the settings again, where they did not read as Ghost started:
+    /// taken, and the agents they switch on started; or why not, again.
+    pub(crate) fn read_settings_again(&mut self, cx: &mut Context<Self>) {
+        let (settings, refused) = crate::settings::Settings::load(&self.home);
+        if refused.is_none() {
+            self.settings = settings;
+            self.fill_slots();
+            self.settings_took(cx);
+            self.done("Your settings are read", None);
+        } else {
+            self.trouble("Your settings still do not read", refused.clone(), None);
+        }
+        self.settings_refused = refused;
+        cx.notify();
+    }
+
     /// What runs of the agent `id` is let go, and it starts again as the
     /// settings, saved now, say.
     fn start_again(&mut self, id: &str, cx: &mut Context<Self>) {

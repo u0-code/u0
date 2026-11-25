@@ -58,6 +58,9 @@ enum Act {
     /// The sessions in `Palette::snoozing`, out of the way until then.
     Snooze(super::Later),
     Tab(crate::pages::Tab),
+    /// The settings opened on what their search finds of these words:
+    /// every setting, and every key binding.
+    FindSetting(String),
     Go(u64),
     /// A project: its latest session not done, else a new one.
     Open(PathBuf),
@@ -699,7 +702,18 @@ impl Desk {
                     words: vec!["settings".to_owned()],
                     ..r
                 })
+                // What the settings' own search finds of the words, which
+                // reads every setting and key binding where it is drawn.
+                .chain(std::iter::once(Row {
+                    words: vec![typed.clone(), "settings".to_owned(), "keys".to_owned()],
+                    ..Row::new(
+                        "search",
+                        format!("Search the settings and keys for “{typed}”"),
+                        Act::FindSetting(typed.clone()),
+                    )
+                }))
                 .collect();
+
             groups.push(("Settings", settings));
             groups.extend(self.github_rows());
         }
@@ -870,6 +884,12 @@ impl Desk {
                 self.snooze(&keys, later, cx);
             }
             Act::Tab(tab) => self.open_tab(tab, window, cx),
+            Act::FindSetting(words) => {
+                self.open_tab(self.pages.tab, window, cx);
+                self.pages
+                    .search
+                    .update(cx, |i, cx| i.set_value(words, window, cx));
+            }
             Act::File(name) => self.open_file(&name, cx),
             Act::Go(key) => self.show(key, window, cx),
             Act::Open(folder) => self.open_project(&folder, window, cx),
