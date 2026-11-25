@@ -779,7 +779,9 @@ pub fn clone(
         return Err(format!("{} is there already", dir.display()));
     }
     let mut child = Command::new("git")
-        .args(["clone", "--progress", url])
+        // A "URL" that begins with a dash is not taken as an option
+        // (--upload-pack= runs a command).
+        .args(["clone", "--progress", "--", url])
         .arg(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
