@@ -124,11 +124,12 @@ crates/desk/src/
                 palette, agents, send, turns, replies, notices
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   thread/       the thread as a list (lines), folds, cards, the composer, the start,
-                the drawer, the top bar, words chosen (select); calls read (kinds);
+                the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output
   aside/        the column's changes as git reads them (repo)
   pages/        the settings dialog and its tabs (settings, prefs), adding a project
-  markdown.rs, syntax.rs, ui.rs, theme.rs, style.rs
+  markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
+  ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons
 assets/         fonts and the desk's own icons, built into the app
 ```

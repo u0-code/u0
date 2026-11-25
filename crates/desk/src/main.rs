@@ -20,7 +20,6 @@ mod pages;
 mod sessions;
 mod sidebar;
 mod style;
-mod syntax;
 mod terminal;
 mod theme;
 mod thread;

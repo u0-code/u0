@@ -18,7 +18,6 @@ mod start;
 
 pub use lines::{Find, Line};
 pub mod output;
-pub mod select;
 mod topbar;
 
 use std::{path::Path, sync::Arc};
@@ -873,7 +872,10 @@ impl Desk {
                         div()
                             .font_family(faces.ui.clone())
                             .text_color(theme::text())
-                            .child(select::plain(format!("{key}-you-words"), shown))
+                            .child(gpui::base::SelectableText::new(
+                                SharedString::from(format!("{key}-you-words")),
+                                shown,
+                            ))
                             .max_w(px(520.))
                             .px(px(16.))
                             .py(px(12.))
@@ -922,13 +924,11 @@ impl Desk {
                     .flex_col()
                     .gap(px(2.))
                     .group(group.clone())
-                    .child(div().px(px(10.)).child(markdown::render(
-                        faces,
-                        &key,
-                        text,
-                        &self.expanded,
-                        cx,
-                    )))
+                    .child(
+                        div()
+                            .px(px(10.))
+                            .child(markdown::render(faces, &key, text, cx)),
+                    )
                     .child(
                         div()
                             .flex()
@@ -1331,15 +1331,8 @@ impl Desk {
                                 .items_center()
                                 .gap(px(6.))
                                 .child(
-                                    meta(
-                                        faces,
-                                        crate::keys::hint(
-                                            cx,
-                                            "Choose the words, then copy them or quote them",
-                                            "copy_chosen",
-                                        ),
-                                    )
-                                    .flex_1(),
+                                    meta(faces, "Choose the words, then copy them or quote them")
+                                        .flex_1(),
                                 )
                                 .child(
                                     ui::button(

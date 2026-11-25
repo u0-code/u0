@@ -26,9 +26,6 @@ use crate::{fonts::Faces, theme, ui};
 pub const CAPTION: f32 = 12.;
 /// Small print in the thread: when, how long; a button's word.
 pub const META: f32 = 12.5;
-/// Secondary text: a card's summary, a thought, a
-/// quiet row's words; a menu's choices.
-pub const SMALL: f32 = 13.;
 /// Commands, paths and what they printed.
 pub const MONO: f32 = 13.;
 /// Body text: what you said, the agent's words (in the serif), a step ("Ran
@@ -39,16 +36,14 @@ pub const BODY: f32 = 14.;
 pub const PROSE: f32 = 15.;
 pub const PROSE_LINE: f32 = 23.;
 pub const MONO_LINE: f32 = 19.;
-/// Headings in what an agent wrote, by level.
-pub const H1: (f32, f32) = (20., 28.);
-pub const H2: (f32, f32) = (17., 24.);
-pub const H3: (f32, f32) = (15., 22.);
+/// The size of headings in what an agent wrote, by level.
+pub const H1: f32 = 20.;
+pub const H2: f32 = 17.;
+pub const H3: f32 = 15.;
 
 pub const S2: f32 = 8.;
-pub const S4: f32 = 16.;
 
 pub const BUBBLE_RADIUS: f32 = 18.;
-pub const WELL_RADIUS: f32 = 12.;
 
 /// A line of small print under a message or beside a step: who, when,
 /// how long.

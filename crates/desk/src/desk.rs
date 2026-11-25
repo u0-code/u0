@@ -185,8 +185,6 @@ pub struct Desk {
     pub rewinding: Option<u64>,
     /// The session a side question is being branched off.
     pub asking_beside: Option<u64>,
-    /// Words in the thread are being chosen with the mouse.
-    pub choosing: bool,
     /// The subagents' tabs over the thread you closed: hidden, still at
     /// work.
     pub closed_tabs: HashSet<u64>,
@@ -422,7 +420,6 @@ impl Desk {
             waiting: Vec::new(),
             rewinding: None,
             asking_beside: None,
-            choosing: false,
             closed_tabs: HashSet::new(),
             gone: Vec::new(),
             kept: HashMap::new(),
@@ -638,7 +635,8 @@ impl Desk {
     /// Put the session `key` on screen, opening it if it is closed.
     pub(crate) fn bring(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.current != Some(key) {
-            crate::thread::select::clear();
+            // Words chosen in the session left are not copied from this one.
+            gpui::base::TextSelection::clear(window, cx);
             // Where you were, to go back to; going back keeps the way ahead.
             if !self.trailing {
                 if let Some(old) = self.current {

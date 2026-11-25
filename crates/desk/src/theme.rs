@@ -95,10 +95,6 @@ pub fn panel() -> Hsla {
 pub fn bubble() -> Hsla {
     pick(0x2525_25, 0xEFEF_ED)
 }
-/// The rules of a table, under its head and between its rows.
-pub fn rule() -> Hsla {
-    pick(0x3030_30, 0xE0E0_DE)
-}
 /// A panel's deeper inset, or a selected row.
 pub fn panel2() -> Hsla {
     pick(0x3434_34, 0xE6E6_E4)
@@ -180,19 +176,10 @@ pub fn code_argument() -> Hsla {
 pub fn code_number() -> Hsla {
     pick(0xE5B7_7A, 0xA35C_17)
 }
-/// A function's name in code.
-pub fn code_function() -> Hsla {
-    pick(0xC9A6_F2, 0x7A4B_BE)
-}
 
 /// A link, as Claude's app draws one.
 pub fn link() -> Hsla {
     pick(0x79A9_EB, 0x2C6B_CC)
-}
-
-/// The line under a link: a shade darker than its words.
-pub fn link_line() -> Hsla {
-    pick(0x3F53_6D, 0xB5C9_E8)
 }
 
 /// The colour the logo of the agent with this id is drawn in
