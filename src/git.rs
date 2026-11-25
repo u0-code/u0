@@ -187,10 +187,8 @@ pub fn pr_worktree(dir: &Path, number: u64, home: &Path) -> Result<Worktree, Str
         .ok_or("no free name for a worktree")?;
     let at = path.to_string_lossy().into_owned();
     git(&repo, &["worktree", "add", "--detach", &at, "HEAD"], None)?;
-    let mut gh = Command::new("gh");
-    gh.current_dir(&path)
-        .args(["pr", "checkout", &number.to_string()]);
-    let branch = run(&mut gh).and_then(|_| git(&path, &["branch", "--show-current"], None));
+    let branch = yours(&path, "gh", &["pr", "checkout", &number.to_string()])
+        .and_then(|_| git(&path, &["branch", "--show-current"], None));
     match branch {
         Ok(branch) if !branch.trim().is_empty() => Ok(Worktree {
             repo,
@@ -493,36 +491,20 @@ pub fn parse(text: &str) -> Vec<FileDiff> {
 /// Commit everything in `dir` with `message`, as you, on its branch; the
 /// new commit's short id.
 pub fn commit(dir: &Path, message: &str, left_out: &[String]) -> Result<String, String> {
-    let mut add = Command::new("git");
-    add.arg("-C").arg(dir).args(["add", "-A"]);
-    run(&mut add)?;
+    yours(dir, "git", &["add", "-A"])?;
     // The files you left out stay as they are, out of the commit.
     if !left_out.is_empty() {
-        let mut back = Command::new("git");
-        back.arg("-C")
-            .arg(dir)
-            .args(["reset", "-q", "--"])
-            .args(left_out);
-        run(&mut back)?;
+        let mut back = vec!["reset", "-q", "--"];
+        back.extend(left_out.iter().map(String::as_str));
+        yours(dir, "git", &back)?;
     }
-    let mut commit = Command::new("git");
-    commit
-        .arg("-C")
-        .arg(dir)
-        .args(["commit", "-q", "-m", message]);
-    run(&mut commit)?;
-    let mut id = Command::new("git");
-    id.arg("-C").arg(dir).args(["rev-parse", "--short", "HEAD"]);
-    run(&mut id)
+    yours(dir, "git", &["commit", "-q", "-m", message])?;
+    yours(dir, "git", &["rev-parse", "--short", "HEAD"])
 }
 
 /// Push the branch `dir` is on to `origin`, setting it as upstream.
 pub fn push(dir: &Path) -> Result<String, String> {
-    let mut push = Command::new("git");
-    push.arg("-C")
-        .arg(dir)
-        .args(["push", "-u", "origin", "HEAD"]);
-    run(&mut push)
+    yours(dir, "git", &["push", "-u", "origin", "HEAD"])
 }
 
 /// Open a pull request for the branch `dir` is on with `gh`, titled and
@@ -541,15 +523,10 @@ pub fn pull_request(dir: &Path) -> Result<String, String> {
     // other host (Bitbucket, GitLab without glab) by its page for a new
     // one, opened in the browser.
     if host.contains("gitlab") && crate::registry::which("glab").is_some() {
-        let mut mr = Command::new("glab");
-        mr.current_dir(dir)
-            .args(["mr", "create", "--fill", "--yes"]);
-        return run(&mut mr).map(|o| last_url(&o));
+        return yours(dir, "glab", &["mr", "create", "--fill", "--yes"]).map(|o| last_url(&o));
     }
     if host.contains("github") || remote(dir).is_none() {
-        let mut pr = Command::new("gh");
-        pr.current_dir(dir).args(["pr", "create", "--fill"]);
-        return run(&mut pr).map(|o| last_url(&o));
+        return yours(dir, "gh", &["pr", "create", "--fill"]).map(|o| last_url(&o));
     }
     let (host, path) = remote(dir).ok_or("the repository has no remote")?;
     let branch = branch(dir).ok_or("the folder is on no branch")?;
@@ -654,16 +631,12 @@ pub fn branches(dir: &Path) -> Vec<String> {
 
 /// Check out `name` in `dir`, as you would.
 pub fn switch(dir: &Path, name: &str) -> Result<(), String> {
-    let mut sw = Command::new("git");
-    sw.arg("-C").arg(dir).args(["switch", name]);
-    run(&mut sw).map(|_| ())
+    yours(dir, "git", &["switch", name]).map(|_| ())
 }
 
 /// Make the branch `name` at what `dir` is on, and check it out.
 pub fn branch_off(dir: &Path, name: &str) -> Result<(), String> {
-    let mut sw = Command::new("git");
-    sw.arg("-C").arg(dir).args(["switch", "-c", name]);
-    run(&mut sw).map(|_| ())
+    yours(dir, "git", &["switch", "-c", name]).map(|_| ())
 }
 
 /// Rename the branch `dir` is on to `name`, unless it has been pushed.
@@ -708,16 +681,7 @@ pub fn create(dir: &Path, name: &str) -> Result<(), String> {
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("README.md"), format!("# {name}\n")).map_err(|e| e.to_string())?;
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["init", "-q", "-b", "main"]))?;
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["add", "README.md"]))?;
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["commit", "-q", "-m", "First commit"]))?;
-    Ok(())
+    init_here(dir).map(|_| ())
 }
 
 /// How far the branch `dir` is on is behind its upstream (0 with none),
@@ -733,32 +697,23 @@ pub fn upstream(dir: &Path) -> (usize, bool) {
 
 /// Bring in what the upstream has, only where it moves straight on.
 pub fn pull(dir: &Path) -> Result<String, String> {
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["pull", "--ff-only", "-q"]))
+    yours(dir, "git", &["pull", "--ff-only", "-q"])
 }
 
 /// Make the folder `dir` a repository on main, all it holds committed.
 pub fn init_here(dir: &Path) -> Result<String, String> {
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["init", "-q", "-b", "main"]))?;
-    run(Command::new("git").current_dir(dir).args(["add", "-A"]))?;
-    run(Command::new("git")
-        .current_dir(dir)
-        .args(["commit", "-q", "-m", "First commit"]))
+    yours(dir, "git", &["init", "-q", "-b", "main"])?;
+    yours(dir, "git", &["add", "-A"])?;
+    yours(dir, "git", &["commit", "-q", "-m", "First commit"])
 }
 
 /// Put the repository at `dir` on GitHub, private, as gh does, and push.
 pub fn publish(dir: &Path) -> Result<String, String> {
-    run(Command::new("gh").current_dir(dir).args([
-        "repo",
-        "create",
-        "--private",
-        "--source",
-        ".",
-        "--push",
-    ]))
+    yours(
+        dir,
+        "gh",
+        &["repo", "create", "--private", "--source", ".", "--push"],
+    )
 }
 
 /// Clone `url` into `dir`, saying how far it is from what git prints
@@ -869,19 +824,18 @@ pub struct Pr {
 
 /// The pull request of the branch `dir` is on, as `gh` says.
 pub fn read_pr(dir: &Path) -> Option<Pr> {
-    let out = std::process::Command::new("gh")
-        .current_dir(dir)
-        .args([
+    let out = yours(
+        dir,
+        "gh",
+        &[
             "pr",
             "view",
             "--json",
             "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+        ],
+    )
+    .ok()?;
+    let v: serde_json::Value = serde_json::from_str(&out).ok()?;
     let checks = v["statusCheckRollup"]
         .as_array()
         .cloned()
@@ -926,26 +880,24 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
 /// repository at `dir`, by number and title, as `gh` lists them; none
 /// where it is not installed or signed in.
 pub fn open_on_github(dir: &Path, what: &str) -> Vec<(u64, String)> {
-    let mut gh = Command::new("gh");
-    gh.current_dir(dir)
-        .args([what, "list", "--limit", "30", "--json", "number,title"]);
-    run(&mut gh)
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
-        .map(|list| {
-            list.iter()
-                .filter_map(|p| Some((p["number"].as_u64()?, p["title"].as_str()?.to_owned())))
-                .collect()
-        })
-        .unwrap_or_default()
+    yours(
+        dir,
+        "gh",
+        &[what, "list", "--limit", "30", "--json", "number,title"],
+    )
+    .ok()
+    .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+    .map(|list| {
+        list.iter()
+            .filter_map(|p| Some((p["number"].as_u64()?, p["title"].as_str()?.to_owned())))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// What `gh` says of the pull request `number`: its title, body and state.
 pub fn pull_request_text(dir: &Path, number: u64) -> Option<String> {
-    let mut gh = Command::new("gh");
-    gh.current_dir(dir)
-        .args(["pr", "view", &number.to_string()]);
-    run(&mut gh).ok()
+    yours(dir, "gh", &["pr", "view", &number.to_string()]).ok()
 }
 
 /// Where `words` are in the files git sees in `dir`: "path:line" and the
@@ -969,15 +921,15 @@ pub fn grep(dir: &Path, words: &str) -> Vec<(String, String)> {
 
 /// Merge the pull request of the branch `dir` is on, squashed, as gh does.
 pub fn merge_pr(dir: &Path) -> Result<String, String> {
-    let mut gh = Command::new("gh");
-    gh.current_dir(dir).args(["pr", "merge", "--squash"]);
-    run(&mut gh)
+    yours(dir, "gh", &["pr", "merge", "--squash"])
 }
 
-/// Run a command as you, with your git and gh configuration; its output.
-fn run(command: &mut Command) -> Result<String, String> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let out = command
+/// Run `program` (git, gh, glab) in `dir` with `args` as you, with your
+/// git and gh configuration; its output, or what it said went wrong.
+fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, String> {
+    let out = Command::new(program)
+        .current_dir(dir)
+        .args(args)
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("{program} could not be started: {e}"))?;
