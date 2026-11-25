@@ -115,6 +115,8 @@ pub enum Popup {
     Stash,
     /// The branch a new worktree begins from.
     Base,
+    /// The branch the session's branch is compared with.
+    Compare,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
     /// The project the sidebar shows, when it lists by status.

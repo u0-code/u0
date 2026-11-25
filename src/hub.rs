@@ -744,11 +744,16 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
 
 /// What changed in `scope` (the branch against its base, or a commit)
 /// where the session `key` works.
-pub fn scope_diff(dir: PathBuf, key: u64, scope: crate::desk::Scope, tx: Sender) {
+pub fn scope_diff(
+    dir: PathBuf,
+    key: u64,
+    (scope, base): (crate::desk::Scope, Option<String>),
+    tx: Sender,
+) {
     acp::runtime().spawn_blocking(move || {
         let result = match &scope {
             crate::desk::Scope::Commit(id) => git::commit_diff(&dir, id),
-            _ => git::against_base(&dir),
+            _ => git::against_base(&dir, base.as_deref()),
         };
         let _ = tx.send(Msg::Diffed { key, scope, result });
     });

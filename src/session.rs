@@ -202,6 +202,8 @@ pub struct Session {
     /// How far its branch is behind its upstream, and whether the
     /// repository has an origin.
     pub upstream: (usize, bool),
+    /// The branch its branch is compared with; none, the main one.
+    pub compare_to: Option<String>,
     /// The files (as git names them) you left out of the next commit.
     pub left_out: std::collections::BTreeSet<String>,
     /// How much of its thread there was when you last left it.
@@ -601,6 +603,7 @@ impl Session {
             setup: Vec::new(),
             seen: None,
             upstream: (0, true),
+            compare_to: None,
             left_out: std::collections::BTreeSet::new(),
             times: Vec::new(),
             stamp: None,

@@ -88,6 +88,72 @@ impl Desk {
                 )),
                 _ => None,
             })
+            .when(self.scope == Scope::Branch, |d| {
+                d.child(self.compare_chip(faces, s, cx))
+            })
+    }
+
+    /// What the branch is compared with: the main branch, or one chosen.
+    fn compare_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let open = self.popup == crate::desk::Popup::Compare;
+        let shown = s.compare_to.clone().unwrap_or_else(|| "main".into());
+        let key = s.key;
+        let mut wrap = div().relative().child(
+            div()
+                .id("compare")
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(22.))
+                .px(px(6.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(fine(faces, "against"))
+                .child(
+                    ui::mono(faces, ui::fit(&shown, 18))
+                        .text_size(px(12.))
+                        .text_color(theme::text2()),
+                )
+                .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_popup(crate::desk::Popup::Compare, cx);
+                })),
+        );
+        if open {
+            let mut list = div().flex().flex_col().w(px(220.)).p(px(6.));
+            for (n, b) in s.branches.iter().enumerate() {
+                let b = b.clone();
+                list = list.child(
+                    div()
+                        .id(SharedString::from(format!("compare-{n}")))
+                        .flex()
+                        .items_center()
+                        .h(px(28.))
+                        .px(px(8.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .hover(|st| st.bg(theme::hover()))
+                        .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(s) = this.session_mut(key) {
+                                s.compare_to = Some(b.clone());
+                            }
+                            this.popup = crate::desk::Popup::Closed;
+                            this.refresh_diffs(key);
+                            cx.notify();
+                        })),
+                );
+            }
+            wrap = wrap.child(gpui::deferred(
+                gpui::anchored().child(
+                    div()
+                        .mt(px(24.))
+                        .child(ui::menu("compare-menu").child(list)),
+                ),
+            ));
+        }
+        wrap
     }
 
     /// The changes as git reads them between the session's checkpoints:

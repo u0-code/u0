@@ -43,7 +43,12 @@ impl Desk {
         }
         hub::uncommitted(s.folder.clone(), key, self.tx.clone());
         if let Some((scope, _)) = &s.scoped {
-            hub::scope_diff(s.folder.clone(), key, scope.clone(), self.tx.clone());
+            hub::scope_diff(
+                s.folder.clone(),
+                key,
+                (scope.clone(), s.compare_to.clone()),
+                self.tx.clone(),
+            );
         }
     }
 
@@ -73,8 +78,8 @@ impl Desk {
         }
         if let Some(s) = self.session_mut(key) {
             s.scoped = None;
-            let dir = s.folder.clone();
-            hub::scope_diff(dir, key, scope.clone(), self.tx.clone());
+            let (dir, base) = (s.folder.clone(), s.compare_to.clone());
+            hub::scope_diff(dir, key, (scope.clone(), base), self.tx.clone());
         }
     }
 

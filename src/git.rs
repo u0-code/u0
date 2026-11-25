@@ -503,8 +503,11 @@ pub fn default_branch(dir: &Path) -> Option<String> {
 
 /// What changed from where the branch left the default one to the files
 /// as they are now, not committed included: the branch's whole work.
-pub fn against_base(dir: &Path) -> Result<Vec<FileDiff>, String> {
-    let base = default_branch(dir).ok_or("the repository has no main branch")?;
+pub fn against_base(dir: &Path, base: Option<&str>) -> Result<Vec<FileDiff>, String> {
+    let base = match base {
+        Some(b) => b.to_owned(),
+        None => default_branch(dir).ok_or("the repository has no main branch")?,
+    };
     let fork = git(dir, &["merge-base", "HEAD", &base], None)?;
     let now = snapshot(dir, "against base")?;
     diff(dir, &fork, &now)
@@ -895,7 +898,7 @@ mod tests {
         git(&dir, &["commit", "-q", "-m", "second"], None).unwrap();
         std::fs::write(dir.join("a.txt"), "one\n").unwrap();
 
-        let mut whole: Vec<String> = against_base(&dir)
+        let mut whole: Vec<String> = against_base(&dir, None)
             .unwrap()
             .into_iter()
             .map(|f| f.path)
