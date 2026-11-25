@@ -358,169 +358,126 @@ pub fn bind(cx: &mut App, home: &Path) {
 /// What each action does in the window.
 pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     cx.on_action(move |_: &Quit, cx| {
-        let quit = window.update(cx, |d, _, cx| {
-            let may = d.may_quit();
-            cx.notify();
-            may
+        cx.defer(move |cx| {
+            let quit = window.update(cx, |d, _, cx| {
+                let may = d.may_quit();
+                cx.notify();
+                may
+            });
+            if quit.unwrap_or(true) {
+                cx.quit();
+            }
         });
-        if quit.unwrap_or(true) {
-            cx.quit();
-        }
     });
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-    cx.on_action(move |_: &About, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            d.settings_tab = crate::pages::Tab::About;
-            d.open_page(crate::desk::Page::Settings, cx);
-        });
-    });
-    cx.on_action(|_: &Minimize, cx| {
-        if let Some(w) = cx.active_window() {
-            let _ = w.update(cx, |_, window, _| window.minimize_window());
-        }
-    });
-    cx.on_action(move |_: &NewSession, cx| {
-        let _ = window.update(cx, Desk::new_default);
-    });
-    cx.on_action(move |_: &Find, cx| {
-        let _ = window.update(cx, Desk::toggle_find);
-    });
-    cx.on_action(move |_: &Drawer, cx| {
-        let _ = window.update(cx, Desk::toggle_drawer);
-    });
-    cx.on_action(move |_: &Palette, cx| {
-        let _ = window.update(cx, Desk::toggle_palette);
-    });
-    cx.on_action(move |_: &OpenSettings, cx| {
-        let _ = window.update(cx, |d, _, cx| d.open_page(crate::desk::Page::Settings, cx));
-    });
-    cx.on_action(move |_: &NextSession, cx| {
-        let _ = window.update(cx, |d, window, cx| d.step_session(1, window, cx));
-    });
-    cx.on_action(move |_: &PreviousSession, cx| {
-        let _ = window.update(cx, |d, window, cx| d.step_session(-1, window, cx));
-    });
-    cx.on_action(move |_: &Model, cx| {
-        let _ = window.update(cx, |d, _, cx| d.open_model(cx));
-    });
-    cx.on_action(move |_: &ToggleSidebar, cx| {
-        let _ = window.update(cx, |d, _, cx| d.toggle_sidebar(cx));
-    });
-    cx.on_action(move |_: &Stop, cx| {
-        let _ = window.update(cx, |d, _, cx| d.stop(cx));
-    });
-    cx.on_action(move |_: &Review, cx| {
-        let _ = window.update(cx, |d, _, cx| d.show_changes(crate::desk::Scope::All, cx));
-    });
-    cx.on_action(move |_: &RightColumn, cx| {
-        let _ = window.update(cx, |d, _, cx| d.toggle_aside(cx));
-    });
-    cx.on_action(move |_: &WholeRight, cx| {
-        let _ = window.update(cx, |d, _, cx| d.toggle_whole(cx));
-    });
     cx.on_action(move |_: &CopyChosen, cx| {
         if let Some(text) = crate::thread::select::text() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }
     });
-    cx.on_action(move |_: &Usage, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            d.settings_tab = crate::pages::Tab::Usage;
-            d.weigh_agents();
-            d.open_page(crate::desk::Page::Settings, cx);
+    on::<About>(cx, window, |d, _, cx| {
+        d.settings_tab = crate::pages::Tab::About;
+        d.open_page(crate::desk::Page::Settings, cx);
+    });
+    on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
+    on::<NewSession>(cx, window, Desk::new_default);
+    on::<Find>(cx, window, Desk::toggle_find);
+    on::<Drawer>(cx, window, Desk::toggle_drawer);
+    on::<Palette>(cx, window, Desk::toggle_palette);
+    on::<OpenSettings>(cx, window, |d, _, cx| {
+        d.open_page(crate::desk::Page::Settings, cx);
+    });
+    on::<NextSession>(cx, window, |d, window, cx| d.step_session(1, window, cx));
+    on::<PreviousSession>(cx, window, |d, window, cx| d.step_session(-1, window, cx));
+    on::<Model>(cx, window, |d, _, cx| d.open_model(cx));
+    on::<ToggleSidebar>(cx, window, |d, _, cx| d.toggle_sidebar(cx));
+    on::<Stop>(cx, window, |d, _, cx| d.stop(cx));
+    on::<Review>(cx, window, |d, _, cx| {
+        d.show_changes(crate::desk::Scope::All, cx);
+    });
+    on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
+    on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
+    on::<Usage>(cx, window, |d, _, cx| {
+        d.settings_tab = crate::pages::Tab::Usage;
+        d.weigh_agents();
+        d.open_page(crate::desk::Page::Settings, cx);
+    });
+    on::<LightOrDark>(cx, window, |d, _, cx| {
+        // From the look as drawn now, the other one.
+        d.settings.look = if crate::theme::is_light() {
+            crate::settings::Look::Dark
+        } else {
+            crate::settings::Look::Light
+        };
+        d.save_settings();
+        cx.notify();
+    });
+    on::<Mode>(cx, window, |d, _, cx| d.open_option(&Kind::Mode, cx));
+    on::<Effort>(cx, window, |d, _, cx| {
+        d.open_option(&Kind::ThoughtLevel, cx);
+    });
+    on::<CopyPr>(cx, window, |d, _, cx| {
+        d.copy_of_session(|s| s.pr.as_ref().map(|p| p.url.clone()), cx);
+    });
+    on::<CopyId>(cx, window, |d, _, cx| {
+        d.copy_of_session(|s| s.id.as_ref().map(|i| i.0.to_string()), cx);
+    });
+    on::<Settle>(cx, window, |d, _, cx| {
+        if let Some(key) = d.current {
+            d.toggle_settled(key, cx);
+        }
+    });
+    on::<Pin>(cx, window, |d, _, cx| {
+        if let Some(key) = d.current {
+            d.toggle_pin(key, cx);
+        }
+    });
+    on::<TakeBack>(cx, window, |d, _, cx| d.take_back(cx));
+    on::<OpenFolder>(cx, window, |d, _, _| {
+        if let Some(s) = d.session() {
+            crate::desk::open_in_editor(&s.folder);
+        }
+    });
+    on::<Dictate>(cx, window, |d, window, cx| {
+        window.focus(&gpui::Focusable::focus_handle(d.input.read(cx), cx));
+        crate::icon::dictate();
+    });
+    on::<NewScratch>(cx, window, Desk::new_scratch);
+    on::<Back>(cx, window, |d, window, cx| d.step_trail(false, window, cx));
+    on::<Ahead>(cx, window, |d, window, cx| d.step_trail(true, window, cx));
+    on::<GoToFile>(cx, window, |d, window, cx| {
+        d.open_palette(crate::desk::palette::Through::Files, window, cx);
+    });
+    on::<SearchWords>(cx, window, |d, window, cx| {
+        d.open_palette(crate::desk::palette::Through::Words, window, cx);
+    });
+    on::<NextArea>(cx, window, Desk::next_area);
+    on::<Session1>(cx, window, |d, window, cx| d.nth_session(0, window, cx));
+    on::<Session2>(cx, window, |d, window, cx| d.nth_session(1, window, cx));
+    on::<Session3>(cx, window, |d, window, cx| d.nth_session(2, window, cx));
+    on::<Session4>(cx, window, |d, window, cx| d.nth_session(3, window, cx));
+    on::<Session5>(cx, window, |d, window, cx| d.nth_session(4, window, cx));
+    on::<Session6>(cx, window, |d, window, cx| d.nth_session(5, window, cx));
+    on::<Session7>(cx, window, |d, window, cx| d.nth_session(6, window, cx));
+    on::<Session8>(cx, window, |d, window, cx| d.nth_session(7, window, cx));
+    on::<Session9>(cx, window, |d, window, cx| d.nth_session(8, window, cx));
+}
+
+/// Do `f` to the desk on each `A`, once the action's dispatch is over: a
+/// key or a menu dispatches in the window, which is lent to that dispatch
+/// until it ends, so updating the window from inside it fails.
+fn on<A: Action>(
+    cx: &mut App,
+    window: WindowHandle<Desk>,
+    f: fn(&mut Desk, &mut gpui::Window, &mut gpui::Context<Desk>),
+) {
+    cx.on_action(move |_: &A, cx| {
+        cx.defer(move |cx| {
+            let _ = window.update(cx, f);
         });
     });
-    cx.on_action(move |_: &LightOrDark, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            // From the look as drawn now, the other one.
-            d.settings.look = if crate::theme::is_light() {
-                crate::settings::Look::Dark
-            } else {
-                crate::settings::Look::Light
-            };
-            d.save_settings();
-            cx.notify();
-        });
-    });
-    cx.on_action(move |_: &Mode, cx| {
-        let _ = window.update(cx, |d, _, cx| d.open_option(&Kind::Mode, cx));
-    });
-    cx.on_action(move |_: &Effort, cx| {
-        let _ = window.update(cx, |d, _, cx| d.open_option(&Kind::ThoughtLevel, cx));
-    });
-    cx.on_action(move |_: &CopyPr, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            d.copy_of_session(|s| s.pr.as_ref().map(|p| p.url.clone()), cx);
-        });
-    });
-    cx.on_action(move |_: &CopyId, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            d.copy_of_session(|s| s.id.as_ref().map(|i| i.0.to_string()), cx);
-        });
-    });
-    cx.on_action(move |_: &Settle, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            if let Some(key) = d.current {
-                d.toggle_settled(key, cx);
-            }
-        });
-    });
-    cx.on_action(move |_: &Pin, cx| {
-        let _ = window.update(cx, |d, _, cx| {
-            if let Some(key) = d.current {
-                d.toggle_pin(key, cx);
-            }
-        });
-    });
-    cx.on_action(move |_: &TakeBack, cx| {
-        let _ = window.update(cx, |d, _, cx| d.take_back(cx));
-    });
-    cx.on_action(move |_: &OpenFolder, cx| {
-        let _ = window.update(cx, |d, _, _| {
-            if let Some(s) = d.session() {
-                crate::desk::open_in_editor(&s.folder);
-            }
-        });
-    });
-    cx.on_action(move |_: &Dictate, cx| {
-        let _ = window.update(cx, |d, window, cx| {
-            window.focus(&gpui::Focusable::focus_handle(d.input.read(cx), cx));
-            crate::icon::dictate();
-        });
-    });
-    cx.on_action(move |_: &NewScratch, cx| {
-        let _ = window.update(cx, Desk::new_scratch);
-    });
-    cx.on_action(move |_: &Back, cx| {
-        let _ = window.update(cx, |d, window, cx| d.step_trail(false, window, cx));
-    });
-    cx.on_action(move |_: &Ahead, cx| {
-        let _ = window.update(cx, |d, window, cx| d.step_trail(true, window, cx));
-    });
-    cx.on_action(move |_: &GoToFile, cx| {
-        let _ = window.update(cx, |d, window, cx| {
-            d.open_palette(crate::desk::palette::Through::Files, window, cx);
-        });
-    });
-    cx.on_action(move |_: &SearchWords, cx| {
-        let _ = window.update(cx, |d, window, cx| {
-            d.open_palette(crate::desk::palette::Through::Words, window, cx);
-        });
-    });
-    cx.on_action(move |_: &NextArea, cx| {
-        let _ = window.update(cx, Desk::next_area);
-    });
-    macro_rules! nth {
-        ($($action:ident => $n:expr),*) => {$(
-            cx.on_action(move |_: &$action, cx| {
-                let _ = window.update(cx, |d, window, cx| d.nth_session($n, window, cx));
-            });
-        )*};
-    }
-    nth!(Session1 => 0, Session2 => 1, Session3 => 2, Session4 => 3, Session5 => 4,
-         Session6 => 5, Session7 => 6, Session8 => 7, Session9 => 8);
 }
 
 #[cfg(test)]
