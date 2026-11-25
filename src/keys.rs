@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
-use gpui::{Action, App, KeyBinding, WindowHandle, actions};
+use gpui::{Action, App, Context, Div, InteractiveElement as _, KeyBinding, actions};
 use serde::Deserialize;
 
 use crate::{desk::Desk, input};
@@ -345,56 +345,59 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
     }));
 }
 
-/// What each action does in the window.
-pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
-    cx.on_action(move |_: &Quit, cx| {
-        cx.defer(move |cx| {
-            let quit = window.update(cx, |d, _, cx| {
-                let may = d.may_quit();
-                cx.notify();
-                may
-            });
-            if quit.unwrap_or(true) {
-                cx.quit();
-            }
-        });
-    });
+/// What the actions that need no window do, wherever they come from: a
+/// key, or a menu with the window closed.
+pub fn handle(cx: &mut App) {
+    // The desk lets Quit through to here only when it may quit.
+    cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-    cx.on_action(move |_: &CopyChosen, cx| {
+    cx.on_action(|_: &CopyChosen, cx| {
         if let Some(text) = crate::thread::select::text() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }
     });
-    on::<About>(cx, window, |d, _, cx| {
+}
+
+/// What each action does in the window, heard on the desk's root. Every
+/// key and menu item is dispatched along the path to what has focus, and
+/// from the root when nothing has, so the root hears them all.
+pub fn on_desk(root: Div, cx: &mut Context<Desk>) -> Div {
+    root.on_action(cx.listener(|d, _: &Quit, _, cx| {
+        if d.may_quit() {
+            cx.propagate();
+        }
+        cx.notify();
+    }))
+    .on_action(cx.listener(|d, _: &About, _, cx| {
         d.pages.tab = crate::pages::Tab::About;
         d.open_page(crate::desk::Page::Settings, cx);
-    });
-    on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
-    on::<NewSession>(cx, window, Desk::new_default);
-    on::<Find>(cx, window, Desk::toggle_find);
-    on::<Drawer>(cx, window, Desk::toggle_drawer);
-    on::<Palette>(cx, window, Desk::toggle_palette);
-    on::<OpenSettings>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|_, _: &Minimize, w, _| w.minimize_window()))
+    .on_action(cx.listener(|d, _: &NewSession, w, cx| d.new_default(w, cx)))
+    .on_action(cx.listener(|d, _: &Find, w, cx| d.toggle_find(w, cx)))
+    .on_action(cx.listener(|d, _: &Drawer, w, cx| d.toggle_drawer(w, cx)))
+    .on_action(cx.listener(|d, _: &Palette, w, cx| d.toggle_palette(w, cx)))
+    .on_action(cx.listener(|d, _: &OpenSettings, _, cx| {
         d.open_page(crate::desk::Page::Settings, cx);
-    });
-    on::<NextSession>(cx, window, |d, window, cx| d.step_session(1, window, cx));
-    on::<PreviousSession>(cx, window, |d, window, cx| d.step_session(-1, window, cx));
-    on::<Model>(cx, window, |d, _, cx| d.open_model(cx));
-    on::<ToggleSidebar>(cx, window, |d, _, cx| d.toggle_sidebar(cx));
-    on::<Stop>(cx, window, |d, _, cx| d.stop(cx));
-    on::<Review>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &NextSession, w, cx| d.step_session(1, w, cx)))
+    .on_action(cx.listener(|d, _: &PreviousSession, w, cx| d.step_session(-1, w, cx)))
+    .on_action(cx.listener(|d, _: &Model, _, cx| d.open_model(cx)))
+    .on_action(cx.listener(|d, _: &ToggleSidebar, _, cx| d.toggle_sidebar(cx)))
+    .on_action(cx.listener(|d, _: &Stop, _, cx| d.stop(cx)))
+    .on_action(cx.listener(|d, _: &Review, _, cx| {
         d.show_changes(crate::git::Scope::All, cx);
-    });
-    on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
-    on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
-    on::<Usage>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &RightColumn, _, cx| d.toggle_aside(cx)))
+    .on_action(cx.listener(|d, _: &WholeRight, _, cx| d.toggle_whole(cx)))
+    .on_action(cx.listener(|d, _: &Usage, _, cx| {
         d.pages.tab = crate::pages::Tab::Usage;
         d.weigh_agents();
         d.open_page(crate::desk::Page::Settings, cx);
-    });
-    on::<LightOrDark>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &LightOrDark, _, cx| {
         // From the look as drawn now, the other one.
         d.settings.look = if crate::theme::is_light() {
             crate::settings::Look::Dark
@@ -403,74 +406,59 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         };
         d.save_settings();
         cx.notify();
-    });
-    on::<Mode>(cx, window, |d, _, cx| d.open_option(&Kind::Mode, cx));
-    on::<Effort>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &Mode, _, cx| d.open_option(&Kind::Mode, cx)))
+    .on_action(cx.listener(|d, _: &Effort, _, cx| {
         d.open_option(&Kind::ThoughtLevel, cx);
-    });
-    on::<CopyPr>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &CopyPr, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
-    });
-    on::<CopyId>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &CopyId, _, cx| {
         d.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
-    });
-    on::<Settle>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &Settle, _, cx| {
         if let Some(key) = d.current {
             d.toggle_settled(key, cx);
         }
-    });
-    on::<Pin>(cx, window, |d, _, cx| {
+    }))
+    .on_action(cx.listener(|d, _: &Pin, _, cx| {
         if let Some(key) = d.current {
             d.toggle_pin(key, cx);
         }
-    });
-    on::<TakeBack>(cx, window, |d, _, cx| d.take_back(cx));
-    on::<OpenFolder>(cx, window, |d, _, _| {
+    }))
+    .on_action(cx.listener(|d, _: &TakeBack, _, cx| d.take_back(cx)))
+    .on_action(cx.listener(|d, _: &OpenFolder, _, _| {
         if let Some(s) = d.session() {
             d.edit(s.meta.folder.clone(), None);
         }
-    });
-    on::<Dictate>(cx, window, |d, window, cx| {
-        window.focus(&gpui::Focusable::focus_handle(
+    }))
+    .on_action(cx.listener(|d, _: &Dictate, w, cx| {
+        w.focus(&gpui::Focusable::focus_handle(
             d.composer.input.read(cx),
             cx,
         ));
         crate::macos::dictate();
-    });
-    on::<NewScratch>(cx, window, Desk::new_scratch);
-    on::<Back>(cx, window, |d, window, cx| d.step_trail(false, window, cx));
-    on::<Ahead>(cx, window, |d, window, cx| d.step_trail(true, window, cx));
-    on::<GoToFile>(cx, window, |d, window, cx| {
-        d.open_palette(crate::desk::palette::Through::Files, window, cx);
-    });
-    on::<SearchWords>(cx, window, |d, window, cx| {
-        d.open_palette(crate::desk::palette::Through::Words, window, cx);
-    });
-    on::<NextArea>(cx, window, Desk::next_area);
-    on::<Session1>(cx, window, |d, window, cx| d.nth_session(0, window, cx));
-    on::<Session2>(cx, window, |d, window, cx| d.nth_session(1, window, cx));
-    on::<Session3>(cx, window, |d, window, cx| d.nth_session(2, window, cx));
-    on::<Session4>(cx, window, |d, window, cx| d.nth_session(3, window, cx));
-    on::<Session5>(cx, window, |d, window, cx| d.nth_session(4, window, cx));
-    on::<Session6>(cx, window, |d, window, cx| d.nth_session(5, window, cx));
-    on::<Session7>(cx, window, |d, window, cx| d.nth_session(6, window, cx));
-    on::<Session8>(cx, window, |d, window, cx| d.nth_session(7, window, cx));
-    on::<Session9>(cx, window, |d, window, cx| d.nth_session(8, window, cx));
-}
-
-/// Do `f` to the desk on each `A`, once the action's dispatch is over: a
-/// key or a menu dispatches in the window, which is lent to that dispatch
-/// until it ends, so updating the window from inside it fails.
-fn on<A: Action>(
-    cx: &mut App,
-    window: WindowHandle<Desk>,
-    f: fn(&mut Desk, &mut gpui::Window, &mut gpui::Context<Desk>),
-) {
-    cx.on_action(move |_: &A, cx| {
-        cx.defer(move |cx| {
-            let _ = window.update(cx, f);
-        });
-    });
+    }))
+    .on_action(cx.listener(|d, _: &NewScratch, w, cx| d.new_scratch(w, cx)))
+    .on_action(cx.listener(|d, _: &Back, w, cx| d.step_trail(false, w, cx)))
+    .on_action(cx.listener(|d, _: &Ahead, w, cx| d.step_trail(true, w, cx)))
+    .on_action(cx.listener(|d, _: &GoToFile, w, cx| {
+        d.open_palette(crate::desk::palette::Through::Files, w, cx);
+    }))
+    .on_action(cx.listener(|d, _: &SearchWords, w, cx| {
+        d.open_palette(crate::desk::palette::Through::Words, w, cx);
+    }))
+    .on_action(cx.listener(|d, _: &NextArea, w, cx| d.next_area(w, cx)))
+    .on_action(cx.listener(|d, _: &Session1, w, cx| d.nth_session(0, w, cx)))
+    .on_action(cx.listener(|d, _: &Session2, w, cx| d.nth_session(1, w, cx)))
+    .on_action(cx.listener(|d, _: &Session3, w, cx| d.nth_session(2, w, cx)))
+    .on_action(cx.listener(|d, _: &Session4, w, cx| d.nth_session(3, w, cx)))
+    .on_action(cx.listener(|d, _: &Session5, w, cx| d.nth_session(4, w, cx)))
+    .on_action(cx.listener(|d, _: &Session6, w, cx| d.nth_session(5, w, cx)))
+    .on_action(cx.listener(|d, _: &Session7, w, cx| d.nth_session(6, w, cx)))
+    .on_action(cx.listener(|d, _: &Session8, w, cx| d.nth_session(7, w, cx)))
+    .on_action(cx.listener(|d, _: &Session9, w, cx| d.nth_session(8, w, cx)))
 }
 
 #[cfg(test)]
