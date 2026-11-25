@@ -44,6 +44,7 @@ pub(crate) mod palette;
 pub(crate) mod projects;
 pub(crate) mod rank;
 pub(crate) mod runs;
+pub(crate) mod updates;
 
 pub use lists::{Later, Renaming};
 mod replies;
@@ -171,6 +172,8 @@ pub struct Desk {
     glassed: bool,
     /// What you dictate, while you do.
     pub dictation: Option<dictation::Dictation>,
+    /// Where an update of Ghost's own stands.
+    pub updates: updates::Updates,
     /// What sessions cost, by key, as their records say: read for the
     /// usage page.
     pub spent: std::collections::HashMap<u64, Vec<crate::store::Spend>>,
@@ -465,6 +468,7 @@ impl Desk {
                     .update(cx, |this, cx| {
                         this.release_idle(cx);
                         this.refresh_projects();
+                        this.update_due();
                         this.send_due(cx);
                         this.poll_prs();
                         this.check_agents(cx);
@@ -499,6 +503,7 @@ impl Desk {
             stopping: None,
             glassed: false,
             dictation: None,
+            updates: updates::Updates::default(),
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
@@ -576,6 +581,16 @@ impl Desk {
             transport,
         };
         desk.transport.send(Call::Watch);
+        desk.update_due();
+        // Where the window is, kept as Ghost quits to open it there again.
+        cx.observe_window_bounds(window, |this, window, _| {
+            let b = window.bounds();
+            this.settings.frame = Some(
+                [b.origin.x, b.origin.y, b.size.width, b.size.height]
+                    .map(|p| f32::from(p).round() as i32),
+            );
+        })
+        .detach();
         Self::keep_on_quit(cx);
         desk.fill_slots();
         desk.look_here();
@@ -1201,6 +1216,7 @@ impl Desk {
     /// composer sends with.
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         self.sync_send_key(cx);
+        self.update_due();
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {

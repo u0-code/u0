@@ -27,6 +27,7 @@ pub mod settings;
 pub mod store;
 pub mod terminals;
 pub mod tidy;
+pub mod update;
 pub mod when;
 pub mod whole;
 pub mod writer;

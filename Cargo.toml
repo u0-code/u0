@@ -41,6 +41,8 @@ jiff = "1.0.2"
 tempfile = "3.27"
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"
+# Which release of Ghost is newer: the updater.
+semver = "1.0"
 cocoa = "0.26"
 # Speech to text on this Mac (Apple's Speech framework, on device) and the
 # microphone it hears (AVFAudio), with the blocks they call back.

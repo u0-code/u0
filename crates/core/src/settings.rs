@@ -155,6 +155,16 @@ pub struct Settings {
     /// What you say into the composer, heard on this Mac.
     #[serde(default)]
     pub voice: Voice,
+    /// Which builds Ghost updates to.
+    #[serde(default)]
+    pub channel: crate::update::Channel,
+    /// Ghost looks for an update as it starts and every four hours.
+    #[serde(default = "yes")]
+    pub check_updates: bool,
+    /// Where the window was, and how large, as Ghost last quit: x, y,
+    /// width and height in points; none, centred.
+    #[serde(default)]
+    pub frame: Option<[i32; 4]>,
     /// What Ghost asks before it does it.
     #[serde(default)]
     pub confirm: Confirm,
@@ -637,6 +647,9 @@ impl Default for Settings {
             writer: Writer::default(),
             confirm: Confirm::default(),
             voice: Voice::default(),
+            channel: crate::update::Channel::default(),
+            check_updates: yes(),
+            frame: None,
         }
     }
 }

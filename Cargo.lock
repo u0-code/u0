@@ -2057,6 +2057,7 @@ dependencies = [
  "jiff 1.0.2",
  "libc",
  "portable-pty",
+ "semver",
  "serde",
  "serde_json",
  "shell-words",

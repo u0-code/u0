@@ -42,6 +42,8 @@ pub enum Msg {
     Attached(Option<crate::desk::mention::Attached>),
     /// What speech recognition heard, as you dictate.
     Heard(crate::voice::Heard),
+    /// Where an update of Ghost's own stands.
+    Update(crate::desk::updates::Update),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -233,6 +235,32 @@ pub fn install_command(tx: Sender) {
             Ok(()) => Ok(format!("It is in {shown}; add ~/.local/bin to your PATH")),
             Err(e) => Err(("Couldn't add the ghost command".into(), e.to_string())),
         })
+    });
+}
+
+/// Look for a build of Ghost newer than this one on `channel`.
+pub fn check_update(channel: crate::update::Channel, tx: Sender) {
+    off(tx, move || {
+        Msg::Update(crate::desk::updates::Update::Checked(crate::update::check(
+            channel,
+        )))
+    });
+}
+
+/// Download the build `found` and put it in place of `app`, saying how it
+/// goes.
+pub fn install_update(found: crate::update::Found, app: PathBuf, home: PathBuf, tx: Sender) {
+    let saying = tx.clone();
+    off(tx, move || {
+        let say = |what: &str, _: Option<f32>| {
+            let _ = saying.send(Msg::Update(crate::desk::updates::Update::Doing(
+                what.to_owned(),
+            )));
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        Msg::Update(crate::desk::updates::Update::Installed(
+            crate::update::install(&found, &app, &home, &say, &stop),
+        ))
     });
 }
 

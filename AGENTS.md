@@ -121,6 +121,7 @@ crates/core/src/
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json
   when.rs       times as read
+  update.rs     Ghost's own updates: the GitHub releases the casks install, put in place
   fixtures/     answers recorded from real agents
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
@@ -136,8 +137,8 @@ crates/desk/src/
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
-                replies, notices, writing, dictation, forge (the PRs and
-                Issues pages), links (the ghost:// links and folders
+                replies, notices, writing, dictation, updates, forge (the
+                PRs and Issues pages), links (the ghost:// links and folders
                 macOS opens Ghost with)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
@@ -151,7 +152,7 @@ crates/desk/src/
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
-                usage, voice: dictation's settings),
+                usage, voice: dictation's settings, updates: on About),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

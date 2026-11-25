@@ -88,14 +88,17 @@ actions!(
         ZoomOut,
         ActualSize,
         StartSpeaking,
-        StopSpeaking
+        StopSpeaking,
+        CheckForUpdates,
+        ZoomWindow,
+        BringAllToFront
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 49] = [
+pub const ACTIONS: [(&str, &str, Make); 50] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -198,6 +201,9 @@ pub const ACTIONS: [(&str, &str, Make); 49] = [
     ("zoom_out", "Everything smaller", || Box::new(ZoomOut)),
     ("actual_size", "Everything at its actual size", || {
         Box::new(ActualSize)
+    }),
+    ("check_for_updates", "Check for updates", || {
+        Box::new(CheckForUpdates)
     }),
 ];
 
@@ -541,6 +547,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
         }
     });
     on::<StartSpeaking>(cx, shown, |d, _, cx| d.read_aloud(cx));
+    on::<CheckForUpdates>(cx, shown, Desk::check_update_shown);
+    on::<ZoomWindow>(cx, shown, |_, window, _| window.zoom_window());
+    cx.on_action(|_: &BringAllToFront, cx| cx.activate(true));
     cx.on_action(|_: &StopSpeaking, _| crate::voice::stop_speaking());
     on::<Dictate>(cx, shown, |d, window, cx| d.dictate(true, window, cx));
     on::<NewScratch>(cx, shown, Desk::new_scratch);

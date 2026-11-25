@@ -30,15 +30,16 @@ mod voice;
 // rest name it alike in every module of the desk.
 use ghost_core::{
     acp, git, github, path, proto, registry, remote, repo, scripts, server, session, settings,
-    store, tidy, when, whole, writer,
+    store, tidy, update, when, whole, writer,
 };
 use keys::{
-    About, Hide, HideOthers, Minimize, NewSession, OpenSettings, Quit, ShowAll, Stop, ToggleSidebar,
+    About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
+    Quit, ShowAll, Stop, ToggleSidebar, ZoomWindow,
 };
 
 use gpui::{
-    App, AppContext as _, Bounds, Focusable as _, Menu, MenuItem, OsAction, TitlebarOptions,
-    WindowBounds, WindowOptions, point, px, size,
+    App, AppContext as _, Bounds, Focusable as _, Menu, MenuItem, OsAction, SystemMenuType,
+    TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
 fn main() {
@@ -71,8 +72,11 @@ fn main() {
         cx.set_menus(vec![
             Menu::new("Ghost").items(vec![
                 MenuItem::action("About Ghost", About),
+                MenuItem::action("Check for Updates…", CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action("Settings…", OpenSettings),
+                MenuItem::separator(),
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action("Hide Ghost", Hide),
                 MenuItem::action("Hide Others", HideOthers),
@@ -85,9 +89,13 @@ fn main() {
                 MenuItem::action("Stop", Stop),
             ]),
             Menu::new("Edit").items(vec![
+                MenuItem::os_action("Undo", gpui::component::input::Undo, OsAction::Undo),
+                MenuItem::os_action("Redo", gpui::component::input::Redo, OsAction::Redo),
+                MenuItem::separator(),
                 MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
                 MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
+                MenuItem::action("Delete", gpui::component::input::Delete),
                 MenuItem::os_action(
                     "Select All",
                     gpui::component::input::SelectAll,
@@ -108,10 +116,34 @@ fn main() {
                 MenuItem::separator(),
                 MenuItem::action("Enter Full Screen", keys::FullScreen),
             ]),
-            Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),
+            Menu::new("Window").items(vec![
+                MenuItem::action("Minimize", Minimize),
+                MenuItem::action("Zoom", ZoomWindow),
+                MenuItem::separator(),
+                MenuItem::action("Bring All to Front", BringAllToFront),
+            ]),
+            Menu::new("Help").items(vec![MenuItem::action(
+                "Check for Updates…",
+                CheckForUpdates,
+            )]),
         ]);
 
-        let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
+        // Where the window was as Ghost last quit, while that is on a
+        // display; else in the middle of the main one.
+        let kept = settings::Settings::load(&settings::home()).0.frame;
+        let bounds = kept
+            .map(|[x, y, w, h]| {
+                Bounds::new(
+                    point(px(x as f32), px(y as f32)),
+                    size(px(w as f32), px(h as f32)),
+                )
+            })
+            .filter(|b| {
+                cx.displays()
+                    .iter()
+                    .any(|d| d.bounds().contains(&b.center()))
+            })
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1320.), px(860.)), cx));
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
@@ -125,6 +157,12 @@ fn main() {
             ..Default::default()
         };
         let (window, desk) = gpui::open_window(options, cx, |window, cx| {
+            // Closed, the window hides: Ghost and its agents go on, and the
+            // Dock's icon brings it back.
+            window.on_window_should_close(cx, |_, cx| {
+                cx.hide();
+                false
+            });
             cx.new(|cx| desk::Desk::new(window, cx))
         })
         .expect("open the window");

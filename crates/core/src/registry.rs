@@ -628,7 +628,7 @@ pub fn install(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Resul
 
 /// Download `url` to `to` with `curl`, saying how many megabytes have come
 /// of how many, until it is done or `stop` is set.
-fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
+pub(crate) fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
     let mb = |n: u64| n as f64 / 1_048_576.;
     // The size, from the headers of the last answer after redirects.
     let total = Command::new("curl")
@@ -682,7 +682,7 @@ fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(), Str
 }
 
 /// Run a command to its end; its output, or what it said went wrong.
-fn run(command: &mut Command) -> Result<Vec<u8>, String> {
+pub(crate) fn run(command: &mut Command) -> Result<Vec<u8>, String> {
     let program = command.get_program().to_string_lossy().into_owned();
     let out = command
         .output()

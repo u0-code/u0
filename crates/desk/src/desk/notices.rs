@@ -42,6 +42,8 @@ pub enum Way {
     Show(u64),
     /// What was just done to sessions, to take it back.
     Undo,
+    /// An update of Ghost's own, to see and install.
+    Update,
 }
 
 impl Desk {
@@ -129,6 +131,7 @@ impl Desk {
             Some(Way::Agent(_)) => "Open the agent",
             Some(Way::Show(_)) => "Show",
             Some(Way::Undo) => "Undo",
+            Some(Way::Update) => "See",
             None if n.trouble => "Copy details",
             None => return note,
         };
@@ -142,6 +145,7 @@ impl Desk {
                 Some(Way::Agent(agent)) => d.open_page(super::Page::Agent(agent), window, cx),
                 Some(Way::Show(key)) => d.show(key, window, cx),
                 Some(Way::Undo) => d.take_back(cx),
+                Some(Way::Update) => d.open_tab(crate::pages::Tab::About, window, cx),
                 None => cx.write_to_clipboard(ClipboardItem::new_string(details.clone())),
             });
         };

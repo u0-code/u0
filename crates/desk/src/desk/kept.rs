@@ -321,6 +321,7 @@ impl Desk {
     /// Keep everything as the app quits.
     pub(super) fn keep_on_quit(cx: &mut Context<Self>) {
         cx.on_app_quit(|this, _| {
+            this.save_settings();
             this.keep_all();
             async {}
         })

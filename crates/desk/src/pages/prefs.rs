@@ -821,13 +821,15 @@ impl Desk {
         .into_iter()
         .flatten()
         .collect();
-        (!rows.is_empty()).then(|| {
+        let updates = self.updates_group(faces, q, cx);
+        (!rows.is_empty() || updates.is_some()).then(|| {
             page(
                 faces,
                 &format!("Ghost {}", env!("CARGO_PKG_VERSION")),
                 "Agent Client Protocol v1 · macOS",
             )
-            .child(group_of(rows))
+            .when(!rows.is_empty(), |p| p.child(group_of(rows)))
+            .children(updates)
         })
     }
 }

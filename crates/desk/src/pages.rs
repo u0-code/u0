@@ -7,6 +7,7 @@ mod forge;
 mod prefs;
 mod projects;
 mod settings;
+mod updates;
 mod usage;
 mod voice;
 mod writing;

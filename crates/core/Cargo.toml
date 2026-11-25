@@ -23,6 +23,7 @@ similar.workspace = true
 jiff.workspace = true
 tempfile.workspace = true
 hayro.workspace = true
+semver.workspace = true
 
 [lints]
 workspace = true
