@@ -144,6 +144,10 @@ pub struct Desk {
     pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
+    /// What waits for an agent to start, by agent: a fork, a delete.
+    pub waiting: Vec<(String, lists::Waiting)>,
+    /// Sessions deleted whose agent cannot delete them (see `store::Index`).
+    pub gone: Vec<(String, String)>,
     /// What Ghost tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
     /// The sessions whose records hold what is searched for.
@@ -505,6 +509,8 @@ impl Desk {
             renaming_project: None,
             rename,
             undo: None,
+            waiting: Vec::new(),
+            gone: Vec::new(),
             notices: Vec::new(),
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::General,
@@ -618,13 +624,15 @@ impl Desk {
         self.start_ready();
     }
 
-    /// Start each agent switched on that can run and is not running, so
-    /// that the sessions it keeps are listed.
+    /// Start each agent switched on that can run and has not run yet, so
+    /// that the sessions it keeps are listed. One let go after running
+    /// idle starts again when it is wanted, not here.
     fn start_ready(&mut self) {
         let home = self.home.clone();
         // One on another machine starts when it is wanted.
         for slot in &mut self.slots {
             if matches!(slot.stage, Stage::Ready)
+                && slot.known.is_none()
                 && crate::remote::split(&slot.entry.id).1.is_none()
             {
                 slot.stage = Stage::Starting;
@@ -743,10 +751,25 @@ impl Desk {
         cx.notify();
     }
 
-    /// Whether `agent` can delete the sessions it keeps.
+    /// Whether `agent` can delete the sessions it keeps, as it said when it
+    /// last started.
     pub fn can_delete(&self, agent: &str) -> bool {
-        matches!(self.slot(agent).map(|s| &s.stage),
-            Some(Stage::Running { init, .. }) if init.agent_capabilities.session_capabilities.delete.is_some())
+        self.slot(agent)
+            .and_then(|s| s.known.as_ref())
+            .is_some_and(|k| k.session_capabilities.delete.is_some())
+    }
+
+    /// Start `agent` if it is not running or starting: something waits on
+    /// it.
+    pub(crate) fn start_for(&mut self, agent: &str) {
+        let home = self.home.clone();
+        let tx = self.tx.clone();
+        if let Some(slot) = self.slot_mut(agent)
+            && matches!(slot.stage, Stage::Ready)
+        {
+            slot.stage = Stage::Starting;
+            hub::start(slot, &home, tx);
+        }
     }
 
     /// A key no session has had.

@@ -29,6 +29,14 @@ pub enum Later {
     NextWeek,
 }
 
+/// Something asked of an agent that is not running: done once it starts.
+pub enum Waiting {
+    /// Branch the session off, whole or before an item of its thread.
+    Branch(u64, Option<(usize, MessageId)>),
+    /// Delete the session from the agent too.
+    Delete(u64),
+}
+
 /// What can still be taken back, and since when.
 pub struct Undo {
     pub key: u64,
@@ -182,19 +190,61 @@ impl Desk {
         cx.notify();
     }
 
-    /// Delete the session `key` now: from its agent too, where it can.
+    /// Delete the session `key` now: from its agent too, where it can
+    /// (started for it if need be); where it cannot, the agent keeps it and
+    /// Ghost leaves it out of the list from now on.
     fn delete_now(&mut self, key: u64, cx: &mut Context<Self>) {
         let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
             return;
         };
-        match (
-            s.id.clone(),
-            self.slot(&s.agent).and_then(hub::Slot::running),
-        ) {
-            (Some(id), Some(running)) if self.can_delete(&s.agent) => {
-                hub::delete(running.clone(), key, id, self.tx.clone());
+        let (agent, id) = (s.agent.clone(), s.id.clone());
+        let Some(id) = id else {
+            self.forget_session(key, cx);
+            return;
+        };
+        if !self.can_delete(&agent) {
+            self.gone.push((agent, id.0.to_string()));
+            self.forget_session(key, cx);
+            return;
+        }
+        if let Some(running) = self.slot(&agent).and_then(hub::Slot::running) {
+            hub::delete(running.clone(), key, id, self.tx.clone());
+        } else {
+            self.waiting.push((agent.clone(), Waiting::Delete(key)));
+            self.start_for(&agent);
+        }
+    }
+
+    /// Do what waited for an agent to start.
+    pub(crate) fn do_waiting(&mut self, waiting: Waiting) {
+        match waiting {
+            Waiting::Branch(key, upto) => {
+                if let Some(s) = self.sessions.iter().find(|s| s.key == key)
+                    && let (Some(id), Some(running)) = (
+                        s.id.clone(),
+                        self.slot(&s.agent).and_then(hub::Slot::running),
+                    )
+                {
+                    hub::fork(
+                        running.clone(),
+                        key,
+                        id,
+                        s.folder.clone(),
+                        upto,
+                        self.tx.clone(),
+                    );
+                }
             }
-            _ => self.forget_session(key, cx),
+            Waiting::Delete(key) => {
+                if let Some(s) = self.sessions.iter().find(|s| s.key == key)
+                    && let (Some(id), Some(running)) = (
+                        s.id.clone(),
+                        self.slot(&s.agent).and_then(hub::Slot::running),
+                    )
+                {
+                    hub::delete(running.clone(), key, id, self.tx.clone());
+                }
+            }
         }
     }
 
@@ -287,12 +337,14 @@ impl Desk {
         )
     }
 
-    /// Whether the agent of `s` can branch a session off.
+    /// Whether the agent of `s` can branch a session off, as it said when
+    /// it last started.
     pub fn can_fork(&self, s: &Session) -> bool {
         s.id.is_some()
-            && matches!(self.slot(&s.agent).map(|x| &x.stage),
-                Some(hub::Stage::Running { init, .. })
-                    if init.agent_capabilities.session_capabilities.fork.is_some())
+            && self
+                .slot(&s.agent)
+                .and_then(|x| x.known.as_ref())
+                .is_some_and(|k| k.session_capabilities.fork.is_some())
     }
 
     /// Branch the session `key` off into a new one with all that was said
@@ -317,21 +369,20 @@ impl Desk {
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(agent) = self
+            .sessions
+            .iter()
+            .find(|s| s.key == key)
+            .map(|s| s.agent.clone())
+        else {
             return;
         };
-        if let (Some(id), Some(running)) = (
-            s.id.clone(),
-            self.slot(&s.agent).and_then(hub::Slot::running),
-        ) {
-            hub::fork(
-                running.clone(),
-                key,
-                id,
-                s.folder.clone(),
-                upto,
-                self.tx.clone(),
-            );
+        if self.slot(&agent).and_then(hub::Slot::running).is_some() {
+            self.do_waiting(Waiting::Branch(key, upto));
+        } else {
+            self.waiting
+                .push((agent.clone(), Waiting::Branch(key, upto)));
+            self.start_for(&agent);
         }
         cx.notify();
     }

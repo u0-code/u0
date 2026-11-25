@@ -256,9 +256,9 @@ pub struct Slot {
     pub commands: Vec<agent_client_protocol_schema::v1::AvailableCommand>,
     /// A command line of yours that starts it instead of the registry's.
     pub command: Option<String>,
-    /// Whether it takes images, as it said when it last started: kept
-    /// while it is let go; not known before it first starts.
-    pub images: Option<bool>,
+    /// What it said it can do when it last started: kept while it is let
+    /// go; none before it first starts.
+    pub known: Option<agent_client_protocol_schema::v1::AgentCapabilities>,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -294,7 +294,7 @@ impl Slot {
             auth: Auth::Unknown,
             used: std::time::Instant::now(),
             commands: Vec::new(),
-            images: None,
+            known: None,
         }
     }
 

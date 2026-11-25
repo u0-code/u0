@@ -29,6 +29,10 @@ use crate::{git, whole};
 #[serde(deny_unknown_fields)]
 pub struct Index {
     pub sessions: Vec<Meta>,
+    /// Sessions you deleted whose agent cannot delete them: by agent and
+    /// id, so that its list does not bring them back.
+    #[serde(default)]
+    pub gone: Vec<(String, String)>,
 }
 
 /// What the desk keeps of one session.

@@ -184,7 +184,8 @@ impl Desk {
         let refused = self
             .session()
             .and_then(|s| self.slot(&s.agent))
-            .is_some_and(|slot| slot.images == Some(false));
+            .and_then(|slot| slot.known.as_ref())
+            .is_some_and(|known| !known.prompt_capabilities.image);
         if refused {
             let name = self
                 .session()

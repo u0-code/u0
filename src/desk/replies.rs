@@ -398,7 +398,7 @@ impl Desk {
         match result {
             Ok((running, init)) => {
                 if let Some(slot) = self.slot_mut(agent) {
-                    slot.images = Some(init.agent_capabilities.prompt_capabilities.image);
+                    slot.known = Some(init.agent_capabilities.clone());
                     slot.stage = Stage::Running {
                         agent: running,
                         init,
@@ -407,6 +407,14 @@ impl Desk {
                 }
                 for key in waiting {
                     self.open_when_running(agent, key);
+                }
+                // What waited for it to start, now.
+                let (now, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
+                    .into_iter()
+                    .partition(|(a, _)| a == agent);
+                self.waiting = wait;
+                for (_, w) in now {
+                    self.do_waiting(w);
                 }
                 self.list_sessions(agent);
                 self.probe_agent(agent);
@@ -516,6 +524,13 @@ impl Desk {
             }
         };
         for (project, info) in found {
+            if self
+                .gone
+                .iter()
+                .any(|(a, id)| a == agent && *id == *info.session_id.0)
+            {
+                continue;
+            }
             if let Some(s) = self
                 .sessions
                 .iter_mut()
