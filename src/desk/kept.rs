@@ -47,16 +47,56 @@ impl Desk {
             })
             .cloned()
             .collect();
-        let (agent, folder, project) = (s.agent.clone(), s.folder.clone(), s.project.clone());
         for (id, title) in missing {
-            let mut child = Session::new(self.take_key(), &agent, folder.clone());
-            child.project.clone_from(&project);
-            child.id = Some(agent_client_protocol::v1::schema::SessionId::new(id));
-            child.parent = Some(key);
-            child.title = title;
-            child.renamed = true;
-            child.state = crate::session::State::Closed;
-            self.sessions.push(child);
+            let id = agent_client_protocol::v1::schema::SessionId::new(id);
+            self.add_subagent(key, id, title, crate::session::State::Closed);
+        }
+    }
+
+    /// The subagent `id` the session `parent` set to work: a session of
+    /// its own, under it.
+    pub(crate) fn add_subagent(
+        &mut self,
+        parent: u64,
+        id: agent_client_protocol::v1::schema::SessionId,
+        title: String,
+        state: crate::session::State,
+    ) {
+        let key = self.take_key();
+        let Some(p) = self.session_at(parent) else {
+            return;
+        };
+        let mut child = Session::new(key, &p.agent, p.folder.clone());
+        child.project.clone_from(&p.project);
+        child.id = Some(id);
+        child.parent = Some(parent);
+        child.title = title;
+        child.renamed = true;
+        child.state = state;
+        self.sessions.push(child);
+    }
+
+    /// A new session of the agent of the session `of`, in its project and
+    /// worktree, not yet begun.
+    pub(crate) fn beside(&mut self, of: u64) -> Option<Session> {
+        let key = self.take_key();
+        let o = self.session_at(of)?;
+        let mut s = Session::new(key, &o.agent, o.folder.clone());
+        s.project.clone_from(&o.project);
+        s.worktree.clone_from(&o.worktree);
+        if let Some(slot) = self.slot(&s.agent) {
+            slot.seed(&mut s);
+        }
+        Some(s)
+    }
+
+    /// The session `old` put away, and `new` in its place in the lists.
+    pub(crate) fn replace(&mut self, old: u64, new: &mut Session) {
+        if let Some(o) = self.session_mut(old) {
+            new.title.clone_from(&o.title);
+            new.flags.order = o.flags.order;
+            new.flags.pinned = o.flags.pinned.take();
+            o.flags.archived = true;
         }
     }
 

@@ -534,26 +534,14 @@ impl Desk {
     }
 
     fn start_over(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let Some(old) = self.session_at(key).cloned() else {
+        let Some(mut s) = self.beside(key) else {
             return;
         };
-        let new = self.take_key();
-        let mut s = Session::new(new, &old.agent, old.folder.clone());
-        s.project.clone_from(&old.project);
-        s.worktree.clone_from(&old.worktree);
-        s.title.clone_from(&old.title);
-        s.flags.order = old.flags.order;
-        s.flags.pinned = old.flags.pinned;
-        if let Some(Item::You(text)) = old.items.get(item) {
+        if let Some(Item::You(text)) = self.session_at(key).and_then(|o| o.items.get(item)) {
             s.unsent.clone_from(text);
         }
-        if let Some(slot) = self.slot(&old.agent) {
-            slot.seed(&mut s);
-        }
-        if let Some(o) = self.session_mut(key) {
-            o.flags.archived = true;
-            o.flags.pinned = None;
-        }
+        self.replace(key, &mut s);
+        let new = s.key;
         self.sessions.push(s);
         self.save_index();
         self.bring(new, cx);
@@ -610,14 +598,14 @@ impl Desk {
             .iter()
             .filter(|i| matches!(i, Item::You(_)))
             .count();
-        let key = self.take_key();
         // Taken back to a message: the branch is the session now, in its
         // place; the old one is archived.
         let rewound = self.rewinding.take_if(|k| *k == from).is_some();
         let side = self.asking_beside.take_if(|k| *k == from).is_some();
-        let mut s = Session::new(key, &origin.agent, origin.folder.clone());
-        s.project.clone_from(&origin.project);
-        s.worktree.clone_from(&origin.worktree);
+        let Some(mut s) = self.beside(from) else {
+            return;
+        };
+        let key = s.key;
         s.items = origin.items[..end].to_vec();
         s.marks = origin
             .marks
@@ -632,15 +620,9 @@ impl Desk {
             s.unsent.clone_from(text);
         }
         if rewound {
-            s.title.clone_from(&origin.title);
             s.renamed = origin.renamed;
-            s.flags.order = origin.flags.order;
-            s.flags.pinned = origin.flags.pinned;
             s.from.clone_from(&origin.from);
-            if let Some(o) = self.session_mut(from) {
-                o.flags.archived = true;
-                o.flags.pinned = None;
-            }
+            self.replace(from, &mut s);
         } else {
             s.title = if side {
                 format!("Beside “{}”", origin.title)

@@ -128,20 +128,15 @@ impl Desk {
 
     /// Begin a session in the worktree the session `key` works in.
     pub fn new_in_worktree(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(s) = self.session_at(key) else {
-            return;
-        };
-        let (Some(wt), agent, project) = (s.worktree.clone(), s.agent.clone(), s.project.clone())
+        let Some(fresh) = self
+            .session_at(key)
+            .is_some_and(|s| s.worktree.is_some())
+            .then(|| self.beside(key))
+            .flatten()
         else {
             return;
         };
-        let new = self.take_key();
-        let mut fresh = crate::session::Session::new(new, &agent, wt.path.clone());
-        fresh.project = project;
-        fresh.worktree = Some(wt);
-        if let Some(slot) = self.slot(&agent) {
-            slot.seed(&mut fresh);
-        }
+        let new = fresh.key;
         self.sessions.push(fresh);
         self.show(new, window, cx);
     }

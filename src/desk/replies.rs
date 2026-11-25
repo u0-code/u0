@@ -722,21 +722,12 @@ impl Desk {
                     && self.session_by_id(agent, &u.session_id).is_none()
                     && let Some(parent) = self.session_by_id(agent, &n.session_id)
                 {
-                    let (folder, project, up) =
-                        (parent.folder.clone(), parent.project.clone(), parent.key);
+                    let up = parent.key;
                     let title = match &u.title {
                         agent_client_protocol::schema::MaybeUndefined::Value(t) => t.clone(),
                         _ => "A subagent".into(),
                     };
-                    let key = self.take_key();
-                    let mut child = Session::new(key, agent, folder);
-                    child.project = project;
-                    child.id = Some(u.session_id.clone());
-                    child.parent = Some(up);
-                    child.title = title;
-                    child.renamed = true;
-                    child.state = State::Idle;
-                    self.sessions.push(child);
+                    self.add_subagent(up, u.session_id.clone(), title, State::Idle);
                 }
                 // What it is doing now, for its row, the column and its tab.
                 if let SessionUpdate::SubagentUpdate(u) = &n.update
