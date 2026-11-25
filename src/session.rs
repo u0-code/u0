@@ -733,6 +733,24 @@ impl Session {
 
     /// Take in one update from the agent.
     pub fn apply(&mut self, update: SessionUpdate) {
+        // What Claude's adapter says of its own (a hook's warning) comes as
+        // the agent's words marked informational: they are not what the
+        // agent said. An error is the session's, a row of its own; the rest
+        // stays out of the thread.
+        if let SessionUpdate::AgentMessageChunk(c) = &update
+            && let Some(level) = informational(c)
+        {
+            let ContentBlock::Text(t) = &c.content else {
+                return;
+            };
+            let text = t.text.trim().trim_start_matches('>').replace("**", "");
+            if level == "error" {
+                self.note(text.trim());
+            } else {
+                tracing::info!("{} said: {}", self.agent, text.trim());
+            }
+            return;
+        }
         // A new message from the agent: when it began goes before it.
         let begins = matches!(update, SessionUpdate::AgentMessageChunk(_))
             && !matches!(self.items.last(), Some(Item::Agent(_)));
@@ -1111,12 +1129,35 @@ impl Session {
     }
 }
 
+/// The level ("warning", "error") of a chunk Claude's adapter marks as
+/// its own information, not the agent's words.
+fn informational(c: &agent_client_protocol_schema::v1::ContentChunk) -> Option<&str> {
+    let own = c.meta.as_ref()?.get("claudeCode")?;
+    (own.get("kind")?.as_str()? == "informational")
+        .then(|| own.get("level").and_then(|l| l.as_str()).unwrap_or("info"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn what_the_adapter_says_of_its_own_stays_out_of_the_thread() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n\n> **Warning:** A hook gave no usable answer, so it didn't check this action.\n\n"},"_meta":{"claudeCode":{"kind":"informational","level":"warning"}}}"#,
+        ));
+        assert!(s.items.is_empty());
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"> **Error:** the hook failed"},"_meta":{"claudeCode":{"kind":"informational","level":"error"}}}"#,
+        ));
+        assert!(
+            matches!(&s.items[..], [Item::Note { text, trouble: true }] if text == "Error: the hook failed")
+        );
     }
 
     #[test]
