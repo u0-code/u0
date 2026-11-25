@@ -1,11 +1,18 @@
-//! What you set for an agent from its page: a command line of yours that
-//! starts it, model ids of yours; and its health checked every few
+//! The agents switched on: their slots filled and started, the sessions
+//! each keeps listed, signing in and out, installing and taking away;
+//! what you set for an agent from its page (a command line of yours that
+//! starts it, model ids of yours); and its health checked every few
 //! minutes, and the registry read again every few hours.
 
-use gpui::Context;
+use std::path::PathBuf;
+
+use gpui::{Context, Window};
 
 use super::Desk;
-use crate::hub::{self, Stage};
+use crate::{
+    hub::{self, Slot, Stage},
+    registry::Entry,
+};
 
 impl Desk {
     /// Start the agent `id` with the command typed on its page, or, with
@@ -135,5 +142,286 @@ impl Desk {
                     || (s.state != State::Closed
                         && (s.sub.working() || s.tasks.iter().any(|t| t.ended.is_none()))))
         })
+    }
+
+    pub fn entry(&self, id: &str) -> Option<&Entry> {
+        self.registry
+            .agents
+            .iter()
+            .find(|e| e.id == id)
+            .or_else(|| self.slot(id).map(|s| &s.entry))
+    }
+
+    pub fn slot(&self, id: &str) -> Option<&Slot> {
+        self.slots.iter().find(|s| s.entry.id == id)
+    }
+
+    pub(crate) fn slot_mut(&mut self, id: &str) -> Option<&mut Slot> {
+        self.slots.iter_mut().find(|s| s.entry.id == id)
+    }
+
+    /// Make the slots match the agents switched on, keeping those already
+    /// there as they are.
+    pub(crate) fn fill_slots(&mut self) {
+        let mut old: Vec<Slot> = std::mem::take(&mut self.slots);
+        // The slots on other machines stay as they are.
+        let remote: Vec<Slot> = old
+            .extract_if(.., |s| crate::remote::split(&s.entry.id).1.is_some())
+            .collect();
+        for id in &self.settings.enabled {
+            if let Some(at) = old.iter().position(|s| &s.entry.id == id) {
+                self.slots.push(old.remove(at));
+            } else if let Some(entry) = self.entry(id) {
+                self.slots.push(Slot::new(
+                    entry.clone(),
+                    &self.home,
+                    self.settings.commands.get(id).cloned(),
+                ));
+            }
+        }
+        self.slots.extend(remote);
+        self.start_ready();
+    }
+
+    /// Start each agent switched on that can run and has not run yet, so
+    /// that the sessions it keeps are listed. One let go after running
+    /// idle starts again when it is wanted, not here.
+    pub(crate) fn start_ready(&mut self) {
+        let home = self.home.clone();
+        // One on another machine starts when it is wanted.
+        for slot in &mut self.slots {
+            if matches!(slot.stage, Stage::Ready)
+                && slot.known.is_none()
+                && crate::remote::split(&slot.entry.id).1.is_none()
+            {
+                slot.stage = Stage::Starting;
+                hub::start(slot, &home, self.tx.clone());
+            }
+        }
+    }
+
+    /// Start `agent` if it is not running or starting: something waits on
+    /// it.
+    pub(crate) fn start_for(&mut self, agent: &str) {
+        let home = self.home.clone();
+        let tx = self.tx.clone();
+        if let Some(slot) = self.slot_mut(agent)
+            && matches!(slot.stage, Stage::Ready)
+        {
+            slot.stage = Stage::Starting;
+            hub::start(slot, &home, tx);
+        }
+    }
+
+    /// The slot of `agent` on the host of a project on another machine,
+    /// made the first time it is wanted; its id.
+    pub(crate) fn remote_slot(&mut self, agent: &str, host: &str) -> Option<String> {
+        let id = crate::remote::agent_on(agent, host);
+        if self.slot(&id).is_none() {
+            let base = self.registry.agents.iter().find(|e| e.id == agent)?.clone();
+            let command = crate::remote::command(&base, host)?;
+            let mut entry = base;
+            entry.name = format!("{} on {host}", self.name_of(agent));
+            entry.id.clone_from(&id);
+            let slot = Slot::new(entry, &self.home, Some(command));
+            self.slots.push(slot);
+        }
+        Some(id)
+    }
+
+    /// Ask `agent`, if it is running and can list them, for the sessions
+    /// it keeps in the projects.
+    pub(crate) fn list_sessions(&self, agent: &str) {
+        let Some(slot) = self.slot(agent) else { return };
+        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
+            return;
+        };
+        if caps.session_capabilities.list.is_none() {
+            return;
+        }
+        // An agent here lists the projects here; one on another machine,
+        // the projects there, by their paths there.
+        let host = crate::remote::split(agent).1;
+        let places = self
+            .settings
+            .folders
+            .iter()
+            .filter_map(|f| match (crate::remote::parse(f), host) {
+                (None, None) => Some((f.clone(), f.clone())),
+                (Some((h, path)), Some(on)) if h == on => Some((path, f.clone())),
+                _ => None,
+            })
+            .collect();
+        hub::list(
+            running.clone(),
+            agent.to_owned(),
+            places,
+            self.home.clone(),
+            self.tx.clone(),
+        );
+    }
+
+    /// Read what a session of `agent` offers before one is opened, and
+    /// whether it is signed in, by opening one and deleting it again.
+    pub(crate) fn probe_agent(&self, agent: &str) {
+        let Some(slot) = self.slot(agent) else { return };
+        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
+            return;
+        };
+        let caps = &caps.session_capabilities;
+        // Opened in a folder that is there: Ghost's home here, /tmp on
+        // another machine.
+        let dir = if crate::remote::split(agent).1.is_some() {
+            PathBuf::from("/tmp")
+        } else {
+            self.home.clone()
+        };
+        hub::probe(
+            running.clone(),
+            agent.to_owned(),
+            dir,
+            caps.delete.is_some(),
+            caps.close.is_some(),
+            self.tx.clone(),
+        );
+    }
+
+    /// Sign in to `agent` the way it offers: its own method when it lists
+    /// one, else its own program in a terminal, where it signs in.
+    pub fn sign_in_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let Some(slot) = self.slot(agent) else { return };
+        let method = slot.sign_ins().next().map(|m| m.id().0.to_string());
+        if let Some(method) = method {
+            self.sign_in(agent, &method, cx);
+            return;
+        }
+        match slot.entry.own_cli(&self.home) {
+            Some(cli) => {
+                if let Err(e) = crate::macos::in_terminal(&cli, &[], &[]) {
+                    tracing::warn!("a terminal could not be opened: {e}");
+                }
+            }
+            None => {
+                if let Some(site) = &slot.entry.website {
+                    cx.open_url(site);
+                }
+            }
+        }
+    }
+
+    /// Read again whether `agent` is signed in.
+    pub fn recheck_auth(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(slot) = self.slot_mut(agent) {
+            slot.auth = hub::Auth::Unknown;
+        }
+        self.probe_agent(agent);
+        cx.notify();
+    }
+
+    /// Sign `agent` out, when it can be.
+    pub fn log_out(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(running) = self.slot(agent).and_then(Slot::running) {
+            hub::logout(running.clone(), agent.to_owned(), self.tx.clone());
+        }
+        cx.notify();
+    }
+
+    /// Whether `agent` can delete the sessions it keeps, as it said when it
+    /// last started.
+    pub fn can_delete(&self, agent: &str) -> bool {
+        self.slot(agent)
+            .and_then(Slot::caps)
+            .is_some_and(|k| k.session_capabilities.delete.is_some())
+    }
+
+    /// Install the agent `id` from its archive, or update it to the
+    /// registry's version.
+    pub fn install(&mut self, id: &str, cx: &mut Context<Self>) {
+        // One running is let go first; it starts again once installed.
+        if matches!(self.slot(id).map(|s| &s.stage), Some(Stage::Running { .. })) {
+            self.let_go(id);
+        }
+        let home = self.home.clone();
+        let tx = self.tx.clone();
+        if let Some(slot) = self.slot_mut(id) {
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            slot.stage = Stage::Installing(hub::Install {
+                what: "Starting".into(),
+                share: None,
+                stop: stop.clone(),
+            });
+            hub::install(slot.entry.clone(), home, stop, tx);
+        }
+        cx.notify();
+    }
+
+    /// Stop the install of `id` going on; nothing of it is kept.
+    pub fn cancel_install(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(Stage::Installing(i)) = self.slot(id).map(|s| &s.stage) {
+            i.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            cx.notify();
+        }
+    }
+
+    /// Take the agent `id`'s download off this machine, once you say so;
+    /// it stops first if it is running.
+    pub fn uninstall(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.entry(id).cloned() else {
+            return;
+        };
+        let name = self.name_of(id);
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &format!("Uninstall {name}?"),
+            Some(&format!(
+                "Its download in {} is removed. Its sessions and sign-in stay with {name}, and it can be installed again.",
+                Desk::shown(&self.home.join("agents").join(id))
+            )),
+            &["Uninstall", "Cancel"],
+            cx,
+        );
+        let id = id.to_owned();
+        cx.spawn(async move |this, cx| {
+            if answer.await == Ok(0) {
+                let _ = this.update(cx, |this, cx| {
+                    let home = this.home.clone();
+                    if let Err(why) = entry.uninstall(&home) {
+                        if let Some(slot) = this.slot_mut(&id) {
+                            slot.stage = Stage::Failed(why);
+                        }
+                    } else if let Some(slot) = this.slot_mut(&id) {
+                        slot.stage = Stage::Ready;
+                        slot.restage(&home);
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Look again for what an agent needs (a runner installed meanwhile).
+    pub fn recheck(&mut self, id: &str, cx: &mut Context<Self>) {
+        let home = self.home.clone();
+        if let Some(slot) = self.slot_mut(id) {
+            slot.stage = Stage::Ready;
+            slot.restage(&home);
+        }
+        cx.notify();
+    }
+
+    /// Switch the agent `id` on or off.
+    pub fn toggle_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.settings.toggle(id);
+        self.save_settings();
+        self.fill_slots();
+        cx.notify();
+    }
+
+    /// Read the registry again.
+    pub fn refresh_registry(&mut self, cx: &mut Context<Self>) {
+        hub::fetch(self.home.clone(), self.tx.clone());
+        self.registry_trouble = None;
+        cx.notify();
     }
 }

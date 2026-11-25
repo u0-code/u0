@@ -71,7 +71,7 @@ src/tidy.rs       what Ghost keeps here, measured and tidied
 src/keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
 src/desk.rs       the window's state, actions and layout
 src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
-                  palette, agents, turns, replies, notices
+                  palette, agents, send, turns, replies, notices
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
 src/thread/       the thread as a list (lines), folds, cards, the composer, the start,
                   the drawer; drawing helpers: diffs, plans, command output
