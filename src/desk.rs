@@ -157,6 +157,8 @@ pub struct Desk {
     pub weights: Vec<(String, u32, u64)>,
     /// What of each agent the registry lists is here, by its id.
     pub here: HashMap<String, hub::Here>,
+    /// The programs the desk offers that are on the PATH (`hub::on_path`).
+    pub on_path: Vec<&'static str>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
     /// The action whose keys are being recorded, in Settings, Keyboard.
@@ -656,6 +658,7 @@ impl Desk {
 
         let registry = registry::kept(&home).unwrap_or_default();
         hub::fetch(home.clone(), tx.clone());
+        hub::on_path(tx.clone());
         let mut desk = Self {
             home,
             settings,
@@ -679,6 +682,7 @@ impl Desk {
             badge: 0,
             weights: Vec::new(),
             here: HashMap::new(),
+            on_path: Vec::new(),
             menu_search,
             reading: None,
             reader,

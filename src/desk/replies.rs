@@ -333,6 +333,7 @@ impl Desk {
             Msg::Weighed(weights) => self.weights = weights,
             Msg::Hosts(hosts) => self.hosts = hosts,
             Msg::Here(here) => self.here = here,
+            Msg::OnPath(found) => self.on_path = found,
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();
                 crate::keys::bind(cx, &yours);

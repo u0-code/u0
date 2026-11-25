@@ -407,7 +407,7 @@ impl Desk {
             })),
         )];
         for (command, name) in crate::desk::EDITORS {
-            if crate::registry::which(command).is_some() {
+            if self.on_path.contains(&command) {
                 choices.push((
                     name,
                     self.settings.editor.as_deref() == Some(command),

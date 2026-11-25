@@ -409,7 +409,7 @@ impl Desk {
         }
         // Behind its upstream, or not on a remote yet: the way on.
         let (behind, origin) = s.upstream;
-        let gh = crate::registry::which("gh").is_some();
+        let gh = self.on_path.contains(&"gh");
         let note = |text: String,
                     id: &'static str,
                     label: &'static str,

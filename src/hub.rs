@@ -85,6 +85,8 @@ pub enum Msg {
     Keys(Result<Vec<crate::keys::Binding>, String>),
     /// What of each agent the registry lists is here, by its id.
     Here(std::collections::HashMap<String, Here>),
+    /// The programs the desk offers that are on the PATH.
+    OnPath(Vec<&'static str>),
     /// The hosts your SSH config names.
     Hosts(Vec<String>),
     /// What the folder of a project holds.
@@ -998,6 +1000,15 @@ pub fn here(agents: Vec<Entry>, home: PathBuf, tx: Sender) {
                 })
                 .collect(),
         )
+    });
+}
+
+/// Which of the programs the desk offers (gh, the editors it knows) are
+/// on the PATH.
+pub fn on_path(tx: Sender) {
+    off(tx, || {
+        let offered = std::iter::once("gh").chain(crate::desk::EDITORS.map(|(c, _)| c));
+        Msg::OnPath(offered.filter(|c| registry::which(c).is_some()).collect())
     });
 }
 
