@@ -363,7 +363,9 @@ impl Desk {
         let me = cx.entity().downgrade();
         cx.intercept_keystrokes(move |e, _, cx| {
             let took = me
-                .update(cx, |d, cx| d.record_key(&e.keystroke, cx))
+                .update(cx, |d, cx| {
+                    d.record_key(&e.keystroke, cx) || d.escape_closes(&e.keystroke, cx)
+                })
                 .unwrap_or(false);
             if took {
                 cx.stop_propagation();
@@ -2004,6 +2006,18 @@ impl Desk {
         if let Some(key) = self.current {
             self.refresh_diffs(key);
         }
+    }
+
+    /// Escape closes the menu open, wherever the keys go: true when one
+    /// was.
+    fn escape_closes(&mut self, k: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        if k.key != "escape" || k.modifiers.modified() || self.popup == Popup::Closed {
+            return false;
+        }
+        self.popup = Popup::Closed;
+        self.menu_search.update(cx, |i, cx| i.set_text("", cx));
+        cx.notify();
+        true
     }
 
     /// Take the keys pressed for the action being recorded: bound to it in
