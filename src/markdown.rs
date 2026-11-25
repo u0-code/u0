@@ -108,10 +108,29 @@ fn unspaced(c: char) -> bool {
     )
 }
 
-/// Split a message into blocks.
+/// Split a message into blocks. A line begun with `• `, as models write a
+/// list, is a list item as one begun with `- ` is, outside fenced code.
 fn parse(text: &str) -> Vec<Block> {
+    let mut fenced = false;
+    let text: String = text
+        .split_inclusive('\n')
+        .map(|line| {
+            let words = line.trim_start();
+            fenced ^= words.starts_with("```") || words.starts_with("~~~");
+            match words.strip_prefix("• ") {
+                Some(rest) if !fenced => std::borrow::Cow::Owned(format!(
+                    "{}- {rest}",
+                    &line[..line.len() - words.len()]
+                )),
+                _ => std::borrow::Cow::Borrowed(line),
+            }
+        })
+        .collect();
     let mut read = Reader::default();
-    for event in Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+    for event in Parser::new_ext(
+        &text,
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH,
+    ) {
         read.event(event);
     }
     read.blocks
@@ -1097,6 +1116,22 @@ mod tests {
             text: plain(text),
             depth,
         }
+    }
+
+    #[test]
+    fn a_line_begun_with_a_bullet_is_a_list_item_but_not_in_code() {
+        assert_eq!(
+            parse("Found:\n\n• one\n  • under one\n```\n• kept\n```"),
+            vec![
+                Block::Paragraph(plain("Found:")),
+                item("•", "one", 0),
+                item("•", "under one", 1),
+                Block::Code {
+                    lang: String::new(),
+                    text: "• kept".into(),
+                },
+            ]
+        );
     }
 
     #[test]
