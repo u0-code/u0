@@ -260,7 +260,7 @@ impl Desk {
         } else if let Stage::Missing(m) = &stage
             && !matches!(m, Missing::Download)
         {
-            download = download.child(ui::trouble(faces, m.say(&name)));
+            download = download.child(ui::trouble(m.say(&name)));
         } else {
             download = download.child(
                 ui::mono(faces, Desk::shown(&entry.dir(&self.home)))
@@ -483,7 +483,7 @@ impl Desk {
                         ),
                 )
                 .child(steps)
-                .children(trouble.map(|why| ui::trouble(faces, why)))
+                .children(trouble.map(ui::trouble))
                 .child(actions)
                 .child(self.agent_own(faces, id, &stage, cx)),
         )
@@ -585,9 +585,7 @@ impl Desk {
             && let Some(init) = self.slot(id).and_then(|s| s.known.as_ref())
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
-            own = own.child(ui::trouble(
-                faces,
-                format!(
+            own = own.child(ui::trouble(format!(
                     "It speaks ACP version {:?}; Ghost speaks version 1. Some of what it says may not show.",
                     init.protocol_version
                 ),

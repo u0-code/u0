@@ -400,12 +400,12 @@ impl Desk {
             .children(
                 self.settings_refused
                     .clone()
-                    .map(|why| ui::trouble(faces, why)),
+                    .map(ui::trouble),
             )
             .children(
                 self.registry_trouble
                     .clone()
-                    .map(|why| ui::trouble(faces, why)),
+                    .map(ui::trouble),
             )
             .when(
                 self.registry.agents.is_empty() && self.registry_trouble.is_none(),
@@ -645,10 +645,6 @@ impl Desk {
             .child(list)
             .children(self.archived_projects(faces, cx))
             .child(self.storage(faces, cx))
-            .children(
-                self.store_refused
-                    .clone()
-                    .map(|why| ui::trouble(faces, why)),
-            )
+            .children(self.store_refused.clone().map(ui::trouble))
     }
 }

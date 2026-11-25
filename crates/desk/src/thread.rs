@@ -1163,7 +1163,7 @@ impl Desk {
             Item::Note {
                 text,
                 trouble: true,
-            } => ui::trouble(faces, text.clone()).into_any_element(),
+            } => ui::trouble(text.clone()).into_any_element(),
             Item::Note { text, .. } => ui::text(faces, text.clone())
                 .px(px(10.))
                 .text_size(px(13.))

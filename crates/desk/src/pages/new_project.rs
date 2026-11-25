@@ -291,12 +291,7 @@ impl Desk {
                             .child(ui::fine(faces, "New and cloned projects go in"))
                             .child(parent),
                     )
-                    .children(
-                        self.adding
-                            .trouble
-                            .clone()
-                            .map(|why| ui::trouble(faces, why)),
-                    )
+                    .children(self.adding.trouble.clone().map(ui::trouble))
                     .child(
                         card()
                             .child(elsewhere)

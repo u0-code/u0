@@ -5,6 +5,7 @@ use std::path::Path;
 
 use gpui::component::{
     Icon, Selectable as _, Sizable as _,
+    alert::Alert,
     button::{Button, ButtonGroup, ButtonVariants as _},
     tooltip::Tooltip,
 };
@@ -161,32 +162,9 @@ pub fn label(faces: &Faces, text: &str) -> Div {
 }
 
 /// Something gone wrong, said where it happened (in a thread, on a page):
-/// a mark, and the words, in a frame tinted for trouble.
-pub fn trouble(faces: &Faces, words: impl Into<SharedString>) -> Div {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .px(px(12.))
-        .py(px(9.))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(theme::coral().opacity(0.28))
-        .bg(theme::coral().opacity(0.06))
-        .child(
-            icon("alert", 15.)
-                .mt(px(2.))
-                .flex_none()
-                .text_color(theme::coral()),
-        )
-        .child(
-            text(faces, words)
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(13.))
-                .line_height(px(19.))
-                .text_color(theme::text2()),
-        )
+/// gpui-kit's error alert, tinted for trouble.
+pub fn trouble(words: impl Into<SharedString>) -> Alert {
+    Alert::error("trouble", words.into())
 }
 
 /// What a choice of a [`segmented`] control does when picked.
@@ -401,46 +379,6 @@ pub fn breathing(d: Div) -> Div {
     let phase = (t.as_millis() % BREATH.as_millis()) as f32 / BREATH.as_millis() as f32;
     let wave = f32::midpoint(1., (phase * std::f32::consts::TAU).cos());
     d.opacity(0.35 + 0.65 * wave)
-}
-
-/// How much of something is used, as a ring: a faint track, and the share
-/// used drawn over it from the top, clockwise.
-pub fn ring(share: f32, size: f32) -> impl IntoElement {
-    let share = share.clamp(0., 1.);
-    gpui::canvas(
-        |_, _, _| {},
-        move |bounds, (), window, _| {
-            let width = 2.5;
-            let r = (size - width) / 2.;
-            let c = bounds.center();
-            let at = |turn: f32| {
-                let a = turn * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
-                gpui::point(c.x + px(r * a.cos()), c.y + px(r * a.sin()))
-            };
-            let arc = |from: f32, to: f32| {
-                let mut p = gpui::PathBuilder::stroke(px(width));
-                p.move_to(at(from));
-                p.arc_to(
-                    gpui::point(px(r), px(r)),
-                    px(0.),
-                    to - from > 0.5,
-                    true,
-                    at(to),
-                );
-                p.build().ok()
-            };
-            for path in [arc(0., 0.5), arc(0.5, 0.999)].into_iter().flatten() {
-                window.paint_path(path, theme::ghost_line());
-            }
-            if share > 0.005
-                && let Some(path) = arc(0., share.min(0.999))
-            {
-                window.paint_path(path, theme::muted());
-            }
-        },
-    )
-    .size(px(size))
-    .flex_none()
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! and mode, how full its context is, and Send or Stop.
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
+use gpui::component::progress::ProgressCircle;
 use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
 use super::{Choices, select_choices};
@@ -251,7 +252,12 @@ impl Desk {
                     .items_center()
                     .justify_center()
                     .size(px(28.))
-                    .child(ui::ring(share, 16.))
+                    .child(
+                        ProgressCircle::new("context-ring")
+                            .value(share * 100.)
+                            .color(theme::muted())
+                            .size(px(16.)),
+                    )
                     .tooltip(ui::tip(format!(
                         "{}% of the context used",
                         (share * 100.).round()
