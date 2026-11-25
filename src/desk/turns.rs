@@ -330,6 +330,11 @@ impl Desk {
             s.state =
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
         }
+        // A repository made here: its project is read again.
+        if matches!(action, hub::GitAction::Init) {
+            let project = s.project.clone();
+            self.held.remove(&project);
+        }
         match result {
             Ok(text) if text.starts_with("https://") => {
                 self.done("Pull request opened", Some(super::notices::Way::Open(text)));

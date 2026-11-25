@@ -80,6 +80,11 @@ pub enum Msg {
         repo: bool,
         scripts: Vec<Script>,
     },
+    /// What the folder of a project holds.
+    Held {
+        folder: PathBuf,
+        held: Held,
+    },
     /// Something done off the window's thread, to be said: what was done,
     /// or what was not and why.
     Notice(Result<String, (String, String)>),
@@ -887,6 +892,45 @@ pub fn save_script(dir: PathBuf, at: Option<usize>, script: Option<Script>, key:
         Ok(()) => looked(key, dir),
         Err(why) => Msg::Notice(Err(("Couldn't write ghost.json".into(), why))),
     });
+}
+
+/// What a project's folder holds: whether it is in a repository, and an
+/// icon of its own.
+#[derive(Debug, Clone, Default)]
+pub struct Held {
+    pub repo: bool,
+    pub icon: Option<PathBuf>,
+}
+
+/// Read what the project `folder` holds.
+pub fn read_project(folder: PathBuf, tx: Sender) {
+    off(tx, move || Msg::Held {
+        held: Held {
+            repo: git::root(&folder).is_some(),
+            icon: icon_of(&folder),
+        },
+        folder,
+    });
+}
+
+/// The icon a project has of its own, if it has one where icons are kept.
+fn icon_of(folder: &std::path::Path) -> Option<PathBuf> {
+    [
+        "favicon.svg",
+        "favicon.png",
+        "public/favicon.svg",
+        "public/favicon.png",
+        "static/favicon.png",
+        "assets/icon.svg",
+        "assets/icon.png",
+        "icon.svg",
+        "icon.png",
+        "logo.svg",
+        "logo.png",
+    ]
+    .iter()
+    .map(|name| folder.join(name))
+    .find(|p| p.is_file())
 }
 
 /// Find the line each diff of the calls `calls` of the session `key` starts

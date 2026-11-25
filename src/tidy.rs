@@ -24,9 +24,9 @@ pub struct Kept {
     pub records: Vec<PathBuf>,
     /// The worktrees sessions work in.
     pub worktrees: Vec<PathBuf>,
-    /// The repositories of the projects, and the checkpoint names of the
-    /// sessions kept.
-    pub repos: Vec<PathBuf>,
+    /// The projects (those in a repository are tidied), and the checkpoint
+    /// names of the sessions kept.
+    pub projects: Vec<PathBuf>,
     pub uids: Vec<String>,
 }
 
@@ -58,6 +58,11 @@ fn size(path: &Path) -> u64 {
 
 /// Tidy `what`; what was done, in words.
 pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
+    let repos: Vec<&PathBuf> = kept
+        .projects
+        .iter()
+        .filter(|f| git::root(f).is_some())
+        .collect();
     match what {
         Tidy::Records => {
             let mut n = 0;
@@ -82,7 +87,7 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
         Tidy::Worktrees => {
             let under = home.join("worktrees");
             let (mut gone, mut left) = (0, 0);
-            for repo in &kept.repos {
+            for repo in &repos {
                 for wt in git::worktrees(repo, &under) {
                     if kept.worktrees.contains(&wt.path) {
                         continue;
@@ -106,7 +111,7 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
         }
         Tidy::Checkpoints => {
             let mut n = 0;
-            for repo in &kept.repos {
+            for repo in &repos {
                 for uid in git::checkpoint_owners(repo) {
                     if !kept.uids.contains(&uid) {
                         git::drop_checkpoints(repo, &uid);
@@ -149,7 +154,7 @@ mod tests {
         let kept = Kept {
             records: vec![dir.join("kept.jsonl")],
             worktrees: Vec::new(),
-            repos: Vec::new(),
+            projects: Vec::new(),
             uids: Vec::new(),
         };
         assert_eq!(tidy(home, Tidy::Records, &kept), "1 record removed");

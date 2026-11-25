@@ -304,6 +304,8 @@ pub struct Desk {
     pub expanded: HashSet<String>,
     /// Projects folded shut down the left.
     pub closed: HashSet<PathBuf>,
+    /// What each project's folder holds, once read (see `read_projects`).
+    pub held: HashMap<PathBuf, hub::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
     /// session they are of; an item to bring into view once it is drawn.
     pub list: gpui::ListState,
@@ -753,6 +755,7 @@ impl Desk {
             input,
             expanded: HashSet::new(),
             closed: HashSet::new(),
+            held: HashMap::new(),
             list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(800.)),
             lines: Vec::new(),
             lines_of: None,
@@ -1043,6 +1046,17 @@ impl Desk {
         out.retain(|p| !self.prefs(p).archived);
         out.sort_by_key(|p| !self.prefs(p).pinned);
         out
+    }
+
+    /// Ask what the folder of each project here holds, once: not on
+    /// another machine.
+    fn read_projects(&mut self) {
+        for folder in self.projects() {
+            if !self.held.contains_key(&folder) && crate::remote::parse(&folder).is_none() {
+                self.held.insert(folder.clone(), hub::Held::default());
+                hub::read_project(folder, self.tx.clone());
+            }
+        }
     }
 
     /// What you set for the project `folder`.
@@ -2246,6 +2260,7 @@ impl Render for Desk {
             ),
         });
         self.sync_lines();
+        self.read_projects();
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let pane = f32::from(window.viewport_size().width)

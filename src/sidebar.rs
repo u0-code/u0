@@ -450,7 +450,7 @@ impl Desk {
                 match (
                     open,
                     crate::remote::parse(folder).is_some(),
-                    project_icon(folder),
+                    self.held.get(folder).and_then(|h| h.icon.clone()),
                 ) {
                     (true, false, Some(icon)) => div()
                         .size(px(16.))
@@ -563,7 +563,7 @@ impl Desk {
                     let _ = std::process::Command::new("open").arg(&show_dir).spawn();
                 }),
             );
-        if crate::git::root(folder).is_some() {
+        if self.held.get(folder).is_some_and(|h| h.repo) {
             let on = prefs.worktree.unwrap_or(self.settings.worktree);
             let wt_dir = dir.clone();
             menu = menu.child(
@@ -1316,26 +1316,6 @@ impl gpui::Render for Dragged {
             .text_color(theme::text())
             .child(self.title.clone())
     }
-}
-
-/// The icon a project has of its own, if it has one where icons are kept.
-fn project_icon(folder: &std::path::Path) -> Option<std::path::PathBuf> {
-    [
-        "favicon.svg",
-        "favicon.png",
-        "public/favicon.svg",
-        "public/favicon.png",
-        "static/favicon.png",
-        "assets/icon.svg",
-        "assets/icon.png",
-        "icon.svg",
-        "icon.png",
-        "logo.svg",
-        "logo.png",
-    ]
-    .iter()
-    .map(|name| folder.join(name))
-    .find(|p| p.is_file())
 }
 
 /// What an agent said, as a line of plain words for a card: its prose

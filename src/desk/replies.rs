@@ -331,6 +331,9 @@ impl Desk {
                 repo,
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
+            Msg::Held { folder, held } => {
+                self.held.insert(folder, held);
+            }
             Msg::Notice(Ok(text)) => self.done(text, None),
             Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
             Msg::Placed { key, starts } => {

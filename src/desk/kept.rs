@@ -314,13 +314,7 @@ impl Desk {
                 .iter()
                 .filter_map(|s| s.worktree.as_ref().map(|w| w.path.clone()))
                 .collect(),
-            repos: self
-                .settings
-                .folders
-                .iter()
-                .filter(|f| crate::git::root(f).is_some())
-                .cloned()
-                .collect(),
+            projects: self.settings.folders.clone(),
             uids: self
                 .sessions
                 .iter()
