@@ -831,14 +831,11 @@ impl Desk {
     /// Ask `agent`, if it is running and can list them, for the sessions
     /// it keeps in the projects.
     pub(crate) fn list_sessions(&self, agent: &str) {
-        let Some(Stage::Running {
-            agent: running,
-            init,
-        }) = self.slot(agent).map(|s| &s.stage)
-        else {
+        let Some(slot) = self.slot(agent) else { return };
+        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
             return;
         };
-        if init.agent_capabilities.session_capabilities.list.is_none() {
+        if caps.session_capabilities.list.is_none() {
             return;
         }
         // An agent here lists the projects here; one on another machine,
@@ -867,14 +864,10 @@ impl Desk {
     /// whether it is signed in, by opening one and deleting it again.
     pub(crate) fn probe_agent(&self, agent: &str) {
         let Some(slot) = self.slot(agent) else { return };
-        let Stage::Running {
-            agent: running,
-            init,
-        } = &slot.stage
-        else {
+        let (Some(running), Some(caps)) = (slot.running(), slot.caps()) else {
             return;
         };
-        let caps = &init.agent_capabilities.session_capabilities;
+        let caps = &caps.session_capabilities;
         // Opened in a folder that is there: Ghost's home here, /tmp on
         // another machine.
         let dir = if crate::remote::split(agent).1.is_some() {
@@ -895,15 +888,9 @@ impl Desk {
     /// Sign in to `agent` the way it offers: its own method when it lists
     /// one, else its own program in a terminal, where it signs in.
     pub fn sign_in_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
-        use agent_client_protocol::v1::schema::AuthMethod;
         let Some(slot) = self.slot(agent) else { return };
-        if let Stage::Running { init, .. } = &slot.stage
-            && let Some(method) = init.auth_methods.iter().find_map(|m| match m {
-                AuthMethod::Agent(a) => Some(a.id.0.to_string()),
-                AuthMethod::Terminal(t) => Some(t.id.0.to_string()),
-                _ => None,
-            })
-        {
+        let method = slot.sign_ins().next().map(|m| m.id().0.to_string());
+        if let Some(method) = method {
             self.sign_in(agent, &method, cx);
             return;
         }
@@ -942,7 +929,7 @@ impl Desk {
     /// last started.
     pub fn can_delete(&self, agent: &str) -> bool {
         self.slot(agent)
-            .and_then(|s| s.known.as_ref())
+            .and_then(Slot::caps)
             .is_some_and(|k| k.session_capabilities.delete.is_some())
     }
 
@@ -1725,19 +1712,15 @@ impl Desk {
         let Some(slot) = self.slot_mut(agent) else {
             return;
         };
+        let (resume, load) = slot.caps().map_or((false, false), |c| {
+            (c.session_capabilities.resume.is_some(), c.load_session)
+        });
         match &slot.stage {
-            Stage::Running { agent, init } => match id {
-                Some(id)
-                    if recorded
-                        && init
-                            .agent_capabilities
-                            .session_capabilities
-                            .resume
-                            .is_some() =>
-                {
+            Stage::Running { agent } => match id {
+                Some(id) if recorded && resume => {
                     hub::reopen(agent.clone(), key, id, dirs, true, tx);
                 }
-                Some(id) if init.agent_capabilities.load_session => {
+                Some(id) if load => {
                     let agent = agent.clone();
                     if recorded {
                         self.drop_record(key);

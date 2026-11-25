@@ -131,8 +131,11 @@ impl Desk {
         let auth = self
             .slot(id)
             .map_or(crate::hub::Auth::Unknown, |s| s.auth.clone());
-        let can_log_out = matches!(self.slot(id).map(|s| &s.stage),
-            Some(Stage::Running { init, .. }) if init.agent_capabilities.auth.logout.is_some());
+        let can_log_out = self
+            .slot(id)
+            .filter(|s| s.running().is_some())
+            .and_then(Slot::caps)
+            .is_some_and(|c| c.auth.logout.is_some());
         let three = match &auth {
             crate::hub::Auth::Needed(_) => Step::Now,
             crate::hub::Auth::Ready => Step::Done,
@@ -515,7 +518,8 @@ impl Desk {
             "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
         ));
         // The version of ACP it speaks, where it is not Ghost's.
-        if let Stage::Running { init, .. } = stage
+        if let Stage::Running { .. } = stage
+            && let Some(init) = self.slot(id).and_then(|s| s.known.as_ref())
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             own = own.child(ui::trouble(

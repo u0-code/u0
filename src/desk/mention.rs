@@ -253,7 +253,7 @@ impl Desk {
         let refused = self
             .session()
             .and_then(|s| self.slot(&s.agent))
-            .and_then(|slot| slot.known.as_ref())
+            .and_then(crate::hub::Slot::caps)
             .is_some_and(|known| !known.prompt_capabilities.image);
         if refused {
             let name = self

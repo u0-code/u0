@@ -12,7 +12,7 @@ use super::{bare, icon, meta, right, step, verb, well};
 use crate::{
     desk::Desk,
     fonts::Faces,
-    hub::Stage,
+    hub::Slot,
     session::{Asked, Item, Session},
     theme,
     ui::{self, Mark, Weight},
@@ -304,20 +304,15 @@ impl Desk {
 
     /// The agent asks to be signed in before it opens the session.
     pub(super) fn sign_in_card(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        use agent_client_protocol::v1::schema::AuthMethod;
         let name = self.name_of(&s.agent);
-        let methods: Vec<(String, String)> = match self.slot(&s.agent).map(|x| &x.stage) {
-            Some(Stage::Running { init, .. }) => init
-                .auth_methods
-                .iter()
-                .filter_map(|m| match m {
-                    AuthMethod::Agent(a) => Some((a.id.0.to_string(), a.name.clone())),
-                    AuthMethod::Terminal(t) => Some((t.id.0.to_string(), t.name.clone())),
-                    _ => None,
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
+        let methods: Vec<(String, String)> = self
+            .slot(&s.agent)
+            .into_iter()
+            .flat_map(Slot::sign_ins)
+            .map(|m: &agent_client_protocol::v1::schema::AuthMethod| {
+                (m.id().0.to_string(), m.name().to_owned())
+            })
+            .collect();
         let busy = self.signing.as_deref() == Some(s.agent.as_str());
         let mut buttons = div().flex().flex_wrap().gap(px(6.));
         if busy {

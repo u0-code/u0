@@ -437,7 +437,7 @@ impl Desk {
         s.id.is_some()
             && self
                 .slot(&s.agent)
-                .and_then(|x| x.known.as_ref())
+                .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.fork.is_some())
     }
 

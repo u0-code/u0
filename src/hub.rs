@@ -17,15 +17,15 @@ use agent_client_protocol::{
     JsonRpcRequest,
     schema::ProtocolVersion,
     v1::schema::{
-        AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
-        ContentBlock, DeleteSessionRequest, ForkSessionRequest, ForkSessionResponse,
-        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest, NewSessionResponse,
-        PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-        ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
-        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionInfo, SessionModeId,
-        SessionModeState, SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason,
-        SubagentCapabilities, TextContent,
+        AgentCapabilities, AuthMethod, AuthenticateRequest, CancelNotification, ClientCapabilities,
+        CloseSessionRequest, ContentBlock, DeleteSessionRequest, ForkSessionRequest,
+        ForkSessionResponse, Implementation, InitializeRequest, InitializeResponse,
+        ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
+        NewSessionResponse, PermissionOptionId, PromptRequest, RequestPermissionOutcome,
+        RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
+        SessionConfigId, SessionConfigOption, SessionConfigOptionValue, SessionConfigValueId,
+        SessionId, SessionInfo, SessionModeId, SessionModeState, SetSessionConfigOptionRequest,
+        SetSessionModeRequest, StopReason, SubagentCapabilities, TextContent,
     },
 };
 use tokio::sync::mpsc;
@@ -242,7 +242,6 @@ pub enum Stage {
     Starting,
     Running {
         agent: Arc<Agent>,
-        init: Box<InitializeResponse>,
     },
     /// It stopped, or could not be started: why.
     Failed(String),
@@ -271,9 +270,9 @@ pub struct Slot {
     pub commands: Vec<agent_client_protocol::v1::schema::AvailableCommand>,
     /// A command line of yours that starts it instead of the registry's.
     pub command: Option<String>,
-    /// What it said it can do when it last started: kept while it is let
-    /// go; none before it first starts.
-    pub known: Option<agent_client_protocol::v1::schema::AgentCapabilities>,
+    /// What it said of itself when it last started (what it can do, how
+    /// it signs in): kept while it is let go; none before it first starts.
+    pub known: Option<Box<InitializeResponse>>,
 }
 
 /// The modes and options a session of an agent starts with.
@@ -349,6 +348,21 @@ impl Slot {
             s.modes.clone_from(&p.modes);
             s.options.clone_from(&p.options);
         }
+    }
+
+    /// What it can do, as it said when it last started.
+    pub fn caps(&self) -> Option<&AgentCapabilities> {
+        self.known.as_ref().map(|k| &k.agent_capabilities)
+    }
+
+    /// The ways it offers, while it runs, to sign in that Ghost can take:
+    /// done by the agent itself, or typed in a terminal.
+    pub fn sign_ins(&self) -> impl Iterator<Item = &AuthMethod> {
+        self.running()
+            .and(self.known.as_ref())
+            .into_iter()
+            .flat_map(|k| &k.auth_methods)
+            .filter(|m| matches!(m, AuthMethod::Agent(_) | AuthMethod::Terminal(_)))
     }
 
     pub fn running(&self) -> Option<&Arc<Agent>> {

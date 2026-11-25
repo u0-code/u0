@@ -534,7 +534,7 @@ impl Desk {
     fn also_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let able = self
             .slot(&s.agent)
-            .and_then(|x| x.known.as_ref())
+            .and_then(crate::hub::Slot::caps)
             .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
         if !able && s.also.is_empty() {
             return None;

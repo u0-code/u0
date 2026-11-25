@@ -15,7 +15,6 @@ use crate::{
     desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
     hub,
-    hub::Stage,
     registry::{self, Way},
     session::{Change, Session, State},
     theme,
@@ -1002,17 +1001,21 @@ impl Desk {
             .as_ref()
             .filter(|u| u.size > 0)
             .map(|u| u.used as f32 / u.size as f32);
-        let agent = match self.slot(&s.agent).map(|x| &x.stage) {
-            Some(Stage::Running { init, .. }) => init.agent_info.as_ref().map_or_else(
-                || self.name_of(&s.agent),
-                |i| {
-                    format!(
-                        "{} {}",
-                        i.name.rsplit('/').next().unwrap_or(&i.name),
-                        i.version
-                    )
-                },
-            ),
+        let agent = match self.slot(&s.agent).filter(|x| x.running().is_some()) {
+            Some(x) => x
+                .known
+                .as_ref()
+                .and_then(|k| k.agent_info.as_ref())
+                .map_or_else(
+                    || self.name_of(&s.agent),
+                    |i| {
+                        format!(
+                            "{} {}",
+                            i.name.rsplit('/').next().unwrap_or(&i.name),
+                            i.version
+                        )
+                    },
+                ),
             _ => self.name_of(&s.agent),
         };
         let mut sec = section(faces, "Context", note)

@@ -16,18 +16,13 @@ impl Desk {
     pub fn sign_in(&mut self, agent: &str, method: &str, cx: &mut Context<Self>) {
         use agent_client_protocol::v1::schema::AuthMethod;
         let Some(slot) = self.slot(agent) else { return };
-        let Stage::Running {
-            agent: running,
-            init,
-        } = &slot.stage
-        else {
+        let Some(running) = slot.running().cloned() else {
             return;
         };
-        let terminal = init.auth_methods.iter().find_map(|m| match m {
+        let terminal = slot.sign_ins().find_map(|m| match m {
             AuthMethod::Terminal(t) if &*t.id.0 == method => Some(t.clone()),
             _ => None,
         });
-        let running = running.clone();
         let launch = slot.launch(&self.home);
         if let Some(t) = terminal {
             // A login typed in a terminal: once it is done there, opening
@@ -466,11 +461,8 @@ impl Desk {
         match result {
             Ok((running, init)) => {
                 if let Some(slot) = self.slot_mut(agent) {
-                    slot.known = Some(init.agent_capabilities.clone());
-                    slot.stage = Stage::Running {
-                        agent: running,
-                        init,
-                    };
+                    slot.known = Some(init);
+                    slot.stage = Stage::Running { agent: running };
                     slot.used = std::time::Instant::now();
                 }
                 for key in waiting {
