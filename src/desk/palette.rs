@@ -32,8 +32,22 @@ enum Act {
     Sidebar,
     Grouping,
     CopyThread,
+    Restart,
+    Tab(crate::pages::Tab),
     Go(u64),
     NewIn(PathBuf),
+    /// A file to open in your editor, by its name (with ":line").
+    File(String),
+}
+
+/// What the palette looks through: everything, the project's files
+/// (⌘P), or the words in them (⇧⌘F).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Through {
+    #[default]
+    Everything,
+    Files,
+    Words,
 }
 
 /// How many lines the palette shows.
@@ -174,8 +188,39 @@ impl Desk {
         cx.notify();
     }
 
+    /// Open the palette to look through `through` (⌘P files, ⇧⌘F words).
+    pub fn open_palette(&mut self, through: Through, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(s) = self.session() {
+            crate::hub::list_files(s.folder.clone(), self.tx.clone());
+        }
+        self.palette = false;
+        self.toggle_palette(window, cx);
+        self.through = through;
+        self.grep.clear();
+        let says = match through {
+            Through::Files => "Go to a file",
+            Through::Words => "Search the project's files",
+            Through::Everything => "Go to anything",
+        };
+        self.palette_input
+            .update(cx, |i, cx| i.set_placeholder(says, cx));
+    }
+
+    /// Look for `words` in the project's files (git grep), for the palette.
+    pub(crate) fn search_words(&mut self, words: &str) {
+        let Some(s) = self.session() else { return };
+        if words.trim().len() < 2 {
+            self.grep.clear();
+            return;
+        }
+        crate::hub::grep(s.folder.clone(), words.trim().to_owned(), self.tx.clone());
+    }
+
     /// Open the palette, or close it.
     pub fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.through = Through::Everything;
+        self.palette_input
+            .update(cx, |i, cx| i.set_placeholder("Go to anything", cx));
         self.palette = !self.palette;
         self.palette_at = 0;
         if self.palette {
@@ -199,6 +244,56 @@ impl Desk {
     /// what can be done leads, else the sessions found.
     fn lines(&self, query: &str) -> Vec<Line> {
         let q = query.trim().to_lowercase();
+        // The project's files, or what was found in them, alone.
+        let file = |name: String, hint: String| Line {
+            group: "Files",
+            label: name.clone(),
+            hint,
+            act: Act::File(name),
+            agent: None,
+            icon: "file",
+            live: false,
+        };
+        match self.through {
+            Through::Files => {
+                let project = self.session().map(|s| s.folder.clone()).unwrap_or_default();
+                let mut found: Vec<&String> = self
+                    .files
+                    .get(&project)
+                    .into_iter()
+                    .flatten()
+                    .filter(|f| q.is_empty() || f.to_lowercase().contains(&q))
+                    .collect();
+                found.sort_by_key(|f| {
+                    (
+                        !f.to_lowercase()
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("")
+                            .starts_with(&q),
+                        f.len(),
+                    )
+                });
+                return found
+                    .into_iter()
+                    .take(LINES)
+                    .map(|f| file(f.clone(), String::new()))
+                    .collect();
+            }
+            Through::Words => {
+                return self
+                    .grep
+                    .iter()
+                    .take(LINES)
+                    .map(|(at, text)| {
+                        let mut l = file(at.clone(), ui::fit(text.trim(), 48));
+                        l.group = "Found";
+                        l
+                    })
+                    .collect();
+            }
+            Through::Everything => {}
+        }
         let found = |text: &str| q.is_empty() || text.to_lowercase().contains(&q);
         let act = |label: &str, hint: &str, act: Act, icon: &'static str| Line {
             group: "Actions",
@@ -224,6 +319,44 @@ impl Desk {
             ),
             act("Settings", "⌘,", Act::Settings, "settings"),
             act("Copy this conversation", "", Act::CopyThread, "copy"),
+            act("Restart the session", "", Act::Restart, "retry"),
+            act("Go to a file", "⌘P", Act::File(String::new()), "file"),
+            act(
+                "Settings: General",
+                "",
+                Act::Tab(crate::pages::Tab::General),
+                "settings",
+            ),
+            act(
+                "Settings: Appearance",
+                "",
+                Act::Tab(crate::pages::Tab::Appearance),
+                "settings",
+            ),
+            act(
+                "Settings: Chat",
+                "",
+                Act::Tab(crate::pages::Tab::Chat),
+                "settings",
+            ),
+            act(
+                "Settings: New sessions",
+                "",
+                Act::Tab(crate::pages::Tab::NewSessions),
+                "settings",
+            ),
+            act(
+                "Settings: Agents",
+                "",
+                Act::Tab(crate::pages::Tab::Agents),
+                "settings",
+            ),
+            act(
+                "Settings: Keyboard",
+                "",
+                Act::Tab(crate::pages::Tab::Keyboard),
+                "settings",
+            ),
         ]
         .into_iter()
         .filter(|l| found(&l.label))
@@ -296,6 +429,13 @@ impl Desk {
                     self.copy_thread(key, cx);
                 }
             }
+            Act::Restart => self.restart(window, cx),
+            Act::Tab(tab) => {
+                self.settings_tab = tab;
+                self.open_page(Page::Settings, cx);
+            }
+            Act::File(name) if name.is_empty() => self.open_palette(Through::Files, window, cx),
+            Act::File(name) => self.open_named(&name, cx),
             Act::Find => self.toggle_find(window, cx),
             Act::Drawer => self.toggle_drawer(window, cx),
             Act::Sidebar => self.toggle_sidebar(cx),

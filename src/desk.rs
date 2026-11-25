@@ -33,7 +33,7 @@ mod kept;
 mod lists;
 pub(crate) mod mention;
 pub(crate) mod notices;
-mod palette;
+pub(crate) mod palette;
 mod projects;
 pub(crate) mod runs;
 
@@ -249,6 +249,9 @@ pub struct Desk {
     /// What `@` can name: each folder's files, each project's open pull
     /// requests, read once when first wanted.
     pub files: HashMap<PathBuf, Vec<String>>,
+    /// What the palette looks through, and the words it found.
+    pub through: palette::Through,
+    pub grep: Vec<(String, String)>,
     pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
     /// What was named with `@` and images put in, waiting to be sent.
     pub mentions: Vec<mention::Mention>,
@@ -435,10 +438,17 @@ impl Desk {
                 .padded(4.)
                 .submitting_empty()
         });
-        cx.subscribe(&palette_input, |this, _, _: &crate::input::Changed, cx| {
-            this.palette_at = 0;
-            cx.notify();
-        })
+        cx.subscribe(
+            &palette_input,
+            |this, input, _: &crate::input::Changed, cx| {
+                this.palette_at = 0;
+                if this.through == palette::Through::Words {
+                    let words = input.read(cx).text();
+                    this.search_words(&words);
+                }
+                cx.notify();
+            },
+        )
         .detach();
         cx.subscribe(&palette_input, |this, _, crate::input::Stepped(by), cx| {
             this.step_palette(*by, cx);
@@ -637,6 +647,8 @@ impl Desk {
             sizes: Vec::new(),
             palette: false,
             palette_input,
+            through: palette::Through::Everything,
+            grep: Vec::new(),
             palette_at: 0,
             tidied: None,
             pr_tick: 0,

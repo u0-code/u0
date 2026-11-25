@@ -778,6 +778,25 @@ pub fn pull_request_text(dir: &Path, number: u64) -> Option<String> {
     run(&mut gh).ok()
 }
 
+/// Where `words` are in the files git sees in `dir`: "path:line" and the
+/// line, fifty at most.
+pub fn grep(dir: &Path, words: &str) -> Vec<(String, String)> {
+    git(
+        dir,
+        &["grep", "-n", "-I", "-i", "-F", "--max-count=5", "-e", words],
+        None,
+    )
+    .unwrap_or_default()
+    .lines()
+    .take(50)
+    .filter_map(|l| {
+        let (path, rest) = l.split_once(':')?;
+        let (n, text) = rest.split_once(':')?;
+        Some((format!("{path}:{n}"), text.to_owned()))
+    })
+    .collect()
+}
+
 /// Merge the pull request of the branch `dir` is on, squashed, as gh does.
 pub fn merge_pr(dir: &Path) -> Result<String, String> {
     let mut gh = Command::new("gh");
@@ -830,6 +849,17 @@ mod tests {
         init_here(&dir).unwrap();
         assert_eq!(git(&dir, &["status", "--porcelain"], None).unwrap(), "");
         assert_eq!(upstream(&dir), (0, false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn words_are_found_with_their_file_and_line() {
+        let dir = repo("grep");
+        assert_eq!(
+            grep(&dir, "TWO"),
+            vec![("a.txt:2".to_owned(), "two".to_owned())]
+        );
+        assert!(grep(&dir, "nowhere").is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

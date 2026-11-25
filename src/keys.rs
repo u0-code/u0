@@ -57,14 +57,16 @@ actions!(
         NewScratch,
         Back,
         Ahead,
-        NextArea
+        NextArea,
+        GoToFile,
+        SearchWords
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 27] = [
+pub const ACTIONS: [(&str, &str, Make); 29] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("find", "Find in the session", || Box::new(Find)),
@@ -109,6 +111,10 @@ pub const ACTIONS: [(&str, &str, Make); 27] = [
     ("ahead", "Ahead again", || Box::new(Ahead)),
     ("next_area", "Keys to the next part of the window", || {
         Box::new(NextArea)
+    }),
+    ("go_to_file", "Go to a file", || Box::new(GoToFile)),
+    ("search_words", "Search the project's files", || {
+        Box::new(SearchWords)
     }),
 ];
 
@@ -232,6 +238,8 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-shift-t", Back, None),
         KeyBinding::new("cmd-alt-]", Ahead, None),
         KeyBinding::new("f6", NextArea, None),
+        KeyBinding::new("cmd-p", GoToFile, None),
+        KeyBinding::new("cmd-shift-f", SearchWords, None),
         KeyBinding::new("cmd-1", Session1, None),
         KeyBinding::new("cmd-2", Session2, None),
         KeyBinding::new("cmd-3", Session3, None),
@@ -376,6 +384,16 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     cx.on_action(move |_: &Ahead, cx| {
         let _ = window.update(cx, |d, window, cx| d.step_trail(true, window, cx));
+    });
+    cx.on_action(move |_: &GoToFile, cx| {
+        let _ = window.update(cx, |d, window, cx| {
+            d.open_palette(crate::desk::palette::Through::Files, window, cx);
+        });
+    });
+    cx.on_action(move |_: &SearchWords, cx| {
+        let _ = window.update(cx, |d, window, cx| {
+            d.open_palette(crate::desk::palette::Through::Words, window, cx);
+        });
     });
     cx.on_action(move |_: &NextArea, cx| {
         let _ = window.update(cx, Desk::next_area);

@@ -203,6 +203,12 @@ impl Desk {
                 cx,
             ),
             Msg::Captured(None) => {}
+            Msg::Grepped { words, found } => {
+                // Only what answers what is typed now.
+                if self.palette_input.read(cx).text().trim() == words {
+                    self.grep = found;
+                }
+            }
             Msg::Files { folder, files } => {
                 self.files.insert(folder, files);
             }

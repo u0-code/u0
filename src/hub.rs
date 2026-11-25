@@ -100,6 +100,11 @@ pub enum Msg {
     /// A window you chose was captured, to go with what you write: the
     /// picture's bytes, or nothing if you let it be.
     Captured(Option<Vec<u8>>),
+    /// What git grep found for `words`.
+    Grepped {
+        words: String,
+        found: Vec<(String, String)>,
+    },
     /// The files of a project, for `@` to name.
     Files {
         folder: PathBuf,
@@ -708,6 +713,15 @@ pub fn capture_window(tx: Sender) {
             .and_then(|_| std::fs::read(&path).ok());
         let _ = std::fs::remove_file(&path);
         let _ = tx.send(Msg::Captured(bytes));
+    });
+}
+
+/// Look for `words` in the files of `folder` git sees (git grep), for the
+/// palette: each place as "path:line", and the line.
+pub fn grep(folder: PathBuf, words: String, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let found = git::grep(&folder, &words);
+        let _ = tx.send(Msg::Grepped { words, found });
     });
 }
 
