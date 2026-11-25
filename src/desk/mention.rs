@@ -155,21 +155,8 @@ impl Desk {
             }
         }
         offers.truncate(3);
-        let files = self.files.get(&s.folder).into_iter().flatten();
-        let mut named: Vec<&String> = files
-            .filter(|f| query.is_empty() || f.to_lowercase().contains(&query))
-            .collect();
-        // A name that starts with what is typed comes first, then the
-        // shortest paths.
-        named.sort_by_key(|f| {
-            let name = Path::new(f.as_str())
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            (!name.starts_with(&query), f.len())
-        });
         offers.extend(
-            named
+            ranked(self.files.get(&s.folder), &query)
                 .into_iter()
                 .take(OFFERS)
                 .map(|f| Offer::File(f.clone())),
@@ -412,6 +399,21 @@ impl Desk {
     }
 }
 
+/// The files whose paths hold `query` (in lower case), a name that starts
+/// with it first, then the shortest paths.
+pub(super) fn ranked<'a>(files: Option<&'a Vec<String>>, query: &str) -> Vec<&'a String> {
+    let mut found: Vec<&String> = files
+        .into_iter()
+        .flatten()
+        .filter(|f| f.to_lowercase().contains(query))
+        .collect();
+    found.sort_by_key(|f| {
+        let name = f.rsplit('/').next().unwrap_or_default().to_lowercase();
+        (!name.starts_with(query), f.len())
+    });
+    found
+}
+
 /// A link to the file `f` in `folder`, by a `file:` URI with what needs
 /// escaping in the path escaped; none where `folder` is not absolute.
 fn link(folder: &Path, f: &str) -> Option<ContentBlock> {
@@ -463,6 +465,28 @@ impl Desk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_whose_name_starts_with_what_is_typed_comes_before_a_shorter_path() {
+        let files = [
+            "a/ma/b.rs",
+            "app/domain/maps.rs",
+            "docs/Main.md",
+            "src/main.rs",
+            "x.rs",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            ranked(Some(&files), "ma"),
+            [
+                "src/main.rs",
+                "docs/Main.md",
+                "app/domain/maps.rs",
+                "a/ma/b.rs"
+            ]
+        );
+    }
 
     #[test]
     fn a_file_named_with_a_space_and_a_hash_is_linked_by_a_uri_that_reads_back() {

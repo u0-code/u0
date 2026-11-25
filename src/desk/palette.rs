@@ -270,24 +270,7 @@ impl Desk {
         match self.through {
             Through::Files => {
                 let project = self.session().map(|s| s.folder.clone()).unwrap_or_default();
-                let mut found: Vec<&String> = self
-                    .files
-                    .get(&project)
-                    .into_iter()
-                    .flatten()
-                    .filter(|f| q.is_empty() || f.to_lowercase().contains(&q))
-                    .collect();
-                found.sort_by_key(|f| {
-                    (
-                        !f.to_lowercase()
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or("")
-                            .starts_with(&q),
-                        f.len(),
-                    )
-                });
-                return found
+                return super::mention::ranked(self.files.get(&project), &q)
                     .into_iter()
                     .take(LINES)
                     .map(|f| file(f.clone(), String::new()))

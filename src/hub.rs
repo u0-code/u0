@@ -1055,14 +1055,19 @@ pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
     });
 }
 
+/// `text` as it goes between the quotes of a string in a script for
+/// `osascript`.
+fn apple_quoted(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Show a notification from macOS, with its sound if `sound`: a turn
 /// ended, or a question is asked, while Ghost is not in front.
 pub fn notify(title: &str, body: &str, sound: bool) {
-    let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
     let mut script = format!(
         "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
-        quote(body),
-        quote(title)
+        apple_quoted(body),
+        apple_quoted(title)
     );
     if sound {
         script.push_str(" sound name \"Glass\"");
@@ -1091,7 +1096,7 @@ pub fn in_terminal(
     let line = parts.join(" ");
     let script = format!(
         "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
-        line.replace('\\', "\\\\").replace('"', "\\\"")
+        apple_quoted(&line)
     );
     std::process::Command::new("osascript")
         .arg("-e")
