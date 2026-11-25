@@ -1593,7 +1593,7 @@ impl Desk {
                 Self::under(&key, "editor", "file", "Open in your editor").on_click(cx.listener(
                     move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.open_named(&path.display().to_string(), cx);
+                        this.open_named(&path.display().to_string());
                     },
                 )),
             );

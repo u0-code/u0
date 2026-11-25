@@ -557,9 +557,8 @@ impl Desk {
                 ),
             )
             .child(
-                item(2, "folder", "Show in Finder".into()).on_click(move |_, _, _| {
-                    let _ = std::process::Command::new("open").arg(&show_dir).spawn();
-                }),
+                item(2, "folder", "Show in Finder".into())
+                    .on_click(move |_, _, cx| cx.open_with_system(&show_dir)),
             );
         if self.held.get(folder).is_some_and(|h| h.repo) {
             let on = prefs.worktree.unwrap_or(self.settings.worktree);

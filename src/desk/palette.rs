@@ -494,7 +494,7 @@ impl Desk {
                 self.open_page(Page::Settings, cx);
             }
             Act::File(name) if name.is_empty() => self.open_palette(Through::Files, window, cx),
-            Act::File(name) => self.open_named(&name, cx),
+            Act::File(name) => self.open_named(&name),
             Act::Find => self.toggle_find(window, cx),
             Act::Drawer => self.toggle_drawer(window, cx),
             Act::Sidebar => self.toggle_sidebar(cx),

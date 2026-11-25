@@ -539,7 +539,7 @@ fn linked(
             if web(address) {
                 cx.open_url(address);
             } else if path_like(address) {
-                let _ = desk.update(cx, |d, cx| d.open_named(address, cx));
+                let _ = desk.update(cx, |d, _| d.open_named(address));
             }
         },
     );

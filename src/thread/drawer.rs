@@ -500,7 +500,7 @@ impl Desk {
                         {
                             // ⌘ and a click on a file's path opens it.
                             let named = t.word_text(at);
-                            this.open_named(&named, cx);
+                            this.open_named(&named);
                         } else {
                             let last = t.size().1.saturating_sub(1);
                             t.selection = Some(match e.click_count {

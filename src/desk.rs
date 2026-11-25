@@ -25,7 +25,6 @@ use gpui::{
     Context, Entity, Focusable as _, MouseButton, PathPromptOptions, Window, div, prelude::*, px,
 };
 use tokio::sync::mpsc;
-use tracing::warn;
 
 mod agents;
 mod gitview;
@@ -2380,23 +2379,19 @@ impl Render for Desk {
 impl Desk {
     /// Open a file the agent named (`src/a.rs`, `/x/y.rs:12`), from the
     /// folder of the session on screen, in your editor.
-    pub fn open_named(&mut self, named: &str, cx: &mut Context<Self>) {
+    pub fn open_named(&self, named: &str) {
         let name = named.split(':').next().unwrap_or(named);
         let path = Path::new(name);
         let full = match self.session() {
             Some(s) if path.is_relative() => s.folder.join(path),
             _ => path.to_path_buf(),
         };
-        if full.exists() {
-            open_in_editor(&full, self.settings.editor.as_deref());
-        } else {
-            self.trouble(
-                format!("There is no {name} here"),
-                Some(full.display().to_string()),
-                None,
-            );
-        }
-        cx.notify();
+        self.edit(full, None);
+    }
+
+    /// Open `path` in your editor, off the window's thread (`hub::edit`).
+    pub fn edit(&self, path: PathBuf, start: Option<&'static [u8]>) {
+        hub::edit(path, self.settings.editor.clone(), start, self.tx.clone());
     }
 }
 
@@ -2418,23 +2413,4 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
     fonts::set_mono(cx, settings.mono);
-}
-
-/// Open `path` in your editor: the one you chose (its command), else the
-/// first of Cursor, VS Code, Zed and Sublime Text whose command is on the
-/// PATH, else the app macOS opens text in.
-pub fn open_in_editor(path: &Path, chosen: Option<&str>) {
-    let editor = chosen
-        .and_then(registry::which)
-        .or_else(|| EDITORS.into_iter().find_map(|(c, _)| registry::which(c)));
-    let spawned = match editor {
-        Some(cmd) => std::process::Command::new(cmd).arg(path).spawn(),
-        None => std::process::Command::new("open")
-            .arg("-t")
-            .arg(path)
-            .spawn(),
-    };
-    if let Err(e) = spawned {
-        warn!("{} could not be opened: {e}", path.display());
-    }
 }

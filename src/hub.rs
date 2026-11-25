@@ -770,6 +770,37 @@ pub fn read_picture(path: PathBuf, mime: &'static str, tx: Sender) {
     });
 }
 
+/// Open `path` in your editor: the one you chose (`chosen`, its command),
+/// else the first of `desk::EDITORS` on the PATH, else the app macOS opens
+/// text in. A file not there is first written as `start`, or with none is
+/// said to be missing.
+pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let shown = crate::desk::Desk::shown(&path);
+        let there = path.exists() || start.is_some_and(|s| crate::whole::write(&path, s).is_ok());
+        if !there {
+            let why = path.display().to_string();
+            let _ = tx.send(Msg::Notice(Err((format!("There is no {shown} here"), why))));
+            return;
+        }
+        let editor = (chosen.as_deref().and_then(registry::which))
+            .or_else(|| (crate::desk::EDITORS.into_iter()).find_map(|(c, _)| registry::which(c)));
+        let opened = match editor {
+            Some(cmd) => std::process::Command::new(cmd).arg(&path).status(),
+            None => std::process::Command::new("open")
+                .arg("-t")
+                .arg(&path)
+                .status(),
+        };
+        if let Err(e) = opened {
+            let _ = tx.send(Msg::Notice(Err((
+                format!("Couldn't open {shown}"),
+                e.to_string(),
+            ))));
+        }
+    });
+}
+
 /// Drop the checkpoints of the session `uid` in the repository at `dir`.
 pub fn drop_checkpoints(dir: PathBuf, uid: String) {
     acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
