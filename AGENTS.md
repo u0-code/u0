@@ -62,6 +62,7 @@ src/registry.rs   the ACP registry, installing an agent, starting one
 src/remote.rs     projects on another machine; their agents over SSH
 src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
 src/hub.rs        the agents switched on; async work, back to the window as Msg
+src/hub/          by subject: agent (what is asked of agents), git
 src/session.rs    a session: its thread built from session/update; its turns' checkpoints
 src/sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
