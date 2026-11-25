@@ -4,7 +4,7 @@
 //! Ghost is. Each row says what happens, and its control says the choice.
 
 use gpui::component::button::ButtonGroup;
-use gpui::component::{Sizable as _, input::Input, switch::Switch};
+use gpui::component::{Sizable as _, input::Input, kbd::Kbd, switch::Switch};
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -403,27 +403,15 @@ impl Desk {
         let mut list = card().overflow_hidden();
         let mut n = 0;
         for (name, does, _) in keys::ACTIONS {
-            let bound = keys::keys_of(cx, name).unwrap_or_default();
-            if !said(q, &[does, &bound]) {
+            let bound = keys::keys_of(cx, name);
+            if !said(q, &[does, &keys::written(&bound)]) {
                 continue;
             }
             n += 1;
-            let mut keys = div().flex().gap(px(4.));
-            for k in bound.split(' ').filter(|k| !k.is_empty()) {
-                keys = keys.child(
-                    div()
-                        .px(px(6.))
-                        .rounded(px(5.))
-                        .border_1()
-                        .border_color(theme::tag_line())
-                        .bg(theme::panel())
-                        .font_family(faces.mono.clone())
-                        .text_size(px(11.5))
-                        .line_height(px(20.))
-                        .text_color(theme::text2())
-                        .child(k.to_owned()),
-                );
-            }
+            let keys = div()
+                .flex()
+                .gap(px(4.))
+                .children(bound.into_iter().map(Kbd::new));
             list = list.child(
                 div()
                     .flex()

@@ -1159,7 +1159,7 @@ impl Desk {
             return true;
         }
         let key = k.unparse(cx.platform_info().os);
-        if let Some(other) = crate::keys::taken(cx, name, &key) {
+        if let Some(other) = crate::keys::taken(cx, name, k) {
             self.trouble(
                 format!("Those keys were “{other}”'s too"),
                 Some("Yours now win; change that one if you want both.".into()),

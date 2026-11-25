@@ -14,7 +14,8 @@
 use std::path::Path;
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
-use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Window, actions};
+use gpui::component::kbd::Kbd;
+use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Keystroke, Window, actions};
 use serde::Deserialize;
 
 use crate::{desk::Desk, pages::Tab};
@@ -159,56 +160,53 @@ fn binding(cx: &App, key: &str, name: &str) -> Option<KeyBinding> {
     KeyBinding::load(key, action(name)?, None, false, None, cx).ok()
 }
 
+/// ⌘ and the digit `n`, which goes to the nth of a list (a session, a
+/// choice in a menu open).
+pub fn numbered(n: usize) -> Keystroke {
+    Keystroke {
+        modifiers: gpui::Modifiers::command(),
+        key: n.to_string(),
+        key_char: None,
+    }
+}
+
 /// `what`, with the keys the action named `name` is bound to now after it.
 pub fn hint(cx: &App, what: &str, name: &str) -> String {
-    match keys_of(cx, name) {
-        Some(keys) => format!("{what} · {keys}"),
-        None => what.to_owned(),
+    match written(&keys_of(cx, name)) {
+        keys if keys.is_empty() => what.to_owned(),
+        keys => format!("{what} · {keys}"),
     }
 }
 
-/// The keys the action named `name` is bound to now, yours over the
-/// window's, as a Mac writes them ("⌘⇧M"); none when it has none.
-pub fn keys_of(cx: &App, name: &str) -> Option<String> {
-    let action = action(name)?;
+/// The keystrokes the action named `name` is bound to now, yours over the
+/// window's; none when it has none.
+pub fn keys_of(cx: &App, name: &str) -> Vec<Keystroke> {
+    let Some(action) = action(name) else {
+        return Vec::new();
+    };
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
-    let binding = keymap.bindings_for_action(action.as_ref()).last()?;
-    Some(
-        binding
-            .keystrokes()
-            .iter()
-            .map(|k| shown(*k.modifiers(), k.key()))
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
+    keymap
+        .bindings_for_action(action.as_ref())
+        .last()
+        .map(|binding| {
+            binding
+                .keystrokes()
+                .iter()
+                .map(|k| Keystroke {
+                    modifiers: *k.modifiers(),
+                    key: k.key().into(),
+                    key_char: None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-/// One keystroke as a Mac writes it.
-fn shown(m: gpui::Modifiers, key: &str) -> String {
-    let mut out = String::new();
-    for (on, mark) in [
-        (m.control, "⌃"),
-        (m.alt, "⌥"),
-        (m.shift, "⇧"),
-        (m.platform, "⌘"),
-    ] {
-        if on {
-            out.push_str(mark);
-        }
-    }
-    out.push_str(&match key {
-        "enter" => "↩".to_owned(),
-        "backspace" => "⌫".to_owned(),
-        "escape" => "esc".to_owned(),
-        "space" => "Space".to_owned(),
-        "up" => "↑".to_owned(),
-        "down" => "↓".to_owned(),
-        "left" => "←".to_owned(),
-        "right" => "→".to_owned(),
-        k => k.to_uppercase(),
-    });
-    out
+/// Keystrokes as gpui-kit's key chip writes them ("⇧⌘M"), one after
+/// another.
+pub fn written(keys: &[Keystroke]) -> String {
+    keys.iter().map(Kbd::format).collect::<Vec<_>>().join(" ")
 }
 
 /// Bind the action `name` to `key` ("cmd-shift-k") in your
@@ -230,19 +228,13 @@ pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Bin
 }
 
 /// The action other than `name` that `key` is bound to now, if one is.
-pub fn taken(cx: &App, name: &str, key: &str) -> Option<&'static str> {
-    let shown_key = shown_of(cx, key)?;
+pub fn taken(cx: &App, name: &str, key: &Keystroke) -> Option<&'static str> {
+    let key = Kbd::format(key);
     ACTIONS
         .iter()
         .filter(|(n, _, _)| *n != name)
-        .find(|(n, _, _)| keys_of(cx, n).as_deref() == Some(shown_key.as_str()))
+        .find(|(n, _, _)| written(&keys_of(cx, n)) == key)
         .map(|(_, does, _)| *does)
-}
-
-/// A key as keybindings.json writes it, as a Mac shows it.
-fn shown_of(cx: &App, key: &str) -> Option<String> {
-    let k = gpui::Keystroke::parse_with_os(key, cx.platform_info().os).ok()?;
-    Some(shown(k.modifiers, &k.key))
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none,
@@ -499,7 +491,6 @@ mod tests {
         for (name, _, _) in ACTIONS {
             assert!(action(name).is_some(), "{name}");
         }
-        assert_eq!(shown(gpui::Modifiers::command_shift(), "m"), "⇧⌘M");
         assert!(action("no_such_action").is_none());
     }
 }

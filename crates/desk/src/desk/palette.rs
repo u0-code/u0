@@ -8,11 +8,12 @@ use std::{collections::HashMap, path::PathBuf};
 
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement as _, ParentElement as _, SharedString, StatefulInteractiveElement as _,
+    IntoElement as _, Keystroke, ParentElement as _, SharedString, StatefulInteractiveElement as _,
     Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 
 use gpui::component::input::{Input, InputEvent, InputState, MoveDown, MoveUp};
+use gpui::component::kbd::Kbd;
 
 use super::{Desk, Page, Popup};
 use crate::{fonts::Faces, session::State, theme, ui};
@@ -99,13 +100,15 @@ const LINES: usize = 12;
 struct Line {
     group: &'static str,
     label: String,
-    /// What is said at its end: a session's project, a key.
+    /// What is said at its end: a session's project, what a choice begins.
     hint: String,
     act: Act,
     /// A session's agent, drawn as its mark; else `icon`.
     agent: Option<String>,
     icon: &'static str,
     live: bool,
+    /// The keys that do it, drawn as key chips after `hint`.
+    keys: Vec<Keystroke>,
 }
 
 impl Desk {
@@ -305,6 +308,7 @@ impl Desk {
             agent: None,
             icon: "file",
             live: false,
+            keys: Vec::new(),
         };
         match self.palette.through {
             Through::Files => {
@@ -342,13 +346,14 @@ impl Desk {
             agent: None,
             icon,
             live: false,
+            keys: Vec::new(),
         };
         // The window's actions, then what only the palette does.
         let actions: Vec<Line> = crate::keys::ACTIONS
             .iter()
             .filter(|(name, _, _)| *name != "palette")
             .map(|(name, does, _)| Line {
-                hint: crate::keys::keys_of(cx, name).unwrap_or_default(),
+                keys: crate::keys::keys_of(cx, name),
                 ..act(does, Act::Key(name), "chevron-right")
             })
             .chain([
@@ -399,17 +404,18 @@ impl Desk {
             if !found(&s.meta.title) && !found(&project) && !said {
                 continue;
             }
-            let hint = if said && !found(&s.meta.title) {
-                format!("{project} · said in it")
+            let (hint, keys) = if said && !found(&s.meta.title) {
+                (format!("{project} · said in it"), Vec::new())
             } else if n < 9 {
-                format!("{project}  ⌘{}", n + 1)
+                (project, vec![crate::keys::numbered(n + 1)])
             } else {
-                project
+                (project, Vec::new())
             };
             sessions.push(Line {
                 group: "Sessions",
                 label: s.meta.title.clone(),
                 hint,
+                keys,
                 act: Act::Go(key),
                 agent: Some(s.meta.agent.clone()),
                 icon: "",
@@ -426,6 +432,7 @@ impl Desk {
                 agent: None,
                 icon: "plus",
                 live: false,
+                keys: Vec::new(),
             })
         });
         // The open pull requests and issues of the project on screen, to
@@ -447,6 +454,7 @@ impl Desk {
                         agent: None,
                         icon: "branch",
                         live: false,
+                        keys: Vec::new(),
                     });
                 }
             }
@@ -461,6 +469,7 @@ impl Desk {
                         agent: None,
                         icon: "alert",
                         live: false,
+                        keys: Vec::new(),
                     });
                 }
             }
@@ -585,20 +594,16 @@ impl Desk {
                             .text_size(px(12.))
                             .text_color(theme::faint()),
                     )
+                    .children(line.keys.into_iter().map(Kbd::new))
                     .on_click(cx.listener(move |this, _, window, cx| this.run_act(n, window, cx))),
             );
         }
-        let key = |k: &'static str, what: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .child(crate::sidebar::kbd(faces, k))
-                .child(
-                    ui::text(faces, what)
-                        .text_size(px(11.5))
-                        .text_color(theme::faint()),
-                )
+        let key = |k: Kbd, what: &'static str| {
+            div().flex().items_center().gap(px(5.)).child(k).child(
+                ui::text(faces, what)
+                    .text_size(px(11.5))
+                    .text_color(theme::faint()),
+            )
         };
         Some(
             div()
@@ -636,7 +641,7 @@ impl Desk {
                                         }))
                                         .child(Input::new(&self.palette.input).appearance(false)),
                                 )
-                                .child(crate::sidebar::kbd(faces, "esc")),
+                                .child(Kbd::label("esc")),
                         )
                         .child(list)
                         .child(
@@ -648,9 +653,12 @@ impl Desk {
                                 .h(px(34.))
                                 .border_t_1()
                                 .border_color(theme::border2())
-                                .child(key("↑↓", "move"))
-                                .child(key("↵", "open"))
-                                .child(key("⌘1–9", "a session, from anywhere")),
+                                .child(key(Kbd::label("↑↓"), "move"))
+                                .child(key(
+                                    Kbd::new(Keystroke::parse("enter").unwrap_or_default()),
+                                    "open",
+                                ))
+                                .child(key(Kbd::label("⌘1–9"), "a session, from anywhere")),
                         ),
                 )
                 .into_any_element(),

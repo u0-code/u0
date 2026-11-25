@@ -6,7 +6,7 @@
 
 use std::{path::Path, time::SystemTime};
 
-use gpui::component::{Sizable as _, input::Input, popover::Popover};
+use gpui::component::{Sizable as _, input::Input, kbd::Kbd, popover::Popover};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -65,7 +65,11 @@ impl Desk {
                         .text_size(px(13.))
                         .weight(gpui::FontWeight::MEDIUM),
                 )
-                .children(crate::keys::keys_of(cx, "new_session").map(|k| kbd(faces, k)))
+                .children(
+                    crate::keys::keys_of(cx, "new_session")
+                        .into_iter()
+                        .map(Kbd::new),
+                )
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
         );
 
@@ -1309,19 +1313,6 @@ fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .flex_none()
         .text_size(px(11.5))
-        .line_height(px(16.))
-        .text_color(theme::faint())
-}
-
-/// A key, in a hairline box.
-pub(crate) fn kbd(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::mono(faces, text)
-        .flex_none()
-        .px(px(4.))
-        .rounded(px(4.))
-        .border_1()
-        .border_color(theme::tag_line())
-        .text_size(px(10.5))
         .line_height(px(16.))
         .text_color(theme::faint())
 }

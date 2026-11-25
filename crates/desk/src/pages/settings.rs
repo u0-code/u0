@@ -5,7 +5,7 @@
 
 use std::time::SystemTime;
 
-use gpui::component::{Sizable as _, input::Input, switch::Switch};
+use gpui::component::{Sizable as _, input::Input, kbd::Kbd, switch::Switch};
 use gpui::{Context, Entity, SharedString, Window, div, prelude::*, px};
 
 use super::card;
@@ -14,7 +14,6 @@ use crate::{
     desk::{Desk, Page},
     fonts::Faces,
     registry::Way,
-    sidebar::kbd,
     theme,
     ui::{self, Weight},
     when,
@@ -401,7 +400,7 @@ impl Desk {
                                     .text_color(theme::text2()),
                             ),
                     )
-                    .children(crate::keys::keys_of(cx, "new_session").map(|k| kbd(faces, k)))
+                    .children(crate::keys::keys_of(cx, "new_session").into_iter().map(Kbd::new))
             }))
             .children(
                 self.settings_refused

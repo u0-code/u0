@@ -4,14 +4,13 @@
 
 use std::time::SystemTime;
 
-use gpui::component::popover::Popover;
+use gpui::component::{kbd::Kbd, popover::Popover};
 use gpui::{Context, Div, SharedString, Styled as _, div, prelude::*, px};
 
 use crate::{
     desk::{Desk, Popup},
     fonts::{Faces, Weighted as _},
     session::{Session, State},
-    sidebar::kbd,
     theme, ui, when,
 };
 
@@ -103,10 +102,16 @@ impl Desk {
                 .gap(px(18.))
                 .mt(px(18.))
                 .children(
-                    crate::keys::keys_of(cx, "palette").map(|k| key(faces, k, "go to anything")),
+                    crate::keys::keys_of(cx, "palette")
+                        .into_iter()
+                        .map(|k| key(faces, Kbd::new(k), "go to anything")),
                 )
-                .children(crate::keys::keys_of(cx, "drawer").map(|k| key(faces, k, "terminal")))
-                .child(key(faces, "⌘1–9", "a session")),
+                .children(
+                    crate::keys::keys_of(cx, "drawer")
+                        .into_iter()
+                        .map(|k| key(faces, Kbd::new(k), "terminal")),
+                )
+                .child(key(faces, Kbd::label("⌘1–9"), "a session")),
         )
     }
 
@@ -278,12 +283,12 @@ fn head(faces: &Faces, label: &str, note: String) -> Div {
         .child(fine(faces, note))
 }
 
-fn key(faces: &Faces, keys: impl Into<SharedString>, does: &'static str) -> Div {
+fn key(faces: &Faces, keys: Kbd, does: &'static str) -> Div {
     div()
         .flex()
         .items_center()
         .gap(px(6.))
-        .child(kbd(faces, keys))
+        .child(keys)
         .child(fine(faces, does))
 }
 

@@ -6,6 +6,7 @@ use gpui::component::{
     Sizable as _,
     button::Button,
     input::{Enter, Input, MoveDown, MoveUp, Textarea},
+    kbd::Kbd,
     popover::Popover,
     progress::ProgressCircle,
 };
@@ -882,7 +883,8 @@ impl Desk {
             }
             shown += 1;
             // ⌘1 to ⌘9 choose among the first nine, while it is open.
-            let numbered = (shown <= 9 && *popup != Popup::Agent).then(|| format!("⌘{shown}"));
+            let numbered =
+                (shown <= 9 && *popup != Popup::Agent).then(|| crate::keys::numbered(shown));
             let popup = popup.clone();
             let agent_mark = (popup == Popup::Agent).then(|| self.mark_of(&value));
             scroll = scroll.child(
@@ -892,11 +894,7 @@ impl Desk {
                     .when(on, |d| {
                         d.child(ui::icon("check", 13.).text_color(theme::muted()))
                     })
-                    .children(numbered.map(|k| {
-                        ui::text(faces, k)
-                            .text_size(px(11.5))
-                            .text_color(theme::faint())
-                    }))
+                    .children(numbered.map(Kbd::new))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         match &popup {
                             Popup::Mode => this.set_mode(value.clone(), cx),
