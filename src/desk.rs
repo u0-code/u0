@@ -111,6 +111,8 @@ pub enum Popup {
     Branch,
     /// The session's options beyond its model and mode.
     More,
+    /// How to take a session back to one of your messages: by key and item.
+    Rewind(u64, usize),
     /// The project the sidebar shows, when it lists by status.
     Only,
     /// The project a session begun from the start goes in.
@@ -144,6 +146,9 @@ pub struct Desk {
     pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
+    /// The session being taken back to one of your messages: the fork
+    /// made for it takes its place.
+    pub rewinding: Option<u64>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
     /// Sessions deleted whose agent cannot delete them (see `store::Index`).
@@ -519,6 +524,7 @@ impl Desk {
             rename,
             undo: None,
             waiting: Vec::new(),
+            rewinding: None,
             gone: Vec::new(),
             notices: Vec::new(),
             found: HashSet::new(),
@@ -1512,6 +1518,10 @@ impl Desk {
         let text = s.queued.remove(n);
         if matches!(s.state, State::Working | State::Opening) {
             s.queued.insert(0, text);
+            s.items.push(Item::Note {
+                text: "You stopped the turn to say what follows.".into(),
+                trouble: false,
+            });
             self.stop(cx);
         } else {
             self.send_in(key, &text, cx);

@@ -198,6 +198,22 @@ impl Desk {
         cx.notify();
     }
 
+    /// Quote `text` (something the agent said) in what you are writing,
+    /// to answer it.
+    pub fn quote(&mut self, text: &str, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let quoted = text.trim().lines().fold(String::new(), |mut q, l| {
+            q.push_str("> ");
+            q.push_str(l);
+            q.push('\n');
+            q
+        });
+        let typed = self.input.read(cx).text();
+        let line = format!("{quoted}\n{typed}");
+        self.input.update(cx, |i, cx| i.set_text(&line, cx));
+        window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        cx.notify();
+    }
+
     pub fn drop_picture(&mut self, n: usize, cx: &mut Context<Self>) {
         if n < self.pictures.len() {
             self.pictures.remove(n);
@@ -295,14 +311,32 @@ fn text_resource(uri: &str, text: &str) -> ContentBlock {
 
 /// What was said in `s`, you and the agent in turn, the last of it.
 fn said_in(s: &Session) -> String {
-    let mut out = Vec::new();
-    for item in &s.items {
-        match item {
-            Item::You(t) => out.push(format!("You: {t}")),
-            Item::Agent(t) => out.push(format!("Agent: {t}")),
-            _ => {}
-        }
-    }
+    let out = said(s, "Agent");
     let from = out.len().saturating_sub(30);
     out[from..].join("\n\n")
+}
+
+/// What was said in `s`, yours and the agent's (named `name`), in turn.
+fn said(s: &Session, name: &str) -> Vec<String> {
+    s.items
+        .iter()
+        .filter_map(|item| match item {
+            Item::You(t) => Some(format!("You: {t}")),
+            Item::Agent(t) => Some(format!("{name}: {t}")),
+            _ => None,
+        })
+        .collect()
+}
+
+impl Desk {
+    /// Copy all that was said in the session `key`.
+    pub fn copy_thread(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.popup = crate::desk::Popup::Closed;
+        if let Some(s) = self.sessions.iter().find(|s| s.key == key) {
+            let text = said(s, &self.name_of(&s.agent)).join("\n\n");
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            self.done("The conversation is copied", None);
+        }
+        cx.notify();
+    }
 }

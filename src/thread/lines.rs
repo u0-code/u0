@@ -158,6 +158,31 @@ impl Desk {
             .w_full()
             .children(self.finding.then(|| self.find_bar(&faces, cx)))
             .child(div().flex_1().min_h(px(0.)).child(list))
+            // Read back up the thread: the way down again.
+            .when(!self.at_foot(), |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .bottom(px(14.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .child(
+                            ui::icon_button("to-end", "arrow-down", "To the end")
+                                .bg(theme::panel())
+                                .border_1()
+                                .border_color(theme::border2())
+                                .rounded_full()
+                                .shadow_lg()
+                                .text_color(theme::text2())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.to_bottom();
+                                    cx.notify();
+                                })),
+                        ),
+                )
+            })
             .children(self.session().map(|s| Self::turn_map(s, cx)))
     }
 
@@ -185,7 +210,7 @@ impl Desk {
         };
         let last = ix + 1 == self.lines.len();
         let el: AnyElement = match line {
-            Line::Head => self.turn_header(&faces, s).into_any_element(),
+            Line::Head => self.turn_header(&faces, s, cx).into_any_element(),
             Line::Row(row) => self.row(&faces, s, row, cx),
             Line::State => match &s.state {
                 State::Opening => step()

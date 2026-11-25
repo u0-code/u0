@@ -60,6 +60,9 @@ pub struct Meta {
     /// What you were writing in it and had not sent.
     #[serde(default)]
     pub unsent: String,
+    /// The id of the session it was branched off, if it was.
+    #[serde(default)]
+    pub from: Option<String>,
 }
 
 /// Where a session stands in your lists.

@@ -390,12 +390,18 @@ impl Desk {
     }
 
     /// The line over the first turn: who, with what, where.
-    fn turn_header(&self, faces: &Faces, s: &Session) -> Div {
+    fn turn_header(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let name = self.name_of(&s.agent);
         let mut parts = vec![name.clone()];
         parts.extend(Self::option_name(s, &SessionConfigOptionCategory::Model));
         parts.extend(Self::mode_name(s));
         parts.push(Desk::shown(&s.folder));
+        // Branched off another: which, to go back to it.
+        let origin = s.from.as_ref().and_then(|id| {
+            self.sessions
+                .iter()
+                .find(|o| o.agent == s.agent && o.id.as_ref().is_some_and(|i| *i.0 == **id))
+        });
         div()
             .flex()
             .items_center()
@@ -404,6 +410,21 @@ impl Desk {
             .mb(px(12.))
             .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
             .child(meta(faces, parts.join(" · ")))
+            .children(origin.map(|o| {
+                let back = o.key;
+                div()
+                    .id("from")
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .cursor_pointer()
+                    .child(ui::icon("branch", 12.).text_color(theme::faint()))
+                    .child(
+                        meta(faces, format!("from “{}”", ui::fit(&o.title, 32)))
+                            .hover(|st| st.text_color(theme::text2())),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| this.show(back, window, cx)))
+            }))
     }
 
     /// A session begun, before anything is said: where it will work.
@@ -498,39 +519,55 @@ impl Desk {
         let key = format!("{}-{i}", s.key);
         match item {
             Item::You(text) => {
-                // Beside a message of yours after the first, on hover: a new
-                // session with what was said before it, to say it again.
+                // Under a message of yours, on hover: copy it; and after the
+                // first, take the session back to it, or branch off before it.
                 let group = SharedString::from(format!("{key}-you"));
-                let branch = s.fork_point(i).is_some()
-                    && matches!(
-                        s.state,
-                        crate::session::State::Idle | crate::session::State::Closed
-                    )
-                    && self.can_fork(s);
+                let idle = matches!(
+                    s.state,
+                    crate::session::State::Idle | crate::session::State::Closed
+                );
+                let back = s.fork_point(i).is_some() && idle && self.can_fork(s);
                 let at = s.key;
-                div()
+                let copy = text.clone();
+                let mut tools = div()
+                    .relative()
                     .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap(px(6.))
-                    .group(group.clone())
-                    .when(branch, |d| {
-                        d.child(
-                            div().invisible().group_hover(group, Styled::visible).child(
-                                ui::icon_button(
-                                    SharedString::from(format!("{key}-branch")),
-                                    "branch",
-                                    "Branch off here, to say this again",
-                                )
-                                .size(px(24.))
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.fork_at(at, i, cx);
-                                    },
-                                )),
+                    .gap(px(2.))
+                    .invisible()
+                    .group_hover(group.clone(), Styled::visible)
+                    .child(
+                        Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                        }),
+                    );
+                if back {
+                    let rewinding = self.popup == crate::desk::Popup::Rewind(at, i);
+                    tools = tools
+                        .when(rewinding, Styled::visible)
+                        .child(
+                            Self::under(&key, "rewind", "pencil", "Edit from here").on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.toggle_popup(crate::desk::Popup::Rewind(at, i), cx);
+                                }),
                             ),
                         )
-                    })
+                        .child(
+                            Self::under(
+                                &key,
+                                "branch",
+                                "branch",
+                                "Branch off here, to say this again",
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.fork_at(at, i, cx))),
+                        )
+                        .children(rewinding.then(|| Self::rewind_menu(faces, s, i, cx)));
+                }
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap(px(4.))
+                    .group(group)
                     .child(
                         ui::text(faces, text.clone())
                             .max_w(px(520.))
@@ -541,37 +578,60 @@ impl Desk {
                             .text_size(px(14.))
                             .line_height(px(21.)),
                     )
+                    .child(tools)
                     .into_any_element()
             }
             Item::Agent(text) => {
-                // What the agent said, copied whole from beside it on hover.
+                // Under what the agent said, on hover: copy it, answer it,
+                // or branch off after it.
                 let group = SharedString::from(format!("{key}-said"));
-                let copy = text.clone();
+                let idle = matches!(
+                    s.state,
+                    crate::session::State::Idle | crate::session::State::Closed
+                );
+                let after = idle && s.through(i).is_some() && self.can_fork(s);
+                let at = s.key;
+                let (copy, quoted) = (text.clone(), text.clone());
                 div()
-                    .relative()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
                     .group(group.clone())
-                    .px(px(10.))
-                    .child(markdown::render(faces, &key, text, &self.expanded, cx))
+                    .child(div().px(px(10.)).child(markdown::render(
+                        faces,
+                        &key,
+                        text,
+                        &self.expanded,
+                        cx,
+                    )))
                     .child(
                         div()
-                            .absolute()
-                            .bottom(px(-22.))
-                            .left(px(6.))
+                            .flex()
+                            .gap(px(2.))
+                            .px(px(6.))
                             .invisible()
                             .group_hover(group, Styled::visible)
-                            .child(
-                                ui::icon_button(
-                                    SharedString::from(format!("{key}-copy")),
-                                    "copy",
-                                    "Copy",
-                                )
-                                .size(px(22.))
-                                .on_click(move |_, _, cx| {
+                            .child(Self::under(&key, "copy", "copy", "Copy").on_click(
+                                move |_, _, cx| {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                                         copy.clone(),
                                     ));
-                                }),
-                            ),
+                                },
+                            ))
+                            .child(
+                                Self::under(&key, "quote", "reply", "Quote in your reply")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.quote(&quoted, window, cx);
+                                    })),
+                            )
+                            .when(after, |d| {
+                                d.child(
+                                    Self::under(&key, "after", "branch", "Branch off after this")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.fork_after(at, i, cx);
+                                        })),
+                                )
+                            }),
                     )
                     .into_any_element()
             }
@@ -665,6 +725,80 @@ impl Desk {
                 .ended(faces, s, i, *reason, *secs, cx)
                 .into_any_element(),
         }
+    }
+
+    /// A small button under a message.
+    fn under(key: &str, what: &str, icon: &str, tip: &'static str) -> gpui::Stateful<Div> {
+        ui::icon_button(SharedString::from(format!("{key}-{what}")), icon, tip)
+            .size(px(24.))
+            .text_color(theme::faint())
+    }
+
+    /// How to take the session back to your message at `item`: keeping
+    /// the files as they are, or putting them back as they were before.
+    fn rewind_menu(
+        faces: &Faces,
+        s: &Session,
+        item: usize,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let key = s.key;
+        let files = s.repo
+            && s.turn_of(item)
+                .and_then(|t| s.turns.get(t))
+                .is_some_and(|t| t.before.is_some());
+        let row = |id: &'static str, label: &'static str, about: &'static str| {
+            div()
+                .id(id)
+                .flex()
+                .flex_col()
+                .px(px(10.))
+                .py(px(6.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(ui::text(faces, label).text_size(px(13.)))
+                .child(
+                    ui::text(faces, about)
+                        .text_size(px(12.))
+                        .text_color(theme::faint()),
+                )
+        };
+        gpui::deferred(
+            div().absolute().top(px(28.)).right(px(0.)).child(
+                ui::menu("rewind-menu").child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w(px(300.))
+                        .p(px(6.))
+                        .child(
+                            row(
+                                "rewind-keep",
+                                "Edit from here",
+                                "What came after is left behind; the files stay as they are.",
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.rewind(key, item, false, cx);
+                                },
+                            )),
+                        )
+                        .when(files, |d| {
+                            d.child(
+                                row(
+                                    "rewind-files",
+                                    "Edit from here, files too",
+                                    "The files go back to how they were before this.",
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| this.rewind(key, item, true, cx),
+                                )),
+                            )
+                        }),
+                ),
+            ),
+        )
     }
 
     /// A folded stretch of the thread, as one line: a chevron, and what

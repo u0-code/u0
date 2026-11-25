@@ -370,6 +370,50 @@ impl Desk {
         }
     }
 
+    /// Branch the session `key` off after the agent's message at `item`:
+    /// a new session with what was said through it.
+    pub fn fork_after(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
+        let last = self
+            .sessions
+            .iter()
+            .find(|s| s.key == key)
+            .and_then(|s| s.through(item));
+        if let Some(last) = last {
+            self.branch(key, Some((item + 1, last)), cx);
+        }
+    }
+
+    /// Take the session `key` back to your message at `item`, to say it
+    /// again: what came after is left behind (the session is branched off
+    /// before it, and the branch takes its place), and with `files`, the
+    /// files go back to how they were before that turn.
+    pub fn rewind(&mut self, key: u64, item: usize, files: bool, cx: &mut Context<Self>) {
+        self.popup = super::Popup::Closed;
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let Some(point) = s.fork_point(item) else {
+            return;
+        };
+        if files
+            && let Some(turn) = s.turn_of(item)
+            && let Some(before) = s.turns.get(turn).and_then(|t| t.before.clone())
+        {
+            hub::restore(
+                s.folder.clone(),
+                before,
+                format!("{}/{turn}-rewind", s.uid()),
+                s.first().map(str::to_owned),
+                key,
+                turn,
+                true,
+                self.tx.clone(),
+            );
+        }
+        self.rewinding = Some(key);
+        self.branch(key, Some((item, point)), cx);
+    }
+
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
         let Some(agent) = self
             .sessions
@@ -407,6 +451,7 @@ impl Desk {
         let r = match result {
             Ok(r) => r,
             Err(f) => {
+                self.rewinding = None;
                 self.trouble(
                     format!(
                         "Couldn't branch off “{}”",
@@ -425,6 +470,9 @@ impl Desk {
             .filter(|i| matches!(i, Item::You(_)))
             .count();
         let key = self.take_key();
+        // Taken back to a message: the branch is the session now, in its
+        // place; the old one is archived.
+        let rewound = self.rewinding.take_if(|k| *k == from).is_some();
         let mut s = Session::new(key, &origin.agent, origin.folder.clone());
         s.project.clone_from(&origin.project);
         s.worktree.clone_from(&origin.worktree);
@@ -441,8 +489,21 @@ impl Desk {
         if let Some(Item::You(text)) = at.and_then(|i| origin.items.get(i)) {
             s.unsent.clone_from(text);
         }
-        s.title = format!("{} (fork)", origin.title);
-        s.renamed = true;
+        if rewound {
+            s.title.clone_from(&origin.title);
+            s.renamed = origin.renamed;
+            s.flags.order = origin.flags.order;
+            s.flags.pinned = origin.flags.pinned;
+            s.from.clone_from(&origin.from);
+            if let Some(o) = self.session_mut(from) {
+                o.flags.archived = true;
+                o.flags.pinned = None;
+            }
+        } else {
+            s.title = format!("{} (fork)", origin.title);
+            s.renamed = true;
+            s.from = origin.id.as_ref().map(|id| id.0.to_string());
+        }
         s.id = Some(r.session_id.clone());
         s.modes = r.modes;
         s.options = r.config_options.unwrap_or_default();

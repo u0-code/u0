@@ -31,6 +31,7 @@ enum Act {
     Drawer,
     Sidebar,
     Grouping,
+    CopyThread,
     Go(u64),
     NewIn(PathBuf),
 }
@@ -160,6 +161,7 @@ impl Desk {
                 "list",
             ),
             act("Settings", "⌘,", Act::Settings, "settings"),
+            act("Copy this conversation", "", Act::CopyThread, "copy"),
         ]
         .into_iter()
         .filter(|l| found(&l.label))
@@ -227,6 +229,11 @@ impl Desk {
             Act::Scratch => self.new_scratch(window, cx),
             Act::AddProject => self.open_page(Page::NewProject, cx),
             Act::Settings => self.open_page(Page::Settings, cx),
+            Act::CopyThread => {
+                if let Some(key) = self.current {
+                    self.copy_thread(key, cx);
+                }
+            }
             Act::Find => self.toggle_find(window, cx),
             Act::Drawer => self.toggle_drawer(window, cx),
             Act::Sidebar => self.toggle_sidebar(cx),

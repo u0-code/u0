@@ -798,6 +798,10 @@ impl Desk {
                 cx.listener(move |this, _, window, cx| this.begin_rename(key, window, cx)),
             ));
         menu = menu.child(
+            item(20, "copy", "Copy the conversation".into())
+                .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
+        );
+        menu = menu.child(
             item(
                 1,
                 "pin",

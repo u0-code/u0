@@ -185,6 +185,8 @@ pub struct Session {
     /// The ids the agent gave its messages and yours, each by the item of
     /// the thread it is in: where a fork can end.
     pub marks: Vec<(usize, MessageId)>,
+    /// The id of the session it was branched off, if it was.
+    pub from: Option<String>,
     pub plan: Option<Plan>,
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
@@ -340,6 +342,7 @@ impl Session {
         s.flags = meta.flags;
         s.queued = meta.queued;
         s.unsent = meta.unsent;
+        s.from = meta.from;
         s.state = State::Closed;
         s
     }
@@ -359,6 +362,7 @@ impl Session {
             flags: self.flags.clone(),
             queued: self.queued.clone(),
             unsent: self.unsent.clone(),
+            from: self.from.clone(),
         })
     }
 
@@ -398,6 +402,16 @@ impl Session {
             .iter()
             .rev()
             .find(|(at, _)| *at < item)
+            .map(|(_, id)| id.clone())
+    }
+
+    /// The last message a fork kept through the item `item` of the
+    /// thread, by the id its agent gave it.
+    pub fn through(&self, item: usize) -> Option<MessageId> {
+        self.marks
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= item)
             .map(|(_, id)| id.clone())
     }
 
@@ -494,6 +508,7 @@ impl Session {
             state: State::Draft,
             items: Vec::new(),
             marks: Vec::new(),
+            from: None,
             plan: None,
             modes: None,
             options: Vec::new(),
