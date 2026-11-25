@@ -366,7 +366,17 @@ impl Desk {
         .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
         let reader = cx.new(|cx| TextInput::new(cx, "").wrapping(24).keeping());
-        let menu_search = cx.new(|cx| TextInput::new(cx, "Search").padded(4.).keeping());
+        let menu_search = cx.new(|cx| {
+            TextInput::new(cx, "Search, or a while: 3h")
+                .padded(2.)
+                .keeping()
+        });
+        cx.subscribe(&menu_search, |this, _, Submitted(text), cx| {
+            if let Popup::Session(key) = this.popup {
+                this.snooze_for(key, text, cx);
+            }
+        })
+        .detach();
         cx.subscribe(&menu_search, |_, _, _: &crate::input::Changed, cx| {
             cx.notify();
         })

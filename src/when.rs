@@ -90,6 +90,21 @@ pub fn said_at(t: SystemTime, now: SystemTime) -> String {
     }
 }
 
+/// A while said shortly: "45m", "3h", "2d", "1w"; none if it does not read.
+pub fn span(text: &str) -> Option<Duration> {
+    let text = text.trim();
+    let (n, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit())?);
+    let n: u64 = n.parse().ok().filter(|n| *n > 0)?;
+    let secs = match unit.trim() {
+        "m" | "min" | "mins" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
+        "d" | "day" | "days" => 86_400,
+        "w" | "week" | "weeks" => 604_800,
+        _ => return None,
+    };
+    Some(Duration::from_secs(n * secs))
+}
+
 /// How long ago `t` was, the way a list of sessions says it: "now", "12m",
 /// "2h", and past a day the weekday ("Mon"), past a week the date.
 pub fn ago(t: SystemTime, now: SystemTime) -> String {
@@ -157,6 +172,15 @@ pub fn parse(text: &str) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_while_said_shortly_is_read() {
+        assert_eq!(span("45m"), Some(Duration::from_secs(2700)));
+        assert_eq!(span("3h"), Some(Duration::from_secs(10_800)));
+        assert_eq!(span("2 days"), Some(Duration::from_secs(172_800)));
+        assert_eq!(span("soon"), None);
+        assert_eq!(span("0h"), None);
+    }
 
     #[test]
     fn a_snooze_lands_on_the_hour_asked_and_next_monday_is_ahead() {

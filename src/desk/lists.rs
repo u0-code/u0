@@ -57,7 +57,12 @@ impl Desk {
     }
 
     /// Change where the session `key` stands, and keep it.
-    fn mark(&mut self, key: u64, cx: &mut Context<Self>, f: impl FnOnce(&mut store::Flags)) {
+    pub(crate) fn mark(
+        &mut self,
+        key: u64,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut store::Flags),
+    ) {
         if let Some(flags) = self.flags_mut(key) {
             f(flags);
         }
@@ -106,6 +111,23 @@ impl Desk {
             Later::NextWeek => when::at_hour(now, when::to_monday(now), 9),
         };
         self.mark(key, cx, |f| f.snoozed = Some(store::secs(at)));
+    }
+
+    /// Snooze the session `key` for the while `text` says ("3h", "2d").
+    pub fn snooze_for(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
+        match when::span(text) {
+            Some(d) => {
+                self.popup = super::Popup::Closed;
+                let at = SystemTime::now() + d;
+                self.mark(key, cx, |f| f.snoozed = Some(store::secs(at)));
+            }
+            None => self.trouble(
+                format!("“{}” is not a while Ghost reads", text.trim()),
+                Some("Say it as 45m, 3h, 2d or 1w.".into()),
+                None,
+            ),
+        }
+        cx.notify();
     }
 
     pub fn wake(&mut self, key: u64, cx: &mut Context<Self>) {
@@ -647,6 +669,7 @@ impl Desk {
         for s in &mut self.sessions {
             let idle = now.duration_since(s.updated).unwrap_or_default() >= after;
             if idle
+                && !s.flags.kept
                 && s.flags.pinned.is_none()
                 && s.flags.settled.is_none()
                 && matches!(s.state, State::Closed | State::Idle)

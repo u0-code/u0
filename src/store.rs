@@ -91,6 +91,9 @@ pub struct Flags {
     /// Something came in it that you have not looked at.
     #[serde(default)]
     pub unread: bool,
+    /// Never done on its own, however long it is left.
+    #[serde(default)]
+    pub kept: bool,
 }
 
 /// One line of a session's record.

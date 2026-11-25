@@ -852,6 +852,26 @@ impl Desk {
                         .on_click(cx.listener(move |this, _, _, cx| this.snooze(key, later, cx))),
                 );
             }
+            // Or for as long as you say.
+            menu = menu.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(8.))
+                    .h(px(30.))
+                    .child(ui::icon("clock", 14.).text_color(theme::faint()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .px(px(6.))
+                            .rounded(px(6.))
+                            .bg(theme::well())
+                            .border_1()
+                            .border_color(theme::border2())
+                            .child(self.menu_search.clone()),
+                    ),
+            );
         }
         if self.can_fork(s) && !busy {
             menu = menu.child(
@@ -859,18 +879,62 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, _, cx| this.fork(key, cx))),
             );
         }
+        // Another session where this one works: its worktree, its branch.
+        if s.worktree.is_some() {
+            let on = s.branch.clone().unwrap_or_else(|| "its worktree".into());
+            menu = menu.child(
+                item(
+                    24,
+                    "plus",
+                    format!("New session on {}", crate::ui::fit(&on, 22)),
+                )
+                .on_click(
+                    cx.listener(move |this, _, window, cx| this.new_in_worktree(key, window, cx)),
+                ),
+            );
+        }
+        menu = menu.child(
+            item(
+                25,
+                "pin",
+                if s.flags.kept {
+                    "Let it be done on its own".into()
+                } else {
+                    "Never done on its own".into()
+                },
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.popup = crate::desk::Popup::Closed;
+                this.mark(key, cx, |f| f.kept = !f.kept);
+            })),
+        );
+        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
+        // What names it, copied.
+        let copies = [
+            Some(("Copy the folder's path", s.folder.display().to_string())),
+            s.branch.clone().map(|b| ("Copy the branch's name", b)),
+            s.id.as_ref()
+                .map(|id| ("Copy the session's id", id.0.to_string())),
+        ];
+        for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
+            menu = menu.child(item(21 + n, "copy", label.into()).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                    this.popup = crate::desk::Popup::Closed;
+                    cx.notify();
+                },
+            )));
+        }
         menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
         if !busy {
             menu = menu.child(
                 item(9, "archive", "Archive".into())
                     .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),
             );
-            if s.id.is_none() || self.can_delete(&s.agent) {
-                menu = menu.child(
-                    item(10, "trash", "Delete".into())
-                        .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
-                );
-            }
+            menu = menu.child(
+                item(10, "trash", "Delete".into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
+            );
         }
         div()
             .mt(px(4.))
