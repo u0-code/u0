@@ -1,27 +1,20 @@
 //! The line you type into, and the chips under it: the agent, its model
 //! and mode, how full its context is, and Send or Stop.
 
-use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
 use gpui::component::{
-    Sizable as _,
     button::Button,
-    input::{Enter, Input, MoveDown, MoveUp, Textarea},
-    kbd::Kbd,
+    input::{Enter, MoveDown, MoveUp, Textarea},
     popover::Popover,
     progress::ProgressCircle,
-    scroll::ScrollableElement as _,
-    separator::Separator,
 };
-use gpui::{AnyElement, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
-use super::{Choices, select_choices};
 use crate::{
     desk::{Desk, Popup, mention},
     fonts::Faces,
     keys::{SendAside, Stash},
     session::{Session, State},
-    theme,
-    ui::{self, Mark},
+    theme, ui,
 };
 
 impl Desk {
@@ -97,7 +90,7 @@ impl Desk {
                             .pr(px(6.))
                             .child(self.composer_line(cx)),
                     )
-                    .child(self.bar(faces, s, &name, cx)),
+                    .child(self.bar(faces, s, cx)),
             )
     }
 
@@ -196,29 +189,9 @@ impl Desk {
         )
     }
 
-    /// The agent, its model and mode as words, every other option behind
-    /// the slider mark; what was put aside, and what is to be said later.
-    fn chips(&self, faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
-        let draft = s.state == State::Draft && s.items.is_empty();
-        let agent_choices = if draft {
-            self.slots
-                .iter()
-                .map(|x| {
-                    (
-                        x.entry.id.clone(),
-                        self.name_of(&x.entry.id),
-                        x.entry.id == s.meta.agent,
-                    )
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let agent_label = match (draft, self.composer.fanout) {
-            (true, true) => format!("All {} agents", self.usable_agents()),
-            (true, false) => name.to_owned(),
-            (false, _) => String::new(),
-        };
+    /// The agent and its model (the picker) and its mode; what was put
+    /// aside, and what is to be said later.
+    fn chips(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let mut words = div()
             .flex()
             .flex_1()
@@ -226,61 +199,8 @@ impl Desk {
             .items_center()
             .gap(px(2.))
             .ml(px(-6.))
-            .child(self.chip(
-                faces,
-                &Popup::Agent,
-                Some(&self.mark_of(&s.meta.agent)),
-                &agent_label,
-                "Start this session with",
-                agent_choices,
-                cx,
-            ));
-        let mode_option = s
-            .options
-            .iter()
-            .any(|o| o.category == Some(SessionConfigOptionCategory::Mode));
-        // The model first, then the mode; the rest (how hard it thinks, a
-        // speed, a way of working) in the order the agent lists them.
-        let rank = |o: &&agent_client_protocol::v1::schema::SessionConfigOption| match o.category {
-            Some(SessionConfigOptionCategory::Model) => 0,
-            Some(SessionConfigOptionCategory::Mode) => 1,
-            _ => 2,
-        };
-        let mut options: Vec<_> = s.options.iter().collect();
-        options.sort_by_key(rank);
-        let mut more: Vec<More> = Vec::new();
-        for option in options {
-            let Some((current, choices)) = self.option_choices(s, option) else {
-                continue;
-            };
-            let id = option.id.0.to_string();
-            if rank(&option) < 2 {
-                let head = format!("{name} {}", option.name.to_lowercase());
-                words = words.child(self.chip(
-                    faces,
-                    &Popup::Option(id),
-                    None,
-                    &current,
-                    &head,
-                    choices,
-                    cx,
-                ));
-            } else {
-                more.push(More {
-                    id,
-                    name: option.name.clone(),
-                    current,
-                    choices,
-                });
-            }
-        }
-        if let Some((current, choices)) = mode_choices(s).filter(|_| !mode_option) {
-            words =
-                words.child(self.chip(faces, &Popup::Mode, None, &current, "Mode", choices, cx));
-        }
-        if !more.is_empty() {
-            words = words.child(self.more(faces, name, more, cx));
-        }
+            .child(self.model_chip(faces, s, cx))
+            .children(self.mode_chip(faces, s, cx));
         if !self.composer.stashed.is_empty() {
             words = words.child(self.stash_menu(faces, cx));
         }
@@ -293,13 +213,13 @@ impl Desk {
     /// The line under the text, one line never two: the chips, then the
     /// context, a window to attach, writing at length, dictation and send
     /// at the right.
-    fn bar(&self, faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
+    fn bar(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let mut bar = div()
             .flex()
             .items_center()
             .h(px(28.))
             .gap(px(2.))
-            .child(self.chips(faces, s, name, cx));
+            .child(self.chips(faces, s, cx));
         if let Some(u) = s.usage.as_ref().filter(|u| u.size > 0) {
             let share = u.used as f32 / u.size as f32;
             bar = bar.child(
@@ -770,274 +690,6 @@ impl Desk {
                 )
         })
     }
-
-    /// How many agents a session can be begun with now.
-    fn usable_agents(&self) -> usize {
-        self.slots.iter().filter(|x| x.usable()).count()
-    }
-
-    /// A word that opens a menu of choices, `(id, name, current)` each;
-    /// with none, a word alone. An agent's is its mark, named with its menu
-    /// in a new session.
-    fn chip(
-        &self,
-        faces: &Faces,
-        popup: &Popup,
-        mark: Option<&Mark>,
-        current: &str,
-        head: &str,
-        choices: Choices,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let says: Vec<AnyElement> = mark
-            .map(|m| ui::mark(faces, m, 15.))
-            .into_iter()
-            .chain((!current.is_empty()).then(|| {
-                ui::one_line(
-                    ui::text(faces, ui::fit(current, 24))
-                        .text_size(px(12.5))
-                        .text_color(if mark.is_some() {
-                            theme::text2()
-                        } else {
-                            theme::muted()
-                        }),
-                )
-                .w_auto()
-                .into_any_element()
-            }))
-            .collect();
-        if choices.is_empty() {
-            return div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(6.))
-                .h(px(26.))
-                .px(px(7.))
-                .children(says)
-                .into_any_element();
-        }
-        let id = match popup {
-            Popup::Mode => "chip-mode".to_owned(),
-            Popup::Option(o) => format!("chip-{o}"),
-            Popup::Agent => "chip-agent".to_owned(),
-            _ => "chip".to_owned(),
-        };
-        let chip = ui::opener(SharedString::from(id.clone()))
-            .h(px(26.))
-            .px(px(7.))
-            .children(says)
-            .child(
-                ui::icon("chevron-down", 11.)
-                    .flex_none()
-                    .text_color(theme::faint()),
-            );
-        // A long list can be narrowed by what is typed, which goes there as
-        // it opens.
-        let long = choices.len() > 8;
-        let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
-        let (faces, shown, head) = (faces.clone(), popup.clone(), head.to_owned());
-        over_line(self.menu(
-            popup.clone(),
-            chip,
-            move |d, _, cx| d.chip_menu(&faces, &shown, &id, &head, choices.clone(), cx),
-            cx,
-        ))
-        .when(long, |p| p.track_focus(&search))
-        .into_any_element()
-    }
-
-    /// The choices of `popup`, under `head`: narrowed by what is typed
-    /// when there are many; the first nine numbered.
-    fn chip_menu(
-        &self,
-        faces: &Faces,
-        popup: &Popup,
-        id: &str,
-        head: &str,
-        choices: Choices,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let mut menu = div()
-            .flex()
-            .flex_col()
-            .w(px(248.))
-            .child(ui::label(faces, head).px(px(8.)).pt(px(6.)).pb(px(4.)));
-        let query = self.menu_search.read(cx).value().trim().to_lowercase();
-        if choices.len() > 8 {
-            menu = menu.child(
-                div()
-                    .mx(px(4.))
-                    .mb(px(4.))
-                    .child(Input::new(&self.menu_search).small()),
-            );
-        }
-        let mut scroll = div()
-            .id(SharedString::from(format!("{id}-list")))
-            .flex()
-            .flex_col()
-            .max_h(px(360.));
-        let mut shown = 0;
-        for (n, (value, label, on)) in choices.into_iter().enumerate() {
-            if !shown_by(&query, &value, &label) {
-                continue;
-            }
-            shown += 1;
-            // ⌘1 to ⌘9 choose among the first nine, while it is open.
-            let numbered =
-                (shown <= 9 && *popup != Popup::Agent).then(|| crate::keys::numbered(shown));
-            let popup = popup.clone();
-            let agent_mark = (popup == Popup::Agent).then(|| self.mark_of(&value));
-            scroll = scroll.child(
-                ui::menu_row(SharedString::from(format!("{id}-{n}")), on)
-                    .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))
-                    .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                    .when(on, |d| {
-                        d.child(ui::icon("check", 13.).text_color(theme::muted()))
-                    })
-                    .children(numbered.map(Kbd::new))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        match &popup {
-                            Popup::Mode => this.set_mode(value.clone(), cx),
-                            Popup::Option(config) => {
-                                this.set_option(config.clone(), value.clone(), cx);
-                            }
-                            Popup::Agent => this.switch_agent(&value, cx),
-                            _ => {}
-                        }
-                        this.close_popup(window, cx);
-                    })),
-            );
-        }
-        menu = menu.child(scroll.overflow_y_scrollbar());
-        // A new session can go to every agent at once, one each.
-        let usable = self.usable_agents();
-        if *popup == Popup::Agent && usable > 1 {
-            let on = self.composer.fanout;
-            menu = menu
-                .child(Separator::horizontal().mx(px(2.)).my(px(4.)))
-                .child(
-                    ui::menu_row("fanout", on)
-                        .child(ui::icon("plus", 14.).text_color(theme::muted()))
-                        .child(
-                            ui::text(faces, format!("Send to all {usable} agents"))
-                                .flex_1()
-                                .text_size(px(13.)),
-                        )
-                        .child(
-                            ui::text(faces, if on { "on" } else { "a session each" })
-                                .text_size(px(12.))
-                                .text_color(theme::faint()),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.composer.fanout = !this.composer.fanout;
-                            this.popup = Popup::Closed;
-                            cx.notify();
-                        })),
-                );
-        }
-        menu
-    }
-
-    /// The slider mark, and under it the options beyond the model and the
-    /// mode, each with its value; one chosen opens its choices beside.
-    fn more(&self, faces: &Faces, name: &str, more: Vec<More>, cx: &mut Context<Self>) -> Popover {
-        let open_one = matches!(&self.popup, Popup::Option(id) if more.iter().any(|m| &m.id == id));
-        let tip = more
-            .iter()
-            .map(|m| format!("{}: {}", m.name, m.current))
-            .collect::<Vec<_>>()
-            .join(" · ");
-        let mark = ui::icon_button("chip-more", "sliders", tip)
-            .size(px(22.))
-            .text_color(theme::faint());
-        let (faces, name) = (faces.clone(), name.to_owned());
-        over_line(self.menu(
-            Popup::More,
-            mark,
-            move |d, _, cx| d.more_menu(&faces, &name, more.clone(), cx),
-            cx,
-        ))
-        // Open too while one of its options shows its choices.
-        .open(self.popup == Popup::More || open_one)
-    }
-
-    /// The options behind the slider mark, each a line whose choices open
-    /// beside it, in a Popover within the menu's.
-    fn more_menu(&self, faces: &Faces, name: &str, more: Vec<More>, cx: &mut Context<Self>) -> Div {
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .w(px(268.))
-            .child(ui::label(faces, name).px(px(8.)).pt(px(6.)).pb(px(4.)));
-        let desk = cx.entity();
-        for (n, m) in more.into_iter().enumerate() {
-            let line = ui::opener(SharedString::from(format!("more-{n}")))
-                .w_full()
-                .h(px(30.))
-                .px(px(8.))
-                .child(
-                    div()
-                        .flex()
-                        .flex_1()
-                        .items_center()
-                        .gap(px(10.))
-                        .child(ui::text(faces, m.name).flex_1().text_size(px(13.)))
-                        .child(
-                            ui::text(faces, ui::fit(&m.current, 18))
-                                .text_size(px(12.5))
-                                .text_color(theme::muted()),
-                        )
-                        .child(ui::icon("chevron-right", 11.).text_color(theme::faint())),
-                );
-            let shown = Popup::Option(m.id.clone());
-            let (desk, drawn, faces) = (desk.clone(), desk.clone(), faces.clone());
-            let (id, choices) = (m.id, m.choices);
-            list = list.child(
-                Popover::new(SharedString::from(format!("more-{n}-choices")))
-                    .anchor(gpui::Anchor::LeftCenter)
-                    .trigger_style(gpui::StyleRefinement::default().w_full())
-                    .p(px(6.))
-                    .open(self.popup == shown)
-                    .trigger(line)
-                    .on_open_change(move |open, _, cx| {
-                        desk.update(cx, |d, cx| {
-                            if *open {
-                                d.popup = shown.clone();
-                            } else if d.popup == shown {
-                                d.popup = Popup::More;
-                            }
-                            cx.notify();
-                        });
-                    })
-                    .content(move |_, _, cx| {
-                        drawn.update(cx, |_, cx| {
-                            Self::more_choices(&faces, &id, choices.clone(), cx)
-                        })
-                    }),
-            );
-        }
-        list
-    }
-
-    /// The choices of the option `config`, beside its line.
-    fn more_choices(faces: &Faces, config: &str, choices: Choices, cx: &mut Context<Self>) -> Div {
-        let mut list = div().flex().flex_col().w(px(188.));
-        for (k, (value, label, chosen)) in choices.into_iter().enumerate() {
-            let config = config.to_owned();
-            list = list.child(
-                ui::menu_row(SharedString::from(format!("more-{config}-{k}")), chosen)
-                    .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                    .when(chosen, |d| {
-                        d.child(ui::icon("check", 13.).text_color(theme::muted()))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_option(config.clone(), value.clone(), cx);
-                    })),
-            );
-        }
-        list
-    }
 }
 
 /// How far above its mark a menu of the composer opens: clear of the line
@@ -1046,7 +698,7 @@ const LIFT: f32 = 6. + 22. + 10. + 8.;
 
 /// A menu of the composer, opened upward from its mark over the line you
 /// write in.
-fn over_line(menu: Popover) -> Popover {
+pub(super) fn over_line(menu: Popover) -> Popover {
     menu.anchor(gpui::Anchor::BottomLeft).offset(px(LIFT))
 }
 
@@ -1266,102 +918,5 @@ impl Desk {
             cx,
         );
         cx.notify();
-    }
-}
-
-/// An option kept behind the slider mark: its id, name, value now, and
-/// what it can be.
-#[derive(Clone)]
-struct More {
-    id: String,
-    name: String,
-    current: String,
-    choices: Choices,
-}
-
-/// Whether a menu's choice stands when `query` (lower case) is typed.
-fn shown_by(query: &str, value: &str, label: &str) -> bool {
-    query.is_empty() || label.to_lowercase().contains(query) || value.to_lowercase().contains(query)
-}
-
-/// The session's modes, when it says them as modes: the one it is in, and
-/// each to choose.
-fn mode_choices(s: &crate::session::Session) -> Option<(String, Choices)> {
-    let modes = s.modes.as_ref()?;
-    let current = modes
-        .available_modes
-        .iter()
-        .find(|m| m.id == modes.current_mode_id)
-        .map_or_else(|| modes.current_mode_id.0.to_string(), |m| m.name.clone());
-    let choices = modes
-        .available_modes
-        .iter()
-        .map(|m| {
-            (
-                m.id.0.to_string(),
-                m.name.clone(),
-                m.id == modes.current_mode_id,
-            )
-        })
-        .collect();
-    Some((current, choices))
-}
-
-impl Desk {
-    /// An option's value now and its choices, with the model ids of yours
-    /// beside those the agent lists for its model.
-    fn option_choices(
-        &self,
-        s: &crate::session::Session,
-        option: &agent_client_protocol::v1::schema::SessionConfigOption,
-    ) -> Option<(String, Choices)> {
-        let (current, mut choices) = select_choices(&option.kind)?;
-        if option.category == Some(SessionConfigOptionCategory::Model) {
-            for m in self
-                .settings
-                .models
-                .get(&s.meta.agent)
-                .into_iter()
-                .flatten()
-            {
-                if !choices.iter().any(|(v, _, _)| v == m) {
-                    choices.push((m.clone(), m.clone(), false));
-                }
-            }
-        }
-        Some((current, choices))
-    }
-
-    /// Choose the `n`th of the choices shown in the open menu of an option
-    /// or the modes; false when no such menu is open.
-    pub(crate) fn choose_nth(&mut self, n: usize, cx: &mut Context<Self>) -> bool {
-        let Some(s) = self.session() else {
-            return false;
-        };
-        let choices = match &self.popup {
-            Popup::Mode => mode_choices(s).map(|c| c.1),
-            Popup::Option(id) => s
-                .options
-                .iter()
-                .find(|o| o.id.0.as_ref() == id)
-                .and_then(|o| self.option_choices(s, o))
-                .map(|c| c.1),
-            _ => None,
-        };
-        let Some(choices) = choices else { return false };
-        let query = self.menu_search.read(cx).value().trim().to_lowercase();
-        let Some((value, _, _)) = choices
-            .into_iter()
-            .filter(|(v, l, _)| shown_by(&query, v, l))
-            .nth(n)
-        else {
-            return true;
-        };
-        match self.popup.clone() {
-            Popup::Mode => self.set_mode(value, cx),
-            Popup::Option(config) => self.set_option(config, value, cx),
-            _ => {}
-        }
-        true
     }
 }

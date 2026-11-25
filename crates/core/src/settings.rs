@@ -55,6 +55,10 @@ pub struct Settings {
     /// Model ids of your own, by agent, offered beside those it lists.
     #[serde(default)]
     pub models: std::collections::BTreeMap<String, Vec<String>>,
+    /// The models you starred in the model picker, each with its agent,
+    /// listed first there.
+    #[serde(default)]
+    pub favourites: Vec<Favourite>,
     /// What macOS says when a session ends a turn or needs you, while
     /// Ghost is not in front.
     #[serde(default)]
@@ -112,6 +116,15 @@ pub struct Settings {
     /// What a worktree's branch begins with, before the session's title.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
+}
+
+/// A model you starred: the agent's id, and the model's value in the
+/// agent's model option.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Favourite {
+    pub agent: String,
+    pub model: String,
 }
 
 /// What macOS says when a session ends a turn or needs you.
@@ -243,6 +256,7 @@ impl Default for Settings {
             prefs: std::collections::BTreeMap::new(),
             commands: std::collections::BTreeMap::new(),
             models: std::collections::BTreeMap::new(),
+            favourites: Vec::new(),
             notify: Notify::default(),
             awake: yes(),
             settle_days: week(),

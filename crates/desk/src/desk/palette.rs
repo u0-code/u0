@@ -15,7 +15,7 @@ use gpui::{
 use gpui::component::input::{Input, InputEvent, InputState, MoveDown, MoveUp};
 use gpui::component::kbd::Kbd;
 
-use super::{Desk, Page, Popup};
+use super::{Desk, Page};
 use crate::{fonts::Faces, session::State, theme, ui};
 
 /// What a line of the palette does.
@@ -130,7 +130,7 @@ impl Desk {
     /// Go to the `n`th session in the sidebar's order; while a menu of
     /// choices is open, choose its `n`th instead.
     pub fn nth_session(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.choose_nth(n, cx) {
+        if self.choose_nth(n, window, cx) {
             return;
         }
         if let Some(key) = self.ordered().get(n).copied() {
@@ -196,40 +196,6 @@ impl Desk {
                 cx,
             );
         }
-        cx.notify();
-    }
-
-    /// Open the model's menu in the composer (⌘⇧M).
-    pub fn open_model(&mut self, cx: &mut Context<Self>) {
-        self.open_option(
-            &agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model,
-            cx,
-        );
-    }
-
-    /// Open the menu of the session's option of the kind `which` (its
-    /// model, mode, or how hard it thinks); for a mode, its modes where it
-    /// has no such option.
-    pub fn open_option(
-        &mut self,
-        which: &agent_client_protocol::v1::schema::SessionConfigOptionCategory,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(s) = self.session() else { return };
-        let found = s
-            .options
-            .iter()
-            .find(|o| o.category.as_ref() == Some(which));
-        self.popup = match found {
-            Some(o) => Popup::Option(o.id.0.to_string()),
-            None if *which
-                == agent_client_protocol::v1::schema::SessionConfigOptionCategory::Mode
-                && s.modes.is_some() =>
-            {
-                Popup::Mode
-            }
-            None => return,
-        };
         cx.notify();
     }
 

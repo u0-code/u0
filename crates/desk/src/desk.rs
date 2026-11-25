@@ -92,18 +92,19 @@ pub enum Popup {
     Closed,
     /// The session's modes.
     Mode,
-    /// One of the session's options (a model, a level of thought), by id.
+    /// The model picker: the agents, their models, the session's options.
+    Model,
+    /// The session's modes, from the model picker's foot.
+    ModelMode,
+    /// The choices of one of the session's options, by id, beside it in
+    /// the model picker.
     Option(String),
-    /// The agent a draft is begun with.
-    Agent,
     /// What can be done with a session in the sidebar, by key.
     Session(u64),
     /// What can be done with a project in the sidebar.
     Project(PathBuf),
     /// The branches to check out, in the column beside.
     Branch,
-    /// The session's options beyond its model and mode.
-    More,
     /// What you put aside from the composer, to take back.
     Stash,
     /// What is to be said later in the session, and when to say it.
@@ -229,6 +230,7 @@ pub struct Desk {
     pub current: Option<u64>,
     pub page: Page,
     pub popup: Popup,
+    pub picker: crate::thread::Picker,
     /// The project chosen on the start, for a session begun there.
     pub start_in: Option<PathBuf>,
     pub panes: Panes,
@@ -289,6 +291,7 @@ impl Desk {
                     d.record_key(&e.keystroke, cx)
                         || d.escape_closes(&e.keystroke, window, cx)
                         || d.offer_keys(&e.keystroke, window, cx)
+                        || d.picker_keys(&e.keystroke, window, cx)
                 })
                 .unwrap_or(false);
             if took {
@@ -304,7 +307,7 @@ impl Desk {
         cx.subscribe_in(
             &menu_search,
             window,
-            |this, input, e: &InputEvent, window, cx| {
+            |this, input, e: &InputEvent, _, cx| {
                 if !matches!(e, InputEvent::PressEnter { .. }) {
                     cx.notify();
                     return;
@@ -313,11 +316,6 @@ impl Desk {
                 match this.popup {
                     Popup::Session(key) => this.snooze_for(key, &text, cx),
                     Popup::Branch => this.new_branch(&text, cx),
-                    // A list narrowed by what is typed: the first left.
-                    Popup::Mode | Popup::Option(_) => {
-                        this.choose_nth(0, cx);
-                        this.close_popup(window, cx);
-                    }
                     _ => {}
                 }
             },
@@ -445,6 +443,7 @@ impl Desk {
             current: None,
             page: Page::Thread,
             popup: Popup::Closed,
+            picker: crate::thread::Picker::default(),
             start_in: None,
             panes: Panes {
                 left: true,

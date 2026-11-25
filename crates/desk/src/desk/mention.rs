@@ -411,7 +411,7 @@ impl Desk {
             let key = self.current;
             match name {
                 "clear" => self.new_default(window, cx),
-                "model" => self.open_model(cx),
+                "model" => self.open_model(window, cx),
                 "branch" => {
                     if let Some(key) = key {
                         self.fork(key, cx);

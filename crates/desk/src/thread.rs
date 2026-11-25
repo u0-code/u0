@@ -14,9 +14,12 @@ pub mod drawn;
 mod fold;
 pub mod kinds;
 mod lines;
+mod modes;
+mod picker;
 mod start;
 
 pub use lines::{Find, Line};
+pub use picker::Picker;
 pub mod output;
 mod topbar;
 

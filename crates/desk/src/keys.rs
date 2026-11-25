@@ -13,7 +13,6 @@
 
 use std::path::Path;
 
-use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
 use gpui::component::kbd::Kbd;
 use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Keystroke, Window, actions};
 use serde::Deserialize;
@@ -367,7 +366,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     });
     on::<NextSession>(cx, shown, |d, window, cx| d.step_session(1, window, cx));
     on::<PreviousSession>(cx, shown, |d, window, cx| d.step_session(-1, window, cx));
-    on::<Model>(cx, shown, |d, _, cx| d.open_model(cx));
+    on::<Model>(cx, shown, Desk::open_model);
     on::<ToggleSidebar>(cx, shown, |d, _, cx| d.toggle_sidebar(cx));
     on::<Stop>(cx, shown, |d, _, cx| d.stop(cx));
     on::<Review>(cx, shown, |d, _, cx| {
@@ -388,9 +387,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
         d.save_settings();
         cx.notify();
     });
-    on::<Mode>(cx, shown, |d, _, cx| d.open_option(&Kind::Mode, cx));
-    on::<Effort>(cx, shown, |d, _, cx| {
-        d.open_option(&Kind::ThoughtLevel, cx);
+    on::<Mode>(cx, shown, |d, _, cx| d.open_mode(cx));
+    on::<Effort>(cx, shown, |d, window, cx| {
+        d.open_model(window, cx);
     });
     on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
