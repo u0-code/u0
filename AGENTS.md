@@ -87,7 +87,7 @@ assets/           fonts and the desk's own icons, built into the binary
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
 | A program on the PATH | `registry::which` |
-| An agent's logo | `ui::Mark::of` and `ui::mark` |
+| An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, called off the window's thread through `hub` |
 
 ## Data

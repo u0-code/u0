@@ -14,7 +14,7 @@ use crate::{
     registry::Way,
     sidebar::kbd,
     theme,
-    ui::{self, Mark, Weight},
+    ui::{self, Weight},
     when,
 };
 
@@ -224,7 +224,7 @@ impl Desk {
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .child(div().when(!on, |d| d.opacity(0.45)).child(ui::mark(
                         faces,
-                        &Mark::of(&e.id, &name),
+                        &self.mark_of(&e.id),
                         24.,
                     )))
                     .child(
@@ -298,7 +298,7 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .child(ui::mark(faces, &Mark::of(&id, &name), 14.))
+                            .child(ui::mark(faces, &self.mark_of(&id), 14.))
                             .child(
                                 ui::text(faces, name)
                                     .text_size(px(12.5))
@@ -496,7 +496,6 @@ impl Desk {
             .collect();
         for (n, s) in archived.iter().enumerate() {
             let key = s.key;
-            let name = self.name_of(&s.agent);
             list = list.child(
                 div()
                     .flex()
@@ -505,7 +504,7 @@ impl Desk {
                     .px(px(16.))
                     .py(px(10.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
+                    .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
                     // Opened to read, it says it is archived, with Restore.
                     .child(
                         div()

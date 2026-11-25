@@ -19,7 +19,7 @@ use crate::{
     session::{Change, Session, State},
     theme,
     thread::{self, drawn, kinds},
-    ui::{self, Mark, Weight},
+    ui::{self, Weight},
     when,
 };
 
@@ -1041,7 +1041,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &agent), 12.))
+                    .child(ui::mark(faces, &self.mark_of(&s.agent), 12.))
                     .child(fine(faces, format!("{agent} · ACP v1"))),
             ))
             .child(key_value(faces, "Working directory", {

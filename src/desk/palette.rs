@@ -13,12 +13,7 @@ use gpui::{
 };
 
 use super::{Desk, Page, Popup};
-use crate::{
-    fonts::Faces,
-    session::State,
-    theme,
-    ui::{self, Mark},
-};
+use crate::{fonts::Faces, session::State, theme, ui};
 
 /// What a line of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,7 +541,7 @@ impl Desk {
                 );
             }
             let lead = match &line.agent {
-                Some(agent) => ui::mark(faces, &Mark::of(agent, &self.name_of(agent)), 16.),
+                Some(agent) => ui::mark(faces, &self.mark_of(agent), 16.),
                 None => ui::icon(line.icon, 15.)
                     .flex_none()
                     .text_color(theme::muted())

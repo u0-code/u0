@@ -15,7 +15,7 @@ use crate::{
     hub::Slot,
     session::{Asked, Item, Session},
     theme,
-    ui::{self, Mark, Weight},
+    ui::{self, Weight},
     when,
 };
 
@@ -354,7 +354,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
+                    .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
                     .child(ui::text(faces, format!("Sign in to {name}")).text_size(px(14.))),
             )
             .child(

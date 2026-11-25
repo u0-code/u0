@@ -9,9 +9,7 @@ use crate::{
     fonts::Faces,
     hub::Stage,
     session::State,
-    theme,
-    ui::{self, Mark},
-    when,
+    theme, ui, when,
 };
 
 impl Desk {
@@ -121,7 +119,7 @@ impl Desk {
                             .into_any_element()
                     };
                     bar = bar
-                        .child(ui::mark(faces, &Mark::of(&s.agent, &name), 16.))
+                        .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
                         .child(named)
                         .child(
                             ui::one_line(meta(faces, place))
@@ -173,7 +171,7 @@ impl Desk {
                     Some(_) => "Installed",
                 };
                 bar = bar
-                    .child(ui::mark(faces, &Mark::of(id, &name), 16.))
+                    .child(ui::mark(faces, &self.mark_of(id), 16.))
                     .child(title(name))
                     .child(meta(faces, state));
             }

@@ -18,7 +18,7 @@ use crate::{
     registry::{Missing, Way},
     session::State,
     theme,
-    ui::{self, Mark, Weight},
+    ui::{self, Weight},
 };
 
 /// The width of a page's column.
@@ -400,7 +400,7 @@ impl Desk {
                         .flex()
                         .flex_col()
                         .gap(px(14.))
-                        .child(ui::mark(faces, &Mark::of(id, &name), 48.))
+                        .child(ui::mark(faces, &self.mark_of(id), 48.))
                         .child(
                             ui::text(faces, headline)
                                 .text_size(px(22.))

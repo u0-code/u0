@@ -285,7 +285,7 @@ impl Desk {
         let write = ui::led_button(
             faces,
             "ask-message",
-            Some(ui::mark(faces, &ui::Mark::of(&s.agent, &name), 12.)),
+            Some(ui::mark(faces, &self.mark_of(&s.agent), 12.)),
             "Write it",
             Weight::Quiet,
         )

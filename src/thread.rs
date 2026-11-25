@@ -338,6 +338,21 @@ impl Desk {
         }
     }
 
+    /// The mark of the agent `id`: its logo where the home holds one (an
+    /// agent on another machine shows its own), else its initial.
+    pub(crate) fn mark_of(&self, id: &str) -> Mark {
+        let agent = crate::remote::split(id).0;
+        if self.registry.logos.contains(agent) {
+            return Mark::Logo(agent.to_owned().into());
+        }
+        Mark::Letter(
+            self.name_of(id)
+                .chars()
+                .find(|c| c.is_alphanumeric())
+                .map_or('?', |c| c.to_ascii_uppercase()),
+        )
+    }
+
     /// The name of the value chosen for the session's option in `category`.
     pub(crate) fn option_name(
         s: &Session,
@@ -453,7 +468,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .px(px(10.))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
+                    .child(ui::mark(faces, &self.mark_of(&s.agent), 14.))
                     .child(meta(faces, parts.join(" · ")))
                     .children(origin.map(|o| {
                         let back = o.key;
@@ -485,7 +500,7 @@ impl Desk {
             .items_center()
             .gap(px(14.))
             .mt(px(140.))
-            .child(ui::mark(faces, &Mark::of(&s.agent, name), 48.))
+            .child(ui::mark(faces, &self.mark_of(&s.agent), 48.))
             .child(
                 ui::text(faces, format!("New session with {name}"))
                     .text_size(px(22.))

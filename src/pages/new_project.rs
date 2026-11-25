@@ -41,11 +41,7 @@ impl Desk {
                     .flex_1(),
                 );
             for agent in &agents {
-                row = row.child(ui::mark(
-                    faces,
-                    &ui::Mark::of(agent, &self.name_of(agent)),
-                    14.,
-                ));
+                row = row.child(ui::mark(faces, &self.mark_of(agent), 14.));
             }
             row = row
                 .child(ui::fine(

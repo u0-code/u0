@@ -573,7 +573,7 @@ impl Desk {
                     ui::led_button(
                         faces,
                         "ask-chosen",
-                        Some(ui::mark(faces, &ui::Mark::of(&agent, &name), 12.)),
+                        Some(ui::mark(faces, &self.mark_of(&agent), 12.)),
                         format!("Ask {name} about this"),
                         Weight::Quiet,
                     )

@@ -59,24 +59,6 @@ pub enum Mark {
     Letter(char),
 }
 
-impl Mark {
-    /// The mark of the agent `id` called `name`: its logo when the home
-    /// holds one.
-    pub fn of(id: &str, name: &str) -> Self {
-        // An agent on another machine shows its own logo.
-        let id = crate::remote::split(id).0;
-        if crate::registry::icon_path(&crate::settings::home(), id).is_file() {
-            Self::Logo(SharedString::from(id.to_owned()))
-        } else {
-            Self::Letter(
-                name.chars()
-                    .find(|c| c.is_alphanumeric())
-                    .map_or('?', |c| c.to_ascii_uppercase()),
-            )
-        }
-    }
-}
-
 /// An agent's mark at `size`: its logo in its brand's colour, or its letter
 /// on a neutral tile.
 pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {

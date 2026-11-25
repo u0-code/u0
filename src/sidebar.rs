@@ -14,9 +14,7 @@ use crate::{
     fonts::Faces,
     hub::{Slot, Stage},
     session::{Session, State},
-    theme,
-    ui::{self, Mark},
-    when,
+    theme, ui, when,
 };
 
 impl Desk {
@@ -189,11 +187,11 @@ impl Desk {
             let on = self.page == Page::Agent(id.clone());
             more = more.child(
                 agent_shell(SharedString::from(format!("more-{id}")), on)
-                    .child(div().opacity(0.45).child(ui::mark(
-                        faces,
-                        &Mark::of(&id, &entry.name),
-                        16.,
-                    )))
+                    .child(
+                        div()
+                            .opacity(0.45)
+                            .child(ui::mark(faces, &self.mark_of(&id), 16.)),
+                    )
                     .child(
                         ui::one_line(
                             ui::text(faces, theme::agent_name(&id, &entry.name).into_owned())
@@ -387,11 +385,11 @@ impl Desk {
             _ => None,
         };
         let mark: AnyElement = if usable {
-            ui::mark(faces, &Mark::of(&id, &slot.entry.name), 16.)
+            ui::mark(faces, &self.mark_of(&id), 16.)
         } else {
             div()
                 .opacity(0.45)
-                .child(ui::mark(faces, &Mark::of(&id, &slot.entry.name), 16.))
+                .child(ui::mark(faces, &self.mark_of(&id), 16.))
                 .into_any_element()
         };
         let target = id.clone();
@@ -708,7 +706,7 @@ impl Desk {
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
             .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
                 faces,
-                &Mark::of(&s.agent, &agent),
+                &self.mark_of(&s.agent),
                 14.,
             )))
             .child(name)

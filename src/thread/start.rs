@@ -11,9 +11,7 @@ use crate::{
     fonts::{Faces, Weighted as _},
     session::{Session, State},
     sidebar::kbd,
-    theme,
-    ui::{self, Mark},
-    when,
+    theme, ui, when,
 };
 
 /// How many sessions to pick up are listed.
@@ -35,7 +33,7 @@ impl Desk {
                 ui::led_button(
                     faces,
                     SharedString::from(format!("start-{id}")),
-                    Some(ui::mark(faces, &Mark::of(&id, &name), 16.)),
+                    Some(ui::mark(faces, &self.mark_of(&id), 16.)),
                     name,
                     ui::Weight::Secondary,
                 )
@@ -206,7 +204,6 @@ impl Desk {
         let now = SystemTime::now();
         for (n, s) in sessions.iter().enumerate() {
             let key = s.key;
-            let name = self.name_of(&s.agent);
             let tail = match asks(s) {
                 Some(what) => fine(faces, what).text_color(theme::accent()),
                 None if matches!(s.state, State::Working | State::Opening) => {
@@ -230,7 +227,7 @@ impl Desk {
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .cursor_pointer()
                     .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mark(faces, &Mark::of(&s.agent, &name), 14.))
+                    .child(ui::mark(faces, &self.mark_of(&s.agent), 14.))
                     .child(
                         ui::one_line(
                             ui::text(faces, ui::fit(&s.title, 52))

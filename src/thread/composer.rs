@@ -136,7 +136,7 @@ impl Desk {
             .child(self.chip(
                 faces,
                 &Popup::Agent,
-                Some(&Mark::of(&s.agent, &name)),
+                Some(&self.mark_of(&s.agent)),
                 &agent_label,
                 "Start this session with",
                 agent_choices,
@@ -791,7 +791,7 @@ impl Desk {
                 // ⌘1 to ⌘9 choose among the first nine, while it is open.
                 let numbered = (shown <= 9 && *popup != Popup::Agent).then(|| format!("⌘{shown}"));
                 let popup = popup.clone();
-                let agent_mark = (popup == Popup::Agent).then(|| Mark::of(&value, &label));
+                let agent_mark = (popup == Popup::Agent).then(|| self.mark_of(&value));
                 scroll = scroll.child(
                     ui::menu_row(SharedString::from(format!("{id}-{n}")), on)
                         .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))

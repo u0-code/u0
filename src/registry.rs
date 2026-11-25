@@ -36,6 +36,21 @@ pub const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/re
 pub struct Registry {
     #[serde(default)]
     pub agents: Vec<Entry>,
+    /// The agents whose logo the home holds, by id: read with the
+    /// registry, not from it.
+    #[serde(skip)]
+    pub logos: std::collections::HashSet<String>,
+}
+
+impl Registry {
+    /// Note which of its agents' logos `home` holds.
+    fn with_logos(mut self, home: &Path) -> Self {
+        self.logos = (self.agents.iter())
+            .filter(|e| icon_path(home, &e.id).is_file())
+            .map(|e| e.id.clone())
+            .collect();
+        self
+    }
 }
 
 /// One agent the registry lists.
@@ -341,7 +356,9 @@ pub fn which(name: &str) -> Option<PathBuf> {
 /// The copy of the registry kept in `home`, if there is one.
 pub fn kept(home: &Path) -> Option<Registry> {
     let text = std::fs::read_to_string(home.join("registry.json")).ok()?;
-    serde_json::from_str(&text).ok()
+    serde_json::from_str::<Registry>(&text)
+        .ok()
+        .map(|r| r.with_logos(home))
 }
 
 /// Where an agent's logo is kept, once read.
@@ -367,7 +384,7 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
         }
     }
     let _ = curl.output();
-    Ok(registry)
+    Ok(registry.with_logos(home))
 }
 
 /// Download, check and unpack `entry`'s archive for this platform. Blocking.
@@ -652,6 +669,21 @@ mod tests {
 
     fn entry(json: &str) -> Entry {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn the_registry_kept_knows_which_logos_the_home_holds() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        std::fs::write(
+            home.join("registry.json"),
+            r#"{"agents":[{"id":"a","name":"A","version":"1","distribution":{}},{"id":"b","name":"B","version":"1","distribution":{}}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(home.join("icons")).unwrap();
+        std::fs::write(icon_path(home, "a"), "<svg/>").unwrap();
+        let logos = kept(home).expect("kept").logos;
+        assert_eq!(logos, ["a".to_owned()].into());
     }
 
     #[test]
