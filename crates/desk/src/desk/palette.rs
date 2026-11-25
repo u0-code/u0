@@ -96,6 +96,8 @@ pub struct Palette {
     pub how: crate::git::Match,
     /// The sessions its Snooze page puts out of the way.
     pub snoozing: Vec<u64>,
+    /// What had the keys before it opened, to have them again.
+    pub back_to: Option<gpui::FocusHandle>,
 }
 
 impl Palette {
@@ -109,6 +111,7 @@ impl Palette {
             folders: HashMap::new(),
             how: crate::git::Match::default(),
             snoozing: Vec::new(),
+            back_to: None,
         }
     }
 }
@@ -354,6 +357,7 @@ impl Desk {
             .update(cx, |s, cx| s.set_query("", window, cx));
         if !self.palette.open {
             self.palette.open = true;
+            self.palette.back_to = window.focused(cx);
             self.want_offers();
             self.close_settings(window, cx);
             let desk = cx.entity();
@@ -405,16 +409,18 @@ impl Desk {
     }
 
     /// The palette's dialog has gone, closed here or by a click beside it:
-    /// the keys go back to the composer.
+    /// the keys go back where they were, else to the composer.
     fn palette_closed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.palette.open {
             return;
         }
         self.palette.open = false;
-        window.focus(
-            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
-            cx,
-        );
+        let back = self
+            .palette
+            .back_to
+            .take()
+            .unwrap_or_else(|| gpui::Focusable::focus_handle(self.composer.input.read(cx), cx));
+        window.focus(&back, cx);
         cx.notify();
     }
 
