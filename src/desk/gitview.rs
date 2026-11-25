@@ -29,9 +29,8 @@ impl Desk {
             return;
         }
         hub::commits(s.folder.clone(), key, self.tx.clone());
-        if crate::registry::which("gh").is_some() {
-            hub::pr(s.folder.clone(), key, self.tx.clone());
-        }
+        // Without gh there is no answer, and no pull request shown.
+        hub::pr(s.folder.clone(), key, self.tx.clone());
     }
 
     /// Ask git about the folder the session `key` works in: not on another
@@ -123,7 +122,7 @@ impl Desk {
     /// as t3code watches its threads' pull requests and their checks.
     pub(crate) fn poll_prs(&mut self) {
         self.pr_tick += 1;
-        if !self.pr_tick.is_multiple_of(2) || crate::registry::which("gh").is_none() {
+        if !self.pr_tick.is_multiple_of(2) {
             return;
         }
         for s in self

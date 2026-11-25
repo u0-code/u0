@@ -2124,7 +2124,7 @@ impl Desk {
             }
         }
         if page == Page::NewProject {
-            self.hosts = crate::remote::hosts();
+            hub::hosts(self.tx.clone());
         }
         self.page = page;
         self.popup = Popup::Closed;

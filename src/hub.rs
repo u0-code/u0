@@ -80,6 +80,8 @@ pub enum Msg {
         repo: bool,
         scripts: Vec<Script>,
     },
+    /// The hosts your SSH config names.
+    Hosts(Vec<String>),
     /// What the folder of a project holds.
     Held {
         folder: PathBuf,
@@ -805,6 +807,11 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
 pub fn notify(title: &str, body: &str, sound: bool) {
     let (title, body) = (title.to_owned(), body.to_owned());
     acp::runtime().spawn_blocking(move || crate::macos::notify(&title, &body, sound));
+}
+
+/// Read the hosts your SSH config names, for a project on another machine.
+pub fn hosts(tx: Sender) {
+    off(tx, || Msg::Hosts(crate::remote::hosts()));
 }
 
 /// Write `text` to `path` whole, and say that it is there, or why not.
