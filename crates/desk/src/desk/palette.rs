@@ -385,7 +385,7 @@ impl Desk {
                 act(
                     &format!("Settings: {}", tab.title()),
                     Act::Tab(tab),
-                    "settings",
+                    tab.icon(),
                 )
             }))
             .filter(|l| found(&l.label))
@@ -518,7 +518,7 @@ impl Desk {
                     self.ask_beside(key, cx);
                 }
             }
-            Act::Tab(tab) => self.open_tab(tab, cx),
+            Act::Tab(tab) => self.open_tab(tab, window, cx),
             Act::File(name) => self.open_named(&name),
             Act::Grouping => self.toggle_grouping(cx),
             Act::Go(key) => self.show(key, window, cx),

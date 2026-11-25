@@ -378,13 +378,21 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }
     });
-    on::<About>(cx, window, |d, _, cx| d.open_tab(Tab::About, cx));
+    on::<About>(cx, window, |d, window, cx| {
+        d.open_tab(Tab::About, window, cx);
+    });
     on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
     on::<NewSession>(cx, window, Desk::new_default);
     on::<Find>(cx, window, Desk::toggle_find);
     on::<Drawer>(cx, window, Desk::toggle_drawer);
     on::<Palette>(cx, window, Desk::toggle_palette);
-    on::<OpenSettings>(cx, window, |d, _, cx| d.open_tab(d.pages.tab, cx));
+    on::<OpenSettings>(cx, window, |d, window, cx| {
+        if d.pages.open {
+            d.close_settings(window, cx);
+        } else {
+            d.open_tab(d.pages.tab, window, cx);
+        }
+    });
     on::<NextSession>(cx, window, |d, window, cx| d.step_session(1, window, cx));
     on::<PreviousSession>(cx, window, |d, window, cx| d.step_session(-1, window, cx));
     on::<Model>(cx, window, |d, _, cx| d.open_model(cx));
@@ -395,7 +403,9 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
     on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
-    on::<Usage>(cx, window, |d, _, cx| d.open_tab(Tab::Usage, cx));
+    on::<Usage>(cx, window, |d, window, cx| {
+        d.open_tab(Tab::Usage, window, cx);
+    });
     on::<LightOrDark>(cx, window, |d, _, cx| {
         // From the look as drawn now, the other one.
         d.settings.look = if crate::theme::is_light() {

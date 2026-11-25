@@ -1,6 +1,7 @@
-//! The settings page: a column of tabs, and the tab chosen. Ghost's own
-//! settings (`prefs`); agents, which are switched on and off and installed;
-//! sessions archived, and what Ghost keeps on this machine.
+//! The settings, a dialog over the window: a column of tabs, and the tab
+//! chosen. Ghost's own settings (`prefs`); agents, which are switched on
+//! and off and installed; sessions archived, and what Ghost keeps on this
+//! machine.
 
 use std::time::SystemTime;
 
@@ -18,7 +19,7 @@ use crate::{
     when,
 };
 
-/// A tab of the settings page.
+/// A tab of the settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     General,
@@ -38,10 +39,10 @@ impl Tab {
         Self::General,
         Self::Appearance,
         Self::Chat,
-        Self::NewSessions,
-        Self::Agents,
-        Self::Sessions,
         Self::Keyboard,
+        Self::Agents,
+        Self::NewSessions,
+        Self::Sessions,
         Self::Usage,
         Self::About,
     ];
@@ -57,6 +58,30 @@ impl Tab {
             Self::Keyboard => "Keyboard",
             Self::Usage => "Usage",
             Self::About => "About",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::General => "sliders",
+            Self::Appearance => "sun",
+            Self::Chat => "reply",
+            Self::NewSessions => "plus",
+            Self::Agents => "plug",
+            Self::Sessions => "archive",
+            Self::Keyboard => "keyboard",
+            Self::Usage => "clock",
+            Self::About => "ghost",
+        }
+    }
+
+    /// The heading the side list shows it under; Ghost's own tabs have
+    /// none.
+    fn group(self) -> &'static str {
+        match self {
+            Self::Agents | Self::NewSessions | Self::Sessions | Self::Usage => "Agents",
+            Self::About => "Ghost",
+            _ => "",
         }
     }
 }
@@ -77,23 +102,33 @@ impl Desk {
         div().flex().flex_col().children(pages)
     }
 
-    pub(crate) fn settings_page(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// The settings, over the window: the tabs down the left under their
+    /// headings, the search above them; the tab chosen, or what the search
+    /// found, under a header that names it.
+    pub(crate) fn settings_dialog(
+        &self,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let mut nav = div()
+            .id("settings-nav")
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(220.))
+            .w(px(232.))
             .gap(px(2.))
-            .p(px(8.))
+            .p(px(10.))
+            .bg(theme::rail())
             .border_r_1()
             .border_color(theme::border())
+            .overflow_y_scroll()
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .h(px(30.))
+                    .h(px(32.))
                     .px(px(8.))
-                    .mb(px(6.))
+                    .mb(px(8.))
                     .gap(px(6.))
                     .rounded(px(8.))
                     .bg(theme::well())
@@ -108,51 +143,95 @@ impl Desk {
                     ),
             );
         let q = self.pages.search.read(cx).text().trim().to_lowercase();
+        let mut heading = "";
         for tab in Tab::ALL {
+            if tab.group() != heading {
+                heading = tab.group();
+                nav = nav.child(ui::label(faces, heading).px(px(8.)).pt(px(14.)).pb(px(4.)));
+            }
             let on = q.is_empty() && self.pages.tab == tab;
             nav = nav.child(
-                div()
-                    .id(SharedString::from(format!("tab-{tab:?}")))
-                    .flex()
-                    .items_center()
+                ui::menu_row(SharedString::from(format!("tab-{tab:?}")), on)
                     .h(px(32.))
-                    .px(px(10.))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(theme::panel2()))
-                    .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
+                    .child(ui::icon(tab.icon(), 15.).flex_none().text_color(if on {
+                        theme::text()
+                    } else {
+                        theme::muted()
+                    }))
                     .child(ui::text(faces, tab.title()).text_size(px(13.5)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_tab(tab, cx))),
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_tab(tab, window, cx);
+                    })),
             );
         }
-        let own = if q.is_empty() {
-            self.own_tab(faces, self.pages.tab, "", cx)
+        let shown = if !q.is_empty() {
+            self.found(faces, &q, cx)
+        } else if let Some(own) = self.own_tab(faces, self.pages.tab, "", cx) {
+            own
+        } else if self.pages.tab == Tab::Sessions {
+            self.sessions_tab(faces, cx)
         } else {
-            Some(self.found(faces, &q, cx))
+            self.agents_tab(faces, cx)
         };
-        if self.pages.tab == Tab::Sessions || own.is_some() {
-            let tab = match own {
-                Some(page) => page,
-                None => self.sessions_tab(faces, cx),
-            };
-            return div()
-                .flex()
-                .flex_1()
-                .min_h(px(0.))
-                .child(nav)
-                .child(
-                    div()
-                        .id("settings")
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .overflow_y_scroll()
-                        .child(tab),
+        let header = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .h(px(48.))
+            .pl(px(24.))
+            .pr(px(12.))
+            .border_b_1()
+            .border_color(theme::border())
+            .child(ui::text(faces, "Settings").text_color(theme::muted()))
+            .child(ui::text(faces, "/").text_color(theme::faint()))
+            .child(
+                ui::text(
+                    faces,
+                    if q.is_empty() {
+                        self.pages.tab.title()
+                    } else {
+                        "Search"
+                    },
                 )
-                .into_any_element();
-        }
+                .flex_1()
+                .weight(gpui::FontWeight::MEDIUM),
+            )
+            .child(
+                ui::icon_button("close-settings", "x", "Close · Esc")
+                    .on_click(cx.listener(|this, _, window, cx| this.close_settings(window, cx))),
+            );
+        ui::menu("settings")
+            .size_full()
+            .max_w(px(1080.))
+            .max_h(px(820.))
+            .rounded(px(16.))
+            .bg(theme::bg())
+            .child(nav)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(header)
+                    .child(
+                        div()
+                            .id("settings-tab")
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .flex_1()
+                            .min_h(px(0.))
+                            .overflow_y_scroll()
+                            .child(shown.w_full()),
+                    ),
+            )
+            .into_any_element()
+    }
 
+    /// The agents of the registry: switched on and off, installed.
+    fn agents_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
         let mut list = card().overflow_hidden();
         // What runs here, and what answers the search, from the registry.
         let query = self
@@ -264,13 +343,13 @@ impl Desk {
                 ago => format!("Registry checked {ago} ago"),
             },
         );
-        let content = div()
+        div()
             .flex()
             .flex_col()
             .gap(px(22.))
             .px(px(40.))
             .py(px(28.))
-            .max_w(px(720.))
+            .max_w(px(760.))
             .child(
                 div()
                     .flex()
@@ -363,23 +442,7 @@ impl Desk {
                     "Ghost keeps its settings and the agents it installs in {}.",
                     Desk::shown(&self.home)
                 ),
-            ));
-        div()
-            .flex()
-            .flex_1()
-            .min_h(px(0.))
-            .child(nav)
-            .child(
-                div()
-                    .id("settings")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .overflow_y_scroll()
-                    .child(content),
-            )
-            .into_any_element()
+            ))
     }
 
     /// What Ghost keeps on this machine, how much, and tidying it.
@@ -573,7 +636,7 @@ impl Desk {
             .gap(px(22.))
             .px(px(40.))
             .py(px(28.))
-            .max_w(px(720.))
+            .max_w(px(760.))
             .child(
                 ui::text(faces, "Archived sessions")
                     .text_size(px(20.))

@@ -1,6 +1,7 @@
 //! The pages that take the middle in place of a thread, as the design has
-//! them: an agent's own, which gets it ready to run in three steps, and the
-//! settings (`settings`), where agents are switched on and off.
+//! them: an agent's own, which gets it ready to run in three steps, and
+//! adding a project; and the settings (`settings`), a dialog over the
+//! window, where agents are switched on and off.
 
 mod new_project;
 mod prefs;
@@ -22,13 +23,14 @@ use crate::{
     ui::{self, Weight},
 };
 
-/// What the pages hold as you use them: the settings' tab, what is looked
-/// for among the settings and among the registry's agents, what worktree
-/// branches begin with as you write it, the action whose keys are being
-/// recorded, how much each part of Ghost's home takes and what the last
-/// tidying did; on an agent's page, the command of yours that starts it
-/// and a model id to add.
+/// What the pages hold as you use them: whether the settings are open,
+/// their tab, what is looked for among the settings and among the
+/// registry's agents, what worktree branches begin with as you write it,
+/// the action whose keys are being recorded, how much each part of Ghost's
+/// home takes and what the last tidying did; on an agent's page, the
+/// command of yours that starts it and a model id to add.
 pub struct Pages {
+    pub open: bool,
     pub tab: Tab,
     pub search: Entity<TextInput>,
     pub agent_search: Entity<TextInput>,
@@ -63,6 +65,7 @@ impl Pages {
         })
         .detach();
         Self {
+            open: false,
             tab: Tab::General,
             search,
             agent_search,

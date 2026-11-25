@@ -70,7 +70,6 @@ pub enum Page {
     Agent(String),
     /// Adding a project: cloned from an address, or made new.
     NewProject,
-    Settings,
 }
 
 /// What the right column shows of the session on screen.
@@ -584,7 +583,7 @@ impl Desk {
         let there = match crate::remote::parse(&folder) {
             Some((host, _)) if crate::remote::split(agent).1.is_none() => {
                 let Some(id) = self.remote_slot(agent, &host) else {
-                    self.open_tab(crate::pages::Tab::Agents, cx);
+                    self.open_tab(crate::pages::Tab::Agents, window, cx);
                     return;
                 };
                 Some(id)
@@ -678,6 +677,7 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
+        self.pages.open = false;
         if let Some(s) = self.sessions.at_mut(key)
             && s.meta.flags.unread
         {
@@ -726,7 +726,7 @@ impl Desk {
                 });
             match base.and_then(|a| self.remote_slot(&a, &host)) {
                 Some(id) => self.new_session(&id, folder, window, cx),
-                None => self.open_tab(crate::pages::Tab::Agents, cx),
+                None => self.open_tab(crate::pages::Tab::Agents, window, cx),
             }
             return;
         }
@@ -744,7 +744,7 @@ impl Desk {
             .map(|s| s.entry.id.clone());
         match agent {
             Some(agent) => self.new_session(&agent, folder, window, cx),
-            None => self.open_tab(crate::pages::Tab::Agents, cx),
+            None => self.open_tab(crate::pages::Tab::Agents, window, cx),
         }
     }
 
@@ -1043,8 +1043,8 @@ impl Desk {
         }
     }
 
-    /// Escape closes the menu open, else leaves the page open for the
-    /// thread, wherever the keys go: true when it did.
+    /// Escape closes the menu open, else the settings, else leaves the
+    /// page open for the thread, wherever the keys go: true when it did.
     fn escape_closes(
         &mut self,
         k: &gpui::Keystroke,
@@ -1056,7 +1056,11 @@ impl Desk {
         }
         if self.popup != Popup::Closed {
             self.close_popup(window, cx);
-        } else if self.page != Page::Thread && !self.palette.open {
+        } else if self.palette.open {
+            return false;
+        } else if self.pages.open {
+            self.close_settings(window, cx);
+        } else if self.page != Page::Thread {
             self.page = Page::Thread;
             cx.notify();
         } else {
@@ -1133,9 +1137,15 @@ impl Desk {
         true
     }
 
-    /// Settings, at the tab `tab`, with nothing searched for; what Sessions
-    /// and Usage show is measured afresh.
-    pub fn open_tab(&mut self, tab: crate::pages::Tab, cx: &mut Context<Self>) {
+    /// The settings open over the window at the tab `tab`, with nothing
+    /// searched for and the keys in their search; what Sessions and Usage
+    /// show is measured afresh.
+    pub fn open_tab(
+        &mut self,
+        tab: crate::pages::Tab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.pages.tab = tab;
         self.pages.search.update(cx, |i, cx| i.set_text("", cx));
         match tab {
@@ -1143,7 +1153,18 @@ impl Desk {
             crate::pages::Tab::Usage => self.weigh_agents(),
             _ => {}
         }
-        self.open_page(Page::Settings, cx);
+        self.pages.open = true;
+        self.popup = Popup::Closed;
+        window.focus(&self.pages.search.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// Close the settings; the keys go back to the composer.
+    pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pages.open = false;
+        self.pages.recording = None;
+        window.focus(&self.composer.input.focus_handle(cx));
+        cx.notify();
     }
 
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -1161,6 +1182,7 @@ impl Desk {
         }
         self.page = page;
         self.popup = Popup::Closed;
+        self.pages.open = false;
         cx.notify();
     }
 
@@ -1244,7 +1266,6 @@ impl Render for Desk {
                     .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
-            Page::Settings => middle.child(self.settings_page(&faces, cx)),
             Page::NewProject => middle.child(self.new_project_page(&faces, cx)),
         };
         let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
@@ -1298,19 +1319,40 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
-            // Under a menu or the palette, the rest of the window: a click
-            // there closes it and does nothing else.
-            .when(self.popup != Popup::Closed || self.palette.open, |d| {
-                d.child(div().absolute().inset_0().occlude().on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        if this.palette.open {
-                            this.toggle_palette(window, cx);
-                        }
-                    }),
-                ))
-            })
+            // Under a menu, the palette or the settings, the rest of the
+            // window: a click there closes what is on top and does nothing
+            // else. The settings sit on it, the window dimmed around them.
+            .when(
+                self.popup != Popup::Closed || self.palette.open || self.pages.open,
+                |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .occlude()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    if this.popup != Popup::Closed {
+                                        this.close_popup(window, cx);
+                                    } else if this.palette.open {
+                                        this.toggle_palette(window, cx);
+                                    } else {
+                                        this.close_settings(window, cx);
+                                    }
+                                }),
+                            )
+                            .when(self.pages.open, |d| {
+                                d.flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .p(px(40.))
+                                    .bg(gpui::black().opacity(0.45))
+                                    .child(self.settings_dialog(&faces, cx))
+                            }),
+                    )
+                },
+            )
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))

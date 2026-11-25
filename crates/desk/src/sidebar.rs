@@ -218,9 +218,9 @@ impl Desk {
                         .text_color(theme::muted()),
                 )
                 .when(rest > 0, |d| d.child(fine(faces, rest.to_string())))
-                .on_click(
-                    cx.listener(|this, _, _, cx| this.open_tab(crate::pages::Tab::Agents, cx)),
-                ),
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_tab(crate::pages::Tab::Agents, window, cx);
+                })),
         );
 
         let list = div()
@@ -316,7 +316,7 @@ impl Desk {
                 )
             });
 
-        let settings_on = self.page == Page::Settings;
+        let settings_on = self.pages.open;
         let foot = div()
             .flex()
             .flex_none()
@@ -329,7 +329,9 @@ impl Desk {
                     .flex_1()
                     .child(ui::icon("settings", 16.).text_color(theme::faint()))
                     .child(ui::text(faces, "Settings").flex_1().text_size(px(13.)))
-                    .on_click(cx.listener(|this, _, _, cx| this.open_tab(this.pages.tab, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_tab(this.pages.tab, window, cx);
+                    })),
             );
 
         div()
