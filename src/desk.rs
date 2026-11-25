@@ -367,11 +367,7 @@ impl Desk {
         })
         .detach();
         let cmd_sends = settings.cmd_sends;
-        crate::thread::drawn::set_wrap(settings.diff_wrap);
-        crate::git::leave_out_spacing(settings.no_spacing);
-        choose_editor(settings.editor.clone());
-        crate::when::set_twelve(settings.twelve);
-        theme::set_blue_orange(settings.blue_orange);
+        mirror(&settings, cx);
         let input = cx.new(|cx| {
             let mut i = TextInput::new(cx, "Ask for anything, or give a task")
                 .wrapping(8)
@@ -1985,11 +1981,7 @@ impl Desk {
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         let breaks = self.settings.cmd_sends;
         self.input.update(cx, |i, _| i.set_enter_breaks(breaks));
-        crate::thread::drawn::set_wrap(self.settings.diff_wrap);
-        crate::git::leave_out_spacing(self.settings.no_spacing);
-        choose_editor(self.settings.editor.clone());
-        crate::when::set_twelve(self.settings.twelve);
-        theme::set_blue_orange(self.settings.blue_orange);
+        mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
             self.refresh_diffs(key);
@@ -2313,6 +2305,18 @@ pub const EDITORS: [(&str, &str); 4] = [
 /// The editor you chose (its command), as the settings set it: none, the
 /// first found.
 static EDITOR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Set what the settings say where it is read as the window is drawn,
+/// not from the settings: as Ghost starts and as they change.
+fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
+    crate::thread::drawn::set_wrap(settings.diff_wrap);
+    crate::git::leave_out_spacing(settings.no_spacing);
+    choose_editor(settings.editor.clone());
+    crate::when::set_twelve(settings.twelve);
+    theme::set_blue_orange(settings.blue_orange);
+    theme::set_contrast(settings.contrast);
+    fonts::set_mono(cx, settings.mono);
+}
 
 pub fn choose_editor(command: Option<String>) {
     if let Ok(mut e) = EDITOR.lock() {

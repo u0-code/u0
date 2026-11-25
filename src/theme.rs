@@ -34,6 +34,23 @@ pub fn set_blue_orange(on: bool) {
     BLUE_ORANGE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether what matters less is drawn stronger: set from the settings.
+static CONTRAST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_contrast(on: bool) {
+    CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `normal`, or `strong` with more contrast; each dark then light.
+fn step(normal: (u32, u32), strong: (u32, u32)) -> Hsla {
+    let (dark, light) = if CONTRAST.load(std::sync::atomic::Ordering::Relaxed) {
+        strong
+    } else {
+        normal
+    };
+    pick(dark, light)
+}
+
 /// The colour of what a change added: green, or blue.
 pub fn added() -> Hsla {
     if BLUE_ORANGE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -90,7 +107,7 @@ pub fn well() -> Hsla {
 /// Lines between things, and the frame of a card or a box in the thread:
 /// barely there, as in Claude's app.
 pub fn border() -> Hsla {
-    pick(0x2222_22, 0xE5E5_E3)
+    step((0x2222_22, 0xE5E5_E3), (0x3838_38, 0xCFCF_CC))
 }
 /// The edge of a chip or a small framed control.
 pub fn tag_line() -> Hsla {
@@ -98,7 +115,7 @@ pub fn tag_line() -> Hsla {
 }
 /// A stronger line: a control's edge.
 pub fn border2() -> Hsla {
-    pick(0x3838_38, 0xCFCF_CC)
+    step((0x3838_38, 0xCFCF_CC), (0x5050_50, 0xA8A8_A4))
 }
 /// A hover, on the ground or on the rail.
 pub fn hover() -> Hsla {
@@ -110,15 +127,15 @@ pub fn text() -> Hsla {
 }
 /// Text that matters a little less.
 pub fn text2() -> Hsla {
-    pick(0xB4B4_B4, 0x4747_47)
+    step((0xB4B4_B4, 0x4747_47), (0xD6D6_D6, 0x2E2E_2E))
 }
 /// Labels, a step's verb, what a command printed.
 pub fn muted() -> Hsla {
-    pick(0x9C9C_9C, 0x6666_66)
+    step((0x9C9C_9C, 0x6666_66), (0xBDBD_BD, 0x4A4A_4A))
 }
 /// The faintest readable grey: times, durations, footnotes.
 pub fn faint() -> Hsla {
-    pick(0x7575_75, 0x8686_86)
+    step((0x7575_75, 0x8686_86), (0x9C9C_9C, 0x6262_62))
 }
 /// Below faint, for what is there only to be skipped: line numbers, the
 /// "… n lines" of a fold, a plan's struck and empty marks, work dropped.

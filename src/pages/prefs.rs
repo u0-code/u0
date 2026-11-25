@@ -133,6 +133,38 @@ impl Desk {
                         row(
                             faces,
                             q,
+                            "Contrast",
+                            "More draws the greys of what matters less, and the edges, stronger.",
+                            Self::pick(
+                                faces,
+                                "contrast",
+                                [("As designed", false), ("More", true)],
+                                self.settings.contrast,
+                                |s, v| s.contrast = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Code font",
+                            "What code, commands and numbers are set in.",
+                            Self::pick(
+                                faces,
+                                "mono",
+                                [
+                                    ("JetBrains Mono", crate::settings::CodeFont::JetBrains),
+                                    ("SF Mono", crate::settings::CodeFont::SfMono),
+                                    ("Menlo", crate::settings::CodeFont::Menlo),
+                                ],
+                                self.settings.mono,
+                                |s, v| s.mono = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
                             "Reading width",
                             "How wide the thread and the composer are.",
                             Self::pick(

@@ -76,6 +76,12 @@ pub struct Settings {
     /// Lines added and taken away in blue and orange, not green and red.
     #[serde(default)]
     pub blue_orange: bool,
+    /// Text and edges that matter less drawn stronger.
+    #[serde(default)]
+    pub contrast: bool,
+    /// The face code and numbers are set in.
+    #[serde(default)]
+    pub mono: CodeFont,
     /// Dark, light, or as the system is.
     #[serde(default)]
     pub look: Look,
@@ -132,6 +138,27 @@ pub enum Calls {
     #[default]
     Folded,
     Hidden,
+}
+
+/// The face code is set in: the one shipped, or one macOS has.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeFont {
+    #[default]
+    JetBrains,
+    SfMono,
+    Menlo,
+}
+
+impl CodeFont {
+    /// Its family's name.
+    pub fn family(self) -> &'static str {
+        match self {
+            Self::JetBrains => "JetBrains Mono",
+            Self::SfMono => "SF Mono",
+            Self::Menlo => "Menlo",
+        }
+    }
 }
 
 /// The look: dark, light, or as the system is.
@@ -224,6 +251,8 @@ impl Default for Settings {
             look: Look::default(),
             twelve: false,
             blue_orange: false,
+            contrast: false,
+            mono: CodeFont::default(),
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),

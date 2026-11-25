@@ -112,6 +112,22 @@ pub trait Weighted: Styled + Sized {
 
 impl<E: Styled> Weighted for E {}
 
+/// Set code in `mono`, where this Mac has it; else as it was.
+pub fn set_mono(cx: &mut App, mono: crate::settings::CodeFont) {
+    let wanted = mono.family();
+    if !cx
+        .text_system()
+        .all_font_names()
+        .iter()
+        .any(|n| n == wanted)
+    {
+        return;
+    }
+    let mut faces = faces(cx).clone();
+    faces.mono = wanted.into();
+    cx.set_global(faces);
+}
+
 pub fn faces(cx: &App) -> &Faces {
     cx.global::<Faces>()
 }
