@@ -193,18 +193,9 @@ fn safe(id: &str) -> String {
 /// The index in `home`; empty when there is none. One that does not read
 /// is refused with why, and nothing is saved over it.
 pub fn load(home: &Path) -> Result<Index, String> {
-    let path = index_path(home);
-    let text = match std::fs::read_to_string(&path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Index::default()),
-        text => text.map_err(|e| e.to_string()),
-    };
-    text.and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
-        .map_err(|e| {
-            format!(
-                "{} is not in a form this desk reads ({e}). Move it away to start afresh; until then sessions are not remembered.",
-                path.display()
-            )
-        })
+    whole::read_json(&index_path(home)).map_err(|e| {
+        format!("{e}. Move it away to start afresh; until then sessions are not remembered.")
+    })
 }
 
 /// The index as bytes, to be written whole.

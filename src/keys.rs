@@ -222,13 +222,7 @@ fn shown(m: gpui::Modifiers, key: &str) -> String {
 /// now. A file that does not read is left alone. Blocking.
 pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Binding>, String> {
     let path = home.join("keybindings.json");
-    let mut list: Vec<Binding> = match std::fs::read_to_string(&path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        text => text
-            .map_err(|e| e.to_string())
-            .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
-            .map_err(|e| format!("{} does not read: {e}", path.display()))?,
-    };
+    let mut list: Vec<Binding> = crate::whole::read_json(&path)?;
     list.retain(|b| b.action != name);
     if let Some(key) = key {
         list.push(Binding {
@@ -257,14 +251,11 @@ fn shown_of(key: &str) -> Option<String> {
     Some(shown(k.modifiers, &k.key))
 }
 
-/// The bindings in `home`'s `keybindings.json`; none where there is none.
+/// The bindings in `home`'s `keybindings.json`; none where there is none,
+/// or (said in the log) where it does not read.
 pub fn yours(home: &Path) -> Vec<Binding> {
-    let path = home.join("keybindings.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&text).unwrap_or_else(|e| {
-        tracing::warn!("{} does not read: {e}", path.display());
+    crate::whole::read_json(&home.join("keybindings.json")).unwrap_or_else(|e| {
+        tracing::warn!("{e}");
         Vec::new()
     })
 }

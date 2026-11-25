@@ -11,7 +11,7 @@
 //! message until it has run. The drawer adds, changes and takes away
 //! scripts, written back to the file.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -37,29 +37,12 @@ pub struct Script {
     pub wait: bool,
 }
 
-/// `ghost.json` of the repository at `dir`, and what it says: nothing
-/// where there is no such file; refused where it does not read, so that
-/// nothing is written over it.
-fn read_config(dir: &Path) -> Result<(PathBuf, Config), String> {
+/// Put `script` at `at` in `ghost.json` of the repository at `dir` (a new
+/// one at the end), or take the one at `at` away when `script` is none.
+pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
     let root = crate::git::root(dir).ok_or("the folder is not in a git repository")?;
     let path = root.join("ghost.json");
-    match std::fs::read_to_string(&path) {
-        Err(_) => Ok((path, Config::default())),
-        Ok(text) => serde_json::from_str(&text)
-            .map(|c| (path.clone(), c))
-            .map_err(|e| {
-                format!(
-                    "{} does not read ({e}); move it away or mend it",
-                    path.display()
-                )
-            }),
-    }
-}
-
-/// Put `script` at `at` in `ghost.json` (a new one at the end), or take
-/// the one at `at` away when `script` is none.
-pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
-    let (path, mut config) = read_config(dir)?;
+    let mut config: Config = crate::whole::read_json(&path)?;
     match (at, script) {
         (Some(at), Some(script)) if at < config.scripts.len() => config.scripts[at] = script,
         (Some(at), None) if at < config.scripts.len() => {
@@ -77,13 +60,10 @@ pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Re
 /// none where there is no such file, and none (said once in the log) where
 /// it does not read.
 pub fn config(root: &Path) -> Config {
-    match std::fs::read_to_string(root.join("ghost.json")) {
-        Err(_) => Config::default(),
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            tracing::warn!("{} does not read: {e}", root.join("ghost.json").display());
-            Config::default()
-        }),
-    }
+    crate::whole::read_json(&root.join("ghost.json")).unwrap_or_else(|e| {
+        tracing::warn!("{e}");
+        Config::default()
+    })
 }
 
 #[cfg(test)]

@@ -7,10 +7,25 @@
 //! that the rename is kept too. On macOS `File::sync_all` is `F_FULLFSYNC`:
 //! about 10 ms a write on an Apple SSD, which is why the cache is written
 //! off the window's thread.
+//!
+//! Read back, a JSON file that is not there is the default, and one that
+//! does not read is refused with why, so that nothing is written over it.
 
 use std::{fs, io, path::Path};
 
 use tempfile::NamedTempFile;
+
+/// The JSON at `path`; the default where there is no file, and why where
+/// it does not read.
+pub fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T, String> {
+    match fs::read_to_string(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(T::default()),
+        text => text
+            .map_err(|e| e.to_string())
+            .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+            .map_err(|e| format!("{} does not read ({e})", path.display())),
+    }
+}
 
 /// Write `bytes` to `path` whole, making its directory if need be. A file
 /// already there keeps its permissions.

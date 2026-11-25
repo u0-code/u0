@@ -270,18 +270,12 @@ impl Settings {
     /// that cannot be read is not overwritten: the reason comes back with
     /// the defaults, and nothing is saved until it is moved away.
     pub fn load(home: &Path) -> (Self, Option<String>) {
-        let path = home.join("settings.json");
-        let text = match std::fs::read_to_string(&path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Self::default(), None),
-            text => text.map_err(|e| e.to_string()),
-        };
-        match text.and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string())) {
+        match crate::whole::read_json(&home.join("settings.json")) {
             Ok(settings) => (settings, None),
             Err(e) => (
                 Self::default(),
                 Some(format!(
-                    "{} is not in a form this desk reads ({e}). Move it away to start afresh; until then nothing is saved.",
-                    path.display()
+                    "{e}. Move it away to start afresh; until then nothing is saved."
                 )),
             ),
         }
