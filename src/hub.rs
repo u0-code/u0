@@ -372,6 +372,8 @@ pub enum GitAction {
     Switch(String),
     /// Rename the worktree's branch, unless it is pushed.
     RenameBranch(String),
+    /// Merge the branch's pull request (squashed), as gh does.
+    Merge,
 }
 
 impl GitAction {
@@ -384,6 +386,7 @@ impl GitAction {
             Self::RemoveWorktree(_) => "remove the worktree",
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
+            Self::Merge => "merge the pull request",
         }
     }
 }
@@ -757,6 +760,8 @@ pub struct Pr {
     /// open, merged, closed; draft.
     pub state: String,
     pub draft: bool,
+    /// It cannot be merged as it is: it conflicts with its base.
+    pub conflicts: bool,
     /// Its checks: how many passed, failed, and are still going.
     pub passed: usize,
     pub failed: usize,
@@ -782,7 +787,7 @@ fn read_pr(dir: &std::path::Path) -> Option<Pr> {
             "pr",
             "view",
             "--json",
-            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup",
+            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable",
         ])
         .stdin(std::process::Stdio::null())
         .output()
@@ -812,6 +817,7 @@ fn read_pr(dir: &std::path::Path) -> Option<Pr> {
         url: v["url"].as_str().unwrap_or_default().to_owned(),
         state: v["state"].as_str().unwrap_or_default().to_lowercase(),
         draft: v["isDraft"].as_bool().unwrap_or(false),
+        conflicts: v["mergeable"].as_str() == Some("CONFLICTING"),
         passed: count(&|w| matches!(w, "SUCCESS" | "NEUTRAL" | "SKIPPED")),
         failed: count(&|w| {
             matches!(
@@ -1170,6 +1176,7 @@ pub fn git_action(
                 })
             }),
             GitAction::Switch(b) => git::switch(&dir, b).map(|()| format!("On {b}")),
+            GitAction::Merge => git::merge_pr(&dir).map(|_| "The pull request is merged".into()),
             GitAction::RenameBranch(b) => git::rename_branch(&dir, b).map(|()| b.clone()),
             GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
                 .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),

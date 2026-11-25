@@ -734,6 +734,13 @@ pub fn pull_request_text(dir: &Path, number: u64) -> Option<String> {
     run(&mut gh).ok()
 }
 
+/// Merge the pull request of the branch `dir` is on, squashed, as gh does.
+pub fn merge_pr(dir: &Path) -> Result<String, String> {
+    let mut gh = Command::new("gh");
+    gh.current_dir(dir).args(["pr", "merge", "--squash"]);
+    run(&mut gh)
+}
+
 /// Run a command as you, with your git and gh configuration; its output.
 fn run(command: &mut Command) -> Result<String, String> {
     let program = command.get_program().to_string_lossy().into_owned();

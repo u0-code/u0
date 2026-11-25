@@ -347,6 +347,10 @@ impl Desk {
         }
         let url = pr.url.clone();
         let key = s.key;
+        let open = pr.state == "open" && !pr.draft;
+        if pr.conflicts {
+            checks.push(("conflicts with its base".into(), theme::coral()));
+        }
         let mut line = div().flex().flex_wrap().gap(px(8.));
         for (text, color) in checks {
             line = line.child(fine(faces, text).text_color(color));
@@ -374,6 +378,33 @@ impl Desk {
                             ui::button(faces, "refresh-pr", "Check again", Weight::Quiet)
                                 .on_click(cx.listener(move |this, _, _, _| this.refresh_git(key))),
                         ),
+                )
+                // The way on from where it stands: merged once clear; what
+                // stops it, handed to the agent (a turn, spent as any is).
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
+                            d.child(ui::button(faces, "merge-pr", "Merge", Weight::Secondary).on_click(
+                                cx.listener(|this, _, _, cx| this.git_action(hub::GitAction::Merge, cx)),
+                            ))
+                        })
+                        .when(open && pr.failed > 0, |d| {
+                            d.child(ui::button(faces, "fix-checks", "Have it fix the checks", Weight::Quiet).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.say("The pull request's checks failed. Look at them (gh pr checks, and the failed runs' logs), fix what broke, commit and push.", cx);
+                                }),
+                            ))
+                        })
+                        .when(open && pr.conflicts, |d| {
+                            d.child(ui::button(faces, "fix-conflicts", "Have it resolve the conflicts", Weight::Quiet).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.say("The pull request conflicts with its base branch. Bring the base in, resolve the conflicts, run the tests, commit and push.", cx);
+                                }),
+                            ))
+                        }),
                 ),
         )
     }
