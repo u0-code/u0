@@ -384,9 +384,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     on::<Find>(cx, window, Desk::toggle_find);
     on::<Drawer>(cx, window, Desk::toggle_drawer);
     on::<Palette>(cx, window, Desk::toggle_palette);
-    on::<OpenSettings>(cx, window, |d, _, cx| {
-        d.open_page(crate::desk::Page::Settings, cx);
-    });
+    on::<OpenSettings>(cx, window, |d, _, cx| d.open_tab(d.pages.tab, cx));
     on::<NextSession>(cx, window, |d, window, cx| d.step_session(1, window, cx));
     on::<PreviousSession>(cx, window, |d, window, cx| d.step_session(-1, window, cx));
     on::<Model>(cx, window, |d, _, cx| d.open_model(cx));

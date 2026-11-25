@@ -329,7 +329,7 @@ impl Desk {
                     .flex_1()
                     .child(ui::icon("settings", 16.).text_color(theme::faint()))
                     .child(ui::text(faces, "Settings").flex_1().text_size(px(13.)))
-                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Settings, cx))),
+                    .on_click(cx.listener(|this, _, _, cx| this.open_tab(this.pages.tab, cx))),
             );
 
         div()
