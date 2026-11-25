@@ -38,6 +38,7 @@ pub enum Tab {
     Appearance,
     Chat,
     NewSessions,
+    Writing,
     Agents,
     Sessions,
     Keyboard,
@@ -48,7 +49,7 @@ pub enum Tab {
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
@@ -56,6 +57,7 @@ impl Tab {
         Self::Projects,
         Self::Agents,
         Self::NewSessions,
+        Self::Writing,
         Self::Sessions,
         Self::Usage,
         Self::About,
@@ -67,6 +69,7 @@ impl Tab {
             Self::Appearance => "Appearance",
             Self::Chat => "Chat",
             Self::NewSessions => "New sessions",
+            Self::Writing => "Writing",
             Self::Agents => "Agents",
             Self::Sessions => "Sessions",
             Self::Keyboard => "Keyboard",
@@ -82,6 +85,7 @@ impl Tab {
             Self::Appearance => "sun",
             Self::Chat => "reply",
             Self::NewSessions => "plus",
+            Self::Writing => "pencil",
             Self::Agents => "plug",
             Self::Sessions => "archive",
             Self::Keyboard => "keyboard",
@@ -95,7 +99,9 @@ impl Tab {
     /// none.
     fn group(self) -> &'static str {
         match self {
-            Self::Agents | Self::NewSessions | Self::Sessions | Self::Usage => "Agents",
+            Self::Agents | Self::NewSessions | Self::Writing | Self::Sessions | Self::Usage => {
+                "Agents"
+            }
             Self::About => "Ghost",
             _ => "",
         }

@@ -114,6 +114,7 @@ crates/core/src/
   settings.rs   ~/.ghost/settings.json and the home
   store.rs      sessions.json and each session's record; the writer thread
   whole.rs      a file written whole; a JSON file read back
+  writer.rs     text an agent writes for you: what each kind asks, what is kept
   tidy.rs       what Ghost keeps here, measured and tidied
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json
@@ -131,7 +132,7 @@ crates/desk/src/
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
-                replies, notices
+                replies, notices, writing
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
@@ -140,7 +141,7 @@ crates/desk/src/
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output
   aside/        the column's changes as git reads them (repo)
-  pages/        the settings dialog and its tabs (settings, prefs, projects)
+  pages/        the settings dialog and its tabs (settings, prefs, projects, writing)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons
@@ -158,6 +159,7 @@ assets/         fonts and the desk's own icons, built into the app
 | A program on the PATH | `registry::which` |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
+| Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
 

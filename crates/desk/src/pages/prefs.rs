@@ -336,6 +336,7 @@ impl Desk {
                 )],
             ),
             Tab::Keyboard => return self.keyboard(faces, q, cx),
+            Tab::Writing => return self.writing_tab(faces, q, cx),
             Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
             Tab::About => return self.about_ghost(faces, q, cx),
             Tab::Agents | Tab::Sessions | Tab::Projects => return None,
@@ -666,7 +667,7 @@ pub(super) fn page(faces: &Faces, title: &str, lede: &str) -> Div {
 
 /// The rows left by the search under a caption, in one frame; none when
 /// the search left none.
-fn group(faces: &Faces, caption: &str, rows: Vec<Option<Div>>) -> Option<Div> {
+pub(super) fn group(faces: &Faces, caption: &str, rows: Vec<Option<Div>>) -> Option<Div> {
     let rows: Vec<Div> = rows.into_iter().flatten().collect();
     (!rows.is_empty()).then(|| {
         div()
@@ -689,7 +690,7 @@ pub(super) fn group_of(rows: Vec<Div>) -> Div {
 
 /// Whether what is looked for, `q` (lower case), is in any of `words`;
 /// nothing looked for is in all.
-fn said(q: &str, words: &[&str]) -> bool {
+pub(super) fn said(q: &str, words: &[&str]) -> bool {
     q.is_empty() || words.iter().any(|w| w.to_lowercase().contains(q))
 }
 

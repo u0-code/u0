@@ -29,7 +29,7 @@ mod ui;
 // rest name it alike in every module of the desk.
 use ghost_core::{
     acp, git, path, proto, registry, remote, repo, scripts, server, session, settings, store, tidy,
-    when, whole,
+    when, whole, writer,
 };
 use keys::{
     About, Hide, HideOthers, Minimize, NewSession, OpenSettings, Quit, ShowAll, Stop, ToggleSidebar,

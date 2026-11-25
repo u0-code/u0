@@ -6,12 +6,13 @@
 mod prefs;
 mod projects;
 mod settings;
+mod writing;
 
 pub use settings::{Tab, height as settings_height};
 
 use gpui::component::{
     Sizable as _,
-    input::{Input, InputEvent, InputState},
+    input::{Input, InputEvent, InputState, TextareaState},
     progress::Progress,
     scroll::ScrollableElement as _,
 };
@@ -24,6 +25,7 @@ use crate::{
     hub::{Slot, Stage},
     registry::{Missing, Way},
     session::State,
+    settings::Settings,
     theme,
     ui::{self, Weight},
 };
@@ -47,10 +49,12 @@ pub struct Pages {
     pub model: Entity<InputState>,
     /// The project whose page Settings → Projects shows, if one.
     pub project: Option<std::path::PathBuf>,
+    /// Your instructions to the writer, by what it writes.
+    pub changes: Entity<TextareaState>,
 }
 
 impl Pages {
-    pub fn new(prefix: &str, window: &mut Window, cx: &mut Context<Desk>) -> Self {
+    pub fn new(settings: &Settings, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
         };
@@ -63,7 +67,7 @@ impl Pages {
         let prefix = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("ghost/")
-                .default_value(prefix.to_owned())
+                .default_value(settings.branch_prefix.clone())
         });
         cx.subscribe(&prefix, |this, input, e: &InputEvent, cx| {
             if let InputEvent::Change = e {
@@ -88,8 +92,44 @@ impl Pages {
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
             project: None,
+            changes: instructions_field(
+                &settings.writer.changes,
+                "As the repository's recent commits do",
+                |w| &mut w.changes,
+                window,
+                cx,
+            ),
         }
     }
+}
+
+/// A field for your instructions to the writer, written with `set` as
+/// you type.
+fn instructions_field(
+    now: &str,
+    placeholder: &'static str,
+    set: fn(&mut crate::settings::Writer) -> &mut String,
+    window: &mut Window,
+    cx: &mut Context<Desk>,
+) -> Entity<TextareaState> {
+    let input = cx.new(|cx| {
+        TextareaState::new(window, cx)
+            .auto_grow(2, 8)
+            .placeholder(placeholder)
+            .default_value(now.to_owned())
+    });
+    cx.subscribe(&input, move |this, input, e: &InputEvent, cx| {
+        if let InputEvent::Change = e {
+            input
+                .read(cx)
+                .value()
+                .trim()
+                .clone_into(set(&mut this.settings.writer));
+            this.save_settings();
+        }
+    })
+    .detach();
+    input
 }
 
 /// The width of a page's column.

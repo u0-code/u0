@@ -2,7 +2,7 @@
 //! t3code reads it: the branch against where it left the main one, one
 //! commit, the recent commits, the local branches (one can be checked out,
 //! never under another session at work), the branch's pull request and its
-//! checks. And a commit message the agent writes, when asked to.
+//! checks. And a commit message the writer writes, when asked to.
 
 use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
 
@@ -11,13 +11,7 @@ use gpui::{AppContext as _, Context, Entity, Window};
 use gpui::component::input::{InputEvent, InputState};
 
 use super::Desk;
-use crate::{
-    git::Scope,
-    session::{Item, State},
-};
-
-/// What the agent is asked, to write a commit message.
-const WRITE_MESSAGE: &str = "Write a commit message for the changes not committed yet: a short subject line, then a few lines on what changed and why. Reply with the message only, no code block.";
+use crate::{git::Scope, session::State};
 
 /// The changes in the column beside: which it shows; the commit message
 /// being written and whether its form is open; what you say of a file's
@@ -282,36 +276,16 @@ impl Desk {
         self.show(new, window, cx);
     }
 
-    /// Ask the agent of the session `key` to write the commit message; its
-    /// answer goes in the commit form. It is a turn of its own, and spends
-    /// what a turn spends.
+    /// Have the writer write the commit message for the session `key`;
+    /// it goes in the commit form.
     pub fn ask_message(&mut self, key: u64, cx: &mut Context<Self>) {
-        if let Some(s) = self.sessions.at_mut(key) {
-            s.git.writing_message = true;
-        }
-        self.send_in(key, WRITE_MESSAGE, cx);
-    }
-
-    /// A turn ended in the session `key`: a commit message it was asked for
-    /// goes in the commit form.
-    pub(crate) fn take_message(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
-        if !s.git.writing_message {
-            return;
-        }
-        s.git.writing_message = false;
-        let said = s.items.iter().rev().find_map(|i| match i {
-            Item::Agent(t) => Some(t.trim().to_owned()),
-            _ => None,
-        });
-        if let Some(text) = said {
-            self.review
-                .message
-                .update(cx, |m, cx| m.set_value(&text, window, cx));
-            self.review.committing = true;
-        }
+        s.git.writing_message = true;
+        let dir = s.meta.folder.clone();
+        self.ask_writer(key, crate::writer::Ask::Commit { dir });
+        cx.notify();
     }
 
     /// Begin a comment on line `line` of `path`.

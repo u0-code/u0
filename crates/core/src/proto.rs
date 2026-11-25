@@ -23,7 +23,7 @@ use crate::{
     repo::{GitAction, Held, Snapshot},
     scripts::Script,
     session::Begin,
-    store, tidy,
+    store, tidy, writer,
 };
 
 /// What the desk asks of the server. An agent is named by its registry id
@@ -102,6 +102,8 @@ pub enum Call {
         key: u64,
         session: SessionId,
     },
+    /// Have a writer write something for a session.
+    Write(writer::Order),
     /// Say `content` in `session`; the turn's end comes back.
     Prompt {
         agent: String,
@@ -441,6 +443,12 @@ pub enum Event {
     Deleted {
         key: u64,
         result: Result<(), String>,
+    },
+    /// What a writer wrote for the session `key`, or why it did not.
+    Written {
+        key: u64,
+        ask: writer::Ask,
+        result: Result<String, String>,
     },
     Ended {
         key: u64,
@@ -1038,6 +1046,16 @@ mod tests {
                 session: session.clone(),
                 content: vec![of(json!({"type": "text", "text": "go"}))],
             },
+            Call::Write(writer::Order {
+                agent: "a".into(),
+                model: Some("m".into()),
+                key: 1,
+                ask: writer::Ask::Commit { dir: dir.clone() },
+                yours: "short".into(),
+                dir: dir.clone(),
+                delete: true,
+                close: false,
+            }),
             Call::StopTask {
                 agent: "a".into(),
                 session: session.clone(),
@@ -1176,6 +1194,11 @@ mod tests {
             Event::Deleted {
                 key: 1,
                 result: Ok(()),
+            },
+            Event::Written {
+                key: 1,
+                ask: writer::Ask::Commit { dir: dir.clone() },
+                result: Ok("Add it".into()),
             },
             Event::Ended {
                 key: 1,

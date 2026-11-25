@@ -108,6 +108,26 @@ pub struct Settings {
     /// What a worktree's branch begins with, before the session's title.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
+    /// Who writes what Ghost has written for you.
+    #[serde(default)]
+    pub writer: Writer,
+}
+
+/// The writer: the agent that writes what Ghost has written for you, and
+/// the model it writes with.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Writer {
+    /// The agent, by id; none, the session's own.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Its value in that agent's model option; none, the agent's default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Your instructions for commit messages and pull requests, over
+    /// Ghost's.
+    #[serde(default)]
+    pub changes: String,
 }
 
 /// A model you starred: the agent's id, and the model's value in the
@@ -281,6 +301,7 @@ impl Default for Settings {
             diff_wrap: yes(),
             editor: None,
             no_spacing: false,
+            writer: Writer::default(),
         }
     }
 }

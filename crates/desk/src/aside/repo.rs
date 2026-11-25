@@ -253,21 +253,23 @@ impl Desk {
     }
 
     /// The message to commit with and what can be done with it: commit,
-    /// commit and push, a pull request; the agent can write the message.
+    /// commit and push, a pull request; the writer can write the message.
     pub(super) fn commit_form(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        // The agent can write the message: a turn of its own.
+        // The writer can write the message, in a session of its own.
         let key = s.key;
-        let name = self.name_of(&s.meta.agent);
+        let writer = self.writer_of(s);
         let write = ui::led_button(
             "ask-message",
-            Some(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.)),
+            Some(ui::mark(faces, &self.mark_of(&writer), 12.)),
             "Write it",
             Weight::Quiet,
         )
         .h(px(24.))
         .px(px(7.))
+        .loading(s.git.writing_message)
         .tooltip(format!(
-            "{name} writes the message: a turn of its own, spent as any turn is"
+            "{} writes the message from the changes, in a session of its own",
+            self.name_of(&writer)
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
         let what = format!(
@@ -279,17 +281,7 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(
-                // Asked during a turn, its answer would be taken for that
-                // turn's: it waits for the turn to end.
-                Input::new(&self.review.message).small().when(
-                    !matches!(
-                        s.state,
-                        crate::session::State::Working | crate::session::State::Opening
-                    ),
-                    |d| d.suffix(write),
-                ),
-            )
+            .child(Input::new(&self.review.message).small().suffix(write))
             .child(
                 div()
                     .flex()

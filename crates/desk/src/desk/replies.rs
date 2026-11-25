@@ -435,12 +435,12 @@ impl Desk {
                 }
                 self.stopping = None;
                 self.end_turn(key);
-                self.take_message(key, window, cx);
                 self.name_branch(key);
                 self.refresh_git(key);
                 // What was said meanwhile goes now, in order.
                 self.say_queued(key, cx);
             }
+            Event::Written { key, ask, result } => self.written(key, &ask, result, window, cx),
             Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(&agent) {
                     match result {

@@ -273,6 +273,30 @@ pub fn uncommitted(dir: &Path, no_spacing: bool) -> Result<Vec<FileDiff>, String
     diff(dir, &base, &now, no_spacing)
 }
 
+/// The work in `dir` as git prints it, untracked files with it: what is
+/// not committed, or with `branch` all since the branch left the main
+/// one. Its stat, then its patch cut at `most` bytes.
+pub fn patch(dir: &Path, branch: bool, most: usize) -> Result<String, String> {
+    let now = snapshot(dir, "written of")?;
+    let from = if branch {
+        let base = default_branch(dir).ok_or("the repository has no main branch")?;
+        git(dir, &["merge-base", "HEAD", &base], None)?
+    } else {
+        git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None)
+            .unwrap_or_else(|_| EMPTY_TREE.to_owned())
+    };
+    let stat = git(dir, &["diff", "--stat", &from, &now], None)?;
+    if stat.is_empty() {
+        return Err("there are no changes".into());
+    }
+    let mut patch = git(dir, &["diff", &from, &now], None)?;
+    if patch.len() > most {
+        patch.truncate(patch.floor_char_boundary(most));
+        patch.push_str("\n[the rest is cut]");
+    }
+    Ok(format!("{stat}\n\n{patch}"))
+}
+
 /// The tree git gives a repository with nothing in it.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 

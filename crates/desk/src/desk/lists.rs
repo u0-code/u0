@@ -95,6 +95,8 @@ pub enum Waiting {
     Branch(u64, Option<(usize, MessageId)>),
     /// Delete the session from the agent too.
     Delete(u64),
+    /// Have it write something for the session.
+    Write(u64, crate::writer::Ask),
 }
 
 /// What can still be taken back, and since when.
@@ -451,6 +453,7 @@ impl Desk {
                     });
                 }
             }
+            Waiting::Write(key, ask) => self.ask_writer(key, ask),
         }
     }
 

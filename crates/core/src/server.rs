@@ -22,10 +22,11 @@ use agent_client_protocol::{
     schema::ProtocolVersion,
     v1::schema::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
-        ContentBlock, DeleteSessionRequest, ForkSessionRequest, Implementation, InitializeRequest,
-        ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
-        PromptRequest, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
-        SessionConfigId, SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId,
+        ContentBlock, ContentChunk, DeleteSessionRequest, ForkSessionRequest, Implementation,
+        InitializeRequest, ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId,
+        NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+        ResumeSessionRequest, SessionConfigId, SessionConfigOptionCategory,
+        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId, SessionUpdate,
         SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities,
     },
 };
@@ -40,7 +41,7 @@ use crate::{
     session::Session,
     store::{self, Index, Job, Meta},
     terminals::Terminals,
-    tidy,
+    tidy, writer,
 };
 
 /// Where what the server says goes.
@@ -48,6 +49,10 @@ type Send = Arc<dyn Fn(Event) + std::marker::Send + Sync>;
 
 /// The agents running, by id.
 type Running = Arc<Mutex<BTreeMap<String, Arc<Agent>>>>;
+
+/// The sessions a writer writes in, each with what it has said so far:
+/// what is said there is the answer, not a thread.
+type Writing = Arc<Mutex<HashMap<SessionId, String>>>;
 
 pub struct Server {
     home: PathBuf,
@@ -59,6 +64,7 @@ pub struct Server {
     /// nothing is saved over it.
     index: Mutex<Result<Index, String>>,
     records: Arc<Records>,
+    writing: Writing,
     /// The switch that stops the clone going on.
     cloning: Mutex<Arc<AtomicBool>>,
     terminals: Terminals,
@@ -78,6 +84,7 @@ impl Server {
         }
         Self {
             records: Arc::new(Records::new(home.clone())),
+            writing: Writing::default(),
             home,
             send: Arc::new(send),
             agents: Running::default(),
@@ -141,6 +148,7 @@ impl Server {
                 session,
                 content,
             } => self.prompt(&agent, key, session, content),
+            Call::Write(order) => self.write(order),
             Call::StopTask {
                 agent,
                 session,
@@ -491,10 +499,13 @@ impl Server {
         };
         let (send, agents) = (self.send.clone(), self.agents.clone());
         let (records, running) = (self.records.clone(), self.agents.clone());
+        let writing = self.writing.clone();
         acp::runtime().spawn(async move {
             let (said, id) = (send.clone(), agent.clone());
             let result = match Agent::start(&launch, move |event| {
-                said(heard(&records, &running, &id, event));
+                if let Some(event) = heard(&records, &running, &writing, &id, event) {
+                    said(event);
+                }
             })
             .await
             {
@@ -757,6 +768,83 @@ impl Server {
         });
     }
 
+    /// Have a writer write what `order` asks: a session opened for that
+    /// alone, its model chosen, the prompt said, and what it says in answer
+    /// kept until the turn ends; then the session is let go.
+    fn write(&self, order: writer::Order) {
+        let writer::Order {
+            agent,
+            model,
+            key,
+            ask,
+            yours,
+            dir,
+            delete,
+            close,
+        } = order;
+        let (running, send, writing) = (
+            self.running(&agent),
+            self.send.clone(),
+            self.writing.clone(),
+        );
+        acp::runtime().spawn(async move {
+            let made = ask.clone();
+            let result = async {
+                let agent = running.ok_or("the agent is not running")?;
+                let prompt = tokio::task::spawn_blocking(move || made.prompt(&yours))
+                    .await
+                    .map_err(|e| e.to_string())??;
+                let opened = agent
+                    .request(NewSessionRequest::new(dir))
+                    .await
+                    .map_err(|f| f.message)?;
+                let id = opened.session_id;
+                writing
+                    .lock()
+                    .expect("writing")
+                    .insert(id.clone(), String::new());
+                let chosen = match model.zip(
+                    opened
+                        .config_options
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|o| o.category == Some(SessionConfigOptionCategory::Model)),
+                ) {
+                    Some((model, option)) => agent
+                        .request(SetSessionConfigOptionRequest::new(
+                            id.clone(),
+                            option.id,
+                            SessionConfigOptionValue::value_id(SessionConfigValueId::new(model)),
+                        ))
+                        .await
+                        .map(|_| ()),
+                    None => Ok(()),
+                };
+                let turn = match chosen {
+                    Ok(()) => agent
+                        .request(PromptRequest::new(id.clone(), vec![prompt.into()]))
+                        .await
+                        .map(|_| ()),
+                    Err(f) => Err(f),
+                };
+                let said = writing
+                    .lock()
+                    .expect("writing")
+                    .remove(&id)
+                    .unwrap_or_default();
+                if delete {
+                    let _ = agent.request(DeleteSessionRequest::new(id)).await;
+                } else if close {
+                    let _ = agent.request(CloseSessionRequest::new(id)).await;
+                }
+                turn.map_err(|f| f.message)?;
+                Ok::<_, String>(ask.take(&said))
+            }
+            .await;
+            send(Event::Written { key, ask, result });
+        });
+    }
+
     /// Stop the task `task` going on in the background in the session
     /// `session`, as the `JetBrains` extension of ACP asks it.
     fn stop_task(&self, id: &str, session: SessionId, task: String) {
@@ -919,15 +1007,48 @@ impl Server {
 /// session open with it is written in its record, and sent as the lines
 /// that makes; the rest as it is. Its process stopping closes its sessions,
 /// unless it is one let go before (another may run in its place).
-fn heard(records: &Records, running: &Running, agent: &str, event: acp::Event) -> Event {
+fn heard(
+    records: &Records,
+    running: &Running,
+    writing: &Writing,
+    agent: &str,
+    event: acp::Event,
+) -> Option<Event> {
     let event = match event {
+        // What a writer says is its answer, kept until it ends; what it
+        // would ask of you is refused: it was told it needs nothing.
+        acp::Event::Update(n) if writing.lock().expect("writing").contains_key(&n.session_id) => {
+            if let SessionUpdate::AgentMessageChunk(ContentChunk {
+                content: ContentBlock::Text(t),
+                ..
+            }) = n.update
+                && let Some(said) = writing.lock().expect("writing").get_mut(&n.session_id)
+            {
+                said.push_str(&t.text);
+            }
+            return None;
+        }
+        acp::Event::Permission { id, request }
+            if writing
+                .lock()
+                .expect("writing")
+                .contains_key(&request.session_id) =>
+        {
+            if let Some(a) = running.lock().expect("agents").get(agent) {
+                a.respond(
+                    id,
+                    RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
+                );
+            }
+            return None;
+        }
         acp::Event::Update(n) => match records.said(agent, n) {
             Ok((id, events)) => {
-                return Event::Appended {
+                return Some(Event::Appended {
                     agent: agent.to_owned(),
                     id,
                     events,
-                };
+                });
             }
             Err(n) => acp::Event::Update(*n),
         },
@@ -940,10 +1061,10 @@ fn heard(records: &Records, running: &Running, agent: &str, event: acp::Event) -
         }
         other => other,
     };
-    Event::Said {
+    Some(Event::Said {
         agent: agent.to_owned(),
         event: Box::new(event),
-    }
+    })
 }
 
 /// Whether `a` and `b` are the same session: of one agent, by one id.
@@ -1108,5 +1229,81 @@ read line"#;
         let record = store::read(&store::record_path(home.path(), "a", "s1")).unwrap();
         assert_eq!(record.len(), 2);
         assert!(store::read(&store::record_path(home.path(), "a", "probe")).is_none());
+    }
+
+    #[test]
+    fn a_writer_answers_in_a_session_of_its_own_which_is_deleted_and_never_recorded() {
+        let home = tempfile::tempdir().unwrap();
+        let repo = home.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        // An agent that opens `w1`, answers the prompt there in a code
+        // block, and writes each line it is sent to a file.
+        let agent = home.path().join("agent.sh");
+        let heard = home.path().join("heard");
+        let script = format!(
+            r#"id() {{ printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }}
+read line
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{"protocolVersion":1}}}}\n' "$(id)"
+read line; echo "$line" >> {heard}
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{"sessionId":"w1"}}}}\n' "$(id)"
+read line; echo "$line" >> {heard}
+printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"w1","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"```\nAdd a.txt"}}}}}}}}'
+printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"w1","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"\n```"}}}}}}}}'
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{"stopReason":"end_turn"}}}}\n' "$(id)"
+read line; echo "$line" >> {heard}
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{}}}}\n' "$(id)"
+read line"#,
+            heard = heard.display()
+        );
+        std::fs::write(&agent, script).unwrap();
+        let (server, rx) = server(home.path());
+        let next = || rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "version": "1", "distribution": {},
+        }))
+        .unwrap();
+        server.handle(Call::Start {
+            entry,
+            command: Some(format!("/bin/sh {}", agent.display())),
+        });
+        assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
+        let ask = writer::Ask::Commit { dir: repo };
+        server.handle(Call::Write(writer::Order {
+            agent: "a".into(),
+            model: None,
+            key: 3,
+            ask: ask.clone(),
+            yours: "Say it in French.".into(),
+            dir: home.path().to_path_buf(),
+            delete: true,
+            close: false,
+        }));
+        // What it said in the session is the answer, not an update.
+        let Event::Written {
+            key: 3,
+            ask: a,
+            result,
+        } = next()
+        else {
+            panic!("not what was written");
+        };
+        assert_eq!((a, result), (ask, Ok("Add a.txt".to_owned())));
+        let heard = std::fs::read_to_string(&heard).unwrap();
+        let lines: Vec<&str> = heard.lines().collect();
+        assert!(lines[0].contains("session/new"));
+        assert!(lines[1].contains("session/prompt") && lines[1].contains("a.txt"));
+        assert!(lines[1].contains("Say it in French."));
+        assert!(lines[2].contains("session/delete") && lines[2].contains("w1"));
+        Server::settle();
+        assert!(store::read(&store::record_path(home.path(), "a", "w1")).is_none());
     }
 }

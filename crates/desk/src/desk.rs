@@ -46,6 +46,7 @@ pub use lists::{Later, Renaming};
 mod replies;
 mod send;
 mod turns;
+mod writing;
 
 use crate::{
     fonts,
@@ -120,6 +121,8 @@ pub enum Popup {
     Projects,
     /// The project a new session works in, from its chip.
     StartIn,
+    /// The writer: an agent and its model, in the settings.
+    Writer,
 }
 
 /// Which side columns show.
@@ -423,7 +426,7 @@ impl Desk {
         })
         .detach();
 
-        let pages = crate::pages::Pages::new(&settings.branch_prefix, window, cx);
+        let pages = crate::pages::Pages::new(&settings, window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
         let transport = hub::Transport::local(home.clone(), tx.clone());
         transport.send(Call::Fetch);

@@ -268,24 +268,29 @@ impl Desk {
     /// Read what a session of `agent` offers before one is opened, and
     /// whether it is signed in, by opening one and deleting it again.
     pub(crate) fn probe_agent(&self, agent: &str) {
-        let Some(slot) = self.slot(agent) else { return };
-        let Some(caps) = slot.caps().filter(|_| slot.running()) else {
-            return;
-        };
-        let caps = &caps.session_capabilities;
-        // Opened in a folder that is there: Ghost's home here, /tmp on
-        // another machine.
+        if let Some((dir, delete, close)) = self.aside_place(agent) {
+            self.transport.send(Call::Probe {
+                agent: agent.to_owned(),
+                dir,
+                delete,
+                close,
+            });
+        }
+    }
+
+    /// Where a session of `agent` that is not yours is opened, while it
+    /// runs: a folder that is there (Ghost's home here, /tmp on another
+    /// machine), out of every project; and whether it can then be deleted,
+    /// or else closed.
+    pub(crate) fn aside_place(&self, agent: &str) -> Option<(PathBuf, bool, bool)> {
+        let slot = self.slot(agent)?;
+        let caps = &slot.caps().filter(|_| slot.running())?.session_capabilities;
         let dir = if crate::remote::split(agent).1.is_some() {
             PathBuf::from("/tmp")
         } else {
             self.home.clone()
         };
-        self.transport.send(Call::Probe {
-            agent: agent.to_owned(),
-            dir,
-            delete: caps.delete.is_some(),
-            close: caps.close.is_some(),
-        });
+        Some((dir, caps.delete.is_some(), caps.close.is_some()))
     }
 
     /// Sign in to `agent` the way it offers: its own method when it lists
