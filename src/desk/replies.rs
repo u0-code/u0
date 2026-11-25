@@ -712,7 +712,9 @@ impl Desk {
                     return;
                 };
                 slot.stage = Stage::Failed(why.clone());
-                self.sessions.exited(agent, &why);
+                for key in self.sessions.exited(agent, &why) {
+                    self.flush(key);
+                }
             }
         }
     }

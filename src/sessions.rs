@@ -11,7 +11,7 @@ use agent_client_protocol::{
 use crate::{
     acp,
     hub::{Opened, Probe},
-    session::{Item, Session, State},
+    session::{Session, State},
     store::{self, Job},
 };
 
@@ -169,16 +169,17 @@ impl Sessions {
     }
 
     /// The process of `agent` stopped, why: each of its sessions open is
-    /// closed, to be loaded when opened again, and one opening is broken.
-    pub fn exited(&mut self, agent: &str, why: &str) {
+    /// closed, to be loaded when opened again, and says so in its record;
+    /// one opening is broken. The keys of those closed, whose records are
+    /// to be written.
+    pub fn exited(&mut self, agent: &str, why: &str) -> Vec<u64> {
+        let mut closed = Vec::new();
         for s in self.all.iter_mut().filter(|s| s.meta.agent == agent) {
             let open = !matches!(s.state, State::Draft | State::Closed);
             if s.meta.id.is_some() && open {
                 // The agent keeps it: opened again, it is loaded.
-                s.items.push(Item::Note {
-                    text: format!("The agent stopped: {why}"),
-                    trouble: true,
-                });
+                s.note(&format!("The agent stopped: {why}"));
+                closed.push(s.key);
                 s.pending = None;
                 s.since = None;
                 s.state = State::Closed;
@@ -188,6 +189,7 @@ impl Sessions {
                 s.state = State::Broken(format!("The agent stopped: {why}"));
             }
         }
+        closed
     }
 
     /// The session `key` loaded or resumed (`resumed`), or not; its record
@@ -309,6 +311,7 @@ mod tests {
 
     use super::*;
     use crate::hub::{Slot, Stage};
+    use crate::session::Item;
 
     /// Sessions of the agents `a` and `b`, each open as `s1`, under keys
     /// 1 and 2.
@@ -381,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_stopping_closes_its_open_sessions_but_one_let_go_before_does_not() {
+    fn an_agent_stopping_closes_and_notes_its_open_sessions_but_one_let_go_before_does_not() {
         let home = tempfile::tempdir().unwrap();
         let entry =
             serde_json::from_str(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#)
@@ -404,10 +407,14 @@ mod tests {
         let mut opening = Session::new(key, "a", "/p".into());
         opening.state = State::Opening;
         sessions.all.push(opening);
-        sessions.exited("a", "killed");
+        assert_eq!(sessions.exited("a", "killed"), vec![1]);
         let a = sessions.at(1).unwrap();
         assert_eq!(a.state, State::Closed);
         assert!(matches!(&a.items[..], [Item::Note { trouble: true, .. }]));
+        // Kept in its record, to be there when it is read back.
+        assert!(
+            matches!(&a.log[..], [store::Event::Note { text, trouble: true }] if text == "The agent stopped: killed")
+        );
         assert_eq!(
             sessions.at(key).unwrap().state,
             State::Broken("The agent stopped: killed".into())
