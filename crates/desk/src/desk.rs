@@ -22,9 +22,9 @@ use std::{
     time::Duration,
 };
 
-use gpui::component::Selectable;
 use gpui::component::input::{InputEvent, InputState, TextareaState};
 use gpui::component::popover::Popover;
+use gpui::component::{Selectable, WindowExt as _};
 use gpui::{
     Context, Entity, Focusable as _, MouseButton, PathPromptOptions, SharedString, Window, div,
     prelude::*, px,
@@ -668,7 +668,7 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
-        self.pages.open = false;
+        self.close_settings(window, cx);
         if let Some(s) = self.sessions.at_mut(key)
             && s.meta.flags.unread
         {
@@ -1189,7 +1189,24 @@ impl Desk {
             crate::pages::Tab::Usage => self.weigh_agents(),
             _ => {}
         }
-        self.pages.open = true;
+        if !self.pages.open {
+            self.pages.open = true;
+            let desk = cx.entity();
+            let shown = cx.new(|cx| crate::pages::Shown::new(desk.clone(), cx));
+            window.open_dialog(cx, move |dialog, window, _| {
+                let tall = (window.viewport_size().height - px(80.)).min(px(820.));
+                let desk = desk.clone();
+                dialog
+                    .w(px(1080.))
+                    .h(tall)
+                    .p_0()
+                    .close_button(false)
+                    .on_close(move |_, window, cx| {
+                        desk.update(cx, |d, cx| d.settings_closed(window, cx));
+                    })
+                    .child(shown.clone())
+            });
+        }
         self.popup = Popup::Closed;
         window.focus(&self.pages.search.focus_handle(cx), cx);
         cx.notify();
@@ -1197,6 +1214,14 @@ impl Desk {
 
     /// Close the settings; the keys go back to the composer.
     pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pages.open {
+            window.close_dialog(cx);
+        }
+        self.settings_closed(window, cx);
+    }
+
+    /// The settings' dialog has gone, closed here or by a click beside it.
+    fn settings_closed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages.open = false;
         self.pages.recording = None;
         window.focus(&self.composer.input.focus_handle(cx), cx);
@@ -1222,7 +1247,7 @@ impl Desk {
         }
         self.page = page;
         self.popup = Popup::Closed;
-        self.pages.open = false;
+        self.close_settings(window, cx);
         cx.notify();
     }
 
@@ -1362,35 +1387,14 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
-            // Under the palette or the settings, the rest of the window: a
-            // click there closes what is on top and does nothing else. The
-            // settings sit on it, the window dimmed around them. A menu is
-            // a Popover, which closes itself on a click outside.
-            .when(self.palette.open || self.pages.open, |d| {
-                d.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .occlude()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, window, cx| {
-                                if this.palette.open {
-                                    this.toggle_palette(window, cx);
-                                } else {
-                                    this.close_settings(window, cx);
-                                }
-                            }),
-                        )
-                        .when(self.pages.open, |d| {
-                            d.flex()
-                                .items_center()
-                                .justify_center()
-                                .p(px(40.))
-                                .bg(gpui::black().opacity(0.45))
-                                .child(self.settings_dialog(&faces, cx))
-                        }),
-                )
+            // Under the palette, the rest of the window: a click there
+            // closes it and does nothing else. A menu is a Popover and the
+            // settings a Dialog, each closed by a click outside it.
+            .when(self.palette.open, |d| {
+                d.child(div().absolute().inset_0().occlude().on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| this.toggle_palette(window, cx)),
+                ))
             })
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
