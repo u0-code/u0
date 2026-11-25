@@ -21,6 +21,11 @@ pub fn set_light(on: bool) {
     LIGHT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether the window is drawn in the light look now.
+pub fn is_light() -> bool {
+    LIGHT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Whether lines added and taken away are blue and orange (told apart
 /// without red and green), as the settings say.
 static BLUE_ORANGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -49,11 +54,7 @@ pub fn gone() -> Hsla {
 
 /// The colour for the dark look, or its like for the light one.
 fn pick(dark: u32, light: u32) -> Hsla {
-    c(if LIGHT.load(std::sync::atomic::Ordering::Relaxed) {
-        light
-    } else {
-        dark
-    })
+    c(if is_light() { light } else { dark })
 }
 
 /// The window's ground: the thread and the right column.
