@@ -20,12 +20,34 @@ use crate::{
 };
 
 /// Something offered as you type.
+/// Ghost's own commands after `/`, beside the agent's: done at once.
+const OWN: [(&str, &str); 4] = [
+    ("clear", "Begin afresh: a new session here"),
+    ("model", "Choose the model"),
+    ("branch", "Branch off a copy of this session"),
+    ("copy", "Copy the conversation"),
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Offer {
-    Command { name: String, about: String },
+    Command {
+        name: String,
+        about: String,
+    },
+    /// One of Ghost's own commands (see `OWN`).
+    Own {
+        name: &'static str,
+        about: &'static str,
+    },
     File(String),
-    Session { key: u64, title: String },
-    Pr { number: u64, title: String },
+    Session {
+        key: u64,
+        title: String,
+    },
+    Pr {
+        number: u64,
+        title: String,
+    },
 }
 
 /// Something named with `@`, kept until it is sent: the words it put in
@@ -63,7 +85,7 @@ impl Desk {
             } else {
                 s.commands.clone()
             };
-            let offers: Vec<Offer> = commands
+            let mut offers: Vec<Offer> = commands
                 .into_iter()
                 .filter(|c| c.name.starts_with(name))
                 .take(OFFERS)
@@ -72,6 +94,11 @@ impl Desk {
                     about: c.description,
                 })
                 .collect();
+            offers.extend(
+                OWN.iter()
+                    .filter(|(own, _)| own.starts_with(name))
+                    .map(|&(name, about)| Offer::Own { name, about }),
+            );
             return (!offers.is_empty()).then_some((0, offers));
         }
         let start = text.rfind(char::is_whitespace).map_or(0, |i| {
@@ -140,7 +167,7 @@ impl Desk {
     }
 
     /// Take the offer `n` for what is typed: it replaces the word.
-    pub fn take_offer(&mut self, n: usize, cx: &mut Context<Self>) {
+    pub fn take_offer(&mut self, n: usize, window: &mut gpui::Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text();
         let Some((start, offers)) = self.offers(&text) else {
             return;
@@ -148,7 +175,28 @@ impl Desk {
         let Some(offer) = offers.get(n).cloned() else {
             return;
         };
+        // One of Ghost's own is done, not written.
+        if let Offer::Own { name, .. } = offer {
+            self.input.update(cx, |i, cx| i.set_text("", cx));
+            let key = self.current;
+            match name {
+                "clear" => self.new_default(window, cx),
+                "model" => self.open_model(cx),
+                "branch" => {
+                    if let Some(key) = key {
+                        self.fork(key, cx);
+                    }
+                }
+                _ => {
+                    if let Some(key) = key {
+                        self.copy_thread(key, cx);
+                    }
+                }
+            }
+            return;
+        }
         let token = match &offer {
+            Offer::Own { name, .. } => format!("/{name}"),
             Offer::Command { name, .. } => format!("/{name}"),
             Offer::File(f) => format!("@{f}"),
             Offer::Session { title, .. } => {
@@ -311,7 +359,7 @@ impl Desk {
                         blocks.push(text_resource(&format!("ghost://pr/{number}"), t));
                     }
                 }
-                Offer::Command { .. } => {}
+                Offer::Command { .. } | Offer::Own { .. } => {}
             }
         }
         // A path typed by hand after `@` that names a file goes too.

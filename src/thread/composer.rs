@@ -382,6 +382,9 @@ impl Desk {
                 for (n, offer) in list.into_iter().enumerate() {
                     let (icon, name, about) = match offer {
                         Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
+                        Offer::Own { name, about } => {
+                            ("ghost", format!("/{name}"), about.to_owned())
+                        }
                         Offer::File(f) => ("file", f, String::new()),
                         Offer::Session { title, .. } => ("list", title, "session".into()),
                         Offer::Pr { number, title } => (
@@ -420,7 +423,9 @@ impl Desk {
                                 )
                                 .flex_1(),
                             )
-                            .on_click(cx.listener(move |this, _, _, cx| this.take_offer(n, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.take_offer(n, window, cx);
+                            })),
                     );
                 }
                 div().mb(px(8.)).child(ui::menu("offers").child(menu))

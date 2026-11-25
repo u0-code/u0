@@ -332,9 +332,13 @@ impl Desk {
             cx.notify();
         })
         .detach();
-        cx.subscribe(&input, |this, _, _: &crate::input::Complete, cx| {
-            this.take_offer(0, cx);
-        })
+        cx.subscribe_in(
+            &input,
+            window,
+            |this, _, _: &crate::input::Complete, window, cx| {
+                this.take_offer(0, window, cx);
+            },
+        )
         .detach();
         cx.subscribe(&input, |this, _, crate::input::PastedImage(image), cx| {
             let mime = match image.format {
