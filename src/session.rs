@@ -191,6 +191,10 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// When each message (yours, the agent's) began, by its item; and the
+    /// time read from the record for the next one.
+    pub times: Vec<(usize, SystemTime)>,
+    stamp: Option<SystemTime>,
     pub plan: Option<Plan>,
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
@@ -391,7 +395,13 @@ impl Session {
 
     fn take(&mut self, e: store::Event) {
         match e {
-            store::Event::You(text) => self.items.push(Item::You(text)),
+            store::Event::At(secs) => self.stamp = Some(store::time(secs)),
+            store::Event::You(text) => {
+                if let Some(t) = self.stamp.take() {
+                    self.times.push((self.items.len(), t));
+                }
+                self.items.push(Item::You(text));
+            }
             store::Event::Update(u) => self.apply(*u),
             store::Event::Ended { reason, secs } => {
                 self.thought_over();
@@ -429,10 +439,19 @@ impl Session {
             .map(|(_, id)| id.clone())
     }
 
+    /// When the message at `item` began, if that is known.
+    pub fn time_of(&self, item: usize) -> Option<SystemTime> {
+        self.times
+            .iter()
+            .find(|(at, _)| *at == item)
+            .map(|(_, t)| *t)
+    }
+
     /// Empty the thread, to build it again.
     pub fn forget(&mut self) {
         self.items.clear();
         self.marks.clear();
+        self.times.clear();
     }
 
     /// The events of a record up to the one that begins your message
@@ -523,6 +542,8 @@ impl Session {
             items: Vec::new(),
             marks: Vec::new(),
             from: None,
+            times: Vec::new(),
+            stamp: None,
             plan: None,
             modes: None,
             options: Vec::new(),
@@ -556,7 +577,10 @@ impl Session {
 
     /// What you said, put in the thread as the turn begins.
     pub fn said(&mut self, text: &str) {
+        let now = SystemTime::now();
+        self.record(store::Event::At(store::secs(now)));
         self.record(store::Event::You(text.to_owned()));
+        self.times.push((self.items.len(), now));
         if self.items.is_empty() && !self.renamed {
             self.title = text
                 .lines()
@@ -620,6 +644,21 @@ impl Session {
 
     /// Take in one update from the agent.
     pub fn apply(&mut self, update: SessionUpdate) {
+        // A new message from the agent: when it began goes before it.
+        let begins = matches!(update, SessionUpdate::AgentMessageChunk(_))
+            && !matches!(self.items.last(), Some(Item::Agent(_)));
+        if begins {
+            let t = if self.replaying {
+                self.stamp.take()
+            } else {
+                let now = SystemTime::now();
+                self.record(store::Event::At(store::secs(now)));
+                Some(now)
+            };
+            if let Some(t) = t {
+                self.times.push((self.items.len(), t));
+            }
+        }
         if !self.replaying {
             self.updated = SystemTime::now();
             self.record(store::Event::Update(Box::new(update.clone())));
@@ -1006,7 +1045,8 @@ mod tests {
         ));
         s.ended(Ok(StopReason::EndTurn));
         let log = std::mem::take(&mut s.log);
-        assert_eq!(log.len(), 4);
+        // Each message's time goes before it: six lines for four.
+        assert_eq!(log.len(), 6);
 
         let mut again = Session::new(2, "codex-acp", "/tmp/repo".into());
         again.replay(log);
@@ -1170,5 +1210,25 @@ mod tests {
         ));
         assert!(matches!(s.items[1], Item::Image { yours: true, .. }));
         assert!(matches!(s.items[2], Item::Image { yours: false, .. }));
+    }
+
+    #[test]
+    fn when_each_message_began_is_kept_and_read_back() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.said("go");
+        s.apply(update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}"#,
+        ));
+        assert!(s.time_of(0).is_some() && s.time_of(1).is_some());
+        let mut again = Session::new(2, "x", std::env::temp_dir());
+        again.replay(std::mem::take(&mut s.log));
+        assert_eq!(
+            again.time_of(0).map(store::secs),
+            s.time_of(0).map(store::secs)
+        );
+        assert_eq!(
+            again.time_of(1).map(store::secs),
+            s.time_of(1).map(store::secs)
+        );
     }
 }

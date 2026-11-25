@@ -94,10 +94,18 @@ pub struct Flags {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
+    /// When the message that follows began, in seconds since the epoch.
+    At(u64),
     You(String),
     Update(Box<SessionUpdate>),
-    Ended { reason: StopReason, secs: u64 },
-    Note { text: String, trouble: bool },
+    Ended {
+        reason: StopReason,
+        secs: u64,
+    },
+    Note {
+        text: String,
+        trouble: bool,
+    },
 }
 
 pub fn index_path(home: &Path) -> PathBuf {

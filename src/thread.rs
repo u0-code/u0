@@ -532,9 +532,13 @@ impl Desk {
                 let mut tools = div()
                     .relative()
                     .flex()
+                    .items_center()
                     .gap(px(2.))
                     .invisible()
                     .group_hover(group.clone(), Styled::visible)
+                    .children(s.time_of(i).map(|t| {
+                        meta(faces, when::said_at(t, std::time::SystemTime::now())).mr(px(6.))
+                    }))
                     .child(
                         Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
@@ -662,7 +666,11 @@ impl Desk {
                                             this.fork_after(at, i, cx);
                                         })),
                                 )
-                            }),
+                            })
+                            .children(s.time_of(i).map(|t| {
+                                meta(faces, when::said_at(t, std::time::SystemTime::now()))
+                                    .ml(px(6.))
+                            })),
                     )
                     .into_any_element()
             }

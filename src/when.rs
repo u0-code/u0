@@ -73,6 +73,23 @@ pub fn clock(t: SystemTime) -> String {
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 
+/// When a message was said: its time of day if today ("10:42"), else its
+/// date too ("2026-11-24 10:42").
+pub fn said_at(t: SystemTime, now: SystemTime) -> String {
+    let (a, b) = (local(t), local(now));
+    if (a.tm_year, a.tm_yday) == (b.tm_year, b.tm_yday) {
+        clock(t)
+    } else {
+        format!(
+            "{}-{:02}-{:02} {}",
+            a.tm_year + 1900,
+            a.tm_mon + 1,
+            a.tm_mday,
+            clock(t)
+        )
+    }
+}
+
 /// How long ago `t` was, the way a list of sessions says it: "now", "12m",
 /// "2h", and past a day the weekday ("Mon"), past a week the date.
 pub fn ago(t: SystemTime, now: SystemTime) -> String {
