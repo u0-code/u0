@@ -23,7 +23,7 @@ use gpui::{App, Context, Entity, SharedString, Window, div, prelude::*, px};
 
 use super::{Dragged, gist};
 use crate::{
-    desk::{Desk, Later, Renaming, lists, rank},
+    desk::{Desk, Renaming, lists, rank},
     fonts::Weighted as _,
     session::{Session, State},
     store, theme, ui,
@@ -1101,18 +1101,17 @@ fn project_menu(menu: PopupMenu, folder: &Path, pinned: bool, desk: &Entity<Desk
 
 /// The ways to snooze the sessions `keys`, as menu items.
 fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64]) -> PopupMenu {
-    [
-        ("For an hour", Later::In(60)),
-        ("Until tomorrow", Later::Tomorrow),
-        ("Until next week", Later::NextWeek),
-    ]
-    .into_iter()
-    .fold(menu, |menu, (label, later)| {
+    let menu = lists::SNOOZES.iter().fold(menu, |menu, &(label, later)| {
         let (desk, keys) = (desk.clone(), keys.to_vec());
         menu.item(item(label, "clock", move |_, cx| {
             desk.update(cx, |d, cx| d.snooze(&keys, later, cx));
         }))
-    })
+    });
+    let (desk, keys) = (desk.clone(), keys.to_vec());
+    menu.separator()
+        .item(item("Custom…", "clock", move |window, cx| {
+            desk.update(cx, |d, cx| d.snooze_page(keys.clone(), window, cx));
+        }))
 }
 
 /// A folder's chevron at its end: down when open, turned when folded.

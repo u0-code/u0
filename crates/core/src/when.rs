@@ -103,18 +103,28 @@ pub fn ago(t: SystemTime, now: SystemTime) -> String {
 pub fn reset_at(text: &str, now: SystemTime) -> Option<SystemTime> {
     let text = text.to_lowercase();
     let after = &text[text.find("reset")?..];
-    let words: Vec<&str> = after
+    let after = after.split_once(char::is_whitespace)?.1;
+    ahead(after, now)
+}
+
+/// A time ahead said shortly: a while ("3h", "in 2 days") from `now`, or
+/// the next such time of day ("5pm", "at 17:30"). None where it says no
+/// time.
+pub fn ahead(text: &str, now: SystemTime) -> Option<SystemTime> {
+    let text = text.to_lowercase();
+    let words: Vec<&str> = text
         .split(|c: char| c.is_whitespace() || c == ',' || c == '.' || c == '(' || c == ')')
         .filter(|w| !w.is_empty())
-        .skip(1)
         .take(4)
         .collect();
     let words: Vec<&str> = words
         .into_iter()
-        .skip_while(|w| matches!(*w, "at" | "on"))
+        .skip_while(|w| matches!(*w, "at" | "on" | "in"))
         .collect();
-    if words.first() == Some(&"in") {
-        return span(&words.get(1..3)?.join(" ")).map(|d| now + d);
+    if let Some(d) =
+        span(&words.get(..2).unwrap_or(&words).join(" ")).or_else(|| span(words.first()?))
+    {
+        return Some(now + d);
     }
     let first = *words.first()?;
     let (clock, rest) = first.split_at(
@@ -178,6 +188,19 @@ mod tests {
             Some(at_hour(now, 1, 8))
         );
         assert_eq!(reset_at("Usage limit reached", now), None);
+    }
+
+    #[test]
+    fn a_time_ahead_is_a_while_or_the_next_such_time_of_day() {
+        let now = at_hour(SystemTime::now(), 0, 9);
+        assert_eq!(ahead("3h", now), Some(now + Duration::from_hours(3)));
+        assert_eq!(
+            ahead("in 2 days", now),
+            Some(now + Duration::from_hours(48))
+        );
+        assert_eq!(ahead("5pm", now), Some(at_hour(now, 0, 17)));
+        assert_eq!(ahead("at 08:00", now), Some(at_hour(now, 1, 8)));
+        assert_eq!(ahead("later", now), None);
     }
 
     #[test]

@@ -59,6 +59,13 @@ impl Search {
 /// How long what was done to sessions can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
 
+/// The ways to snooze offered first, as t3code's presets.
+pub const SNOOZES: [(&str, Later); 3] = [
+    ("For an hour", Later::In(60)),
+    ("Until tomorrow", Later::Tomorrow),
+    ("Until next week", Later::NextWeek),
+];
+
 /// When a snoozed session comes back, or what you wrote is said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Later {
@@ -322,7 +329,7 @@ impl Desk {
         self.save_index();
     }
 
-    /// Snooze the session `key` for the while `text` says ("3h", "2d").
+    /// Bring the session `key` back from being snoozed.
     pub fn wake(&mut self, key: u64, cx: &mut Context<Self>) {
         self.mark(key, cx, |f| f.snoozed = None);
     }

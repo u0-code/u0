@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use gpui::{Context, Keystroke, Window};
 
 use super::{Act, Desk, Lead, Row, rank};
+use crate::desk::Later;
 use crate::settings::Look;
 
 /// A page of the palette.
@@ -21,6 +22,8 @@ pub enum Sub {
     Clone,
     Make,
     Remote,
+    /// Until when the sessions in `Palette::snoozing` are out of the way.
+    Snooze,
 }
 
 impl Sub {
@@ -33,6 +36,7 @@ impl Sub {
             Self::Clone => "Clone a repository",
             Self::Make => "New project",
             Self::Remote => "On another machine",
+            Self::Snooze => "Snooze until…",
         }
     }
 
@@ -44,6 +48,7 @@ impl Sub {
             Self::Clone => "Repository URL",
             Self::Make => "Project name",
             Self::Remote => "host:/path",
+            Self::Snooze => "In 3h, in 2 days, at 5pm…",
         }
     }
 }
@@ -92,6 +97,16 @@ impl Desk {
                 .update(cx, |s, cx| s.set_query(typed, window, cx));
             cx.notify();
         }
+    }
+
+    /// Snooze the sessions `keys` until a time you type, or one of the
+    /// presets: the palette's page for it.
+    pub fn snooze_page(&mut self, keys: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.palette.open {
+            self.toggle_palette(window, cx);
+        }
+        self.palette.snoozing = keys;
+        self.palette_page(Sub::Snooze, window, cx);
     }
 
     /// The palette's New session in…, over what it shows.
@@ -240,6 +255,22 @@ impl Desk {
                     Act::Key("new_scratch"),
                 ));
                 return narrowed(rows, typed);
+            }
+            Sub::Snooze => {
+                let now = std::time::SystemTime::now();
+                let mut rows: Vec<Row> = crate::desk::lists::SNOOZES
+                    .iter()
+                    .map(|&(word, later)| Row::new("clock", word, Act::Snooze(later)))
+                    .collect();
+                let Some(at) = crate::when::ahead(typed, now) else {
+                    return narrowed(rows, typed);
+                };
+                let said = crate::when::said_at(at, now, self.settings.twelve);
+                rows.insert(
+                    0,
+                    Row::new("clock", format!("Until {said}"), Act::Snooze(Later::At(at))),
+                );
+                rows
             }
             Sub::Look => {
                 let rows = [

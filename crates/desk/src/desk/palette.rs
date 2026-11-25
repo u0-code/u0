@@ -54,6 +54,8 @@ enum Act {
     PinProject(PathBuf),
     ProjectSettings(PathBuf),
     Look(crate::settings::Look),
+    /// The sessions in `Palette::snoozing`, out of the way until then.
+    Snooze(super::Later),
     Tab(crate::pages::Tab),
     Go(u64),
     /// A project: its latest session not done, else a new one.
@@ -92,6 +94,8 @@ pub struct Palette {
     pub folders: HashMap<PathBuf, Vec<String>>,
     /// How words are looked for (⇧⌘F): case, whole words, a pattern.
     pub how: crate::git::Match,
+    /// The sessions its Snooze page puts out of the way.
+    pub snoozing: Vec<u64>,
 }
 
 impl Palette {
@@ -104,6 +108,7 @@ impl Palette {
             pages: Vec::new(),
             folders: HashMap::new(),
             how: crate::git::Match::default(),
+            snoozing: Vec::new(),
         }
     }
 }
@@ -825,6 +830,10 @@ impl Desk {
             Act::Look(look) => {
                 self.settings.look = look;
                 self.save_settings();
+            }
+            Act::Snooze(later) => {
+                let keys = std::mem::take(&mut self.palette.snoozing);
+                self.snooze(&keys, later, cx);
             }
             Act::Tab(tab) => self.open_tab(tab, window, cx),
             Act::File(name) => self.open_file(&name, cx),
