@@ -16,7 +16,7 @@ pub mod kinds;
 mod lines;
 mod start;
 
-pub use lines::Line;
+pub use lines::{Find, Line};
 pub mod output;
 pub mod select;
 mod topbar;
@@ -443,7 +443,7 @@ impl Desk {
                 .child(
                     ui::button(faces, "setup-show", "Show the terminals", ui::Weight::Quiet)
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.drawer = true;
+                            this.drawer.open = true;
                             cx.notify();
                         })),
                 )

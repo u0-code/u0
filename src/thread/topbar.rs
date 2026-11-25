@@ -5,7 +5,7 @@ use gpui::{Context, Div, div, prelude::*, px};
 use super::meta;
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, Page, TOPBAR, draggable},
+    desk::{Desk, Page, Renaming, TOPBAR, draggable},
     fonts::Faces,
     hub::Stage,
     session::State,
@@ -85,9 +85,8 @@ impl Desk {
                     );
                     // A double click on the title renames it where it is.
                     let key = s.key;
-                    let named: gpui::AnyElement = if self.renaming == Some(key)
-                        && self.renaming_here
-                    {
+                    let here = Renaming::Session { key, here: true };
+                    let named: gpui::AnyElement = if self.renaming.as_ref() == Some(&here) {
                         div()
                             .w(px(320.))
                             .h(px(26.))
@@ -112,8 +111,11 @@ impl Desk {
                             })
                             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                                 if e.click_count() == 2 {
-                                    this.renaming_here = true;
-                                    this.begin_rename(key, window, cx);
+                                    this.begin_rename(
+                                        Renaming::Session { key, here: true },
+                                        window,
+                                        cx,
+                                    );
                                 }
                             }))
                             .into_any_element()

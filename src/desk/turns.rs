@@ -28,7 +28,7 @@ impl Desk {
     /// Show `scope`'s changes in the right column, and its first file.
     pub fn show_changes(&mut self, scope: Scope, cx: &mut Context<Self>) {
         self.ask_scope(&scope);
-        self.scope = scope;
+        self.review.scope = scope;
         self.aside = Aside::Session;
         self.panes.right = true;
         cx.notify();
@@ -36,21 +36,23 @@ impl Desk {
 
     /// Open or close the commit form.
     pub fn toggle_commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.committing = !self.committing;
-        if self.committing {
+        self.review.committing = !self.review.committing;
+        if self.review.committing {
             let title = self
                 .session()
                 .map(|s| s.meta.title.clone())
                 .unwrap_or_default();
-            self.message.update(cx, |m, cx| m.set_text(&title, cx));
-            window.focus(&self.message.focus_handle(cx));
+            self.review
+                .message
+                .update(cx, |m, cx| m.set_text(&title, cx));
+            window.focus(&self.review.message.focus_handle(cx));
         }
         cx.notify();
     }
 
     /// The commit message typed, or the session's title.
     pub fn commit_message(&self, cx: &gpui::App) -> String {
-        let typed = self.message.read(cx).text();
+        let typed = self.review.message.read(cx).text();
         if typed.is_empty() {
             self.session()
                 .map(|s| s.meta.title.clone())

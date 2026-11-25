@@ -51,12 +51,13 @@ pub fn fits(width: f32, cell: f32) -> (u16, u16) {
 impl Desk {
     /// The drawer, `width` wide; `cell` is a terminal cell's width.
     pub(crate) fn drawer(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.drawer {
+        if !self.drawer.open {
             return None;
         }
         let terms = self.session_terminals();
         let on = self
-            .term_on
+            .drawer
+            .on
             .filter(|id| terms.iter().any(|t| t.id == *id))
             .or_else(|| terms.last().map(|t| t.id));
         let scripts = self
@@ -152,7 +153,7 @@ impl Desk {
                 ui::icon_button(
                     "split-terminals",
                     "panel-right",
-                    if self.split {
+                    if self.drawer.split {
                         "One terminal"
                     } else {
                         "Two side by side"
@@ -160,7 +161,7 @@ impl Desk {
                 )
                 .size(px(26.))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.split = !this.split;
+                    this.drawer.split = !this.drawer.split;
                     cx.notify();
                 })),
             )
@@ -171,14 +172,14 @@ impl Desk {
             );
 
         // The one keys go to; side by side, all of them, four at most.
-        let panes: Vec<&Terminal> = if self.split {
+        let panes: Vec<&Terminal> = if self.drawer.split {
             terms.iter().copied().take(SIDE_BY_SIDE).collect()
         } else {
             shown.into_iter().collect()
         };
         let mut body = div()
             .id("terminals")
-            .track_focus(&self.term_focus)
+            .track_focus(&self.drawer.focus)
             .flex()
             .flex_1()
             .min_h(px(0.))
@@ -208,7 +209,7 @@ impl Desk {
     /// The script being written: its name and command, where it runs, and
     /// Save, Delete (a script already kept) and Cancel.
     fn script_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
-        let w = self.writing?;
+        let w = self.drawer.writing?;
         let field = |input: gpui::Entity<crate::input::TextInput>, width: f32| {
             div()
                 .w(px(width))
@@ -232,7 +233,7 @@ impl Desk {
                     .gap(px(6.))
                     .child(
                         ui::switch(id, on).on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(w) = &mut this.writing {
+                            if let Some(w) = &mut this.drawer.writing {
                                 set(w);
                             }
                             cx.notify();
@@ -254,8 +255,8 @@ impl Desk {
             .py(px(8.))
             .border_b_1()
             .border_color(theme::border())
-            .child(field(self.script_name.clone(), 120.))
-            .child(field(self.script_command.clone(), 280.))
+            .child(field(self.drawer.name.clone(), 120.))
+            .child(field(self.drawer.command.clone(), 280.))
             .child(flag(
                 "script-worktree",
                 "In each new worktree",
@@ -288,7 +289,7 @@ impl Desk {
         Some(form.child(
             ui::button(faces, "script-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
                 |this, _, _, cx| {
-                    this.writing = None;
+                    this.drawer.writing = None;
                     cx.notify();
                 },
             )),
@@ -348,8 +349,8 @@ impl Desk {
                     ),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.term_on = Some(id);
-                window.focus(&this.term_focus);
+                this.drawer.on = Some(id);
+                window.focus(&this.drawer.focus);
                 cx.notify();
             }))
     }
@@ -480,7 +481,7 @@ impl Desk {
                 let dy = f32::from(e.delta.pixel_delta(px(LINE)).y);
                 let lines = (dy / LINE).round() as isize;
                 if lines != 0
-                    && let Some(t) = this.terminals.iter_mut().find(|t| t.id == id)
+                    && let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id)
                 {
                     t.scroll(lines);
                     cx.notify();
@@ -489,9 +490,9 @@ impl Desk {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, e: &MouseDownEvent, window, cx| {
-                    this.term_on = Some(id);
-                    window.focus(&this.term_focus);
-                    if let Some(t) = this.terminals.iter_mut().find(|t| t.id == id) {
+                    this.drawer.on = Some(id);
+                    window.focus(&this.drawer.focus);
+                    if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id) {
                         let at = Self::cell_at(t, e.position, cell);
                         // ⌘ and a click opens an address; two clicks choose
                         // a word, three its line.
@@ -521,7 +522,7 @@ impl Desk {
                 if e.pressed_button != Some(MouseButton::Left) {
                     return;
                 }
-                if let Some(t) = this.terminals.iter_mut().find(|t| t.id == id)
+                if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id)
                     && let Some((from, _)) = t.selection
                 {
                     t.selection = Some((from, Self::cell_at(t, e.position, cell)));

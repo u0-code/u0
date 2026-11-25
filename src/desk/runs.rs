@@ -19,11 +19,17 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{ClipboardItem, Context, Focusable as _, KeyDownEvent, Window};
+use gpui::{
+    AppContext as _, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, KeyDownEvent,
+    Window,
+};
 use serde::{Deserialize, Serialize};
 
 use super::Desk;
-use crate::terminal::{self, Terminal};
+use crate::{
+    input::TextInput,
+    terminal::{self, Terminal},
+};
 
 /// The size a terminal opens at before the drawer has measured it.
 const FIRST_SIZE: (u16, u16) = (14, 100);
@@ -67,6 +73,38 @@ pub struct Script {
     /// it has run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait: bool,
+}
+
+/// Your terminals in the drawer under the thread: whether it is open, where
+/// keys go in it, the one they go to, and whether two show side by side;
+/// one asked to close with something running in it, to close at the
+/// second asking; a script being written, and its name and command.
+pub struct Drawer {
+    pub terminals: Vec<Terminal>,
+    pub open: bool,
+    pub focus: FocusHandle,
+    pub on: Option<u64>,
+    pub split: bool,
+    pub closing: Option<u64>,
+    pub writing: Option<Writing>,
+    pub name: Entity<TextInput>,
+    pub command: Entity<TextInput>,
+}
+
+impl Drawer {
+    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
+        Self {
+            terminals: Vec::new(),
+            open: false,
+            focus: cx.focus_handle(),
+            on: None,
+            split: false,
+            closing: None,
+            writing: None,
+            name: cx.new(|cx| TextInput::new(cx, "dev").padded(4.).keeping()),
+            command: cx.new(|cx| TextInput::new(cx, "npm run dev").padded(4.).keeping()),
+        }
+    }
 }
 
 /// The script being written in the drawer: the one at `at` changed, or a
@@ -143,7 +181,11 @@ impl Desk {
             .and_then(|s| crate::remote::parse(&s.meta.project))
             .map(|(host, _)| host);
         let id = self.sessions.take_key();
-        let size = self.terminals.last().map_or(FIRST_SIZE, Terminal::size);
+        let size = self
+            .drawer
+            .terminals
+            .last()
+            .map_or(FIRST_SIZE, Terminal::size);
         let first = first.map(str::to_owned);
         crate::hub::open_terminal(
             id,
@@ -154,8 +196,8 @@ impl Desk {
             size,
             self.tx.clone(),
         );
-        self.term_on = Some(id);
-        self.drawer = true;
+        self.drawer.on = Some(id);
+        self.drawer.open = true;
         cx.notify();
     }
 
@@ -163,7 +205,7 @@ impl Desk {
     /// waited for no longer holds it.
     pub(crate) fn terminal_opened(&mut self, id: u64, result: Result<Box<Terminal>, String>) {
         match result {
-            Ok(t) => self.terminals.push(*t),
+            Ok(t) => self.drawer.terminals.push(*t),
             Err(why) => {
                 tracing::warn!("{why}");
                 self.setup_ended(id);
@@ -183,13 +225,14 @@ impl Desk {
             return;
         };
         self.open_terminal_in(key, &dir, first, cx);
-        window.focus(&self.term_focus);
+        window.focus(&self.drawer.focus);
     }
 
     /// The terminals beside the session on screen.
     pub(crate) fn session_terminals(&self) -> Vec<&Terminal> {
         let key = self.current;
-        self.terminals
+        self.drawer
+            .terminals
             .iter()
             .filter(|t| Some(t.session) == key)
             .collect()
@@ -199,12 +242,13 @@ impl Desk {
     /// running in it, only once you have closed it twice.
     pub fn close_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
         let busy = self
+            .drawer
             .terminals
             .iter()
             .find(|t| t.id == id)
             .is_some_and(Terminal::busy);
-        if busy && self.closing != Some(id) {
-            self.closing = Some(id);
+        if busy && self.drawer.closing != Some(id) {
+            self.drawer.closing = Some(id);
             self.trouble(
                 "Something is still running in that terminal",
                 Some("Close it again to stop it.".into()),
@@ -213,10 +257,10 @@ impl Desk {
             cx.notify();
             return;
         }
-        self.closing = None;
-        self.terminals.retain(|t| t.id != id);
-        if self.term_on == Some(id) {
-            self.term_on = self.session_terminals().last().map(|t| t.id);
+        self.drawer.closing = None;
+        self.drawer.terminals.retain(|t| t.id != id);
+        if self.drawer.on == Some(id) {
+            self.drawer.on = self.session_terminals().last().map(|t| t.id);
         }
         cx.notify();
     }
@@ -224,12 +268,12 @@ impl Desk {
     /// Open or close the drawer (⌘J); opened with no terminal beside the
     /// session, it opens one.
     pub fn toggle_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.drawer = !self.drawer;
-        if self.drawer {
+        self.drawer.open = !self.drawer.open;
+        if self.drawer.open {
             if self.session_terminals().is_empty() {
                 self.open_terminal(None, window, cx);
             } else {
-                window.focus(&self.term_focus);
+                window.focus(&self.drawer.focus);
             }
         } else {
             window.focus(&self.input.focus_handle(cx));
@@ -240,8 +284,8 @@ impl Desk {
     /// A key pressed in the drawer: sent to the terminal it is on, as a
     /// terminal sends it; ⌘V pastes. The window's own keys pass.
     pub(crate) fn terminal_key(&mut self, e: &KeyDownEvent, cx: &mut Context<Self>) {
-        let Some(id) = self.term_on else { return };
-        let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) else {
+        let Some(id) = self.drawer.on else { return };
+        let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) else {
             return;
         };
         let k = &e.keystroke;
@@ -282,7 +326,7 @@ impl Desk {
     /// Hand what is chosen in the terminal `id` to the session's agent:
     /// put in what you are writing, to say what to do with it.
     pub fn ask_about_terminal(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) else {
+        let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) else {
             return;
         };
         let Some(chosen) = t.chosen_text() else {
@@ -299,7 +343,7 @@ impl Desk {
 
     /// Copy what is chosen in the terminal `id`, and let it go.
     pub(crate) fn copy_chosen(&mut self, id: u64, cx: &mut Context<Self>) {
-        if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id)
+        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id)
             && let Some(text) = t.chosen_text()
         {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -327,7 +371,7 @@ impl Desk {
                 script.command.clone()
             };
             self.open_terminal_in(key, dir, Some(&command), cx);
-            let term = self.term_on;
+            let term = self.drawer.on;
             if let Some(s) = self.sessions.at_mut(key) {
                 s.setup.push(script.name);
                 if script.wait {
@@ -363,16 +407,18 @@ impl Desk {
         let script = at
             .and_then(|n| self.session()?.scripts.get(n).cloned())
             .unwrap_or_default();
-        self.script_name
+        self.drawer
+            .name
             .update(cx, |i, cx| i.set_text(&script.name, cx));
-        self.script_command
+        self.drawer
+            .command
             .update(cx, |i, cx| i.set_text(&script.command, cx));
-        self.writing = Some(Writing {
+        self.drawer.writing = Some(Writing {
             at,
             worktree: script.worktree,
             wait: script.wait,
         });
-        window.focus(&self.script_name.focus_handle(cx));
+        window.focus(&self.drawer.name.focus_handle(cx));
         cx.notify();
     }
 
@@ -380,14 +426,14 @@ impl Desk {
     /// take it away.
     pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
         let (Some(w), Some((key, dir))) = (
-            self.writing,
+            self.drawer.writing,
             self.session().map(|s| (s.key, s.meta.folder.clone())),
         ) else {
             return;
         };
         let script = keep.then(|| Script {
-            name: self.script_name.read(cx).text().trim().to_owned(),
-            command: self.script_command.read(cx).text().trim().to_owned(),
+            name: self.drawer.name.read(cx).text().trim().to_owned(),
+            command: self.drawer.command.read(cx).text().trim().to_owned(),
             worktree: w.worktree,
             wait: w.worktree && w.wait,
         });
@@ -399,7 +445,7 @@ impl Desk {
             cx.notify();
             return;
         }
-        self.writing = None;
+        self.drawer.writing = None;
         crate::hub::save_script(dir, w.at, script, key, self.tx.clone());
         cx.notify();
     }
@@ -444,7 +490,7 @@ impl Desk {
 
     /// Fit the terminals to the drawer: `cols` by `rows` each.
     pub(crate) fn fit_terminals(&mut self, rows: u16, cols: u16) {
-        for t in &mut self.terminals {
+        for t in &mut self.drawer.terminals {
             t.resize(rows, cols);
         }
     }

@@ -2,7 +2,10 @@
 //! give one, pinned on top, unread, done for now (settled), out of the way
 //! until later (snoozed), archived, deleted after a moment to take it back.
 
-use std::time::{Duration, Instant, SystemTime};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant, SystemTime},
+};
 
 use gpui::{
     Context, Focusable as _, ParentElement as _, StatefulInteractiveElement as _, Styled as _,
@@ -17,6 +20,16 @@ use crate::{
     session::{Item, Session, State},
     store, when,
 };
+
+/// What is being renamed, in the desk's line for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Renaming {
+    /// A session: in the sidebar, or (`here`) where its title is in the
+    /// top bar.
+    Session { key: u64, here: bool },
+    /// A project, in the sidebar.
+    Project(PathBuf),
+}
 
 /// How long a deleted or archived session can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
@@ -346,47 +359,51 @@ impl Desk {
         }
     }
 
-    /// Begin renaming the session `key` in the sidebar.
-    pub fn begin_rename(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let title = self
-            .sessions
-            .at(key)
-            .map(|s| s.meta.title.clone())
-            .unwrap_or_default();
+    /// Begin renaming `what`, its name as it is in the line for it.
+    pub fn begin_rename(&mut self, what: Renaming, window: &mut Window, cx: &mut Context<Self>) {
+        let name = match &what {
+            Renaming::Session { key, .. } => self
+                .sessions
+                .at(*key)
+                .map(|s| s.meta.title.clone())
+                .unwrap_or_default(),
+            Renaming::Project(folder) => self.project_name(folder),
+        };
         self.popup = super::Popup::Closed;
-        self.renaming = Some(key);
+        self.renaming = Some(what);
         self.rename.update(cx, |i, cx| {
-            i.set_text(&title, cx);
+            i.set_text(&name, cx);
             i.select_everything(cx);
         });
         window.focus(&self.rename.focus_handle(cx));
         cx.notify();
     }
 
-    /// The name typed for the session being renamed: it sticks.
+    /// The name typed for what is being renamed: it sticks. An empty one
+    /// leaves a session's as it was, and gives a project back its
+    /// folder's.
     pub fn finish_rename(&mut self, text: &str, cx: &mut Context<Self>) {
-        if self.finish_rename_project(text, cx) {
-            return;
+        let text = text.trim().to_owned();
+        match self.renaming.take() {
+            Some(Renaming::Session { key, .. }) => {
+                if !text.is_empty()
+                    && let Some(s) = self.sessions.at_mut(key)
+                {
+                    s.meta.title = text;
+                    s.meta.renamed = true;
+                }
+                self.save_index();
+            }
+            Some(Renaming::Project(folder)) => {
+                self.set_prefs(&folder, cx, |p| p.name = (!text.is_empty()).then_some(text));
+            }
+            None => return,
         }
-        self.renaming_here = false;
-        let Some(key) = self.renaming.take() else {
-            return;
-        };
-        let text = text.trim();
-        if !text.is_empty()
-            && let Some(s) = self.sessions.at_mut(key)
-        {
-            text.clone_into(&mut s.meta.title);
-            s.meta.renamed = true;
-        }
-        self.save_index();
         cx.notify();
     }
 
     pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         self.renaming = None;
-        self.renaming_here = false;
-        self.renaming_project = None;
         cx.notify();
     }
 

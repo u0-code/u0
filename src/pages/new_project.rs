@@ -110,7 +110,7 @@ impl Desk {
             .hover(|s| s.bg(theme::hover()))
             .child(ui::icon("folder", 12.).text_color(theme::faint()))
             .child(
-                ui::mono(faces, Desk::shown(&self.parent))
+                ui::mono(faces, Desk::shown(&self.adding.parent))
                     .text_size(px(12.))
                     .text_color(theme::text2()),
             )
@@ -124,8 +124,8 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border())
             .child(heading("Clone a repository"))
-            .child(field(self.clone_url.clone()));
-        if let Some(c) = &self.cloning {
+            .child(field(self.adding.url.clone()));
+        if let Some(c) = &self.adding.cloning {
             clone = clone
                 .children(c.share.map(|share| {
                     div()
@@ -168,7 +168,7 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border())
             .child(heading("Make a new project"))
-            .child(field(self.new_name.clone()))
+            .child(field(self.adding.name.clone()))
             .child(
                 div()
                     .flex()
@@ -192,15 +192,15 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border())
             .child(heading("On another machine"))
-            .child(field(self.remote_at.clone()))
-            .when(!self.hosts.is_empty(), |d| {
+            .child(field(self.adding.remote.clone()))
+            .when(!self.adding.hosts.is_empty(), |d| {
                 let mut chips = div()
                     .flex()
                     .flex_wrap()
                     .items_center()
                     .gap(px(6.))
                     .child(ui::fine(faces, "From ~/.ssh/config"));
-                for (n, host) in self.hosts.iter().take(8).enumerate() {
+                for (n, host) in self.adding.hosts.iter().take(8).enumerate() {
                     let host = host.clone();
                     chips = chips.child(
                         div()
@@ -293,7 +293,8 @@ impl Desk {
                             .child(parent),
                     )
                     .children(
-                        self.adding_trouble
+                        self.adding
+                            .trouble
                             .clone()
                             .map(|why| ui::trouble(faces, why)),
                     )

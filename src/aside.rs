@@ -396,7 +396,7 @@ impl Desk {
         // By folder, as git names them, each folder once above its files.
         let mut shown: Vec<&crate::git::FileDiff> = files
             .iter()
-            .filter(|f| !(self.no_tests && is_test(&f.path)))
+            .filter(|f| !(self.review.no_tests && is_test(&f.path)))
             .collect();
         shown.sort_by(|a, b| {
             folder_of(&a.path)
@@ -412,7 +412,7 @@ impl Desk {
         for (n, f) in shown.iter().enumerate() {
             let dir = folder_of(&f.path);
             if !dir.is_empty() && last != Some(dir) {
-                let folded = self.folded.contains(dir);
+                let folded = self.review.folded.contains(dir);
                 let named = dir.to_owned();
                 rail = rail.child(
                     div()
@@ -443,15 +443,15 @@ impl Desk {
                                 .text_color(theme::faint()),
                         ))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if !this.folded.remove(&named) {
-                                this.folded.insert(named.clone());
+                            if !this.review.folded.remove(&named) {
+                                this.review.folded.insert(named.clone());
                             }
                             cx.notify();
                         })),
                 );
             }
             last = Some(dir);
-            if self.folded.contains(dir) {
+            if self.review.folded.contains(dir) {
                 continue;
             }
             let at = std::path::PathBuf::from(&f.path);
@@ -531,11 +531,11 @@ impl Desk {
                     })),
             );
         }
-        let said = self.comments.len();
+        let said = self.review.comments.len();
         let tests = files.iter().filter(|f| is_test(&f.path)).count();
         let all_folded = folders
             .iter()
-            .all(|d| d.is_empty() || self.folded.contains(*d));
+            .all(|d| d.is_empty() || self.review.folded.contains(*d));
         let mut ways = div().flex().flex_wrap().gap(px(2.)).px(px(4.)).pt(px(8.));
         if folders.iter().any(|d| !d.is_empty()) {
             let dirs: Vec<String> = folders
@@ -552,9 +552,9 @@ impl Desk {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if all_folded {
-                        this.folded.clear();
+                        this.review.folded.clear();
                     } else {
-                        this.folded.extend(dirs.iter().cloned());
+                        this.review.folded.extend(dirs.iter().cloned());
                     }
                     cx.notify();
                 })),
@@ -565,7 +565,7 @@ impl Desk {
                 ui::button(
                     faces,
                     "no-tests",
-                    if self.no_tests {
+                    if self.review.no_tests {
                         format!(
                             "Show {tests} test file{}",
                             if tests == 1 { "" } else { "s" }
@@ -576,7 +576,7 @@ impl Desk {
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.no_tests = !this.no_tests;
+                    this.review.no_tests = !this.review.no_tests;
                     cx.notify();
                 })),
             );
@@ -826,6 +826,7 @@ impl Desk {
     /// on another machine, forwarded here first.
     fn servers(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let found: Vec<(u64, String)> = self
+            .drawer
             .terminals
             .iter()
             .filter(|t| t.session == s.key && t.ended.is_none())
@@ -1300,14 +1301,19 @@ impl Desk {
         path: &std::path::Path,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let here: Vec<&(std::path::PathBuf, usize, String)> =
-            self.comments.iter().filter(|c| c.0 == path).collect();
+        let here: Vec<&(std::path::PathBuf, usize, String)> = self
+            .review
+            .comments
+            .iter()
+            .filter(|c| c.0 == path)
+            .collect();
         let writing = self
+            .review
             .commenting
             .as_ref()
             .filter(|(p, _)| p == path)
             .map(|(_, n)| *n);
-        if here.is_empty() && writing.is_none() && self.comments.is_empty() {
+        if here.is_empty() && writing.is_none() && self.review.comments.is_empty() {
             return None;
         }
         let mut sec = div().flex().flex_col().gap(px(6.)).px(px(14.)).pb(px(10.));
@@ -1346,13 +1352,13 @@ impl Desk {
                             .bg(theme::well())
                             .border_1()
                             .border_color(theme::border2())
-                            .child(self.comment.clone()),
+                            .child(self.review.comment.clone()),
                     ),
             );
         }
-        if !self.comments.is_empty() {
+        if !self.review.comments.is_empty() {
             let name = self.name_of(&s.meta.agent);
-            let n = self.comments.len();
+            let n = self.review.comments.len();
             sec = sec.child(
                 ui::button(
                     faces,
@@ -1460,7 +1466,7 @@ fn git_button(
 ) -> gpui::Stateful<Div> {
     ui::button(faces, id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
         let message = this.commit_message(cx);
-        this.committing = false;
+        this.review.committing = false;
         this.git_action(make(message), cx);
     }))
 }

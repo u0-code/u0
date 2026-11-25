@@ -37,7 +37,7 @@ pub(crate) mod palette;
 mod projects;
 pub(crate) mod runs;
 
-pub use lists::Later;
+pub use lists::{Later, Renaming};
 mod replies;
 mod send;
 mod turns;
@@ -139,10 +139,9 @@ pub struct Desk {
     /// Why the sessions kept from before could not be read, while that is
     /// so: nothing is saved over them.
     pub store_refused: Option<String>,
-    /// The session (or the project) being renamed in the sidebar, and the
-    /// line for it.
-    pub renaming: Option<u64>,
-    pub renaming_project: Option<PathBuf>,
+    /// What is being renamed, and the line for it.
+    pub renaming: Option<lists::Renaming>,
+    pub rename: Entity<TextInput>,
     /// A message open to choose words from: the session's key and its
     /// item, and the line it is in.
     pub reading: Option<(u64, usize)>,
@@ -172,9 +171,6 @@ pub struct Desk {
     pub trailing: bool,
     /// Ports brought here from another machine (ssh -L), each its tunnel.
     pub tunnels: Vec<(u16, std::process::Child)>,
-    /// A terminal asked to close with something running in it, to close at
-    /// the second asking.
-    pub closing: Option<u64>,
     /// The sessions chosen with ⌘-click in the sidebar.
     pub chosen: std::collections::BTreeSet<u64>,
     /// The sidebar's edge is being dragged.
@@ -183,9 +179,6 @@ pub struct Desk {
     pub tall: bool,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
-    /// The session is renamed in the top bar, not in the sidebar.
-    pub renaming_here: bool,
-    pub rename: Entity<TextInput>,
     /// What was just deleted or archived, while it can be taken back.
     pub undo: Option<lists::Undo>,
     /// The session being taken back to one of your messages: the fork
@@ -212,53 +205,24 @@ pub struct Desk {
     pub found: HashSet<u64>,
     /// The settings page's tab.
     pub settings_tab: crate::pages::Tab,
-    /// Adding a project: the address to clone, the name of one to make,
-    /// the folder either goes in, a clone going on and what went wrong.
-    pub clone_url: Entity<TextInput>,
-    pub new_name: Entity<TextInput>,
-    /// A project on another machine, typed as `host:/path`, and the
-    /// machines your SSH configuration names.
-    pub remote_at: Entity<TextInput>,
-    pub hosts: Vec<String>,
-    pub parent: PathBuf,
-    pub cloning: Option<hub::Install>,
-    pub adding_trouble: Option<String>,
+    pub adding: projects::Adding,
     /// The draft on screen goes to every agent that can run, once sent.
     pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
     /// What keeps the Mac awake while an agent works, when it is kept so.
     pub awake: Option<std::process::Child>,
-    /// Your terminals in the drawer under the thread, whether it is open,
-    /// where keys go in it, the one they go to, and whether two show side
-    /// by side.
-    pub terminals: Vec<crate::terminal::Terminal>,
-    pub drawer: bool,
-    pub term_focus: gpui::FocusHandle,
-    pub term_on: Option<u64>,
-    pub split: bool,
+    pub drawer: runs::Drawer,
     /// Minutes counted, for what is read every other one, or checked every
     /// five.
     pub pr_tick: u32,
     pub health_tick: u32,
-    /// What you say of a file's lines: the line being commented on, the
-    /// line to write it in, and those said, waiting to go to the agent.
-    pub commenting: Option<(PathBuf, usize)>,
-    pub comment: Entity<TextInput>,
-    pub comments: Vec<(PathBuf, usize, String)>,
-    /// The folders folded in the review's list of files.
-    pub folded: std::collections::HashSet<String>,
-    /// Test files are left out of the review's list.
-    pub no_tests: bool,
+    pub review: gitview::Review,
     /// On an agent's page: the command of yours that starts it, a model id
     /// to add.
     pub agent_command: Entity<TextInput>,
     pub agent_model: Entity<TextInput>,
-    /// The command palette (⌘K): whether it is open, and its line.
-    pub palette: bool,
-    pub palette_input: Entity<TextInput>,
-    /// The line of the palette Return takes.
-    pub palette_at: usize,
+    pub palette: palette::Palette,
     /// What the composer offers that Return or Tab takes.
     pub offer_at: usize,
     /// How much each part of Ghost's home takes, and what the last tidying
@@ -271,18 +235,11 @@ pub struct Desk {
     pub settings_search: Entity<TextInput>,
     /// What worktree branches begin with, as you write it in settings.
     pub prefix_input: Entity<TextInput>,
-    /// A script being written in the drawer, and its name and command.
-    pub writing: Option<runs::Writing>,
-    pub script_name: Entity<TextInput>,
-    pub script_command: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
     /// requests, read once when first wanted.
     pub files: HashMap<PathBuf, Vec<String>>,
-    /// What the palette looks through, and the words it found.
-    pub through: palette::Through,
-    pub grep: Vec<(String, String)>,
     pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
     pub issues: HashMap<PathBuf, Vec<(u64, String)>>,
     /// What each CLI of yours an agent runs says its version is.
@@ -316,11 +273,7 @@ pub struct Desk {
     pub lines: Vec<crate::thread::Line>,
     pub lines_of: Option<u64>,
     pub reveal: Option<usize>,
-    /// Find over the thread (⌘F): whether it is open, its line, and which
-    /// of what it found is on screen.
-    pub finding: bool,
-    pub find: Entity<TextInput>,
-    pub found_at: usize,
+    pub find: crate::thread::Find,
     /// The agent being signed in to, while it is.
     pub signing: Option<String>,
     /// What the right column shows.
@@ -330,11 +283,6 @@ pub struct Desk {
     pub searching: bool,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
-    /// Which changes the right column shows.
-    pub scope: crate::git::Scope,
-    /// The commit message being written, and whether its form is open.
-    pub message: Entity<TextInput>,
-    pub committing: bool,
     tx: hub::Sender,
 }
 
@@ -458,8 +406,6 @@ impl Desk {
             cx.notify();
         })
         .detach();
-        let script_name = cx.new(|cx| TextInput::new(cx, "dev").padded(4.).keeping());
-        let script_command = cx.new(|cx| TextInput::new(cx, "npm run dev").padded(4.).keeping());
         let prefix = cx.new(|cx| {
             let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
             i.set_text(&settings.branch_prefix, cx);
@@ -470,61 +416,18 @@ impl Desk {
             this.save_settings();
         })
         .detach();
-        let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.).keeping());
         let rename = cx.new(|cx| {
             TextInput::new(cx, "Name")
                 .sized(13.5, 20.)
                 .padded(0.)
                 .submitting_empty()
         });
-        let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
-        cx.subscribe(&comment, |this, _, Submitted(text), cx| {
-            this.add_comment(text, cx);
-        })
-        .detach();
         let agent_command = cx.new(|cx| {
             TextInput::new(cx, "/path/to/agent --acp")
                 .padded(4.)
                 .keeping()
         });
         let agent_model = cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping());
-        let palette_input = cx.new(|cx| {
-            TextInput::new(cx, "Go to a session, or do something")
-                .padded(4.)
-                .submitting_empty()
-        });
-        cx.subscribe(
-            &palette_input,
-            |this, input, _: &crate::input::Changed, cx| {
-                this.palette_at = 0;
-                if this.through == palette::Through::Words {
-                    let words = input.read(cx).text();
-                    this.search_words(&words);
-                }
-                cx.notify();
-            },
-        )
-        .detach();
-        cx.subscribe(&palette_input, |this, _, crate::input::Stepped(by), cx| {
-            this.step_palette(*by, cx);
-        })
-        .detach();
-        cx.subscribe_in(
-            &palette_input,
-            window,
-            |this, _, Submitted(_), window, cx| {
-                this.run_act(this.palette_at, window, cx);
-            },
-        )
-        .detach();
-        cx.subscribe_in(
-            &palette_input,
-            window,
-            |this, _, _: &crate::input::Cancelled, window, cx| {
-                this.toggle_palette(window, cx);
-            },
-        )
-        .detach();
         let agent_search = cx.new(|cx| {
             TextInput::new(cx, "Search the ACP registry")
                 .padded(4.)
@@ -539,49 +442,6 @@ impl Desk {
         cx.subscribe(&settings_search, |_, _, _: &crate::input::Changed, cx| {
             cx.notify();
         })
-        .detach();
-        let clone_url = cx.new(|cx| {
-            TextInput::new(cx, "https://github.com/owner/repo.git")
-                .padded(6.)
-                .keeping()
-        });
-        cx.subscribe(&clone_url, |this, _, Submitted(_), cx| this.start_clone(cx))
-            .detach();
-        let new_name = cx.new(|cx| TextInput::new(cx, "my-project").padded(6.).keeping());
-        cx.subscribe(&new_name, |this, _, Submitted(_), cx| {
-            this.create_project(cx);
-        })
-        .detach();
-        let remote_at = cx.new(|cx| {
-            TextInput::new(cx, "devbox:/home/me/app")
-                .padded(6.)
-                .keeping()
-        });
-        cx.subscribe(&remote_at, |this, _, Submitted(_), cx| this.add_remote(cx))
-            .detach();
-        let find = cx.new(|cx| {
-            TextInput::new(cx, "Find in this session")
-                .padded(2.)
-                .keeping()
-        });
-        cx.subscribe(&find, |this, _, Submitted(_), cx| this.find_next(false, cx))
-            .detach();
-        cx.subscribe(&find, |this, _, SubmittedAside(_), cx| {
-            this.find_next(true, cx);
-        })
-        .detach();
-        cx.subscribe(&find, |this, _, _: &crate::input::Changed, cx| {
-            this.found_at = usize::MAX;
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe_in(
-            &find,
-            window,
-            |this, _, _: &crate::input::Cancelled, window, cx| {
-                this.toggle_find(window, cx);
-            },
-        )
         .detach();
         cx.subscribe(&rename, |this, _, Submitted(text), cx| {
             this.finish_rename(text, cx);
@@ -666,13 +526,10 @@ impl Desk {
             settings_refused,
             store_refused: None,
             renaming: None,
-            renaming_project: None,
-            renaming_here: false,
             zoom: None,
             tall: false,
             resizing_left: false,
             chosen: std::collections::BTreeSet::new(),
-            closing: None,
             tunnels: Vec::new(),
             trail: Vec::new(),
             ahead: Vec::new(),
@@ -700,46 +557,25 @@ impl Desk {
             notices: Vec::new(),
             found: HashSet::new(),
             settings_tab: crate::pages::Tab::General,
-            clone_url,
-            new_name,
-            remote_at,
-            hosts: Vec::new(),
-            parent: projects::made_here(),
-            cloning: None,
-            adding_trouble: None,
+            adding: projects::Adding::new(cx),
             fanout: false,
             behind: false,
             awake: None,
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
-            terminals: Vec::new(),
+            drawer: runs::Drawer::new(cx),
             agent_command,
             agent_model,
             agent_search,
             settings_search,
             prefix_input: prefix,
-            writing: None,
-            script_name,
-            script_command,
             sizes: Vec::new(),
-            palette: false,
-            palette_input,
-            through: palette::Through::Everything,
-            grep: Vec::new(),
-            palette_at: 0,
+            palette: palette::Palette::new(window, cx),
             offer_at: 0,
             tidied: None,
             pr_tick: 0,
             health_tick: 0,
-            commenting: None,
-            comment,
-            comments: Vec::new(),
-            folded: std::collections::HashSet::new(),
-            no_tests: false,
-            drawer: false,
-            term_focus: cx.focus_handle(),
-            term_on: None,
-            split: false,
+            review: gitview::Review::new(cx),
             prs: HashMap::new(),
             issues: HashMap::new(),
             cli_versions: HashMap::new(),
@@ -766,17 +602,12 @@ impl Desk {
             lines: Vec::new(),
             lines_of: None,
             reveal: None,
-            finding: false,
-            find,
-            found_at: 0,
+            find: crate::thread::Find::new(window, cx),
             signing: None,
             aside: Aside::Session,
             search,
             searching: false,
             registry_read: None,
-            scope: crate::git::Scope::All,
-            message,
-            committing: false,
             tx,
         };
         desk.keep_from(crate::store::load(&desk.home));
@@ -968,8 +799,8 @@ impl Desk {
                 .unwrap_or_default();
             self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
             self.aside = Aside::Session;
-            self.scope = crate::git::Scope::All;
-            self.committing = false;
+            self.review.scope = crate::git::Scope::All;
+            self.review.committing = false;
         }
         self.current = Some(key);
         self.page = Page::Thread;
@@ -1360,7 +1191,7 @@ impl Desk {
         }
         if self.popup != Popup::Closed {
             self.close_popup(window, cx);
-        } else if self.page != Page::Thread && !self.palette {
+        } else if self.page != Page::Thread && !self.palette.open {
             self.page = Page::Thread;
             cx.notify();
         } else {
@@ -1521,8 +1352,8 @@ impl Render for Desk {
             .child(self.topbar(&faces, lights, pane, cx));
         // The terminals take the size the drawer gives them.
         let cell = crate::thread::drawer::cell_width(window, &faces);
-        if self.drawer {
-            let beside = if self.split {
+        if self.drawer.open {
+            let beside = if self.drawer.split {
                 self.session_terminals()
                     .len()
                     .clamp(1, crate::thread::drawer::SIDE_BY_SIDE)
@@ -1597,12 +1428,12 @@ impl Render for Desk {
             .children(right)
             // Under a menu or the palette, the rest of the window: a click
             // there closes it and does nothing else.
-            .when(self.popup != Popup::Closed || self.palette, |d| {
+            .when(self.popup != Popup::Closed || self.palette.open, |d| {
                 d.child(div().absolute().inset_0().occlude().on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| {
                         this.close_popup(window, cx);
-                        if this.palette {
+                        if this.palette.open {
                             this.toggle_palette(window, cx);
                         }
                     }),

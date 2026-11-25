@@ -4,19 +4,56 @@
 //! never under another session at work), the branch's pull request and its
 //! checks. And a commit message the agent writes, when asked to.
 
-use std::fmt::Write as _;
+use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
 
-use gpui::{Context, Window};
+use gpui::{AppContext as _, Context, Entity, Window};
 
 use super::Desk;
-use crate::git::Scope;
 use crate::{
+    git::Scope,
     hub,
+    input::{Submitted, TextInput},
     session::{Item, State},
 };
 
 /// What the agent is asked, to write a commit message.
 const WRITE_MESSAGE: &str = "Write a commit message for the changes not committed yet: a short subject line, then a few lines on what changed and why. Reply with the message only, no code block.";
+
+/// The changes in the column beside: which it shows; the commit message
+/// being written and whether its form is open; what you say of a file's
+/// lines (the line being commented on, the line to write it in, and those
+/// said, waiting to go to the agent); the folders folded in the list of
+/// files, and whether test files are left out of it.
+pub struct Review {
+    pub scope: Scope,
+    pub message: Entity<TextInput>,
+    pub committing: bool,
+    pub commenting: Option<(PathBuf, usize)>,
+    pub comment: Entity<TextInput>,
+    pub comments: Vec<(PathBuf, usize, String)>,
+    pub folded: HashSet<String>,
+    pub no_tests: bool,
+}
+
+impl Review {
+    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
+        let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
+        cx.subscribe(&comment, |this, _, Submitted(text), cx| {
+            this.add_comment(text, cx);
+        })
+        .detach();
+        Self {
+            scope: Scope::All,
+            message: cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.).keeping()),
+            committing: false,
+            commenting: None,
+            comment,
+            comments: Vec::new(),
+            folded: HashSet::new(),
+            no_tests: false,
+        }
+    }
+}
 
 impl Desk {
     /// Read again what git says where the session `key` works: its commits
@@ -238,8 +275,10 @@ impl Desk {
             _ => None,
         });
         if let Some(text) = said {
-            self.message.update(cx, |m, cx| m.set_text(&text, cx));
-            self.committing = true;
+            self.review
+                .message
+                .update(cx, |m, cx| m.set_text(&text, cx));
+            self.review.committing = true;
         }
     }
 
@@ -251,23 +290,32 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.commenting = Some((path, line));
-        self.comment.update(cx, |i, cx| i.set_text("", cx));
-        window.focus(&gpui::Focusable::focus_handle(self.comment.read(cx), cx));
+        self.review.commenting = Some((path, line));
+        self.review.comment.update(cx, |i, cx| i.set_text("", cx));
+        window.focus(&gpui::Focusable::focus_handle(
+            self.review.comment.read(cx),
+            cx,
+        ));
         cx.notify();
     }
 
     /// The comment written, kept with its line.
     pub(crate) fn add_comment(&mut self, text: &str, cx: &mut Context<Self>) {
-        if let Some((path, line)) = self.commenting.take() {
-            self.comments.retain(|c| !(c.0 == path && c.1 == line));
-            self.comments.push((path, line, text.trim().to_owned()));
+        if let Some((path, line)) = self.review.commenting.take() {
+            self.review
+                .comments
+                .retain(|c| !(c.0 == path && c.1 == line));
+            self.review
+                .comments
+                .push((path, line, text.trim().to_owned()));
         }
         cx.notify();
     }
 
     pub fn drop_comment(&mut self, path: &std::path::Path, line: usize, cx: &mut Context<Self>) {
-        self.comments.retain(|c| !(c.0 == path && c.1 == line));
+        self.review
+            .comments
+            .retain(|c| !(c.0 == path && c.1 == line));
         cx.notify();
     }
 
@@ -278,7 +326,7 @@ impl Desk {
             return;
         };
         let mut text = String::from("Comments on the changes:\n");
-        for (path, line, said) in std::mem::take(&mut self.comments) {
+        for (path, line, said) in std::mem::take(&mut self.review.comments) {
             let path = path
                 .strip_prefix(&folder)
                 .unwrap_or(&path)

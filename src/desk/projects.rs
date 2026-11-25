@@ -5,24 +5,77 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{Context, Focusable as _, Window};
+use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
 
 use super::{Desk, Popup};
-use crate::settings::Prefs;
+use crate::{
+    input::{Submitted, TextInput},
+    settings::Prefs,
+};
 
 /// Where a project made or cloned in Ghost goes unless you choose
 /// another folder: ~/Documents/Ghost, as Codex keeps its own in
 /// ~/Documents/Codex. It is made with the first project.
-pub fn made_here() -> PathBuf {
+fn made_here() -> PathBuf {
     std::env::var_os("HOME")
         .map_or_else(|| PathBuf::from("/"), PathBuf::from)
         .join("Documents")
         .join("Ghost")
 }
 
+/// Adding a project: the address to clone, the name of one to make, a
+/// project on another machine typed as `host:/path` and the machines your
+/// SSH configuration names; the folder a clone or a new one goes in, a
+/// clone going on and what went wrong.
+pub struct Adding {
+    pub url: Entity<TextInput>,
+    pub name: Entity<TextInput>,
+    pub remote: Entity<TextInput>,
+    pub hosts: Vec<String>,
+    pub parent: PathBuf,
+    pub cloning: Option<crate::hub::Install>,
+    pub trouble: Option<String>,
+}
+
+impl Adding {
+    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
+        let url = cx.new(|cx| {
+            TextInput::new(cx, "https://github.com/owner/repo.git")
+                .padded(6.)
+                .keeping()
+        });
+        cx.subscribe(&url, |this, _, Submitted(_), cx| this.start_clone(cx))
+            .detach();
+        let name = cx.new(|cx| TextInput::new(cx, "my-project").padded(6.).keeping());
+        cx.subscribe(&name, |this, _, Submitted(_), cx| this.create_project(cx))
+            .detach();
+        let remote = cx.new(|cx| {
+            TextInput::new(cx, "devbox:/home/me/app")
+                .padded(6.)
+                .keeping()
+        });
+        cx.subscribe(&remote, |this, _, Submitted(_), cx| this.add_remote(cx))
+            .detach();
+        Self {
+            url,
+            name,
+            remote,
+            hosts: Vec::new(),
+            parent: made_here(),
+            cloning: None,
+            trouble: None,
+        }
+    }
+}
+
 impl Desk {
     /// Change what is set for the project `folder`, and keep it.
-    fn set_prefs(&mut self, folder: &Path, cx: &mut Context<Self>, f: impl FnOnce(&mut Prefs)) {
+    pub(crate) fn set_prefs(
+        &mut self,
+        folder: &Path,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut Prefs),
+    ) {
         let mut prefs = self.prefs(folder);
         f(&mut prefs);
         if prefs == Prefs::default() {
@@ -65,40 +118,10 @@ impl Desk {
         self.set_prefs(folder, cx, |p| p.worktree = Some(on));
     }
 
-    /// Begin renaming the project `folder` in the sidebar.
-    pub fn begin_rename_project(
-        &mut self,
-        folder: &Path,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let name = self.project_name(folder);
-        self.popup = Popup::Closed;
-        self.renaming = None;
-        self.renaming_project = Some(folder.to_path_buf());
-        self.rename.update(cx, |i, cx| {
-            i.set_text(&name, cx);
-            i.select_everything(cx);
-        });
-        window.focus(&self.rename.focus_handle(cx));
-        cx.notify();
-    }
-
-    /// The name typed for the project being renamed; an empty one gives it
-    /// back its folder's.
-    pub(crate) fn finish_rename_project(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
-        let Some(folder) = self.renaming_project.take() else {
-            return false;
-        };
-        let text = text.trim().to_owned();
-        self.set_prefs(&folder, cx, |p| p.name = (!text.is_empty()).then_some(text));
-        true
-    }
-
     /// Clone the address typed into a folder of its name under the folder
     /// chosen, with its progress shown; it becomes a project once cloned.
     pub fn start_clone(&mut self, cx: &mut Context<Self>) {
-        let url = self.clone_url.read(cx).text().trim().to_owned();
+        let url = self.adding.url.read(cx).text().trim().to_owned();
         let name = url
             .trim_end_matches('/')
             .rsplit(['/', ':'])
@@ -106,22 +129,22 @@ impl Desk {
             .unwrap_or_default()
             .trim_end_matches(".git")
             .to_owned();
-        if url.is_empty() || name.is_empty() || self.cloning.is_some() {
+        if url.is_empty() || name.is_empty() || self.adding.cloning.is_some() {
             return;
         }
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.cloning = Some(crate::hub::Install {
+        self.adding.cloning = Some(crate::hub::Install {
             what: "Starting".into(),
             share: None,
             stop: stop.clone(),
         });
-        self.adding_trouble = None;
-        crate::hub::clone(url, self.parent.join(name), stop, self.tx.clone());
+        self.adding.trouble = None;
+        crate::hub::clone(url, self.adding.parent.join(name), stop, self.tx.clone());
         cx.notify();
     }
 
     pub fn cancel_clone(&mut self, cx: &mut Context<Self>) {
-        if let Some(c) = &self.cloning {
+        if let Some(c) = &self.adding.cloning {
             c.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cx.notify();
@@ -129,27 +152,27 @@ impl Desk {
 
     /// Make a new project of the name typed under the folder chosen.
     pub fn create_project(&mut self, cx: &mut Context<Self>) {
-        let name = self.new_name.read(cx).text().trim().to_owned();
+        let name = self.adding.name.read(cx).text().trim().to_owned();
         if name.is_empty() {
             return;
         }
-        self.adding_trouble = None;
-        crate::hub::create(self.parent.join(&name), name, self.tx.clone());
+        self.adding.trouble = None;
+        crate::hub::create(self.adding.parent.join(&name), name, self.tx.clone());
         cx.notify();
     }
 
     /// Add the project typed as `host:/path`, on a machine reached over
     /// SSH; its sessions are those of the agents there.
     pub fn add_remote(&mut self, cx: &mut Context<Self>) {
-        let typed = self.remote_at.read(cx).text();
+        let typed = self.adding.remote.read(cx).text();
         match typed.trim().split_once(':') {
             Some((host, path)) if !host.is_empty() && path.starts_with('/') => {
-                self.remote_at.update(cx, |i, cx| i.set_text("", cx));
-                self.adding_trouble = None;
+                self.adding.remote.update(cx, |i, cx| i.set_text("", cx));
+                self.adding.trouble = None;
                 self.adopt(&crate::remote::project(host, path));
             }
             _ => {
-                self.adding_trouble =
+                self.adding.trouble =
                     Some("Write the machine and the folder on it as host:/path.".into());
             }
         }
@@ -178,9 +201,10 @@ impl Desk {
 
     /// Begin typing a project on `host`.
     pub fn pick_host(&mut self, host: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.remote_at
+        self.adding
+            .remote
             .update(cx, |i, cx| i.set_text(&format!("{host}:/"), cx));
-        window.focus(&self.remote_at.focus_handle(cx));
+        window.focus(&self.adding.remote.focus_handle(cx));
     }
 
     /// Ask for the folder new and cloned projects go in.
@@ -196,7 +220,7 @@ impl Desk {
                 && let Some(folder) = paths.into_iter().next()
             {
                 let _ = this.update(cx, |this, cx| {
-                    this.parent = folder;
+                    this.adding.parent = folder;
                     cx.notify();
                 });
             }

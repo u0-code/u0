@@ -7,16 +7,58 @@
 //! it away.
 
 use gpui::{
-    AnyElement, Context, Div, ListOffset, SharedString, Window, div, list, prelude::*, px, relative,
+    AnyElement, Context, Div, Entity, ListOffset, SharedString, Window, div, list, prelude::*, px,
+    relative,
 };
 
 use super::{fold, step, verb};
 use crate::{
     desk::Desk,
     fonts,
+    input::{Cancelled, Changed, Submitted, SubmittedAside, TextInput},
     session::{Item, Session, State},
     theme, ui, when,
 };
+
+/// Find over the thread (⌘F): whether it is open, its line, and which of
+/// what it found is on screen.
+pub struct Find {
+    pub open: bool,
+    pub input: Entity<TextInput>,
+    pub at: usize,
+}
+
+impl Find {
+    pub fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let input = cx.new(|cx| {
+            TextInput::new(cx, "Find in this session")
+                .padded(2.)
+                .keeping()
+        });
+        cx.subscribe(&input, |this, _, Submitted(_), cx| {
+            this.find_next(false, cx);
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, SubmittedAside(_), cx| {
+            this.find_next(true, cx);
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, _: &Changed, cx| {
+            this.find.at = usize::MAX;
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe_in(&input, window, |this, _, _: &Cancelled, window, cx| {
+            this.toggle_find(window, cx);
+        })
+        .detach();
+        Self {
+            open: false,
+            input,
+            at: 0,
+        }
+    }
+}
 
 /// One line of the list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,7 +234,7 @@ impl Desk {
             .min_h(px(0.))
             .w_full()
             .children(self.family_tabs(&faces, cx))
-            .children(self.finding.then(|| self.find_bar(&faces, cx)))
+            .children(self.find.open.then(|| self.find_bar(&faces, cx)))
             // Words are chosen by pressing on them and dragging.
             .child(
                 div()
@@ -461,7 +503,7 @@ impl Desk {
 
     /// The items of the session on screen that hold what is looked for.
     pub(crate) fn find_hits(&self, cx: &gpui::App) -> Vec<usize> {
-        let query = self.find.read(cx).text().trim().to_lowercase();
+        let query = self.find.input.read(cx).text().trim().to_lowercase();
         let Some(s) = self.session() else {
             return Vec::new();
         };
@@ -491,20 +533,20 @@ impl Desk {
             return;
         }
         // A new search begins at its first match (or, going back, its last).
-        self.found_at = match (self.found_at < hits.len(), back) {
+        self.find.at = match (self.find.at < hits.len(), back) {
             (false, false) => 0,
             (false, true) => hits.len() - 1,
-            (true, false) => (self.found_at + 1) % hits.len(),
-            (true, true) => (self.found_at + hits.len() - 1) % hits.len(),
+            (true, false) => (self.find.at + 1) % hits.len(),
+            (true, true) => (self.find.at + hits.len() - 1) % hits.len(),
         };
-        self.reveal_item(hits[self.found_at], cx);
+        self.reveal_item(hits[self.find.at], cx);
     }
 
     /// Open the find bar over the thread, or close it (⌘F).
     pub fn toggle_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.finding = !self.finding;
-        if self.finding {
-            window.focus(&gpui::Focusable::focus_handle(self.find.read(cx), cx));
+        self.find.open = !self.find.open;
+        if self.find.open {
+            window.focus(&gpui::Focusable::focus_handle(self.find.input.read(cx), cx));
         } else {
             window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
         }
@@ -516,11 +558,7 @@ impl Desk {
         let at = if hits.is_empty() {
             "No match".to_owned()
         } else {
-            format!(
-                "{} of {}",
-                self.found_at.min(hits.len() - 1) + 1,
-                hits.len()
-            )
+            format!("{} of {}", self.find.at.min(hits.len() - 1) + 1, hits.len())
         };
         div().flex().justify_center().pt(px(10.)).child(
             div()
@@ -536,7 +574,7 @@ impl Desk {
                 .border_1()
                 .border_color(theme::border2())
                 .child(ui::icon("search", 14.).text_color(theme::faint()))
-                .child(div().flex_1().min_w(px(0.)).child(self.find.clone()))
+                .child(div().flex_1().min_w(px(0.)).child(self.find.input.clone()))
                 .child(
                     ui::text(faces, at)
                         .flex_none()

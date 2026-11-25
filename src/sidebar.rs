@@ -10,7 +10,7 @@ use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, Later, Page, Popup, TOPBAR, draggable},
+    desk::{Desk, Later, Page, Popup, Renaming, TOPBAR, draggable},
     fonts::Faces,
     hub::{Slot, Stage},
     session::{Session, State},
@@ -434,7 +434,8 @@ impl Desk {
         let new = folder.to_path_buf();
         let menu_open = self.popup == Popup::Project(folder.to_path_buf());
         let pinned = self.prefs(folder).pinned;
-        let name: gpui::AnyElement = if self.renaming_project.as_deref() == Some(folder) {
+        let name: gpui::AnyElement = if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder)
+        {
             self.rename_field().into_any_element()
         } else {
             ui::one_line(
@@ -553,7 +554,7 @@ impl Desk {
         menu = menu
             .child(item(0, "pencil", "Rename".into()).on_click(cx.listener(
                 move |this, _, window, cx| {
-                    this.begin_rename_project(&rename_dir, window, cx);
+                    this.begin_rename(Renaming::Project(rename_dir.clone()), window, cx);
                 },
             )))
             .child(
@@ -668,7 +669,7 @@ impl Desk {
                 0.
             }
             - if s.git.pr.is_some() { 36. } else { 0. };
-        let name: AnyElement = if self.renaming == Some(key) && !self.renaming_here {
+        let name: AnyElement = if self.renaming == Some(Renaming::Session { key, here: false }) {
             self.rename_field().into_any_element()
         } else {
             ui::one_line(
@@ -925,10 +926,13 @@ impl Desk {
             };
         let part = || div().flex().flex_col().w(px(220.)).p(px(6.));
         let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
-        menu =
-            menu.child(item(0, "pencil", "Rename".into(), None, cx).on_click(
-                cx.listener(move |this, _, window, cx| this.begin_rename(key, window, cx)),
-            ));
+        menu = menu.child(
+            item(0, "pencil", "Rename".into(), None, cx).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    this.begin_rename(Renaming::Session { key, here: false }, window, cx);
+                },
+            )),
+        );
         let pin = if s.meta.flags.pinned.is_some() {
             "Unpin"
         } else {

@@ -196,13 +196,13 @@ impl Desk {
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
             Msg::Terminal(id) => {
-                if let Some(t) = self.terminals.iter().find(|t| t.id == id) {
+                if let Some(t) = self.drawer.terminals.iter().find(|t| t.id == id) {
                     t.changed.store(false, std::sync::atomic::Ordering::Release);
                 }
             }
             Msg::TerminalOpened { id, result } => self.terminal_opened(id, result),
             Msg::TerminalEnded(id) => {
-                if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) {
+                if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
                     t.end();
                 }
                 self.setup_ended(id);
@@ -218,8 +218,8 @@ impl Desk {
             Msg::Picture(None) => {}
             Msg::Grepped { words, found } => {
                 // Only what answers what is typed now.
-                if self.palette_input.read(cx).text().trim() == words {
-                    self.grep = found;
+                if self.palette.input.read(cx).text().trim() == words {
+                    self.palette.grep = found;
                 }
             }
             Msg::Files { folder, files } => {
@@ -242,20 +242,20 @@ impl Desk {
                 }
             }
             Msg::Cloning { what, share } => {
-                if let Some(c) = &mut self.cloning {
+                if let Some(c) = &mut self.adding.cloning {
                     c.what = what;
                     c.share = share.or(c.share);
                 }
             }
             Msg::Cloned { dir, result } => {
-                self.cloning = None;
+                self.adding.cloning = None;
                 match result {
                     Ok(()) => {
-                        self.new_name.update(cx, |i, cx| i.set_text("", cx));
+                        self.adding.name.update(cx, |i, cx| i.set_text("", cx));
                         self.adopt(&dir);
                     }
                     Err(why) if why == crate::registry::CANCELLED => {}
-                    Err(why) => self.adding_trouble = Some(why),
+                    Err(why) => self.adding.trouble = Some(why),
                 }
             }
             Msg::Diffed { key, scope, result } => {
@@ -318,7 +318,7 @@ impl Desk {
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
             Msg::Weighed(weights) => self.weights = weights,
-            Msg::Hosts(hosts) => self.hosts = hosts,
+            Msg::Hosts(hosts) => self.adding.hosts = hosts,
             Msg::Here(here) => self.here = here,
             Msg::OnPath(found) => self.on_path = found,
             Msg::Keys(Ok(yours)) => {

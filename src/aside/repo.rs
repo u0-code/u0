@@ -21,7 +21,7 @@ use crate::{
 impl Desk {
     /// The changes the scope asks for, as git read them, when it has.
     pub(super) fn scoped<'a>(&self, s: &'a Session) -> Option<&'a Vec<git::FileDiff>> {
-        match &self.scope {
+        match &self.review.scope {
             Scope::All => s.total.as_ref(),
             Scope::Turn(n) => s.turns.get(*n).and_then(|t| t.diff.as_ref()),
             scope => s
@@ -55,7 +55,7 @@ impl Desk {
                 }))
                 .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx)))
         };
-        let turn = match self.scope {
+        let turn = match self.review.scope {
             Scope::Turn(n) => Some(n),
             _ => last,
         };
@@ -65,24 +65,24 @@ impl Desk {
             .child(scope_tab(
                 "scope-all",
                 if last.is_some() { "All" } else { "Uncommitted" }.into(),
-                self.scope == Scope::All,
+                self.review.scope == Scope::All,
                 Scope::All,
             ))
             .children(turn.map(|turn| {
                 scope_tab(
                     "scope-turn",
                     format!("Turn {}", turn + 1),
-                    matches!(self.scope, Scope::Turn(_)),
+                    matches!(self.review.scope, Scope::Turn(_)),
                     Scope::Turn(turn),
                 )
             }))
             .child(scope_tab(
                 "scope-branch",
                 "Branch".into(),
-                self.scope == Scope::Branch,
+                self.review.scope == Scope::Branch,
                 Scope::Branch,
             ))
-            .children(match &self.scope {
+            .children(match &self.review.scope {
                 Scope::Commit(id) => Some(scope_tab(
                     "scope-commit",
                     id.clone(),
@@ -91,7 +91,7 @@ impl Desk {
                 )),
                 _ => None,
             })
-            .when(self.scope == Scope::Branch, |d| {
+            .when(self.review.scope == Scope::Branch, |d| {
                 d.child(self.compare_chip(faces, s, cx))
             })
     }
@@ -189,12 +189,12 @@ impl Desk {
         let last = s.turns.iter().rposition(|t| t.diff.is_some());
         if last.is_none()
             && s.total.is_none()
-            && !matches!(self.scope, Scope::Branch | Scope::Commit(_))
+            && !matches!(self.review.scope, Scope::Branch | Scope::Commit(_))
         {
             return None;
         }
-        let reading =
-            matches!(self.scope, Scope::Branch | Scope::Commit(_)) && self.scoped(s).is_none();
+        let reading = matches!(self.review.scope, Scope::Branch | Scope::Commit(_))
+            && self.scoped(s).is_none();
         let files = self.scoped(s).cloned().unwrap_or_default();
         let (added, gone) = files
             .iter()
@@ -262,7 +262,7 @@ impl Desk {
                     ),
                 ),
         );
-        if self.committing {
+        if self.review.committing {
             sec = sec.child(self.commit_form(faces, s, cx));
         }
         if let Some(step) = &s.git.step {
@@ -318,7 +318,12 @@ impl Desk {
                     .bg(theme::well())
                     .border_1()
                     .border_color(theme::border2())
-                    .child(div().flex_1().min_w(px(0.)).child(self.message.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(self.review.message.clone()),
+                    )
                     // Asked during a turn, its answer would be taken for
                     // that turn's: it waits for the turn to end.
                     .when(
@@ -383,7 +388,7 @@ impl Desk {
         }
         let mut rows = div().flex().flex_col();
         for (id, subject, when) in s.git.commits.iter().take(8) {
-            let on = self.scope == Scope::Commit(id.clone());
+            let on = self.review.scope == Scope::Commit(id.clone());
             let to = Scope::Commit(id.clone());
             rows = rows.child(
                 frow()

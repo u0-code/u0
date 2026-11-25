@@ -7,13 +7,18 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use gpui::{
-    AnyElement, Context, Focusable as _, InteractiveElement as _, IntoElement as _,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
-    prelude::FluentBuilder as _, px,
+    AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
+    IntoElement as _, ParentElement as _, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 
 use super::{Desk, Page, Popup};
-use crate::{fonts::Faces, session::State, theme, ui};
+use crate::{
+    fonts::Faces,
+    input::{Cancelled, Changed, Stepped, Submitted, TextInput},
+    session::State,
+    theme, ui,
+};
 
 /// What a line of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +56,54 @@ pub enum Through {
     Everything,
     Files,
     Words,
+}
+
+/// The palette: whether it is open, its line, the line of it Return
+/// takes, what it looks through and the words it found there.
+pub struct Palette {
+    pub open: bool,
+    pub input: Entity<TextInput>,
+    pub at: usize,
+    pub through: Through,
+    pub grep: Vec<(String, String)>,
+}
+
+impl Palette {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let input = cx.new(|cx| {
+            TextInput::new(cx, "Go to a session, or do something")
+                .padded(4.)
+                .submitting_empty()
+        });
+        cx.subscribe(&input, |this, input, _: &Changed, cx| {
+            this.palette.at = 0;
+            if this.palette.through == Through::Words {
+                let words = input.read(cx).text();
+                this.search_words(&words);
+            }
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&input, |this, _, Stepped(by), cx| {
+            this.step_palette(*by, cx);
+        })
+        .detach();
+        cx.subscribe_in(&input, window, |this, _, Submitted(_), window, cx| {
+            this.run_act(this.palette.at, window, cx);
+        })
+        .detach();
+        cx.subscribe_in(&input, window, |this, _, _: &Cancelled, window, cx| {
+            this.toggle_palette(window, cx);
+        })
+        .detach();
+        Self {
+            open: false,
+            input,
+            at: 0,
+            through: Through::Everything,
+            grep: Vec::new(),
+        }
+    }
 }
 
 /// How many lines the palette shows.
@@ -145,8 +198,8 @@ impl Desk {
     /// the terminals when their drawer is open, and back.
     pub fn next_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let in_line = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
-        if in_line && self.drawer {
-            window.focus(&self.term_focus);
+        if in_line && self.drawer.open {
+            window.focus(&self.drawer.focus);
         } else {
             window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
         }
@@ -192,16 +245,17 @@ impl Desk {
         if let Some(s) = self.session() {
             crate::hub::list_files(s.meta.folder.clone(), self.tx.clone());
         }
-        self.palette = false;
+        self.palette.open = false;
         self.toggle_palette(window, cx);
-        self.through = through;
-        self.grep.clear();
+        self.palette.through = through;
+        self.palette.grep.clear();
         let says = match through {
             Through::Files => "Go to a file",
             Through::Words => "Search the project's files",
             Through::Everything => "Go to anything",
         };
-        self.palette_input
+        self.palette
+            .input
             .update(cx, |i, cx| i.set_placeholder(says, cx));
     }
 
@@ -209,7 +263,7 @@ impl Desk {
     pub(crate) fn search_words(&mut self, words: &str) {
         let Some(s) = self.session() else { return };
         if words.trim().len() < 2 {
-            self.grep.clear();
+            self.palette.grep.clear();
             return;
         }
         crate::hub::grep(
@@ -221,15 +275,16 @@ impl Desk {
 
     /// Open the palette, or close it.
     pub fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.through = Through::Everything;
-        self.palette_input
+        self.palette.through = Through::Everything;
+        self.palette
+            .input
             .update(cx, |i, cx| i.set_placeholder("Go to anything", cx));
-        self.palette = !self.palette;
-        self.palette_at = 0;
-        if self.palette {
+        self.palette.open = !self.palette.open;
+        self.palette.at = 0;
+        if self.palette.open {
             self.want_offers();
-            self.palette_input.update(cx, |i, cx| i.set_text("", cx));
-            window.focus(&self.palette_input.focus_handle(cx));
+            self.palette.input.update(cx, |i, cx| i.set_text("", cx));
+            window.focus(&self.palette.input.focus_handle(cx));
         } else {
             window.focus(&self.input.focus_handle(cx));
         }
@@ -238,9 +293,9 @@ impl Desk {
 
     /// Move the palette's choice up (below zero) or down.
     pub(crate) fn step_palette(&mut self, by: isize, cx: &mut Context<Self>) {
-        let query = self.palette_input.read(cx).text();
+        let query = self.palette.input.read(cx).text();
         let last = self.lines(&query).len().saturating_sub(1);
-        self.palette_at = self.palette_at.saturating_add_signed(by).min(last);
+        self.palette.at = self.palette.at.saturating_add_signed(by).min(last);
         cx.notify();
     }
 
@@ -258,7 +313,7 @@ impl Desk {
             icon: "file",
             live: false,
         };
-        match self.through {
+        match self.palette.through {
             Through::Files => {
                 let project = self
                     .session()
@@ -272,6 +327,7 @@ impl Desk {
             }
             Through::Words => {
                 return self
+                    .palette
                     .grep
                     .iter()
                     .take(LINES)
@@ -470,11 +526,11 @@ impl Desk {
 
     /// Do the line `n` of the palette.
     pub fn run_act(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let query = self.palette_input.read(cx).text();
+        let query = self.palette.input.read(cx).text();
         let Some(line) = self.lines(&query).into_iter().nth(n) else {
             return;
         };
-        self.palette = false;
+        self.palette.open = false;
         window.focus(&self.input.focus_handle(cx));
         match line.act {
             Act::NewSession => self.new_default(window, cx),
@@ -530,10 +586,10 @@ impl Desk {
 
     /// The palette, over the window's top.
     pub(crate) fn palette_view(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.palette {
+        if !self.palette.open {
             return None;
         }
-        let query = self.palette_input.read(cx).text();
+        let query = self.palette.input.read(cx).text();
         let mut list = div().flex().flex_col().p(px(6.));
         let mut group = "";
         for (n, line) in self.lines(&query).into_iter().enumerate() {
@@ -564,8 +620,8 @@ impl Desk {
                     .h(px(34.))
                     .rounded(px(7.))
                     .cursor_pointer()
-                    .when(n == self.palette_at, |d| d.bg(theme::panel2()))
-                    .when(n != self.palette_at, |d| {
+                    .when(n == self.palette.at, |d| d.bg(theme::panel2()))
+                    .when(n != self.palette.at, |d| {
                         d.hover(|st| st.bg(theme::hover()))
                     })
                     .child(lead)
@@ -618,7 +674,7 @@ impl Desk {
                                 .border_b_1()
                                 .border_color(theme::border2())
                                 .child(ui::icon("search", 16.).text_color(theme::faint()))
-                                .child(div().flex_1().child(self.palette_input.clone()))
+                                .child(div().flex_1().child(self.palette.input.clone()))
                                 .child(crate::sidebar::kbd(faces, "esc")),
                         )
                         .child(list)
