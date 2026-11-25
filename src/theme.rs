@@ -131,11 +131,12 @@ pub fn text2() -> Hsla {
 }
 /// Labels, a step's verb, what a command printed.
 pub fn muted() -> Hsla {
-    step((0x9C9C_9C, 0x6666_66), (0xBDBD_BD, 0x4A4A_4A))
+    step((0x9C9C_9C, 0x5A5A_5A), (0xBDBD_BD, 0x4A4A_4A))
 }
-/// The faintest readable grey: times, durations, footnotes.
+/// The faintest readable grey: times, durations, footnotes. Still 4.5:1
+/// (WCAG AA) on a panel and on the rail, for the small text it is.
 pub fn faint() -> Hsla {
-    step((0x7575_75, 0x8686_86), (0x9C9C_9C, 0x6262_62))
+    step((0x8E8E_8E, 0x6E6E_6E), (0xA8A8_A8, 0x5757_57))
 }
 /// Below faint, for what is there only to be skipped: line numbers, the
 /// "… n lines" of a fold, a plan's struck and empty marks, work dropped.
@@ -192,15 +193,16 @@ pub fn link_line() -> Hsla {
 }
 
 /// The colour an agent's logo is drawn in: GPUI draws an icon in one
-/// colour, so each gets its brand's own, by registry id. A brand whose
-/// mark is black is drawn in the text colour, as on a dark ground.
+/// colour, so each gets its brand's own, by registry id, deepened on the
+/// light ground to keep 3:1 there. A brand whose mark is black is drawn in
+/// the text colour.
 pub fn brand(id: &str) -> Hsla {
     match id {
         "claude-acp" => c(0xD977_57),
-        "antigravity-acp" => c(0x8FBD_FF),
-        "gemini" => c(0xA99B_FA),
-        "opencode" => c(0xB4B4_B4),
-        "github-copilot-cli" => c(0xC4C4_C4),
+        "antigravity-acp" => pick(0x8FBD_FF, 0x3C7B_E0),
+        "gemini" => pick(0xA99B_FA, 0x6B5B_D6),
+        "opencode" => pick(0xB4B4_B4, 0x6E6E_6E),
+        "github-copilot-cli" => pick(0xC4C4_C4, 0x6E6E_6E),
         _ => text(),
     }
 }
