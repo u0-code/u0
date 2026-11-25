@@ -1,262 +1,151 @@
-//! The window with no session on screen: an agent to begin with and the
-//! project it begins in; the sessions that need you; and those to pick up
-//! where you left off, in every project.
+//! A session not begun, or none on screen: no greeting, as Claude has
+//! none, only a card of the next steps that apply. A folder to work in
+//! when there is no project; an agent to sign in to, or one to add; a new
+//! session where none is open; the sessions that wait on you, and the
+//! three last touched to pick up.
 
-use std::time::SystemTime;
-
-use gpui::component::{kbd::Kbd, popover::Popover};
-use gpui::{Context, Div, SharedString, Styled as _, div, prelude::*, px};
+use gpui::component::list::ListItem;
+use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Desk, Popup},
-    fonts::{Faces, Weighted as _},
+    desk::Desk,
+    fonts::Faces,
+    hub::Auth,
     session::{Session, State},
-    theme, ui, when,
+    theme, ui,
 };
 
-/// How many sessions to pick up are listed.
-const RECENT: usize = 5;
+/// How many sessions to pick up are offered.
+const RECENT: usize = 3;
 
 impl Desk {
-    /// The start, `width` wide at most.
-    pub(crate) fn start(&self, faces: &Faces, width: f32, cx: &mut Context<Self>) -> Div {
-        let mut agents = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(8.))
-            .justify_center()
-            .mt(px(6.));
-        for slot in &self.slots {
-            let id = slot.entry.id.clone();
-            let name = self.name_of(&id);
-            agents = agents.child(
-                ui::led_button(
-                    SharedString::from(format!("start-{id}")),
-                    Some(ui::mark(faces, &self.mark_of(&id), 16.)),
-                    name,
-                    ui::Weight::Secondary,
+    /// The next steps, as one bordered card in the middle of the page, at
+    /// most `width` wide; `fresh`: for a session on screen not begun yet.
+    pub(crate) fn start(
+        &self,
+        faces: &Faces,
+        width: f32,
+        fresh: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let row =
+            |id: SharedString, icon: &'static str, says: String, aside: Option<&'static str>| {
+                ListItem::new(id)
+                    .h(px(34.))
+                    .px(px(12.))
+                    .rounded(px(6.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(ui::icon(icon, 16.).text_color(theme::muted()))
+                            .child(ui::one_line(ui::text(faces, says).text_size(px(14.))).w_auto())
+                            .children(aside.map(|a| {
+                                ui::text(faces, a)
+                                    .flex_none()
+                                    .text_size(px(14.))
+                                    .text_color(theme::faint())
+                            })),
+                    )
+            };
+        let mut steps: Vec<ListItem> = Vec::new();
+        if self.projects().is_empty() {
+            steps.push(
+                row(
+                    "step-folder".into(),
+                    "folder",
+                    "Choose a folder to work in".into(),
+                    None,
                 )
-                .h(px(34.))
-                .px(px(12.))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    if let Some(project) = this.project() {
-                        this.new_session(&id, project, window, cx);
-                    }
-                })),
+                .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+            );
+        } else if !fresh {
+            let named = self
+                .chosen_project()
+                .map(|p| self.project_name(&p))
+                .unwrap_or_default();
+            steps.push(
+                row(
+                    "step-new".into(),
+                    "plus",
+                    format!("New session in {named}"),
+                    None,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
             );
         }
-        agents = agents.child(
-            ui::button("start-more", "+ More agents", ui::Weight::Quiet)
-                .h(px(34.))
+        for slot in self
+            .slots
+            .iter()
+            .filter(|x| matches!(x.auth, Auth::Needed(_)))
+        {
+            let id = slot.entry.id.clone();
+            steps.push(
+                row(
+                    SharedString::from(format!("step-sign-in-{id}")),
+                    "user",
+                    format!("Sign in to {}", self.name_of(&id)),
+                    None,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(&id, cx))),
+            );
+        }
+        if self.slots.is_empty() {
+            steps.push(
+                row(
+                    "step-agent".into(),
+                    "plug",
+                    "Add an agent from the ACP registry".into(),
+                    None,
+                )
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.open_tab(crate::pages::Tab::Agents, window, cx);
                 })),
-        );
-
-        let (needs, recent) = self.to_pick_up();
-        let mut page = div()
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .w(px(width.min(600.)))
-            .mt(px(96.))
-            .child(
-                ui::text(faces, "What should we work on?")
-                    .text_size(px(22.))
-                    .line_height(px(30.))
-                    .weight(gpui::FontWeight::SEMIBOLD)
-                    .flex()
-                    .justify_center(),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(8.))
-                    .child(
-                        ui::text(faces, "Pick an agent to start in")
-                            .text_size(px(14.))
-                            .text_color(theme::text2()),
-                    )
-                    .child(self.start_in(faces, cx)),
-            )
-            .child(agents);
-        if !needs.is_empty() {
-            page = page
-                .child(head(faces, "Needs you", needs.len().to_string()).mt(px(34.)))
-                .child(self.picks(faces, &needs, cx));
+            );
         }
-        if !recent.is_empty() {
-            page = page
-                .child(
-                    head(faces, "Pick up where you left off", "all projects".into())
-                        .mt(px(if needs.is_empty() { 34. } else { 14. })),
+        for s in self.to_pick_up() {
+            let key = s.key;
+            steps.push(
+                row(
+                    SharedString::from(format!("step-pick-{key}")),
+                    "reply",
+                    format!("Pick up {}", ui::fit(&s.meta.title, 40)),
+                    asks(s),
                 )
-                .child(self.picks(faces, &recent, cx));
+                .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx))),
+            );
         }
-        page.child(
+        if steps.is_empty() {
+            return div();
+        }
+        div().flex().flex_col().items_center().mt(px(160.)).child(
             div()
                 .flex()
-                .justify_center()
-                .gap(px(18.))
-                .mt(px(18.))
-                .children(
-                    crate::keys::keys_of(cx, "palette")
-                        .into_iter()
-                        .map(|k| key(faces, Kbd::new(k), "go to anything")),
-                )
-                .children(
-                    crate::keys::keys_of(cx, "drawer")
-                        .into_iter()
-                        .map(|k| key(faces, Kbd::new(k), "terminal")),
-                )
-                .child(key(faces, Kbd::label("⌘1–9"), "a session")),
+                .flex_col()
+                .w(px(width.min(420.)))
+                .p(px(4.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(theme::border2())
+                .children(steps),
         )
     }
 
-    /// The sessions that wait on you, and the others most lately touched.
-    fn to_pick_up(&self) -> (Vec<&Session>, Vec<&Session>) {
-        let shown: Vec<&Session> = self
-            .sessions
-            .all
-            .iter()
-            .filter(|s| {
-                self.listed_now(s)
-                    && s.meta.flags.settled.is_none()
-                    && !(s.state == State::Draft && s.items.is_empty())
-            })
-            .collect();
-        let (needs, mut rest): (Vec<&Session>, Vec<&Session>) =
-            shown.into_iter().partition(|s| asks(s).is_some());
+    /// The sessions that wait on you, then the others most lately touched.
+    fn to_pick_up(&self) -> Vec<&Session> {
+        let shown = self.sessions.all.iter().filter(|s| {
+            self.listed_now(s)
+                && Some(s.key) != self.current
+                && s.meta.flags.settled.is_none()
+                && !(s.state == State::Draft && s.items.is_empty())
+        });
+        let (mut needs, mut rest): (Vec<&Session>, Vec<&Session>) =
+            shown.partition(|s| asks(s).is_some());
         rest.sort_by_key(|s| std::cmp::Reverse(s.meta.updated));
         rest.truncate(RECENT);
-        (needs, rest)
-    }
-
-    /// The project a session begun here starts in, and the others to
-    /// choose from.
-    fn start_in(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
-        let named = self
-            .chosen_project()
-            .map_or_else(|| "a scratch folder".into(), |p| self.project_name(&p));
-        let chip = ui::opener("start-in")
-            .h(px(26.))
-            .px(px(8.))
-            .border_1()
-            .border_color(theme::tag_line())
-            .child(ui::icon("folder", 13.).text_color(theme::faint()))
-            .child(
-                ui::mono(faces, ui::fit(&named, 28))
-                    .text_size(px(12.))
-                    .text_color(theme::text2()),
-            )
-            .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
-        let faces = faces.clone();
-        self.menu(
-            Popup::StartIn,
-            chip,
-            move |d, _, cx| d.start_in_menu(&faces, cx),
-            cx,
-        )
-    }
-
-    /// The projects a session begun here can start in, or a folder to add.
-    fn start_in_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let here = self.chosen_project();
-        let mut menu = div().flex().flex_col().w(px(228.));
-        for (n, p) in self.projects().into_iter().enumerate() {
-            let on = here.as_ref() == Some(&p);
-            menu = menu.child(
-                ui::menu_row(SharedString::from(format!("start-in-{n}")), on)
-                    .child(ui::icon("folder", 13.).text_color(theme::faint()))
-                    .child(ui::text(faces, ui::fit(&self.project_name(&p), 28)).text_size(px(13.)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.start_in = Some(p.clone());
-                        this.popup = Popup::Closed;
-                        cx.notify();
-                    })),
-            );
-        }
-        // Or a folder not listed yet.
-        menu.child(
-            ui::menu_row("start-in-open", false)
-                .child(ui::icon("plus", 13.).text_color(theme::faint()))
-                .child(ui::text(faces, "Open a folder…").text_size(px(13.)))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.popup = Popup::Closed;
-                    Self::add_project(cx);
-                })),
-        )
-    }
-
-    /// Sessions as rows of a card: the agent, the title, the project, what
-    /// changed or what it asks, and when.
-    fn picks(&self, faces: &Faces, sessions: &[&Session], cx: &mut Context<Self>) -> Div {
-        let mut card = div()
-            .flex()
-            .flex_col()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(theme::border())
-            .overflow_hidden();
-        let now = SystemTime::now();
-        for (n, s) in sessions.iter().enumerate() {
-            let key = s.key;
-            let tail = match asks(s) {
-                Some(what) => fine(faces, what).text_color(theme::accent()),
-                None if matches!(s.state, State::Working | State::Opening) => {
-                    fine(faces, "running").text_color(theme::accent())
-                }
-                None => fine(faces, when::ago(s.meta.updated, now)),
-            };
-            let (added, gone) = s.total.as_ref().map_or((0, 0), |files| {
-                files
-                    .iter()
-                    .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone))
-            });
-            card = card.child(
-                div()
-                    .id(SharedString::from(format!("pick-{key}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .h(px(40.))
-                    .px(px(12.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
-                    .child(
-                        ui::one_line(
-                            ui::text(faces, ui::fit(&s.meta.title, 52))
-                                .text_size(px(13.5))
-                                .text_color(theme::text()),
-                        )
-                        .flex_1()
-                        .min_w(px(0.)),
-                    )
-                    .child(fine(
-                        faces,
-                        ui::fit(&self.project_name(&s.meta.project), 16),
-                    ))
-                    .when(added + gone > 0, |d| {
-                        d.child(
-                            ui::mono(faces, format!("+{added}"))
-                                .text_size(px(12.))
-                                .text_color(theme::added()),
-                        )
-                        .child(
-                            ui::mono(faces, format!("−{gone}"))
-                                .text_size(px(12.))
-                                .text_color(theme::gone()),
-                        )
-                    })
-                    .child(tail)
-                    .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx))),
-            );
-        }
-        card
+        needs.extend(rest);
+        needs
     }
 }
 
@@ -266,35 +155,9 @@ fn asks(s: &Session) -> Option<&'static str> {
         Some("asks you")
     } else {
         match s.state {
-            State::SignIn => Some("sign in"),
+            State::SignIn => Some("needs a sign-in"),
             State::Broken(_) => Some("stopped"),
             _ => None,
         }
     }
-}
-
-fn head(faces: &Faces, label: &str, note: String) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .mx(px(2.))
-        .child(ui::label(faces, label).flex_1())
-        .child(fine(faces, note))
-}
-
-fn key(faces: &Faces, keys: Kbd, does: &'static str) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .child(keys)
-        .child(fine(faces, does))
-}
-
-fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::text(faces, text)
-        .flex_none()
-        .text_size(px(12.))
-        .text_color(theme::faint())
 }

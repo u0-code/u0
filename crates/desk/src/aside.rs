@@ -183,11 +183,13 @@ impl Desk {
                         ),
                 )
             })
-            .children(self.background(faces, s, cx))
+            // Then as Claude stacks its cards: the context, the plan, and
+            // what goes on in the background.
+            .child(self.context(faces, s, cx))
             .child(Self::plan(faces, s))
+            .children(self.background(faces, s, cx))
             .children(self.servers(faces, s, cx))
             .child(Self::terminals(faces, s, cx))
-            .child(self.context(faces, s, cx))
         };
         frame(head).child(body.overflow_y_scrollbar())
     }

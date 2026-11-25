@@ -121,7 +121,7 @@ pub enum Popup {
     Rewind(u64, usize),
     /// The project the sidebar shows, when it lists by status.
     Only,
-    /// The project a session begun from the start goes in.
+    /// The project a new session works in, from its chip.
     StartIn,
 }
 
@@ -235,8 +235,6 @@ pub struct Desk {
     pub page: Page,
     pub popup: Popup,
     pub picker: crate::thread::Picker,
-    /// The project chosen on the start, for a session begun there.
-    pub start_in: Option<PathBuf>,
     pub panes: Panes,
     pub composer: mention::Composer,
     /// Cards and lines opened in the thread, by key.
@@ -448,7 +446,6 @@ impl Desk {
             page: Page::Thread,
             popup: Popup::Closed,
             picker: crate::thread::Picker::default(),
-            start_in: None,
             panes: Panes {
                 left: true,
                 right: true,
@@ -502,11 +499,10 @@ impl Desk {
     }
 
     /// The project a new session starts in: that of the session on
-    /// screen, else the one chosen on the start, else the first listed.
+    /// screen, else the first listed.
     pub fn chosen_project(&self) -> Option<PathBuf> {
         self.session()
             .map(|s| s.meta.project.clone())
-            .or_else(|| self.start_in.clone())
             .or_else(|| self.projects().into_iter().next())
     }
 

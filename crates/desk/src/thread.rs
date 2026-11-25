@@ -35,7 +35,6 @@ use gpui::component::{
 };
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
-use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -427,12 +426,10 @@ impl Desk {
             return self.thread_list(column, cx).into_any_element();
         }
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
-        match self.session() {
-            None => col = col.child(self.start(faces, column, cx)),
-            Some(s) => {
-                col = col.child(self.fresh(faces, s, cx));
-            }
-        }
+        let fresh = self.session();
+        col = col
+            .child(self.start(faces, column, fresh.is_some(), cx))
+            .children(fresh.and_then(|s| Self::also_row(faces, s, cx)));
         div()
             .id("thread")
             .flex()
@@ -531,25 +528,6 @@ impl Desk {
                     })),
             )
             .children(setup)
-    }
-
-    /// A session begun, before anything is said: where it will work.
-    fn fresh(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let name = &self.name_of(&s.meta.agent);
-        div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(14.))
-            .mt(px(140.))
-            .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 48.))
-            .child(
-                ui::text(faces, format!("New session with {name}"))
-                    .text_size(px(22.))
-                    .line_height(px(30.))
-                    .weight(gpui::FontWeight::SEMIBOLD),
-            )
-            .children(Self::also_row(faces, s, cx))
     }
 
     /// The folders a draft works in beside its own (the composer's + adds
