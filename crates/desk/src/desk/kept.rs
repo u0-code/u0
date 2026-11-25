@@ -168,7 +168,7 @@ impl Desk {
             let _ = tunnel.kill();
         }
         self.save_index();
-        crate::hub::Transport::settle();
+        self.transport.settle();
     }
 
     /// Ask the server for the record of the closed session `key` (see
@@ -289,7 +289,9 @@ impl Desk {
     /// Measure what Ghost keeps on this machine.
     pub fn measure(&self) {
         self.transport.send(Call::Sizes {
-            worktrees: self.settings.worktree_folders(&self.home),
+            worktrees: self
+                .settings
+                .worktree_folders(self.transport.home_there(&self.home)),
         });
     }
 
@@ -308,7 +310,9 @@ impl Desk {
                 .iter()
                 .filter_map(|s| s.meta.worktree.as_ref().map(|w| w.path.clone()))
                 .collect(),
-            under: self.settings.worktree_folders(&self.home),
+            under: self
+                .settings
+                .worktree_folders(self.transport.home_there(&self.home)),
             projects: self.settings.folders.clone(),
             uids: self
                 .sessions

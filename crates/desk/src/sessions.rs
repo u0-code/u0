@@ -25,6 +25,16 @@ pub struct Sessions {
 }
 
 impl Sessions {
+    /// None yet, with keys from a random start: a server outlives the
+    /// desk, and another desk may be linked to it, so that what it says
+    /// of one desk's session (its turn ended) is not taken for another's.
+    pub fn new() -> Self {
+        Self {
+            all: Vec::new(),
+            last_key: crate::access::number() >> 16,
+        }
+    }
+
     /// A key nothing on the desk has had: a session's, a terminal's or a
     /// notice's.
     pub fn take_key(&mut self) -> u64 {
@@ -420,11 +430,10 @@ mod tests {
 
     #[test]
     fn an_agent_stopping_closes_and_notes_its_open_sessions_but_one_let_go_before_does_not() {
-        let home = tempfile::tempdir().unwrap();
         let entry =
             serde_json::from_str(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#)
                 .unwrap();
-        let mut slot = Slot::new(entry, home.path(), Some("/bin/sh -c 'sleep 30'".into()));
+        let mut slot = Slot::new(entry, None, Some("/bin/sh -c 'sleep 30'".into()));
         let pid = Some(4242);
         slot.stage = Stage::Running { pid };
         assert!(slot.runs(pid));

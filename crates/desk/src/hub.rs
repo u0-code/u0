@@ -19,10 +19,11 @@ mod agent;
 pub use agent::*;
 
 use crate::{
-    acp,
+    acp, link,
     proto::{Call, Event},
     registry,
     server::Server,
+    settings::Settings,
 };
 
 /// What comes back to the window.
@@ -44,34 +45,142 @@ pub enum Msg {
     Heard(crate::voice::Heard),
     /// Where an update of Ghost's own stands.
     Update(crate::desk::updates::Update),
+    /// How the link to the server elsewhere stands.
+    Link(link::State),
+    /// A server paired with, and the token it gave; or why not.
+    Paired(Result<(crate::servers::Server, String), String>),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
 
 /// The way to the server: each [`Call`] goes to it in order, and what it
-/// says comes back as [`Msg::Event`]. The server runs in this process: a
-/// call reaches it as it is, not written out, and is handed on at once
-/// (what it waits for, it waits for on the ACP runtime).
-pub struct Transport(Server);
+/// says comes back as [`Msg::Event`].
+pub enum Transport {
+    /// The server in this process: a call reaches it as it is, not
+    /// written out, and is handed on at once (what it waits for, it waits
+    /// for on the ACP runtime).
+    Local(std::sync::Arc<Server>),
+    /// A server on another machine, by its name, over a link (`link`),
+    /// and Ghost's home there.
+    Remote(link::Link, String, std::path::PathBuf),
+}
 
 impl Transport {
-    /// A server for Ghost's home `home` in this process, saying what it
-    /// has to say to `tx`.
-    pub fn local(home: PathBuf, tx: Sender) -> Self {
-        Self(Server::new(home, move |event| {
-            let _ = tx.send(Msg::Event(event));
-        }))
+    /// The server the window opens on (`servers.json`), saying what it
+    /// has to say to `tx`, with its settings as its home has them (or why
+    /// they do not read). One that cannot be reached is said to be so, and
+    /// the window opens on this Mac's own.
+    pub fn open(home: &std::path::Path, tx: &Sender) -> (Self, (Settings, Option<String>)) {
+        let servers = crate::servers::Servers::load(home);
+        if let Ok(Some(server)) = servers.as_ref().map(crate::servers::Servers::opened) {
+            let name = server.name.clone();
+            match Self::reach(server, tx) {
+                Ok((link, welcome)) => {
+                    let settings = match welcome.settings {
+                        Ok(s) => (*s, None),
+                        Err(why) => (Settings::default(), Some(why)),
+                    };
+                    return (Self::Remote(link, name, welcome.home), settings);
+                }
+                Err(why) => {
+                    let _ = tx.send(Msg::Notice(Err((
+                        format!("Couldn't reach {name}: Ghost opened on this Mac"),
+                        why,
+                    ))));
+                }
+            }
+        }
+        if let Err(why) = servers {
+            let _ = tx.send(Msg::Notice(Err(("Couldn't read your servers".into(), why))));
+        }
+        let local = Self::Local(Server::new(home.to_path_buf(), {
+            let tx = tx.clone();
+            move |event| {
+                let _ = tx.send(Msg::Event(event));
+            }
+        }));
+        (local, Settings::load(home))
+    }
+
+    /// Link to `server`, waiting for its welcome.
+    fn reach(
+        server: &crate::servers::Server,
+        tx: &Sender,
+    ) -> Result<(link::Link, crate::proto::Welcome), String> {
+        let (url, auth) = server.reach()?;
+        let (said, stood) = (tx.clone(), tx.clone());
+        acp::runtime().block_on(link::connect(
+            url,
+            auth,
+            move |event| {
+                let _ = said.send(Msg::Event(event));
+            },
+            move |state| {
+                let _ = stood.send(Msg::Link(state));
+            },
+        ))
     }
 
     pub fn send(&self, call: Call) {
-        self.0.handle(call);
+        match self {
+            Self::Local(server) => server.handle(call),
+            Self::Remote(link, ..) => link.send(call),
+        }
     }
 
-    /// Wait until what the server in this process was asked to write is
-    /// written: as Ghost quits.
-    pub fn settle() {
-        Server::settle();
+    /// Ghost's home where the server runs: `home`, this Mac's, for the
+    /// server in this process.
+    pub fn home_there<'a>(&'a self, home: &'a std::path::Path) -> &'a std::path::Path {
+        match self {
+            Self::Local(_) => home,
+            Self::Remote(.., there) => there,
+        }
     }
+
+    /// The name of the server elsewhere the window is on; none, this Mac.
+    pub fn elsewhere(&self) -> Option<&str> {
+        match self {
+            Self::Local(_) => None,
+            Self::Remote(_, name, _) => Some(name),
+        }
+    }
+
+    /// Wait until what the server was asked to write is written, or what
+    /// was asked of one elsewhere has gone to it: as Ghost quits.
+    pub fn settle(&self) {
+        match self {
+            Self::Local(server) => {
+                server.unshare();
+                Server::settle();
+            }
+            Self::Remote(link, ..) => link.settle(),
+        }
+    }
+}
+
+/// Pair with the server whose pairing link is `link`: link to it with the
+/// code, as this Mac, and let go once it has given its token.
+pub fn pair(link: String, tx: Sender) {
+    acp::runtime().spawn(async move {
+        let paired = async {
+            let (host, code) =
+                link::pairing(&link).ok_or("That is not a pairing link: it begins ghost://pair")?;
+            let auth = crate::proto::Auth::Pair {
+                code,
+                device: link::host_name(),
+            };
+            let (_, welcome) = link::connect(link::url_of(&host), auth, |_| {}, |_| {}).await?;
+            let token = welcome.token.ok_or("The server gave no token")?;
+            Ok((
+                crate::servers::Server {
+                    name: welcome.name,
+                    host,
+                },
+                token,
+            ))
+        };
+        let _ = tx.send(Msg::Paired(paired.await));
+    });
 }
 
 /// Do `work` off the window's thread, and send what it comes to back.

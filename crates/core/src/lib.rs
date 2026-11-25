@@ -10,11 +10,14 @@
 //! (`github`), what is kept secret (`secrets`), the process of a terminal (`pty`), and text an agent
 //! writes for you (`writer`). The desk (`ghost-desk`) draws all of it.
 
+pub mod access;
 pub mod acp;
 pub mod diagnostics;
 pub mod forge;
 pub mod git;
 pub mod github;
+pub mod link;
+pub mod logs;
 pub mod path;
 pub mod proto;
 pub mod pty;
@@ -27,6 +30,7 @@ pub mod secrets;
 pub mod server;
 pub mod session;
 pub mod settings;
+pub mod share;
 pub mod store;
 pub mod terminals;
 pub mod tidy;

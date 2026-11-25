@@ -51,12 +51,10 @@ impl Desk {
     /// settings, saved now, say.
     fn start_again(&mut self, id: &str, cx: &mut Context<Self>) {
         self.save_settings();
+        // What runs is let go; it starts again the new way, once the
+        // server says it can.
         self.let_go(id);
-        let home = self.home.clone();
-        if let Some(slot) = self.slot_mut(id) {
-            slot.restage(&home);
-        }
-        self.start_ready();
+        self.look_here();
         cx.notify();
     }
 
@@ -134,6 +132,7 @@ impl Desk {
     pub(crate) fn look_here(&self) {
         self.transport.send(Call::Here {
             agents: self.registry.agents.clone(),
+            commands: self.settings.commands.clone(),
         });
     }
 
@@ -163,19 +162,12 @@ impl Desk {
     /// installed (or its command now here) is started; one that stopped is
     /// tried again, updated first if it is behind. Every hour, read the
     /// registry again.
-    pub(crate) fn check_agents(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn check_agents(&mut self) {
         self.health_tick += 1;
         if self.health_tick.is_multiple_of(5) {
-            self.install_due(cx);
+            // What the server says is here restages them, and starts those
+            // that can start.
             self.look_here();
-            let home = self.home.clone();
-            for slot in &mut self.slots {
-                if matches!(slot.stage, Stage::Missing(_) | Stage::Failed(_)) {
-                    slot.stage = Stage::Ready;
-                    slot.restage(&home);
-                }
-            }
-            self.start_ready();
         }
         if self.settings.check_agents && self.health_tick.is_multiple_of(60) {
             self.transport.send(Call::Fetch);
@@ -193,10 +185,11 @@ impl Desk {
             .filter(|s| crate::remote::split(&s.entry.id).1.is_none() && s.command.is_none())
             .filter(|s| {
                 let e = &s.entry;
-                match (&s.stage, e.installed(&self.home)) {
+                let installed = self.here.get(&e.id).and_then(|h| h.installed.as_ref());
+                match (&s.stage, installed) {
                     _ if e.way() == crate::registry::Way::None => false,
                     (Stage::Missing(crate::registry::Missing::Download), None) => true,
-                    (Stage::Failed(_), Some(v)) => v != e.version,
+                    (Stage::Failed(_), Some(v)) => *v != e.version,
                     _ => false,
                 }
             })
@@ -253,7 +246,7 @@ impl Desk {
             } else if let Some(entry) = self.entry(id) {
                 self.slots.push(Slot::new(
                     entry.clone(),
-                    &self.home,
+                    self.here.get(id),
                     self.settings.commands.get(id).cloned(),
                 ));
             }
@@ -323,7 +316,7 @@ impl Desk {
             let mut entry = base;
             entry.name = format!("{} on {host}", self.name_of(agent));
             entry.id.clone_from(&id);
-            let slot = Slot::new(entry, &self.home, Some(command));
+            let slot = Slot::new(entry, None, Some(command));
             self.slots.push(slot);
         }
         Some(id)
@@ -355,7 +348,9 @@ impl Desk {
         self.transport.send(Call::List {
             agent: agent.to_owned(),
             places,
-            under: self.settings.worktree_folders(&self.home),
+            under: self
+                .settings
+                .worktree_folders(self.transport.home_there(&self.home)),
         });
     }
 
@@ -489,15 +484,10 @@ impl Desk {
                 let _ = this.update(cx, |this, cx| {
                     // One running stops first.
                     this.transport.send(Call::Stop { agent: id.clone() });
-                    let home = this.home.clone();
-                    if let Err(why) = entry.uninstall(&home) {
-                        if let Some(slot) = this.slot_mut(&id) {
-                            slot.stage = Stage::Failed(why);
-                        }
-                    } else if let Some(slot) = this.slot_mut(&id) {
+                    if let Some(slot) = this.slot_mut(&id) {
                         slot.stage = Stage::Ready;
-                        slot.restage(&home);
                     }
+                    this.transport.send(Call::Uninstall { entry });
                     cx.notify();
                 });
             }
@@ -510,11 +500,10 @@ impl Desk {
         self.transport.send(Call::Stop {
             agent: id.to_owned(),
         });
-        let home = self.home.clone();
         if let Some(slot) = self.slot_mut(id) {
             slot.stage = Stage::Ready;
-            slot.restage(&home);
         }
+        self.look_here();
         cx.notify();
     }
 

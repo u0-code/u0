@@ -147,7 +147,7 @@ impl Desk {
             Page::Agent(id) => {
                 let name = self.name_of(id);
                 let state = match self.slot(id).map(|s| &s.stage) {
-                    None if self.here.get(id).is_some_and(|h| h.launches) => "Off",
+                    None if self.here.get(id).is_some_and(|h| h.missing.is_none()) => "Off",
                     Some(Stage::Missing(_)) | None => "Not installed",
                     Some(Stage::Installing(_)) => "Installing",
                     Some(Stage::Running { .. }) => "Running",

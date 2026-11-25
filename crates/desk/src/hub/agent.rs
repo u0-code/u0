@@ -8,6 +8,7 @@ use agent_client_protocol::v1::schema::{
 
 use crate::{
     acp,
+    proto::Here,
     registry::{self, Entry, Missing},
 };
 
@@ -73,13 +74,20 @@ pub enum Auth {
     Needed(String),
 }
 
+/// Where an agent stands as the server says what of it is here: until it
+/// says, ready, and starting it tells why it cannot be.
+fn stage(here: Option<&Here>) -> Stage {
+    match here.and_then(|h| h.missing.clone()) {
+        Some(missing) => Stage::Missing(missing),
+        None => Stage::Ready,
+    }
+}
+
 impl Slot {
-    /// A slot for `entry`, ready or missing what it needs.
-    pub fn new(entry: Entry, home: &std::path::Path, command: Option<String>) -> Self {
-        let stage = match registry::launch_with(&entry, home, command.as_deref()) {
-            Ok(_) => Stage::Ready,
-            Err(m) => Stage::Missing(m),
-        };
+    /// A slot for `entry`, ready or missing what the server says it
+    /// needs (`here`).
+    pub fn new(entry: Entry, here: Option<&Here>, command: Option<String>) -> Self {
+        let stage = stage(here);
         Self {
             command,
             entry,
@@ -105,17 +113,14 @@ impl Slot {
         registry::launch_with(&self.entry, home, self.command.as_deref())
     }
 
-    /// Where it stands now that it can (or cannot) be started; one running
-    /// or on its way is left as it is.
-    pub fn restage(&mut self, home: &std::path::Path) {
+    /// Where it stands now that the server says it can (or cannot) be
+    /// started; one running or on its way is left as it is.
+    pub fn restage(&mut self, here: Option<&Here>) {
         if matches!(
             self.stage,
             Stage::Missing(_) | Stage::Ready | Stage::Failed(_)
         ) {
-            self.stage = match self.launch(home) {
-                Ok(_) => Stage::Ready,
-                Err(m) => Stage::Missing(m),
-            };
+            self.stage = stage(here);
         }
     }
 

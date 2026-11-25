@@ -103,7 +103,14 @@ crates/core/src/
   registry.rs   the ACP registry, installing an agent, starting one
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events
-  proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk)
+  proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
+                Hello and Welcome, which begin a link
+  link.rs       a server reached from elsewhere: a WebSocket on 127.0.0.1, what
+                it said numbered and kept for a desk that comes back; the desk's end
+  access.rs     who may link: devices paired (devices.json), pairing codes
+  share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links
+  logs.rs       what Ghost logs, and where
+  bin/          ghost-server: the server with no window
   records.rs    the record of each session open with its agent, written as it comes
   repo.rs       what is asked of a project's folder and its git: each a Call, one Event;
                 a file read for the viewer (a PDF's pages drawn by hayro)
@@ -130,10 +137,13 @@ crates/core/src/
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
   terminal.rs   a terminal of yours: its screen (its shell is the server's)
-  hub.rs        the Transport to the server; the window's own work, back as Msg
+  hub.rs        the Transport to the server (here, or elsewhere over a link);
+                the window's own work, back as Msg
+  servers.rs    the servers elsewhere this Mac is paired with (servers.json)
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
-  macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's sound
+  macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's
+                sound, the Keychain
   voice.rs      what you say, heard by Apple's speech recognition on this Mac alone;
                 text read aloud
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
@@ -157,8 +167,8 @@ crates/desk/src/
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
-                Source control, looks: Appearance's themes, diagnostics),
-
+                Source control, looks: Appearance's themes, diagnostics,
+                sharing: Sharing & access and Connections),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
@@ -192,6 +202,15 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 - A secret (an agent's variable marked so, a forge's token) is kept in the
   macOS Keychain under the service `Ghost <home>`, never in a file;
   `settings.json` names it only.
+- `~/.ghost/devices.json` (on the server) holds the devices paired, each
+  by the SHA-256 of its token, and how Ghost is shared (listening, the
+  tunnel, a named tunnel's token); `~/.ghost/servers.json` (on a desk) the
+  servers paired with and the one the window opens on, each token kept
+  as a secret (`server/<name>`). Both are `deny_unknown_fields`, and
+  left alone when they do not read.
+- A desk on a server elsewhere reads that server's `settings.json` (in
+  its `Welcome`) and saves it there (`Call::SaveSettings`); what an agent
+  needs before it starts is the server's to say (`Event::Here`).
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry. `logs/` is Ghost's own log, a file a day, the last
   `log_days` kept.
@@ -221,6 +240,10 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 
 - Never point a test or experiment at `~/.ghost`: set `GHOST_HOME` to a
   temporary directory.
+- A server and a desk on one machine each take a `GHOST_HOME` of their
+  own: `GHOST_HOME=… ghost-desk --serve`, and the desk pairs with the link
+  it prints. Only one listens on 127.0.0.1:4317 at a time. A test of the
+  Keychain uses a service of its own and removes what it kept.
 - Agents do not launch the GUI. A check against a real agent drives
   `acp.rs` and `registry.rs` from a test run by hand with a temporary
   `GHOST_HOME`, and sends no prompt unless the user asked: a prompt spends

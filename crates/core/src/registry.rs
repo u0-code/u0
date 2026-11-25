@@ -129,12 +129,12 @@ pub enum Way<'a> {
 }
 
 /// Why an agent cannot be started yet, and what would let it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Missing {
     /// It is not installed here yet: installing it is one click.
     Download,
     /// It runs through `runner`, which is not installed.
-    Runner(&'static str),
+    Runner(String),
     /// Your command for it names a program that is not here.
     Command(String),
     /// The registry has nothing for this platform.
@@ -146,7 +146,7 @@ impl Missing {
     pub fn say(&self, name: &str) -> String {
         match self {
             Self::Download => format!("{name} is not installed yet."),
-            Self::Runner("npx") => {
+            Self::Runner(runner) if runner == "npx" => {
                 format!(
                     "{name} runs with npx, which comes with Node.js. Install Node.js (nodejs.org, or `brew install node`), then try again."
                 )
@@ -312,7 +312,7 @@ impl Entry {
                         dir: None,
                     }),
                     None if which(installer(runner)).is_some() => Err(Missing::Download),
-                    None => Err(Missing::Runner(runner)),
+                    None => Err(Missing::Runner(runner.to_owned())),
                 }
             }
             Way::None => Err(Missing::Unsupported),
@@ -450,7 +450,8 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     let mut command = if let Some(p) = &d.npx {
         say(&format!("Installing {} with npm", p.package), None);
-        let npm = which(installer("npx")).ok_or_else(|| Missing::Runner("npx").say(&entry.name))?;
+        let npm = which(installer("npx"))
+            .ok_or_else(|| Missing::Runner("npx".into()).say(&entry.name))?;
         let mut c = Command::new(npm);
         c.args([
             "install",
@@ -464,7 +465,8 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
         c
     } else if let Some(p) = &d.uvx {
         say(&format!("Installing {} with uv", p.package), None);
-        let uv = which(installer("uvx")).ok_or_else(|| Missing::Runner("uvx").say(&entry.name))?;
+        let uv = which(installer("uvx"))
+            .ok_or_else(|| Missing::Runner("uvx".into()).say(&entry.name))?;
         let mut c = Command::new(uv);
         c.args(["tool", "install", "--force", &p.package])
             .env("UV_TOOL_DIR", staging.join("tools"))
@@ -732,10 +734,7 @@ mod tests {
         );
         // Not installed: never run from a runner's cache.
         let missing = e.launch(Path::new("/nowhere")).expect_err("not installed");
-        assert!(matches!(
-            missing,
-            Missing::Download | Missing::Runner("npx")
-        ));
+        assert!(matches!(missing, Missing::Download | Missing::Runner(_)));
     }
 
     #[test]

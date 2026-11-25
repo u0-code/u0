@@ -137,7 +137,9 @@ impl Desk {
         repo: bool,
         scripts: Vec<crate::scripts::Script>,
     ) {
-        let under = self.settings.worktree_folders(&self.home);
+        let under = self
+            .settings
+            .worktree_folders(self.transport.home_there(&self.home));
         let Some(s) = self
             .sessions
             .at_mut(key)

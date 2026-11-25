@@ -10,6 +10,7 @@ mod looks;
 mod prefs;
 mod projects;
 mod settings;
+mod sharing;
 mod updates;
 mod usage;
 mod voice;
@@ -82,6 +83,16 @@ pub struct Pages {
     /// the warnings and errors in its log: Settings › Diagnostics.
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
     pub troubles: Vec<String>,
+    /// How sharing this Ghost stands, as its server last said.
+    pub shared: Option<crate::share::Shared>,
+    /// The named tunnel's address and token as you write them.
+    pub named_host: Entity<InputState>,
+    pub named_token: Entity<InputState>,
+    /// The servers paired with, the link pasted to pair with another, and
+    /// whether that is under way.
+    pub servers: crate::servers::Servers,
+    pub pair_link: Entity<InputState>,
+    pub pairing: bool,
 }
 
 impl Pages {
@@ -160,7 +171,16 @@ impl Pages {
                         .masked(true)
                 })
             }),
-
+            shared: None,
+            named_host: field("ghost.example.com", window, cx),
+            named_token: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Tunnel token")
+                    .masked(true)
+            }),
+            servers: crate::servers::Servers::default(),
+            pair_link: field("ghost://pair?host=…", window, cx),
+            pairing: false,
             changes: instructions_field(
                 &settings.writer.changes,
                 "As the repository's recent commits do",
@@ -314,7 +334,7 @@ impl Desk {
         };
         let enabled = self.settings.enabled.iter().any(|e| e == id);
         let stage = self.slot(id).map_or_else(
-            || Slot::new(entry.clone(), &self.home, None).stage,
+            || Slot::new(entry.clone(), self.here.get(id), None).stage,
             |s| s.stage.clone(),
         );
         let name = self.name_of(id);

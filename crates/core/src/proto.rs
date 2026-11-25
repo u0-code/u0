@@ -175,6 +175,12 @@ pub enum Call {
     /// What of each of `agents` is here.
     Here {
         agents: Vec<Entry>,
+        /// Your commands for them, by id.
+        commands: std::collections::BTreeMap<String, String>,
+    },
+    /// Remove the download of `entry`; answered with what of it is here.
+    Uninstall {
+        entry: Entry,
     },
     /// What `cli` says its version is.
     CliVersion {
@@ -182,6 +188,10 @@ pub enum Call {
     },
     /// The index of the sessions kept: answered with [`Event::Index`].
     Watch,
+    /// Keep these settings in the server's home.
+    SaveSettings(Box<crate::settings::Settings>),
+    /// Something of sharing this Ghost with other machines.
+    Share(crate::share::Share),
     /// These sessions' metas are now as given (each by its agent and id).
     Keep(Vec<store::Meta>),
     /// Take the session `id` of `agent` out of the index, its record with
@@ -546,6 +556,8 @@ pub enum Event {
     /// The index of the sessions kept, or why it does not read: then
     /// nothing is saved over it.
     Index(Result<store::Index, String>),
+    /// How sharing this Ghost stands.
+    Shared(Box<crate::share::Shared>),
     /// The record of the session `key`, read back: none where there is none.
     Record {
         key: u64,
@@ -718,6 +730,53 @@ pub enum Event {
     },
 }
 
+/// The version of what is said over a link (`link`): a desk and a server
+/// that speak another are refused, each told to update.
+pub const PROTOCOL: u32 = 1;
+
+/// The first thing a desk says over a link, and nothing before it: who it
+/// is, and what it last heard from this server, to be told the rest.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Hello {
+    pub protocol: u32,
+    pub auth: Auth,
+    /// The server's boot and the number of the last thing it said that
+    /// this desk heard, when it comes back.
+    pub since: Option<(u64, u64)>,
+}
+
+/// How a desk shows it may come in.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Auth {
+    /// The token this server gave it when it paired.
+    Token(String),
+    /// A pairing code made on the server, and the name of this device.
+    Pair { code: String, device: String },
+}
+
+/// The server's answer to [`Hello`], after which each thing it says is
+/// sent numbered, as `[number, event]`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Welcome {
+    /// What this server's run is known by: another after it restarts.
+    pub boot: u64,
+    /// The server's name for itself: its machine's.
+    pub name: String,
+    /// Ghost's home there: where its worktrees and scratch folders are.
+    pub home: PathBuf,
+    /// All said since the desk's `since` follows; else what it had of
+    /// this server is gone, and it begins again.
+    pub resumed: bool,
+    /// The number of the last thing said before this welcome: what is
+    /// sent next follows it.
+    pub said: u64,
+    /// The token to come in with from now on, when it paired.
+    pub token: Option<String>,
+    /// The server's settings, as its home has them, or why they do not
+    /// read.
+    pub settings: Result<Box<crate::settings::Settings>, String>,
+}
+
 /// What a session loaded or resumed starts with.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Opened {
@@ -725,11 +784,12 @@ pub struct Opened {
     pub options: Option<Vec<SessionConfigOption>>,
 }
 
-/// What of an agent is here: whether it can be started, the version
-/// installed, and the CLI of yours it drives.
+/// What of an agent is here: what it needs before it can be started
+/// (none: it can be), the version installed, and the CLI of yours it
+/// drives.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Here {
-    pub launches: bool,
+    pub missing: Option<registry::Missing>,
     pub installed: Option<String>,
     pub cli: Option<PathBuf>,
 }
@@ -1111,6 +1171,8 @@ mod tests {
         ];
         let calls = vec![
             Call::Fetch,
+            Call::SaveSettings(Box::default()),
+            Call::Share(crate::share::Share::Revoke("h".into())),
             Call::Install {
                 entry: entry.clone(),
             },
@@ -1221,6 +1283,10 @@ mod tests {
             Call::Troubles,
             Call::Here {
                 agents: vec![entry.clone()],
+                commands: [("a".into(), "/bin/a --acp".into())].into(),
+            },
+            Call::Uninstall {
+                entry: entry.clone(),
             },
             Call::CliVersion { cli: cli.clone() },
             Call::Watch,
@@ -1372,7 +1438,7 @@ mod tests {
             Event::Here(HashMap::from([(
                 "a".to_owned(),
                 Here {
-                    launches: true,
+                    missing: Some(registry::Missing::Runner("npx".into())),
                     installed: Some("1".into()),
                     cli: Some(cli.clone()),
                 },
@@ -1382,6 +1448,19 @@ mod tests {
                 version: "a 1.0".into(),
             },
             Event::Index(Ok(index)),
+            Event::Shared(Box::new(crate::share::Shared {
+                serving: Some(Ok(4317)),
+                tunnel: crate::share::Tunnel::Up("a.trycloudflare.com".into()),
+                named: None,
+                awake: true,
+                devices: Ok(vec![crate::access::Device {
+                    label: "laptop".into(),
+                    hash: "h".into(),
+                    paired: 1,
+                    seen: 2,
+                }]),
+                link: Some(("ghost://pair?host=a#c".into(), 1)),
+            })),
             Event::Record {
                 key: 1,
                 events: Some(said),

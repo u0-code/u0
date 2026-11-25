@@ -34,13 +34,16 @@ use agent_client_protocol::{
 };
 
 use crate::{
+    access::Access,
     acp::{self, Agent, Error},
     git,
+    link::Outbox,
     proto::{Call, Event, Here, Opened},
     records::Records,
     registry::{self, Entry},
     repo,
     session::Session,
+    share::Sharing,
     store::{self, Index, Job, Meta},
     terminals::Terminals,
     tidy, writer,
@@ -70,6 +73,11 @@ pub struct Server {
     /// The switch that stops the clone going on.
     cloning: Mutex<Arc<AtomicBool>>,
     terminals: Terminals,
+    /// What it said, numbered and kept for desks linked from elsewhere
+    /// (`link`), and who may link.
+    outbox: Arc<Outbox>,
+    access: Access,
+    sharing: Mutex<Sharing>,
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -78,22 +86,63 @@ const PAGES: usize = 50;
 
 impl Server {
     /// A server for Ghost's home `home`, saying what it has to say to
-    /// `send`.
-    pub fn new(home: PathBuf, send: impl Fn(Event) + std::marker::Send + Sync + 'static) -> Self {
+    /// `send`, shared as it was left.
+    pub fn new(
+        home: PathBuf,
+        send: impl Fn(Event) + std::marker::Send + Sync + 'static,
+    ) -> Arc<Self> {
         let index = store::load(&home);
         if let Err(why) = &index {
             tracing::warn!("{why}");
         }
-        Self {
+        let outbox = Arc::new(Outbox::default());
+        let kept = outbox.clone();
+        let server = Arc::new(Self {
+            sharing: Mutex::default(),
+            access: Access::new(&home),
+            outbox,
             records: Arc::new(Records::new(home.clone())),
             writing: Writing::default(),
             home,
-            send: Arc::new(send),
+            send: Arc::new(move |event| {
+                kept.push(&event);
+                send(event);
+            }),
             agents: Running::default(),
             installs: Mutex::default(),
             index: Mutex::new(index),
             cloning: Mutex::default(),
             terminals: Terminals::default(),
+        });
+        server.share_as_kept(false);
+        server
+    }
+
+    pub(crate) fn sharing(&self) -> std::sync::MutexGuard<'_, Sharing> {
+        self.sharing.lock().expect("sharing")
+    }
+
+    pub(crate) fn say(&self, event: Event) {
+        (self.send)(event);
+    }
+
+    pub fn home(&self) -> &std::path::Path {
+        &self.home
+    }
+
+    pub fn outbox(&self) -> &Outbox {
+        &self.outbox
+    }
+
+    pub fn access(&self) -> &Access {
+        &self.access
+    }
+
+    /// The settings in this server's home, or why they do not read.
+    pub fn settings(&self) -> Result<Box<crate::settings::Settings>, String> {
+        match crate::settings::Settings::load(&self.home) {
+            (settings, None) => Ok(Box::new(settings)),
+            (_, Some(why)) => Err(why),
         }
     }
 
@@ -103,7 +152,7 @@ impl Server {
     }
 
     /// Do what `call` asks.
-    pub fn handle(&self, call: Call) {
+    pub fn handle(self: &Arc<Self>, call: Call) {
         match call {
             Call::Fetch => self.fetch(),
             Call::Install { entry } => self.install(entry),
@@ -203,12 +252,26 @@ impl Server {
                 let home = self.home.clone();
                 self.off(move || Event::Troubles(crate::diagnostics::troubles(&home, 200)));
             }
-            Call::Here { agents } => self.here(agents),
+            Call::Here { agents, commands } => self.here(agents, commands),
+            Call::Uninstall { entry } => {
+                let (home, said) = (self.home.clone(), self.send.clone());
+                self.off(move || match entry.uninstall(&home) {
+                    Ok(()) => Event::Here([(entry.id.clone(), here(&entry, &home, None))].into()),
+                    Err(why) => {
+                        said(Event::Here(
+                            [(entry.id.clone(), here(&entry, &home, None))].into(),
+                        ));
+                        Event::Notice(Err((format!("Couldn't uninstall {}", entry.name), why)))
+                    }
+                });
+            }
             Call::CliVersion { cli } => self.cli_version(cli),
             Call::Watch => {
                 let index = self.index.lock().expect("index").clone();
                 (self.send)(Event::Index(index));
             }
+            Call::SaveSettings(settings) => settings.save(&self.home),
+            Call::Share(share) => self.share(share),
             Call::Keep(metas) => self.change_index(|index| {
                 for meta in metas {
                     match index.sessions.iter_mut().find(|m| same(m, &meta)) {
@@ -1046,20 +1109,12 @@ impl Server {
 
     /// Look at what of each of `agents` is here, in the home and on the
     /// PATH.
-    fn here(&self, agents: Vec<Entry>) {
+    fn here(&self, agents: Vec<Entry>, commands: BTreeMap<String, String>) {
         let home = self.home.clone();
         self.off(move || {
             Event::Here(
-                agents
-                    .into_iter()
-                    .map(|e| {
-                        let here = Here {
-                            launches: e.launch(&home).is_ok(),
-                            installed: e.installed(&home),
-                            cli: e.your_cli().map(|(_, cli)| cli),
-                        };
-                        (e.id, here)
-                    })
+                (agents.iter())
+                    .map(|e| (e.id.clone(), here(e, &home, commands.get(&e.id))))
                     .collect(),
             )
         });
@@ -1146,6 +1201,15 @@ fn heard(
     })
 }
 
+/// What of `entry` is in `home`, started by `command` where you gave one.
+fn here(entry: &Entry, home: &std::path::Path, command: Option<&String>) -> Here {
+    Here {
+        missing: registry::launch_with(entry, home, command.map(String::as_str)).err(),
+        installed: entry.installed(home),
+        cli: entry.your_cli().map(|(_, cli)| cli),
+    }
+}
+
 /// Whether `a` and `b` are the same session: of one agent, by one id.
 fn same(a: &Meta, b: &Meta) -> bool {
     a.agent == b.agent && a.id == b.id
@@ -1160,7 +1224,7 @@ mod tests {
     use super::*;
 
     /// A server for `home`, and what it says.
-    fn server(home: &std::path::Path) -> (Server, mpsc::Receiver<Event>) {
+    fn server(home: &std::path::Path) -> (Arc<Server>, mpsc::Receiver<Event>) {
         let (tx, rx) = mpsc::channel();
         let server = Server::new(home.to_path_buf(), move |e| {
             let _ = tx.send(e);
@@ -1177,7 +1241,11 @@ mod tests {
     }
 
     /// The record of the session `id` of `a`, as the server reads it back.
-    fn read(server: &Server, rx: &mpsc::Receiver<Event>, id: &str) -> Option<Vec<store::Event>> {
+    fn read(
+        server: &Arc<Server>,
+        rx: &mpsc::Receiver<Event>,
+        id: &str,
+    ) -> Option<Vec<store::Event>> {
         server.handle(Call::Read {
             key: 9,
             agent: "a".into(),

@@ -131,16 +131,24 @@ impl Desk {
         cx.notify();
     }
 
-    /// Quit, and open the updated Ghost.app once this one has gone.
-    pub(crate) fn restart_updated(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(app) = update::running_app() else {
-            return;
+    /// Quit, and open Ghost again once this one has gone: the updated
+    /// Ghost.app, or this one on the server it now opens on. Run outside
+    /// an app, the program itself is run again, as it was.
+    pub(crate) fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (again, what) = match update::running_app() {
+            Some(app) => ("open \"$1\"", app),
+            None => match std::env::current_exe() {
+                Ok(exe) => ("exec \"$1\"", exe),
+                Err(e) => return self.trouble("Ghost couldn't restart", Some(e.to_string()), None),
+            },
         };
         let waiting = std::process::Command::new("/bin/sh")
             .arg("-c")
-            .arg("while kill -0 \"$0\" 2>/dev/null; do sleep 0.2; done; open \"$1\"")
+            .arg(format!(
+                "while kill -0 \"$0\" 2>/dev/null; do sleep 0.2; done; {again}"
+            ))
             .arg(std::process::id().to_string())
-            .arg(&app)
+            .arg(&what)
             .spawn();
         match waiting {
             Ok(_) => window.dispatch_action(Box::new(crate::keys::Quit), cx),

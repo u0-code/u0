@@ -445,7 +445,7 @@ impl Desk {
 
     /// Where scratch sessions are begun: one folder each, under the home.
     pub fn scratch_dir(&self) -> PathBuf {
-        self.home.join("scratch")
+        self.transport.home_there(&self.home).join("scratch")
     }
 
     /// Whether `folder` is a scratch session's, not yet named: the sidebar

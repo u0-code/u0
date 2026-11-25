@@ -629,7 +629,11 @@ impl Desk {
                             "Worktree location",
                             &format!(
                                 "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
-                                Desk::shown(&self.settings.worktree_folders(&self.home)[0])
+                                Desk::shown(
+                                    &self
+                                        .settings
+                                        .worktree_folders(self.transport.home_there(&self.home))[0]
+                                )
                             ),
                             self.worktree_location(cx),
                         ),
@@ -659,7 +663,9 @@ impl Desk {
             Tab::About => return self.about_ghost(faces, q, cx),
             Tab::SourceControl => return self.source_control(faces, q, cx),
             Tab::Diagnostics => return self.diagnostics(faces, q, cx),
-            Tab::Agents | Tab::Sessions | Tab::Projects => return None,
+            Tab::Agents | Tab::Sessions | Tab::Projects | Tab::Sharing | Tab::Connections => {
+                return None;
+            }
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();
         (!groups.is_empty()).then(|| page(faces, tab.title(), lede).children(groups))

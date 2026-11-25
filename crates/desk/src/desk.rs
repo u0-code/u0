@@ -311,9 +311,9 @@ pub struct Desk {
     pub search: lists::Search,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
-    tx: hub::Sender,
+    pub(crate) tx: hub::Sender,
     /// The way to the server, which runs the agents.
-    transport: hub::Transport,
+    pub transport: hub::Transport,
 }
 
 /// A dialog's view of the desk, drawn by `draw`. gpui-kit's dialog layer
@@ -361,7 +361,8 @@ pub fn lights_room(window: &Window) -> f32 {
 impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
-        let (settings, settings_refused) = Settings::load(&home);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (transport, (settings, settings_refused)) = hub::Transport::open(&home, &tx);
         // The system's look changed: drawn again, for a look that follows it.
         cx.observe_window_appearance(window, |_, _, cx| cx.notify())
             .detach();
@@ -427,7 +428,6 @@ impl Desk {
         })
         .detach();
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
         // In the window, for what comes back to change what is typed there.
         cx.spawn_in(window, async move |this, cx| {
             while let Some(msg) = rx.recv().await {
@@ -477,7 +477,7 @@ impl Desk {
                         this.update_due();
                         this.send_due(cx);
                         this.poll_prs();
-                        this.check_agents(cx);
+                        this.check_agents();
                     })
                     .is_err()
                 {
@@ -489,7 +489,6 @@ impl Desk {
 
         let pages = crate::pages::Pages::new(&settings, window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
-        let transport = hub::Transport::local(home.clone(), tx.clone());
         transport.send(Call::Fetch);
         hub::on_path(tx.clone());
         let mut desk = Self {
@@ -548,7 +547,7 @@ impl Desk {
             registry,
             registry_trouble: None,
             slots: Vec::new(),
-            sessions: crate::sessions::Sessions::default(),
+            sessions: crate::sessions::Sessions::new(),
             current: None,
             page: Page::Thread,
             popup: Popup::Closed,
@@ -624,7 +623,8 @@ impl Desk {
         if self.settings_refused.is_some() {
             return;
         }
-        self.settings.save(&self.home);
+        let settings = Box::new(self.settings.clone());
+        self.transport.send(Call::SaveSettings(settings));
     }
 
     /// The project a new session starts in: that of the session on
@@ -1352,6 +1352,10 @@ impl Desk {
             crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
             crate::pages::Tab::Usage => self.read_spent(),
             crate::pages::Tab::Diagnostics => self.diagnose(),
+            crate::pages::Tab::Sharing => {
+                self.transport.send(Call::Share(crate::share::Share::Look));
+            }
+            crate::pages::Tab::Connections => self.read_servers(),
             _ => {}
         }
         if !self.pages.open {

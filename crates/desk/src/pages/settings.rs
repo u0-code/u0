@@ -47,11 +47,13 @@ pub enum Tab {
     Projects,
     SourceControl,
     Diagnostics,
+    Sharing,
+    Connections,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
@@ -63,6 +65,8 @@ impl Tab {
         Self::Writing,
         Self::Sessions,
         Self::Usage,
+        Self::Sharing,
+        Self::Connections,
         Self::Diagnostics,
         Self::About,
     ];
@@ -82,6 +86,8 @@ impl Tab {
             Self::About => "About",
             Self::SourceControl => "Source control",
             Self::Diagnostics => "Diagnostics",
+            Self::Sharing => "Sharing & access",
+            Self::Connections => "Connections",
         }
     }
 
@@ -100,6 +106,8 @@ impl Tab {
             Self::About => "ghost",
             Self::SourceControl => "branch",
             Self::Diagnostics => "gauge",
+            Self::Sharing => "globe",
+            Self::Connections => "server",
         }
     }
 
@@ -110,6 +118,7 @@ impl Tab {
             Self::Agents | Self::NewSessions | Self::Writing | Self::Sessions | Self::Usage => {
                 "Agents"
             }
+            Self::Sharing | Self::Connections => "Machines",
             Self::About | Self::Diagnostics => "Ghost",
             _ => "",
         }
@@ -175,6 +184,10 @@ impl Desk {
             self.sessions_tab(faces, cx)
         } else if self.pages.tab == Tab::Projects {
             self.projects_tab(faces, cx)
+        } else if self.pages.tab == Tab::Sharing {
+            self.sharing_tab(faces, cx)
+        } else if self.pages.tab == Tab::Connections {
+            self.connections_tab(faces, cx)
         } else {
             self.agents_tab(faces, cx)
         };
@@ -268,7 +281,7 @@ impl Desk {
         for (n, e) in agents.into_iter().enumerate() {
             let on = self.settings.enabled.contains(&e.id);
             let here = self.here.get(&e.id).cloned().unwrap_or_default();
-            let installed = here.launches;
+            let installed = self.here.contains_key(&e.id) && here.missing.is_none();
             let name = self.name_of(&e.id);
             let how = match e.way() {
                 Way::Archive => "binary",

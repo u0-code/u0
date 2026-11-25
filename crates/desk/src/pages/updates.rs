@@ -55,7 +55,7 @@ impl Desk {
             ui::button("update", label, weight).on_click(cx.listener(|this, _, window, cx| {
                 match this.updates.now {
                     Updating::Found(_) => this.install_update(cx),
-                    Updating::Ready => this.restart_updated(window, cx),
+                    Updating::Ready => this.reopen(window, cx),
                     _ => {
                         this.check_update(true);
                         cx.notify();

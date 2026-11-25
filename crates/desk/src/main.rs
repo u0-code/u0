@@ -17,6 +17,7 @@ mod keys;
 mod macos;
 mod markdown;
 mod pages;
+mod servers;
 mod sessions;
 mod sidebar;
 mod style;
@@ -30,8 +31,8 @@ mod voice;
 // What needs no window is ghost-core's. Named here, `crate::git` and the
 // rest name it alike in every module of the desk.
 use ghost_core::{
-    acp, diagnostics, forge, git, github, path, proto, registry, remote, repo, scripts, secrets,
-    server, session, settings, store, tidy, update, when, whole, writer,
+    access, acp, diagnostics, forge, git, github, link, path, proto, registry, remote, repo,
+    scripts, secrets, server, session, settings, share, store, tidy, update, when, whole, writer,
 };
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
@@ -43,33 +44,19 @@ use gpui::{
     TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
-/// What Ghost logs goes to stderr and to a file a day in its home's
-/// `logs/`, of which the last `days` are kept.
-fn log(days: u16) {
-    use tracing_subscriber::{fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _};
-    let file = tracing_appender::rolling::Builder::new()
-        .rotation(tracing_appender::rolling::Rotation::DAILY)
-        .filename_prefix("ghost")
-        .filename_suffix("log")
-        .max_log_files(usize::from(days.max(1)))
-        .build(settings::home().join("logs"))
-        .map_err(|e| eprintln!("Ghost keeps no log file: {e}"))
-        .ok();
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ghost_desk=info,ghost_core=info".into()),
-        )
-        .with(fmt::layer().with_writer(std::io::stderr))
-        .with(file.map(|file| fmt::layer().with_ansi(false).with_writer(file)))
-        .init();
-}
-
 fn main() {
     // Before any thread starts, since it changes the environment.
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;
-    log(kept.log_days);
+    ghost_core::logs::start(kept.log_days);
+    // A server for desks elsewhere, with no window of its own.
+    if std::env::args().any(|a| a == "--serve") {
+        if let Err(why) = ghost_core::link::serve_here() {
+            eprintln!("{why}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     // The links and folders macOS opens Ghost with (`ghost://`, `ghost
     // <folder>`), held until the window is up to take them.

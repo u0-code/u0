@@ -123,6 +123,27 @@ self-signed certificate stops that: in Keychain Access, Certificate Assistant
 → Create a Certificate…, name it `Ghost Dev`, Self Signed Root, Code Signing.
 `bundle.sh` finds it and signs with it; `GHOST_SIGN_IDENTITY` names another.
 
+## From another machine
+
+The Ghost on one machine can be used from a Mac elsewhere: its agents,
+sessions, files, git and terminals, as if you sat at it.
+
+- On the machine with the agents, **Settings › Sharing & access** lets
+  other machines reach it. It listens on `127.0.0.1:4317` only; the world
+  reaches it through a [cloudflared](https://github.com/cloudflare/cloudflared)
+  tunnel Ghost starts (a quick one, or a named one of yours), or an
+  `ssh -L 4317:127.0.0.1:4317`. **Create link** makes a pairing link that
+  works once, for ten minutes.
+- On the other Mac, **Settings › Connections** takes the link and pairs. The
+  server keeps only a hash of the token it gave; the Mac keeps the token in
+  its Keychain. **Open** restarts the window on that server; **Revoke** on
+  the server cuts a device off.
+- With no window (a Linux box, say): `ghost-server`, or
+  `ghost-desk --serve`, prints a pairing link for `127.0.0.1` as it starts.
+
+A link that drops (a laptop shut, a network changed) is reached again, and
+what was said meanwhile is told then.
+
 ## Security
 
 An agent runs as you, on your machine, with whatever its own settings allow.

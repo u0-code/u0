@@ -148,8 +148,43 @@ impl Desk {
             Msg::Keys(Err(why)) => self.trouble("Couldn't keep the keys", Some(why), None),
             Msg::Notice(Ok(text)) => self.done(text, None),
             Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
+            Msg::Link(state) => self.linked(state, window, cx),
+            Msg::Paired(paired) => {
+                self.pages.pairing = false;
+                match paired.and_then(|(server, token)| {
+                    let name = server.name.clone();
+                    self.pages.servers.paired(server, &token).map(|()| name)
+                }) {
+                    Ok(name) => {
+                        self.keep_servers();
+                        self.pages
+                            .pair_link
+                            .update(cx, |i, cx| i.set_value("", window, cx));
+                        self.done(format!("Paired with {name}: open it in Connections"), None);
+                    }
+                    Err(why) => self.trouble("Couldn't pair", Some(why), None),
+                }
+            }
         }
         cx.notify();
+    }
+
+    /// How the link to the server elsewhere stands. One come back without
+    /// all said meanwhile (it restarted, or too much was said) is opened
+    /// afresh, as Ghost is when it starts.
+    fn linked(&mut self, state: crate::link::State, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::link::State;
+        let name = self.transport.elsewhere().unwrap_or_default().to_owned();
+        match state {
+            State::Lost(why) => {
+                self.trouble(format!("Lost {name}; reaching it again"), Some(why), None);
+            }
+            State::Back => self.done(format!("Back on {name}"), None),
+            State::Afresh => self.reopen(window, cx),
+            State::Refused(why) => {
+                self.trouble(format!("{name} turned this Mac away"), Some(why), None);
+            }
+        }
     }
 
     /// What the server says.
@@ -338,7 +373,6 @@ impl Desk {
                 for slot in &mut self.slots {
                     if let Some(e) = self.registry.agents.iter().find(|e| e.id == slot.entry.id) {
                         slot.entry = e.clone();
-                        slot.restage(&self.home);
                     }
                 }
                 self.fill_slots();
@@ -353,15 +387,13 @@ impl Desk {
                 }
             }
             Event::Installed { agent, result } => {
-                let home = self.home.clone();
+                let runs = (self.here.get(&agent)).is_some_and(|h| h.missing.is_none());
                 let name = self.name_of(&agent);
                 if let Some(slot) = self.slot_mut(&agent) {
                     match result {
                         // An update that did not come leaves the version
                         // here running, and says why.
-                        Err(why)
-                            if why != crate::registry::CANCELLED && slot.launch(&home).is_ok() =>
-                        {
+                        Err(why) if why != crate::registry::CANCELLED && runs => {
                             slot.stage = Stage::Ready;
                             self.trouble(
                                 format!("{name} was not updated"),
@@ -372,10 +404,7 @@ impl Desk {
                         Err(why) if why != crate::registry::CANCELLED => {
                             slot.stage = Stage::Failed(why);
                         }
-                        _ => {
-                            slot.stage = Stage::Ready;
-                            slot.restage(&home);
-                        }
+                        _ => slot.stage = Stage::Ready,
                     }
                 }
                 self.look_here();
@@ -405,7 +434,16 @@ impl Desk {
             } => self.loaded(key, resumed, result),
             Event::Weighed { agents, processes } => self.pages.processes = (agents, processes),
             Event::Troubles(lines) => self.pages.troubles = lines,
-            Event::Here(here) => self.here = here,
+            // What the server says is here: each agent restaged, those
+            // that can start started, those not here installed.
+            Event::Here(here) => {
+                self.here.extend(here);
+                for slot in &mut self.slots {
+                    slot.restage(self.here.get(&slot.entry.id));
+                }
+                self.install_due(cx);
+                self.start_ready();
+            }
             Event::Deleted { key, result } => match result {
                 Ok(()) => self.forget_session(key, false, cx),
                 Err(why) => {
@@ -498,6 +536,7 @@ impl Desk {
                 }
             }
             Event::Index(index) => self.keep_from(index),
+            Event::Shared(shared) => self.pages.shared = Some(*shared),
             Event::Record { key, events } => self.record_read(key, events),
             Event::Spent(spent) => self.spent = spent.into_iter().collect(),
             Event::Found { query, keys } => {
