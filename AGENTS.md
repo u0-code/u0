@@ -55,6 +55,20 @@ change is held to these rules.
    `#[allow(dead_code)]`, or public items without a non-test caller. Every
    `#[allow]` states its reason.
 
+## Components
+
+What is drawn is native GPUI, on every platform Ghost runs on: no web view,
+no HTML rendered from what an agent says (Markdown is the thread's format).
+
+- UI components come from, in this order of preference: `gpui-kit`,
+  `gpui-kit-material`, `ely-gpui-component`. Use a component for what it
+  means (a button is a button, a dialog a dialog), not for how it happens to
+  look.
+- Where none of them has what is needed, or one gets it wrong, the component
+  is written once in its own crate and repository, not inside Ghost.
+- Anything else a crate already does (a PDF view, a parser, a format) comes
+  from that crate.
+
 ## Map
 
 Two crates. `crates/core` (`ghost-core`) is what touches the machine and
