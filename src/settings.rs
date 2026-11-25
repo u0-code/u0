@@ -80,6 +80,9 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// ⌘Return sends what you write, and Return breaks the line.
+    #[serde(default)]
+    pub cmd_sends: bool,
     /// How the work an agent did in a turn (its calls, its thinking) shows
     /// in the thread.
     #[serde(default)]
@@ -187,6 +190,7 @@ impl Default for Settings {
             steer: false,
             branch_prefix: prefix(),
             calls: Calls::default(),
+            cmd_sends: false,
         }
     }
 }

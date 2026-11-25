@@ -60,6 +60,7 @@ actions!(
         Undo,
         Redo,
         Stash,
+        SubmitAsideToo,
     ]
 );
 
@@ -132,6 +133,9 @@ pub struct TextInput {
     keeps: Keeps,
     /// What it held before each change, to go back to (⌘Z) and forward
     /// again (⇧⌘Z); typing in a run is one change.
+    /// Return breaks the line, and ⌘Return hands it over (⇧⌘Return aside),
+    /// where lines wrap and you asked for it.
+    enter_breaks: bool,
     undone: Vec<(SharedString, Range<usize>)>,
     redone: Vec<(SharedString, Range<usize>)>,
     last_change: Option<std::time::Instant>,
@@ -165,6 +169,7 @@ impl TextInput {
             history: Vec::new(),
             recalled: None,
             keeps: Keeps::No,
+            enter_breaks: false,
             undone: Vec::new(),
             redone: Vec::new(),
             last_change: None,
@@ -394,11 +399,38 @@ impl TextInput {
         cx.emit(Cancelled);
     }
 
-    fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
-        self.send(cx);
+    /// Return hands the line over, unless it breaks the line (see
+    /// `enter_breaks`).
+    pub fn set_enter_breaks(&mut self, breaks: bool) {
+        self.enter_breaks = breaks && self.most > 1;
     }
 
-    fn submit_aside(&mut self, _: &SubmitAside, _: &mut Window, cx: &mut Context<Self>) {
+    fn submit(&mut self, _: &Submit, window: &mut Window, cx: &mut Context<Self>) {
+        if self.enter_breaks {
+            self.replace_text_in_range(None, "\n", window, cx);
+        } else {
+            self.send(cx);
+        }
+    }
+
+    fn submit_aside(&mut self, _: &SubmitAside, window: &mut Window, cx: &mut Context<Self>) {
+        if self.enter_breaks {
+            self.send(cx);
+        } else {
+            self.aside(window, cx);
+        }
+    }
+
+    fn submit_aside_too(
+        &mut self,
+        _: &SubmitAsideToo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.aside(window, cx);
+    }
+
+    fn aside(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.content.trim().to_owned();
         if text.is_empty() {
             return;
@@ -1202,6 +1234,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::stash))
+            .on_action(cx.listener(Self::submit_aside_too))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))

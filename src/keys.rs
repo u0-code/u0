@@ -212,6 +212,7 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-z", input::Undo, input),
         KeyBinding::new("cmd-shift-z", input::Redo, input),
         KeyBinding::new("cmd-s", input::Stash, input),
+        KeyBinding::new("cmd-shift-enter", input::SubmitAsideToo, input),
     ]);
     cx.bind_keys(yours(home));
 }

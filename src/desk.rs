@@ -302,10 +302,13 @@ impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
         let (settings, settings_refused) = Settings::load(&home);
+        let cmd_sends = settings.cmd_sends;
         let input = cx.new(|cx| {
-            TextInput::new(cx, "Ask for anything, or give a task")
+            let mut i = TextInput::new(cx, "Ask for anything, or give a task")
                 .wrapping(8)
-                .padded(5.)
+                .padded(5.);
+            i.set_enter_breaks(cmd_sends);
+            i
         });
         cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
             .detach();
@@ -1319,25 +1322,23 @@ impl Desk {
         let Some(origin) = self.sessions.iter().find(|s| s.key == key) else {
             return;
         };
-        let (agent, folder) = (origin.agent.clone(), origin.project.clone());
+        // Each goes as the first did: begun the same way (its worktree, the
+        // machine it is on) and with the same images and files named.
+        let (agent, folder, shared) = (
+            origin.agent.clone(),
+            origin.project.clone(),
+            origin.attached.clone(),
+        );
         let others: Vec<String> = self
             .slots
             .iter()
-            .filter(|s| s.entry.id != agent)
-            .filter(|s| {
-                matches!(
-                    s.stage,
-                    Stage::Ready | Stage::Starting | Stage::Running { .. }
-                )
-            })
+            .filter(|s| s.entry.id != agent && s.usable())
             .map(|s| s.entry.id.clone())
             .collect();
         for other in others {
             let new = self.take_key();
-            let mut s = Session::new(new, &other, folder.clone());
-            if let Some(slot) = self.slot(&other) {
-                slot.seed(&mut s);
-            }
+            let mut s = self.begun_in(new, &other, folder.clone());
+            s.attached.clone_from(&shared);
             self.sessions.push(s);
             self.send_in(new, text, cx);
         }
@@ -1693,6 +1694,13 @@ impl Desk {
     pub fn toggle_aside(&mut self, cx: &mut Context<Self>) {
         self.panes.right = !self.panes.right;
         cx.notify();
+    }
+
+    /// What a setting changes now, not only when next read: the keys the
+    /// composer sends with.
+    pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
+        let breaks = self.settings.cmd_sends;
+        self.input.update(cx, |i, _| i.set_enter_breaks(breaks));
     }
 
     /// Settings, at the agents: to switch one on, or install one.

@@ -61,6 +61,11 @@ impl Desk {
                         Self::pick(faces, "steer", [("Wait its turn", false), ("Steer", true)],
                             self.settings.steer, |s, v| s.steer = v, cx)),
                 ]))
+                .child(group(faces, "Sending", vec![
+                    row(faces, "What sends what you write", "With ⌘Return, Return breaks the line and ⇧⌘Return sends and begins another beside it.",
+                        Self::pick(faces, "send", [("Return", false), ("⌘Return", true)],
+                            self.settings.cmd_sends, |s, v| s.cmd_sends = v, cx)),
+                ]))
                 .child(group(faces, "The agent's work", vec![
                     row(faces, "Its calls and thinking in the thread", "Folded keeps a finished turn's work in one line, a click away; hidden shows only what was said.",
                         Self::pick(faces, "calls", [
@@ -108,6 +113,7 @@ impl Desk {
                 let pick: Pick = Box::new(cx.listener(move |this, _, _, cx| {
                     set(&mut this.settings, value);
                     this.save_settings();
+                    this.settings_took(cx);
                     cx.notify();
                 }));
                 (label, value == now, pick)
