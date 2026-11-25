@@ -594,11 +594,11 @@ impl Desk {
     }
 
     /// The project a new session starts in: that of the session on
-    /// screen, else the first listed.
+    /// screen, else the first listed that is not a scratch session's.
     pub fn chosen_project(&self) -> Option<PathBuf> {
         self.session()
             .map(|s| s.meta.project.clone())
-            .or_else(|| self.projects().into_iter().next())
+            .or_else(|| self.projects().into_iter().find(|p| !self.is_scratch(p)))
     }
 
     /// The project a new session starts in; with none yet, a scratch
@@ -642,6 +642,15 @@ impl Desk {
     /// The name the project `folder` shows by.
     pub fn project_name(&self, folder: &Path) -> String {
         self.prefs(folder).name.unwrap_or_else(|| {
+            if folder == self.scratch_dir() {
+                return "Scratch".into();
+            }
+            if self.is_scratch(folder) {
+                return format!(
+                    "Scratch {}",
+                    folder.file_name().unwrap_or_default().display()
+                );
+            }
             let name = folder
                 .file_name()
                 .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned());
@@ -827,6 +836,11 @@ impl Desk {
     /// Begin a session in `folder`, with the agent of the session on screen
     /// if it can run, else the first that can.
     pub fn new_in(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        // Scratch, the sidebar's folder of scratch sessions: one more.
+        if folder == self.scratch_dir() {
+            self.new_scratch(window, cx);
+            return;
+        }
         // A project on another machine: the agent there, started over SSH.
         if let Some((host, _)) = crate::remote::parse(&folder) {
             let shown = self

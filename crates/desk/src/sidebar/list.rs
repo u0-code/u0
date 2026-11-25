@@ -171,7 +171,7 @@ impl Desk {
             .all
             .iter()
             .filter(|s| {
-                s.meta.project == folder
+                self.listed_under(&s.meta.project) == folder
                     && self.listed_now(s)
                     && s.meta.flags.settled.is_none()
                     && s.meta.flags.pinned.is_none()
@@ -212,8 +212,14 @@ impl Desk {
 
         // Pinned projects first, then by your last message in any of
         // their sessions, then by name.
-        let mut projects: Vec<(PathBuf, SystemTime)> = self
-            .projects()
+        let mut folders: Vec<PathBuf> = Vec::new();
+        for p in self.projects() {
+            let p = self.listed_under(&p);
+            if !folders.contains(&p) {
+                folders.push(p);
+            }
+        }
+        let mut projects: Vec<(PathBuf, SystemTime)> = folders
             .into_iter()
             .filter(|p| self.filter.is_empty() || self.filter.contains(p))
             .map(|p| {
@@ -221,7 +227,7 @@ impl Desk {
                     .sessions
                     .all
                     .iter()
-                    .filter(|s| s.meta.project == p)
+                    .filter(|s| self.listed_under(&s.meta.project) == p)
                     .map(lists::used)
                     .max()
                     .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -469,7 +475,7 @@ impl Desk {
     }
 
     /// A session: in its folder, in under the project's name; on top or on
-    /// a shelf, slim, with its project's icon. Its title, heavier while it
+    /// a shelf, slim. Its agent's logo, its title, heavier while it
     /// wants you; at its end where it stands or when you last used it, and
     /// on hover Snooze and Settle (or Wake, Un-settle).
     fn session_row(
@@ -604,18 +610,14 @@ impl Desk {
                     .items_center()
                     .gap(px(10.))
                     .tooltip(ui::tip(card))
-                    .when(!in_folder, |d| {
-                        d.child(
-                            div()
-                                .opacity(0.4)
-                                .group_hover(group.clone(), |st| st.opacity(1.))
-                                .child(crate::desk::projects::project_icon(
-                                    &s.meta.project,
-                                    self.held.get(&s.meta.project).and_then(|h| h.icon.clone()),
-                                    16.,
-                                )),
-                        )
-                    })
+                    // Its agent's logo, faint until the row is hovered.
+                    .child(
+                        div()
+                            .flex_none()
+                            .opacity(if open { 1. } else { 0.5 })
+                            .group_hover(group.clone(), |st| st.opacity(1.))
+                            .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.)),
+                    )
                     .when(pinned, |d| {
                         d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
                     })

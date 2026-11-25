@@ -231,8 +231,24 @@ impl Desk {
         self.home.join("scratch")
     }
 
+    /// Whether `folder` is a scratch session's, not yet named: the sidebar
+    /// lists its sessions together under Scratch, as t3code does.
+    pub fn is_scratch(&self, folder: &Path) -> bool {
+        folder.parent() == Some(self.scratch_dir().as_path()) && self.prefs(folder).name.is_none()
+    }
+
+    /// The folder the sidebar lists `folder`'s sessions under: Scratch
+    /// for a scratch session's, else its own.
+    pub fn listed_under(&self, folder: &Path) -> PathBuf {
+        if self.is_scratch(folder) {
+            self.scratch_dir()
+        } else {
+            folder.to_path_buf()
+        }
+    }
+
     /// Begin a session in a folder of its own, with no project yet: it is
-    /// listed as Scratch until you name it, which makes it a project where
+    /// listed under Scratch until you name it, which makes it a project where
     /// it is, as t3code does.
     pub fn new_scratch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(folder) = self.scratch() {
@@ -250,13 +266,6 @@ impl Desk {
             return None;
         }
         self.settings.used(&folder);
-        self.settings.prefs.insert(
-            folder.clone(),
-            Prefs {
-                name: Some(format!("Scratch {at}")),
-                ..Prefs::default()
-            },
-        );
         self.popup = Popup::Closed;
         self.save_settings();
         Some(folder)
