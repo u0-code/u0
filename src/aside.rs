@@ -793,6 +793,15 @@ impl Desk {
                     .text_size(px(12.5))
                     .text_color(theme::text2()),
             )
+            .child({
+                let copied = name.clone();
+                ui::icon_button("copy-path", "copy", "Copy its path")
+                    .size(px(22.))
+                    .text_color(theme::faint())
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
+                    })
+            })
             .children(total.map(|(a, g)| added_gone(faces, a, g)))
             .child(div().flex_1())
             .when(s.repo, |d| d.child(self.scope_tabs(faces, s, cx)))

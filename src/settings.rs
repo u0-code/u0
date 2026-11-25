@@ -80,6 +80,12 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// A diff's long lines wrap, rather than being cut at the edge.
+    #[serde(default = "yes")]
+    pub diff_wrap: bool,
+    /// A change only in spacing is left out of diffs.
+    #[serde(default)]
+    pub no_spacing: bool,
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
@@ -199,6 +205,8 @@ impl Default for Settings {
             calls: Calls::default(),
             cmd_sends: false,
             left: left(),
+            diff_wrap: yes(),
+            no_spacing: false,
         }
     }
 }

@@ -306,13 +306,23 @@ pub struct FileDiff {
     pub binary: bool,
 }
 
+/// Whether a change only in spacing is left out of what diffs show: as
+/// the settings say, set by `leave_out_spacing` when they are read or
+/// changed.
+static NO_SPACING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn leave_out_spacing(on: bool) {
+    NO_SPACING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// What changed in `dir` from the checkpoint `from` to `to`.
 pub fn diff(dir: &Path, from: &str, to: &str) -> Result<Vec<FileDiff>, String> {
-    let out = git(
-        dir,
-        &["diff", "--no-color", "--no-ext-diff", "-M", "-U3", from, to],
-        None,
-    )?;
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "-U3"];
+    if NO_SPACING.load(std::sync::atomic::Ordering::Relaxed) {
+        args.push("-w");
+    }
+    args.extend([from, to]);
+    let out = git(dir, &args, None)?;
     Ok(parse(&out))
 }
 

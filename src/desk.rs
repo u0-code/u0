@@ -309,6 +309,8 @@ impl Desk {
         let home = settings::home();
         let (settings, settings_refused) = Settings::load(&home);
         let cmd_sends = settings.cmd_sends;
+        crate::thread::drawn::set_wrap(settings.diff_wrap);
+        crate::git::leave_out_spacing(settings.no_spacing);
         let input = cx.new(|cx| {
             let mut i = TextInput::new(cx, "Ask for anything, or give a task")
                 .wrapping(8)
@@ -1726,6 +1728,12 @@ impl Desk {
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         let breaks = self.settings.cmd_sends;
         self.input.update(cx, |i, _| i.set_enter_breaks(breaks));
+        crate::thread::drawn::set_wrap(self.settings.diff_wrap);
+        crate::git::leave_out_spacing(self.settings.no_spacing);
+        // Diffs read again, spacing in or out.
+        if let Some(key) = self.current {
+            self.refresh_diffs(key);
+        }
     }
 
     /// Settings, at the agents: to switch one on, or install one.

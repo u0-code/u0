@@ -6,6 +6,23 @@ use gpui::{Div, div, prelude::*, px};
 use super::kinds::{Line, Status};
 use crate::{fonts::Faces, theme, ui};
 
+/// Whether a diff's long lines wrap (or are cut at the edge): as the
+/// settings say, set by `set_wrap` when they are read or changed.
+static WRAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub fn set_wrap(on: bool) {
+    WRAP.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A line's code: wrapped, or kept to one line and cut, as set.
+fn code(cell: Div) -> Div {
+    if WRAP.load(std::sync::atomic::Ordering::Relaxed) {
+        cell
+    } else {
+        cell.whitespace_nowrap().overflow_hidden()
+    }
+}
+
 /// How a diff is set: in a frame in the thread, or bare and smaller in the
 /// side column.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -107,7 +124,7 @@ pub fn diff(faces: &Faces, lines: &[Line], start: Option<usize>, fit: Fit) -> Di
                         }),
                 )
                 .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                .child(div().flex_1().min_w(px(0.)).child(words)),
+                .child(code(div().flex_1().min_w(px(0.))).child(words)),
         );
     }
     well
@@ -227,7 +244,7 @@ pub fn hunks(
                         .child(n.to_string()),
                 )
                 .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                .child(div().flex_1().min_w(px(0.)).child(text.clone()));
+                .child(code(div().flex_1().min_w(px(0.))).child(text.clone()));
             // A line can be clicked, to say something of it.
             well = match on_line {
                 Some(on) => {
@@ -278,12 +295,7 @@ pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
                     .text_color(theme::quiet())
                     .child(n.map(|n| n.to_string()).unwrap_or_default()),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(text.cloned().unwrap_or_default()),
-            )
+            .child(code(div().flex_1().min_w(px(0.))).child(text.cloned().unwrap_or_default()))
     };
     let gone_bg = theme::coral().opacity(0.09);
     let added_bg = theme::ok().opacity(0.09);

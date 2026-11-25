@@ -51,6 +51,12 @@ impl Desk {
                         Self::pick(faces, "width", [
                             ("Comfortable", Width::Comfortable), ("Wide", Width::Wide), ("Full", Width::Full),
                         ], self.settings.width, |s, v| s.width = v, cx)),
+                    row(faces, "A diff's long lines", "Wrapped, they show whole; kept to a line, they are cut at the edge.",
+                        Self::pick(faces, "diff-wrap", [("Wrap", true), ("Cut", false)],
+                            self.settings.diff_wrap, |s, v| s.diff_wrap = v, cx)),
+                    row(faces, "Changes only in spacing", "Left out, a diff shows what changed in the words alone.",
+                        Self::pick(faces, "spacing", [("Shown", false), ("Left out", true)],
+                            self.settings.no_spacing, |s, v| s.no_spacing = v, cx)),
                     row(faces, "A file's diff opens", "Side by side widens the column beside the thread.",
                         Self::pick(faces, "diff", [("Stacked", false), ("Side by side", true)],
                             self.settings.side_by_side, |s, v| s.side_by_side = v, cx)),

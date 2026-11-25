@@ -33,6 +33,20 @@ impl Desk {
         }
     }
 
+    /// Read again what the session `key` shows changed, as git says it now.
+    pub(crate) fn refresh_diffs(&self, key: u64) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        if !s.repo {
+            return;
+        }
+        hub::uncommitted(s.folder.clone(), key, self.tx.clone());
+        if let Some((scope, _)) = &s.scoped {
+            hub::scope_diff(s.folder.clone(), key, scope.clone(), self.tx.clone());
+        }
+    }
+
     /// Every other minute, read again the pull requests of the sessions on
     /// branches of their own (their worktrees') and of the one on screen,
     /// as t3code watches its threads' pull requests and their checks.
