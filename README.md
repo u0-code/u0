@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <img src="assets/logo.svg" alt="Ghost" width="88">
-  </picture>
+  <img src="assets/logo.png" alt="Ghost" width="112">
 </p>
 
 <h1 align="center">Ghost</h1>
