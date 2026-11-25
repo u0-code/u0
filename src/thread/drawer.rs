@@ -19,6 +19,8 @@ use crate::{
 
 /// How tall the drawer stands, its tab bar, and a terminal's line.
 pub const HEIGHT: f32 = 340.;
+/// How many terminals stand side by side at most.
+pub const SIDE_BY_SIDE: usize = 4;
 const BAR: f32 = 38.;
 const LINE: f32 = 19.;
 /// The size terminal text is set in, and the room around it: beside and
@@ -159,14 +161,12 @@ impl Desk {
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
             );
 
-        // The one keys go to, and with two side by side the one before it.
-        let mut panes: Vec<&Terminal> = shown.into_iter().collect();
-        if self.split
-            && let Some(at) = on.and_then(|id| terms.iter().position(|t| t.id == id))
-            && let Some(other) = terms.get(if at > 0 { at - 1 } else { at + 1 })
-        {
-            panes.insert(0, *other);
-        }
+        // The one keys go to; side by side, all of them, four at most.
+        let panes: Vec<&Terminal> = if self.split {
+            terms.iter().copied().take(SIDE_BY_SIDE).collect()
+        } else {
+            shown.into_iter().collect()
+        };
         let mut body = div()
             .id("terminals")
             .track_focus(&self.term_focus)
@@ -396,6 +396,12 @@ impl Desk {
                             && let Some(url) = t.link_at(at)
                         {
                             cx.open_url(&url);
+                        } else if e.modifiers.platform
+                            && crate::markdown::path_like(&t.word_text(at))
+                        {
+                            // ⌘ and a click on a file's path opens it.
+                            let named = t.word_text(at);
+                            this.open_named(&named, cx);
                         } else {
                             let last = t.size().1.saturating_sub(1);
                             t.selection = Some(match e.click_count {

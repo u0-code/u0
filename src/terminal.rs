@@ -243,15 +243,34 @@ impl Terminal {
         ((row, from), (row, to))
     }
 
-    /// The address at `(row, col)`, when the word there is one.
-    pub fn link_at(&self, at: (u16, u16)) -> Option<String> {
+    /// The word at `(row, col)`, without what stands around it in a
+    /// sentence (brackets, quotes, a full stop).
+    pub fn word_text(&self, at: (u16, u16)) -> String {
         let ((row, from), (_, to)) = self.word_at(at);
         let word = self
             .parser()
             .screen()
             .contents_between(row, from, row, to.saturating_add(1));
-        let word = word.trim_matches(|c: char| "()<>[]\"'`,;.".contains(c));
-        (word.starts_with("https://") || word.starts_with("http://")).then(|| word.to_owned())
+        word.trim_matches(|c: char| "()<>[]\"'`,;".contains(c))
+            .trim_end_matches('.')
+            .to_owned()
+    }
+
+    /// The address at `(row, col)`, when the word there is one.
+    pub fn link_at(&self, at: (u16, u16)) -> Option<String> {
+        let word = self.word_text(at);
+        (word.starts_with("https://") || word.starts_with("http://")).then_some(word)
+    }
+
+    /// Whether something runs in it besides its shell: a command not yet
+    /// done.
+    pub fn busy(&self) -> bool {
+        self.child.process_id().is_some_and(|pid| {
+            std::process::Command::new("pgrep")
+                .args(["-P", &pid.to_string()])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        })
     }
 
     /// The text of the cells chosen.

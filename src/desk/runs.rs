@@ -139,8 +139,25 @@ impl Desk {
             .collect()
     }
 
-    /// Close a terminal, stopping what runs in it.
+    /// Close a terminal, stopping what runs in it; with a command still
+    /// running in it, only once you have closed it twice.
     pub fn close_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
+        let busy = self
+            .terminals
+            .iter()
+            .find(|t| t.id == id)
+            .is_some_and(Terminal::busy);
+        if busy && self.closing != Some(id) {
+            self.closing = Some(id);
+            self.trouble(
+                "Something is still running in that terminal",
+                Some("Close it again to stop it.".into()),
+                None,
+            );
+            cx.notify();
+            return;
+        }
+        self.closing = None;
         self.terminals.retain(|t| t.id != id);
         if self.term_on == Some(id) {
             self.term_on = self.session_terminals().last().map(|t| t.id);

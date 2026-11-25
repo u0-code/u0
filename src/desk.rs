@@ -153,6 +153,9 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// A terminal asked to close with something running in it, to close at
+    /// the second asking.
+    pub closing: Option<u64>,
     /// The sessions chosen with ⌘-click in the sidebar.
     pub chosen: std::collections::BTreeSet<u64>,
     /// The sidebar's edge is being dragged.
@@ -586,6 +589,7 @@ impl Desk {
             tall: false,
             resizing_left: false,
             chosen: std::collections::BTreeSet::new(),
+            closing: None,
             menu_search,
             reading: None,
             reader,
@@ -1913,9 +1917,15 @@ impl Render for Desk {
         // The terminals take the size the drawer gives them.
         let cell = crate::thread::drawer::cell_width(window, &faces);
         if self.drawer {
-            let two = self.split && self.session_terminals().len() > 1;
-            let (rows, cols) =
-                crate::thread::drawer::fits(if two { pane / 2. } else { pane }, cell);
+            let beside = if self.split {
+                self.session_terminals()
+                    .len()
+                    .clamp(1, crate::thread::drawer::SIDE_BY_SIDE)
+            } else {
+                1
+            };
+            #[allow(clippy::cast_precision_loss, reason = "four at most")]
+            let (rows, cols) = crate::thread::drawer::fits(pane / beside as f32, cell);
             self.fit_terminals(rows, cols);
         }
         let middle = match self.page.clone() {
