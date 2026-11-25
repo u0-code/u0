@@ -81,7 +81,7 @@ impl Desk {
 
     /// Say `text` to the agent of the session `key`.
     pub(super) fn prompt(&mut self, key: u64, text: String) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let (agent, id) = (s.agent.clone(), s.id.clone());
@@ -231,9 +231,7 @@ impl Desk {
         result: Result<(String, Option<Vec<crate::git::FileDiff>>), String>,
     ) {
         let name = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
+            .session_at(key)
             .map(|s| self.name_of(&s.agent))
             .unwrap_or_default();
         let Some(s) = self.session_mut(key) else {

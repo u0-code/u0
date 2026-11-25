@@ -378,7 +378,7 @@ impl Desk {
         .collect();
         let mut sessions = Vec::new();
         for (n, key) in self.ordered().into_iter().enumerate() {
-            let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            let Some(s) = self.session_at(key) else {
                 continue;
             };
             let project = self.project_name(&s.project);

@@ -113,7 +113,7 @@ impl Desk {
         if moved == before {
             return;
         }
-        let Some(target) = self.sessions.iter().find(|s| s.key == before) else {
+        let Some(target) = self.session_at(before) else {
             return;
         };
         let pinned = target.flags.pinned.is_some();
@@ -132,7 +132,7 @@ impl Desk {
         group.sort_by_key(|s| (s.flags.pinned, s.flags.order, s.key));
         let mut keys: Vec<u64> = group.iter().map(|s| s.key).collect();
         let mut orders: Vec<i64> = group.iter().map(|s| s.flags.order).collect();
-        if let Some(m) = self.sessions.iter().find(|s| s.key == moved) {
+        if let Some(m) = self.session_at(moved) {
             orders.push(m.flags.order);
         }
         orders.sort_unstable();
@@ -290,7 +290,7 @@ impl Desk {
     /// (started for it if need be); where it cannot, the agent keeps it and
     /// Ghost leaves it out of the list from now on.
     fn delete_now(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let (agent, id) = (s.agent.clone(), s.id.clone());
@@ -315,7 +315,7 @@ impl Desk {
     pub(crate) fn do_waiting(&mut self, waiting: Waiting) {
         match waiting {
             Waiting::Branch(key, upto) => {
-                if let Some(s) = self.sessions.iter().find(|s| s.key == key)
+                if let Some(s) = self.session_at(key)
                     && let (Some(id), Some(running)) = (
                         s.id.clone(),
                         self.slot(&s.agent).and_then(hub::Slot::running),
@@ -332,7 +332,7 @@ impl Desk {
                 }
             }
             Waiting::Delete(key) => {
-                if let Some(s) = self.sessions.iter().find(|s| s.key == key)
+                if let Some(s) = self.session_at(key)
                     && let (Some(id), Some(running)) = (
                         s.id.clone(),
                         self.slot(&s.agent).and_then(hub::Slot::running),
@@ -347,9 +347,7 @@ impl Desk {
     /// Begin renaming the session `key` in the sidebar.
     pub fn begin_rename(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let title = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
+            .session_at(key)
             .map(|s| s.title.clone())
             .unwrap_or_default();
         self.popup = super::Popup::Closed;
@@ -398,9 +396,7 @@ impl Desk {
     ) -> Option<gpui::Div> {
         let u = self.undo.as_ref()?;
         let title = self
-            .sessions
-            .iter()
-            .find(|s| s.key == u.key)
+            .session_at(u.key)
             .map(|s| crate::ui::fit(&s.title, 32))
             .unwrap_or_default();
         let what = match u.what {
@@ -463,7 +459,7 @@ impl Desk {
     /// Take the last answer of the side question `key` back to the session
     /// it was asked of, quoted in what you are writing there.
     pub fn answer_back(&mut self, key: u64, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let Some(to) = s.beside else { return };
@@ -481,11 +477,7 @@ impl Desk {
     /// thread: a new session with what was said up to it, and the message
     /// in the composer to say another way.
     pub fn fork_at(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let last = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
-            .and_then(|s| s.fork_point(item));
+        let last = self.session_at(key).and_then(|s| s.fork_point(item));
         if let Some(last) = last {
             self.branch(key, Some((item, last)), cx);
         }
@@ -494,11 +486,7 @@ impl Desk {
     /// Branch the session `key` off after the agent's message at `item`:
     /// a new session with what was said through it.
     pub fn fork_after(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let last = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
-            .and_then(|s| s.through(item));
+        let last = self.session_at(key).and_then(|s| s.through(item));
         if let Some(last) = last {
             self.branch(key, Some((item + 1, last)), cx);
         }
@@ -510,7 +498,7 @@ impl Desk {
     /// files go back to how they were before that turn.
     pub fn rewind(&mut self, key: u64, item: usize, files: bool, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let point = s.fork_point(item);
@@ -546,7 +534,7 @@ impl Desk {
     }
 
     fn start_over(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let Some(old) = self.sessions.iter().find(|s| s.key == key).cloned() else {
+        let Some(old) = self.session_at(key).cloned() else {
             return;
         };
         let new = self.take_key();
@@ -572,12 +560,7 @@ impl Desk {
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
-        let Some(agent) = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
-            .map(|s| s.agent.clone())
-        else {
+        let Some(agent) = self.session_at(key).map(|s| s.agent.clone()) else {
             return;
         };
         if self.slot(&agent).and_then(hub::Slot::running).is_some() {
@@ -602,7 +585,7 @@ impl Desk {
         >,
         cx: &mut Context<Self>,
     ) {
-        let Some(origin) = self.sessions.iter().find(|s| s.key == from).cloned() else {
+        let Some(origin) = self.session_at(from).cloned() else {
             return;
         };
         let r = match result {
@@ -694,7 +677,7 @@ impl Desk {
     /// plans (to its default, or the first that does not plan), then on.
     pub fn run_plan(&mut self, key: u64, cx: &mut Context<Self>) {
         let plan = |s: &str| s.to_lowercase().contains("plan");
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let mode = s

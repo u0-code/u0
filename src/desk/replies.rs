@@ -343,9 +343,7 @@ impl Desk {
                 Ok(()) => self.forget_session(key, cx),
                 Err(why) => {
                     let title = self
-                        .sessions
-                        .iter()
-                        .find(|s| s.key == key)
+                        .session_at(key)
                         .map(|s| crate::ui::fit(&s.title, 40))
                         .unwrap_or_default();
                     self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
@@ -354,11 +352,7 @@ impl Desk {
             Msg::Ended { key, result } => {
                 // A turn refused for want of a sign-in marks the agent: the
                 // composer then offers its sign-in.
-                let agent = self
-                    .sessions
-                    .iter()
-                    .find(|s| s.key == key)
-                    .map(|s| s.agent.clone());
+                let agent = self.session_at(key).map(|s| s.agent.clone());
                 if let Some(slot) = agent.and_then(|a| self.slot_mut(&a)) {
                     slot.auth = match &result {
                         Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
@@ -379,7 +373,7 @@ impl Desk {
 
                 // With Ghost behind other windows, macOS says so; in front,
                 // with another session on screen, a notice leads to it.
-                if let Some(s) = self.sessions.iter().find(|s| s.key == key) {
+                if let Some(s) = self.session_at(key) {
                     let name = self.name_of(&s.agent);
                     let title = crate::ui::fit(&s.title, 40);
                     if behind {
@@ -441,9 +435,7 @@ impl Desk {
             }
             Msg::Refused { key, why } => {
                 let name = self
-                    .sessions
-                    .iter()
-                    .find(|s| s.key == key)
+                    .session_at(key)
                     .map(|s| self.name_of(&s.agent))
                     .unwrap_or_default();
                 self.trouble(format!("{name} kept it as it was"), Some(why), None);
@@ -605,11 +597,7 @@ impl Desk {
             {
                 continue;
             }
-            if let Some(s) = self
-                .sessions
-                .iter_mut()
-                .find(|s| s.agent == agent && s.id.as_ref() == Some(&info.session_id))
-            {
+            if let Some(s) = self.session_by_id(agent, &info.session_id) {
                 if s.state == State::Closed {
                     if let Some(t) = info.title.filter(|t| !t.trim().is_empty() && !s.renamed) {
                         s.title = t;
@@ -731,14 +719,8 @@ impl Desk {
                 // A subagent set to work: a session of its own, under its
                 // parent, that its updates go to.
                 if let SessionUpdate::SubagentUpdate(u) = &n.update
-                    && !self
-                        .sessions
-                        .iter()
-                        .any(|s| s.agent == agent && s.id.as_ref() == Some(&u.session_id))
-                    && let Some(parent) = self
-                        .sessions
-                        .iter()
-                        .find(|s| s.agent == agent && s.id.as_ref() == Some(&n.session_id))
+                    && self.session_by_id(agent, &u.session_id).is_none()
+                    && let Some(parent) = self.session_by_id(agent, &n.session_id)
                 {
                     let (folder, project, up) =
                         (parent.folder.clone(), parent.project.clone(), parent.key);
@@ -758,18 +740,11 @@ impl Desk {
                 }
                 // What it is doing now, for its row, the column and its tab.
                 if let SessionUpdate::SubagentUpdate(u) = &n.update
-                    && let Some(child) = self
-                        .sessions
-                        .iter_mut()
-                        .find(|s| s.agent == agent && s.id.as_ref() == Some(&u.session_id))
+                    && let Some(child) = self.session_by_id(agent, &u.session_id)
                 {
                     child.sub.take(u);
                 }
-                let Some(s) = self
-                    .sessions
-                    .iter_mut()
-                    .find(|s| s.agent == agent && s.id.as_ref() == Some(&n.session_id))
-                else {
+                let Some(s) = self.session_by_id(agent, &n.session_id) else {
                     // The probe's session lists the commands the agent takes.
                     if let SessionUpdate::AvailableCommandsUpdate(c) = n.update
                         && let Some(slot) = self.slot_mut(agent)
@@ -791,15 +766,10 @@ impl Desk {
                 }
             }
             Event::Permission { id, request } => {
-                if let Some(s) = self
-                    .sessions
-                    .iter_mut()
-                    .find(|s| s.agent == agent && s.id.as_ref() == Some(&request.session_id))
-                {
-                    let key = s.key;
+                if let Some(s) = self.session_by_id(agent, &request.session_id) {
+                    let (key, title) = (s.key, s.title.clone());
                     s.asked(id, request);
                     if self.behind {
-                        let title = s.title.clone();
                         let name = self.name_of(agent);
                         self.tell(
                             &format!("{name} · {}", crate::ui::fit(&title, 40)),

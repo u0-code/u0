@@ -21,7 +21,7 @@ impl Desk {
     /// Read again what git says where the session `key` works: its commits
     /// and branches, and its pull request.
     pub(crate) fn refresh_git(&self, key: u64) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         if !s.repo {
@@ -35,7 +35,7 @@ impl Desk {
 
     /// Read again what the session `key` shows changed, as git says it now.
     pub(crate) fn refresh_diffs(&self, key: u64) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         if !s.repo {
@@ -128,7 +128,7 @@ impl Desk {
 
     /// Begin a session in the worktree the session `key` works in.
     pub fn new_in_worktree(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let (Some(wt), agent, project) = (s.worktree.clone(), s.agent.clone(), s.project.clone())
@@ -229,7 +229,7 @@ impl Desk {
     /// session has a title of its own (the agent's, or yours), the branch
     /// takes it, unless it is pushed already.
     pub(crate) fn name_branch(&self, key: u64) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let Some(wt) = &s.worktree else { return };

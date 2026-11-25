@@ -1010,11 +1010,26 @@ impl Desk {
 
     pub fn session(&self) -> Option<&Session> {
         let key = self.current?;
+        self.session_at(key)
+    }
+
+    pub(crate) fn session_at(&self, key: u64) -> Option<&Session> {
         self.sessions.iter().find(|s| s.key == key)
     }
 
     pub(crate) fn session_mut(&mut self, key: u64) -> Option<&mut Session> {
         self.sessions.iter_mut().find(|s| s.key == key)
+    }
+
+    /// The session `agent` knows as `id`.
+    pub(crate) fn session_by_id(
+        &mut self,
+        agent: &str,
+        id: &agent_client_protocol::v1::schema::SessionId,
+    ) -> Option<&mut Session> {
+        self.sessions
+            .iter_mut()
+            .find(|s| s.agent == agent && s.id.as_ref() == Some(id))
     }
 
     pub(crate) fn save_settings(&mut self) {
@@ -1170,9 +1185,7 @@ impl Desk {
                 s.seen = Some(s.items.len());
             }
             let unsent = self
-                .sessions
-                .iter()
-                .find(|s| s.key == key)
+                .session_at(key)
                 .map(|s| s.unsent.clone())
                 .unwrap_or_default();
             self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
@@ -1191,9 +1204,7 @@ impl Desk {
         }
         self.refresh_git(key);
         let closed = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
+            .session_at(key)
             .is_some_and(|s| s.state == State::Closed && !s.recorded);
         // A session with a record reads from it at once, and its agent is
         // asked only when you write; one without comes from its agent.
@@ -1510,7 +1521,7 @@ impl Desk {
     /// Begin, beside the session `key`, a session with each other agent
     /// that can run, in the same project, and say `text` in each.
     fn fan_out(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
-        let Some(origin) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(origin) = self.session_at(key) else {
             return;
         };
         // Each goes as the first did: begun the same way (its worktree, the
@@ -1555,7 +1566,7 @@ impl Desk {
             return;
         }
         for (key, text) in due {
-            match self.sessions.iter_mut().find(|s| s.key == key) {
+            match self.session_mut(key) {
                 // A turn going on: it waits its turn, as one queued.
                 Some(s) if matches!(s.state, State::Working | State::Opening) => {
                     s.queued.push(text);
@@ -1693,11 +1704,7 @@ impl Desk {
             self.settings.used(&folder);
             self.save_settings();
             if worktree {
-                let from = self
-                    .sessions
-                    .iter()
-                    .find(|s| s.key == key)
-                    .and_then(|s| s.begin.clone());
+                let from = self.session_at(key).and_then(|s| s.begin.clone());
                 hub::make_worktree(
                     folder,
                     text,
@@ -1726,9 +1733,7 @@ impl Desk {
         let home = self.home.clone();
         let tx = self.tx.clone();
         let (dirs, id, recorded) = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
+            .session_at(key)
             .map(|s| ((s.folder.clone(), s.also.clone()), s.id.clone(), s.recorded))
             .unwrap_or_default();
         let Some(slot) = self.slot_mut(agent) else {
@@ -1795,7 +1800,7 @@ impl Desk {
 
     /// Stop the task `task` the agent left going in the session `key`.
     pub fn stop_task(&mut self, key: u64, task: String, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         if let (Some(running), Some(id)) =
@@ -1808,7 +1813,7 @@ impl Desk {
 
     /// Stop the work of the subagent `key`, where its agent lets it be.
     pub fn stop_sub(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(c) = self.sessions.iter().find(|c| c.key == key) else {
+        let Some(c) = self.session_at(key) else {
             return;
         };
         if let (Some(running), Some(id)) =
@@ -1823,11 +1828,7 @@ impl Desk {
     /// its turn: its process is ended, and started again when wanted.
     pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {
         self.stopping = None;
-        let agent = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
-            .map(|s| s.agent.clone());
+        let agent = self.session_at(key).map(|s| s.agent.clone());
         if let Some(running) = agent
             .as_deref()
             .and_then(|a| self.slot(a))

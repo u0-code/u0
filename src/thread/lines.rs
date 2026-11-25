@@ -257,7 +257,7 @@ impl Desk {
     ) -> Option<gpui::Stateful<Div>> {
         let s = self.session()?;
         let family = s.parent.unwrap_or(s.key);
-        let parent = self.sessions.iter().find(|p| p.key == family)?;
+        let parent = self.session_at(family)?;
         let kids: Vec<&crate::session::Session> = self
             .sessions
             .iter()

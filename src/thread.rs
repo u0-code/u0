@@ -1165,7 +1165,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let (key, item) = self.zoom?;
-        let s = self.sessions.iter().find(|s| s.key == key)?;
+        let s = self.session_at(key)?;
         let images: Vec<usize> = s
             .items
             .iter()
@@ -1257,12 +1257,7 @@ impl Desk {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Item::Agent(text)) = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
-            .and_then(|s| s.items.get(item))
-        else {
+        let Some(Item::Agent(text)) = self.session_at(key).and_then(|s| s.items.get(item)) else {
             return;
         };
         let text = text.clone();

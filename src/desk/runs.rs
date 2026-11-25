@@ -141,9 +141,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         let host = self
-            .sessions
-            .iter()
-            .find(|s| s.key == key)
+            .session_at(key)
             .and_then(|s| crate::remote::parse(&s.project))
             .map(|(host, _)| host);
         let id = self.take_key();
@@ -322,7 +320,7 @@ impl Desk {
             };
             self.open_terminal_in(key, dir, Some(&command), cx);
             let term = self.term_on;
-            if let Some(s) = self.sessions.iter_mut().find(|s| s.key == key) {
+            if let Some(s) = self.session_mut(key) {
                 s.setup.push(script.name);
                 if script.wait {
                     s.holding.extend(term);

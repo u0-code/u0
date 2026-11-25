@@ -33,7 +33,7 @@ impl Desk {
     /// The subagents the session `key` set to work that are not on the desk:
     /// closed, under it, read from their records when opened.
     fn subagents_back(&mut self, key: u64) {
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return;
         };
         let missing: Vec<(String, String)> = s
@@ -119,7 +119,7 @@ impl Desk {
     /// thread shows at once, and the agent is asked only when you write.
     pub(crate) fn read_record(&mut self, key: u64) -> bool {
         let home = self.home.clone();
-        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+        let Some(s) = self.session_at(key) else {
             return false;
         };
         let Some(id) = &s.id else { return false };

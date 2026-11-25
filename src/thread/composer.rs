@@ -57,9 +57,7 @@ impl Desk {
         // A subagent's session answers to its parent, not to you.
         if let Some(up) = s.parent {
             let parent = self
-                .sessions
-                .iter()
-                .find(|p| p.key == up)
+                .session_at(up)
                 .map(|p| ui::fit(&p.title, 40))
                 .unwrap_or_default();
             return div().flex().flex_none().justify_center().pb(px(18.)).child(
@@ -596,9 +594,7 @@ impl Desk {
         // was asked of; its answer can be taken back there.
         let beside = s.beside.map(|up| {
             let title = self
-                .sessions
-                .iter()
-                .find(|p| p.key == up)
+                .session_at(up)
                 .map(|p| ui::fit(&p.title, 40))
                 .unwrap_or_default();
             let key = s.key;
