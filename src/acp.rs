@@ -211,6 +211,11 @@ impl Agent {
 }
 
 impl Agent {
+    /// Its process's id, where it has one.
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
     /// Stop it at once, and all it started: when it would not stop a turn.
     pub fn kill(&self) {
         if let Some(pid) = self.pid.and_then(|p| i32::try_from(p).ok()) {

@@ -28,6 +28,7 @@ pub enum Tab {
     Agents,
     Sessions,
     Keyboard,
+    Usage,
     About,
 }
 
@@ -50,6 +51,7 @@ impl Desk {
             (Tab::Agents, "Agents"),
             (Tab::Sessions, "Sessions"),
             (Tab::Keyboard, "Keyboard"),
+            (Tab::Usage, "Usage"),
             (Tab::About, "About"),
         ] {
             let on = self.settings_tab == tab;
@@ -69,6 +71,9 @@ impl Desk {
                         this.settings_tab = tab;
                         if tab == Tab::Sessions {
                             this.measure();
+                        }
+                        if tab == Tab::Usage {
+                            this.weigh_agents();
                         }
                         cx.notify();
                     })),

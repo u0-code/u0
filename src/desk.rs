@@ -160,6 +160,9 @@ pub struct Desk {
     pub stopping: Option<(u64, std::time::Instant)>,
     /// When quitting was last asked while agents worked.
     pub quit_asked: Option<std::time::Instant>,
+    /// Each running agent's process and the memory its group holds (kB),
+    /// as last weighed.
+    pub weights: Vec<(String, u32, u64)>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
     /// The action whose keys are being recorded, in Settings, Keyboard.
@@ -643,6 +646,7 @@ impl Desk {
             stopping: None,
             quit_asked: None,
             badge: 0,
+            weights: Vec::new(),
             menu_search,
             reading: None,
             reader,

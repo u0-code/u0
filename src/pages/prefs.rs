@@ -112,6 +112,7 @@ impl Desk {
                             .child(self.prefix_input.clone())),
                 ])),
             Tab::Keyboard => self.keyboard(faces, cx),
+            Tab::Usage => self.usage(faces, cx),
             Tab::About => self.about_ghost(faces, cx),
             Tab::Agents | Tab::Sessions => return None,
         })
@@ -264,6 +265,125 @@ impl Desk {
                 "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }. Ghost reads the file as it starts.",
             ))
             .child(div().flex().child(open))
+    }
+
+    /// What the sessions spent, as their agents said it (the context each
+    /// holds, and its cost where told), and the agents running: their
+    /// process and the memory it holds, each can be let go.
+    fn usage(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let mut spent = card().overflow_hidden();
+        let mut totals: Vec<(String, f64)> = Vec::new();
+        let mut any = false;
+        for (n, s) in self
+            .sessions
+            .iter()
+            .filter(|s| s.usage.is_some() && s.parent.is_none())
+            .enumerate()
+        {
+            let u = s.usage.as_ref().expect("filtered");
+            any = true;
+            #[allow(clippy::cast_precision_loss, reason = "a share of a context")]
+            let share = if u.size > 0 {
+                u.used as f64 / u.size as f64 * 100.
+            } else {
+                0.
+            };
+            let cost = u.cost.as_ref().map(|c| {
+                match totals.iter_mut().find(|(cur, _)| *cur == c.currency) {
+                    Some((_, t)) => *t += c.amount,
+                    None => totals.push((c.currency.clone(), c.amount)),
+                }
+                format!("{:.2} {}", c.amount, c.currency)
+            });
+            spent = spent.child(
+                row(
+                    faces,
+                    &ui::fit(&s.title, 48),
+                    &format!(
+                        "{} · {}k of {}k in context ({share:.0}%)",
+                        self.name_of(&s.agent),
+                        u.used / 1000,
+                        u.size / 1000
+                    ),
+                    ui::text(faces, cost.unwrap_or_default())
+                        .text_size(px(12.5))
+                        .text_color(theme::text2()),
+                )
+                .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
+            );
+        }
+        if !any {
+            spent = spent.child(
+                div()
+                    .px(px(16.))
+                    .py(px(14.))
+                    .child(fine(faces, "No agent has said what a session spent yet.")),
+            );
+        }
+        let total = totals
+            .iter()
+            .map(|(cur, t)| format!("{t:.2} {cur}"))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let mut running = card().overflow_hidden();
+        for (n, (agent, pid, kb)) in self.weights.iter().enumerate() {
+            let agent_id = agent.clone();
+            running = running.child(
+                row(
+                    faces,
+                    &self.name_of(agent),
+                    &format!("process {pid} · {} MB", kb / 1024),
+                    ui::button(
+                        faces,
+                        SharedString::from(format!("let-go-{n}")),
+                        "Let it go",
+                        Weight::Quiet,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.let_go(&agent_id);
+                        this.weigh_agents();
+                        cx.notify();
+                    })),
+                )
+                .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
+            );
+        }
+        if self.weights.is_empty() {
+            running = running.child(
+                div()
+                    .px(px(16.))
+                    .py(px(14.))
+                    .child(fine(faces, "No agent is running.")),
+            );
+        }
+        page(
+            faces,
+            "Usage",
+            "What the sessions hold and spent, as their agents say, and what runs.",
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex()
+                        .child(ui::label(faces, "Sessions").flex_1())
+                        .when(!total.is_empty(), |d| {
+                            d.child(fine(faces, format!("in all {total}")))
+                        }),
+                )
+                .child(spent),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(ui::label(faces, "Agents running"))
+                .child(running),
+        )
     }
 
     /// What Ghost is, and where it keeps what it keeps.

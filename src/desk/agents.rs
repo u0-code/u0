@@ -55,6 +55,26 @@ impl Desk {
         cx.notify();
     }
 
+    /// How much memory each running agent holds (ps), for Settings, Usage.
+    pub(crate) fn weigh_agents(&mut self) {
+        self.weights = self
+            .slots
+            .iter()
+            .filter_map(|s| {
+                let pid = s.running()?.pid()?;
+                let out = std::process::Command::new("ps")
+                    .args(["-o", "rss=", "-g", &pid.to_string()])
+                    .output()
+                    .ok()?;
+                let kb: u64 = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter_map(|l| l.trim().parse::<u64>().ok())
+                    .sum();
+                Some((s.entry.id.clone(), pid, kb))
+            })
+            .collect();
+    }
+
     /// Every five minutes, look again at the agents not running: one now
     /// installed (or its command now here) is started; one that stopped is
     /// tried again. Every six hours, read the registry again.
