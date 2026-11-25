@@ -165,6 +165,7 @@ impl Desk {
                 }
                 self.fill_slots();
                 self.install_due(cx);
+                self.look_here();
             }
             Msg::Registry(Err(why)) => self.registry_trouble = Some(why),
             Msg::Installing { agent, what, share } => {
@@ -199,6 +200,7 @@ impl Desk {
                         }
                     }
                 }
+                self.look_here();
                 self.start_ready();
             }
             Msg::Started { agent, result } => {
@@ -330,6 +332,7 @@ impl Desk {
             } => self.looked(key, &folder, branch, repo, scripts),
             Msg::Weighed(weights) => self.weights = weights,
             Msg::Hosts(hosts) => self.hosts = hosts,
+            Msg::Here(here) => self.here = here,
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();
                 crate::keys::bind(cx, &yours);

@@ -83,6 +83,8 @@ pub enum Msg {
     /// Your key bindings, as keybindings.json says now, or why it was not
     /// written.
     Keys(Result<Vec<crate::keys::Binding>, String>),
+    /// What of each agent the registry lists is here, by its id.
+    Here(std::collections::HashMap<String, Here>),
     /// The hosts your SSH config names.
     Hosts(Vec<String>),
     /// What the folder of a project holds.
@@ -965,6 +967,34 @@ pub fn weigh(running: Vec<(String, u32)>, tx: Sender) {
                         .filter_map(|l| l.trim().parse::<u64>().ok())
                         .sum();
                     Some((id, pid, kb))
+                })
+                .collect(),
+        )
+    });
+}
+
+/// What of an agent is here: whether it can be started, the version
+/// installed, and the CLI of yours it drives.
+#[derive(Debug, Clone, Default)]
+pub struct Here {
+    pub launches: bool,
+    pub installed: Option<String>,
+    pub cli: Option<PathBuf>,
+}
+
+/// Look at what of each of `agents` is here, in `home` and on the PATH.
+pub fn here(agents: Vec<Entry>, home: PathBuf, tx: Sender) {
+    off(tx, move || {
+        Msg::Here(
+            agents
+                .into_iter()
+                .map(|e| {
+                    let here = Here {
+                        launches: e.launch(&home).is_ok(),
+                        installed: e.installed(&home),
+                        cli: e.your_cli().map(|(_, cli)| cli),
+                    };
+                    (e.id, here)
                 })
                 .collect(),
         )

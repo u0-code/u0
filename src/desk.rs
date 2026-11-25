@@ -155,6 +155,8 @@ pub struct Desk {
     /// Each running agent's process and the memory its group holds (kB),
     /// as last weighed.
     pub weights: Vec<(String, u32, u64)>,
+    /// What of each agent the registry lists is here, by its id.
+    pub here: HashMap<String, hub::Here>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
     /// The action whose keys are being recorded, in Settings, Keyboard.
@@ -676,6 +678,7 @@ impl Desk {
             quit_asked: None,
             badge: 0,
             weights: Vec::new(),
+            here: HashMap::new(),
             menu_search,
             reading: None,
             reader,
@@ -776,6 +779,7 @@ impl Desk {
         desk.settle_idle();
         Self::keep_on_quit(cx);
         desk.fill_slots();
+        desk.look_here();
         desk
     }
 
@@ -2117,7 +2121,7 @@ impl Desk {
             let c = self.settings.commands.get(id).cloned().unwrap_or_default();
             self.agent_command.update(cx, |i, cx| i.set_text(&c, cx));
             self.agent_model.update(cx, |i, cx| i.set_text("", cx));
-            if let Some((_, cli)) = self.entry(id).and_then(crate::registry::Entry::your_cli) {
+            if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
                 hub::cli_version(cli, self.tx.clone());
             }
         }

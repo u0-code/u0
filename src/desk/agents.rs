@@ -55,6 +55,16 @@ impl Desk {
         cx.notify();
     }
 
+    /// Look at what of each agent the registry lists is here, for the
+    /// pages that show it.
+    pub(crate) fn look_here(&self) {
+        hub::here(
+            self.registry.agents.clone(),
+            self.home.clone(),
+            self.tx.clone(),
+        );
+    }
+
     /// Ask how much memory each running agent holds, for Settings, Usage.
     pub(crate) fn weigh_agents(&self) {
         let running = (self.slots.iter())
@@ -71,6 +81,7 @@ impl Desk {
         self.health_tick += 1;
         if self.health_tick.is_multiple_of(5) {
             self.install_due(cx);
+            self.look_here();
             let home = self.home.clone();
             for slot in &mut self.slots {
                 if matches!(slot.stage, Stage::Missing(_) | Stage::Failed(_)) {

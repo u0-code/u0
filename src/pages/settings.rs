@@ -177,7 +177,8 @@ impl Desk {
         });
         for (n, e) in agents.into_iter().enumerate() {
             let on = self.settings.enabled.contains(&e.id);
-            let installed = e.launch(&self.home).is_ok();
+            let here = self.here.get(&e.id).cloned().unwrap_or_default();
+            let installed = here.launches;
             let name = self.name_of(&e.id);
             let how = match e.way() {
                 Way::Archive => "binary",
@@ -185,7 +186,7 @@ impl Desk {
                 Way::None => "unavailable",
             };
             // Installed, which version, signed in: as far as each is known.
-            let version = e.installed(&self.home).unwrap_or_else(|| e.version.clone());
+            let version = here.installed.unwrap_or_else(|| e.version.clone());
             let signed = match self.slot(&e.id).map(|s| &s.auth) {
                 Some(crate::hub::Auth::Ready) => " · signed in",
                 Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",

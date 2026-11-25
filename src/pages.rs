@@ -143,7 +143,7 @@ impl Desk {
             crate::hub::Auth::Unknown if signing => Step::Now,
             crate::hub::Auth::Unknown => Step::Todo,
         };
-        let installed = entry.installed(&self.home);
+        let installed = self.here.get(&entry.id).and_then(|h| h.installed.clone());
         let update = installed.as_ref().filter(|v| **v != entry.version);
         let first_step = match entry.way() {
             Way::Archive => match update {
@@ -205,7 +205,7 @@ impl Desk {
             );
         }
         // The CLI it drives: yours, as your terminal has it.
-        if let Some((_, cli)) = entry.your_cli() {
+        if let Some(cli) = self.here.get(&entry.id).and_then(|h| h.cli.clone()) {
             let version = self.cli_versions.get(&cli).cloned().unwrap_or_default();
             download = download.child(ui::fine(
                 faces,
