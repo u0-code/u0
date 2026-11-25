@@ -199,6 +199,8 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// The files (as git names them) you left out of the next commit.
+    pub left_out: std::collections::BTreeSet<String>,
     /// How much of its thread there was when you last left it.
     pub seen: Option<usize>,
     /// The scripts run in its new worktree as it was made (ghost.json's),
@@ -595,6 +597,7 @@ impl Session {
             parent: None,
             setup: Vec::new(),
             seen: None,
+            left_out: std::collections::BTreeSet::new(),
             times: Vec::new(),
             stamp: None,
             plan: None,

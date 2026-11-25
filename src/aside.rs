@@ -243,6 +243,44 @@ impl Desk {
                     .when(on, |d| d.bg(theme::hover()))
                     .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
                     .tooltip(ui::tip(f.path.clone()))
+                    // Ticked, it goes in the next commit; not, it stays out.
+                    .when(s.repo, |d| {
+                        let (key, named) = (s.key, f.path.clone());
+                        let goes = !s.left_out.contains(&f.path);
+                        d.child(
+                            div()
+                                .id(SharedString::from(format!("goes-{n}")))
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .justify_center()
+                                .size(px(14.))
+                                .rounded(px(4.))
+                                .border_1()
+                                .border_color(if goes {
+                                    theme::text2()
+                                } else {
+                                    theme::ghost_line()
+                                })
+                                .when(goes, |d| {
+                                    d.child(ui::icon("check", 10.).text_color(theme::text()))
+                                })
+                                .tooltip(ui::tip(if goes {
+                                    "In the next commit: click to leave it out"
+                                } else {
+                                    "Left out of the next commit"
+                                }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if let Some(s) = this.session_mut(key)
+                                        && !s.left_out.remove(&named)
+                                    {
+                                        s.left_out.insert(named.clone());
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                    })
                     .child(
                         ui::one_line(
                             ui::mono(faces, ui::fit(&name, 16))
@@ -267,9 +305,13 @@ impl Desk {
         rail = rail.child(div().px(px(10.)).pt(px(10.)).child(fine(
             faces,
             format!(
-                "{} file{}{}",
+                "{} file{}{}{}",
                 files.len(),
                 if files.len() == 1 { "" } else { "s" },
+                match s.left_out.len() {
+                    0 => String::new(),
+                    n => format!(" · {n} left out"),
+                },
                 match said {
                     0 => String::new(),
                     1 => " · 1 comment".into(),

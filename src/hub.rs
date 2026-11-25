@@ -1121,7 +1121,13 @@ pub fn restore(
 }
 
 /// Do `action` in `dir`.
-pub fn git_action(dir: PathBuf, action: GitAction, prefix: String, key: u64, tx: Sender) {
+pub fn git_action(
+    dir: PathBuf,
+    action: GitAction,
+    (prefix, left_out): (String, Vec<String>),
+    key: u64,
+    tx: Sender,
+) {
     acp::runtime().spawn_blocking(move || {
         let step = |text: &str| {
             let _ = tx.send(Msg::GitStep {
@@ -1143,10 +1149,12 @@ pub fn git_action(dir: PathBuf, action: GitAction, prefix: String, key: u64, tx:
             Ok(())
         };
         let result = match &action {
-            GitAction::Commit(m) => git::commit(&dir, m).map(|id| format!("Committed {id}")),
+            GitAction::Commit(m) => {
+                git::commit(&dir, m, &left_out).map(|id| format!("Committed {id}"))
+            }
             GitAction::CommitPush(m) => own_branch(m).and_then(|()| {
                 step("Committing");
-                git::commit(&dir, m).and_then(|id| {
+                git::commit(&dir, m, &left_out).and_then(|id| {
                     step("Pushing");
                     git::push(&dir).map(|_| format!("Committed {id} and pushed"))
                 })
@@ -1154,7 +1162,7 @@ pub fn git_action(dir: PathBuf, action: GitAction, prefix: String, key: u64, tx:
             GitAction::PullRequest(m) => own_branch(m).and_then(|()| {
                 step("Committing");
                 // Nothing left to commit is no reason to stop.
-                let _ = git::commit(&dir, m);
+                let _ = git::commit(&dir, m, &left_out);
                 step("Pushing");
                 git::push(&dir).and_then(|_| {
                     step("Opening the pull request");

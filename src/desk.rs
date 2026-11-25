@@ -1233,7 +1233,7 @@ impl Desk {
             hub::git_action(
                 wt.repo.clone(),
                 hub::GitAction::RemoveWorktree(wt),
-                self.settings.branch_prefix.clone(),
+                (self.settings.branch_prefix.clone(), Vec::new()),
                 key,
                 self.tx.clone(),
             );

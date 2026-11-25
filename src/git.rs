@@ -403,10 +403,19 @@ pub fn parse(text: &str) -> Vec<FileDiff> {
 
 /// Commit everything in `dir` with `message`, as you, on its branch; the
 /// new commit's short id.
-pub fn commit(dir: &Path, message: &str) -> Result<String, String> {
+pub fn commit(dir: &Path, message: &str, left_out: &[String]) -> Result<String, String> {
     let mut add = Command::new("git");
     add.arg("-C").arg(dir).args(["add", "-A"]);
     run(&mut add)?;
+    // The files you left out stay as they are, out of the commit.
+    if !left_out.is_empty() {
+        let mut back = Command::new("git");
+        back.arg("-C")
+            .arg(dir)
+            .args(["reset", "-q", "--"])
+            .args(left_out);
+        run(&mut back)?;
+    }
     let mut commit = Command::new("git");
     commit
         .arg("-C")
@@ -759,6 +768,19 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_file_left_out_of_a_commit_stays_as_it_was() {
+        let dir = repo("left-out");
+        git(&dir, &["config", "user.email", "t@localhost"], None).unwrap();
+        git(&dir, &["config", "user.name", "t"], None).unwrap();
+        std::fs::write(dir.join("a.txt"), "changed\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        commit(&dir, "only a", &["b.txt".to_owned()]).unwrap();
+        let left = git(&dir, &["status", "--porcelain"], None).unwrap();
+        assert_eq!(left.trim(), "?? b.txt");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

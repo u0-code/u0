@@ -266,13 +266,15 @@ impl Desk {
     pub fn git_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (dir, key) = (s.folder.clone(), s.key);
+        let left_out: Vec<String> = s.left_out.iter().cloned().collect();
         if let Some(s) = self.session_mut(key) {
             s.git_step = Some("Working".into());
+            s.left_out.clear();
         }
         hub::git_action(
             dir,
             action,
-            self.settings.branch_prefix.clone(),
+            (self.settings.branch_prefix.clone(), left_out),
             key,
             self.tx.clone(),
         );

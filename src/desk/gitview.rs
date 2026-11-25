@@ -100,7 +100,7 @@ impl Desk {
         hub::git_action(
             dir,
             hub::GitAction::Switch(branch),
-            self.settings.branch_prefix.clone(),
+            (self.settings.branch_prefix.clone(), Vec::new()),
             key,
             self.tx.clone(),
         );
@@ -220,7 +220,7 @@ impl Desk {
             hub::git_action(
                 wt.path.clone(),
                 hub::GitAction::RenameBranch(name),
-                prefix.clone(),
+                (prefix.clone(), Vec::new()),
                 key,
                 self.tx.clone(),
             );
