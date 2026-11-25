@@ -5,28 +5,27 @@
 //! Ghost runs it.
 
 mod repo;
+mod side;
+mod tabs;
+
+pub use tabs::{Column, Surface};
 
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
 use gpui::component::{
-    Sizable as _,
-    button::Button,
-    checkbox::Checkbox,
-    input::Input,
-    popover::Popover,
-    progress::Progress,
-    scroll::ScrollableElement as _,
-    tab::{Tab, TabBar},
+    Sizable as _, button::Button, checkbox::Checkbox, input::Input, popover::Popover,
+    progress::Progress, scroll::ScrollableElement as _,
 };
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Aside, Desk, RIGHT, TOPBAR, draggable},
+    desk::{Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
     git,
     registry::{self, Way},
     session::{Change, Session, State},
+    settings::Detail,
     theme,
     thread::{self, drawn, kinds},
     ui::{self, Weight},
@@ -125,49 +124,65 @@ fn key_value(faces: &Faces, key: &str, value: impl IntoElement) -> Div {
 }
 
 impl Desk {
-    pub(crate) fn aside(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn aside(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Div {
         let Some(s) = self.session() else {
             return frame(top());
         };
-        if let Aside::File(path) = &self.aside {
-            return self.file_view(faces, s, path, cx);
-        }
         let head = top()
-            .child(
-                TabBar::new("aside-tabs")
-                    .segmented()
-                    .small()
-                    .selected_index(usize::from(self.aside == Aside::Files))
-                    .child(Tab::new().label("Session"))
-                    .child(Tab::new().label("Files"))
-                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                        let to = if *ix == 0 {
-                            Aside::Session
-                        } else {
-                            Aside::Files
-                        };
-                        this.show_aside(to, cx);
-                    })),
-            )
-            .child(div().flex_1())
+            .child(self.strip(faces, s, cx))
+            .when(self.surface() == Some(Surface::Details), |d| {
+                d.child(self.details_chooser(faces, cx))
+            })
             .children(
                 s.branch
                     .as_deref()
                     .map(|b| self.branch_chip(faces, s, b, cx)),
             )
             .child(self.whole_button(cx));
-        let body = div().id("aside").flex().flex_col().flex_1().min_h(px(0.));
-        let body = if self.aside == Aside::Files {
-            body.child(Self::files(faces, s, cx))
-        } else {
-            body.child(
+        let scrolled = |body: Div| {
+            div()
+                .id("aside")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.))
+                .child(body)
+                .overflow_y_scrollbar()
+        };
+        let body = match self.surface() {
+            None => self.no_tabs(faces, cx).into_any_element(),
+            Some(Surface::Details) => scrolled(self.details(faces, s, cx)).into_any_element(),
+            Some(Surface::Diff) => scrolled(self.diff(faces, s, cx)).into_any_element(),
+            Some(Surface::Files) => scrolled(Self::files(faces, s, cx)).into_any_element(),
+            Some(Surface::File(path)) => self.file_view(faces, s, &path, cx).into_any_element(),
+            Some(Surface::Terminal) => self.terminal_view(faces, cell, cx).into_any_element(),
+            Some(Surface::PullRequest) => {
+                scrolled(Self::pull_request(faces, s, cx).unwrap_or_else(|| {
+                    section(faces, "Pull request", None).border_b_0().child(empty(
+                    faces,
+                    "None for this branch yet: commit, push and open one from the Diff tab.",
+                ))
+                }))
+                .into_any_element()
+            }
+            Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
+        };
+        frame(head).child(body)
+    }
+
+    /// The Diff tab: the changes as git reads them (or as the agent made
+    /// them, outside a repository) and the commits.
+    fn diff(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .child(
                 self.git_changes(faces, s, cx)
                     .unwrap_or_else(|| Self::changes(faces, s, cx)),
             )
-            .children(Self::pull_request(faces, s, cx))
             .children(self.commits(faces, s, cx))
             // A folder that is not a repository can be made one.
-            .when(!s.repo && crate::remote::parse(&s.meta.project).is_none() && s.state != crate::session::State::Draft, |d| {
+            .when(!s.repo && crate::remote::parse(&s.meta.project).is_none() && s.state != State::Draft, |d| {
                 d.child(
                     div()
                         .flex()
@@ -183,15 +198,78 @@ impl Desk {
                         ),
                 )
             })
-            // Then as Claude stacks its cards: the context, the plan, and
-            // what goes on in the background.
-            .child(self.context(faces, s, cx))
-            .child(Self::plan(faces, s))
-            .children(self.background(faces, s, cx))
-            .children(self.servers(faces, s, cx))
-            .child(Self::terminals(faces, s, cx))
-        };
-        frame(head).child(body.overflow_y_scrollbar())
+    }
+
+    /// The Details tab, as Claude stacks its cards: the context, the plan,
+    /// and what goes on in the background; those you hid left out.
+    fn details(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let shown = |d: Detail| !self.settings.hidden_details.contains(&d);
+        div()
+            .flex()
+            .flex_col()
+            .when(shown(Detail::Context), |d| {
+                d.child(self.context(faces, s, cx))
+            })
+            .when(shown(Detail::Plan), |d| d.child(Self::plan(faces, s)))
+            .when(shown(Detail::Background), |d| {
+                d.children(self.background(faces, s, cx))
+            })
+            .when(shown(Detail::Servers), |d| {
+                d.children(self.servers(faces, s, cx))
+            })
+            .when(shown(Detail::Terminals), |d| {
+                d.child(Self::commands(faces, s, cx))
+            })
+    }
+
+    /// What opens the choice of the details shown.
+    fn details_chooser(
+        &self,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> gpui::component::popover::Popover {
+        let faces = faces.clone();
+        let chooser =
+            ui::icon_button("details-rows", "sliders", "Choose what shows here").size(px(24.));
+        self.menu(
+            crate::desk::Popup::Details,
+            chooser,
+            move |d, _, cx| d.details_menu(&faces, cx),
+            cx,
+        )
+        .anchor(gpui::Anchor::TopRight)
+    }
+
+    /// Which of the details show, each ticked or not, and all again.
+    fn details_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let mut menu = div().flex().flex_col().w(px(200.));
+        for (n, d) in Detail::ALL.into_iter().enumerate() {
+            let on = !self.settings.hidden_details.contains(&d);
+            menu = menu.child(
+                ui::menu_row(SharedString::from(format!("detail-{n}")), false)
+                    .child(ui::text(faces, d.head()).flex_1().text_size(px(13.)))
+                    .when(on, |r| r.child(ui::icon("check", 13.)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let hidden = &mut this.settings.hidden_details;
+                        if on {
+                            hidden.push(d);
+                        } else {
+                            hidden.retain(|h| *h != d);
+                        }
+                        this.save_settings();
+                        cx.notify();
+                    })),
+            );
+        }
+        menu.child(
+            ui::menu_row("details-reset", false)
+                .child(ui::text(faces, "Show them all").text_size(px(13.)))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.settings.hidden_details.clear();
+                    this.save_settings();
+                    cx.notify();
+                })),
+        )
     }
 
     /// What goes on beside the session (or its parent, on a subagent's own
@@ -226,7 +304,7 @@ impl Desk {
         let open = self.expanded.contains(&fold);
         let mut sec = section(
             faces,
-            "Background tasks",
+            Detail::Background.head(),
             (going > 0)
                 .then(|| fine(faces, format!("{going} running")).text_color(theme::accent())),
         );
@@ -506,7 +584,7 @@ impl Desk {
                         _ => ui::counts(faces, f.added, 0, 11.5),
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(at.clone()), cx);
+                        this.open_surface(Surface::File(at.clone()), cx);
                     })),
             );
         }
@@ -741,7 +819,7 @@ impl Desk {
                     .child(path_text(faces, &name))
                     .child(tail)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(path.clone()), cx);
+                        this.open_surface(Surface::File(path.clone()), cx);
                     })),
             );
         }
@@ -762,7 +840,7 @@ impl Desk {
                         },
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(first.clone()), cx);
+                        this.open_surface(Surface::File(first.clone()), cx);
                     })),
                 )
                 .child(
@@ -775,7 +853,7 @@ impl Desk {
 
     fn plan(faces: &Faces, s: &Session) -> Div {
         let Some(plan) = s.plan.as_ref().filter(|p| !p.entries.is_empty()) else {
-            return section(faces, "Plan", None)
+            return section(faces, Detail::Plan.head(), None)
                 .child(empty(faces, "Shown when the agent makes one."));
         };
         let steps = thread::plan_steps(plan);
@@ -785,7 +863,7 @@ impl Desk {
             .count();
         let note = fine(faces, format!("{done} of {}", steps.len()))
             .when(done == steps.len(), |d| d.text_color(theme::ok()));
-        section(faces, "Plan", Some(note)).child(drawn::plan(faces, &steps))
+        section(faces, Detail::Plan.head(), Some(note)).child(drawn::plan(faces, &steps))
     }
 
     /// The servers the session's terminals run (each a local address one
@@ -803,7 +881,11 @@ impl Desk {
             return None;
         }
         let remote = crate::remote::parse(&s.meta.project).map(|(host, _)| host);
-        let mut sec = section(faces, "Servers", Some(fine(faces, found.len().to_string())));
+        let mut sec = section(
+            faces,
+            Detail::Servers.head(),
+            Some(fine(faces, found.len().to_string())),
+        );
         for (n, (id, address)) in found.into_iter().enumerate() {
             let (open, forward) = (address.clone(), address.clone());
             let host = remote.clone();
@@ -843,10 +925,10 @@ impl Desk {
         Some(sec)
     }
 
-    fn terminals(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+    fn commands(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let commands: Vec<_> = s.commands().collect();
         if commands.is_empty() {
-            return section(faces, "Terminals", None)
+            return section(faces, Detail::Terminals.head(), None)
                 .child(empty(faces, "Commands the agent runs, live."));
         }
         let running = commands
@@ -863,7 +945,7 @@ impl Desk {
         } else {
             format!("{} finished", commands.len())
         };
-        let mut sec = section(faces, "Terminals", Some(fine(faces, note)));
+        let mut sec = section(faces, Detail::Terminals.head(), Some(fine(faces, note)));
         for t in commands.iter().rev().take(6) {
             let live = matches!(
                 t.call.status,
@@ -982,7 +1064,7 @@ impl Desk {
                 ),
             _ => self.name_of(&s.meta.agent),
         };
-        let mut sec = section(faces, "Context", note)
+        let mut sec = section(faces, Detail::Context.head(), note)
             .border_b_0()
             .children(share.map(|share| {
                 Progress::new("context-share")
@@ -1122,7 +1204,7 @@ impl Desk {
                     .child(tail)
                     .when(openable, |d| {
                         d.on_click(cx.listener(move |this, _, _, cx| {
-                            this.show_aside(Aside::File(path.clone()), cx);
+                            this.open_surface(Surface::File(path.clone()), cx);
                         }))
                     }),
             );
@@ -1155,12 +1237,15 @@ impl Desk {
             .map(|c| (c.added, c.gone))
             .or_else(|| from_git.map(|f| (f.added, f.gone)));
         let full = s.meta.folder.join(path);
-        let head = top()
+        let head = div()
+            .flex()
+            .flex_none()
+            .items_center()
             .gap(px(8.))
-            .child(
-                ui::icon_button("back", "chevron-left", "Back to the session")
-                    .on_click(cx.listener(|this, _, _, cx| this.show_aside(Aside::Session, cx))),
-            )
+            .h(px(36.))
+            .px(px(12.))
+            .border_b_1()
+            .border_color(theme::border())
             .child(
                 ui::mono(faces, ui::fit(&name, 34))
                     .flex_none()
@@ -1200,8 +1285,8 @@ impl Desk {
             .child(
                 ui::icon_button("open-editor", "pencil", "Open in your editor")
                     .on_click(cx.listener(move |this, _, _, _| this.edit(full.clone(), None))),
-            )
-            .child(self.whole_button(cx));
+            );
+        let page = div().flex().flex_col().flex_1().min_h(px(0.)).child(head);
         let mut body = div()
             .id("aside-file")
             .flex()
@@ -1235,7 +1320,7 @@ impl Desk {
                     Some(&on),
                 )
             };
-            return frame(head).child(self.review(
+            return page.child(self.review(
                 faces,
                 s,
                 path,
@@ -1264,7 +1349,7 @@ impl Desk {
                 }
             }
         }
-        frame(head).child(self.review(faces, s, path, body.overflow_y_scrollbar(), cx))
+        page.child(self.review(faces, s, path, body.overflow_y_scrollbar(), cx))
     }
 
     /// What you are saying of lines of this file: the line being commented

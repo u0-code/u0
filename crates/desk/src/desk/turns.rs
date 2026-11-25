@@ -4,7 +4,7 @@
 use agent_client_protocol::v1::schema::{ContentBlock, TextContent};
 use gpui::{Context, Focusable as _, Window};
 
-use super::{Aside, Desk};
+use super::{Desk, Surface};
 use crate::git::Scope;
 use crate::{
     hub::Slot,
@@ -31,9 +31,7 @@ impl Desk {
     pub fn show_changes(&mut self, scope: Scope, cx: &mut Context<Self>) {
         self.ask_scope(&scope);
         self.review.scope = scope;
-        self.aside = Aside::Session;
-        self.panes.right = true;
-        cx.notify();
+        self.open_surface(Surface::Diff, cx);
     }
 
     /// Open or close the commit form.

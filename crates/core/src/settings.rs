@@ -112,6 +112,9 @@ pub struct Settings {
     /// gives it.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
+    /// The sections of a session's details you hid from the column.
+    #[serde(default)]
+    pub hidden_details: Vec<Detail>,
     /// A worktree's branch is led by the kind of work the writer sees in
     /// it (`feat/`, `fix/`) instead of the prefix.
     #[serde(default)]
@@ -146,6 +149,38 @@ pub struct Writer {
     /// taken with Tab.
     #[serde(default)]
     pub suggest: bool,
+}
+
+/// A section of a session's details in the column beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Detail {
+    Context,
+    Plan,
+    Background,
+    Servers,
+    Terminals,
+}
+
+impl Detail {
+    pub const ALL: [Self; 5] = [
+        Self::Context,
+        Self::Plan,
+        Self::Background,
+        Self::Servers,
+        Self::Terminals,
+    ];
+
+    /// The head its section goes under.
+    pub fn head(self) -> &'static str {
+        match self {
+            Self::Context => "Context",
+            Self::Plan => "Plan",
+            Self::Background => "Background tasks",
+            Self::Servers => "Servers",
+            Self::Terminals => "Terminals",
+        }
+    }
 }
 
 /// A model you starred: the agent's id, and the model's value in the
@@ -338,6 +373,7 @@ impl Default for Settings {
             steer: false,
             branch_prefix: prefix(),
             branch_kind: false,
+            hidden_details: Vec::new(),
             view: View::default(),
             cmd_sends: false,
             left: left(),

@@ -71,6 +71,8 @@ const FILES: &[(&str, &[u8])] = icons![
     "folder-plus",
     "undo-2",
     "arrow-left",
+    "diff",
+    "pull-request",
 ];
 
 impl AssetSource for Assets {

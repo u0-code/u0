@@ -1519,7 +1519,7 @@ impl Desk {
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.show_aside(crate::desk::Aside::File(path.clone()), cx);
+                this.open_surface(crate::desk::Surface::File(path.clone()), cx);
             }))
         });
         // On hover, at its end: a command copied, or run again in a

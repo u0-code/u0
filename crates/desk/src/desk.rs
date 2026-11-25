@@ -77,16 +77,7 @@ pub enum Page {
     Agent(String),
 }
 
-/// What the right column shows of the session on screen.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Aside {
-    /// What it has come to: changes, plan, commands, context.
-    Session,
-    /// Every file it touched.
-    Files,
-    /// One file's changes, whole.
-    File(PathBuf),
-}
+pub use crate::aside::{Column, Surface};
 
 /// A small menu open over the desk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +114,10 @@ pub enum Popup {
     StartIn,
     /// The writer: an agent and its model, in the settings.
     Writer,
+    /// What the right column can open as a tab.
+    Surfaces,
+    /// What a session's details show.
+    Details,
 }
 
 /// Which side columns show.
@@ -266,8 +261,12 @@ pub struct Desk {
     pub find: crate::thread::Find,
     /// The agent being signed in to, while it is.
     pub signing: Option<String>,
-    /// What the right column shows.
-    pub aside: Aside,
+    /// The right column's tabs, by session.
+    pub columns: HashMap<u64, Column>,
+    /// The line a side chat in the column is asked in.
+    pub side_line: Entity<InputState>,
+    /// How far the column's tabs are scrolled, to bring one opened into view.
+    pub tab_scroll: gpui::ScrollHandle,
     pub search: lists::Search,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
@@ -335,6 +334,7 @@ impl Desk {
                         || d.palette_keys(&e.keystroke, window, cx)
                         || d.offer_keys(&e.keystroke, window, cx)
                         || d.picker_keys(&e.keystroke, window, cx)
+                        || d.surface_key(&e.keystroke, cx)
                 })
                 .unwrap_or(false);
             if took {
@@ -357,6 +357,18 @@ impl Desk {
                 let text = input.read(cx).value().trim().to_owned();
                 if this.popup == Popup::Branch {
                     this.new_branch(&text, cx);
+                }
+            },
+        )
+        .detach();
+        let side_line = cx.new(|cx| InputState::new(window, cx).placeholder("Ask on the side"));
+        cx.subscribe_in(
+            &side_line,
+            window,
+            |this, input, e: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = e {
+                    let text = input.read(cx).value().to_string();
+                    this.ask_side(&text, window, cx);
                 }
             },
         )
@@ -507,7 +519,9 @@ impl Desk {
             reveal: None,
             find: crate::thread::Find::new(window, cx),
             signing: None,
-            aside: Aside::Session,
+            columns: HashMap::new(),
+            side_line,
+            tab_scroll: gpui::ScrollHandle::new(),
             search: lists::Search::new(window, cx),
             registry_read: None,
             tx,
@@ -719,7 +733,6 @@ impl Desk {
                 .map(|s| s.meta.unsent.clone())
                 .unwrap_or_default();
             self.put_line(&unsent, window, cx);
-            self.aside = Aside::Session;
             self.review.scope = crate::git::Scope::All;
             self.review.committing = false;
         }
@@ -833,13 +846,6 @@ impl Desk {
                 slot.seed(s);
             }
         }
-        cx.notify();
-    }
-
-    /// Show `aside` in the right column.
-    pub fn show_aside(&mut self, aside: Aside, cx: &mut Context<Self>) {
-        self.aside = aside;
-        self.panes.right = true;
         cx.notify();
     }
 
@@ -1349,9 +1355,9 @@ impl Desk {
     /// How wide the right column stands: wider for a file read in it, and
     /// wider again for its diff side by side.
     pub fn right_width(&self) -> f32 {
-        match self.aside {
-            Aside::File(_) if self.settings.side_by_side => 720.,
-            Aside::File(_) => 560.,
+        match self.surface() {
+            Some(Surface::File(_)) if self.settings.side_by_side => 720.,
+            Some(Surface::File(_) | Surface::Terminal) => 560.,
             _ => RIGHT,
         }
     }
@@ -1423,9 +1429,9 @@ impl Render for Desk {
         };
         let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
         let right = match (&self.page, self.panes.right) {
-            (Page::Thread, true) if whole => Some(self.aside(&faces, cx).flex_1()),
+            (Page::Thread, true) if whole => Some(self.aside(&faces, cell, cx).flex_1()),
             (Page::Thread, true) if self.session().is_some() => {
-                Some(self.aside(&faces, cx).w(px(self.right_width())))
+                Some(self.aside(&faces, cell, cx).w(px(self.right_width())))
             }
             (Page::Agent(id), _) => Some(self.about(&faces, id, cx)),
             _ => None,

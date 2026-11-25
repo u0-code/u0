@@ -140,7 +140,8 @@ crates/desk/src/
                 picker (picker) and the mode menu (modes), the start,
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output
-  aside/        the column's changes as git reads them (repo)
+  aside/        the column's tabs (tabs), its changes as git reads them (repo),
+                a side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

@@ -747,7 +747,17 @@ impl Desk {
         }
         self.sessions.all.push(s);
         self.save_index();
-        self.bring(key, window, cx);
+        // A side chat opens as a tab beside the session it was asked of.
+        if side {
+            self.columns
+                .entry(from)
+                .or_default()
+                .open(super::Surface::Side(key));
+            self.panes.right = true;
+            cx.notify();
+        } else {
+            self.bring(key, window, cx);
+        }
     }
 
     /// Carry out the plan the session `key` made: out of the mode that only

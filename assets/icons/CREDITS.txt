@@ -7,7 +7,7 @@ arrow-right.svg, folder.svg, settings.svg, list.svg, file-plus.svg,
 trash.svg, globe.svg, bulb.svg, square.svg, arrow-up.svg, dots.svg,
 pin.svg, archive.svg, clock.svg, branch.svg, mic.svg, play.svg,
 sliders.svg, reply.svg, arrow-down.svg, expand.svg, camera.svg,
-keyboard.svg, sun.svg
+keyboard.svg, sun.svg, diff.svg, pull-request.svg
                Line icons drawn for the desk.
 square-pen.svg, square-dashed.svg, text-search.svg, folder-plus.svg,
 undo-2.svg, arrow-left.svg

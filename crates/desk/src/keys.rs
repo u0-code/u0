@@ -70,14 +70,17 @@ actions!(
         ShowAll,
         Stash,
         SendAside,
-        TranscriptView
+        TranscriptView,
+        OpenSurface,
+        ReopenSurface,
+        CloseSurface
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 34] = [
+pub const ACTIONS: [(&str, &str, Make); 37] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -138,6 +141,15 @@ pub const ACTIONS: [(&str, &str, Make); 34] = [
     ("go_to_file", "Go to a file", || Box::new(GoToFile)),
     ("search_words", "Search the project's files", || {
         Box::new(SearchWords)
+    }),
+    ("open_surface", "Open a tab in the right column", || {
+        Box::new(OpenSurface)
+    }),
+    ("reopen_surface", "Reopen the tab closed last", || {
+        Box::new(ReopenSurface)
+    }),
+    ("close_surface", "Close the right column's tab", || {
+        Box::new(CloseSurface)
     }),
     (
         "transcript_view",
@@ -284,7 +296,9 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-shift-d", Dictate, None),
         KeyBinding::new("cmd-alt-n", NewScratch, None),
         KeyBinding::new("cmd-alt-[", Back, None),
-        KeyBinding::new("cmd-shift-t", Back, None),
+        KeyBinding::new("cmd-t", OpenSurface, None),
+        KeyBinding::new("cmd-shift-t", ReopenSurface, None),
+        KeyBinding::new("cmd-w", CloseSurface, None),
         KeyBinding::new("cmd-alt-]", Ahead, None),
         KeyBinding::new("f6", NextArea, None),
         KeyBinding::new("cmd-p", GoToFile, None),
@@ -389,6 +403,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     });
     on::<RightColumn>(cx, shown, |d, _, cx| d.toggle_aside(cx));
     on::<WholeRight>(cx, shown, |d, _, cx| d.toggle_whole(cx));
+    on::<OpenSurface>(cx, shown, |d, _, cx| d.toggle_surfaces(cx));
+    on::<ReopenSurface>(cx, shown, |d, _, cx| d.reopen_tab(cx));
+    on::<CloseSurface>(cx, shown, |d, _, cx| d.close_shown(cx));
     on::<Usage>(cx, shown, |d, window, cx| {
         d.open_tab(Tab::Usage, window, cx);
     });

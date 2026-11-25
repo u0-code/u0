@@ -14,7 +14,7 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{empty, fine, frow, git_button, path_text, section};
 use crate::{
-    desk::{Aside, Desk},
+    desk::{Desk, Surface},
     fonts::Faces,
     git,
     git::Scope,
@@ -206,7 +206,7 @@ impl Desk {
                     .child(path_text(faces, &f.path))
                     .child(tail)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(path.clone()), cx);
+                        this.open_surface(Surface::File(path.clone()), cx);
                     })),
             );
         }
@@ -229,7 +229,7 @@ impl Desk {
                             },
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.show_aside(Aside::File(first.clone()), cx);
+                            this.open_surface(Surface::File(first.clone()), cx);
                         }))
                     }))
                     .child(ui::button("commit", "Commit…", Weight::Secondary).on_click(

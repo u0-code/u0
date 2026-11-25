@@ -558,7 +558,7 @@ impl Desk {
                 .child(
                     ui::button("commit-changes", "Commit changes", ui::Weight::Secondary).on_click(
                         cx.listener(|this, _, window, cx| {
-                            this.show_aside(crate::desk::Aside::Session, cx);
+                            this.open_surface(crate::desk::Surface::Diff, cx);
                             if !this.review.committing {
                                 this.toggle_commit(window, cx);
                             }

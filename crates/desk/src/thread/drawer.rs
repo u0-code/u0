@@ -57,11 +57,22 @@ fn fits(width: f32, height: f32, cell: f32) -> (u16, u16) {
 }
 
 impl Desk {
-    /// The drawer, `width` wide; `cell` is a terminal cell's width.
+    /// The drawer, under the thread when the column does not show your
+    /// terminals; `cell` is a terminal cell's width.
     pub(crate) fn drawer(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.drawer.open {
-            return None;
-        }
+        (self.drawer.open && !self.terminals_beside()).then(|| {
+            self.terminal_view(faces, cell, cx)
+                .flex_none()
+                .h(px(HEIGHT))
+                .border_t_1()
+                .border_color(theme::border())
+                .bg(theme::well())
+        })
+    }
+
+    /// Your terminals beside the session: their tabs, the scripts, the
+    /// terminal shown (or those side by side), in the drawer or the column.
+    pub(crate) fn terminal_view(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Div {
         let terms = self.session_terminals();
         let on = self
             .drawer
@@ -185,15 +196,17 @@ impl Desk {
                     cx.notify();
                 })),
             )
-            .child(
-                ui::icon_button(
-                    "hide-drawer",
-                    "chevron-down",
-                    crate::keys::hint(cx, "Hide", "drawer"),
+            .when(!self.terminals_beside(), |d| {
+                d.child(
+                    ui::icon_button(
+                        "hide-drawer",
+                        "chevron-down",
+                        crate::keys::hint(cx, "Hide", "drawer"),
+                    )
+                    .size(px(26.))
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
                 )
-                .size(px(26.))
-                .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
-            );
+            });
 
         // The one keys go to; side by side, all of them, four at most.
         let panes: Vec<&Terminal> = if self.drawer.split {
@@ -215,19 +228,14 @@ impl Desk {
             let focused = Some(t.id) == on;
             body = body.child(self.pane(faces, t, cell, focused, cx));
         }
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .flex_none()
-                .h(px(HEIGHT))
-                .border_t_1()
-                .border_color(theme::border())
-                .bg(theme::well())
-                .child(bar)
-                .children(self.script_form(faces, cx))
-                .child(body),
-        )
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .child(bar)
+            .children(self.script_form(faces, cx))
+            .child(body)
     }
 
     /// The script being written: its name and command, where it runs, and
