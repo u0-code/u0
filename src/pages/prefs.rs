@@ -488,12 +488,8 @@ impl Desk {
                         )
                         .size(px(22.))
                         .text_color(theme::faint())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let home = this.home.clone();
-                            if let Err(why) = keys::set_yours(cx, &home, name, None) {
-                                this.trouble("Couldn't give the keys back", Some(why), None);
-                            }
-                            cx.notify();
+                        .on_click(cx.listener(move |this, _, _, _| {
+                            this.set_keys(name, None);
                         })),
                     ),
             );

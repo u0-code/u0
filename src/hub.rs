@@ -80,6 +80,9 @@ pub enum Msg {
         repo: bool,
         scripts: Vec<Script>,
     },
+    /// Your key bindings, as keybindings.json says now, or why it was not
+    /// written.
+    Keys(Result<Vec<crate::keys::Binding>, String>),
     /// The hosts your SSH config names.
     Hosts(Vec<String>),
     /// What the folder of a project holds.
@@ -807,6 +810,14 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
 pub fn notify(title: &str, body: &str, sound: bool) {
     let (title, body) = (title.to_owned(), body.to_owned());
     acp::runtime().spawn_blocking(move || crate::macos::notify(&title, &body, sound));
+}
+
+/// Bind the action `name` to `key` in your keybindings.json (none: give
+/// it Ghost's keys back).
+pub fn set_keys(home: PathBuf, name: &'static str, key: Option<String>, tx: Sender) {
+    off(tx, move || {
+        Msg::Keys(crate::keys::set_yours(&home, name, key))
+    });
 }
 
 /// Read the hosts your SSH config names, for a project on another machine.

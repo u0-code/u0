@@ -141,7 +141,7 @@ pub const ACTIONS: [(&str, &str, Make); 33] = [
 /// A binding of yours.
 #[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-struct Binding {
+pub struct Binding {
     key: String,
     action: String,
 }
@@ -198,10 +198,9 @@ fn shown(m: gpui::Modifiers, key: &str) -> String {
 }
 
 /// Bind the action `name` to `key` ("cmd-shift-k") in your
-/// keybindings.json, or with none take yours for it away; then bind the
-/// window's keys again, yours over them. A file that does not read is
-/// left alone.
-pub fn set_yours(cx: &mut App, home: &Path, name: &str, key: Option<&str>) -> Result<(), String> {
+/// keybindings.json, or with none take yours for it away: your bindings
+/// now. A file that does not read is left alone. Blocking.
+pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Binding>, String> {
     let path = home.join("keybindings.json");
     let mut list: Vec<Binding> = match std::fs::read_to_string(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -213,15 +212,13 @@ pub fn set_yours(cx: &mut App, home: &Path, name: &str, key: Option<&str>) -> Re
     list.retain(|b| b.action != name);
     if let Some(key) = key {
         list.push(Binding {
-            key: key.to_owned(),
+            key,
             action: name.to_owned(),
         });
     }
     let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
     crate::whole::write(&path, &text).map_err(|e| e.to_string())?;
-    cx.clear_key_bindings();
-    bind(cx, home);
-    Ok(())
+    Ok(list)
 }
 
 /// The action other than `name` that `key` is bound to now, if one is.
@@ -241,36 +238,19 @@ fn shown_of(key: &str) -> Option<String> {
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none.
-fn yours(home: &Path) -> Vec<KeyBinding> {
+pub fn yours(home: &Path) -> Vec<Binding> {
     let path = home.join("keybindings.json");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Vec::new();
     };
-    match serde_json::from_str::<Vec<Binding>>(&text) {
-        Ok(list) => list
-            .iter()
-            .filter_map(|b| {
-                let found = binding(&b.key, &b.action);
-                if found.is_none() {
-                    tracing::warn!(
-                        "{}: no action is named {:?}; the names are {:?}",
-                        path.display(),
-                        b.action,
-                        ACTIONS.map(|(n, _, _)| n)
-                    );
-                }
-                found
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!("{} does not read: {e}", path.display());
-            Vec::new()
-        }
-    }
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!("{} does not read: {e}", path.display());
+        Vec::new()
+    })
 }
 
-/// Bind the window's keys, then yours.
-pub fn bind(cx: &mut App, home: &Path) {
+/// Bind the window's keys, then `yours` over them.
+pub fn bind(cx: &mut App, yours: &[Binding]) {
     let input = Some(input::CONTEXT);
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
@@ -352,7 +332,17 @@ pub fn bind(cx: &mut App, home: &Path) {
         KeyBinding::new("cmd-s", input::Stash, input),
         KeyBinding::new("cmd-shift-enter", input::SubmitAsideToo, input),
     ]);
-    cx.bind_keys(yours(home));
+    cx.bind_keys(yours.iter().filter_map(|b| {
+        let found = binding(&b.key, &b.action);
+        if found.is_none() {
+            tracing::warn!(
+                "keybindings.json: no action is named {:?}; the names are {:?}",
+                b.action,
+                ACTIONS.map(|(n, _, _)| n)
+            );
+        }
+        found
+    }));
 }
 
 /// What each action does in the window.
@@ -483,6 +473,23 @@ fn on<A: Action>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_of_yours_replaces_your_last_for_that_action_and_a_broken_file_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        set_yours(home, "palette", Some("cmd-shift-k".into())).unwrap();
+        let list = set_yours(home, "palette", Some("cmd-y".into())).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(yours(home)[0].key, "cmd-y");
+        assert!(set_yours(home, "palette", None).unwrap().is_empty());
+        std::fs::write(home.join("keybindings.json"), "{ not json").unwrap();
+        assert!(set_yours(home, "palette", None).is_err());
+        assert_eq!(
+            std::fs::read_to_string(home.join("keybindings.json")).unwrap(),
+            "{ not json"
+        );
+    }
 
     #[test]
     fn each_name_a_binding_can_take_is_an_action() {

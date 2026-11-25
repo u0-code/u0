@@ -2100,9 +2100,7 @@ impl Desk {
                 None,
             );
         }
-        if let Err(why) = crate::keys::set_yours(cx, &self.home.clone(), name, Some(&key)) {
-            self.trouble("Couldn't keep the keys", Some(why), None);
-        }
+        self.set_keys(name, Some(key));
         cx.notify();
         true
     }
@@ -2387,6 +2385,12 @@ impl Desk {
             _ => path.to_path_buf(),
         };
         self.edit(full, None);
+    }
+
+    /// Bind the action `name` to `key` in your keybindings.json, or with
+    /// none give it Ghost's keys back, off the window's thread.
+    pub fn set_keys(&self, name: &'static str, key: Option<String>) {
+        hub::set_keys(self.home.clone(), name, key, self.tx.clone());
     }
 
     /// Write `text` to `path` whole, off the window's thread, and say so.

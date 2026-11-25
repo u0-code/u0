@@ -330,6 +330,11 @@ impl Desk {
             } => self.looked(key, &folder, branch, repo, scripts),
             Msg::Weighed(weights) => self.weights = weights,
             Msg::Hosts(hosts) => self.hosts = hosts,
+            Msg::Keys(Ok(yours)) => {
+                cx.clear_key_bindings();
+                crate::keys::bind(cx, &yours);
+            }
+            Msg::Keys(Err(why)) => self.trouble("Couldn't keep the keys", Some(why), None),
             Msg::Held { folder, held } => {
                 self.held.insert(folder, held);
             }
