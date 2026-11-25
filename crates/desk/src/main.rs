@@ -51,77 +51,89 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    gpui::application()
-        .with_assets(assets::Assets)
-        .run(|cx: &mut App| {
-            gpui::init(cx);
-            fonts::load(cx);
-            macos::set();
-            keys::bind(cx, &keys::yours(&settings::home()));
-            // Without a main menu macOS has no menu bar to show in full
-            // screen, so there is no way out of it. AppKit adds Enter and
-            // Exit Full Screen to the View menu, and the window list to
-            // the Window menu, by itself.
-            cx.set_menus(vec![
-                Menu::new("Ghost").items(vec![
-                    MenuItem::action("About Ghost", About),
-                    MenuItem::separator(),
-                    MenuItem::action("Settings…", OpenSettings),
-                    MenuItem::separator(),
-                    MenuItem::action("Hide Ghost", Hide),
-                    MenuItem::action("Hide Others", HideOthers),
-                    MenuItem::action("Show All", ShowAll),
-                    MenuItem::separator(),
-                    MenuItem::action("Quit Ghost", Quit),
-                ]),
-                Menu::new("File").items(vec![
-                    MenuItem::action("New Session", NewSession),
-                    MenuItem::action("Stop", Stop),
-                ]),
-                Menu::new("Edit").items(vec![
-                    MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
-                    MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
-                    MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
-                    MenuItem::os_action(
-                        "Select All",
-                        gpui::component::input::SelectAll,
-                        OsAction::SelectAll,
-                    ),
-                ]),
-                Menu::new("View").items(vec![
-                    MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                    MenuItem::separator(),
-                    MenuItem::action("Enter Full Screen", keys::FullScreen),
-                ]),
-                Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),
-            ]);
+    // The links and folders macOS opens Ghost with (`ghost://`, `ghost
+    // <folder>`), held until the window is up to take them.
+    let (to_desk, mut for_desk) = tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
+    let app = gpui::application().with_assets(assets::Assets);
+    app.on_open_urls(move |urls| {
+        let _ = to_desk.send(urls);
+    });
+    app.run(|cx: &mut App| {
+        gpui::init(cx);
+        fonts::load(cx);
+        macos::set();
+        keys::bind(cx, &keys::yours(&settings::home()));
+        // Without a main menu macOS has no menu bar to show in full
+        // screen, so there is no way out of it. AppKit adds Enter and
+        // Exit Full Screen to the View menu, and the window list to
+        // the Window menu, by itself.
+        cx.set_menus(vec![
+            Menu::new("Ghost").items(vec![
+                MenuItem::action("About Ghost", About),
+                MenuItem::separator(),
+                MenuItem::action("Settings…", OpenSettings),
+                MenuItem::separator(),
+                MenuItem::action("Hide Ghost", Hide),
+                MenuItem::action("Hide Others", HideOthers),
+                MenuItem::action("Show All", ShowAll),
+                MenuItem::separator(),
+                MenuItem::action("Quit Ghost", Quit),
+            ]),
+            Menu::new("File").items(vec![
+                MenuItem::action("New Session", NewSession),
+                MenuItem::action("Stop", Stop),
+            ]),
+            Menu::new("Edit").items(vec![
+                MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
+                MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
+                MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
+                MenuItem::os_action(
+                    "Select All",
+                    gpui::component::input::SelectAll,
+                    OsAction::SelectAll,
+                ),
+            ]),
+            Menu::new("View").items(vec![
+                MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                MenuItem::separator(),
+                MenuItem::action("Enter Full Screen", keys::FullScreen),
+            ]),
+            Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),
+        ]);
 
-            let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Ghost".into()),
-                    appears_transparent: true,
-                    // The lights share a line with the controls beside them, the
-                    // middle of the 44-pixel top row, 18 in from the edge.
-                    traffic_light_position: Some(point(px(18.), px(16.))),
-                }),
-                window_min_size: Some(size(px(800.), px(520.))),
-                ..Default::default()
-            };
-            let (window, desk) = gpui::open_window(options, cx, |window, cx| {
-                cx.new(|cx| desk::Desk::new(window, cx))
+        let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions {
+                title: Some("Ghost".into()),
+                appears_transparent: true,
+                // The lights share a line with the controls beside them, the
+                // middle of the 44-pixel top row, 18 in from the edge.
+                traffic_light_position: Some(point(px(18.), px(16.))),
+            }),
+            window_min_size: Some(size(px(800.), px(520.))),
+            ..Default::default()
+        };
+        let (window, desk) = gpui::open_window(options, cx, |window, cx| {
+            cx.new(|cx| desk::Desk::new(window, cx))
+        })
+        .expect("open the window");
+        let shown = keys::Shown { window, desk };
+        keys::handle(cx, &shown);
+        let taker = shown.clone();
+        cx.spawn(async move |cx| {
+            while let Some(urls) = for_desk.recv().await {
+                cx.update(|cx| taker.update(cx, |d, window, cx| d.open_links(&urls, window, cx)));
+            }
+        })
+        .detach();
+        shown
+            .window
+            .update(cx, |_, window, cx| {
+                let input = shown.desk.read(cx).composer.input.focus_handle(cx);
+                window.focus(&input, cx);
             })
-            .expect("open the window");
-            let shown = keys::Shown { window, desk };
-            keys::handle(cx, &shown);
-            shown
-                .window
-                .update(cx, |_, window, cx| {
-                    let input = shown.desk.read(cx).composer.input.focus_handle(cx);
-                    window.focus(&input, cx);
-                })
-                .expect("the desk");
-            cx.activate(true);
-        });
+            .expect("the desk");
+        cx.activate(true);
+    });
 }

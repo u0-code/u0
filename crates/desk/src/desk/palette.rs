@@ -46,6 +46,7 @@ enum Act {
     /// What to type in the palette's line, put there.
     Fill(String),
     CopyThread,
+    CopyPromptLink,
     Restart,
     Beside,
     Unread,
@@ -469,6 +470,11 @@ impl Desk {
         if let Some(s) = s {
             rows.push(key("find", "Find in the session"));
             rows.push(Row::new("copy", "Copy the conversation", Act::CopyThread));
+            rows.push(Row::new(
+                "copy",
+                "Copy a link to what you are writing",
+                Act::CopyPromptLink,
+            ));
             if s.git.pr.is_some() {
                 rows.push(key("copy_pr", "Copy the pull request's address"));
             }
@@ -837,6 +843,7 @@ impl Desk {
                     self.copy_thread(key, cx);
                 }
             }
+            Act::CopyPromptLink => self.copy_prompt_link(cx),
             Act::Restart => self.restart(window, cx),
             Act::Beside => {
                 if let Some(key) = self.current {

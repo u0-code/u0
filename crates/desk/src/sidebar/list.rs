@@ -870,6 +870,8 @@ impl Desk {
             folder: s.meta.folder.display().to_string(),
             branch: s.branch.clone(),
             id: s.meta.id.as_ref().map(|id| id.0.to_string()),
+            link: (s.meta.id.as_ref())
+                .map(|id| crate::desk::links::Link::to_session(&s.meta.agent, &id.0)),
         }
     }
 }
@@ -902,6 +904,8 @@ struct Facts {
     folder: String,
     branch: Option<String>,
     id: Option<String>,
+    /// The `ghost://` link that opens it.
+    link: Option<String>,
 }
 
 /// An item of a menu: its label, its icon, and what it does.
@@ -1043,11 +1047,12 @@ fn session_menu(
             },
         );
     }
-    let (copy_desk, folder, branch, id) = (
+    let (copy_desk, folder, branch, id, link) = (
         desk.clone(),
         f.folder.clone(),
         f.branch.clone(),
         f.id.clone(),
+        f.link.clone(),
     );
     menu = menu.separator().submenu_with_icon(
         Some(Icon::empty().path("icons/copy.svg")),
@@ -1063,6 +1068,10 @@ fn session_menu(
                 .item(copy_item("Path", folder.clone()));
             let menu = match &branch {
                 Some(b) => menu.item(copy_item("Branch", b.clone())),
+                None => menu,
+            };
+            let menu = match &link {
+                Some(l) => menu.item(copy_item("Link", l.clone())),
                 None => menu,
             };
             match &id {

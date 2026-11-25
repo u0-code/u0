@@ -35,6 +35,7 @@ mod agents;
 pub(crate) mod forge;
 mod gitview;
 mod kept;
+pub(crate) mod links;
 pub(crate) mod lists;
 pub(crate) mod mention;
 pub(crate) mod notices;

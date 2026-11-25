@@ -135,7 +135,8 @@ crates/desk/src/
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, forge (the PRs and Issues
-                pages)
+                pages), links (the ghost:// links and folders macOS
+                opens Ghost with)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what

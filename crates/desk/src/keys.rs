@@ -407,7 +407,7 @@ pub struct Shown {
 }
 
 impl Shown {
-    fn update<R>(
+    pub(crate) fn update<R>(
         &self,
         cx: &mut App,
         f: impl FnOnce(&mut Desk, &mut Window, &mut Context<Desk>) -> R,

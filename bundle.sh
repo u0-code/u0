@@ -51,6 +51,18 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key><string>${version}</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>Ghost link</string>
+        <key>CFBundleURLSchemes</key><array><string>ghost</string></array>
+    </dict></array>
+    <key>CFBundleDocumentTypes</key>
+    <array><dict>
+        <key>CFBundleTypeName</key><string>Folder</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>None</string>
+        <key>LSItemContentTypes</key><array><string>public.folder</string></array>
+    </dict></array>
     <key>NSDesktopFolderUsageDescription</key><string>The agents you start work in the folders you choose, which may be in your Desktop folder.</string>
 </dict>
 </plist>
