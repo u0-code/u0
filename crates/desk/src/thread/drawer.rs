@@ -3,10 +3,15 @@
 //! each a click from running in a terminal of its own; a dev server's
 //! address to open; and what a terminal shows, handed to the agent.
 
-use gpui::component::{Sizable as _, switch::Switch};
+use gpui::component::{
+    Sizable as _,
+    input::{Input, InputState},
+    switch::Switch,
+};
 use gpui::{
-    Context, Div, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ScrollEvent, SharedString, StyledText, TextRun, Window, div, prelude::*, px,
+    Context, Div, Entity, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ScrollEvent, SharedString, StyledText, TextRun, Window, div,
+    prelude::*, px,
 };
 
 use crate::{
@@ -210,20 +215,11 @@ impl Desk {
     /// Save, Delete (a script already kept) and Cancel.
     fn script_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         let w = self.drawer.writing?;
-        let field = |input: gpui::Entity<crate::input::TextInput>, width: f32| {
+        let field = |input: &Entity<InputState>, width: f32| {
             div()
                 .w(px(width))
-                .h(px(28.))
-                .flex()
-                .items_center()
-                .px(px(6.))
-                .rounded(px(7.))
-                .bg(theme::panel())
-                .border_1()
-                .border_color(theme::border2())
                 .font_family(faces.mono.clone())
-                .text_size(px(12.5))
-                .child(input)
+                .child(Input::new(input).small())
         };
         let flag =
             |id: &'static str, label: &'static str, on: bool, set: fn(&mut runs::Writing)| {
@@ -255,8 +251,8 @@ impl Desk {
             .py(px(8.))
             .border_b_1()
             .border_color(theme::border())
-            .child(field(self.drawer.name.clone(), 120.))
-            .child(field(self.drawer.command.clone(), 280.))
+            .child(field(&self.drawer.name, 120.))
+            .child(field(&self.drawer.command, 280.))
             .child(flag(
                 "script-worktree",
                 "In each new worktree",

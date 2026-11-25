@@ -2,13 +2,18 @@
 //! and mode, how full its context is, and Send or Stop.
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
-use gpui::component::progress::ProgressCircle;
+use gpui::component::{
+    Sizable as _,
+    input::{Enter, Input, MoveDown, MoveUp, Textarea},
+    progress::ProgressCircle,
+};
 use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
 use super::{Choices, select_choices};
 use crate::{
-    desk::{Desk, Popup},
+    desk::{Desk, Popup, mention},
     fonts::Faces,
+    keys::{SendAside, Stash},
     session::{Session, State},
     theme,
     ui::{self, Mark},
@@ -22,7 +27,7 @@ impl Desk {
         &self,
         faces: &Faces,
         column: f32,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let Some(s) = self.session() else {
@@ -32,15 +37,16 @@ impl Desk {
             return shut;
         }
         let name = self.name_of(&s.meta.agent);
+        let says = if s.items.is_empty() {
+            format!("Tell {name} what to do…")
+        } else {
+            format!("Reply to {name}, or tell it what to do next…")
+        };
+        // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {
-            i.set_placeholder(
-                &if s.items.is_empty() {
-                    format!("Tell {name} what to do…")
-                } else {
-                    format!("Reply to {name}, or tell it what to do next…")
-                },
-                cx,
-            );
+            if *i.presentation().placeholder() != says {
+                i.set_placeholder(says, window, cx);
+            }
         });
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
@@ -61,9 +67,11 @@ impl Desk {
                     .flex_col()
                     .gap(px(6.))
                     .w(px(column))
-                    .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
-                        this.drop_files(paths.paths(), cx);
-                    }))
+                    .on_drop(
+                        cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                            this.drop_files(paths.paths(), window, cx);
+                        }),
+                    )
                     .pl(px(14.))
                     .pr(px(8.))
                     .pt(px(10.))
@@ -82,9 +90,54 @@ impl Desk {
                         div()
                             .min_h(px(if self.composer.tall { 300. } else { 22. }))
                             .pr(px(6.))
-                            .child(self.composer.input.clone()),
+                            .child(self.composer_line(cx)),
                     )
                     .child(self.bar(faces, s, &name, cx)),
+            )
+    }
+
+    /// The line itself: gpui-kit's text area, with the composer's own keys
+    /// over it. ⌘S puts what is typed aside, ⇧⌘Return sends it aside; a
+    /// new line in a list begins its next item; ↑ and ↓ on its first and
+    /// last lines go back through what was sent; an image pasted goes
+    /// with what you say.
+    fn composer_line(&self, cx: &mut Context<Self>) -> Div {
+        let desk = cx.entity().downgrade();
+        div()
+            .key_context(mention::CONTEXT)
+            .on_action(cx.listener(|this, _: &Stash, window, cx| this.stash_typed(window, cx)))
+            .on_action(cx.listener(|this, _: &SendAside, window, cx| {
+                this.send_typed(true, window, cx);
+            }))
+            .capture_action(cx.listener(|this, enter: &Enter, window, cx| {
+                let breaks = !enter.secondary && (enter.shift || this.settings.cmd_sends);
+                if breaks && this.continue_list(window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &MoveUp, window, cx| {
+                if this.recall(-1, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &MoveDown, window, cx| {
+                if this.recall(1, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                Textarea::new(&self.composer.input)
+                    .appearance(false)
+                    .on_paste(move |item, _, cx| {
+                        let Some(image) = item.entries().iter().find_map(|e| match e {
+                            gpui::ClipboardEntry::Image(i) => Some(i.clone()),
+                            _ => None,
+                        }) else {
+                            return false;
+                        };
+                        desk.update(cx, |this, cx| this.paste_picture(&image, cx))
+                            .is_ok()
+                    }),
             )
     }
 
@@ -286,7 +339,9 @@ impl Desk {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.composer.tall = !this.composer.tall;
                     let most = if this.composer.tall { 30 } else { 8 };
-                    this.composer.input.update(cx, |i, cx| i.set_most(most, cx));
+                    this.composer
+                        .input
+                        .update(cx, |i, cx| i.set_auto_grow(1, most, cx));
                     cx.notify();
                 })),
             );
@@ -307,7 +362,7 @@ impl Desk {
     /// when asked to stop and still going a while after.
     fn send_button(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
         let working = matches!(s.state, State::Working | State::Opening);
-        let empty = self.composer.input.read(cx).is_empty();
+        let empty = self.composer.input.read(cx).value().trim().is_empty();
         let button = div()
             .size(px(28.))
             .flex()
@@ -349,7 +404,6 @@ impl Desk {
                 .tooltip(ui::tip(crate::keys::hint(cx, "Stop the turn", "stop")))
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         } else {
-            let input = self.composer.input.clone();
             let live = !empty;
             button
                 .id("send")
@@ -367,9 +421,7 @@ impl Desk {
                 } else {
                     "Send · Return, or ⌘Return to go on in the background"
                 }))
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    input.update(cx, crate::input::TextInput::send);
-                }))
+                .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
         }
     }
 
@@ -438,7 +490,7 @@ impl Desk {
     /// after `/`, after `@` files, sessions and pull requests. ↑ and ↓
     /// choose one, Return or Tab takes it.
     fn offers_menu(&self, faces: &Faces, column: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let typed = self.composer.input.read(cx).text();
+        let typed = self.typed(cx);
         self.offers(&typed)
             .filter(|(_, o)| !o.is_empty())
             .map(|(_, list)| {
@@ -581,7 +633,9 @@ impl Desk {
                                 "Edit",
                             )
                             .size(px(22.))
-                            .on_click(cx.listener(move |this, _, _, cx| this.unqueue(n, cx))),
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| this.unqueue(n, window, cx)),
+                            ),
                         ),
                 );
             }
@@ -777,7 +831,7 @@ impl Desk {
                         .text_color(theme::faint()),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.toggle_popup(for_click.clone(), cx);
+                    this.toggle_popup(for_click.clone(), window, cx);
                     // What is typed then narrows the list.
                     if long && this.popup == for_click {
                         window.focus(
@@ -795,18 +849,13 @@ impl Desk {
                 .w(px(260.))
                 .p(px(6.))
                 .child(ui::label(faces, head).px(px(8.)).pt(px(6.)).pb(px(4.)));
-            let query = self.menu_search.read(cx).text().to_lowercase();
+            let query = self.menu_search.read(cx).value().trim().to_lowercase();
             if long {
                 menu = menu.child(
                     div()
                         .mx(px(4.))
                         .mb(px(4.))
-                        .px(px(8.))
-                        .rounded(px(7.))
-                        .bg(theme::well())
-                        .border_1()
-                        .border_color(theme::border2())
-                        .child(self.menu_search.clone()),
+                        .child(Input::new(&self.menu_search).small()),
                 );
             }
             let mut scroll = div()
@@ -916,7 +965,9 @@ impl Desk {
                 .when(open, |d| d.bg(theme::hover()))
                 .child(ui::icon("sliders", 15.))
                 .tooltip(ui::tip(tip))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::More, cx))),
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_popup(Popup::More, window, cx)),
+                ),
         );
         if !open {
             return wrap;
@@ -1014,7 +1065,9 @@ impl Desk {
                 d.child(ui::text(faces, count.to_string()).text_size(px(12.)))
             })
             .tooltip(ui::tip(tip))
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_popup(popup.clone(), cx)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.toggle_popup(popup.clone(), window, cx);
+            }))
     }
 
     /// What you put aside (⌘S): a mark with how many, and under it each,
@@ -1101,7 +1154,7 @@ impl Desk {
             cx,
         ));
         if open {
-            let written = !self.composer.input.read(cx).text().trim().is_empty();
+            let written = !self.typed(cx).trim().is_empty();
             let mut list = div().flex().flex_col().w(px(320.)).p(px(6.)).child(
                 ui::label(
                     faces,
@@ -1129,7 +1182,9 @@ impl Desk {
                     list = list.child(
                         ui::menu_row(SharedString::from(format!("later-{n}")), false)
                             .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                            .on_click(cx.listener(move |this, _, _, cx| this.send_later(when, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.send_later(when, window, cx);
+                            })),
                     );
                 }
             }
@@ -1210,15 +1265,13 @@ impl Desk {
         let text = self.composer.stashed.remove(n);
         self.save_stash();
         self.popup = Popup::Closed;
-        let typed = self.composer.input.read(cx).text();
+        let typed = self.typed(cx);
         let line = if typed.is_empty() {
             text
         } else {
             format!("{typed}\n{text}")
         };
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(&line, cx));
+        self.put_line(&line, window, cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -1306,7 +1359,7 @@ impl Desk {
             _ => None,
         };
         let Some(choices) = choices else { return false };
-        let query = self.menu_search.read(cx).text().to_lowercase();
+        let query = self.menu_search.read(cx).value().trim().to_lowercase();
         let Some((value, _, _)) = choices
             .into_iter()
             .filter(|(v, l, _)| shown_by(&query, v, l))

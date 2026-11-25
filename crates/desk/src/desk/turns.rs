@@ -46,7 +46,7 @@ impl Desk {
                 .unwrap_or_default();
             self.review
                 .message
-                .update(cx, |m, cx| m.set_text(&title, cx));
+                .update(cx, |m, cx| m.set_value(&title, window, cx));
             window.focus(&self.review.message.focus_handle(cx), cx);
         }
         cx.notify();
@@ -54,7 +54,7 @@ impl Desk {
 
     /// The commit message typed, or the session's title.
     pub fn commit_message(&self, cx: &gpui::App) -> String {
-        let typed = self.review.message.read(cx).text();
+        let typed = self.review.message.read(cx).value().trim().to_owned();
         if typed.is_empty() {
             self.session()
                 .map(|s| s.meta.title.clone())

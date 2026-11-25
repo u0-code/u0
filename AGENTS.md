@@ -128,9 +128,8 @@ crates/desk/src/
                 drawing helpers: diffs and plans (drawn), command output
   aside/        the column's changes as git reads them (repo)
   pages/        the settings dialog and its tabs (settings, prefs), adding a project
-  markdown.rs, syntax.rs, input.rs, ui.rs, theme.rs, style.rs
+  markdown.rs, syntax.rs, ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons
-  input/        the input's text shaped and painted (element)
 assets/         fonts and the desk's own icons, built into the app
 ```
 

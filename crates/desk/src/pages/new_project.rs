@@ -3,7 +3,8 @@
 //! a new one made, a folder on another machine reached over SSH, or a
 //! scratch session in a folder of its own.
 
-use gpui::{Context, Div, div, prelude::*, px};
+use gpui::component::input::{Input, InputState};
+use gpui::{Context, Div, Entity, div, prelude::*, px};
 
 use super::card;
 use crate::fonts::Weighted as _;
@@ -82,18 +83,7 @@ impl Desk {
         faces: &Faces,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
-        let field = |child: gpui::Entity<crate::input::TextInput>| {
-            div()
-                .flex()
-                .items_center()
-                .h(px(34.))
-                .px(px(8.))
-                .rounded(px(8.))
-                .bg(theme::well())
-                .border_1()
-                .border_color(theme::border2())
-                .child(div().flex_1().child(child))
-        };
+        let field = |input: &Entity<InputState>| Input::new(input);
         let heading = |text: &'static str| ui::text(faces, text).weight(gpui::FontWeight::MEDIUM);
         let parent = div()
             .id("parent")
@@ -123,7 +113,7 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border())
             .child(heading("Clone a repository"))
-            .child(field(self.adding.url.clone()));
+            .child(field(&self.adding.url));
         if let Some(c) = &self.adding.cloning {
             clone = clone
                 .children(c.share.map(|share| {
@@ -167,7 +157,7 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border())
             .child(heading("Make a new project"))
-            .child(field(self.adding.name.clone()))
+            .child(field(&self.adding.name))
             .child(
                 div()
                     .flex()
@@ -183,62 +173,62 @@ impl Desk {
                     )),
             );
 
-        let remote = div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .p(px(16.))
-            .border_t_1()
-            .border_color(theme::border())
-            .child(heading("On another machine"))
-            .child(field(self.adding.remote.clone()))
-            .when(!self.adding.hosts.is_empty(), |d| {
-                let mut chips = div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(ui::fine(faces, "From ~/.ssh/config"));
-                for (n, host) in self.adding.hosts.iter().take(8).enumerate() {
-                    let host = host.clone();
-                    chips = chips.child(
-                        div()
-                            .id(gpui::SharedString::from(format!("host-{n}")))
-                            .flex()
-                            .items_center()
-                            .h(px(24.))
-                            .px(px(8.))
-                            .rounded(px(6.))
-                            .border_1()
-                            .border_color(theme::tag_line())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(
-                                ui::mono(faces, host.clone())
-                                    .text_size(px(12.))
-                                    .text_color(theme::text2()),
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.pick_host(&host, window, cx);
-                            })),
-                    );
-                }
-                d.child(chips)
-            })
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(
-                        ui::button("do-remote", "Add", Weight::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.add_remote(cx))),
-                    )
-                    .child(ui::fine(
-                        faces,
-                        "over SSH with your key; the agent runs there by npx or uvx",
-                    )),
-            );
+        let remote =
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .p(px(16.))
+                .border_t_1()
+                .border_color(theme::border())
+                .child(heading("On another machine"))
+                .child(field(&self.adding.remote))
+                .when(!self.adding.hosts.is_empty(), |d| {
+                    let mut chips = div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(ui::fine(faces, "From ~/.ssh/config"));
+                    for (n, host) in self.adding.hosts.iter().take(8).enumerate() {
+                        let host = host.clone();
+                        chips = chips.child(
+                            div()
+                                .id(gpui::SharedString::from(format!("host-{n}")))
+                                .flex()
+                                .items_center()
+                                .h(px(24.))
+                                .px(px(8.))
+                                .rounded(px(6.))
+                                .border_1()
+                                .border_color(theme::tag_line())
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::hover()))
+                                .child(
+                                    ui::mono(faces, host.clone())
+                                        .text_size(px(12.))
+                                        .text_color(theme::text2()),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.pick_host(&host, window, cx);
+                                })),
+                        );
+                    }
+                    d.child(chips)
+                })
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(ui::button("do-remote", "Add", Weight::Secondary).on_click(
+                            cx.listener(|this, _, window, cx| this.add_remote(window, cx)),
+                        ))
+                        .child(ui::fine(
+                            faces,
+                            "over SSH with your key; the agent runs there by npx or uvx",
+                        )),
+                );
 
         let elsewhere = div()
             .flex()

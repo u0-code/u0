@@ -13,9 +13,10 @@ use gpui::{
     Window,
 };
 
+use gpui::component::input::InputState;
+
 use super::Desk;
 use crate::{
-    input::TextInput,
     proto::Call,
     scripts::Script,
     terminal::{self, Terminal},
@@ -55,12 +56,12 @@ pub struct Drawer {
     pub split: bool,
     pub closing: Option<u64>,
     pub writing: Option<Writing>,
-    pub name: Entity<TextInput>,
-    pub command: Entity<TextInput>,
+    pub name: Entity<InputState>,
+    pub command: Entity<InputState>,
 }
 
 impl Drawer {
-    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
         Self {
             terminals: Vec::new(),
             open: false,
@@ -69,8 +70,8 @@ impl Drawer {
             split: false,
             closing: None,
             writing: None,
-            name: cx.new(|cx| TextInput::new(cx, "dev").padded(4.).keeping()),
-            command: cx.new(|cx| TextInput::new(cx, "npm run dev").padded(4.).keeping()),
+            name: cx.new(|cx| InputState::new(window, cx).placeholder("dev")),
+            command: cx.new(|cx| InputState::new(window, cx).placeholder("npm run dev")),
         }
     }
 }
@@ -261,11 +262,9 @@ impl Desk {
             return;
         };
         t.selection = None;
-        let typed = self.composer.input.read(cx).text();
+        let typed = self.typed(cx);
         let text = format!("{typed}\n\nFrom my terminal:\n```\n{chosen}\n```\n");
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(text.trim_start(), cx));
+        self.put_line(text.trim_start(), window, cx);
         window.focus(&self.composer.input.focus_handle(cx), cx);
         cx.notify();
     }
@@ -338,10 +337,10 @@ impl Desk {
             .unwrap_or_default();
         self.drawer
             .name
-            .update(cx, |i, cx| i.set_text(&script.name, cx));
+            .update(cx, |i, cx| i.set_value(&script.name, window, cx));
         self.drawer
             .command
-            .update(cx, |i, cx| i.set_text(&script.command, cx));
+            .update(cx, |i, cx| i.set_value(&script.command, window, cx));
         self.drawer.writing = Some(Writing {
             at,
             worktree: script.worktree,
@@ -361,8 +360,8 @@ impl Desk {
             return;
         };
         let script = keep.then(|| Script {
-            name: self.drawer.name.read(cx).text().trim().to_owned(),
-            command: self.drawer.command.read(cx).text().trim().to_owned(),
+            name: self.drawer.name.read(cx).value().trim().to_owned(),
+            command: self.drawer.command.read(cx).value().trim().to_owned(),
             worktree: w.worktree,
             wait: w.worktree && w.wait,
         });

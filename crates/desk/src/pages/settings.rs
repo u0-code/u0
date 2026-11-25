@@ -5,7 +5,7 @@
 
 use std::time::SystemTime;
 
-use gpui::component::{Sizable as _, switch::Switch};
+use gpui::component::{Sizable as _, input::Input, switch::Switch};
 use gpui::{Context, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -124,26 +124,13 @@ impl Desk {
             .border_color(theme::border())
             .overflow_y_scroll()
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(32.))
-                    .px(px(8.))
-                    .mb(px(8.))
-                    .gap(px(6.))
-                    .rounded(px(8.))
-                    .bg(theme::well())
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon("search", 13.).text_color(theme::faint()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(13.))
-                            .child(self.pages.search.clone()),
-                    ),
+                div().mb(px(8.)).child(
+                    Input::new(&self.pages.search)
+                        .small()
+                        .prefix(ui::icon("search", 13.).text_color(theme::faint())),
+                ),
             );
-        let q = self.pages.search.read(cx).text().trim().to_lowercase();
+        let q = self.pages.search.read(cx).value().trim().to_lowercase();
         let mut heading = "";
         for tab in Tab::ALL {
             if tab.group() != heading {
@@ -239,7 +226,7 @@ impl Desk {
             .pages
             .agent_search
             .read(cx)
-            .text()
+            .value()
             .trim()
             .to_lowercase();
         let mut agents: Vec<_> = self
@@ -299,9 +286,9 @@ impl Desk {
                     "Install",
                     Weight::Secondary,
                 )
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.open_page(Page::Agent(id.clone()), cx)),
-                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_page(Page::Agent(id.clone()), window, cx);
+                }))
                 .into_any_element()
             };
             list = list.child(
@@ -327,8 +314,8 @@ impl Desk {
                             .cursor_pointer()
                             .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
                             .child(ui::fine(faces, line))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_page(Page::Agent(page_id.clone()), cx);
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_page(Page::Agent(page_id.clone()), window, cx);
                             })),
                     )
                     .child(control),
@@ -412,18 +399,9 @@ impl Desk {
                 |d| d.child(ui::fine(faces, "Reading the registry…")),
             )
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(32.))
-                    .px(px(8.))
-                    .gap(px(6.))
-                    .rounded(px(8.))
-                    .bg(theme::well())
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon("search", 14.).text_color(theme::faint()))
-                    .child(div().flex_1().child(self.pages.agent_search.clone())),
+                Input::new(&self.pages.agent_search)
+                    .small()
+                    .prefix(ui::icon("search", 14.).text_color(theme::faint())),
             )
             .child(list)
             .child(

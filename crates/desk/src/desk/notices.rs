@@ -137,8 +137,8 @@ impl Desk {
                         "Open the agent",
                         Weight::Secondary,
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_page(crate::desk::Page::Agent(agent.clone()), cx);
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_page(crate::desk::Page::Agent(agent.clone()), window, cx);
                     })),
                 );
             }

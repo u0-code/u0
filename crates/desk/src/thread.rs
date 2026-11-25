@@ -27,7 +27,7 @@ use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
-use gpui::component::button::Button;
+use gpui::component::{button::Button, input::Textarea};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -685,9 +685,9 @@ impl Desk {
                         .text_color(theme::text2()),
                 )
                 .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, _, cx| {
+                .on_click(cx.listener(|this, _, window, cx| {
                     this.want_offers();
-                    this.toggle_popup(crate::desk::Popup::Base, cx);
+                    this.toggle_popup(crate::desk::Popup::Base, window, cx);
                 })),
         );
         if self.popup == crate::desk::Popup::Base {
@@ -839,8 +839,12 @@ impl Desk {
                     .when(back, |d| {
                         d.child(
                             Self::under(&key, "rewind", "retry", "Roll back to here").on_click(
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_popup(crate::desk::Popup::Rewind(at, i), cx);
+                                cx.listener(move |this, _, window, cx| {
+                                    this.toggle_popup(
+                                        crate::desk::Popup::Rewind(at, i),
+                                        window,
+                                        cx,
+                                    );
                                 }),
                             ),
                         )
@@ -1281,7 +1285,8 @@ impl Desk {
             return;
         };
         let text = text.clone();
-        self.reader.update(cx, |i, cx| i.set_text(&text, cx));
+        self.reader
+            .update(cx, |i, cx| i.set_value(&text, window, cx));
         self.reading = Some((key, item));
         window.focus(&gpui::Focusable::focus_handle(self.reader.read(cx), cx), cx);
         cx.notify();
@@ -1346,9 +1351,13 @@ impl Desk {
                                     )
                                     .on_click(cx.listener(
                                         |this, _, window, cx| {
-                                            let chosen = this.reader.read(cx).chosen();
-                                            let text = chosen
-                                                .unwrap_or_else(|| this.reader.read(cx).text());
+                                            let reader = this.reader.read(cx);
+                                            let chosen = reader.selected_value();
+                                            let text = if chosen.is_empty() {
+                                                reader.value().to_string()
+                                            } else {
+                                                chosen.to_string()
+                                            };
                                             this.reading = None;
                                             this.quote(&text, window, cx);
                                         },
@@ -1366,7 +1375,9 @@ impl Desk {
                                 .id("reading-text")
                                 .overflow_y_scroll()
                                 .px(px(4.))
-                                .child(self.reader.clone()),
+                                .child(
+                                    Textarea::new(&self.reader).appearance(false).readonly(true),
+                                ),
                         ),
                 )
                 .into_any_element(),
@@ -1425,8 +1436,8 @@ impl Desk {
                                 "What came after is left behind; it is in the composer to say again. The files stay as they are.",
                             )
                             .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.rewind(key, item, false, cx);
+                                move |this, _, window, cx| {
+                                    this.rewind(key, item, false, window, cx);
                                 },
                             )),
                         )
@@ -1438,7 +1449,7 @@ impl Desk {
                                     "The files go back to how they were before this.",
                                 )
                                 .on_click(cx.listener(
-                                    move |this, _, _, cx| this.rewind(key, item, true, cx),
+                                    move |this, _, window, cx| this.rewind(key, item, true, window, cx),
                                 )),
                             )
                         }),

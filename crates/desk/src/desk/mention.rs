@@ -16,77 +16,61 @@ use gpui::{AppContext as _, Context, Entity, Window};
 use super::Desk;
 use crate::{
     hub,
-    input::{Changed, PastedImage, Stashed, Submitted, SubmittedAside, TextInput},
-    session::{Item, Session},
+    session::{Item as Said, Session},
 };
+use gpui::component::input::{InputEvent, TextareaState};
+
+/// The key context the composer's own keys (⌘S, ⇧⌘Return) apply under.
+pub const CONTEXT: &str = "Composer";
 
 /// The line you type into, and what goes with it: the offer Return or Tab
 /// takes, what was named with `@` and images put in, waiting to be sent;
 /// whether it is opened tall to write at length, and whether the draft on
-/// screen goes to every agent that can run once sent; and what you put
-/// aside from it (see `store::Index`).
+/// screen goes to every agent that can run once sent; what you put aside
+/// from it (see `store::Index`); and what was sent from it, the latest
+/// last, with which of that is in the line while ↑ and ↓ go back through it.
 pub struct Composer {
-    pub input: Entity<TextInput>,
+    pub input: Entity<TextareaState>,
     pub offer: usize,
     pub mentions: Vec<Mention>,
     pub pictures: Vec<Picture>,
     pub tall: bool,
     pub fanout: bool,
     pub stashed: Vec<String>,
+    pub sent: Vec<String>,
+    pub recalled: Option<usize>,
 }
 
 impl Composer {
     pub(super) fn new(cmd_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let input = cx.new(|cx| {
-            let mut i = TextInput::new(cx, "Ask for anything, or give a task")
-                .wrapping(8)
-                .padded(5.);
-            i.set_enter_breaks(cmd_sends);
-            i
+            TextareaState::new(window, cx)
+                .auto_grow(1, 8)
+                .submit_on_enter(!cmd_sends)
+                .placeholder("Ask for anything, or give a task")
         });
-        cx.subscribe(&input, |this, _, Submitted(text), cx| this.send(text, cx))
-            .detach();
-        cx.subscribe(&input, |this, _, Stashed(text), cx| {
-            this.composer.stashed.push(text.clone());
-            this.save_stash();
-            this.done(
-                "Put aside: take it back from the stack under the line",
-                None,
-            );
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe_in(
-            &input,
-            window,
-            |this, _, SubmittedAside(text), window, cx| {
-                this.send_aside(text, window, cx);
-            },
-        )
-        .detach();
-        cx.subscribe(&input, |this, input, _: &Changed, cx| {
-            this.composer.offer = 0;
-            if input.read(cx).text().contains('@') {
-                this.want_offers();
-            }
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, PastedImage(image), cx| {
-            let mime = match image.format {
-                gpui::ImageFormat::Png => "image/png",
-                gpui::ImageFormat::Jpeg => "image/jpeg",
-                gpui::ImageFormat::Gif => "image/gif",
-                gpui::ImageFormat::Webp => "image/webp",
-                _ => return,
-            };
-            this.add_picture(
-                Picture {
-                    mime: mime.into(),
-                    bytes: image.bytes.clone(),
+        cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
+            match e {
+                InputEvent::Change => {
+                    this.composer.offer = 0;
+                    this.composer.recalled = None;
+                    if input.read(cx).value().contains('@') {
+                        this.want_offers();
+                    }
+                    cx.notify();
+                }
+                // Return sends, and ⌘Return sends aside; where Return
+                // breaks the line, ⌘Return sends. ⇧Return is a new line.
+                InputEvent::PressEnter {
+                    secondary,
+                    shift: false,
+                } => match (this.settings.cmd_sends, secondary) {
+                    (true, false) => {}
+                    (false, true) => this.send_typed(true, window, cx),
+                    _ => this.send_typed(false, window, cx),
                 },
-                cx,
-            );
+                _ => {}
+            }
         })
         .detach();
         Self {
@@ -97,8 +81,148 @@ impl Composer {
             tall: false,
             fanout: false,
             stashed: Vec::new(),
+            sent: Vec::new(),
+            recalled: None,
         }
     }
+}
+
+impl Desk {
+    /// What is typed in the composer, without the space around it.
+    pub(crate) fn typed(&self, cx: &gpui::App) -> String {
+        self.composer.input.read(cx).value().trim().to_owned()
+    }
+
+    /// Put `text` in the composer in place of what it held, the cursor at
+    /// its end, as though it had been typed.
+    pub(crate) fn put_line(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.input.update(cx, |i, cx| {
+            i.set_value(text.to_owned(), window, cx);
+            i.set_selected_range(text.len()..text.len(), cx);
+        });
+    }
+
+    /// Hand over what is typed, if anything, and clear the line: said in
+    /// the session, or (`aside`) said and left to go on while a new one is
+    /// begun beside it.
+    pub(crate) fn send_typed(&mut self, aside: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.typed(cx);
+        if text.is_empty() {
+            return;
+        }
+        if self.composer.sent.last() != Some(&text) {
+            self.composer.sent.push(text.clone());
+        }
+        self.put_line("", window, cx);
+        if aside {
+            self.send_aside(&text, window, cx);
+        } else {
+            self.send(&text, cx);
+        }
+        cx.notify();
+    }
+
+    /// Put what is typed aside (⌘S), and clear the line.
+    pub(crate) fn stash_typed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.typed(cx);
+        if text.is_empty() {
+            return;
+        }
+        self.put_line("", window, cx);
+        self.composer.stashed.push(text);
+        self.save_stash();
+        self.done(
+            "Put aside: take it back from the stack under the line",
+            None,
+        );
+        cx.notify();
+    }
+
+    /// ↑ (-1) or ↓ (1) on the composer's first or last line: back through
+    /// what was sent before, while the line is empty or holds one of
+    /// those. Whether the key went to it.
+    pub(crate) fn recall(
+        &mut self,
+        by: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let input = self.composer.input.read(cx);
+        let (text, at) = (input.value(), input.cursor());
+        let edge = if by < 0 {
+            !text[..at].contains('\n')
+        } else {
+            !text[at..].contains('\n')
+        };
+        let sent = &self.composer.sent;
+        if !edge || sent.is_empty() || (!text.is_empty() && self.composer.recalled.is_none()) {
+            return false;
+        }
+        let at = match (self.composer.recalled, by < 0) {
+            (None, true) => Some(sent.len() - 1),
+            (Some(n), true) => Some(n.saturating_sub(1)),
+            (Some(n), false) => (n + 1 < sent.len()).then_some(n + 1),
+            (None, false) => return false,
+        };
+        let text = at.map(|n| sent[n].clone()).unwrap_or_default();
+        self.put_line(&text, window, cx);
+        self.composer.recalled = at;
+        true
+    }
+
+    /// A new line in the composer, where what is typed is a list: its next
+    /// item begun, or after an item left empty, the list ended there.
+    /// Whether it was a list's.
+    pub(crate) fn continue_list(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let input = self.composer.input.read(cx);
+        let text = input.value();
+        let (at, end) = (input.selected_range().start, input.selected_range().end);
+        let begins = text[..at].rfind('\n').map_or(0, |i| i + 1);
+        let Some(item) = next_item(&text[begins..at]) else {
+            return false;
+        };
+        self.composer.input.update(cx, |i, cx| match item {
+            Item::Next(mark) => i.replace(format!("\n{mark}"), window, cx),
+            Item::End => {
+                i.set_selected_range(begins..end, cx);
+                i.replace("", window, cx);
+            }
+        });
+        true
+    }
+}
+
+/// What a new line after a list's item does.
+#[derive(Debug, PartialEq, Eq)]
+enum Item {
+    /// Begins the next item with this.
+    Next(String),
+    /// The item was left empty: its mark goes, and the list ends.
+    End,
+}
+
+/// What a new line after `line` does, where it is a list's item: the same
+/// mark ("- ", "* ", "> ") or the next number ("3. "), under the same
+/// indent; none where it is not a list.
+fn next_item(line: &str) -> Option<Item> {
+    let rest = line.trim_start();
+    let indent = &line[..line.len() - rest.len()];
+    let (mark, after) = if let Some(found) = ["- ", "* ", "> "]
+        .iter()
+        .find_map(|m| rest.strip_prefix(m).map(|a| ((*m).to_owned(), a)))
+    {
+        found
+    } else {
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let after = rest[digits..].strip_prefix(". ")?;
+        let n: u64 = rest[..digits].parse().ok()?;
+        (format!("{}. ", n + 1), after)
+    };
+    Some(if after.trim().is_empty() {
+        Item::End
+    } else {
+        Item::Next(format!("{indent}{mark}"))
+    })
 }
 
 /// Something offered as you type.
@@ -267,7 +391,7 @@ impl Desk {
 
     /// Take the offer `n` for what is typed: it replaces the word.
     pub fn take_offer(&mut self, n: usize, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        let text = self.composer.input.read(cx).text();
+        let text = self.typed(cx);
         let Some((start, offers)) = self.offers(&text) else {
             return;
         };
@@ -277,15 +401,13 @@ impl Desk {
         // A model is switched to, and its word taken out.
         if let Offer::Model { config, value, .. } = &offer {
             let line = text[..start].to_owned();
-            self.composer
-                .input
-                .update(cx, |i, cx| i.set_text(&line, cx));
+            self.put_line(&line, window, cx);
             self.set_option(config.clone(), value.clone(), cx);
             return;
         }
         // One of Ghost's own is done, not written.
         if let Offer::Own { name, .. } = offer {
-            self.composer.input.update(cx, |i, cx| i.set_text("", cx));
+            self.put_line("", window, cx);
             let key = self.current;
             match name {
                 "clear" => self.new_default(window, cx),
@@ -314,9 +436,7 @@ impl Desk {
             Offer::Pr { number, .. } => format!("@pr#{number}"),
         };
         let line = format!("{}{token} ", &text[..start]);
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(&line, cx));
+        self.put_line(&line, window, cx);
         if !matches!(offer, Offer::Command { .. }) {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
@@ -333,6 +453,24 @@ impl Desk {
             });
         }
         cx.notify();
+    }
+
+    /// An image pasted in the composer, of a kind an agent reads.
+    pub fn paste_picture(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
+        let mime = match image.format {
+            gpui::ImageFormat::Png => "image/png",
+            gpui::ImageFormat::Jpeg => "image/jpeg",
+            gpui::ImageFormat::Gif => "image/gif",
+            gpui::ImageFormat::Webp => "image/webp",
+            _ => return,
+        };
+        self.add_picture(
+            Picture {
+                mime: mime.into(),
+                bytes: image.bytes.clone(),
+            },
+            cx,
+        );
     }
 
     /// An image pasted or dropped in, unless the agent said, when it last
@@ -364,11 +502,9 @@ impl Desk {
             q.push('\n');
             q
         });
-        let typed = self.composer.input.read(cx).text();
+        let typed = self.typed(cx);
         let line = format!("{quoted}\n{typed}");
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(&line, cx));
+        self.put_line(&line, window, cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -384,7 +520,7 @@ impl Desk {
     }
 
     /// Images dropped on the composer: each file that is one.
-    pub fn drop_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+    pub fn drop_files(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
         for p in paths {
             let mime = match p
                 .extension()
@@ -397,7 +533,7 @@ impl Desk {
                 Some("webp") => "image/webp",
                 // Any other file, or a folder, is named, as @ names one.
                 _ => {
-                    self.name_dropped(p, cx);
+                    self.name_dropped(p, window, cx);
                     continue;
                 }
             };
@@ -413,21 +549,19 @@ impl Desk {
 
     /// Name the file or folder `p` in what you are writing, as `@` would:
     /// from the session's folder where it is in it, else whole.
-    fn name_dropped(&mut self, p: &Path, cx: &mut Context<Self>) {
+    fn name_dropped(&mut self, p: &Path, window: &mut Window, cx: &mut Context<Self>) {
         let named = self
             .session()
             .and_then(|s| p.strip_prefix(&s.meta.folder).ok())
             .map_or_else(|| p.display().to_string(), |r| r.display().to_string());
         let token = format!("@{named}");
-        let typed = self.composer.input.read(cx).text();
+        let typed = self.typed(cx);
         let line = if typed.is_empty() {
             format!("{token} ")
         } else {
             format!("{typed} {token} ")
         };
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(&line, cx));
+        self.put_line(&line, window, cx);
         self.composer.mentions.push(Mention {
             token,
             what: Offer::File(named),
@@ -530,8 +664,8 @@ fn said(s: &Session, name: &str) -> Vec<String> {
     s.items
         .iter()
         .filter_map(|item| match item {
-            Item::You(t) => Some(format!("You: {t}")),
-            Item::Agent(t) => Some(format!("{name}: {t}")),
+            Said::You(t) => Some(format!("You: {t}")),
+            Said::Agent(t) => Some(format!("{name}: {t}")),
             _ => None,
         })
         .collect()
@@ -553,6 +687,20 @@ impl Desk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_list_goes_on_to_its_next_item_and_ends_at_an_empty_one() {
+        let next = |m: &str| Some(Item::Next(m.into()));
+        assert_eq!(next_item("- milk"), next("- "));
+        assert_eq!(next_item("  * eggs"), next("  * "));
+        assert_eq!(next_item("9. ten"), next("10. "));
+        assert_eq!(next_item("> said"), next("> "));
+        assert_eq!(next_item("- "), Some(Item::End));
+        assert_eq!(next_item("3. "), Some(Item::End));
+        assert_eq!(next_item("plain"), None);
+        assert_eq!(next_item("-not a list"), None);
+        assert_eq!(next_item(". no number"), None);
+    }
 
     #[test]
     fn a_file_whose_name_starts_with_what_is_typed_comes_before_a_shorter_path() {

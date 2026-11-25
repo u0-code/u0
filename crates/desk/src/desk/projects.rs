@@ -7,11 +7,10 @@ use std::path::{Path, PathBuf};
 
 use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
 
+use gpui::component::input::{InputEvent, InputState};
+
 use super::{Desk, Popup};
-use crate::{
-    input::{Submitted, TextInput},
-    settings::Prefs,
-};
+use crate::settings::Prefs;
 
 /// Where a project made or cloned in Ghost goes unless you choose
 /// another folder: ~/Documents/Ghost, as Codex keeps its own in
@@ -28,9 +27,9 @@ fn made_here() -> PathBuf {
 /// SSH configuration names; the folder a clone or a new one goes in, a
 /// clone going on and what went wrong.
 pub struct Adding {
-    pub url: Entity<TextInput>,
-    pub name: Entity<TextInput>,
-    pub remote: Entity<TextInput>,
+    pub url: Entity<InputState>,
+    pub name: Entity<InputState>,
+    pub remote: Entity<InputState>,
     pub hosts: Vec<String>,
     pub parent: PathBuf,
     /// A clone going on, and the switch that stops it.
@@ -39,24 +38,27 @@ pub struct Adding {
 }
 
 impl Adding {
-    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
-        let url = cx.new(|cx| {
-            TextInput::new(cx, "https://github.com/owner/repo.git")
-                .padded(6.)
-                .keeping()
-        });
-        cx.subscribe(&url, |this, _, Submitted(_), cx| this.start_clone(cx))
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+        };
+        let url = field("https://github.com/owner/repo.git", window, cx);
+        let name = field("my-project", window, cx);
+        let remote = field("devbox:/home/me/app", window, cx);
+        let on_enter = |input: &Entity<InputState>,
+                        then: fn(&mut Desk, &mut Window, &mut Context<Desk>),
+                        window: &mut Window,
+                        cx: &mut Context<Desk>| {
+            cx.subscribe_in(input, window, move |this, _, e: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = e {
+                    then(this, window, cx);
+                }
+            })
             .detach();
-        let name = cx.new(|cx| TextInput::new(cx, "my-project").padded(6.).keeping());
-        cx.subscribe(&name, |this, _, Submitted(_), cx| this.create_project(cx))
-            .detach();
-        let remote = cx.new(|cx| {
-            TextInput::new(cx, "devbox:/home/me/app")
-                .padded(6.)
-                .keeping()
-        });
-        cx.subscribe(&remote, |this, _, Submitted(_), cx| this.add_remote(cx))
-            .detach();
+        };
+        on_enter(&url, |d, _, cx| d.start_clone(cx), window, cx);
+        on_enter(&name, |d, _, cx| d.create_project(cx), window, cx);
+        on_enter(&remote, Desk::add_remote, window, cx);
         Self {
             url,
             name,
@@ -122,7 +124,7 @@ impl Desk {
     /// Clone the address typed into a folder of its name under the folder
     /// chosen, with its progress shown; it becomes a project once cloned.
     pub fn start_clone(&mut self, cx: &mut Context<Self>) {
-        let url = self.adding.url.read(cx).text().trim().to_owned();
+        let url = self.adding.url.read(cx).value().trim().to_owned();
         let name = url
             .trim_end_matches('/')
             .rsplit(['/', ':'])
@@ -154,7 +156,7 @@ impl Desk {
 
     /// Make a new project of the name typed under the folder chosen.
     pub fn create_project(&mut self, cx: &mut Context<Self>) {
-        let name = self.adding.name.read(cx).text().trim().to_owned();
+        let name = self.adding.name.read(cx).value().trim().to_owned();
         if name.is_empty() {
             return;
         }
@@ -168,11 +170,13 @@ impl Desk {
 
     /// Add the project typed as `host:/path`, on a machine reached over
     /// SSH; its sessions are those of the agents there.
-    pub fn add_remote(&mut self, cx: &mut Context<Self>) {
-        let typed = self.adding.remote.read(cx).text();
+    pub fn add_remote(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.adding.remote.read(cx).value().trim().to_owned();
         match typed.trim().split_once(':') {
             Some((host, path)) if !host.is_empty() && path.starts_with('/') => {
-                self.adding.remote.update(cx, |i, cx| i.set_text("", cx));
+                self.adding
+                    .remote
+                    .update(cx, |i, cx| i.set_value("", window, cx));
                 self.adding.trouble = None;
                 self.adopt(&crate::remote::project(host, path));
             }
@@ -208,7 +212,7 @@ impl Desk {
     pub fn pick_host(&mut self, host: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.adding
             .remote
-            .update(cx, |i, cx| i.set_text(&format!("{host}:/"), cx));
+            .update(cx, |i, cx| i.set_value(format!("{host}:/"), window, cx));
         window.focus(&self.adding.remote.focus_handle(cx), cx);
     }
 

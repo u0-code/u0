@@ -2,7 +2,7 @@
 //! agents and the work done off the window's thread.
 
 use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SessionId, SessionUpdate};
-use gpui::Context;
+use gpui::{Context, Window};
 
 use super::Desk;
 use crate::{
@@ -130,11 +130,11 @@ impl Desk {
 
     // What comes back.
 
-    pub(super) fn take(&mut self, msg: Msg, cx: &mut Context<Self>) {
+    pub(super) fn take(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
         // No window of Ghost's in front: what needs you is notified.
         self.behind = cx.active_window().is_none();
         match msg {
-            Msg::Event(e) => self.event(e, cx),
+            Msg::Event(e) => self.event(e, window, cx),
             Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
             Msg::Picture(None) => {}
             Msg::OnPath(found) => self.on_path = found,
@@ -150,11 +150,11 @@ impl Desk {
     }
 
     /// What the server says.
-    fn event(&mut self, event: Event, cx: &mut Context<Self>) {
+    fn event(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             Event::Grepped { words, found } => {
                 // Only what answers what is typed now.
-                if self.palette.input.read(cx).text().trim() == words {
+                if self.palette.input.read(cx).value().trim() == words {
                     self.palette.grep = found;
                 }
             }
@@ -187,7 +187,9 @@ impl Desk {
                 self.adding.cloning = None;
                 match result {
                     Ok(()) => {
-                        self.adding.name.update(cx, |i, cx| i.set_text("", cx));
+                        self.adding
+                            .name
+                            .update(cx, |i, cx| i.set_value("", window, cx));
                         self.adopt(&dir);
                     }
                     Err(why) if why == crate::registry::CANCELLED => {}
@@ -365,7 +367,7 @@ impl Desk {
             Event::Elsewhere { agent, folders } => {
                 self.elsewhere.insert(agent, folders);
             }
-            Event::Forked { from, at, result } => self.forked(from, at, result, cx),
+            Event::Forked { from, at, result } => self.forked(from, at, result, window, cx),
             Event::Loaded {
                 key,
                 resumed,
@@ -432,7 +434,7 @@ impl Desk {
                 }
                 self.stopping = None;
                 self.end_turn(key);
-                self.take_message(key, cx);
+                self.take_message(key, window, cx);
                 self.name_branch(key);
                 self.refresh_git(key);
                 // What was said meanwhile goes now, in order.
@@ -468,7 +470,9 @@ impl Desk {
             Event::Index(index) => self.keep_from(index),
             Event::Record { key, events } => self.record_read(key, events),
             Event::Found { query, keys } => {
-                if self.search.open && self.search.input.read(cx).text().to_lowercase() == query {
+                if self.search.open
+                    && self.search.input.read(cx).value().trim().to_lowercase() == query
+                {
                     self.search.found = keys.into_iter().collect();
                 }
             }

@@ -9,7 +9,7 @@ mod repo;
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
-use gpui::component::button::Button;
+use gpui::component::{Sizable as _, button::Button, input::Input};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
@@ -657,8 +657,8 @@ impl Desk {
                 .hover(|st| st.bg(theme::hover()))
                 .child(fine_mono(faces, ui::fit(branch, 22)))
                 .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_popup(crate::desk::Popup::Branch, cx);
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_popup(crate::desk::Popup::Branch, window, cx);
                 })),
         );
         if open {
@@ -710,12 +710,7 @@ impl Desk {
                 div()
                     .mt(px(4.))
                     .mx(px(4.))
-                    .px(px(6.))
-                    .rounded(px(6.))
-                    .bg(theme::well())
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(self.menu_search.clone()),
+                    .child(Input::new(&self.menu_search).xsmall()),
             );
             chip = chip.child(gpui::deferred(
                 gpui::anchored()
@@ -1356,13 +1351,7 @@ impl Desk {
                     .child(
                         div()
                             .flex_1()
-                            .h(px(28.))
-                            .px(px(6.))
-                            .rounded(px(7.))
-                            .bg(theme::well())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .child(self.review.comment.clone()),
+                            .child(Input::new(&self.review.comment).small()),
                     ),
             );
         }

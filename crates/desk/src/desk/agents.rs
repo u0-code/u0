@@ -19,7 +19,7 @@ impl Desk {
     /// Start the agent `id` with the command typed on its page, or, with
     /// none, the registry's way; it starts again with it at once.
     pub fn save_command(&mut self, id: &str, cx: &mut Context<Self>) {
-        let line = self.pages.command.read(cx).text().trim().to_owned();
+        let line = self.pages.command.read(cx).value().trim().to_owned();
         if line.is_empty() {
             self.settings.commands.remove(id);
         } else {
@@ -38,8 +38,8 @@ impl Desk {
     }
 
     /// A model id of yours for the agent `id`, typed on its page.
-    pub fn add_model(&mut self, id: &str, cx: &mut Context<Self>) {
-        let model = self.pages.model.read(cx).text().trim().to_owned();
+    pub fn add_model(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let model = self.pages.model.read(cx).value().trim().to_owned();
         if model.is_empty() {
             return;
         }
@@ -47,7 +47,9 @@ impl Desk {
         if !list.contains(&model) {
             list.push(model);
         }
-        self.pages.model.update(cx, |i, cx| i.set_text("", cx));
+        self.pages
+            .model
+            .update(cx, |i, cx| i.set_value("", window, cx));
         self.save_settings();
         cx.notify();
     }

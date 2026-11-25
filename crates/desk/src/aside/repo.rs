@@ -4,6 +4,7 @@
 //! what can be done with them. Beside them the recent commits, and the
 //! branch's pull request with its checks.
 
+use gpui::component::{Sizable as _, input::Input};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{empty, fine, frow, git_button, path_text, section};
@@ -118,8 +119,8 @@ impl Desk {
                         .text_color(theme::text2()),
                 )
                 .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_popup(crate::desk::Popup::Compare, cx);
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_popup(crate::desk::Popup::Compare, window, cx);
                 })),
         );
         if open {
@@ -303,32 +304,15 @@ impl Desk {
             .flex_col()
             .gap(px(8.))
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .h(px(34.))
-                    .pl(px(8.))
-                    .pr(px(4.))
-                    .rounded(px(8.))
-                    .bg(theme::well())
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(self.review.message.clone()),
-                    )
-                    // Asked during a turn, its answer would be taken for
-                    // that turn's: it waits for the turn to end.
-                    .when(
-                        !matches!(
-                            s.state,
-                            crate::session::State::Working | crate::session::State::Opening
-                        ),
-                        |d| d.child(write),
+                // Asked during a turn, its answer would be taken for that
+                // turn's: it waits for the turn to end.
+                Input::new(&self.review.message).small().when(
+                    !matches!(
+                        s.state,
+                        crate::session::State::Working | crate::session::State::Opening
                     ),
+                    |d| d.suffix(write),
+                ),
             )
             .child(
                 div()

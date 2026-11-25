@@ -13,7 +13,6 @@ mod assets;
 mod desk;
 mod fonts;
 mod hub;
-mod input;
 mod keys;
 mod macos;
 mod markdown;
@@ -81,10 +80,14 @@ fn main() {
                     MenuItem::action("Stop", Stop),
                 ]),
                 Menu::new("Edit").items(vec![
-                    MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
-                    MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
-                    MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
-                    MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+                    MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
+                    MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
+                    MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
+                    MenuItem::os_action(
+                        "Select All",
+                        gpui::component::input::SelectAll,
+                        OsAction::SelectAll,
+                    ),
                 ]),
                 Menu::new("View").items(vec![MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
                 Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),

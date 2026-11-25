@@ -6,6 +6,7 @@
 
 use std::{path::Path, time::SystemTime};
 
+use gpui::component::{Sizable as _, input::Input};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -22,18 +23,10 @@ impl Desk {
     /// place of the words it replaces.
     fn rename_field(&self) -> gpui::Div {
         div()
-            .flex()
-            .items_center()
             .flex_1()
             .min_w(px(0.))
-            .h(px(24.))
             .ml(px(-6.))
-            .px(px(5.))
-            .rounded(px(6.))
-            .bg(theme::panel())
-            .border_1()
-            .border_color(theme::ghost_line())
-            .child(self.rename.clone())
+            .child(Input::new(&self.rename).xsmall())
     }
 
     pub(crate) fn sidebar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
@@ -81,7 +74,7 @@ impl Desk {
         let query = self
             .search
             .open
-            .then(|| self.search.input.read(cx).text().to_lowercase())
+            .then(|| self.search.input.read(cx).value().trim().to_lowercase())
             .filter(|q| !q.is_empty());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
         for folder in self.projects() {
@@ -169,7 +162,9 @@ impl Desk {
                             .text_size(px(13.))
                             .text_color(theme::muted()),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::NewProject, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_page(Page::NewProject, window, cx);
+                    })),
             );
         }
 
@@ -202,8 +197,8 @@ impl Desk {
                             .opacity(0.45),
                     )
                     .child(fine(faces, "Off"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_page(Page::Agent(id.clone()), cx);
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_page(Page::Agent(id.clone()), window, cx);
                     })),
             );
         }
@@ -233,16 +228,9 @@ impl Desk {
             .gap(px(14.))
             .children(self.search.open.then(|| {
                 div().px(px(8.)).child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(32.))
-                        .px(px(8.))
-                        .rounded(px(8.))
-                        .bg(theme::well())
-                        .border_1()
-                        .border_color(theme::border2())
-                        .child(div().flex_1().child(self.search.input.clone())),
+                    Input::new(&self.search.input)
+                        .small()
+                        .prefix(ui::icon("search", 13.).text_color(theme::faint())),
                 )
             }))
             .child(
@@ -285,8 +273,8 @@ impl Desk {
                                 ui::icon_button("add-project", "plus", "Add a project")
                                     .size(px(20.))
                                     .text_color(theme::faint())
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.open_page(Page::NewProject, cx);
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_page(Page::NewProject, window, cx);
                                     })),
                             ),
                     )
@@ -415,8 +403,8 @@ impl Desk {
             .children(
                 word.map(|(w, live)| fine(faces, w).when(live, |d| d.text_color(theme::accent()))),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_page(Page::Agent(target.clone()), cx);
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_page(Page::Agent(target.clone()), window, cx);
             }))
     }
 
@@ -498,10 +486,12 @@ impl Desk {
                         )
                         .size(px(22.))
                         .text_color(theme::faint())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.toggle_popup(Popup::Project(menu_for.clone()), cx);
-                        })),
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.toggle_popup(Popup::Project(menu_for.clone()), window, cx);
+                            },
+                        )),
                     )
                     .child(
                         ui::icon_button(
@@ -771,9 +761,9 @@ impl Desk {
                         ui::icon_button(SharedString::from(format!("more-{key}")), "dots", "More")
                             .size(px(20.))
                             .text_color(theme::faint())
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
-                                this.toggle_popup(Popup::Session(key), cx);
+                                this.toggle_popup(Popup::Session(key), window, cx);
                             })),
                     ),
             )
@@ -984,16 +974,12 @@ impl Desk {
                 }
                 // Or for as long as you say.
                 snooze = snooze.child(
-                    div().flex().items_center().px(px(8.)).h(px(32.)).child(
-                        div()
-                            .flex_1()
-                            .px(px(6.))
-                            .rounded(px(6.))
-                            .bg(theme::well())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .child(self.menu_search.clone()),
-                    ),
+                    div()
+                        .flex()
+                        .items_center()
+                        .px(px(8.))
+                        .h(px(32.))
+                        .child(div().flex_1().child(Input::new(&self.menu_search).xsmall())),
                 );
                 menu = menu.child(beside(line, snooze));
             } else {
@@ -1176,7 +1162,9 @@ impl Desk {
                         .text_color(theme::text2()),
                 )
                 .child(ui::icon("chevron-down", 12.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Only, cx))),
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_popup(Popup::Only, window, cx)),
+                ),
         );
         if filter_open {
             let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));

@@ -105,8 +105,8 @@ impl Desk {
 
     /// Say what is in the composer later in the session on screen, when
     /// `when` says.
-    pub fn send_later(&mut self, when: Later, cx: &mut Context<Self>) {
-        let text = self.composer.input.read(cx).text().trim().to_owned();
+    pub fn send_later(&mut self, when: Later, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.typed(cx);
         let now = std::time::SystemTime::now();
         let at = when.at(now);
         let Some(key) = self.current else { return };
@@ -121,7 +121,7 @@ impl Desk {
             });
             s.meta.later.sort_by_key(|l| l.at);
         }
-        self.composer.input.update(cx, |i, cx| i.set_text("", cx));
+        self.put_line("", window, cx);
         self.popup = Popup::Closed;
         self.save_index();
         self.done(
@@ -475,7 +475,7 @@ impl Desk {
     }
 
     /// Take the queued `n` back into the line.
-    pub fn unqueue(&mut self, n: usize, cx: &mut Context<Self>) {
+    pub fn unqueue(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
         let Some(s) = self.sessions.at_mut(key) else {
             return;
@@ -484,9 +484,7 @@ impl Desk {
             return;
         }
         let text = s.meta.queued.remove(n);
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(&text, cx));
+        self.put_line(&text, window, cx);
         self.save_index();
         cx.notify();
     }

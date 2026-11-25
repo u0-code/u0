@@ -1,5 +1,6 @@
 //! The bar over the middle: what is on screen, and whether it is running.
 
+use gpui::component::{Sizable as _, input::Input};
 use gpui::{Context, Div, div, prelude::*, px};
 
 use super::meta;
@@ -52,8 +53,9 @@ impl Desk {
         };
         if self.page != Page::Thread {
             bar = bar.child(
-                ui::icon_button("back", "chevron-left", "Back · Esc")
-                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Thread, cx))),
+                ui::icon_button("back", "chevron-left", "Back · Esc").on_click(
+                    cx.listener(|this, _, window, cx| this.open_page(Page::Thread, window, cx)),
+                ),
             );
         }
         match &self.page {
@@ -93,15 +95,7 @@ impl Desk {
                     let named: gpui::AnyElement = if self.renaming.as_ref() == Some(&here) {
                         div()
                             .w(px(320.))
-                            .h(px(26.))
-                            .flex()
-                            .items_center()
-                            .px(px(6.))
-                            .rounded(px(6.))
-                            .bg(theme::panel())
-                            .border_1()
-                            .border_color(theme::ghost_line())
-                            .child(self.rename.clone())
+                            .child(Input::new(&self.rename).small())
                             .into_any_element()
                     } else {
                         div()

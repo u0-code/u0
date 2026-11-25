@@ -8,10 +8,11 @@ use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
 
 use gpui::{AppContext as _, Context, Entity, Window};
 
+use gpui::component::input::{InputEvent, InputState};
+
 use super::Desk;
 use crate::{
     git::Scope,
-    input::{Submitted, TextInput},
     session::{Item, State},
 };
 
@@ -25,25 +26,35 @@ const WRITE_MESSAGE: &str = "Write a commit message for the changes not committe
 /// files, and whether test files are left out of it.
 pub struct Review {
     pub scope: Scope,
-    pub message: Entity<TextInput>,
+    pub message: Entity<InputState>,
     pub committing: bool,
     pub commenting: Option<(PathBuf, usize)>,
-    pub comment: Entity<TextInput>,
+    pub comment: Entity<InputState>,
     pub comments: Vec<(PathBuf, usize, String)>,
     pub folded: HashSet<String>,
     pub no_tests: bool,
 }
 
 impl Review {
-    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
-        let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
-        cx.subscribe(&comment, |this, _, Submitted(text), cx| {
-            this.add_comment(text, cx);
-        })
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let comment = cx.new(|cx| InputState::new(window, cx).placeholder("What of this line?"));
+        cx.subscribe_in(
+            &comment,
+            window,
+            |this, input, e: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = e {
+                    let text = input.read(cx).value().trim().to_owned();
+                    if !text.is_empty() {
+                        input.update(cx, |i, cx| i.set_value("", window, cx));
+                        this.add_comment(&text, cx);
+                    }
+                }
+            },
+        )
         .detach();
         Self {
             scope: Scope::All,
-            message: cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.).keeping()),
+            message: cx.new(|cx| InputState::new(window, cx).placeholder("Commit message")),
             committing: false,
             commenting: None,
             comment,
@@ -283,7 +294,7 @@ impl Desk {
 
     /// A turn ended in the session `key`: a commit message it was asked for
     /// goes in the commit form.
-    pub(crate) fn take_message(&mut self, key: u64, cx: &mut Context<Self>) {
+    pub(crate) fn take_message(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
@@ -298,7 +309,7 @@ impl Desk {
         if let Some(text) = said {
             self.review
                 .message
-                .update(cx, |m, cx| m.set_text(&text, cx));
+                .update(cx, |m, cx| m.set_value(&text, window, cx));
             self.review.committing = true;
         }
     }
@@ -312,7 +323,9 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.review.commenting = Some((path, line));
-        self.review.comment.update(cx, |i, cx| i.set_text("", cx));
+        self.review
+            .comment
+            .update(cx, |i, cx| i.set_value("", window, cx));
         window.focus(
             &gpui::Focusable::focus_handle(self.review.comment.read(cx), cx),
             cx,
@@ -355,9 +368,7 @@ impl Desk {
                 .to_string();
             let _ = writeln!(text, "- {path}:{line} — {said}");
         }
-        self.composer
-            .input
-            .update(cx, |i, cx| i.set_text(text.trim_end(), cx));
+        self.put_line(text.trim_end(), window, cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,

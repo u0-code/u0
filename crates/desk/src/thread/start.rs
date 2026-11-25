@@ -155,7 +155,9 @@ impl Desk {
                         .text_color(theme::text2()),
                 )
                 .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::StartIn, cx))),
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_popup(Popup::StartIn, window, cx);
+                })),
         );
         if self.popup == Popup::StartIn {
             let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.));

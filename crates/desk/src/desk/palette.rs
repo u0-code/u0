@@ -12,13 +12,10 @@ use gpui::{
     Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 
+use gpui::component::input::{Input, InputEvent, InputState, MoveDown, MoveUp};
+
 use super::{Desk, Page, Popup};
-use crate::{
-    fonts::Faces,
-    input::{Cancelled, Changed, Stepped, Submitted, TextInput},
-    session::State,
-    theme, ui,
-};
+use crate::{fonts::Faces, session::State, theme, ui};
 
 /// What a line of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +55,7 @@ pub enum Through {
 /// takes, what it looks through and the words it found there.
 pub struct Palette {
     pub open: bool,
-    pub input: Entity<TextInput>,
+    pub input: Entity<InputState>,
     pub at: usize,
     pub through: Through,
     pub grep: Vec<(String, String)>,
@@ -66,31 +63,24 @@ pub struct Palette {
 
 impl Palette {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| {
-            TextInput::new(cx, "Go to a session, or do something")
-                .padded(4.)
-                .submitting_empty()
-        });
-        cx.subscribe(&input, |this, input, _: &Changed, cx| {
-            this.palette.at = 0;
-            if this.palette.through == Through::Words {
-                let words = input.read(cx).text();
-                this.search_words(&words);
-            }
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, Stepped(by), cx| {
-            this.step_palette(*by, cx);
-        })
-        .detach();
-        cx.subscribe_in(&input, window, |this, _, Submitted(_), window, cx| {
-            this.run_act(this.palette.at, window, cx);
-        })
-        .detach();
-        cx.subscribe_in(&input, window, |this, _, _: &Cancelled, window, cx| {
-            this.toggle_palette(window, cx);
-        })
+        let input = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Go to a session, or do something"));
+        cx.subscribe_in(
+            &input,
+            window,
+            |this, input, e: &InputEvent, window, cx| match e {
+                InputEvent::Change => {
+                    this.palette.at = 0;
+                    if this.palette.through == Through::Words {
+                        let words = input.read(cx).value().trim().to_owned();
+                        this.search_words(&words);
+                    }
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } => this.run_act(this.palette.at, window, cx),
+                _ => {}
+            },
+        )
         .detach();
         Self {
             open: false,
@@ -258,7 +248,7 @@ impl Desk {
         };
         self.palette
             .input
-            .update(cx, |i, cx| i.set_placeholder(says, cx));
+            .update(cx, |i, cx| i.set_placeholder(says, window, cx));
     }
 
     /// Look for `words` in the project's files (git grep), for the palette.
@@ -279,12 +269,14 @@ impl Desk {
         self.palette.through = Through::Everything;
         self.palette
             .input
-            .update(cx, |i, cx| i.set_placeholder("Go to anything", cx));
+            .update(cx, |i, cx| i.set_placeholder("Go to anything", window, cx));
         self.palette.open = !self.palette.open;
         self.palette.at = 0;
         if self.palette.open {
             self.want_offers();
-            self.palette.input.update(cx, |i, cx| i.set_text("", cx));
+            self.palette
+                .input
+                .update(cx, |i, cx| i.set_value("", window, cx));
             window.focus(&self.palette.input.focus_handle(cx), cx);
         } else {
             window.focus(&self.composer.input.focus_handle(cx), cx);
@@ -294,7 +286,7 @@ impl Desk {
 
     /// Move the palette's choice up (below zero) or down.
     pub(crate) fn step_palette(&mut self, by: isize, cx: &mut Context<Self>) {
-        let query = self.palette.input.read(cx).text();
+        let query = self.palette.input.read(cx).value().trim().to_owned();
         let last = self.lines(&query, cx).len().saturating_sub(1);
         self.palette.at = self.palette.at.saturating_add_signed(by).min(last);
         cx.notify();
@@ -490,7 +482,7 @@ impl Desk {
 
     /// Do the line `n` of the palette.
     pub fn run_act(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let query = self.palette.input.read(cx).text();
+        let query = self.palette.input.read(cx).value().trim().to_owned();
         let Some(line) = self.lines(&query, cx).into_iter().nth(n) else {
             return;
         };
@@ -502,7 +494,7 @@ impl Desk {
                     window.dispatch_action(action, cx);
                 }
             }
-            Act::AddProject => self.open_page(Page::NewProject, cx),
+            Act::AddProject => self.open_page(Page::NewProject, window, cx),
             Act::CopyThread => {
                 if let Some(key) = self.current {
                     self.copy_thread(key, cx);
@@ -535,9 +527,7 @@ impl Desk {
             }
             Act::FromIssue(folder, n, title) => {
                 self.new_in(folder, window, cx);
-                self.composer.input.update(cx, |i, cx| {
-                    i.set_text(&format!("Issue #{n}: {title}\n\n"), cx);
-                });
+                self.put_line(&format!("Issue #{n}: {title}\n\n"), window, cx);
             }
         }
         cx.notify();
@@ -548,7 +538,7 @@ impl Desk {
         if !self.palette.open {
             return None;
         }
-        let query = self.palette.input.read(cx).text();
+        let query = self.palette.input.read(cx).value().trim().to_owned();
         let mut list = div().flex().flex_col().p(px(6.));
         let mut group = "";
         for (n, line) in self.lines(&query, cx).into_iter().enumerate() {
@@ -633,7 +623,19 @@ impl Desk {
                                 .border_b_1()
                                 .border_color(theme::border2())
                                 .child(ui::icon("search", 16.).text_color(theme::faint()))
-                                .child(div().flex_1().child(self.palette.input.clone()))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .capture_action(cx.listener(|this, _: &MoveUp, _, cx| {
+                                            this.step_palette(-1, cx);
+                                            cx.stop_propagation();
+                                        }))
+                                        .capture_action(cx.listener(|this, _: &MoveDown, _, cx| {
+                                            this.step_palette(1, cx);
+                                            cx.stop_propagation();
+                                        }))
+                                        .child(Input::new(&self.palette.input).appearance(false)),
+                                )
                                 .child(crate::sidebar::kbd(faces, "esc")),
                         )
                         .child(list)

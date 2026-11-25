@@ -14,10 +14,11 @@ use gpui::{
 
 use agent_client_protocol::v1::schema::MessageId;
 
+use gpui::component::input::{InputEvent, InputState};
+
 use super::Desk;
 use crate::{
     hub,
-    input::{Cancelled, Changed, TextInput},
     proto::Call,
     session::{Item, Session, State},
     store, when,
@@ -37,21 +38,18 @@ pub enum Renaming {
 /// sessions whose records hold it.
 pub struct Search {
     pub open: bool,
-    pub input: Entity<TextInput>,
+    pub input: Entity<InputState>,
     pub found: HashSet<u64>,
 }
 
 impl Search {
-    pub(super) fn new(cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
-        cx.subscribe(&input, |this, _, _: &Changed, cx| {
-            this.search_records(cx);
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, _: &Cancelled, cx| {
-            this.search.open = false;
-            cx.notify();
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions"));
+        cx.subscribe(&input, |this, _, e: &InputEvent, cx| {
+            if let InputEvent::Change = e {
+                this.search_records(cx);
+                cx.notify();
+            }
         })
         .detach();
         Self {
@@ -406,8 +404,8 @@ impl Desk {
         self.popup = super::Popup::Closed;
         self.renaming = Some(what);
         self.rename.update(cx, |i, cx| {
-            i.set_text(&name, cx);
-            i.select_everything(cx);
+            i.set_value(&name, window, cx);
+            i.select_all(window, cx);
         });
         window.focus(&self.rename.focus_handle(cx), cx);
         cx.notify();
@@ -551,7 +549,14 @@ impl Desk {
     /// again: what came after is left behind (the session is branched off
     /// before it, and the branch takes its place), and with `files`, the
     /// files go back to how they were before that turn.
-    pub fn rewind(&mut self, key: u64, item: usize, files: bool, cx: &mut Context<Self>) {
+    pub fn rewind(
+        &mut self,
+        key: u64,
+        item: usize,
+        files: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.sessions.at(key) else {
             return;
@@ -584,11 +589,11 @@ impl Desk {
             // The first message has nothing before it to branch off: the
             // session begins again, its words in the composer, in its
             // place; the old one is archived.
-            None => self.start_over(key, item, cx),
+            None => self.start_over(key, item, window, cx),
         }
     }
 
-    fn start_over(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
+    fn start_over(&mut self, key: u64, item: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(mut s) = self.beside(key) else {
             return;
         };
@@ -599,7 +604,7 @@ impl Desk {
         let new = s.key;
         self.sessions.all.push(s);
         self.save_index();
-        self.bring(new, cx);
+        self.bring(new, window, cx);
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
@@ -626,6 +631,7 @@ impl Desk {
             Box<agent_client_protocol::v1::schema::ForkSessionResponse>,
             crate::acp::Error,
         >,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(origin) = self.sessions.at(from).cloned() else {
@@ -706,7 +712,7 @@ impl Desk {
         }
         self.sessions.all.push(s);
         self.save_index();
-        self.bring(key, cx);
+        self.bring(key, window, cx);
     }
 
     /// Carry out the plan the session `key` made: out of the mode that only
@@ -777,7 +783,9 @@ impl Desk {
         if self.search.open {
             window.focus(&self.search.input.focus_handle(cx), cx);
         } else {
-            self.search.input.update(cx, |s, cx| s.set_text("", cx));
+            self.search
+                .input
+                .update(cx, |s, cx| s.set_value("", window, cx));
         }
         cx.notify();
     }
@@ -785,7 +793,7 @@ impl Desk {
     /// Search what was said in each session for what is typed in the
     /// search, a moment after typing stops.
     pub(crate) fn search_records(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.input.read(cx).text().trim().to_lowercase();
+        let query = self.search.input.read(cx).value().trim().to_lowercase();
         self.search.found.clear();
         if query.chars().count() < 2 {
             return;
@@ -810,7 +818,7 @@ impl Desk {
                 .timer(Duration::from_millis(250))
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.search.input.read(cx).text().trim().to_lowercase() == query {
+                if this.search.input.read(cx).value().trim().to_lowercase() == query {
                     this.transport.send(Call::Search { query, records });
                 }
             });

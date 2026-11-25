@@ -4,7 +4,7 @@
 //! Ghost is. Each row says what happens, and its control says the choice.
 
 use gpui::component::button::ButtonGroup;
-use gpui::component::{Sizable as _, switch::Switch};
+use gpui::component::{Sizable as _, input::Input, switch::Switch};
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
 use super::card;
@@ -329,17 +329,8 @@ impl Desk {
                             "Then the session's title, as in ghost/retry-s3-uploads.",
                             div()
                                 .w(px(160.))
-                                .h(px(30.))
-                                .flex()
-                                .items_center()
-                                .px(px(8.))
-                                .rounded(px(8.))
-                                .bg(theme::well())
-                                .border_1()
-                                .border_color(theme::border2())
                                 .font_family(faces.mono.clone())
-                                .text_size(px(12.5))
-                                .child(self.pages.prefix.clone()),
+                                .child(Input::new(&self.pages.prefix).small()),
                         ),
                     ],
                 )],

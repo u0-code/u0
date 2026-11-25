@@ -11,11 +11,12 @@ use gpui::{
     relative,
 };
 
+use gpui::component::input::{Input, InputEvent, InputState};
+
 use super::{fold, step, verb};
 use crate::{
     desk::Desk,
     fonts,
-    input::{Cancelled, Changed, Submitted, SubmittedAside, TextInput},
     session::{Item, Session, State},
     theme, ui, when,
 };
@@ -24,32 +25,21 @@ use crate::{
 /// what it found is on screen.
 pub struct Find {
     pub open: bool,
-    pub input: Entity<TextInput>,
+    pub input: Entity<InputState>,
     pub at: usize,
 }
 
 impl Find {
     pub fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| {
-            TextInput::new(cx, "Find in this session")
-                .padded(2.)
-                .keeping()
-        });
-        cx.subscribe(&input, |this, _, Submitted(_), cx| {
-            this.find_next(false, cx);
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, SubmittedAside(_), cx| {
-            this.find_next(true, cx);
-        })
-        .detach();
-        cx.subscribe(&input, |this, _, _: &Changed, cx| {
-            this.find.at = usize::MAX;
-            cx.notify();
-        })
-        .detach();
-        cx.subscribe_in(&input, window, |this, _, _: &Cancelled, window, cx| {
-            this.toggle_find(window, cx);
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in this session"));
+        cx.subscribe(&input, |this, _, e: &InputEvent, cx| match e {
+            InputEvent::Change => {
+                this.find.at = usize::MAX;
+                cx.notify();
+            }
+            // Return goes on to the next found, ⇧Return back.
+            InputEvent::PressEnter { shift, .. } => this.find_next(*shift, cx),
+            _ => {}
         })
         .detach();
         Self {
@@ -503,7 +493,7 @@ impl Desk {
 
     /// The items of the session on screen that hold what is looked for.
     pub(crate) fn find_hits(&self, cx: &gpui::App) -> Vec<usize> {
-        let query = self.find.input.read(cx).text().trim().to_lowercase();
+        let query = self.find.input.read(cx).value().trim().to_lowercase();
         let Some(s) = self.session() else {
             return Vec::new();
         };
@@ -580,7 +570,12 @@ impl Desk {
                 .border_1()
                 .border_color(theme::border2())
                 .child(ui::icon("search", 14.).text_color(theme::faint()))
-                .child(div().flex_1().min_w(px(0.)).child(self.find.input.clone()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(Input::new(&self.find.input).appearance(false)),
+                )
                 .child(
                     ui::text(faces, at)
                         .flex_none()

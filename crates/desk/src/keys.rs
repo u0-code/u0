@@ -17,7 +17,7 @@ use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
 use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Window, actions};
 use serde::Deserialize;
 
-use crate::{desk::Desk, input, pages::Tab};
+use crate::{desk::Desk, pages::Tab};
 
 actions!(
     desk,
@@ -67,7 +67,9 @@ actions!(
         About,
         Hide,
         HideOthers,
-        ShowAll
+        ShowAll,
+        Stash,
+        SendAside
     ]
 );
 
@@ -254,7 +256,7 @@ pub fn yours(home: &Path) -> Vec<Binding> {
 
 /// Bind the window's keys, then `yours` over them.
 pub fn bind(cx: &mut App, yours: &[Binding]) {
-    let input = Some(input::CONTEXT);
+    let composer = Some(crate::desk::mention::CONTEXT);
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-n", NewSession, None),
@@ -301,39 +303,8 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-7", Session7, None),
         KeyBinding::new("cmd-8", Session8, None),
         KeyBinding::new("cmd-9", Session9, None),
-        KeyBinding::new("backspace", input::Backspace, input),
-        KeyBinding::new("delete", input::Delete, input),
-        KeyBinding::new("left", input::Left, input),
-        KeyBinding::new("right", input::Right, input),
-        KeyBinding::new("shift-left", input::SelectLeft, input),
-        KeyBinding::new("shift-right", input::SelectRight, input),
-        KeyBinding::new("cmd-a", input::SelectAll, input),
-        KeyBinding::new("cmd-v", input::Paste, input),
-        KeyBinding::new("cmd-c", input::Copy, input),
-        KeyBinding::new("cmd-x", input::Cut, input),
-        KeyBinding::new("home", input::Home, input),
-        KeyBinding::new("end", input::End, input),
-        KeyBinding::new("enter", input::Submit, input),
-        KeyBinding::new("cmd-enter", input::SubmitAside, input),
-        KeyBinding::new("shift-enter", input::Newline, input),
-        KeyBinding::new("tab", input::Tab, input),
-        KeyBinding::new("up", input::Up, input),
-        KeyBinding::new("down", input::Down, input),
-        KeyBinding::new("escape", input::Cancel, input),
-        KeyBinding::new("alt-left", input::WordLeft, input),
-        KeyBinding::new("alt-right", input::WordRight, input),
-        KeyBinding::new("alt-shift-left", input::SelectWordLeft, input),
-        KeyBinding::new("alt-shift-right", input::SelectWordRight, input),
-        KeyBinding::new("cmd-left", input::LineStart, input),
-        KeyBinding::new("cmd-right", input::LineEnd, input),
-        KeyBinding::new("cmd-shift-left", input::SelectLineStart, input),
-        KeyBinding::new("cmd-shift-right", input::SelectLineEnd, input),
-        KeyBinding::new("alt-backspace", input::DeleteWord, input),
-        KeyBinding::new("cmd-backspace", input::DeleteLine, input),
-        KeyBinding::new("cmd-z", input::Undo, input),
-        KeyBinding::new("cmd-shift-z", input::Redo, input),
-        KeyBinding::new("cmd-s", input::Stash, input),
-        KeyBinding::new("cmd-shift-enter", input::SubmitAsideToo, input),
+        KeyBinding::new("cmd-s", Stash, composer),
+        KeyBinding::new("cmd-shift-enter", SendAside, composer),
     ]);
     let yours: Vec<KeyBinding> = yours
         .iter()

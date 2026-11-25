@@ -9,14 +9,17 @@ mod settings;
 
 pub use settings::Tab;
 
-use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
+use gpui::component::{
+    Sizable as _,
+    input::{Input, InputEvent, InputState},
+};
+use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
     hub::{Slot, Stage},
-    input::{Changed, TextInput},
     registry::{Missing, Way},
     session::State,
     theme,
@@ -32,36 +35,41 @@ use crate::{
 pub struct Pages {
     pub open: bool,
     pub tab: Tab,
-    pub search: Entity<TextInput>,
-    pub agent_search: Entity<TextInput>,
-    pub prefix: Entity<TextInput>,
+    pub search: Entity<InputState>,
+    pub agent_search: Entity<InputState>,
+    pub prefix: Entity<InputState>,
     pub recording: Option<&'static str>,
     pub sizes: Vec<(String, u64)>,
     pub tidied: Option<String>,
-    pub command: Entity<TextInput>,
-    pub model: Entity<TextInput>,
+    pub command: Entity<InputState>,
+    pub model: Entity<InputState>,
 }
 
 impl Pages {
-    pub fn new(prefix: &str, cx: &mut Context<Desk>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx, "Search settings").padded(4.).keeping());
-        let agent_search = cx.new(|cx| {
-            TextInput::new(cx, "Search the ACP registry")
-                .padded(4.)
-                .keeping()
-        });
+    pub fn new(prefix: &str, window: &mut Window, cx: &mut Context<Desk>) -> Self {
+        let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+        };
+        let search = field("Search settings", window, cx);
+        let agent_search = field("Search the ACP registry", window, cx);
         for input in [&search, &agent_search] {
-            cx.subscribe(input, |_, _, _: &Changed, cx| cx.notify())
+            cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())
                 .detach();
         }
         let prefix = cx.new(|cx| {
-            let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
-            i.set_text(prefix, cx);
-            i
+            InputState::new(window, cx)
+                .placeholder("ghost/")
+                .default_value(prefix.to_owned())
         });
-        cx.subscribe(&prefix, |this, input, _: &Changed, cx| {
-            this.settings.branch_prefix = input.read(cx).text();
-            this.save_settings();
+        cx.subscribe(&prefix, |this, input, e: &InputEvent, cx| {
+            if let InputEvent::Change = e {
+                input
+                    .read(cx)
+                    .value()
+                    .trim()
+                    .clone_into(&mut this.settings.branch_prefix);
+                this.save_settings();
+            }
         })
         .detach();
         Self {
@@ -73,12 +81,8 @@ impl Pages {
             recording: None,
             sizes: Vec::new(),
             tidied: None,
-            command: cx.new(|cx| {
-                TextInput::new(cx, "/path/to/agent --acp")
-                    .padded(4.)
-                    .keeping()
-            }),
-            model: cx.new(|cx| TextInput::new(cx, "a model id").padded(4.).keeping()),
+            command: field("/path/to/agent --acp", window, cx),
+            model: field("a model id", window, cx),
         }
     }
 }
@@ -493,19 +497,7 @@ impl Desk {
     /// it, and model ids of your own beside those it lists; and a warning
     /// where it speaks another version of ACP than Ghost.
     fn agent_own(&self, faces: &Faces, id: &str, stage: &Stage, cx: &mut Context<Self>) -> Div {
-        let field = |input: gpui::Entity<crate::input::TextInput>| {
-            div()
-                .flex()
-                .items_center()
-                .flex_1()
-                .h(px(32.))
-                .px(px(8.))
-                .rounded(px(8.))
-                .bg(theme::well())
-                .border_1()
-                .border_color(theme::border2())
-                .child(div().flex_1().child(input))
-        };
+        let field = |input: &Entity<InputState>| div().flex_1().child(Input::new(input).small());
         let (a, b) = (id.to_owned(), id.to_owned());
         let mut own = div()
             .flex()
@@ -517,7 +509,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(field(self.pages.command.clone()))
+                    .child(field(&self.pages.command))
                     .child(
                         ui::button("save-command", "Use this command", Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
@@ -535,10 +527,10 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(field(self.pages.model.clone()))
+                    .child(field(&self.pages.model))
                     .child(
                         ui::button("add-model", "Add a model", Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, _, cx| this.add_model(&b, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| this.add_model(&b, window, cx))),
                     ),
             );
         let mut models = div().flex().flex_wrap().gap(px(6.));

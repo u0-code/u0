@@ -22,6 +22,7 @@ use std::{
     time::Duration,
 };
 
+use gpui::component::input::{InputEvent, InputState, TextareaState};
 use gpui::{
     Context, Entity, Focusable as _, MouseButton, PathPromptOptions, Window, div, prelude::*, px,
 };
@@ -45,7 +46,6 @@ mod turns;
 use crate::{
     fonts,
     hub::{self, Slot, Stage},
-    input::{Submitted, TextInput},
     proto::Call,
     registry::{self, Registry},
     session::{Session, State},
@@ -141,13 +141,13 @@ pub struct Desk {
     pub store_refused: Option<String>,
     /// What is being renamed, and the line for it.
     pub renaming: Option<lists::Renaming>,
-    pub rename: Entity<TextInput>,
+    pub rename: Entity<InputState>,
     /// A message open to choose words from: the session's key and its
     /// item, and the line it is in.
     pub reading: Option<(u64, usize)>,
-    pub reader: Entity<TextInput>,
+    pub reader: Entity<TextareaState>,
     /// What is typed to narrow a long menu of choices (a model's).
-    pub menu_search: Entity<TextInput>,
+    pub menu_search: Entity<InputState>,
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
@@ -299,19 +299,21 @@ impl Desk {
         .detach();
         mirror(&settings, cx);
         let composer = mention::Composer::new(settings.cmd_sends, window, cx);
-        let reader = cx.new(|cx| TextInput::new(cx, "").wrapping(24).keeping());
-        let menu_search = cx.new(|cx| {
-            TextInput::new(cx, "Search, or a while: 3h")
-                .padded(2.)
-                .keeping()
-        });
+        let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
+        let menu_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search, or a while: 3h"));
         cx.subscribe_in(
             &menu_search,
             window,
-            |this, _, Submitted(text), window, cx| {
+            |this, input, e: &InputEvent, window, cx| {
+                if !matches!(e, InputEvent::PressEnter { .. }) {
+                    cx.notify();
+                    return;
+                }
+                let text = input.read(cx).value().trim().to_owned();
                 match this.popup {
-                    Popup::Session(key) => this.snooze_for(key, text, cx),
-                    Popup::Branch => this.new_branch(text, cx),
+                    Popup::Session(key) => this.snooze_for(key, &text, cx),
+                    Popup::Branch => this.new_branch(&text, cx),
                     // A list narrowed by what is typed: the first left.
                     Popup::Mode | Popup::Option(_) => {
                         this.choose_nth(0, cx);
@@ -322,31 +324,22 @@ impl Desk {
             },
         )
         .detach();
-        cx.subscribe(&menu_search, |_, _, _: &crate::input::Changed, cx| {
-            cx.notify();
-        })
-        .detach();
-        let rename = cx.new(|cx| {
-            TextInput::new(cx, "Name")
-                .sized(13.5, 20.)
-                .padded(0.)
-                .submitting_empty()
-        });
-        cx.subscribe(&rename, |this, _, Submitted(text), cx| {
-            this.finish_rename(text, cx);
-        })
-        .detach();
-        cx.subscribe(&rename, |this, _, _: &crate::input::Cancelled, cx| {
-            this.cancel_rename(cx);
+        let rename = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
+        cx.subscribe(&rename, |this, input, e: &InputEvent, cx| {
+            if let InputEvent::PressEnter { .. } = e {
+                let text = input.read(cx).value().trim().to_owned();
+                this.finish_rename(&text, cx);
+            }
         })
         .detach();
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        cx.spawn(async move |this, cx| {
+        // In the window, for what comes back to change what is typed there.
+        cx.spawn_in(window, async move |this, cx| {
             while let Some(msg) = rx.recv().await {
                 if this
-                    .update(cx, |this, cx| {
-                        this.take(msg, cx);
+                    .update_in(cx, |this, window, cx| {
+                        this.take(msg, window, cx);
                         this.stay_awake();
                         this.show_badge();
                     })
@@ -396,7 +389,7 @@ impl Desk {
         })
         .detach();
 
-        let pages = crate::pages::Pages::new(&settings.branch_prefix, cx);
+        let pages = crate::pages::Pages::new(&settings.branch_prefix, window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
         let transport = hub::Transport::local(home.clone(), tx.clone());
         transport.send(Call::Fetch);
@@ -435,16 +428,16 @@ impl Desk {
             kept: HashMap::new(),
             notices: Vec::new(),
             pages,
-            adding: projects::Adding::new(cx),
+            adding: projects::Adding::new(window, cx),
             behind: false,
             awake: None,
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
-            drawer: runs::Drawer::new(cx),
+            drawer: runs::Drawer::new(window, cx),
             palette: palette::Palette::new(window, cx),
             pr_tick: 0,
             health_tick: 0,
-            review: gitview::Review::new(cx),
+            review: gitview::Review::new(window, cx),
             prs: HashMap::new(),
             issues: HashMap::new(),
             cli_versions: HashMap::new(),
@@ -472,7 +465,7 @@ impl Desk {
             find: crate::thread::Find::new(window, cx),
             signing: None,
             aside: Aside::Session,
-            search: lists::Search::new(cx),
+            search: lists::Search::new(window, cx),
             registry_read: None,
             tx,
             transport,
@@ -638,12 +631,12 @@ impl Desk {
 
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
-        self.bring(key, cx);
+        self.bring(key, window, cx);
         window.focus(&self.composer.input.focus_handle(cx), cx);
     }
 
     /// Put the session `key` on screen, opening it if it is closed.
-    pub(crate) fn bring(&mut self, key: u64, cx: &mut Context<Self>) {
+    pub(crate) fn bring(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.current != Some(key) {
             crate::thread::select::clear();
             // Where you were, to go back to; going back keeps the way ahead.
@@ -655,7 +648,7 @@ impl Desk {
             }
             // What was being written stays with its session, and the
             // session shown brings back what was being written in it.
-            let typed = self.composer.input.read(cx).text();
+            let typed = self.typed(cx);
             if let Some(old) = self.current
                 && let Some(s) = self.sessions.at_mut(old)
             {
@@ -667,9 +660,7 @@ impl Desk {
                 .at(key)
                 .map(|s| s.meta.unsent.clone())
                 .unwrap_or_default();
-            self.composer
-                .input
-                .update(cx, |i, cx| i.set_text(&unsent, cx));
+            self.put_line(&unsent, window, cx);
             self.aside = Aside::Session;
             self.review.scope = crate::git::Scope::All;
             self.review.committing = false;
@@ -983,7 +974,7 @@ impl Desk {
         false
     }
 
-    pub fn toggle_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
+    pub fn toggle_popup(&mut self, popup: Popup, window: &mut Window, cx: &mut Context<Self>) {
         self.submenu = None;
         // The menu's line says what it takes there.
         let says = match popup {
@@ -992,8 +983,8 @@ impl Desk {
             _ => "Search",
         };
         self.menu_search.update(cx, |i, cx| {
-            i.set_text("", cx);
-            i.set_placeholder(says, cx);
+            i.set_value("", window, cx);
+            i.set_placeholder(says, window, cx);
         });
         self.popup = if self.popup == popup {
             Popup::Closed
@@ -1035,7 +1026,7 @@ impl Desk {
         let breaks = self.settings.cmd_sends;
         self.composer
             .input
-            .update(cx, |i, _| i.set_enter_breaks(breaks));
+            .update(cx, |i, cx| i.set_submit_on_enter(!breaks, cx));
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
@@ -1043,8 +1034,9 @@ impl Desk {
         }
     }
 
-    /// Escape closes the menu open, else the settings, else leaves the
-    /// page open for the thread, wherever the keys go: true when it did.
+    /// Escape closes the menu open, else the palette, the name being
+    /// written, find or the search typed in, else the settings, else leaves
+    /// the page open for the thread, wherever the keys go: true when it did.
     fn escape_closes(
         &mut self,
         k: &gpui::Keystroke,
@@ -1054,10 +1046,20 @@ impl Desk {
         if k.key != "escape" || k.modifiers.modified() {
             return false;
         }
+        let typing_in = |input: &Entity<InputState>, cx: &Context<Self>| {
+            input.focus_handle(cx).is_focused(window)
+        };
         if self.popup != Popup::Closed {
             self.close_popup(window, cx);
         } else if self.palette.open {
-            return false;
+            self.toggle_palette(window, cx);
+        } else if self.renaming.is_some() {
+            self.cancel_rename(cx);
+        } else if self.find.open && typing_in(&self.find.input, cx) {
+            self.toggle_find(window, cx);
+        } else if self.search.open && typing_in(&self.search.input, cx) {
+            self.search.open = false;
+            cx.notify();
         } else if self.pages.open {
             self.close_settings(window, cx);
         } else if self.page != Page::Thread {
@@ -1073,7 +1075,8 @@ impl Desk {
     /// composer.
     pub(crate) fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
-        self.menu_search.update(cx, |i, cx| i.set_text("", cx));
+        self.menu_search
+            .update(cx, |i, cx| i.set_value("", window, cx));
         if self.menu_search.focus_handle(cx).is_focused(window) {
             window.focus(&self.composer.input.focus_handle(cx), cx);
         }
@@ -1092,7 +1095,7 @@ impl Desk {
         if k.modifiers.modified() || !self.composer.input.focus_handle(cx).is_focused(window) {
             return false;
         }
-        let text = self.composer.input.read(cx).text();
+        let text = self.typed(cx);
         let Some(count) = self.offers(&text).map(|(_, o)| o.len()).filter(|n| *n > 0) else {
             return false;
         };
@@ -1147,7 +1150,9 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.pages.tab = tab;
-        self.pages.search.update(cx, |i, cx| i.set_text("", cx));
+        self.pages
+            .search
+            .update(cx, |i, cx| i.set_value("", window, cx));
         match tab {
             crate::pages::Tab::Sessions => self.measure(),
             crate::pages::Tab::Usage => self.weigh_agents(),
@@ -1167,12 +1172,16 @@ impl Desk {
         cx.notify();
     }
 
-    pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
+    pub fn open_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         // An agent's page shows the command of yours that starts it.
         if let Page::Agent(id) = &page {
             let c = self.settings.commands.get(id).cloned().unwrap_or_default();
-            self.pages.command.update(cx, |i, cx| i.set_text(&c, cx));
-            self.pages.model.update(cx, |i, cx| i.set_text("", cx));
+            self.pages
+                .command
+                .update(cx, |i, cx| i.set_value(&c, window, cx));
+            self.pages
+                .model
+                .update(cx, |i, cx| i.set_value("", window, cx));
             if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
                 self.transport.send(Call::CliVersion { cli });
             }
