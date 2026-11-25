@@ -624,6 +624,47 @@ pub fn create(dir: &Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// How far the branch `dir` is on is behind its upstream (0 with none),
+/// and whether the repository has a remote called origin.
+pub fn upstream(dir: &Path) -> (usize, bool) {
+    let behind = git(dir, &["rev-list", "--count", "HEAD..@{u}"], None)
+        .ok()
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(0);
+    let origin = git(dir, &["remote", "get-url", "origin"], None).is_ok();
+    (behind, origin)
+}
+
+/// Bring in what the upstream has, only where it moves straight on.
+pub fn pull(dir: &Path) -> Result<String, String> {
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["pull", "--ff-only", "-q"]))
+}
+
+/// Make the folder `dir` a repository on main, all it holds committed.
+pub fn init_here(dir: &Path) -> Result<String, String> {
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-q", "-b", "main"]))?;
+    run(Command::new("git").current_dir(dir).args(["add", "-A"]))?;
+    run(Command::new("git")
+        .current_dir(dir)
+        .args(["commit", "-q", "-m", "First commit"]))
+}
+
+/// Put the repository at `dir` on GitHub, private, as gh does, and push.
+pub fn publish(dir: &Path) -> Result<String, String> {
+    run(Command::new("gh").current_dir(dir).args([
+        "repo",
+        "create",
+        "--private",
+        "--source",
+        ".",
+        "--push",
+    ]))
+}
+
 /// Clone `url` into `dir`, saying how far it is from what git prints
 /// ("Receiving objects:  45% ..."), until it is done or `stop` is set; a
 /// clone stopped leaves nothing.
@@ -775,6 +816,18 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_folder_made_a_repository_has_all_it_held_committed_and_no_upstream() {
+        let dir = std::env::temp_dir().join(format!("ghost-git-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.md"), "hi\n").unwrap();
+        init_here(&dir).unwrap();
+        assert_eq!(git(&dir, &["status", "--porcelain"], None).unwrap(), "");
+        assert_eq!(upstream(&dir), (0, false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

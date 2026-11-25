@@ -199,6 +199,9 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// How far its branch is behind its upstream, and whether the
+    /// repository has an origin.
+    pub upstream: (usize, bool),
     /// The files (as git names them) you left out of the next commit.
     pub left_out: std::collections::BTreeSet<String>,
     /// How much of its thread there was when you last left it.
@@ -597,6 +600,7 @@ impl Session {
             parent: None,
             setup: Vec::new(),
             seen: None,
+            upstream: (0, true),
             left_out: std::collections::BTreeSet::new(),
             times: Vec::new(),
             stamp: None,

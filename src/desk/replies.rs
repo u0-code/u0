@@ -246,10 +246,12 @@ impl Desk {
                 key,
                 commits,
                 branches,
+                upstream,
             } => {
                 if let Some(s) = self.session_mut(key) {
                     s.commits = commits;
                     s.branches = branches;
+                    s.upstream = upstream;
                 }
             }
             Msg::Pr { key, pr } => {

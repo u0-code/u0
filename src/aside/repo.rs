@@ -324,7 +324,45 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx))),
             );
         }
-        Some(section(faces, "Commits", None).child(rows))
+        // Behind its upstream, or not on a remote yet: the way on.
+        let (behind, origin) = s.upstream;
+        let gh = crate::registry::which("gh").is_some();
+        let note = |text: String,
+                    id: &'static str,
+                    label: &'static str,
+                    action: fn() -> hub::GitAction| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .mt(px(6.))
+                .child(fine(faces, text).flex_1())
+                .child(
+                    ui::button(faces, id, label, Weight::Quiet)
+                        .h(px(24.))
+                        .on_click(cx.listener(move |this, _, _, cx| this.git_action(action(), cx))),
+                )
+        };
+        Some(
+            section(faces, "Commits", None)
+                .child(rows)
+                .when(behind > 0, |d| {
+                    d.child(note(
+                        format!("{behind} behind its upstream"),
+                        "pull",
+                        "Pull",
+                        || hub::GitAction::Pull,
+                    ))
+                })
+                .when(!origin && gh, |d| {
+                    d.child(note(
+                        "Not on GitHub yet".into(),
+                        "publish",
+                        "Publish, private",
+                        || hub::GitAction::Publish,
+                    ))
+                }),
+        )
     }
 
     /// The branch's pull request: its state, its checks, the review asked.

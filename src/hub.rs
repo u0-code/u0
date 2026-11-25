@@ -122,6 +122,8 @@ pub enum Msg {
         key: u64,
         commits: Vec<(String, String, String)>,
         branches: Vec<String>,
+        /// How far behind its upstream, and whether it has an origin.
+        upstream: (usize, bool),
     },
     /// The pull request of the branch a session works on, as `gh` says.
     Pr {
@@ -374,6 +376,12 @@ pub enum GitAction {
     RenameBranch(String),
     /// Merge the branch's pull request (squashed), as gh does.
     Merge,
+    /// Bring in what the upstream has.
+    Pull,
+    /// Make the folder a repository.
+    Init,
+    /// Put the repository on GitHub, private.
+    Publish,
 }
 
 impl GitAction {
@@ -387,6 +395,9 @@ impl GitAction {
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
             Self::Merge => "merge the pull request",
+            Self::Pull => "pull",
+            Self::Init => "make it a repository",
+            Self::Publish => "put it on GitHub",
         }
     }
 }
@@ -747,6 +758,7 @@ pub fn commits(dir: PathBuf, key: u64, tx: Sender) {
             key,
             commits: git::log(&dir, 12),
             branches: git::branches(&dir),
+            upstream: git::upstream(&dir),
         });
     });
 }
@@ -1177,6 +1189,11 @@ pub fn git_action(
             }),
             GitAction::Switch(b) => git::switch(&dir, b).map(|()| format!("On {b}")),
             GitAction::Merge => git::merge_pr(&dir).map(|_| "The pull request is merged".into()),
+            GitAction::Pull => git::pull(&dir).map(|_| "Pulled".into()),
+            GitAction::Init => {
+                git::init_here(&dir).map(|_| "It is a repository now, all of it committed".into())
+            }
+            GitAction::Publish => git::publish(&dir).map(|_| "It is on GitHub now, private".into()),
             GitAction::RenameBranch(b) => git::rename_branch(&dir, b).map(|()| b.clone()),
             GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
                 .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),

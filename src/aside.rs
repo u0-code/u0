@@ -196,6 +196,23 @@ impl Desk {
             )
             .children(Self::pull_request(faces, s, cx))
             .children(self.commits(faces, s, cx))
+            // A folder that is not a repository can be made one.
+            .when(!s.repo && crate::remote::parse(&s.project).is_none() && s.state != crate::session::State::Draft, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(16.))
+                        .py(px(12.))
+                        .child(fine(faces, "Not a git repository: turns are not checkpointed, nothing is committed.").flex_1())
+                        .child(
+                            ui::button(faces, "git-init", "Make it one", ui::Weight::Quiet)
+                                .h(px(24.))
+                                .on_click(cx.listener(|this, _, _, cx| this.git_action(hub::GitAction::Init, cx))),
+                        ),
+                )
+            })
             .child(Self::plan(faces, s))
             .child(Self::terminals(faces, s, cx))
             .child(self.context(faces, s, cx))
