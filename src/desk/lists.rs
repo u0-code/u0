@@ -87,6 +87,63 @@ impl Desk {
         });
     }
 
+    /// Put the session `moved` just before `before` in the list: among the
+    /// pinned if that one is pinned, else among the rest of its project.
+    pub fn move_session(&mut self, moved: u64, before: u64, cx: &mut Context<Self>) {
+        if moved == before {
+            return;
+        }
+        let Some(target) = self.sessions.iter().find(|s| s.key == before) else {
+            return;
+        };
+        let pinned = target.flags.pinned.is_some();
+        let project = target.project.clone();
+        let whole = pinned && self.settings.by_status;
+        let mut group: Vec<&Session> = self
+            .sessions
+            .iter()
+            .filter(|s| {
+                s.key != moved
+                    && s.flags.pinned.is_some() == pinned
+                    && (whole || s.project == project)
+                    && s.parent.is_none()
+            })
+            .collect();
+        group.sort_by_key(|s| (s.flags.pinned, s.flags.order, s.key));
+        let mut keys: Vec<u64> = group.iter().map(|s| s.key).collect();
+        let mut orders: Vec<i64> = group.iter().map(|s| s.flags.order).collect();
+        if let Some(m) = self.sessions.iter().find(|s| s.key == moved) {
+            orders.push(m.flags.order);
+        }
+        orders.sort_unstable();
+        let at = keys.iter().position(|k| *k == before).unwrap_or(keys.len());
+        keys.insert(at, moved);
+        for (n, key) in keys.into_iter().enumerate() {
+            if let Some(s) = self.session_mut(key) {
+                if pinned {
+                    s.flags.pinned = Some(i64::try_from(n).unwrap_or(0) + 1);
+                } else {
+                    s.flags.pinned = None;
+                    s.flags.order = orders.get(n).copied().unwrap_or(s.flags.order);
+                }
+            }
+        }
+        self.save_index();
+        cx.notify();
+    }
+
+    /// Change the flags of each session chosen with ⌘-click, then choose
+    /// none.
+    pub(crate) fn for_chosen(&mut self, cx: &mut Context<Self>, f: impl Fn(&mut store::Flags)) {
+        for key in std::mem::take(&mut self.chosen) {
+            if let Some(s) = self.session_mut(key) {
+                f(&mut s.flags);
+            }
+        }
+        self.save_index();
+        cx.notify();
+    }
+
     pub fn mark_unread(&mut self, key: u64, cx: &mut Context<Self>) {
         self.mark(key, cx, |f| f.unread = true);
     }

@@ -153,6 +153,8 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// The sessions chosen with ⌘-click in the sidebar.
+    pub chosen: std::collections::BTreeSet<u64>,
     /// The sidebar's edge is being dragged.
     pub resizing_left: bool,
     /// The composer opened tall, to write at length.
@@ -578,6 +580,7 @@ impl Desk {
             zoom: None,
             tall: false,
             resizing_left: false,
+            chosen: std::collections::BTreeSet::new(),
             menu_search,
             reading: None,
             reader,

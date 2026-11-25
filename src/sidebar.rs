@@ -409,6 +409,7 @@ impl Desk {
             .child(head)
             .child(new)
             .child(list)
+            .children(self.chosen_bar(faces, cx))
             .child(foot)
     }
 
@@ -737,10 +738,18 @@ impl Desk {
             card.push_str("\n\n");
             card.push_str(&l);
         }
+        let dragged = Dragged {
+            key,
+            title: SharedString::from(ui::fit(&title, 40)),
+        };
         let row = session_shell(group.clone(), on)
             .group(group.clone())
             .cursor_pointer()
             .when(!menu_open, |d| d.tooltip(ui::tip(card)))
+            // Dragged onto another, it goes before it.
+            .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
+            .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::hover()))
+            .on_drop(cx.listener(move |this, d: &Dragged, _, cx| this.move_session(d.key, key, cx)))
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
             .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
                 faces,
@@ -799,7 +808,21 @@ impl Desk {
                             })),
                     ),
             )
-            .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)));
+            // ⌘-click chooses it among others, to act on them together.
+            .when(self.chosen.contains(&key), |d| {
+                d.bg(theme::link().opacity(0.16))
+            })
+            .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                if e.modifiers().platform {
+                    if !this.chosen.remove(&key) {
+                        this.chosen.insert(key);
+                    }
+                    cx.notify();
+                } else {
+                    this.chosen.clear();
+                    this.show(key, window, cx);
+                }
+            }));
         let mut wrap = div().relative().child(row);
         if menu_open {
             wrap = wrap.child(gpui::deferred(
@@ -809,6 +832,91 @@ impl Desk {
             ));
         }
         wrap.into_any_element()
+    }
+
+    /// The sessions chosen with ⌘-click, and what can be done with all of
+    /// them at once.
+    fn chosen_bar(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        if self.chosen.is_empty() {
+            return None;
+        }
+        let act = |id: &'static str, label: &'static str| {
+            ui::button(faces, id, label, ui::Weight::Quiet)
+                .h(px(24.))
+                .px(px(7.))
+        };
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .mx(px(8.))
+                .mb(px(8.))
+                .p(px(8.))
+                .rounded(px(10.))
+                .bg(theme::panel())
+                .border_1()
+                .border_color(theme::border2())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .child(
+                            ui::text(faces, format!("{} chosen", self.chosen.len()))
+                                .flex_1()
+                                .text_size(px(12.5))
+                                .text_color(theme::text2()),
+                        )
+                        .child(
+                            ui::icon_button("chosen-clear", "x", "Choose none")
+                                .size(px(22.))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.chosen.clear();
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(2.))
+                        .child(act("chosen-done", "Done").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.for_chosen(cx, |f| {
+                                    f.settled = Some(crate::store::secs(SystemTime::now()));
+                                });
+                            },
+                        )))
+                        .child(act("chosen-snooze", "Snooze an hour").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                let at = crate::store::secs(
+                                    SystemTime::now() + std::time::Duration::from_secs(3600),
+                                );
+                                this.for_chosen(cx, |f| f.snoozed = Some(at));
+                            },
+                        )))
+                        .child(act("chosen-unread", "Unread").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.for_chosen(cx, |f| f.unread = true);
+                            },
+                        )))
+                        .child(act("chosen-unpin", "Unpin").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.for_chosen(cx, |f| f.pinned = None);
+                            },
+                        )))
+                        .child(act("chosen-delete", "Delete").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                let keys: Vec<u64> =
+                                    std::mem::take(&mut this.chosen).into_iter().collect();
+                                for key in keys {
+                                    this.delete_later(key, cx);
+                                }
+                            },
+                        ))),
+                ),
+        )
     }
 
     /// What can be done with a session: name it, pin it, mark it, put it
@@ -1193,4 +1301,27 @@ pub(crate) fn kbd(faces: &Faces, text: &'static str) -> Div {
         .text_size(px(10.5))
         .line_height(px(16.))
         .text_color(theme::faint())
+}
+
+/// A session's row being dragged, as it shows under the pointer.
+#[derive(Clone)]
+struct Dragged {
+    key: u64,
+    title: SharedString,
+}
+
+impl gpui::Render for Dragged {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(5.))
+            .rounded(px(8.))
+            .bg(theme::panel())
+            .border_1()
+            .border_color(theme::border2())
+            .shadow_lg()
+            .text_size(px(13.))
+            .text_color(theme::text())
+            .child(self.title.clone())
+    }
 }
