@@ -170,12 +170,8 @@ impl Shared {
         if let Some(agent) = self.running(id) {
             return Ok(agent);
         }
-        let entry = (registry::kept(&self.home)
-            .unwrap_or_default()
-            .agents
-            .into_iter())
-        .find(|e| e.id == id)
-        .ok_or_else(|| format!("{id} is not in the registry here"))?;
+        let entry = registry::entry_of(&registry::kept(&self.home).unwrap_or_default(), id)
+            .ok_or_else(|| format!("{id} is not in the registry here"))?;
         let settings = Settings::load(&self.home).0;
         let launch = registry::launch_with(
             &entry,

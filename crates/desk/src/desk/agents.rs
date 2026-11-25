@@ -243,10 +243,11 @@ impl Desk {
         for id in &self.settings.enabled {
             if let Some(at) = old.iter().position(|s| &s.entry.id == id) {
                 self.slots.push(old.remove(at));
-            } else if let Some(entry) = self.entry(id) {
+            } else if let Some(entry) = crate::registry::entry_of(&self.registry, id) {
                 self.slots.push(Slot::new(
-                    entry.clone(),
-                    self.here.get(id),
+                    entry,
+                    // An account beside the first is installed as its agent is.
+                    (self.here.get(id)).or_else(|| self.here.get(crate::registry::instance(id).0)),
                     self.settings.commands.get(id).cloned(),
                 ));
             }
@@ -513,6 +514,54 @@ impl Desk {
         self.save_settings();
         self.fill_slots();
         cx.notify();
+    }
+
+    /// Add another account of `agent`, named as typed: the agent switched
+    /// on once more under an id of its own, its CLI pointed at a folder of
+    /// its own (by the variable `registry::KNOWN` names), so that it signs
+    /// in apart; it starts with the variables `agent` has.
+    pub fn add_account(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.pages.account.read(cx).value().to_string();
+        let Some(id) = crate::registry::account_id(agent, &typed) else {
+            return;
+        };
+        let Some(var) = crate::registry::known(agent).and_then(|k| k.4) else {
+            return;
+        };
+        if self.settings.enabled.contains(&id) {
+            self.trouble(
+                format!("There is an account named “{}” already", typed.trim()),
+                None,
+                None,
+            );
+            return;
+        }
+        let mut env = self.settings.env.get(agent).cloned().unwrap_or_default();
+        let folder = self.home.join("accounts").join(&id);
+        env.insert(var.to_owned(), Some(folder.display().to_string()));
+        self.settings.env.insert(id.clone(), env);
+        if let Some(command) = self.settings.commands.get(agent).cloned() {
+            self.settings.commands.insert(id.clone(), command);
+        }
+        self.settings.toggle(&id);
+        self.save_settings();
+        self.fill_slots();
+        self.pages
+            .account
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        self.open_page(super::Page::Agent(id), window, cx);
+    }
+
+    /// Take the account `id` away: switched off, and its variables and
+    /// command forgotten. Its folder, with its sign-in, stays.
+    pub fn drop_account(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let agent = crate::registry::instance(id).0.to_owned();
+        self.settings.enabled.retain(|e| e != id);
+        self.settings.env.remove(id);
+        self.settings.commands.remove(id);
+        self.save_settings();
+        self.fill_slots();
+        self.open_page(super::Page::Agent(agent), window, cx);
     }
 
     /// Read the registry again.

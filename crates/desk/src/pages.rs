@@ -64,6 +64,8 @@ pub struct Pages {
     pub var_name: Entity<InputState>,
     pub var_value: Entity<InputState>,
     pub var_secret: bool,
+    /// The name of another account of an agent, as it is typed.
+    pub account: Entity<InputState>,
     /// The project whose page Settings → Projects shows, if one.
     pub project: Option<std::path::PathBuf>,
     /// Your instructions to the writer, by what it writes.
@@ -153,6 +155,7 @@ impl Pages {
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
             var_name: field("NAME", window, cx),
+            account: field("Work", window, cx),
             var_value: cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder("value, or op://vault/item/field")
@@ -755,6 +758,7 @@ impl Desk {
             "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
         ));
         own = own.child(self.agent_vars(faces, id, cx));
+        own = own.child(self.agent_accounts(faces, id, cx));
         // The version of ACP it speaks, where it is not Ghost's.
         if let Stage::Running { .. } = stage
             && let Some(init) = self.slot(id).and_then(|s| s.known.as_ref())
@@ -767,6 +771,88 @@ impl Desk {
             ));
         }
         own
+    }
+
+    /// The accounts of the agent `id`: each signs in apart, its CLI's
+    /// settings in a folder of its own; a line to add one. None where
+    /// Ghost does not know where its CLI keeps them.
+    fn agent_accounts(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
+        let agent = crate::registry::instance(id).0.to_owned();
+        if crate::registry::known(&agent).and_then(|k| k.4).is_none() {
+            return div();
+        }
+        let mut list = card().overflow_hidden();
+        let accounts: Vec<&String> = (self.settings.enabled.iter())
+            .filter(|e| crate::registry::instance(e).0 == agent && **e != agent)
+            .collect();
+        for (n, account) in accounts.iter().enumerate() {
+            let (open, drop) = ((*account).clone(), (*account).clone());
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(12.))
+                    .py(px(6.))
+                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                    .child(ui::mark(faces, &self.mark_of(account), 16.))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("account-{n}")))
+                            .flex_1()
+                            .cursor_pointer()
+                            .child(ui::text(faces, self.name_of(account)).text_size(px(13.)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_page(crate::desk::Page::Agent(open.clone()), window, cx);
+                            })),
+                    )
+                    .child(ui::fine(
+                        faces,
+                        match self.slot(account).map(|s| &s.auth) {
+                            Some(crate::hub::Auth::Ready) => "signed in",
+                            Some(crate::hub::Auth::Needed(_)) => "needs sign-in",
+                            _ => "",
+                        },
+                    ))
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("drop-account-{n}")),
+                            "x",
+                            "Take it away",
+                        )
+                        .size(px(22.))
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.drop_account(&drop, window, cx);
+                            },
+                        )),
+                    ),
+            );
+        }
+        let base = agent.clone();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .pt(px(8.))
+            .child(ui::label(faces, "Accounts"))
+            .when(!accounts.is_empty(), |d| d.child(list))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().w(px(180.)).child(Input::new(&self.pages.account).small()))
+                    .child(
+                        ui::button("add-account", "Add an account", Weight::Secondary).on_click(
+                            cx.listener(move |this, _, window, cx| this.add_account(&base, window, cx)),
+                        ),
+                    ),
+            )
+            .child(ui::fine(
+                faces,
+                "Another account is the agent run again with its own sign-in and settings, side by side with this one: a session begun in it stays with it.",
+            ))
     }
 
     /// The variables the agent `id` starts with, a secret one's value

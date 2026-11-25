@@ -39,8 +39,9 @@ change is held to these rules.
    ACP registry's; never a table of agents in code, but one
    (`registry::KNOWN`): what the registry does not say of an agent (the CLI
    its adapter drives and the variable that points it at yours, whether it
-   is on at first, its brand's colour). Each other fact is defined once and
-   referenced everywhere else.
+   is on at first, its brand's colour, the variable naming the folder its
+   CLI keeps its sign-in in, which another account of it points elsewhere).
+   Each other fact is defined once and referenced everywhere else.
 3. **No second mechanism.** Before adding a check, gate, retry, cache,
    second pass or fallback, show that stating the rule once at its source
    does not work.

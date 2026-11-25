@@ -382,7 +382,7 @@ impl Desk {
     /// The mark of the agent `id`: its logo where the home holds one (an
     /// agent on another machine shows its own), else its initial.
     pub(crate) fn mark_of(&self, id: &str) -> Mark {
-        let agent = crate::remote::split(id).0;
+        let agent = crate::registry::instance(crate::remote::split(id).0).0;
         if self.registry.logos.contains(agent) {
             return Mark::Logo(agent.to_owned().into());
         }

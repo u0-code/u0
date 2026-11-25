@@ -186,13 +186,19 @@ impl Entry {
         }
     }
 
+    /// The registry's id of the agent it is: an account of an agent beside
+    /// the first is that agent, run apart (see [`instance`]).
+    pub fn base(&self) -> &str {
+        instance(&self.id).0
+    }
+
     /// Where its archive is unpacked.
     pub fn dir(&self, home: &Path) -> PathBuf {
         self.dir_of(home, &self.version)
     }
 
     fn dir_of(&self, home: &Path, version: &str) -> PathBuf {
-        home.join("agents").join(&self.id).join(version)
+        home.join("agents").join(self.base()).join(version)
     }
 
     /// The version of its archive on this machine: the registry's when it
@@ -202,7 +208,7 @@ impl Entry {
         if self.program_in(&self.dir(home)).is_some() {
             return Some(self.version.clone());
         }
-        std::fs::read_dir(home.join("agents").join(&self.id))
+        std::fs::read_dir(home.join("agents").join(self.base()))
             .ok()?
             .flatten()
             .filter(|e| e.path().extension().is_none_or(|x| x != "partial"))
@@ -253,7 +259,7 @@ impl Entry {
 
     /// Take its archives off this machine.
     pub fn uninstall(&self, home: &Path) -> Result<(), String> {
-        let dir = home.join("agents").join(&self.id);
+        let dir = home.join("agents").join(self.base());
         match std::fs::remove_dir_all(&dir) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 Err(format!("{} could not be removed: {e}", dir.display()))
@@ -403,12 +409,15 @@ const PROGRAM: &str = "program";
 /// - the colour its logo is drawn in, on the dark ground and the light:
 ///   GPUI draws an icon in one colour, so each gets its brand's own,
 ///   deepened on the light ground to keep 3:1 there; a mark that is black
-///   has none and is drawn in the text colour.
+///   has none and is drawn in the text colour;
+/// - the variable that names the folder its CLI keeps its sign-in and
+///   settings in: another account of it is the agent run with its own.
 type Known = (
     &'static str,
     Option<(&'static str, &'static str)>,
     bool,
     Option<(u32, u32)>,
+    Option<&'static str>,
 );
 pub const KNOWN: [Known; 6] = [
     (
@@ -416,22 +425,69 @@ pub const KNOWN: [Known; 6] = [
         Some(("claude", "CLAUDE_CODE_EXECUTABLE")),
         true,
         Some((0xD977_57, 0xD977_57)),
+        Some("CLAUDE_CONFIG_DIR"),
     ),
-    ("codex-acp", Some(("codex", "CODEX_PATH")), true, None),
-    ("antigravity-acp", None, true, Some((0x8FBD_FF, 0x3C7B_E0))),
-    ("gemini", None, false, Some((0xA99B_FA, 0x6B5B_D6))),
-    ("opencode", None, false, Some((0xB4B4_B4, 0x6E6E_6E))),
+    (
+        "codex-acp",
+        Some(("codex", "CODEX_PATH")),
+        true,
+        None,
+        Some("CODEX_HOME"),
+    ),
+    (
+        "antigravity-acp",
+        None,
+        true,
+        Some((0x8FBD_FF, 0x3C7B_E0)),
+        None,
+    ),
+    ("gemini", None, false, Some((0xA99B_FA, 0x6B5B_D6)), None),
+    ("opencode", None, false, Some((0xB4B4_B4, 0x6E6E_6E)), None),
     (
         "github-copilot-cli",
         None,
         false,
         Some((0xC4C4_C4, 0x6E6E_6E)),
+        None,
     ),
 ];
 
-/// What Ghost knows of the agent with this id, if anything.
+/// What Ghost knows of the agent with this id (or an account of it), if
+/// anything.
 pub fn known(id: &str) -> Option<&'static Known> {
-    KNOWN.iter().find(|k| k.0 == id)
+    KNOWN.iter().find(|k| k.0 == instance(id).0)
+}
+
+/// An agent's id, and the account of it it names, if not the first: an
+/// account beside the first is `<id>+<account>`, the agent run with the
+/// variable [`KNOWN`] names pointed at a folder of its own.
+pub fn instance(id: &str) -> (&str, Option<&str>) {
+    match id.split_once('+') {
+        Some((agent, account)) => (agent, Some(account)),
+        None => (id, None),
+    }
+}
+
+/// The id of the account `account` of the agent `agent`: its name made a
+/// word of letters, digits and dashes.
+pub fn account_id(agent: &str, account: &str) -> Option<String> {
+    let word: String = (account.trim().to_lowercase().chars())
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let word = word.trim_matches('-');
+    (!word.is_empty()).then(|| format!("{}+{word}", instance(agent).0))
+}
+
+/// The entry of the agent `id` in `registry`: for an account beside the
+/// first, its agent's, under its own id and named for it.
+pub fn entry_of(registry: &Registry, id: &str) -> Option<Entry> {
+    let (agent, account) = instance(id);
+    let mut entry = registry.agents.iter().find(|e| e.id == agent)?.clone();
+    if let Some(account) = account {
+        id.clone_into(&mut entry.id);
+        entry.name = format!("{} ({account})", entry.name);
+    }
+    Some(entry)
 }
 
 /// What installs a runner's package: npm for npx's, uv for uvx's.
@@ -703,6 +759,29 @@ mod tests {
 
     fn entry(json: &str) -> Entry {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn another_account_is_its_agent_under_an_id_and_name_of_its_own_installed_once() {
+        let registry = Registry {
+            agents: vec![entry(
+                r#"{"id":"claude-acp","name":"Claude","version":"1","distribution":{}}"#,
+            )],
+            ..Registry::default()
+        };
+        let id = account_id("claude-acp", " My Work! ").unwrap();
+        assert_eq!(id, "claude-acp+my-work");
+        assert_eq!(account_id("claude-acp", " !! "), None);
+        let work = entry_of(&registry, &id).unwrap();
+        assert_eq!(
+            (work.name.as_str(), work.base()),
+            ("Claude (my-work)", "claude-acp")
+        );
+        let home = Path::new("/h");
+        assert_eq!(work.dir(home), registry.agents[0].dir(home));
+        // Its CLI keeps its sign-in where the variable Ghost knows points.
+        assert_eq!(known(&id).and_then(|k| k.4), Some("CLAUDE_CONFIG_DIR"));
+        assert!(entry_of(&registry, "codex-acp+x").is_none());
     }
 
     #[test]
