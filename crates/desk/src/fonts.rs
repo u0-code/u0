@@ -1,8 +1,8 @@
-//! Three faces: a sans for the interface, a mono for code and every
-//! number, and a serif for what an agent says.
+//! Two faces: a sans for the interface and what an agent says, and a mono
+//! for code and every number.
 //!
-//! They are the faces of the thread's design: `Inter`, `JetBrains Mono` and
-//! `Source Serif 4`, open fonts shipped in `assets/fonts/` as static
+//! They are the faces of the thread's design: `Inter` and `JetBrains
+//! Mono`, open fonts shipped in `assets/fonts/` as static
 //! instances (GPUI does not set a variable font's weight). They are built
 //! into the binary, so that the app reads nothing from the checkout as it
 //! opens: when the checkout is under a folder macOS guards, such as the
@@ -25,7 +25,6 @@ use gpui::{App, FontFallbacks, FontWeight, Global, SharedString, Styled};
 pub struct Faces {
     pub ui: SharedString,
     pub mono: SharedString,
-    pub serif: SharedString,
 }
 
 impl Global for Faces {}
@@ -42,10 +41,6 @@ const SHIPPED: &[(&str, &[u8])] = shipped![
     "Inter-500.ttf",
     "Inter-600.ttf",
     "JetBrainsMono-400.ttf",
-    "SourceSerif4-400.ttf",
-    "SourceSerif4-400-Italic.ttf",
-    "SourceSerif4-600.ttf",
-    "SourceSerif4-700.ttf",
 ];
 
 /// Add what is shipped, then pick a face for each voice.
@@ -68,7 +63,6 @@ pub fn load(cx: &mut App) {
     cx.set_global(Faces {
         ui: pick(&["Inter", ".SystemUIFont", "Helvetica Neue"]),
         mono: pick(&["JetBrains Mono", "SF Mono", "Menlo"]),
-        serif: pick(&["Source Serif 4", "Georgia"]),
     });
 }
 

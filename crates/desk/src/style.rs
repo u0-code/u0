@@ -28,11 +28,10 @@ pub const CAPTION: f32 = 12.;
 pub const META: f32 = 12.5;
 /// Commands, paths and what they printed.
 pub const MONO: f32 = 13.;
-/// Body text: what you said, the agent's words (in the serif), a step ("Ran
-/// python3…"), whose verb is grey and thing is white, which is enough to
-/// set it apart.
+/// Body text: what you said, a step ("Ran python3…"), whose verb is grey
+/// and thing is white, which is enough to set it apart.
 pub const BODY: f32 = 14.;
-/// An agent's prose, in the serif.
+/// An agent's prose, in the sans, as Claude now sets it.
 pub const PROSE: f32 = 15.;
 pub const PROSE_LINE: f32 = 23.;
 pub const MONO_LINE: f32 = 19.;

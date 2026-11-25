@@ -84,18 +84,12 @@ impl Desk {
                 _ => false,
             },
             matches!(s.state, State::Working | State::Opening),
-            self.settings.calls == crate::settings::Calls::Folded,
+            self.settings.view != crate::settings::View::Verbose,
         );
-        // Only what was said, if you asked for it: the work is left out.
-        let rows: Vec<fold::Row> = if self.settings.calls == crate::settings::Calls::Hidden {
+        // Its thinking is left out of the normal view.
+        let rows: Vec<fold::Row> = if self.settings.view == crate::settings::View::Normal {
             rows.into_iter()
-                .filter(|r| match r {
-                    fold::Row::Item(i) => !matches!(
-                        s.items[*i],
-                        Item::Tool(_) | Item::Thought { .. } | Item::Plan(_)
-                    ),
-                    _ => false,
-                })
+                .filter(|r| !matches!(r, fold::Row::Item(i) if matches!(s.items[*i], Item::Thought { .. })))
                 .collect()
         } else {
             rows
@@ -189,7 +183,7 @@ impl Desk {
                     _ => false,
                 },
                 matches!(s.state, State::Working | State::Opening),
-                self.settings.calls == crate::settings::Calls::Folded,
+                self.settings.view != crate::settings::View::Verbose,
             );
             for row in rows {
                 match row {
@@ -431,23 +425,23 @@ impl Desk {
                 secs,
                 open,
             } => {
-                let summary = fold::summary(&s.items[*from..*to]);
-                let mut words = match secs {
-                    Some(secs) => format!(
-                        "Worked for {}",
-                        when::took(std::time::Duration::from_secs(*secs))
-                    ),
-                    None => "Worked".to_owned(),
-                };
-                if !summary.is_empty() {
-                    words = format!("{words} · {summary}");
+                let mut words = fold::summary(&s.items[*from..*to]);
+                if words.is_empty() {
+                    "Worked".clone_into(&mut words);
                 }
-                Self::fold_row(faces, fold::turn_key(s.key, *from), &words, *open, cx)
+                let took = (*secs).map(|secs| {
+                    format!(
+                        "The turn took {}",
+                        when::took(std::time::Duration::from_secs(secs))
+                    )
+                });
+                Self::fold_row(faces, fold::turn_key(s.key, *from), &words, took, *open, cx)
             }
             fold::Row::Group { from, to, open } => Self::fold_row(
                 faces,
                 fold::group_key(s.key, *from),
                 &fold::summary(&s.items[*from..*to]),
+                None,
                 *open,
                 cx,
             ),

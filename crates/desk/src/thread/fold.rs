@@ -1,7 +1,8 @@
-//! What of a thread is folded away, as t3code folds it: a turn that is over
-//! becomes one line ("Worked for 2m 10s · Read 3 files and ran 2
-//! commands") between what you said and what the agent finally answered,
-//! and inside a turn opened again, a run of three or more quiet tool calls
+//! What of a thread is folded away, as Claude folds it: in a turn that is
+//! over, the agent's work from its first call to its answer becomes one
+//! line ("Read 3 files, ran 2 commands, and 4 more steps"); what it said
+//! before that call and its answer stay out. Inside a fold opened again,
+//! a run of three or more quiet tool calls
 //! becomes one line of its own. A turn still going on is never folded: it
 //! is what you are watching. A turn loaded from an agent has no end
 //! marked; it is over when another follows it or nothing is going on.
@@ -91,8 +92,16 @@ pub fn rows(
             }
             None => None,
         };
+        // What the agent said before its first call stays out too.
+        let work = work.map(|(from, to, e)| {
+            let first = (from..to)
+                .find(|&k| !matches!(items[k], Item::Agent(_)))
+                .unwrap_or(to);
+            out.extend((from..first).map(Row::Item));
+            (first, to, e)
+        });
         match work {
-            Some((from, to, e)) if fold_turns && to - from >= 2 => {
+            Some((from, to, e)) if fold_turns && to > from => {
                 let secs = match items.get(e) {
                     Some(Item::Ended { secs, .. }) => Some(*secs),
                     _ => None,
@@ -109,8 +118,8 @@ pub fn rows(
                 }
                 out.extend((to..end).map(Row::Item));
             }
-            Some(_) => {
-                grouped(session, items, i + 1, end, expanded, &open_call, &mut out);
+            Some((from, ..)) => {
+                grouped(session, items, from, end, expanded, &open_call, &mut out);
             }
             // Going on: every row shows.
             None => out.extend((i + 1..end).map(Row::Item)),
@@ -186,29 +195,37 @@ pub fn summary(items: &[Item]) -> String {
             _ => other += 1,
         }
     }
-    let count = |n: usize, one: &str, many: &str| match n {
+    let count = |n: usize, verb: &str, one: &str, many: &str| match n {
         0 => None,
-        1 => Some(one.to_owned()),
-        n => Some(format!("{n} {many}")),
+        1 => Some((n, format!("{verb} {one}"))),
+        n => Some((n, format!("{verb} {n} {many}"))),
     };
-    let parts: Vec<String> = [
-        count(read, "1 file", "files").map(|x| format!("read {x}")),
-        count(edited, "1 file", "files").map(|x| format!("edited {x}")),
-        count(created, "1 file", "files").map(|x| format!("created {x}")),
-        count(deleted, "1 file", "files").map(|x| format!("deleted {x}")),
-        count(ran, "1 command", "commands").map(|x| format!("ran {x}")),
-        count(searched, "once", "times").map(|x| format!("searched {x}")),
-        count(fetched, "1 page", "pages").map(|x| format!("fetched {x}")),
-        count(other, "1 tool", "tools").map(|x| format!("used {x}")),
+    let parts: Vec<(usize, String)> = [
+        count(read, "read", "a file", "files"),
+        count(edited, "edited", "a file", "files"),
+        count(created, "created", "a file", "files"),
+        count(deleted, "deleted", "a file", "files"),
+        count(ran, "ran", "a command", "commands"),
+        count(searched, "searched", "once", "times"),
+        count(fetched, "fetched", "a page", "pages"),
+        count(other, "used", "a tool", "tools"),
     ]
     .into_iter()
     .flatten()
     .collect();
-    let mut text = match parts.len() {
-        0 => return String::new(),
-        1 => parts[0].clone(),
-        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
-    };
+    if parts.is_empty() {
+        return String::new();
+    }
+    // Two kinds named and the rest counted, past three, as Claude says it.
+    let named = if parts.len() > 3 { 2 } else { parts.len() };
+    let mut words: Vec<String> = parts[..named].iter().map(|(_, p)| p.clone()).collect();
+    let rest: usize = parts[named..].iter().map(|(n, _)| n).sum();
+    match rest {
+        0 => {}
+        1 => words.push("and 1 more step".to_owned()),
+        n => words.push(format!("and {n} more steps")),
+    }
+    let mut text = words.join(", ");
     if let Some(first) = text.get_mut(..1) {
         first.make_ascii_uppercase();
     }
@@ -275,7 +292,54 @@ mod tests {
         );
         assert_eq!(
             summary(&s.items[1..5]),
-            "Read 2 files, ran 1 command and searched once"
+            "Read 2 files, ran a command, searched once"
+        );
+    }
+
+    #[test]
+    fn what_the_agent_said_before_its_first_call_stays_out_of_the_fold() {
+        let mut s = Session::new(7, "x", "/r".into());
+        s.said("go");
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking."}}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#).unwrap());
+        s.ended(Ok(agent_client_protocol::v1::schema::StopReason::EndTurn));
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        assert_eq!(
+            rows[..3],
+            [
+                Row::Item(0),
+                Row::Item(1),
+                Row::Turn {
+                    from: 2,
+                    to: 3,
+                    secs: Some(0),
+                    open: false
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn past_three_kinds_the_rest_are_counted_as_more_steps() {
+        let mut s = Session::new(7, "x", "/r".into());
+        for (id, kind) in [
+            ("a", "read"),
+            ("b", "edit"),
+            ("c", "execute"),
+            ("d", "fetch"),
+            ("e", "fetch"),
+        ] {
+            s.apply(
+                serde_json::from_str(&format!(
+                    r#"{{"sessionUpdate":"tool_call","toolCallId":"{id}","title":"t","kind":"{kind}","status":"completed"}}"#
+                ))
+                .unwrap(),
+            );
+        }
+        assert_eq!(
+            summary(&s.items),
+            "Read a file, edited a file, and 3 more steps"
         );
     }
 

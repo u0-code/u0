@@ -109,10 +109,9 @@ pub struct Settings {
     /// ⌘Return sends what you write, and Return breaks the line.
     #[serde(default)]
     pub cmd_sends: bool,
-    /// How the work an agent did in a turn (its calls, its thinking) shows
-    /// in the thread.
+    /// How an agent's work shows in the thread: Claude's transcript views.
     #[serde(default)]
-    pub calls: Calls,
+    pub view: View,
     /// What a worktree's branch begins with, before the session's title.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
@@ -137,15 +136,28 @@ pub enum Notify {
     BannerAndSound,
 }
 
-/// How an agent's work shows in the thread: every call; a finished
-/// turn's work folded into one line; or none, only what was said.
+/// How an agent's work shows in the thread, as Claude's transcript views
+/// name them: each run of its calls folded into a line, its answers in
+/// full; that, and its thinking; every call and step.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Calls {
-    Shown,
+pub enum View {
     #[default]
-    Folded,
-    Hidden,
+    Normal,
+    Thinking,
+    Verbose,
+}
+
+impl View {
+    /// The view after this one, as ⌃O goes round them.
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::Normal => Self::Thinking,
+            Self::Thinking => Self::Verbose,
+            Self::Verbose => Self::Normal,
+        }
+    }
 }
 
 /// The face code is set in: the one shipped, or one macOS has.
@@ -269,7 +281,7 @@ impl Default for Settings {
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),
-            calls: Calls::default(),
+            view: View::default(),
             cmd_sends: false,
             left: left(),
             diff_wrap: yes(),

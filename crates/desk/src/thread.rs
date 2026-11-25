@@ -836,6 +836,15 @@ impl Desk {
                 let after = idle && s.through(i).is_some() && self.can_fork(s);
                 let at = s.key;
                 let (copy, quoted) = (text.clone(), text.clone());
+                // When it was said is in each icon's tip, as Claude keeps
+                // the row to its icons.
+                let said = s
+                    .time_of(i)
+                    .map(|t| when::said_at(t, std::time::SystemTime::now(), self.settings.twelve));
+                let tip = |t: &str| {
+                    said.as_ref()
+                        .map_or_else(|| t.to_owned(), |w| format!("{t} · {w}"))
+                };
                 div()
                     .flex()
                     .flex_col()
@@ -853,7 +862,7 @@ impl Desk {
                             .px(px(6.))
                             .invisible()
                             .group_hover(group, Styled::visible)
-                            .child(Self::under(&key, "copy", "copy", "Copy").on_click(
+                            .child(Self::under(&key, "copy", "copy", tip("Copy")).on_click(
                                 move |_, _, cx| {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                                         copy.clone(),
@@ -861,23 +870,30 @@ impl Desk {
                                 },
                             ))
                             .child(
-                                Self::under(&key, "choose", "list", "Choose words from it")
+                                Self::under(&key, "choose", "list", tip("Choose words from it"))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.read_from(at, i, window, cx);
                                     })),
                             )
                             .child(
-                                Self::under(&key, "quote", "reply", "Quote in your reply")
+                                Self::under(&key, "quote", "reply", tip("Quote in your reply"))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.quote(&quoted, window, cx);
                                     })),
                             )
                             .when(after, |d| {
                                 d.child(
-                                    Self::under(&key, "after", "branch", "Branch off after this")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                    Self::under(
+                                        &key,
+                                        "after",
+                                        "branch",
+                                        tip("Branch off after this"),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
                                             this.fork_after(at, i, cx);
-                                        })),
+                                        },
+                                    )),
                                 )
                             })
                             .when(after && s.beside.is_none(), |d| {
@@ -886,7 +902,7 @@ impl Desk {
                                         &key,
                                         "beside",
                                         "bulb",
-                                        "Ask a side question of it",
+                                        tip("Ask a side question of it"),
                                     )
                                     .on_click(cx.listener(
                                         move |this, _, _, cx| {
@@ -894,18 +910,7 @@ impl Desk {
                                         },
                                     )),
                                 )
-                            })
-                            .children(s.time_of(i).map(|t| {
-                                meta(
-                                    faces,
-                                    when::said_at(
-                                        t,
-                                        std::time::SystemTime::now(),
-                                        self.settings.twelve,
-                                    ),
-                                )
-                                .ml(px(6.))
-                            })),
+                            }),
                     )
                     .into_any_element()
             }
@@ -944,8 +949,7 @@ impl Desk {
                                 .border_l_1()
                                 .border_color(theme::tag_line())
                                 .child(
-                                    ui::serif(faces, text.clone())
-                                        .italic()
+                                    ui::text(faces, text.clone())
                                         .text_size(px(14.))
                                         .line_height(px(21.))
                                         .text_color(theme::muted()),
@@ -1293,7 +1297,7 @@ impl Desk {
     }
 
     /// A small button under a message.
-    fn under(key: &str, what: &str, icon: &str, tip: &'static str) -> Button {
+    fn under(key: &str, what: &str, icon: &str, tip: impl Into<SharedString>) -> Button {
         ui::icon_button(SharedString::from(format!("{key}-{what}")), icon, tip)
             .size(px(24.))
             .text_color(theme::faint())
@@ -1353,31 +1357,48 @@ impl Desk {
             })
     }
 
-    /// A folded stretch of the thread, as one line: a chevron, and what
-    /// was done in it. A click opens or folds it.
+    /// A folded stretch of the thread, as Claude sets it: what was done in
+    /// it in one muted line, a chevron at its end. A click opens or folds
+    /// it; `tip` says more on hover.
     fn fold_row(
         faces: &Faces,
         key: String,
         words: &str,
+        tip: Option<String>,
         open: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let toggle = key.clone();
-        step()
+        div()
             .id(SharedString::from(key))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .px(px(10.))
+            .py(px(2.))
             .cursor_pointer()
-            .rounded(px(8.))
-            .hover(|st| st.bg(theme::hover()))
-            .child(icon(if open {
-                "chevron-down"
-            } else {
-                "chevron-right"
-            }))
             .child(
-                ui::one_line(verb(faces, ui::fit(words, 90)))
-                    .w_auto()
-                    .min_w(px(0.)),
+                ui::one_line(
+                    ui::text(faces, ui::fit(words, 90))
+                        .text_size(px(crate::style::PROSE))
+                        .text_color(theme::muted()),
+                )
+                .w_auto()
+                .min_w(px(0.)),
             )
+            .child(
+                ui::icon(
+                    if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    },
+                    14.,
+                )
+                .flex_none()
+                .text_color(theme::faint()),
+            )
+            .when_some(tip, |d, tip| d.tooltip(ui::tip(tip)))
             .on_click(cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)))
             .into_any_element()
     }

@@ -1,16 +1,19 @@
-//! The bar over the middle: what is on screen, and whether it is running.
+//! The bar over the middle: the session's title and its menu, the terminal
+//! and the right column.
 
-use gpui::component::{Sizable as _, input::Input};
+use gpui::component::{
+    Selectable as _, Sizable as _, input::Input, list::ListItem, separator::Separator,
+};
 use gpui::{Context, Div, div, prelude::*, px};
 
 use super::meta;
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, Page, Renaming, TOPBAR, draggable},
+    desk::{Desk, Page, Popup, Renaming, TOPBAR, draggable},
     fonts::Faces,
     hub::Stage,
-    session::State,
-    theme, ui, when,
+    settings::View,
+    theme, ui,
 };
 
 impl Desk {
@@ -61,35 +64,14 @@ impl Desk {
         match &self.page {
             Page::Thread => {
                 if let Some(s) = self.session() {
-                    let name = self.name_of(&s.meta.agent);
-                    // A worktree is named for its repository: its own folder
-                    // is named for its branch, which follows.
-                    let dir = s.meta.worktree.as_ref().map_or(&s.meta.folder, |w| &w.repo);
-                    let folder = dir.file_name().map_or_else(
-                        || dir.display().to_string(),
-                        |n| n.to_string_lossy().into_owned(),
-                    );
-                    let mut place = format!("{name} · {folder}");
-                    if let Some(b) = &s.branch {
-                        place.push_str(" · ");
-                        place.push_str(b);
-                    }
-                    let shown = if s.items.is_empty() {
-                        format!("New session with {name}")
+                    // The title alone, as Claude sets it: a click renames
+                    // it where it is, its caret opens the session's menu.
+                    let new = s.items.is_empty();
+                    let shown = if new {
+                        "New session".to_owned()
                     } else {
-                        s.meta.title.clone()
+                        ui::fit(&s.meta.title, ui::cols(pane - 200.))
                     };
-                    // The title first, then where it works in what room is
-                    // left: beside them the mark, the state and the buttons.
-                    let room = ui::cols(pane - 240.);
-                    let shown = ui::fit(&shown, 48.min(room * 3 / 5));
-                    let place = ui::fit(
-                        &place,
-                        room.saturating_sub(
-                            unicode_width::UnicodeWidthStr::width(shown.as_str()) + 2,
-                        ),
-                    );
-                    // A double click on the title renames it where it is.
                     let key = s.key;
                     let here = Renaming::Session { key, here: true };
                     let named: gpui::AnyElement = if self.renaming.as_ref() == Some(&here) {
@@ -100,65 +82,67 @@ impl Desk {
                     } else {
                         div()
                             .id("title")
-                            .flex_none()
-                            .child(title(shown))
-                            // Not the bar's: a double click here renames, it
-                            // does not zoom the window.
+                            .flex_shrink_1()
+                            .min_w(px(0.))
+                            .child(ui::one_line(
+                                ui::text(faces, shown)
+                                    .text_size(px(14.))
+                                    .text_color(if new { theme::muted() } else { theme::text() }),
+                            ))
+                            // Not the bar's: a click here renames, it does
+                            // not move the window.
                             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
                             })
-                            .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
-                                if e.click_count() == 2 {
-                                    this.begin_rename(
-                                        Renaming::Session { key, here: true },
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }))
+                            .when(!new, |d| {
+                                d.cursor_text()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.begin_rename(
+                                            Renaming::Session { key, here: true },
+                                            window,
+                                            cx,
+                                        );
+                                    }))
+                            })
                             .into_any_element()
                     };
+                    let caret = ui::icon_button("title-menu", "chevron-down", "This session")
+                        .size(px(22.))
+                        .text_color(theme::faint());
+                    let faces = faces.clone();
                     bar = bar
-                        .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
                         .child(named)
-                        .child(
-                            ui::one_line(meta(faces, place))
-                                .w_auto()
-                                .min_w(px(0.))
-                                .flex_shrink_1(),
-                        )
+                        .child(self.menu(
+                            Popup::Title,
+                            caret,
+                            move |d, _, cx| d.title_menu(&faces, cx),
+                            cx,
+                        ))
                         .child(div().flex_1());
-                    if let (State::Working, Some(since)) = (&s.state, s.since) {
-                        bar = bar.child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .gap(px(6.))
-                                .h(px(26.))
-                                .px(px(8.))
-                                .child(ui::live_dot())
-                                .child(
-                                    ui::text(
-                                        faces,
-                                        format!("Running · {}", when::took(since.elapsed())),
-                                    )
-                                    .text_size(px(12.5))
-                                    .text_color(theme::accent()),
-                                ),
-                        );
-                    }
                 } else {
                     bar = bar.child(div().flex_1());
                 }
-                bar = bar.child(
-                    ui::icon_button(
-                        "toggle-aside",
-                        "panel-right",
-                        "Show or hide the right column",
+                bar = bar
+                    .child(
+                        ui::icon_button(
+                            "toggle-drawer",
+                            "terminal",
+                            crate::keys::hint(cx, "Terminal", "drawer"),
+                        )
+                        .selected(self.drawer.open)
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx)),
+                        ),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
-                );
+                    .child(
+                        ui::icon_button(
+                            "toggle-aside",
+                            "panel-right",
+                            crate::keys::hint(cx, "Show or hide the right column", "right_column"),
+                        )
+                        .selected(self.panes.right)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
+                    );
             }
             Page::Agent(id) => {
                 let name = self.name_of(id);
@@ -180,5 +164,87 @@ impl Desk {
             }
         }
         bar
+    }
+
+    /// Under the title's caret: how the transcript shows (⌃O goes round),
+    /// then the session's folder in your editor, its id and pull request
+    /// to copy, and archiving it.
+    fn title_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let Some(s) = self.session() else {
+            return div();
+        };
+        let row = |id: &'static str, says: &str| {
+            ListItem::new(id)
+                .h(px(28.))
+                .px(px(8.))
+                .rounded(px(6.))
+                .child(ui::text(faces, says.to_owned()).text_size(px(13.)))
+        };
+        let mut menu = div().flex().flex_col().w(px(240.)).child(
+            ui::text(faces, "Transcript view")
+                .px(px(8.))
+                .pt(px(4.))
+                .pb(px(4.))
+                .text_size(px(12.))
+                .text_color(theme::faint()),
+        );
+        for (id, says, view) in [
+            ("view-normal", "Normal", View::Normal),
+            ("view-thinking", "Thinking", View::Thinking),
+            ("view-verbose", "Verbose", View::Verbose),
+        ] {
+            let on = self.settings.view == view;
+            menu = menu.child(
+                row(id, says)
+                    .when(on, |d| {
+                        d.suffix(|_, _| ui::icon("check", 13.).text_color(theme::text2()))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_view(view, cx))),
+            );
+        }
+        let (key, pr) = (s.key, s.git.pr.as_ref().map(|p| p.url.clone()));
+        menu = menu
+            .child(Separator::horizontal().my(px(4.)))
+            .child(
+                row("title-editor", "Open in your editor").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        if let Some(s) = this.session() {
+                            this.edit(s.meta.folder.clone(), None);
+                        }
+                    },
+                )),
+            )
+            .child(
+                row("title-copy-id", "Copy the session's id").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
+                    },
+                )),
+            );
+        if pr.is_some() {
+            menu = menu.child(
+                row("title-copy-pr", "Copy the pull request's address").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
+                    },
+                )),
+            );
+        }
+        menu.child(row("title-archive", "Archive").on_click(cx.listener(
+            move |this, _, window, cx| {
+                this.close_popup(window, cx);
+                this.archive(key, cx);
+            },
+        )))
+    }
+
+    /// Show the transcript as `view` says, and keep it so.
+    pub fn set_view(&mut self, view: View, cx: &mut Context<Self>) {
+        self.settings.view = view;
+        self.save_settings();
+        cx.notify();
     }
 }

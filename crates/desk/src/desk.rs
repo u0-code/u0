@@ -98,6 +98,8 @@ pub enum Popup {
     ModelMode,
     /// What can go with what you write: the composer's +.
     Add,
+    /// The session's menu, under its title's caret.
+    Title,
     /// The choices of one of the session's options, by id, beside it in
     /// the model picker.
     Option(String),

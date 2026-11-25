@@ -48,14 +48,6 @@ pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
-/// An agent's words, and the one headline on a page.
-pub fn serif(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    div()
-        .font_family(faces.serif.clone())
-        .text_color(theme::text())
-        .child(text.into())
-}
-
 /// An agent's mark: its logo, or its initial where there is none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mark {

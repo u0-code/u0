@@ -25,7 +25,7 @@ use crate::{
     theme, ui,
 };
 
-/// A message, drawn as prose: the serif, in prose's size, headings in
+/// A message, drawn as prose: the sans, in prose's size, headings in
 /// theirs. `key` tells this message's view apart from every other's.
 pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> impl IntoElement {
     let desk = cx.entity().downgrade();
@@ -54,7 +54,7 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
     div()
         .w_full()
         .min_w(px(0.))
-        .font_family(faces.serif.clone())
+        .font_family(faces.ui.clone())
         .text_size(px(PROSE))
         .line_height(px(PROSE_LINE))
         .text_color(theme::text())

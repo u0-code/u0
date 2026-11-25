@@ -68,14 +68,15 @@ actions!(
         HideOthers,
         ShowAll,
         Stash,
-        SendAside
+        SendAside,
+        TranscriptView
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 32] = [
+pub const ACTIONS: [(&str, &str, Make); 33] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("find", "Find in the session", || Box::new(Find)),
@@ -134,6 +135,11 @@ pub const ACTIONS: [(&str, &str, Make); 32] = [
     ("search_words", "Search the project's files", || {
         Box::new(SearchWords)
     }),
+    (
+        "transcript_view",
+        "Transcript view: normal, thinking, verbose",
+        || Box::new(TranscriptView),
+    ),
 ];
 
 /// A binding of yours.
@@ -278,6 +284,7 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("f6", NextArea, None),
         KeyBinding::new("cmd-p", GoToFile, None),
         KeyBinding::new("cmd-shift-f", SearchWords, None),
+        KeyBinding::new("ctrl-o", TranscriptView, None),
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("cmd-alt-h", HideOthers, None),
         KeyBinding::new("cmd-1", Session1, None),
@@ -391,6 +398,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<Effort>(cx, shown, |d, window, cx| {
         d.open_model(window, cx);
     });
+    on::<TranscriptView>(cx, shown, |d, _, cx| d.set_view(d.settings.view.next(), cx));
     on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });
