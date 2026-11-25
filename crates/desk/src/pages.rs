@@ -4,6 +4,7 @@
 //! window, where agents are switched on and off.
 
 mod prefs;
+mod projects;
 mod settings;
 
 pub use settings::{Tab, height as settings_height};
@@ -44,6 +45,8 @@ pub struct Pages {
     pub tidied: Option<String>,
     pub command: Entity<InputState>,
     pub model: Entity<InputState>,
+    /// The project whose page Settings → Projects shows, if one.
+    pub project: Option<std::path::PathBuf>,
 }
 
 impl Pages {
@@ -84,6 +87,7 @@ impl Pages {
             tidied: None,
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
+            project: None,
         }
     }
 }

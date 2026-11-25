@@ -930,101 +930,40 @@ impl Desk {
         )
     }
 
-    /// What can be done with a project: begin a session in it, copy its
-    /// path, pin it, name it, find it, the agent and way of working its
-    /// new sessions take, put it away.
+    /// What can be done with a project, as t3code's menu has it: begin a
+    /// session in it, copy its path, pin it, and its settings.
     fn project_menu(&self, menu: PopupMenu, folder: &Path, desk: &Entity<Self>) -> PopupMenu {
-        let prefs = self.prefs(folder);
-        let item = |label: String, icon: &str, f: Box<ForProject>| {
+        let item = |label: &str,
+                    icon: &str,
+                    f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
             let (desk, folder) = (desk.clone(), folder.to_path_buf());
-            PopupMenuItem::new(label)
+            PopupMenuItem::new(label.to_owned())
                 .icon(Icon::empty().path(format!("icons/{icon}.svg")))
-                .on_click(move |_, window, cx| {
-                    desk.update(cx, |d, cx| f(d, &folder, window, cx));
-                })
+                .on_click(move |_, window, cx| desk.update(cx, |d, cx| f(d, &folder, window, cx)))
         };
         let path = folder.display().to_string();
-        let mut menu = menu
-            .item(item(
-                "New session".into(),
-                "square-pen",
-                Box::new(|d, f, window, cx| d.new_in(f.to_path_buf(), window, cx)),
-            ))
-            .item(
-                PopupMenuItem::new("Copy path")
-                    .icon(Icon::empty().path("icons/copy.svg"))
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
-                    }),
-            )
-            .item(item(
-                if prefs.pinned {
-                    "Unpin project"
-                } else {
-                    "Pin project"
-                }
-                .into(),
-                "pin",
-                Box::new(|d, f, _, cx| d.toggle_project_pin(f, cx)),
-            ))
-            .item(item(
-                "Rename".into(),
-                "pencil",
-                Box::new(|d, f, window, cx| {
-                    d.begin_rename(Renaming::Project(f.to_path_buf()), window, cx);
+        menu.item(item("New session", "square-pen", |d, f, window, cx| {
+            d.new_in(f.to_path_buf(), window, cx);
+        }))
+        .item(
+            PopupMenuItem::new("Copy path")
+                .icon(Icon::empty().path("icons/copy.svg"))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
                 }),
-            ))
-            .item(item(
-                "Show in Finder".into(),
-                "folder",
-                Box::new(|_, f, _, cx| cx.open_with_system(f)),
-            ));
-        if self.held.get(folder).is_some_and(|h| h.repo) {
-            let on = prefs.worktree.unwrap_or(self.settings.worktree);
-            menu = menu.item(
-                item(
-                    "New sessions in their own worktree".into(),
-                    "branch",
-                    Box::new(move |d, f, _, cx| d.set_project_worktree(f, !on, cx)),
-                )
-                .checked(on),
-            );
-        }
-        menu = menu.separator().label("New sessions begin with");
-        let agents = std::iter::once((None, "The one on screen".to_owned())).chain(
-            self.slots
-                .iter()
-                .map(|s| (Some(s.entry.id.clone()), self.name_of(&s.entry.id))),
-        );
-        for (agent, name) in agents {
-            let on = prefs.agent == agent;
-            menu = menu.item(
-                item(
-                    name,
-                    "plug",
-                    Box::new(move |d, f, _, cx| d.set_project_agent(f, agent.clone(), cx)),
-                )
-                .checked(on),
-            );
-        }
-        menu = menu.separator().item(item(
-            "Archive".into(),
-            "archive",
-            Box::new(|d, f, _, cx| d.archive_project(f, cx)),
-        ));
-        if self.can_forget_project(folder) {
-            menu = menu.item(item(
-                "Remove from the list".into(),
-                "x",
-                Box::new(|d, f, _, cx| d.forget_project(f, cx)),
-            ));
-        }
-        menu
+        )
+        .item(item(
+            if self.prefs(folder).pinned {
+                "Unpin project"
+            } else {
+                "Pin project"
+            },
+            "pin",
+            |d, f, _, cx| d.toggle_project_pin(f, cx),
+        ))
+        .item(item("Project settings", "settings", Desk::project_settings))
     }
 }
-
-/// What an item of a project's menu does to it.
-type ForProject = dyn Fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>);
 
 /// The ways to snooze the sessions `keys`, as menu items.
 fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64]) -> PopupMenu {

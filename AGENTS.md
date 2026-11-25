@@ -140,7 +140,7 @@ crates/desk/src/
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output
   aside/        the column's changes as git reads them (repo)
-  pages/        the settings dialog and its tabs (settings, prefs)
+  pages/        the settings dialog and its tabs (settings, prefs, projects)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons

@@ -338,7 +338,7 @@ impl Desk {
             Tab::Keyboard => return self.keyboard(faces, q, cx),
             Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
             Tab::About => return self.about_ghost(faces, q, cx),
-            Tab::Agents | Tab::Sessions => return None,
+            Tab::Agents | Tab::Sessions | Tab::Projects => return None,
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();
         (!groups.is_empty()).then(|| page(faces, tab.title(), lede).children(groups))
@@ -637,7 +637,7 @@ impl Desk {
 }
 
 /// A tab's page: its title and what it is for, then its groups.
-fn page(faces: &Faces, title: &str, lede: &str) -> Div {
+pub(super) fn page(faces: &Faces, title: &str, lede: &str) -> Div {
     div()
         .flex()
         .flex_col()
@@ -679,7 +679,7 @@ fn group(faces: &Faces, caption: &str, rows: Vec<Option<Div>>) -> Option<Div> {
 }
 
 /// Rows in one frame, a line between each.
-fn group_of(rows: Vec<Div>) -> Div {
+pub(super) fn group_of(rows: Vec<Div>) -> Div {
     let mut frame = card().overflow_hidden();
     for (n, r) in rows.into_iter().enumerate() {
         frame = frame.child(r.when(n > 0, |d| d.border_t_1().border_color(theme::border())));
@@ -700,7 +700,7 @@ fn row(faces: &Faces, q: &str, name: &str, about: &str, control: impl IntoElemen
 }
 
 /// A row: what it is, said plainly, and its control.
-fn setting(faces: &Faces, name: &str, about: &str, control: impl IntoElement) -> Div {
+pub(super) fn setting(faces: &Faces, name: &str, about: &str, control: impl IntoElement) -> Div {
     div()
         .flex()
         .items_center()

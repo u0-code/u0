@@ -52,6 +52,7 @@ enum Act {
     Archive,
     Delete,
     PinProject(PathBuf),
+    ProjectSettings(PathBuf),
     Look(crate::settings::Look),
     Tab(crate::pages::Tab),
     Go(u64),
@@ -468,7 +469,15 @@ impl Desk {
                     } else {
                         "Pin project"
                     },
-                    Act::PinProject(project),
+                    Act::PinProject(project.clone()),
+                )
+                .sub(name.clone()),
+            );
+            rows.push(
+                Row::new(
+                    "settings",
+                    "Project settings",
+                    Act::ProjectSettings(project),
                 )
                 .sub(name),
             );
@@ -809,6 +818,7 @@ impl Desk {
                 }
             }
             Act::PinProject(folder) => self.toggle_project_pin(&folder, cx),
+            Act::ProjectSettings(folder) => self.project_settings(&folder, window, cx),
             Act::Look(look) => {
                 self.settings.look = look;
                 self.save_settings();

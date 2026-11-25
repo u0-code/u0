@@ -43,15 +43,17 @@ pub enum Tab {
     Keyboard,
     Usage,
     About,
+    Projects,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
         Self::Keyboard,
+        Self::Projects,
         Self::Agents,
         Self::NewSessions,
         Self::Sessions,
@@ -68,6 +70,7 @@ impl Tab {
             Self::Agents => "Agents",
             Self::Sessions => "Sessions",
             Self::Keyboard => "Keyboard",
+            Self::Projects => "Projects",
             Self::Usage => "Usage",
             Self::About => "About",
         }
@@ -82,6 +85,7 @@ impl Tab {
             Self::Agents => "plug",
             Self::Sessions => "archive",
             Self::Keyboard => "keyboard",
+            Self::Projects => "folder",
             Self::Usage => "clock",
             Self::About => "ghost",
         }
@@ -155,6 +159,8 @@ impl Desk {
             own
         } else if self.pages.tab == Tab::Sessions {
             self.sessions_tab(faces, cx)
+        } else if self.pages.tab == Tab::Projects {
+            self.projects_tab(faces, cx)
         } else {
             self.agents_tab(faces, cx)
         };
