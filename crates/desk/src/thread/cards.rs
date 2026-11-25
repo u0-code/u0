@@ -31,10 +31,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         if let Some((name, kind)) = &asked.chosen {
-            let allowed = matches!(
-                kind,
-                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
-            );
+            let allowed = allows(*kind);
             let (word, tail) = match kind {
                 PermissionOptionKind::AllowOnce => ("You allowed", "once"),
                 PermissionOptionKind::AllowAlways => ("You allowed", "always"),
@@ -61,24 +58,44 @@ impl Desk {
                 .when(!tail.is_empty(), |d| d.child(right(faces, tail)));
         }
         let name = self.name_of(&s.meta.agent);
-        let kind = s
+        let call = s
             .tools()
             .filter(|t| bare(&t.call.title) == bare(&asked.title))
             .last()
-            .map(|t| t.call.kind);
-        let headline = match kind {
-            Some(ToolKind::Execute) => format!("{name} wants to run a command"),
-            Some(ToolKind::Edit) => format!("{name} wants to edit a file"),
-            Some(ToolKind::Delete) => format!("{name} wants to delete a file"),
-            Some(ToolKind::Fetch) => format!("{name} wants to fetch a page"),
+            .map(|t| &t.call);
+        // Leaving plan mode is asked with the plan: Claude's plan card.
+        let plan = call
+            .filter(|c| c.kind == ToolKind::SwitchMode)
+            .map(|c| {
+                c.content
+                    .iter()
+                    .filter_map(|x| match x {
+                        ToolCallContent::Content(c) => Some(crate::session::text_of(&c.content)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            })
+            .filter(|p| !p.trim().is_empty());
+        let headline = match (plan.is_some(), call.map(|c| c.kind)) {
+            (true, _) => format!("{name} proposed a plan"),
+            (_, Some(ToolKind::Execute)) => format!("{name} wants to run a command"),
+            (_, Some(ToolKind::Edit)) => format!("{name} wants to edit a file"),
+            (_, Some(ToolKind::Delete)) => format!("{name} wants to delete a file"),
+            (_, Some(ToolKind::Fetch)) => format!("{name} wants to fetch a page"),
             _ => format!("{name} asks before it goes on"),
         };
-        let mut allow = div().flex().gap(px(6.));
+        // The agent's options are the buttons: what turns it down at the
+        // left, what lets it go on at the right, the last of them first.
         let mut reject = div().flex().gap(px(6.));
+        let mut allow = div().flex().gap(px(6.));
+        let last_allow = asked.options.iter().rposition(|o| allows(o.kind));
         for (n, option) in asked.options.iter().enumerate() {
             let weight = match option.kind {
-                PermissionOptionKind::AllowOnce => Weight::Primary,
-                PermissionOptionKind::AllowAlways => Weight::Secondary,
+                _ if Some(n) == last_allow => Weight::Primary,
+                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways => {
+                    Weight::Secondary
+                }
                 _ => Weight::Quiet,
             };
             let (request, chosen) = (asked.id, option.clone());
@@ -88,31 +105,60 @@ impl Desk {
                 weight,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx)));
-            if weight == Weight::Quiet {
-                reject = reject.child(button);
-            } else {
+            if allows(option.kind) {
                 allow = allow.child(button);
+            } else {
+                reject = reject.child(button);
             }
         }
+        // Revise: the plan quoted in your reply, the request left waiting.
+        if let Some(plan) = plan.clone() {
+            reject = reject.child(
+                ui::button(
+                    SharedString::from(format!("{key}-revise")),
+                    "Revise…",
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.quote(&plan, window, cx);
+                })),
+            );
+        }
+        let body = match plan {
+            Some(plan) => div()
+                .max_h(px(360.))
+                .overflow_hidden()
+                .child(crate::markdown::render(
+                    faces,
+                    &format!("{key}-plan"),
+                    &plan,
+                    cx,
+                ))
+                .into_any_element(),
+            None => well(faces)
+                .px(px(12.))
+                .py(px(8.))
+                .child(bare(&asked.title))
+                .into_any_element(),
+        };
         div()
             .flex()
             .flex_col()
             .gap(px(12.))
-            .px(px(16.))
-            .py(px(14.))
+            .p(px(16.))
             .rounded(px(12.))
-            .bg(theme::rail())
+            .bg(theme::well())
             .border_1()
             .border_color(theme::border2())
             .child(ui::text(faces, headline).text_size(px(14.)))
-            .child(well(faces).px(px(12.)).py(px(8.)).child(bare(&asked.title)))
+            .child(body)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .child(allow)
+                    .child(reject)
                     .child(div().flex_1())
-                    .child(reject),
+                    .child(allow),
             )
     }
 
@@ -372,4 +418,12 @@ impl Desk {
                     ),
             )
     }
+}
+
+/// Whether choosing `kind` lets the agent go on.
+fn allows(kind: PermissionOptionKind) -> bool {
+    matches!(
+        kind,
+        PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
+    )
 }

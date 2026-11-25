@@ -69,7 +69,6 @@ impl Desk {
             .pb(px(16.))
             .children(self.side_question(faces, s, column, cx))
             .children(self.sign_in_banner(faces, s, &name, column, cx))
-            .children(Self::approval_card(faces, s, &name, column, cx))
             .children(self.offers_menu(faces, column, cx))
             .children(Self::changes_row(faces, s, column, cx))
             .children(Self::queued_list(faces, s, column, cx))
@@ -777,72 +776,6 @@ impl Desk {
                 );
             }
             list
-        })
-    }
-
-    /// A question waiting is answered here too.
-    fn approval_card(
-        faces: &Faces,
-        s: &Session,
-        name: &str,
-        column: f32,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        s.waiting().map(|asked| {
-            use agent_client_protocol::v1::schema::{PermissionOptionKind, ToolKind};
-            let headline = match asked.kind {
-                Some(ToolKind::Execute) => format!("{name} wants to run a command"),
-                Some(ToolKind::Edit) => format!("{name} wants to edit a file"),
-                Some(ToolKind::Delete) => format!("{name} wants to delete a file"),
-                Some(ToolKind::Fetch) => format!("{name} wants to fetch a page"),
-                _ => format!("{name} asks before it goes on"),
-            };
-            let mut buttons = div().flex().flex_wrap().items_center().gap(px(6.));
-            for (n, option) in asked.options.iter().enumerate() {
-                let weight = match option.kind {
-                    PermissionOptionKind::AllowOnce => ui::Weight::Primary,
-                    PermissionOptionKind::AllowAlways => ui::Weight::Secondary,
-                    _ => ui::Weight::Quiet,
-                };
-                let (request, chosen) = (asked.id, option.clone());
-                buttons = buttons.child(
-                    ui::button(
-                        SharedString::from(format!("bar-ask-{n}")),
-                        option.name.clone(),
-                        weight,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx))),
-                );
-            }
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .w(px(column))
-                .mb(px(8.))
-                .px(px(14.))
-                .py(px(10.))
-                .rounded(px(12.))
-                .bg(theme::rail())
-                .border_1()
-                .border_color(theme::border2())
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(ui::live_dot())
-                        .child(ui::text(faces, headline).text_size(px(13.)))
-                        .child(
-                            ui::one_line(
-                                ui::mono(faces, ui::fit(&asked.title, 60))
-                                    .text_size(px(12.5))
-                                    .text_color(theme::text2()),
-                            )
-                            .flex_1(),
-                        ),
-                )
-                .child(buttons)
         })
     }
 
