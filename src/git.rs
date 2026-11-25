@@ -852,6 +852,80 @@ pub fn files(dir: &Path) -> Vec<String> {
     out
 }
 
+/// The pull request of the branch `dir` is on, as `gh` says.
+#[derive(Debug, Clone)]
+pub struct Pr {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// open, merged, closed; draft.
+    pub state: String,
+    pub draft: bool,
+    /// It cannot be merged as it is: it conflicts with its base.
+    pub conflicts: bool,
+    /// Its checks: how many passed, failed, and are still going.
+    pub passed: usize,
+    pub failed: usize,
+    pub going: usize,
+    /// approved, changes requested, review required; empty for none.
+    pub review: String,
+}
+
+/// The pull request of the branch `dir` is on, as `gh` says.
+pub fn read_pr(dir: &Path) -> Option<Pr> {
+    let out = std::process::Command::new("gh")
+        .current_dir(dir)
+        .args([
+            "pr",
+            "view",
+            "--json",
+            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let checks = v["statusCheckRollup"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let count = |f: &dyn Fn(&str) -> bool| {
+        checks
+            .iter()
+            .filter(|c| {
+                let word = c["conclusion"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| c["state"].as_str())
+                    .unwrap_or("");
+                f(&word.to_ascii_uppercase())
+            })
+            .count()
+    };
+    Some(Pr {
+        number: v["number"].as_u64()?,
+        title: v["title"].as_str().unwrap_or_default().to_owned(),
+        url: v["url"].as_str().unwrap_or_default().to_owned(),
+        state: v["state"].as_str().unwrap_or_default().to_lowercase(),
+        draft: v["isDraft"].as_bool().unwrap_or(false),
+        conflicts: v["mergeable"].as_str() == Some("CONFLICTING"),
+        passed: count(&|w| matches!(w, "SUCCESS" | "NEUTRAL" | "SKIPPED")),
+        failed: count(&|w| {
+            matches!(
+                w,
+                "FAILURE" | "ERROR" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED"
+            )
+        }),
+        going: count(&|w| matches!(w, "PENDING" | "QUEUED" | "IN_PROGRESS" | "EXPECTED" | "")),
+        review: v["reviewDecision"]
+            .as_str()
+            .unwrap_or_default()
+            .to_lowercase()
+            .replace('_', " "),
+    })
+}
+
 /// The open pull requests (`what` "pr") or issues ("issue") of the
 /// repository at `dir`, by number and title, as `gh` lists them; none
 /// where it is not installed or signed in.
@@ -1205,4 +1279,15 @@ mod tests {
         assert_eq!(files[0].path, "y.rs");
         assert_eq!((files[0].added, files[0].gone), (1, 1));
     }
+}
+
+/// Which changes the right column shows: one turn's, all of the
+/// session's, the branch's against where it left the main one, or one
+/// commit's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    Turn(usize),
+    All,
+    Branch,
+    Commit(String),
 }

@@ -250,7 +250,7 @@ impl Desk {
                 .text_color(theme::faint())
                 .on_click(move |_, window, cx| {
                     window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx));
-                    crate::icon::dictate();
+                    crate::macos::dictate();
                 }),
         );
         let button = div()

@@ -395,7 +395,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     on::<ToggleSidebar>(cx, window, |d, _, cx| d.toggle_sidebar(cx));
     on::<Stop>(cx, window, |d, _, cx| d.stop(cx));
     on::<Review>(cx, window, |d, _, cx| {
-        d.show_changes(crate::desk::Scope::All, cx);
+        d.show_changes(crate::git::Scope::All, cx);
     });
     on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
     on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
@@ -442,7 +442,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     on::<Dictate>(cx, window, |d, window, cx| {
         window.focus(&gpui::Focusable::focus_handle(d.input.read(cx), cx));
-        crate::icon::dictate();
+        crate::macos::dictate();
     });
     on::<NewScratch>(cx, window, Desk::new_scratch);
     on::<Back>(cx, window, |d, window, cx| d.step_trail(false, window, cx));

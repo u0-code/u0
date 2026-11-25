@@ -71,17 +71,6 @@ pub enum Page {
     Settings,
 }
 
-/// Which changes the right column shows: one turn's, all of the
-/// session's, the branch's against where it left the main one, or one
-/// commit's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Scope {
-    Turn(usize),
-    All,
-    Branch,
-    Commit(String),
-}
-
 /// What the right column shows of the session on screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Aside {
@@ -336,7 +325,7 @@ pub struct Desk {
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     /// Which changes the right column shows.
-    pub scope: Scope,
+    pub scope: crate::git::Scope,
     /// The commit message being written, and whether its form is open.
     pub message: Entity<TextInput>,
     pub committing: bool,
@@ -776,7 +765,7 @@ impl Desk {
             search,
             searching: false,
             registry_read: None,
-            scope: Scope::All,
+            scope: crate::git::Scope::All,
             message,
             committing: false,
             tx,
@@ -920,7 +909,7 @@ impl Desk {
         }
         match slot.entry.own_cli(&self.home) {
             Some(cli) => {
-                if let Err(e) = hub::in_terminal(&cli, &[], &[]) {
+                if let Err(e) = crate::macos::in_terminal(&cli, &[], &[]) {
                     tracing::warn!("a terminal could not be opened: {e}");
                 }
             }
@@ -1187,7 +1176,7 @@ impl Desk {
                 .unwrap_or_default();
             self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
             self.aside = Aside::Session;
-            self.scope = Scope::All;
+            self.scope = crate::git::Scope::All;
             self.committing = false;
         }
         self.current = Some(key);

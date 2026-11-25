@@ -3,7 +3,8 @@
 
 use gpui::{Context, Focusable as _, Window};
 
-use super::{Aside, Desk, Scope};
+use super::{Aside, Desk};
+use crate::git::Scope;
 use crate::{
     hub::{self, Slot},
     session::{Item, State},

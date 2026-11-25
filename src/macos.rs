@@ -1,6 +1,8 @@
-//! The app's own icon: the ghost, on the body macOS app icons sit on.
+//! What Ghost asks of macOS: its icon, the Dock's badge, dictation, a
+//! notification, a Terminal window.
 //!
-//! A bundle built with `bundle.sh` carries it as `Ghost.icns`, and Finder,
+//! The app's own icon is the ghost, on the body macOS app icons sit on. A
+//! bundle built with `bundle.sh` carries it as `Ghost.icns`, and Finder,
 //! Launchpad and the Dock read it from there. Run straight from cargo there
 //! is no bundle, so the desk hands `AppKit` the same picture as it starts,
 //! and the Dock shows the ghost either way. The picture is
@@ -84,3 +86,65 @@ pub fn badge(_: usize) {}
 /// Elsewhere the window manager's own icon stands.
 #[cfg(not(target_os = "macos"))]
 pub fn set() {}
+
+/// `text` as it goes between the quotes of a string in a script for
+/// `osascript`.
+fn apple_quoted(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Show a notification from macOS, with its sound if `sound`: a turn
+/// ended, or a question is asked, while Ghost is not in front.
+pub fn notify(title: &str, body: &str, sound: bool) {
+    let mut script = format!(
+        "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
+        apple_quoted(body),
+        apple_quoted(title)
+    );
+    if sound {
+        script.push_str(" sound name \"Glass\"");
+    }
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+/// Run `program` with `args` and `env` in a Terminal window, for a sign-in
+/// that is done by typing: the agent's own login, which it says how to run.
+pub fn in_terminal(
+    program: &std::path::Path,
+    args: &[String],
+    env: &[(String, String)],
+) -> std::io::Result<()> {
+    // A key goes into the line as it is: one that is not a name would be
+    // a command of its own, and a remote agent's come from that machine.
+    let name = |k: &str| {
+        k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    if let Some((k, _)) = env.iter().find(|(k, _)| !name(k)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("the agent asks to set {k:?}, which is not a name a shell takes"),
+        ));
+    }
+    let mut parts: Vec<String> = env
+        .iter()
+        .map(|(k, v)| format!("{k}={}", shell_words::quote(v)))
+        .collect();
+    parts.push(shell_words::quote(&program.to_string_lossy()).into_owned());
+    parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
+    let line = parts.join(" ");
+    let script = format!(
+        "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
+        apple_quoted(&line)
+    );
+    std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .spawn()
+        .map(|_| ())
+}

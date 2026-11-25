@@ -8,9 +8,11 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{empty, fine, frow, git_button, path_text, section};
 use crate::{
-    desk::{Aside, Desk, Scope},
+    desk::{Aside, Desk},
     fonts::Faces,
-    git, hub,
+    git,
+    git::Scope,
+    hub,
     session::{Session, State},
     theme,
     ui::{self, Weight},

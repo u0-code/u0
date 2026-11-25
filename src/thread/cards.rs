@@ -148,7 +148,7 @@ impl Desk {
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.show_changes(crate::desk::Scope::Turn(turn), cx);
+                    this.show_changes(crate::git::Scope::Turn(turn), cx);
                 })),
             );
         }

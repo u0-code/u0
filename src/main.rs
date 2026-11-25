@@ -15,9 +15,9 @@ mod desk;
 mod fonts;
 mod git;
 mod hub;
-mod icon;
 mod input;
 mod keys;
+mod macos;
 mod markdown;
 mod pages;
 mod path;
@@ -61,7 +61,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
             fonts::load(cx);
-            icon::set();
+            macos::set();
             keys::bind(cx, &settings::home());
             // Without a main menu macOS has no menu bar to show in full
             // screen, so there is no way out of it. AppKit adds Enter and

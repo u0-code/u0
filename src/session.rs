@@ -388,10 +388,10 @@ pub struct Session {
     /// What git says where it works, read when it is on screen: changes in
     /// a scope git is asked for (the branch, a commit), the recent commits,
     /// the local branches, its pull request, the step a git action is at.
-    pub scoped: Option<(crate::desk::Scope, Vec<git::FileDiff>)>,
+    pub scoped: Option<(crate::git::Scope, Vec<git::FileDiff>)>,
     pub commits: Vec<(String, String, String)>,
     pub branches: Vec<String>,
-    pub pr: Option<crate::hub::Pr>,
+    pub pr: Option<crate::git::Pr>,
     pub git_step: Option<String>,
     /// The agent was asked to write a commit message: its answer goes in
     /// the commit form.

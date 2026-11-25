@@ -35,7 +35,9 @@ impl Desk {
             if let Ok(mut launch) = launch {
                 launch.args.extend(t.args);
                 launch.env.extend(t.env);
-                if let Err(e) = hub::in_terminal(&launch.program, &launch.args, &launch.env) {
+                if let Err(e) =
+                    crate::macos::in_terminal(&launch.program, &launch.args, &launch.env)
+                {
                     let name = self.name_of(agent);
                     self.trouble(
                         format!("Couldn't open a terminal to sign in to {name}"),
@@ -105,8 +107,8 @@ impl Desk {
     fn tell(&self, title: &str, body: &str) {
         match self.settings.notify {
             crate::settings::Notify::Off => {}
-            crate::settings::Notify::Banner => hub::notify(title, body, false),
-            crate::settings::Notify::BannerAndSound => hub::notify(title, body, true),
+            crate::settings::Notify::Banner => crate::macos::notify(title, body, false),
+            crate::settings::Notify::BannerAndSound => crate::macos::notify(title, body, true),
         }
     }
 
@@ -119,7 +121,7 @@ impl Desk {
             .count();
         if n != self.badge {
             self.badge = n;
-            crate::icon::badge(n);
+            crate::macos::badge(n);
         }
     }
 

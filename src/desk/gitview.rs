@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 
 use gpui::{Context, Window};
 
-use super::{Desk, Scope};
+use super::Desk;
+use crate::git::Scope;
 use crate::{
     hub,
     session::{Item, State},

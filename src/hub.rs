@@ -124,7 +124,7 @@ pub enum Msg {
     /// base, or one commit.
     Diffed {
         key: u64,
-        scope: crate::desk::Scope,
+        scope: git::Scope,
         result: Result<Vec<git::FileDiff>, String>,
     },
     /// The recent commits and the local branches where a session works.
@@ -138,7 +138,7 @@ pub enum Msg {
     /// The pull request of the branch a session works on, as `gh` says.
     Pr {
         key: u64,
-        pr: Option<Pr>,
+        pr: Option<git::Pr>,
     },
     /// A step of a git action on its way.
     GitStep {
@@ -769,15 +769,10 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
 
 /// What changed in `scope` (the branch against its base, or a commit)
 /// where the session `key` works.
-pub fn scope_diff(
-    dir: PathBuf,
-    key: u64,
-    (scope, base): (crate::desk::Scope, Option<String>),
-    tx: Sender,
-) {
+pub fn scope_diff(dir: PathBuf, key: u64, (scope, base): (git::Scope, Option<String>), tx: Sender) {
     off(tx, move || {
         let result = match &scope {
-            crate::desk::Scope::Commit(id) => git::commit_diff(&dir, id),
+            git::Scope::Commit(id) => git::commit_diff(&dir, id),
             _ => git::against_base(&dir, base.as_deref()),
         };
         Msg::Diffed { key, scope, result }
@@ -794,85 +789,12 @@ pub fn commits(dir: PathBuf, key: u64, tx: Sender) {
     });
 }
 
-/// The pull request of the branch `dir` is on, as `gh` says.
-#[derive(Debug, Clone)]
-pub struct Pr {
-    pub number: u64,
-    pub title: String,
-    pub url: String,
-    /// open, merged, closed; draft.
-    pub state: String,
-    pub draft: bool,
-    /// It cannot be merged as it is: it conflicts with its base.
-    pub conflicts: bool,
-    /// Its checks: how many passed, failed, and are still going.
-    pub passed: usize,
-    pub failed: usize,
-    pub going: usize,
-    /// approved, changes requested, review required; empty for none.
-    pub review: String,
-}
-
 /// Read the pull request of the branch where the session `key` works.
 pub fn pr(dir: PathBuf, key: u64, tx: Sender) {
     off(tx, move || Msg::Pr {
         key,
-        pr: read_pr(&dir),
+        pr: git::read_pr(&dir),
     });
-}
-
-fn read_pr(dir: &std::path::Path) -> Option<Pr> {
-    let out = std::process::Command::new("gh")
-        .current_dir(dir)
-        .args([
-            "pr",
-            "view",
-            "--json",
-            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    let checks = v["statusCheckRollup"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let count = |f: &dyn Fn(&str) -> bool| {
-        checks
-            .iter()
-            .filter(|c| {
-                let word = c["conclusion"]
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                    .or_else(|| c["state"].as_str())
-                    .unwrap_or("");
-                f(&word.to_ascii_uppercase())
-            })
-            .count()
-    };
-    Some(Pr {
-        number: v["number"].as_u64()?,
-        title: v["title"].as_str().unwrap_or_default().to_owned(),
-        url: v["url"].as_str().unwrap_or_default().to_owned(),
-        state: v["state"].as_str().unwrap_or_default().to_lowercase(),
-        draft: v["isDraft"].as_bool().unwrap_or(false),
-        conflicts: v["mergeable"].as_str() == Some("CONFLICTING"),
-        passed: count(&|w| matches!(w, "SUCCESS" | "NEUTRAL" | "SKIPPED")),
-        failed: count(&|w| {
-            matches!(
-                w,
-                "FAILURE" | "ERROR" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED"
-            )
-        }),
-        going: count(&|w| matches!(w, "PENDING" | "QUEUED" | "IN_PROGRESS" | "EXPECTED" | "")),
-        review: v["reviewDecision"]
-            .as_str()
-            .unwrap_or_default()
-            .to_lowercase()
-            .replace('_', " "),
-    })
 }
 
 /// Measure Ghost's home.
@@ -1028,68 +950,6 @@ pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
         agent: name,
         result: r.map(|_| ()).map_err(|f| f.message),
     });
-}
-
-/// `text` as it goes between the quotes of a string in a script for
-/// `osascript`.
-fn apple_quoted(text: &str) -> String {
-    text.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Show a notification from macOS, with its sound if `sound`: a turn
-/// ended, or a question is asked, while Ghost is not in front.
-pub fn notify(title: &str, body: &str, sound: bool) {
-    let mut script = format!(
-        "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
-        apple_quoted(body),
-        apple_quoted(title)
-    );
-    if sound {
-        script.push_str(" sound name \"Glass\"");
-    }
-    let _ = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
-/// Run `program` with `args` and `env` in a Terminal window, for a sign-in
-/// that is done by typing: the agent's own login, which it says how to run.
-pub fn in_terminal(
-    program: &std::path::Path,
-    args: &[String],
-    env: &[(String, String)],
-) -> std::io::Result<()> {
-    // A key goes into the line as it is: one that is not a name would be
-    // a command of its own, and a remote agent's come from that machine.
-    let name = |k: &str| {
-        k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    };
-    if let Some((k, _)) = env.iter().find(|(k, _)| !name(k)) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("the agent asks to set {k:?}, which is not a name a shell takes"),
-        ));
-    }
-    let mut parts: Vec<String> = env
-        .iter()
-        .map(|(k, v)| format!("{k}={}", shell_words::quote(v)))
-        .collect();
-    parts.push(shell_words::quote(&program.to_string_lossy()).into_owned());
-    parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
-    let line = parts.join(" ");
-    let script = format!(
-        "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
-        apple_quoted(&line)
-    );
-    std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .spawn()
-        .map(|_| ())
 }
 
 /// Make a worktree for the session `key`, about `about`, on a branch
