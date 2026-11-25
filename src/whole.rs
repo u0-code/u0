@@ -8,21 +8,15 @@
 //! about 10 ms a write on an Apple SSD, which is why the cache is written
 //! off the window's thread.
 
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, io, path::Path};
+
+use tempfile::NamedTempFile;
 
 /// Write `bytes` to `path` whole, making its directory if need be. A file
 /// already there keeps its permissions.
 pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::create_dir_all(dir_of(path))?;
-    let aside = aside(path, bytes)?;
-    if let Err(e) = fs::rename(&aside, path) {
-        let _ = fs::remove_file(&aside);
-        return Err(e);
-    }
+    aside(path, bytes)?.persist(path).map_err(|e| e.error)?;
     // The file under its name is whole either way; this only makes the
     // rename outlive a power cut, so a directory that cannot be synced
     // does not make the write a failure.
@@ -32,41 +26,30 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 /// `bytes` written and synced in a new file beside `path`, under a hidden
-/// name of its own, so that two writers never write into one. A crash
-/// before the rename leaves this file behind and `path` as it was.
-fn aside(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
+/// name of its own, so that two writers never write into one. It is
+/// removed if it is dropped; a crash before the rename leaves it behind
+/// and `path` as it was.
+fn aside(path: &Path, bytes: &[u8]) -> io::Result<NamedTempFile> {
     let name = path.file_name().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("{} names no file", path.display()),
         )
     })?;
-    let aside = dir_of(path).join(format!(
-        ".{}.{}-{}.partial",
-        name.to_string_lossy(),
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let was = fs::metadata(path).ok().map(|m| m.permissions());
-    let written = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&aside)
-        .and_then(|mut file| {
-            if let Some(was) = was {
-                file.set_permissions(was)?;
-            }
-            io::Write::write_all(&mut file, bytes)?;
-            file.sync_all()
-        });
-    match written {
-        Ok(()) => Ok(aside),
-        Err(e) => {
-            let _ = fs::remove_file(&aside);
-            Err(e)
-        }
+    let prefix = format!(".{}.", name.to_string_lossy());
+    let mut made = tempfile::Builder::new();
+    made.prefix(&prefix).suffix(".partial");
+    // A new file is made as `File::create` makes one, not private as a
+    // temporary file is.
+    #[cfg(unix)]
+    made.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
+    let mut file = made.tempfile_in(dir_of(path))?;
+    if let Ok(was) = fs::metadata(path) {
+        file.as_file().set_permissions(was.permissions())?;
     }
+    io::Write::write_all(&mut file, bytes)?;
+    file.as_file().sync_all()?;
+    Ok(file)
 }
 
 fn dir_of(path: &Path) -> &Path {
@@ -78,14 +61,6 @@ fn dir_of(path: &Path) -> &Path {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("ghost-desk-whole-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     fn left_aside(dir: &Path) -> usize {
         fs::read_dir(dir)
@@ -102,25 +77,26 @@ mod tests {
 
     #[test]
     fn a_write_cut_short_before_the_rename_leaves_the_old_file_as_it_was() {
-        let dir = scratch("cut");
-        let path = dir.join("desk.json");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("desk.json");
         write(&path, b"{\"connections\": [1]}").unwrap();
 
-        // Everything up to the rename, and then the crash.
-        aside(&path, b"{\"connections\": [1, 2").unwrap();
+        // Everything up to the rename, and then the crash: nothing after
+        // it runs, so nothing removes the file set aside.
+        std::mem::forget(aside(&path, b"{\"connections\": [1, 2").unwrap());
         assert_eq!(fs::read(&path).unwrap(), b"{\"connections\": [1]}");
-        assert_eq!(left_aside(&dir), 1, "what the crash left");
+        assert_eq!(left_aside(dir.path()), 1, "what the crash left");
 
         // The next write is whole, and leaves nothing of its own behind.
         write(&path, b"{\"connections\": [1, 2]}").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"{\"connections\": [1, 2]}");
-        assert_eq!(left_aside(&dir), 1);
-        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(left_aside(dir.path()), 1);
     }
 
     #[test]
     fn a_write_makes_its_directory_and_one_that_fails_leaves_nothing_beside() {
-        let dir = scratch("dirs");
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
         write(&dir.join("cache/a.json"), b"{}").unwrap();
         assert_eq!(fs::read(dir.join("cache/a.json")).unwrap(), b"{}");
 
@@ -128,23 +104,29 @@ mod tests {
         fs::create_dir(dir.join("taken")).unwrap();
         assert!(write(&dir.join("taken"), b"{}").is_err());
         assert!(dir.join("taken").is_dir());
-        assert_eq!(left_aside(&dir), 0);
-        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(left_aside(dir), 0);
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_file_rewritten_keeps_its_permissions() {
+    fn a_file_rewritten_keeps_its_permissions_and_a_new_one_is_made_as_any() {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = scratch("mode");
-        let path = dir.join("desk.json");
+        let dir = tempfile::tempdir().unwrap();
+        let mode = |name: &str| {
+            fs::metadata(dir.path().join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        let path = dir.path().join("desk.json");
         fs::write(&path, b"{}").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         write(&path, b"{\"who\": \"me\"}").unwrap();
-        assert_eq!(
-            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(mode("desk.json"), 0o600);
+
+        fs::write(dir.path().join("made.md"), b"").unwrap();
+        write(&dir.path().join("PLAN.md"), b"# Plan").unwrap();
+        assert_eq!(mode("PLAN.md"), mode("made.md"));
     }
 }

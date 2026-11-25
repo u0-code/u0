@@ -1880,6 +1880,7 @@ dependencies = [
  "serde_json",
  "shell-words",
  "similar",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
