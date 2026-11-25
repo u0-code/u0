@@ -1928,24 +1928,6 @@ impl Desk {
         cx.notify();
     }
 
-    /// Allow, with `option`, the call asked about under `request`, and every
-    /// call of its kind for the rest of the session.
-    pub fn allow_for_session(
-        &mut self,
-        request: u64,
-        option: &agent_client_protocol::v1::schema::PermissionOption,
-        kind: agent_client_protocol::v1::schema::ToolKind,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(key) = self.current
-            && let Some(s) = self.session_mut(key)
-            && !s.trusted.contains(&kind)
-        {
-            s.trusted.push(kind);
-        }
-        self.choose(request, option, cx);
-    }
-
     /// Put the session on screen in the mode `mode`.
     pub fn set_mode(&mut self, mode: String, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;

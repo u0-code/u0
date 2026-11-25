@@ -794,12 +794,7 @@ impl Desk {
                     .find(|s| s.agent == agent && s.id.as_ref() == Some(&request.session_id))
                 {
                     let key = s.key;
-                    if let Some(option) = s.asked(id, request) {
-                        if let Some(running) = self.slot(agent).and_then(Slot::running) {
-                            hub::answer(running, id, Some(option.option_id.0.to_string()));
-                        }
-                        return;
-                    }
+                    s.asked(id, request);
                     if self.behind {
                         let title = s.title.clone();
                         let name = self.name_of(agent);

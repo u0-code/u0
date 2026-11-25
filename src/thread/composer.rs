@@ -532,8 +532,7 @@ impl Desk {
             list
         });
 
-        // A question waiting is answered here too, and a kind of call can
-        // be allowed for the rest of the session.
+        // A question waiting is answered here too.
         let approval = s.waiting().map(|asked| {
             use agent_client_protocol::v1::schema::{PermissionOptionKind, ToolKind};
             let headline = match asked.kind {
@@ -559,26 +558,6 @@ impl Desk {
                         weight,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx))),
-                );
-            }
-            if let (Some(kind), Some(once)) = (
-                asked.kind,
-                asked
-                    .options
-                    .iter()
-                    .find(|o| o.kind == PermissionOptionKind::AllowOnce),
-            ) {
-                let (request, chosen) = (asked.id, once.clone());
-                buttons = buttons.child(
-                    ui::button(
-                        faces,
-                        "bar-ask-session",
-                        "Allow for this session",
-                        ui::Weight::Secondary,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.allow_for_session(request, &chosen, kind, cx);
-                    })),
                 );
             }
             div()

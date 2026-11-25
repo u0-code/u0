@@ -373,8 +373,6 @@ pub struct Session {
     /// It has a record the desk wrote: its agent's session is resumed, not
     /// loaded, so that nothing comes twice.
     pub recorded: bool,
-    /// The kinds of call you allowed for the rest of the session.
-    pub trusted: Vec<ToolKind>,
     /// What you said while a turn went on, said in order as each ends.
     pub queued: Vec<String>,
     /// What you wrote to be said in it later, kept with its index.
@@ -778,7 +776,6 @@ impl Session {
             log: Vec::new(),
             replaying: false,
             recorded: false,
-            trusted: Vec::new(),
             queued: Vec::new(),
             later: Vec::new(),
             unsent: String::new(),
@@ -1096,14 +1093,8 @@ impl Session {
             .collect();
     }
 
-    /// The agent asks a person before it goes on.
-    /// A question the agent asks before it goes on; the option to answer
-    /// it with at once, when the session already allows its kind of call.
-    pub fn asked(
-        &mut self,
-        id: u64,
-        request: RequestPermissionRequest,
-    ) -> Option<PermissionOption> {
+    /// A question the agent asks before it goes on.
+    pub fn asked(&mut self, id: u64, request: RequestPermissionRequest) {
         let title = request
             .tool_call
             .fields
@@ -1122,24 +1113,13 @@ impl Session {
                 .map(|t| t.call.kind)
         });
         self.update_tool(request.tool_call);
-        // A kind of call you allowed for the whole session is allowed
-        // again without asking: the option that allows it once is the
-        // answer, given at once.
-        let auto = kind.filter(|k| self.trusted.contains(k)).and_then(|_| {
-            request
-                .options
-                .iter()
-                .find(|o| o.kind == PermissionOptionKind::AllowOnce)
-                .cloned()
-        });
         self.items.push(Item::Asked(Asked {
             id,
             title,
             options: request.options,
             kind,
-            chosen: auto.as_ref().map(|o| (o.name.clone(), o.kind)),
+            chosen: None,
         }));
-        auto
     }
 
     /// The question waiting on you, if one is.
