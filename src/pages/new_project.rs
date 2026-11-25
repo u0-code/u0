@@ -71,7 +71,6 @@ impl Desk {
                 .flex()
                 .flex_col()
                 .gap(px(8.))
-                .pb(px(40.))
                 .child(
                     div()
                         .flex()
@@ -83,7 +82,11 @@ impl Desk {
         )
     }
 
-    pub(crate) fn new_project_page(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn new_project_page(
+        &self,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
         let field = |child: gpui::Entity<crate::input::TextInput>| {
             div()
                 .flex()
@@ -122,6 +125,8 @@ impl Desk {
             .flex_col()
             .gap(px(10.))
             .p(px(16.))
+            .border_t_1()
+            .border_color(theme::border())
             .child(heading("Clone a repository"))
             .child(field(self.clone_url.clone()));
         if let Some(c) = &self.cloning {
@@ -149,7 +154,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "do-clone", "Clone", Weight::Primary)
+                        ui::button(faces, "do-clone", "Clone", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_clone(cx))),
                     )
                     .child(fine(
@@ -245,15 +250,13 @@ impl Desk {
             .flex_col()
             .gap(px(10.))
             .p(px(16.))
-            .border_t_1()
-            .border_color(theme::border())
-            .child(heading("Or"))
+            .child(heading("A folder already here"))
             .child(
                 div()
                     .flex()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "open-folder", "Open a folder…", Weight::Secondary)
+                        ui::button(faces, "open-folder", "Open a folder…", Weight::Primary)
                             .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
                     )
                     .child(
@@ -263,40 +266,49 @@ impl Desk {
                     ),
             );
 
-        div().flex().flex_1().justify_center().child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(18.))
-                .w(px(560.))
-                .pt(px(56.))
-                .child(
-                    ui::text(faces, "Add a project")
-                        .text_size(px(22.))
-                        .line_height(px(30.))
-                        .weight(gpui::FontWeight::SEMIBOLD),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(fine(faces, "New and cloned projects go in"))
-                        .child(parent),
-                )
-                .children(
-                    self.adding_trouble
-                        .clone()
-                        .map(|why| ui::trouble(faces, why)),
-                )
-                .child(
-                    card()
-                        .child(clone)
-                        .child(create)
-                        .child(remote)
-                        .child(elsewhere),
-                )
-                .children(self.worked_here(faces, cx)),
-        )
+        div()
+            .id("new-project")
+            .flex()
+            .flex_col()
+            .items_center()
+            .flex_1()
+            .min_h(px(0.))
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(18.))
+                    .w(px(560.))
+                    .pt(px(56.))
+                    .pb(px(40.))
+                    .child(
+                        ui::text(faces, "Add a project")
+                            .text_size(px(22.))
+                            .line_height(px(30.))
+                            .weight(gpui::FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(fine(faces, "New and cloned projects go in"))
+                            .child(parent),
+                    )
+                    .children(
+                        self.adding_trouble
+                            .clone()
+                            .map(|why| ui::trouble(faces, why)),
+                    )
+                    .child(
+                        card()
+                            .child(elsewhere)
+                            .child(clone)
+                            .child(create)
+                            .child(remote),
+                    )
+                    .children(self.worked_here(faces, cx)),
+            )
     }
 }
