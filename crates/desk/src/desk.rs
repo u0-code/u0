@@ -38,6 +38,7 @@ mod gitview;
 mod kept;
 pub(crate) mod links;
 pub(crate) mod lists;
+mod looks;
 pub(crate) mod mention;
 pub(crate) mod notices;
 pub(crate) mod palette;
@@ -384,6 +385,9 @@ impl Desk {
             }
         })
         .detach();
+        for refused in crate::themes::load(&home, cx) {
+            tracing::warn!("a theme did not read: {refused}");
+        }
         mirror(&settings, cx);
         let composer = mention::Composer::new(settings.send.return_sends(""), window, cx);
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
@@ -1346,6 +1350,7 @@ impl Desk {
             .update(cx, |i, cx| i.set_value("", window, cx));
         match tab {
             crate::pages::Tab::Sessions => self.measure(),
+            crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
             crate::pages::Tab::Usage => {
                 self.weigh_agents();
@@ -1534,12 +1539,22 @@ impl Render for Desk {
                 0.
             };
         let middle = div()
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(px(0.))
             .h_full()
+            // Your picture, faint under the thread and what is beside it.
+            .children(self.settings.backdrop.clone().map(|path| {
+                gpui::img(path)
+                    .absolute()
+                    .size_full()
+                    .object_fit(gpui::ObjectFit::Cover)
+                    .opacity(0.16)
+            }))
             .child(self.topbar(&faces, lights, pane, cx));
+
         let cell = crate::thread::drawer::grid(window, &faces, self.settings.terminal_size);
         let middle = match self.page.clone() {
             Page::Thread => {
@@ -1680,6 +1695,7 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
     theme::set_glass(settings.glass);
+    theme::set_themes(settings.theme_dark.clone(), settings.theme_light.clone());
     fonts::set_mono(cx, settings.mono);
     theme::kit(cx);
 }

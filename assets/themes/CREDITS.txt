@@ -1,0 +1,5 @@
+The themes here are gpui-kit's (https://github.com/longbridge/gpui-kit,
+themes/, Apache-2.0), unchanged, in its theme format. Each names its
+author: ayu.json (Zed Industries), catppuccin.json (Catppuccin),
+flexoki.json (kepano), gruvbox.json (Pavel Pertsev), solarized.json
+(Ethan Schoonover), tokyonight.json (Folke Lemaitre).

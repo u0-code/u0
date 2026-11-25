@@ -22,6 +22,7 @@ mod sidebar;
 mod style;
 mod terminal;
 mod theme;
+mod themes;
 mod thread;
 mod ui;
 mod voice;

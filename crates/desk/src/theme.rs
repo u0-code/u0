@@ -58,12 +58,91 @@ pub fn glass() -> bool {
 
 /// A ground, see-through where glass is on.
 fn ground(dark: u32, light: u32) -> Hsla {
-    let colour = pick(dark, light);
+    glassy(pick(dark, light))
+}
+
+/// `colour`, see-through where glass is on.
+fn glassy(colour: Hsla) -> Hsla {
     if glass() {
         colour.opacity(0.82)
     } else {
         colour
     }
+}
+
+/// The colours of a theme of yours, for the look now drawn, as the
+/// functions below give Ghost's own: each read from what gpui-kit made of
+/// the theme.
+#[derive(Clone, Copy)]
+struct Palette {
+    bg: Hsla,
+    rail: Hsla,
+    panel: Hsla,
+    bubble: Hsla,
+    panel2: Hsla,
+    well: Hsla,
+    border: Hsla,
+    border2: Hsla,
+    hover: Hsla,
+    text: Hsla,
+    text2: Hsla,
+    muted: Hsla,
+    faint: Hsla,
+    quiet: Hsla,
+    ok: Hsla,
+    accent: Hsla,
+    coral: Hsla,
+    program: Hsla,
+    argument: Hsla,
+    number: Hsla,
+    link: Hsla,
+}
+
+impl Palette {
+    fn of(c: &gpui::component::theme::ThemeColor) -> Self {
+        Self {
+            bg: c.background,
+            rail: c.sidebar,
+            panel: c.popover,
+            bubble: c.secondary,
+            panel2: c.muted,
+            well: c.background.blend(c.foreground.opacity(0.03)),
+            border: c.border,
+            border2: c.input,
+            hover: c.secondary_hover,
+            text: c.foreground,
+            text2: c.foreground.blend(c.muted_foreground.opacity(0.5)),
+            muted: c.muted_foreground,
+            faint: c.muted_foreground.opacity(0.85),
+            quiet: c.muted_foreground.opacity(0.6),
+            ok: c.success,
+            accent: c.warning,
+            coral: c.danger,
+            program: c.blue,
+            argument: c.green,
+            number: c.yellow,
+            link: c.link,
+        }
+    }
+}
+
+/// The colours of the theme of yours drawn now; none, Ghost's own.
+static THEMED: std::sync::RwLock<Option<Palette>> = std::sync::RwLock::new(None);
+
+/// A colour of the theme of yours drawn now, where there is one.
+fn themed(of: fn(&Palette) -> Hsla) -> Option<Hsla> {
+    THEMED.read().expect("the theme").as_ref().map(of)
+}
+
+/// The themes chosen for the dark look and the light, by name; none,
+/// Ghost's own.
+static CHOSEN: std::sync::Mutex<(Option<String>, Option<String>)> =
+    std::sync::Mutex::new((None, None));
+
+/// Choose the themes for the dark look and the light, as the settings
+/// say; the look takes them as gpui-kit's is set (`kit`).
+pub fn set_themes(dark: Option<String>, light: Option<String>) {
+    *CHOSEN.lock().expect("the themes") = (dark, light);
 }
 
 /// `normal`, or `strong` with more contrast; each dark then light.
@@ -101,46 +180,46 @@ fn pick(dark: u32, light: u32) -> Hsla {
 
 /// The window's ground: the thread and the right column.
 pub fn bg() -> Hsla {
-    ground(0x1919_19, 0xFAFA_F9)
+    themed(|p| p.bg).map_or_else(|| ground(0x1919_19, 0xFAFA_F9), glassy)
 }
 /// The rail down the left, a shade lighter than the ground.
 pub fn rail() -> Hsla {
-    ground(0x1F1F_1F, 0xF2F2_F0)
+    themed(|p| p.rail).map_or_else(|| ground(0x1F1F_1F, 0xF2F2_F0), glassy)
 }
 /// A panel on the ground: the composer, a menu, a sheet.
 pub fn panel() -> Hsla {
-    pick(0x2626_26, 0xFFFF_FF)
+    themed(|p| p.panel).unwrap_or_else(|| pick(0x2626_26, 0xFFFF_FF))
 }
 /// What you said, in its bubble, and a name in code in an agent's prose: a
 /// shade over the ground, as light as Claude's app keeps it (#252525 on
 /// #191919), not a panel's grey.
 pub fn bubble() -> Hsla {
-    pick(0x2525_25, 0xEFEF_ED)
+    themed(|p| p.bubble).unwrap_or_else(|| pick(0x2525_25, 0xEFEF_ED))
 }
 /// A panel's deeper inset, or a selected row.
 pub fn panel2() -> Hsla {
-    pick(0x3434_34, 0xE6E6_E4)
+    themed(|p| p.panel2).unwrap_or_else(|| pick(0x3434_34, 0xE6E6_E4))
 }
 /// An inset under the ground: a field, a search box.
 pub fn well() -> Hsla {
-    pick(0x1414_14, 0xF6F6_F5)
+    themed(|p| p.well).unwrap_or_else(|| pick(0x1414_14, 0xF6F6_F5))
 }
 /// Lines between things, and the frame of a card or a box in the thread:
 /// barely there, as in Claude's app.
 pub fn border() -> Hsla {
-    step((0x2222_22, 0xE5E5_E3), (0x3838_38, 0xCFCF_CC))
+    themed(|p| p.border).unwrap_or_else(|| step((0x2222_22, 0xE5E5_E3), (0x3838_38, 0xCFCF_CC)))
 }
 /// The edge of a chip or a small framed control.
 pub fn tag_line() -> Hsla {
-    pick(0x2E2E_2E, 0xDADA_D8)
+    themed(|p| p.border).unwrap_or_else(|| pick(0x2E2E_2E, 0xDADA_D8))
 }
 /// A stronger line: a control's edge.
 pub fn border2() -> Hsla {
-    step((0x3838_38, 0xCFCF_CC), (0x5050_50, 0xA8A8_A4))
+    themed(|p| p.border2).unwrap_or_else(|| step((0x3838_38, 0xCFCF_CC), (0x5050_50, 0xA8A8_A4)))
 }
 /// A hover, on the ground or on the rail.
 pub fn hover() -> Hsla {
-    pick(0x2A2A_2A, 0xEDED_EB)
+    themed(|p| p.hover).unwrap_or_else(|| pick(0x2A2A_2A, 0xEDED_EB))
 }
 /// Text.
 /// A row in the sidebar under the pointer, open, and chosen among others:
@@ -158,59 +237,59 @@ pub fn row_chosen() -> Hsla {
 }
 
 pub fn text() -> Hsla {
-    pick(0xEFEF_EF, 0x1C1C_1C)
+    themed(|p| p.text).unwrap_or_else(|| pick(0xEFEF_EF, 0x1C1C_1C))
 }
 /// Text that matters a little less.
 pub fn text2() -> Hsla {
-    step((0xB4B4_B4, 0x4747_47), (0xD6D6_D6, 0x2E2E_2E))
+    themed(|p| p.text2).unwrap_or_else(|| step((0xB4B4_B4, 0x4747_47), (0xD6D6_D6, 0x2E2E_2E)))
 }
 /// Labels, a step's verb, what a command printed.
 pub fn muted() -> Hsla {
-    step((0x9C9C_9C, 0x5A5A_5A), (0xBDBD_BD, 0x4A4A_4A))
+    themed(|p| p.muted).unwrap_or_else(|| step((0x9C9C_9C, 0x5A5A_5A), (0xBDBD_BD, 0x4A4A_4A)))
 }
 /// The faintest readable grey: times, durations, footnotes. Still 4.5:1
 /// (WCAG AA) on a panel and on the rail, for the small text it is.
 pub fn faint() -> Hsla {
-    step((0x8E8E_8E, 0x6E6E_6E), (0xA8A8_A8, 0x5757_57))
+    themed(|p| p.faint).unwrap_or_else(|| step((0x8E8E_8E, 0x6E6E_6E), (0xA8A8_A8, 0x5757_57)))
 }
 /// Below faint, for what is there only to be skipped: line numbers, the
 /// "… n lines" of a fold, a plan's struck and empty marks, work dropped.
 pub fn quiet() -> Hsla {
-    pick(0x5E5E_5E, 0xA6A6_A6)
+    themed(|p| p.quiet).unwrap_or_else(|| pick(0x5E5E_5E, 0xA6A6_A6))
 }
 /// A disabled or empty mark.
 pub fn ghost_line() -> Hsla {
-    pick(0x4A4A_4A, 0xBDBD_BA)
+    themed(|p| p.border).unwrap_or_else(|| pick(0x4A4A_4A, 0xBDBD_BA))
 }
 /// Done, passed, a line added.
 pub fn ok() -> Hsla {
-    pick(0x8FBF_8A, 0x3D8A_3A)
+    themed(|p| p.ok).unwrap_or_else(|| pick(0x8FBF_8A, 0x3D8A_3A))
 }
 /// The one accent: something going on now, a question waiting on you.
 pub fn accent() -> Hsla {
-    pick(0xE0A3_5A, 0xB06E_1B)
+    themed(|p| p.accent).unwrap_or_else(|| pick(0xE0A3_5A, 0xB06E_1B))
 }
 /// Trouble, calmly; a removal in a diff.
 pub fn coral() -> Hsla {
-    pick(0xD98C_7A, 0xBF51_3A)
+    themed(|p| p.coral).unwrap_or_else(|| pick(0xD98C_7A, 0xBF51_3A))
 }
 /// The program at the head of a command, and a keyword in code.
 pub fn code_program() -> Hsla {
-    pick(0x81B6_F9, 0x1D6A_C9)
+    themed(|p| p.program).unwrap_or_else(|| pick(0x81B6_F9, 0x1D6A_C9))
 }
 /// Everything after the program: arguments, quoted strings.
 pub fn code_argument() -> Hsla {
-    pick(0xACE7_75, 0x4B84_19)
+    themed(|p| p.argument).unwrap_or_else(|| pick(0xACE7_75, 0x4B84_19))
 }
 
 /// A number in code.
 pub fn code_number() -> Hsla {
-    pick(0xE5B7_7A, 0xA35C_17)
+    themed(|p| p.number).unwrap_or_else(|| pick(0xE5B7_7A, 0xA35C_17))
 }
 
 /// A link, as Claude's app draws one.
 pub fn link() -> Hsla {
-    pick(0x79A9_EB, 0x2C6B_CC)
+    themed(|p| p.link).unwrap_or_else(|| pick(0x79A9_EB, 0x2C6B_CC))
 }
 
 /// The colour the logo of the agent with this id is drawn in
@@ -229,8 +308,34 @@ pub fn kit(cx: &mut App) {
     let faces = crate::fonts::faces(cx).clone();
     // A change of mode loads gpui-kit's own colours for it: first that,
     // then the desk's over them.
-    Theme::change(
+    // The theme chosen for this look, else gpui-kit's own for it, which
+    // the desk's colours then go over.
+    let chosen = {
+        let names = CHOSEN.lock().expect("the themes");
         if is_light() {
+            names.1.clone()
+        } else {
+            names.0.clone()
+        }
+    };
+    let config = chosen.and_then(|name| crate::themes::find(cx, &name));
+    let registry = gpui::component::theme::ThemeRegistry::global(cx);
+    let own = if is_light() {
+        registry.default_light_theme().clone()
+    } else {
+        registry.default_dark_theme().clone()
+    };
+    let light = is_light();
+    let mode_theme = config.clone().unwrap_or(own);
+    Theme::update(cx, |t| {
+        if light {
+            t.light_theme = mode_theme;
+        } else {
+            t.dark_theme = mode_theme;
+        }
+    });
+    Theme::change(
+        if light {
             ThemeMode::Light
         } else {
             ThemeMode::Dark
@@ -238,6 +343,7 @@ pub fn kit(cx: &mut App) {
         None,
         cx,
     );
+    *THEMED.write().expect("the theme") = config.map(|_| Palette::of(&Theme::global(cx).colors));
     Theme::update(cx, |t| {
         t.font_family = faces.ui;
         t.mono_font_family = faces.mono;

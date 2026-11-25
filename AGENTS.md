@@ -142,7 +142,7 @@ crates/desk/src/
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
                 PRs and Issues pages), links (the ghost:// links and folders
-                macOS opens Ghost with)
+                macOS opens Ghost with), looks (themes chosen, made, removed)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
@@ -156,12 +156,14 @@ crates/desk/src/
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
-                Source control),
+                Source control, looks: Appearance's themes),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
+  themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons
-assets/         fonts and the desk's own icons, built into the app
+assets/         fonts, the desk's own icons and the themes it brings, built into the app
+
 ```
 
 ## Canonical helpers

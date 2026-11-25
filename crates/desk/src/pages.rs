@@ -5,6 +5,7 @@
 
 mod forge;
 mod hosts;
+mod looks;
 mod prefs;
 mod projects;
 mod settings;
@@ -74,6 +75,8 @@ pub struct Pages {
     /// as it is typed (by `forge::Host::ALL`).
     pub forges: Vec<crate::forge::Seen>,
     pub tokens: [Entity<InputState>; 5],
+    /// Themes of yours that did not read, each said.
+    pub themes_refused: Vec<String>,
 }
 
 impl Pages {
@@ -141,6 +144,8 @@ impl Pages {
             project: None,
             period: Some(30),
             forges: Vec::new(),
+            themes_refused: Vec::new(),
+
             tokens: crate::forge::Host::ALL.map(|_| {
                 cx.new(|cx| {
                     InputState::new(window, cx)

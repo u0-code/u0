@@ -103,6 +103,15 @@ pub struct Settings {
     /// Dark, light, or as the system is.
     #[serde(default)]
     pub look: Look,
+    /// The theme the dark look is drawn in, by name; none, Ghost's own.
+    #[serde(default)]
+    pub theme_dark: Option<String>,
+    /// The theme the light look is drawn in, by name; none, Ghost's own.
+    #[serde(default)]
+    pub theme_light: Option<String>,
+    /// A picture drawn faintly under the thread.
+    #[serde(default)]
+    pub backdrop: Option<PathBuf>,
     /// How wide the thread and the composer read.
     #[serde(default)]
     pub width: Width,
@@ -692,6 +701,10 @@ impl Default for Settings {
             fetch_every: five(),
             width: Width::default(),
             look: Look::default(),
+            theme_dark: None,
+            theme_light: None,
+            backdrop: None,
+
             twelve: false,
             blue_orange: false,
             contrast: false,
