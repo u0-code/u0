@@ -1746,14 +1746,14 @@ impl Desk {
                             .resume
                             .is_some() =>
                 {
-                    hub::resume(agent.clone(), key, id, dirs, tx);
+                    hub::reopen(agent.clone(), key, id, dirs, true, tx);
                 }
                 Some(id) if init.agent_capabilities.load_session => {
                     let agent = agent.clone();
                     if recorded {
                         self.drop_record(key);
                     }
-                    hub::load(agent, key, id, dirs, tx);
+                    hub::reopen(agent, key, id, dirs, false, tx);
                 }
                 Some(_) => {
                     if let Some(s) = self.session_mut(key) {

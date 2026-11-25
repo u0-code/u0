@@ -14,6 +14,7 @@ use std::{
 };
 
 use agent_client_protocol::{
+    JsonRpcRequest,
     schema::ProtocolVersion,
     v1::schema::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
@@ -412,16 +413,36 @@ impl GitAction {
     }
 }
 
+/// Do `work` off the window's thread, and send what it comes to back.
+fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
+    acp::runtime().spawn_blocking(move || {
+        let _ = tx.send(work());
+    });
+}
+
+/// Ask `agent` `request`, and send what `then` makes of the answer back.
+fn ask<R>(
+    agent: Arc<Agent>,
+    request: R,
+    tx: Sender,
+    then: impl FnOnce(Result<R::Response, Error>) -> Msg + Send + 'static,
+) where
+    R: JsonRpcRequest + Send + 'static,
+    R::Response: Send,
+{
+    acp::runtime().spawn(async move {
+        let _ = tx.send(then(agent.request(request).await));
+    });
+}
+
 /// Read the newest registry.
 pub fn fetch(home: PathBuf, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let _ = tx.send(Msg::Registry(registry::fetch(&home)));
-    });
+    off(tx, move || Msg::Registry(registry::fetch(&home)));
 }
 
 /// Install `entry` from its archive, until `stop` is set.
 pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx.clone(), move || {
         let agent = entry.id.clone();
         let say = |what: &str, share: Option<f32>| {
             let _ = tx.send(Msg::Installing {
@@ -431,7 +452,7 @@ pub fn install(entry: Entry, home: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
             });
         };
         let result = registry::install(&entry, &home, &say, &stop);
-        let _ = tx.send(Msg::Installed { agent, result });
+        Msg::Installed { agent, result }
     });
 }
 
@@ -487,12 +508,10 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
 
 /// Open a new session in `folder`, with the folders `also` beside it.
 pub fn open(agent: Arc<Agent>, key: u64, (folder, also): (PathBuf, Vec<PathBuf>), tx: Sender) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(NewSessionRequest::new(folder).additional_directories(also))
-            .await
-            .map(Box::new);
-        let _ = tx.send(Msg::Opened { key, result });
+    let request = NewSessionRequest::new(folder).additional_directories(also);
+    ask(agent, request, tx, move |r| Msg::Opened {
+        key,
+        result: r.map(Box::new),
     });
 }
 
@@ -586,54 +605,39 @@ pub struct Opened {
     pub options: Option<Vec<SessionConfigOption>>,
 }
 
-/// Load the session `id` the agent keeps, in `folder` (and `also`): it
-/// says again all that was said in it, as updates.
-pub fn load(
+/// Open again the session `id` the agent keeps, in `folder` (and `also`):
+/// resumed, without what was said in it, which the desk has already; or
+/// loaded, and the agent says again all that was said in it, as updates.
+pub fn reopen(
     agent: Arc<Agent>,
     key: u64,
     id: SessionId,
     (folder, also): (PathBuf, Vec<PathBuf>),
+    resumed: bool,
     tx: Sender,
 ) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(LoadSessionRequest::new(id, folder).additional_directories(also))
-            .await
-            .map(|r| Opened {
+    let loaded = move |result| Msg::Loaded {
+        key,
+        resumed,
+        result,
+    };
+    if resumed {
+        let request = ResumeSessionRequest::new(id, folder).additional_directories(also);
+        ask(agent, request, tx, move |r| {
+            loaded(r.map(|r| Opened {
                 modes: r.modes,
                 options: r.config_options,
-            });
-        let _ = tx.send(Msg::Loaded {
-            key,
-            resumed: false,
-            result,
+            }))
         });
-    });
-}
-
-/// Resume the session `id` the agent keeps, in `folder` (and `also`),
-/// without what was said in it: the desk has that already.
-pub fn resume(
-    agent: Arc<Agent>,
-    key: u64,
-    id: SessionId,
-    (folder, also): (PathBuf, Vec<PathBuf>),
-    tx: Sender,
-) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(ResumeSessionRequest::new(id, folder).additional_directories(also))
-            .await
-            .map(|r| Opened {
+    } else {
+        let request = LoadSessionRequest::new(id, folder).additional_directories(also);
+        ask(agent, request, tx, move |r| {
+            loaded(r.map(|r| Opened {
                 modes: r.modes,
                 options: r.config_options,
-            });
-        let _ = tx.send(Msg::Loaded {
-            key,
-            resumed: true,
-            result,
+            }))
         });
-    });
+    }
 }
 
 /// Open a session of `agent` in `dir` to read what a session offers, then
@@ -671,22 +675,23 @@ pub fn fork(
     upto: Option<(usize, MessageId)>,
     tx: Sender,
 ) {
-    acp::runtime().spawn(async move {
-        let mut request = ForkSessionRequest::new(id, folder);
-        if let Some((_, last)) = &upto {
-            let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
-            request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
-        }
-        let result = agent.request(request).await.map(Box::new);
-        let at = upto.map(|(at, _)| at);
-        let _ = tx.send(Msg::Forked { from, at, result });
+    let mut request = ForkSessionRequest::new(id, folder);
+    if let Some((_, last)) = &upto {
+        let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
+        request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
+    }
+    let at = upto.map(|(at, _)| at);
+    ask(agent, request, tx, move |r| Msg::Forked {
+        from,
+        at,
+        result: r.map(Box::new),
     });
 }
 
 /// Let you choose a window and capture it (macOS's screencapture), for
 /// what you write.
 pub fn capture_window(tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx, || {
         let path = std::env::temp_dir().join(format!("ghost-capture-{}.png", std::process::id()));
         let shot = std::process::Command::new("screencapture")
             .args(["-i", "-W", "-x"])
@@ -697,66 +702,60 @@ pub fn capture_window(tx: Sender) {
             .filter(std::process::ExitStatus::success)
             .and_then(|_| std::fs::read(&path).ok());
         let _ = std::fs::remove_file(&path);
-        let _ = tx.send(Msg::Captured(bytes));
+        Msg::Captured(bytes)
     });
 }
 
 /// Look for `words` in the files of `folder` git sees (git grep), for the
 /// palette: each place as "path:line", and the line.
 pub fn grep(folder: PathBuf, words: String, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let found = git::grep(&folder, &words);
-        let _ = tx.send(Msg::Grepped { words, found });
+    off(tx, move || Msg::Grepped {
+        found: git::grep(&folder, &words),
+        words,
     });
 }
 
 /// Read the files of `folder` that git sees (tracked, and new ones not
 /// ignored), for `@` to name.
 pub fn list_files(folder: PathBuf, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let files = git::files(&folder);
-        let _ = tx.send(Msg::Files { folder, files });
+    off(tx, move || Msg::Files {
+        files: git::files(&folder),
+        folder,
     });
 }
 
-/// Ask `cli` its version (`--version`, its first line).
+/// Ask `cli` its version (`--version`, its first line); none, if it does
+/// not say.
 pub fn cli_version(cli: PathBuf, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let out = std::process::Command::new(&cli)
+    off(tx, move || {
+        let version = std::process::Command::new(&cli)
             .arg("--version")
             .stdin(std::process::Stdio::null())
-            .output();
-        if let Ok(out) = out
-            && out.status.success()
-        {
-            let version = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
-            let _ = tx.send(Msg::CliVersion { cli, version });
-        }
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| {
+                let said = String::from_utf8_lossy(&out.stdout);
+                said.lines().next().unwrap_or_default().trim().to_owned()
+            })
+            .unwrap_or_default();
+        Msg::CliVersion { cli, version }
     });
 }
 
 /// Read the open pull requests and issues of `folder` with `gh`, for `@`
 /// to name and the palette to begin from.
 pub fn list_prs(folder: PathBuf, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let prs = git::open_on_github(&folder, "pr");
-        let issues = git::open_on_github(&folder, "issue");
-        let _ = tx.send(Msg::Prs {
-            folder,
-            prs,
-            issues,
-        });
+    off(tx, move || Msg::Prs {
+        prs: git::open_on_github(&folder, "pr"),
+        issues: git::open_on_github(&folder, "issue"),
+        folder,
     });
 }
 
 /// Clone `url` into `dir`, until `stop` is set.
 pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx.clone(), move || {
         let say = |what: &str, share: Option<f32>| {
             let _ = tx.send(Msg::Cloning {
                 what: what.to_owned(),
@@ -764,7 +763,7 @@ pub fn clone(url: String, dir: PathBuf, stop: Arc<AtomicBool>, tx: Sender) {
             });
         };
         let result = git::clone(&url, &dir, &say, &stop);
-        let _ = tx.send(Msg::Cloned { dir, result });
+        Msg::Cloned { dir, result }
     });
 }
 
@@ -776,24 +775,22 @@ pub fn scope_diff(
     (scope, base): (crate::desk::Scope, Option<String>),
     tx: Sender,
 ) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx, move || {
         let result = match &scope {
             crate::desk::Scope::Commit(id) => git::commit_diff(&dir, id),
             _ => git::against_base(&dir, base.as_deref()),
         };
-        let _ = tx.send(Msg::Diffed { key, scope, result });
+        Msg::Diffed { key, scope, result }
     });
 }
 
 /// The recent commits and the local branches where the session `key` works.
 pub fn commits(dir: PathBuf, key: u64, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let _ = tx.send(Msg::Commits {
-            key,
-            commits: git::log(&dir, 12),
-            branches: git::branches(&dir),
-            upstream: git::upstream(&dir),
-        });
+    off(tx, move || Msg::Commits {
+        key,
+        commits: git::log(&dir, 12),
+        branches: git::branches(&dir),
+        upstream: git::upstream(&dir),
     });
 }
 
@@ -818,11 +815,9 @@ pub struct Pr {
 
 /// Read the pull request of the branch where the session `key` works.
 pub fn pr(dir: PathBuf, key: u64, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let _ = tx.send(Msg::Pr {
-            key,
-            pr: read_pr(&dir),
-        });
+    off(tx, move || Msg::Pr {
+        key,
+        pr: read_pr(&dir),
     });
 }
 
@@ -882,23 +877,20 @@ fn read_pr(dir: &std::path::Path) -> Option<Pr> {
 
 /// Measure Ghost's home.
 pub fn sizes(home: PathBuf, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let _ = tx.send(Msg::Sizes(crate::tidy::sizes(&home)));
-    });
+    off(tx, move || Msg::Sizes(crate::tidy::sizes(&home)));
 }
 
 /// Tidy `what` around what is kept, then measure again.
 pub fn tidy(home: PathBuf, what: crate::tidy::Tidy, kept: crate::tidy::Kept, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let said = crate::tidy::tidy(&home, what, &kept);
-        let _ = tx.send(Msg::Tidied(said));
-        let _ = tx.send(Msg::Sizes(crate::tidy::sizes(&home)));
+    off(tx.clone(), move || {
+        let _ = tx.send(Msg::Tidied(crate::tidy::tidy(&home, what, &kept)));
+        Msg::Sizes(crate::tidy::sizes(&home))
     });
 }
 
 /// Look for `query` (lower case) in the records at `paths`.
 pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx, move || {
         let keys = paths
             .into_iter()
             .filter(|(_, p)| {
@@ -906,29 +898,25 @@ pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
             })
             .map(|(k, _)| k)
             .collect();
-        let _ = tx.send(Msg::Found { query, keys });
+        Msg::Found { query, keys }
     });
 }
 
 /// Read what is not committed in `dir`.
 pub fn uncommitted(dir: PathBuf, key: u64, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
-        let _ = tx.send(Msg::Uncommitted {
-            key,
-            result: git::uncommitted(&dir),
-        });
+    off(tx, move || Msg::Uncommitted {
+        key,
+        result: git::uncommitted(&dir),
     });
 }
 
 /// Delete the session `id` from its agent.
 pub fn delete(agent: Arc<Agent>, key: u64, id: SessionId, tx: Sender) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(DeleteSessionRequest::new(id))
-            .await
-            .map(|_| ())
-            .map_err(|f| f.message);
-        let _ = tx.send(Msg::Deleted { key, result });
+    ask(agent, DeleteSessionRequest::new(id), tx, move |r| {
+        Msg::Deleted {
+            key,
+            result: r.map(|_| ()).map_err(|f| f.message),
+        }
     });
 }
 
@@ -941,12 +929,13 @@ pub fn prompt(
     attached: Vec<ContentBlock>,
     tx: Sender,
 ) {
-    acp::runtime().spawn(async move {
-        let mut content = vec![ContentBlock::Text(TextContent::new(text))];
-        content.extend(attached);
-        let request = PromptRequest::new(id, content);
-        let result = agent.request(request).await.map(|r| r.stop_reason);
-        let _ = tx.send(Msg::Ended { key, result });
+    let mut content = vec![ContentBlock::Text(TextContent::new(text))];
+    content.extend(attached);
+    ask(agent, PromptRequest::new(id, content), tx, move |r| {
+        Msg::Ended {
+            key,
+            result: r.map(|r| r.stop_reason),
+        }
     });
 }
 
@@ -1005,51 +994,39 @@ pub fn set_option(
     value: String,
     tx: Sender,
 ) {
-    acp::runtime().spawn(async move {
-        let request = SetSessionConfigOptionRequest::new(
-            id,
-            SessionConfigId::new(config),
-            SessionConfigOptionValue::value_id(SessionConfigValueId::new(value)),
-        );
-        let msg = match agent.request(request).await {
-            Ok(r) => Msg::Options {
-                key,
-                options: r.config_options,
-            },
-            Err(f) => Msg::Refused {
-                key,
-                why: f.message,
-            },
-        };
-        let _ = tx.send(msg);
+    let request = SetSessionConfigOptionRequest::new(
+        id,
+        SessionConfigId::new(config),
+        SessionConfigOptionValue::value_id(SessionConfigValueId::new(value)),
+    );
+    ask(agent, request, tx, move |r| match r {
+        Ok(r) => Msg::Options {
+            key,
+            options: r.config_options,
+        },
+        Err(f) => Msg::Refused {
+            key,
+            why: f.message,
+        },
     });
 }
 
 /// Sign in to `agent` (the registry id `id`) with its method `method`: the
 /// agent itself does it, often in your browser.
 pub fn authenticate(agent: Arc<Agent>, id: String, method: String, tx: Sender) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(AuthenticateRequest::new(method))
-            .await
-            .map(|_| ())
-            .map_err(|f| f.message);
-        let _ = tx.send(Msg::Signed { agent: id, result });
+    ask(agent, AuthenticateRequest::new(method), tx, move |r| {
+        Msg::Signed {
+            agent: id,
+            result: r.map(|_| ()).map_err(|f| f.message),
+        }
     });
 }
 
 /// Sign `agent` out.
 pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
-    acp::runtime().spawn(async move {
-        let result = agent
-            .request(LogoutRequest::new())
-            .await
-            .map(|_| ())
-            .map_err(|f| f.message);
-        let _ = tx.send(Msg::LoggedOut {
-            agent: name,
-            result,
-        });
+    ask(agent, LogoutRequest::new(), tx, move |r| Msg::LoggedOut {
+        agent: name,
+        result: r.map(|_| ()).map_err(|f| f.message),
     });
 }
 
@@ -1126,13 +1103,13 @@ pub fn make_worktree(
     tx: Sender,
 ) {
     use crate::session::Begin;
-    acp::runtime().spawn_blocking(move || {
+    off(tx, move || {
         let result = match from {
             Some(Begin::Pr(number, _)) => git::pr_worktree(&dir, number, &home),
             Some(Begin::Branch(b)) => git::worktree(&dir, &about, &home, &prefix, &b),
             None => git::worktree(&dir, &about, &home, &prefix, "HEAD"),
         };
-        let _ = tx.send(Msg::Worktree { key, result });
+        Msg::Worktree { key, result }
     });
 }
 
@@ -1151,7 +1128,7 @@ pub struct Take {
 
 /// Take a checkpoint; after a turn, read what changed in it and in all.
 pub fn checkpoint(take: Take, tx: Sender) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx, move || {
         let result = git::checkpoint(&take.dir, &take.name).map(|commit| {
             let diff = |from: &Option<String>| {
                 from.as_deref()
@@ -1164,13 +1141,13 @@ pub fn checkpoint(take: Take, tx: Sender) {
                 commit,
             }
         });
-        let _ = tx.send(Msg::Checkpoint {
+        Msg::Checkpoint {
             key: take.key,
             turn: take.turn,
             after: take.after,
             result,
             then: take.then,
-        });
+        }
     });
 }
 
@@ -1186,7 +1163,7 @@ pub fn restore(
     undo: bool,
     tx: Sender,
 ) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx, move || {
         let result = git::restore(&dir, &target, &name).map(|back| {
             let total = first.and_then(|f| {
                 let now = git::checkpoint(&dir, &format!("{name}-now")).ok()?;
@@ -1194,12 +1171,12 @@ pub fn restore(
             });
             (back, total)
         });
-        let _ = tx.send(Msg::Restored {
+        Msg::Restored {
             key,
             turn,
             undo,
             result,
-        });
+        }
     });
 }
 
@@ -1211,7 +1188,7 @@ pub fn git_action(
     key: u64,
     tx: Sender,
 ) {
-    acp::runtime().spawn_blocking(move || {
+    off(tx.clone(), move || {
         let step = |text: &str| {
             let _ = tx.send(Msg::GitStep {
                 key,
@@ -1265,10 +1242,10 @@ pub fn git_action(
             GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
                 .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),
         };
-        let _ = tx.send(Msg::Git {
+        Msg::Git {
             key,
             action,
             result,
-        });
+        }
     });
 }
