@@ -435,12 +435,14 @@ impl Desk {
                 }
                 self.stopping = None;
                 self.end_turn(key);
-                self.name_branch(key);
+                if ok {
+                    self.suggest_next(key);
+                }
                 self.refresh_git(key);
                 // What was said meanwhile goes now, in order.
                 self.say_queued(key, cx);
             }
-            Event::Written { key, ask, result } => self.written(key, &ask, result, window, cx),
+            Event::Written { key, ask, result } => self.written(key, ask, result, window, cx),
             Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(&agent) {
                     match result {
@@ -454,12 +456,8 @@ impl Desk {
                 if let Some(slot) = self.slot_mut(&agent) {
                     slot.used = std::time::Instant::now();
                 }
-                if let Some((key, titled)) = self.sessions.appended(&agent, &id, events) {
+                if let Some(key) = self.sessions.appended(&agent, &id, events) {
                     self.place(key);
-                    // A title come from the agent names the worktree's branch.
-                    if titled {
-                        self.name_branch(key);
-                    }
                 }
             }
             Event::Signed { agent, result } => self.signed(&agent, result),

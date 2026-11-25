@@ -34,8 +34,13 @@ pub struct Snapshot {
 pub enum GitAction {
     Commit(String),
     CommitPush(String),
-    /// Commit what is left with this message, push, and open a pull request.
-    PullRequest(String),
+    /// Commit what is left with `message`, push, and open a pull request
+    /// with `title` and `body`.
+    PullRequest {
+        message: String,
+        title: String,
+        body: String,
+    },
     RemoveWorktree(git::Worktree),
     /// Check out this branch.
     Switch(String),
@@ -59,7 +64,7 @@ impl GitAction {
         match self {
             Self::Commit(_) => "commit",
             Self::CommitPush(_) => "commit and push",
-            Self::PullRequest(_) => "open the pull request",
+            Self::PullRequest { .. } => "open the pull request",
             Self::RemoveWorktree(_) => "remove the worktree",
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
@@ -288,14 +293,18 @@ pub fn git_action(
                 git::push(dir).map(|_| format!("Committed {id} and pushed"))
             })
         }
-        GitAction::PullRequest(m) => own_branch(m).and_then(|()| {
+        GitAction::PullRequest {
+            message,
+            title,
+            body,
+        } => own_branch(message).and_then(|()| {
             step("Committing");
             // Nothing left to commit is no reason to stop.
-            let _ = git::commit(dir, m, left_out);
+            let _ = git::commit(dir, message, left_out);
             step("Pushing");
             git::push(dir).and_then(|_| {
                 step("Opening the pull request");
-                git::pull_request(dir)
+                git::pull_request(dir, title, body)
             })
         }),
         GitAction::Switch(b) => git::switch(dir, b).map(|()| format!("On {b}")),

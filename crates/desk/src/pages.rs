@@ -51,6 +51,8 @@ pub struct Pages {
     pub project: Option<std::path::PathBuf>,
     /// Your instructions to the writer, by what it writes.
     pub changes: Entity<TextareaState>,
+    pub titles: Entity<TextareaState>,
+    pub branches: Entity<TextareaState>,
 }
 
 impl Pages {
@@ -96,6 +98,20 @@ impl Pages {
                 &settings.writer.changes,
                 "As the repository's recent commits do",
                 |w| &mut w.changes,
+                window,
+                cx,
+            ),
+            titles: instructions_field(
+                &settings.writer.titles,
+                "What it is about, in 3 to 8 words",
+                |w| &mut w.titles,
+                window,
+                cx,
+            ),
+            branches: instructions_field(
+                &settings.writer.branches,
+                "2 to 6 words, lower case, joined by hyphens",
+                |w| &mut w.branches,
                 window,
                 cx,
             ),

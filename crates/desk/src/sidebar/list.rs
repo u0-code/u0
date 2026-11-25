@@ -887,6 +887,13 @@ fn session_menu(
                 d.begin_rename(Renaming::Session { key, here: false }, window, cx);
             }),
         ))
+        .when(f.id.is_some(), |m| {
+            m.item(item(
+                "Regenerate title",
+                "retry",
+                on(|d, key, _, cx| d.retitle(key, cx)),
+            ))
+        })
         .item(item(
             if f.pinned { "Unpin" } else { "Pin" },
             "pin",

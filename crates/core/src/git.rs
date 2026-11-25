@@ -619,9 +619,9 @@ pub fn push(dir: &Path) -> Result<String, String> {
     yours(dir, "git", &["push", "-u", "origin", "HEAD"])
 }
 
-/// Open a pull request for the branch `dir` is on with `gh`, titled and
-/// described from its commits; its address.
-pub fn pull_request(dir: &Path) -> Result<String, String> {
+/// Open a pull request for the branch `dir` is on with `gh`, with `title`
+/// and `body`; its address.
+pub fn pull_request(dir: &Path, title: &str, body: &str) -> Result<String, String> {
     let host = remote(dir).map(|r| r.0).unwrap_or_default();
     let last_url = |out: &str| {
         out.lines()
@@ -635,10 +635,20 @@ pub fn pull_request(dir: &Path) -> Result<String, String> {
     // other host (Bitbucket, GitLab without glab) by its page for a new
     // one, opened in the browser.
     if host.contains("gitlab") && crate::registry::which("glab").is_some() {
-        return yours(dir, "glab", &["mr", "create", "--fill", "--yes"]).map(|o| last_url(&o));
+        let args = [
+            "mr",
+            "create",
+            "--title",
+            title,
+            "--description",
+            body,
+            "--yes",
+        ];
+        return yours(dir, "glab", &args).map(|o| last_url(&o));
     }
     if host.contains("github") || remote(dir).is_none() {
-        return yours(dir, "gh", &["pr", "create", "--fill"]).map(|o| last_url(&o));
+        let args = ["pr", "create", "--title", title, "--body", body];
+        return yours(dir, "gh", &args).map(|o| last_url(&o));
     }
     let (host, path) = remote(dir).ok_or("the repository has no remote")?;
     let branch = branch(dir).ok_or("the folder is on no branch")?;

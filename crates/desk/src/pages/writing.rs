@@ -2,7 +2,9 @@
 //! written for you, and your instructions for each kind of text.
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
-use gpui::component::{Selectable as _, input::Textarea, scroll::ScrollableElement as _};
+use gpui::component::{
+    Selectable as _, Sizable as _, input::Textarea, scroll::ScrollableElement as _, switch::Switch,
+};
 use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use super::prefs::{group, page, said};
@@ -35,17 +37,47 @@ impl Desk {
                 self.writer_pick(faces, cx),
             )
         });
-        let changes = said(q, &["commit", "pull request", "instructions"]).then(|| {
-            instructions(
+        let next = said(q, &["suggest", "next", "Tab"]).then(|| {
+            super::prefs::setting(
                 faces,
-                "Commit messages and pull requests",
-                "Your style for them, over the repository's own.",
-                &self.pages.changes,
+                "Suggest what to say next",
+                "After each turn, in the empty composer: Tab takes it, Esc lets it go.",
+                Switch::new("suggest")
+                    .small()
+                    .checked(self.settings.writer.suggest)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings.writer.suggest = !this.settings.writer.suggest;
+                        this.save_settings();
+                        cx.notify();
+                    })),
             )
         });
+        let field = |words: &[&str], name: &str, about: &str, input| {
+            said(q, words).then(|| instructions(faces, name, about, input))
+        };
+        let yours = vec![
+            field(
+                &["title", "instructions"],
+                "Titles",
+                "Written when you ask a session for one again.",
+                &self.pages.titles,
+            ),
+            field(
+                &["branch", "worktree", "instructions"],
+                "Worktree branches",
+                "Named from what you first ask, once the worktree is made.",
+                &self.pages.branches,
+            ),
+            field(
+                &["commit", "pull request", "instructions"],
+                "Commit messages and pull requests",
+                "Your style for them, over the repository's own and its template.",
+                &self.pages.changes,
+            ),
+        ];
         let groups: Vec<Div> = [
-            group(faces, "The writer", vec![who]),
-            group(faces, "Your instructions", vec![changes]),
+            group(faces, "The writer", vec![who, next]),
+            group(faces, "Your instructions", yours),
         ]
         .into_iter()
         .flatten()

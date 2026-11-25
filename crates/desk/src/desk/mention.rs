@@ -28,7 +28,8 @@ pub const CONTEXT: &str = "Composer";
 /// whether the draft on screen goes to every agent that can run once
 /// sent; what you put aside
 /// from it (see `store::Index`); and what was sent from it, the latest
-/// last, with which of that is in the line while ↑ and ↓ go back through it.
+/// last, with which of that is in the line while ↑ and ↓ go back through it;
+/// what the writer thinks you will say next in a session, by its key.
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
@@ -38,6 +39,7 @@ pub struct Composer {
     pub stashed: Vec<String>,
     pub sent: Vec<String>,
     pub recalled: Option<usize>,
+    pub suggested: Option<(u64, String)>,
 }
 
 impl Composer {
@@ -81,6 +83,7 @@ impl Composer {
             stashed: Vec::new(),
             sent: Vec::new(),
             recalled: None,
+            suggested: None,
         }
     }
 }

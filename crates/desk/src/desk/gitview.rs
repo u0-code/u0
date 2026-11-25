@@ -288,6 +288,21 @@ impl Desk {
         cx.notify();
     }
 
+    /// Have the writer write the pull request for the session `key`'s
+    /// branch; once it has, what is left is committed with the message
+    /// in the form, pushed, and the pull request opened.
+    pub fn ask_pr(&mut self, key: u64, cx: &mut Context<Self>) {
+        let message = self.commit_message(cx);
+        self.review.committing = false;
+        let Some(s) = self.sessions.at_mut(key) else {
+            return;
+        };
+        s.git.step = Some("Writing the pull request".into());
+        let dir = s.meta.folder.clone();
+        self.ask_writer(key, crate::writer::Ask::Pr { dir, message });
+        cx.notify();
+    }
+
     /// Begin a comment on line `line` of `path`.
     pub fn begin_comment(
         &mut self,
@@ -348,26 +363,5 @@ impl Desk {
             cx,
         );
         cx.notify();
-    }
-
-    /// A worktree's branch is named for what was first said; once the
-    /// session has a title of its own (the agent's, or yours), the branch
-    /// takes it, unless it is pushed already.
-    pub(crate) fn name_branch(&self, key: u64) {
-        let Some(s) = self.sessions.at(key) else {
-            return;
-        };
-        let Some(wt) = &s.meta.worktree else { return };
-        let prefix = &self.settings.branch_prefix;
-        let name = format!("{prefix}{}", crate::git::slug(&s.meta.title));
-        if s.turns.len() <= 1 && wt.branch.starts_with(prefix.as_str()) && wt.branch != name {
-            self.transport.send(crate::proto::Call::Git {
-                dir: wt.path.clone(),
-                action: crate::repo::GitAction::RenameBranch(name),
-                prefix: prefix.clone(),
-                left_out: Vec::new(),
-                key,
-            });
-        }
     }
 }

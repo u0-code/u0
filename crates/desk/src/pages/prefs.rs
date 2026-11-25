@@ -326,11 +326,24 @@ impl Desk {
                             faces,
                             q,
                             "Worktree branches begin with",
-                            "Then the session's title, as in ghost/retry-s3-uploads.",
+                            "Then the name the writer gives the work, as in ghost/retry-s3-uploads.",
                             div()
                                 .w(px(160.))
                                 .font_family(faces.mono.clone())
                                 .child(Input::new(&self.pages.prefix).small()),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Or they begin with",
+                            "The kind of work, as the writer sees it: feat/, fix/, docs/.",
+                            Self::pick(
+                                "branch-kind",
+                                [("The prefix", false), ("The kind of work", true)],
+                                self.settings.branch_kind,
+                                |s, v| s.branch_kind = v,
+                                cx,
+                            ),
                         ),
                     ],
                 )],

@@ -137,21 +137,19 @@ impl Sessions {
 
     /// Lines of the record of the session `id` of `agent` that the server
     /// wrote, made of what the agent said in it, taken into its thread:
-    /// its key, and whether the agent named it. A subagent set to work
+    /// its key. A subagent set to work
     /// becomes a session of its own, under its parent.
     pub fn appended(
         &mut self,
         agent: &str,
         id: &SessionId,
         events: Vec<store::Event>,
-    ) -> Option<(u64, bool)> {
+    ) -> Option<u64> {
         let updates = events.iter().filter_map(|e| match e {
             store::Event::Update(u) => Some(&**u),
             _ => None,
         });
-        let mut titled = false;
         for update in updates {
-            titled |= matches!(update, SessionUpdate::SessionInfoUpdate(_));
             let SessionUpdate::SubagentUpdate(u) = update else {
                 continue;
             };
@@ -173,7 +171,7 @@ impl Sessions {
         let s = self.by_id(agent, id)?;
         s.meta.updated = std::time::SystemTime::now();
         s.replay(events);
-        Some((s.key, titled))
+        Some(s.key)
     }
 
     /// The process of `agent` stopped, why: each of its sessions open is
@@ -348,7 +346,7 @@ mod tests {
         sessions: &mut Sessions,
         agent: &str,
         n: SessionNotification,
-    ) -> Option<(u64, bool)> {
+    ) -> Option<u64> {
         let (id, events) = records.said(agent, n).ok()?;
         sessions.appended(agent, &id, events)
     }
@@ -367,7 +365,7 @@ mod tests {
         let done = [chunk("Do"), chunk("ne.")];
         for text in &done {
             let n = said("s1", text);
-            assert_eq!(heard(&records, &mut sessions, "b", n), Some((2, false)));
+            assert_eq!(heard(&records, &mut sessions, "b", n), Some(2));
         }
         // The same id under another agent is another session.
         assert!(sessions.at(1).unwrap().items.is_empty());
@@ -484,7 +482,7 @@ mod tests {
             r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Read the papers"}"#;
         for _ in 0..2 {
             let n = said("s1", sub);
-            assert_eq!(heard(&records, &mut sessions, "a", n), Some((1, false)));
+            assert_eq!(heard(&records, &mut sessions, "a", n), Some(1));
         }
         let children: Vec<&Session> = (sessions.all.iter())
             .filter(|s| s.parent == Some(1))
@@ -495,7 +493,7 @@ mod tests {
         // Its own updates go to it, written in a record of its own.
         let child = children[0].key;
         let n = said("c1", &chunk("Reading"));
-        assert_eq!(heard(&records, &mut sessions, "a", n), Some((child, false)));
+        assert_eq!(heard(&records, &mut sessions, "a", n), Some(child));
     }
 
     #[test]

@@ -68,6 +68,8 @@ impl Desk {
     /// files are checkpointed first, so the turn can be undone, and `text`
     /// goes once that is done.
     pub(super) fn begin_turn(&mut self, key: u64, text: String) {
+        // What it thought you would say next is said, or not, now.
+        self.composer.suggested.take_if(|(k, _)| *k == key);
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
@@ -155,6 +157,8 @@ impl Desk {
         };
         match result {
             Ok((wt, scripts)) => {
+                // The branch is named by the writer for what was asked.
+                let said = s.pending.clone().unwrap_or_default();
                 s.meta.folder.clone_from(&wt.path);
                 s.branch = Some(wt.branch.clone());
                 s.scripts = scripts;
@@ -166,6 +170,8 @@ impl Desk {
                 if !self.run_worktree_scripts(key, &path, cx) {
                     self.open_when_running(&agent, key);
                 }
+                let semantic = self.settings.branch_kind;
+                self.ask_writer(key, crate::writer::Ask::Branch { said, semantic });
             }
             Err(why) => {
                 s.pending = None;
@@ -282,8 +288,22 @@ impl Desk {
     /// Commit, push, open a pull request, or remove the worktree, in the
     /// session on screen.
     pub fn git_action(&mut self, action: crate::repo::GitAction, cx: &mut Context<Self>) {
-        let Some(s) = self.session() else { return };
-        let (dir, key) = (s.meta.folder.clone(), s.key);
+        if let Some(key) = self.current {
+            self.git_in(key, action, cx);
+        }
+    }
+
+    /// Do `action` where the session `key` works.
+    pub(crate) fn git_in(
+        &mut self,
+        key: u64,
+        action: crate::repo::GitAction,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self.sessions.at(key) else {
+            return;
+        };
+        let dir = s.meta.folder.clone();
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.step = Some("Working".into());

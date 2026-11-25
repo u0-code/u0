@@ -105,9 +105,14 @@ pub struct Settings {
     /// How an agent's work shows in the thread: Claude's transcript views.
     #[serde(default)]
     pub view: View,
-    /// What a worktree's branch begins with, before the session's title.
+    /// What a worktree's branch begins with, before the name the writer
+    /// gives it.
     #[serde(default = "prefix")]
     pub branch_prefix: String,
+    /// A worktree's branch is led by the kind of work the writer sees in
+    /// it (`feat/`, `fix/`) instead of the prefix.
+    #[serde(default)]
+    pub branch_kind: bool,
     /// Who writes what Ghost has written for you.
     #[serde(default)]
     pub writer: Writer,
@@ -128,6 +133,16 @@ pub struct Writer {
     /// Ghost's.
     #[serde(default)]
     pub changes: String,
+    /// Your instructions for sessions' titles.
+    #[serde(default)]
+    pub titles: String,
+    /// Your instructions for worktrees' branch names.
+    #[serde(default)]
+    pub branches: String,
+    /// After each turn, what you are likely to say next is written, to be
+    /// taken with Tab.
+    #[serde(default)]
+    pub suggest: bool,
 }
 
 /// A model you starred: the agent's id, and the model's value in the
@@ -295,6 +310,7 @@ impl Default for Settings {
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),
+            branch_kind: false,
             view: View::default(),
             cmd_sends: false,
             left: left(),

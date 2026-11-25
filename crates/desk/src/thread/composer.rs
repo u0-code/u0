@@ -6,7 +6,7 @@
 use gpui::component::{
     Selectable as _,
     button::{Button, ButtonVariants as _},
-    input::{Enter, MoveDown, MoveUp, Textarea},
+    input::{Enter, Escape, IndentInline, MoveDown, MoveUp, Textarea},
     list::ListItem,
     popover::Popover,
     progress::ProgressCircle,
@@ -39,10 +39,12 @@ impl Desk {
             return shut;
         }
         let name = self.name_of(&s.meta.agent);
-        let says = if s.items.is_empty() {
-            "Describe a task or ask a question"
-        } else {
-            "Reply"
+        // What you might say next stands in the empty line, Tab to take.
+        let suggested = self.suggestion(s.key, cx);
+        let says = match suggested {
+            Some(next) => next,
+            None if s.items.is_empty() => "Describe a task or ask a question",
+            None => "Reply",
         };
         // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {
@@ -134,6 +136,22 @@ impl Desk {
                     cx.stop_propagation();
                 }
             }))
+            .capture_action(cx.listener(|this, _: &IndentInline, window, cx| {
+                if let Some(key) = this.current
+                    && let Some(next) = this.suggestion(key, cx).map(str::to_owned)
+                {
+                    this.composer.suggested = None;
+                    this.put_line(&next, window, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &Escape, _, cx| {
+                if this.current.and_then(|k| this.suggestion(k, cx)).is_some() {
+                    this.composer.suggested = None;
+                    cx.notify();
+                    cx.stop_propagation();
+                }
+            }))
             .capture_action(cx.listener(|this, _: &MoveUp, window, cx| {
                 if this.recall(-1, window, cx) {
                     cx.stop_propagation();
@@ -158,6 +176,13 @@ impl Desk {
                             .is_ok()
                     }),
             )
+    }
+
+    /// What the writer thinks you will say next in the session `key`,
+    /// while nothing is typed there.
+    fn suggestion<'a>(&'a self, key: u64, cx: &gpui::App) -> Option<&'a str> {
+        let (k, next) = self.composer.suggested.as_ref()?;
+        (*k == key && self.composer.input.read(cx).value().is_empty()).then_some(next.as_str())
     }
 
     /// In place of the line, for a session you do not write in: one

@@ -308,13 +308,15 @@ impl Desk {
                         )
                         .tooltip("On the main branch, a branch of its own is made first"),
                     )
-                    .child(git_button(
-                        "do-pr",
-                        "Create PR",
-                        Weight::Secondary,
-                        cx,
-                        crate::repo::GitAction::PullRequest,
-                    )),
+                    .child(
+                        ui::button("do-pr", "Create PR", Weight::Secondary)
+                            .tooltip(
+                                "Its title and description by the writer, from the branch's work",
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.ask_pr(key, cx);
+                            })),
+                    ),
             )
     }
 
