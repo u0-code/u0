@@ -132,20 +132,27 @@ fn icon_of(folder: &std::path::Path) -> Option<PathBuf> {
 }
 
 /// Read what is not committed in `dir`.
-pub fn uncommitted(dir: PathBuf, key: u64, tx: Sender) {
+pub fn uncommitted(dir: PathBuf, key: u64, no_spacing: bool, tx: Sender) {
     off(tx, move || Msg::Uncommitted {
         key,
-        result: git::uncommitted(&dir),
+        result: git::uncommitted(&dir, no_spacing),
     });
 }
 
 /// What changed in `scope` (the branch against its base, or a commit)
 /// where the session `key` works.
-pub fn scope_diff(dir: PathBuf, key: u64, scope: git::Scope, base: Option<String>, tx: Sender) {
+pub fn scope_diff(
+    dir: PathBuf,
+    key: u64,
+    scope: git::Scope,
+    base: Option<String>,
+    no_spacing: bool,
+    tx: Sender,
+) {
     off(tx, move || {
         let result = match &scope {
-            git::Scope::Commit(id) => git::commit_diff(&dir, id),
-            _ => git::against_base(&dir, base.as_deref()),
+            git::Scope::Commit(id) => git::commit_diff(&dir, id, no_spacing),
+            _ => git::against_base(&dir, base.as_deref(), no_spacing),
         };
         Msg::Diffed { key, scope, result }
     });
@@ -267,6 +274,7 @@ pub fn checkpoint(
     before: Option<String>,
     first: Option<String>,
     then: Option<String>,
+    no_spacing: bool,
     tx: Sender,
 ) {
     off(tx, move || {
@@ -274,7 +282,7 @@ pub fn checkpoint(
             let diff = |from: &Option<String>| {
                 from.as_deref()
                     .filter(|_| after)
-                    .and_then(|f| git::diff(&dir, f, &commit).ok())
+                    .and_then(|f| git::diff(&dir, f, &commit, no_spacing).ok())
             };
             Snapshot {
                 turn: diff(&before),
@@ -301,13 +309,14 @@ pub fn restore(
     key: u64,
     turn: usize,
     undo: bool,
+    no_spacing: bool,
     tx: Sender,
 ) {
     off(tx, move || {
         let result = git::restore(&dir, &target, &name).map(|back| {
             let total = first.and_then(|f| {
                 let now = git::checkpoint(&dir, &format!("{name}-now")).ok()?;
-                git::diff(&dir, &f, &now).ok()
+                git::diff(&dir, &f, &now, no_spacing).ok()
             });
             (back, total)
         });

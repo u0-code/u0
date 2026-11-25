@@ -6,17 +6,10 @@ use gpui::{Div, div, prelude::*, px};
 use super::kinds::Status;
 use crate::{fonts::Faces, theme, ui};
 
-/// Whether a diff's long lines wrap (or are cut at the edge): as the
-/// settings say, set by `set_wrap` when they are read or changed.
-static WRAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
-pub fn set_wrap(on: bool) {
-    WRAP.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// A line's code: wrapped, or kept to one line and cut, as set.
-fn code(cell: Div) -> Div {
-    if WRAP.load(std::sync::atomic::Ordering::Relaxed) {
+/// A line's code: wrapped (`wrap`, as the settings say), or kept to one
+/// line and cut at the edge.
+fn code(cell: Div, wrap: bool) -> Div {
+    if wrap {
         cell
     } else {
         cell.whitespace_nowrap().overflow_hidden()
@@ -72,6 +65,7 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
 pub fn hunks(
     faces: &Faces,
     file: &crate::git::FileDiff,
+    wrap: bool,
     fit: Fit,
     on_line: Option<&OnLine>,
 ) -> Div {
@@ -145,7 +139,7 @@ pub fn hunks(
                         .child(n.to_string()),
                 )
                 .child(div().flex_none().w(px(16.)).text_color(mark).child(sign))
-                .child(code(div().flex_1().min_w(px(0.))).child(text.clone()));
+                .child(code(div().flex_1().min_w(px(0.)), wrap).child(text.clone()));
             // A line can be clicked, to say something of it.
             well = match on_line {
                 Some(on) => {
@@ -169,7 +163,7 @@ pub type OnLine = std::rc::Rc<dyn Fn(usize, &mut gpui::Window, &mut gpui::App)>;
 
 /// A file's changes side by side: as it was on the left, as it is on the
 /// right, the lines taken away beside those put in their place.
-pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
+pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff, wrap: bool) -> Div {
     use crate::git::Line as G;
     let mut well = div()
         .flex()
@@ -196,7 +190,9 @@ pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
                     .text_color(theme::quiet())
                     .child(n.map(|n| n.to_string()).unwrap_or_default()),
             )
-            .child(code(div().flex_1().min_w(px(0.))).child(text.cloned().unwrap_or_default()))
+            .child(
+                code(div().flex_1().min_w(px(0.)), wrap).child(text.cloned().unwrap_or_default()),
+            )
     };
     let gone_bg = theme::gone().opacity(0.09);
     let added_bg = theme::added().opacity(0.09);

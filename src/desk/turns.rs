@@ -80,6 +80,7 @@ impl Desk {
                 None,
                 None,
                 Some(text),
+                self.settings.no_spacing,
                 self.tx.clone(),
             );
         } else {
@@ -133,6 +134,7 @@ impl Desk {
             s.turns[turn].before.clone(),
             s.first().map(str::to_owned),
             None,
+            self.settings.no_spacing,
             self.tx.clone(),
         );
     }
@@ -228,6 +230,7 @@ impl Desk {
             s.key,
             turn,
             undo,
+            self.settings.no_spacing,
             self.tx.clone(),
         );
         cx.notify();
@@ -299,7 +302,7 @@ impl Desk {
         action: &hub::GitAction,
         result: Result<String, String>,
     ) {
-        let tx = self.tx.clone();
+        let (tx, no_spacing) = (self.tx.clone(), self.settings.no_spacing);
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
@@ -331,7 +334,7 @@ impl Desk {
         if looks {
             hub::look(s.meta.folder.clone(), key, tx);
         } else if s.turns.is_empty() && s.repo && !removed {
-            hub::uncommitted(s.meta.folder.clone(), key, tx);
+            hub::uncommitted(s.meta.folder.clone(), key, no_spacing, tx);
         }
         if removed {
             s.meta.worktree = None;

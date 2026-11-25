@@ -570,6 +570,7 @@ impl Desk {
                 key,
                 turn,
                 true,
+                self.settings.no_spacing,
                 self.tx.clone(),
             );
         }

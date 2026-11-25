@@ -783,7 +783,11 @@ impl Desk {
                     .group_hover(group.clone(), Styled::visible)
                     .when(rewinding, Styled::visible)
                     .children(s.time_of(i).map(|t| {
-                        meta(faces, when::said_at(t, std::time::SystemTime::now())).mr(px(6.))
+                        meta(
+                            faces,
+                            when::said_at(t, std::time::SystemTime::now(), self.settings.twelve),
+                        )
+                        .mr(px(6.))
                     }))
                     .when(branch, |d| {
                         d.child(
@@ -937,8 +941,15 @@ impl Desk {
                                 )
                             })
                             .children(s.time_of(i).map(|t| {
-                                meta(faces, when::said_at(t, std::time::SystemTime::now()))
-                                    .ml(px(6.))
+                                meta(
+                                    faces,
+                                    when::said_at(
+                                        t,
+                                        std::time::SystemTime::now(),
+                                        self.settings.twelve,
+                                    ),
+                                )
+                                .ml(px(6.))
                             })),
                     )
                     .into_any_element()
@@ -1620,9 +1631,15 @@ impl Desk {
                     let start = tool.starts.get(diff_n).copied().flatten();
                     diff_n += 1;
                     let (file, more) = kinds::cut(kinds::diff(d, start), kinds::LINES_SHOWN);
-                    body = body.child(drawn::hunks(faces, &file, drawn::Fit::Thread, None).when(
-                        more > 0,
-                        |d| {
+                    body = body.child(
+                        drawn::hunks(
+                            faces,
+                            &file,
+                            self.settings.diff_wrap,
+                            drawn::Fit::Thread,
+                            None,
+                        )
+                        .when(more > 0, |d| {
                             d.child(
                                 div()
                                     .pl(px(60.))
@@ -1630,8 +1647,8 @@ impl Desk {
                                     .text_color(theme::quiet())
                                     .child(format!("… {more} more lines")),
                             )
-                        },
-                    ));
+                        }),
+                    );
                 }
                 ToolCallContent::Content(x) => {
                     let text = text_of(&x.content);

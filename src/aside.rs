@@ -1112,7 +1112,7 @@ impl Desk {
             let turns = s.turn_count();
             let words = format!(
                 "{} · {} · {turns} {}",
-                when::clock(s.meta.begun),
+                when::clock(s.meta.begun, self.settings.twelve),
                 when::took(since),
                 if turns == 1 { "turn" } else { "turns" }
             );
@@ -1261,7 +1261,7 @@ impl Desk {
                 crate::git::Status::Added | crate::git::Status::Deleted
             );
             let hunks = if self.settings.side_by_side && two_sides {
-                drawn::hunks_split(faces, file)
+                drawn::hunks_split(faces, file, self.settings.diff_wrap)
             } else {
                 // A line clicked is one to say something of, to the agent.
                 let this = cx.entity().downgrade();
@@ -1270,7 +1270,13 @@ impl Desk {
                     let _ =
                         this.update(cx, |desk, cx| desk.begin_comment(at.clone(), n, window, cx));
                 });
-                drawn::hunks(faces, file, drawn::Fit::Column, Some(&on))
+                drawn::hunks(
+                    faces,
+                    file,
+                    self.settings.diff_wrap,
+                    drawn::Fit::Column,
+                    Some(&on),
+                )
             };
             return frame(head).child(self.review(faces, s, path, body.child(hunks), cx));
         }
@@ -1281,8 +1287,14 @@ impl Desk {
                     if d.path == path {
                         let start = t.starts.get(n).copied().flatten();
                         body = body.child(
-                            drawn::hunks(faces, &kinds::diff(d, start), drawn::Fit::Column, None)
-                                .mb(px(8.)),
+                            drawn::hunks(
+                                faces,
+                                &kinds::diff(d, start),
+                                self.settings.diff_wrap,
+                                drawn::Fit::Column,
+                                None,
+                            )
+                            .mb(px(8.)),
                         );
                     }
                     n += 1;

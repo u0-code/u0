@@ -1148,9 +1148,9 @@ impl Desk {
                 for (n, l) in s.meta.later.iter().enumerate() {
                     let at = crate::store::time(l.at);
                     let when = if l.daily {
-                        format!("each day {}", crate::when::clock(at))
+                        format!("each day {}", crate::when::clock(at, self.settings.twelve))
                     } else {
-                        crate::when::said_at(at, now)
+                        crate::when::said_at(at, now, self.settings.twelve)
                     };
                     list = list.child(
                         ui::menu_row(SharedString::from(format!("waiting-{n}")), false)

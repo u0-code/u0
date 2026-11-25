@@ -146,13 +146,19 @@ impl Desk {
         if !s.repo {
             return;
         }
-        hub::uncommitted(s.meta.folder.clone(), key, self.tx.clone());
+        hub::uncommitted(
+            s.meta.folder.clone(),
+            key,
+            self.settings.no_spacing,
+            self.tx.clone(),
+        );
         if let Some((scope, _)) = &s.git.scoped {
             hub::scope_diff(
                 s.meta.folder.clone(),
                 key,
                 scope.clone(),
                 s.git.compare_to.clone(),
+                self.settings.no_spacing,
                 self.tx.clone(),
             );
         }
@@ -183,10 +189,11 @@ impl Desk {
         if !matches!(scope, Scope::Branch | Scope::Commit(_)) {
             return;
         }
+        let no_spacing = self.settings.no_spacing;
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.scoped = None;
             let (dir, base) = (s.meta.folder.clone(), s.git.compare_to.clone());
-            hub::scope_diff(dir, key, scope.clone(), base, self.tx.clone());
+            hub::scope_diff(dir, key, scope.clone(), base, no_spacing, self.tx.clone());
         }
     }
 

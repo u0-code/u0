@@ -1340,9 +1340,6 @@ pub const EDITORS: [(&str, &str); 4] = [
 /// Set what the settings say where it is read as the window is drawn,
 /// not from the settings: as Ghost starts and as they change.
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
-    crate::thread::drawn::set_wrap(settings.diff_wrap);
-    crate::git::leave_out_spacing(settings.no_spacing);
-    crate::when::set_twelve(settings.twelve);
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
     fonts::set_mono(cx, settings.mono);

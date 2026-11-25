@@ -51,29 +51,21 @@ pub fn to_monday(t: SystemTime) -> i32 {
     8 - i32::from(local(t).weekday().to_monday_one_offset())
 }
 
-/// The time of day of `t`: "10:42", or "10:42 am".
-pub fn clock(t: SystemTime) -> String {
-    let twelve = TWELVE.load(std::sync::atomic::Ordering::Relaxed);
+/// The time of day of `t`: "10:42", or on a twelve-hour clock "10:42 am".
+pub fn clock(t: SystemTime, twelve: bool) -> String {
     local(t)
         .strftime(if twelve { "%-I:%M %P" } else { "%H:%M" })
         .to_string()
 }
 
-/// Whether times are told on a twelve-hour clock, as the settings say.
-static TWELVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-pub fn set_twelve(on: bool) {
-    TWELVE.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// When a message was said: its time of day if today ("10:42"), else its
-/// date too ("2026-11-24 10:42").
-pub fn said_at(t: SystemTime, now: SystemTime) -> String {
+/// When a message was said: its time of day if today ("10:42", told as
+/// `clock` tells it), else its date too ("2026-11-24 10:42").
+pub fn said_at(t: SystemTime, now: SystemTime, twelve: bool) -> String {
     let day = local(t).date();
     if day == local(now).date() {
-        clock(t)
+        clock(t, twelve)
     } else {
-        format!("{day} {}", clock(t))
+        format!("{day} {}", clock(t, twelve))
     }
 }
 
@@ -118,10 +110,8 @@ mod tests {
     #[test]
     fn a_time_is_told_on_the_clock_chosen() {
         let t = at_hour(SystemTime::now(), 0, 15);
-        assert_eq!(clock(t), "15:00");
-        set_twelve(true);
-        assert_eq!(clock(t), "3:00 pm");
-        set_twelve(false);
+        assert_eq!(clock(t, false), "15:00");
+        assert_eq!(clock(t, true), "3:00 pm");
     }
 
     #[test]

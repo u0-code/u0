@@ -239,11 +239,11 @@ pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
 /// What is not committed in `dir`, untracked files with it, against the
 /// commit it is on: read through a commit no ref keeps, so your index is
 /// left alone.
-pub fn uncommitted(dir: &Path) -> Result<Vec<FileDiff>, String> {
+pub fn uncommitted(dir: &Path, no_spacing: bool) -> Result<Vec<FileDiff>, String> {
     let now = snapshot(dir, "uncommitted")?;
     let base = git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None)
         .unwrap_or_else(|_| EMPTY_TREE.to_owned());
-    diff(dir, &base, &now)
+    diff(dir, &base, &now, no_spacing)
 }
 
 /// The tree git gives a repository with nothing in it.
@@ -358,19 +358,11 @@ pub struct FileDiff {
     pub binary: bool,
 }
 
-/// Whether a change only in spacing is left out of what diffs show: as
-/// the settings say, set by `leave_out_spacing` when they are read or
-/// changed.
-static NO_SPACING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-pub fn leave_out_spacing(on: bool) {
-    NO_SPACING.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// What changed in `dir` from the checkpoint `from` to `to`.
-pub fn diff(dir: &Path, from: &str, to: &str) -> Result<Vec<FileDiff>, String> {
+/// What changed in `dir` from the checkpoint `from` to `to`; with
+/// `no_spacing` (as the settings say), a change only in spacing is left out.
+pub fn diff(dir: &Path, from: &str, to: &str, no_spacing: bool) -> Result<Vec<FileDiff>, String> {
     let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "-U3"];
-    if NO_SPACING.load(std::sync::atomic::Ordering::Relaxed) {
+    if no_spacing {
         args.push("-w");
     }
     args.extend([from, to]);
@@ -600,14 +592,18 @@ pub fn default_branch(dir: &Path) -> Option<String> {
 
 /// What changed from where the branch left the default one to the files
 /// as they are now, not committed included: the branch's whole work.
-pub fn against_base(dir: &Path, base: Option<&str>) -> Result<Vec<FileDiff>, String> {
+pub fn against_base(
+    dir: &Path,
+    base: Option<&str>,
+    no_spacing: bool,
+) -> Result<Vec<FileDiff>, String> {
     let base = match base {
         Some(b) => b.to_owned(),
         None => default_branch(dir).ok_or("the repository has no main branch")?,
     };
     let fork = git(dir, &["merge-base", "HEAD", &base], None)?;
     let now = snapshot(dir, "against base")?;
-    diff(dir, &fork, &now)
+    diff(dir, &fork, &now, no_spacing)
 }
 
 /// The last `n` commits: short id, subject, how long ago.
@@ -634,14 +630,14 @@ pub fn log(dir: &Path, n: usize) -> Vec<(String, String, String)> {
 }
 
 /// What the commit `id` changed.
-pub fn commit_diff(dir: &Path, id: &str) -> Result<Vec<FileDiff>, String> {
+pub fn commit_diff(dir: &Path, id: &str, no_spacing: bool) -> Result<Vec<FileDiff>, String> {
     let parent = git(
         dir,
         &["rev-parse", "--verify", "--quiet", &format!("{id}^")],
         None,
     )
     .unwrap_or_else(|_| EMPTY_TREE.to_owned());
-    diff(dir, &parent, id)
+    diff(dir, &parent, id, no_spacing)
 }
 
 /// The local branches, the one checked out first.
@@ -1113,7 +1109,7 @@ mod tests {
         git(&dir, &["commit", "-q", "-m", "second"], None).unwrap();
         std::fs::write(dir.join("a.txt"), "one\n").unwrap();
 
-        let mut whole: Vec<String> = against_base(&dir, None)
+        let mut whole: Vec<String> = against_base(&dir, None, false)
             .unwrap()
             .into_iter()
             .map(|f| f.path)
@@ -1122,9 +1118,12 @@ mod tests {
         assert_eq!(whole, ["a.txt", "b.txt"]);
         let commits = log(&dir, 5);
         assert_eq!(commits[0].1, "second");
-        let changed = commit_diff(&dir, &commits[0].0).unwrap();
+        let changed = commit_diff(&dir, &commits[0].0, false).unwrap();
         assert_eq!(changed[0].path, "b.txt");
-        assert_eq!(commit_diff(&dir, &commits[1].0).unwrap()[0].path, "a.txt");
+        assert_eq!(
+            commit_diff(&dir, &commits[1].0, false).unwrap()[0].path,
+            "a.txt"
+        );
         assert_eq!(branches(&dir), ["ghost/work", "main"]);
 
         rename_branch(&dir, "ghost/better").unwrap();
@@ -1141,7 +1140,7 @@ mod tests {
         let dir = repo("uncommitted");
         std::fs::write(dir.join("a.txt"), "one\n2\nthree\n").unwrap();
         std::fs::write(dir.join("b.txt"), "new\n").unwrap();
-        let files = uncommitted(&dir).unwrap();
+        let files = uncommitted(&dir, false).unwrap();
         let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         paths.sort_unstable();
         assert_eq!(paths, ["a.txt", "b.txt"]);
@@ -1165,7 +1164,7 @@ mod tests {
             git(&dir, &["diff", "--cached", "--name-only"], None).unwrap(),
             ""
         );
-        let files = diff(&dir, &before, &c).unwrap();
+        let files = diff(&dir, &before, &c, false).unwrap();
         assert_eq!(files.len(), 2);
         let a = files.iter().find(|f| f.path == "a.txt").unwrap();
         assert_eq!((a.added, a.gone, a.status), (1, 1, Status::Modified));

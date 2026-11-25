@@ -122,7 +122,10 @@ impl Desk {
         self.popup = Popup::Closed;
         self.save_index();
         self.done(
-            format!("To be said at {}", crate::when::said_at(at, now)),
+            format!(
+                "To be said at {}",
+                crate::when::said_at(at, now, self.settings.twelve)
+            ),
             None,
         );
         cx.notify();
