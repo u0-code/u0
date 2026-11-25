@@ -6,10 +6,10 @@ use std::path::Path;
 use gpui::component::{
     Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
+    tooltip::Tooltip,
 };
 use gpui::{
-    AnyElement, AnyView, App, Context, Div, Hsla, Render, SharedString, Svg, Window, div,
-    prelude::*, px, svg,
+    AnyElement, AnyView, App, Div, Hsla, SharedString, Svg, Window, div, prelude::*, px, svg,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
@@ -287,36 +287,11 @@ pub fn icon_button(
         .tooltip(tip_text)
 }
 
-/// A short note shown on hover, for `.tooltip`.
+/// A short note shown on hover, for `.tooltip`: gpui-kit's tooltip, which
+/// wraps a column wide rather than across the window.
 pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();
-    move |_, cx| {
-        let text = text.clone();
-        cx.new(|_| Tip(text)).into()
-    }
-}
-
-/// The widest a tip stands before it wraps.
-const TIP_WIDTH: f32 = 320.;
-
-struct Tip(SharedString);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // A long tip wraps, a column wide, not across the window.
-        div()
-            .max_w(px(TIP_WIDTH))
-            .px(px(8.))
-            .py(px(4.))
-            .rounded(px(6.))
-            .bg(theme::panel2())
-            .border_1()
-            .border_color(theme::border2())
-            .font_family(crate::fonts::faces(cx).ui.clone())
-            .text_size(px(CAPTION))
-            .text_color(theme::text2())
-            .child(self.0.clone())
-    }
+    move |window, cx| Tooltip::new(text.clone()).max_w(px(320.)).build(window, cx)
 }
 
 /// A six-pixel dot: a state.

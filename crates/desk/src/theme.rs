@@ -209,12 +209,18 @@ pub fn brand(id: &str) -> Hsla {
 pub fn kit(cx: &mut App) {
     use gpui::component::theme::{Theme, ThemeMode};
     let faces = crate::fonts::faces(cx).clone();
-    Theme::update(cx, |t| {
-        t.mode = if is_light() {
+    // A change of mode loads gpui-kit's own colours for it: first that,
+    // then the desk's over them.
+    Theme::change(
+        if is_light() {
             ThemeMode::Light
         } else {
             ThemeMode::Dark
-        };
+        },
+        None,
+        cx,
+    );
+    Theme::update(cx, |t| {
         t.font_family = faces.ui;
         t.mono_font_family = faces.mono;
         t.font_size = px(crate::style::BODY);
