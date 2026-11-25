@@ -375,7 +375,15 @@ impl Desk {
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         match self.session() {
             None => col = col.child(self.start(faces, column, cx)),
-            Some(s) => col = col.child(Self::fresh(faces, s, &self.name_of(&s.agent), cx)),
+            Some(s) => {
+                col = col.child(Self::fresh(
+                    faces,
+                    s,
+                    &self.name_of(&s.agent),
+                    self.popup == crate::desk::Popup::Base,
+                    cx,
+                ));
+            }
         }
         div()
             .id("thread")
@@ -477,7 +485,13 @@ impl Desk {
     }
 
     /// A session begun, before anything is said: where it will work.
-    fn fresh(faces: &Faces, s: &Session, name: &str, cx: &mut Context<Self>) -> Div {
+    fn fresh(
+        faces: &Faces,
+        s: &Session,
+        name: &str,
+        base_open: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
         div()
             .flex()
             .flex_col()
@@ -522,6 +536,77 @@ impl Desk {
             .when(s.repo, |d| {
                 d.child(Self::where_toggle(faces, s.wants_worktree, cx))
             })
+            .when(s.repo && s.wants_worktree, |d| {
+                d.child(Self::base_chip(faces, s, base_open, cx))
+            })
+    }
+
+    /// The branch a new worktree begins from: where the folder is, unless
+    /// another is chosen from the local ones.
+    fn base_chip(faces: &Faces, s: &Session, open: bool, cx: &mut Context<Self>) -> Div {
+        let shown = s
+            .from_branch
+            .clone()
+            .or_else(|| s.branch.clone())
+            .unwrap_or_else(|| "HEAD".into());
+        let key = s.key;
+        let mut wrap = div().relative().child(
+            div()
+                .id("base")
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(26.))
+                .px(px(8.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .hover(|st| st.bg(theme::hover()))
+                .child(icon("branch"))
+                .child(meta(faces, "from"))
+                .child(
+                    ui::mono(faces, ui::fit(&shown, 32))
+                        .text_size(px(12.))
+                        .text_color(theme::text2()),
+                )
+                .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_popup(crate::desk::Popup::Base, cx);
+                })),
+        );
+        if open {
+            let mut list = div().flex().flex_col().w(px(260.)).p(px(6.));
+            for (n, b) in s.branches.iter().enumerate() {
+                let (on, b) = (
+                    Some(b) == s.from_branch.as_ref()
+                        || (s.from_branch.is_none() && Some(b) == s.branch.as_ref()),
+                    b.clone(),
+                );
+                list = list.child(
+                    div()
+                        .id(SharedString::from(format!("base-{n}")))
+                        .flex()
+                        .items_center()
+                        .h(px(30.))
+                        .px(px(10.))
+                        .rounded(px(7.))
+                        .cursor_pointer()
+                        .when(on, |d| d.bg(theme::hover()))
+                        .hover(|st| st.bg(theme::hover()))
+                        .child(ui::mono(faces, b.clone()).text_size(px(12.5)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(s) = this.session_mut(key) {
+                                s.from_branch = Some(b.clone());
+                            }
+                            this.popup = crate::desk::Popup::Closed;
+                            cx.notify();
+                        })),
+                );
+            }
+            wrap = wrap.child(gpui::deferred(
+                gpui::anchored().child(div().mt(px(30.)).child(ui::menu("base-menu").child(list))),
+            ));
+        }
+        wrap
     }
 
     /// Whether the session works in the folder itself or in a worktree of

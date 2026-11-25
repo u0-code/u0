@@ -121,7 +121,13 @@ pub fn slug(text: &str) -> String {
 /// Make a worktree of the repository at `dir` for a session about `about`,
 /// under `home/worktrees/<repo>/`, on a new branch `<prefix><slug>` from
 /// the commit `dir` is on. A name already taken gets a number.
-pub fn worktree(dir: &Path, about: &str, home: &Path, prefix: &str) -> Result<Worktree, String> {
+pub fn worktree(
+    dir: &Path,
+    about: &str,
+    home: &Path,
+    prefix: &str,
+    from: &str,
+) -> Result<Worktree, String> {
     let repo = root(dir).ok_or("the folder is not in a git repository")?;
     let name = repo
         .file_name()
@@ -151,11 +157,7 @@ pub fn worktree(dir: &Path, about: &str, home: &Path, prefix: &str) -> Result<Wo
             continue;
         }
         let at = path.to_string_lossy().into_owned();
-        git(
-            &repo,
-            &["worktree", "add", "-b", &branch, &at, "HEAD"],
-            None,
-        )?;
+        git(&repo, &["worktree", "add", "-b", &branch, &at, from], None)?;
         return Ok(Worktree { repo, path, branch });
     }
     Err("no free name for a worktree".into())
@@ -889,8 +891,8 @@ mod tests {
     fn a_worktree_gets_a_branch_of_its_own_and_a_second_one_a_number() {
         let dir = repo("worktree");
         let home = dir.join(".home");
-        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/").unwrap();
-        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/").unwrap();
+        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD").unwrap();
+        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD").unwrap();
         assert_eq!(a.branch, "ghost/retry-s3-uploads");
         assert_eq!(b.branch, "ghost/retry-s3-uploads-2");
         assert!(a.path.join("a.txt").is_file());

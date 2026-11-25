@@ -113,6 +113,8 @@ pub enum Popup {
     More,
     /// What you put aside from the composer, to take back.
     Stash,
+    /// The branch a new worktree begins from.
+    Base,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
     /// The project the sidebar shows, when it lists by status.
@@ -1441,11 +1443,17 @@ impl Desk {
             self.settings.used(&folder);
             self.save_settings();
             if worktree {
+                let from = self
+                    .sessions
+                    .iter()
+                    .find(|s| s.key == key)
+                    .and_then(|s| s.from_branch.clone())
+                    .unwrap_or_else(|| "HEAD".into());
                 hub::make_worktree(
                     folder,
                     text,
                     self.home.clone(),
-                    self.settings.branch_prefix.clone(),
+                    (self.settings.branch_prefix.clone(), from),
                     key,
                     self.tx.clone(),
                 );

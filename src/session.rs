@@ -175,8 +175,10 @@ pub struct Session {
     /// Whether the folder is in a git repository: then each turn is
     /// checkpointed, and can be undone.
     pub repo: bool,
-    /// For a draft: whether it is to work in a worktree of its own.
+    /// For a draft: whether it is to work in a worktree of its own, and
+    /// the branch it is to begin from (where the folder is, if none).
     pub wants_worktree: bool,
+    pub from_branch: Option<String>,
     /// Options and a mode chosen before the agent opened it, set on it
     /// once it does.
     pub chosen: Vec<(String, String)>,
@@ -544,6 +546,7 @@ impl Session {
             branch: None,
             repo: false,
             wants_worktree: false,
+            from_branch: None,
             chosen: Vec::new(),
             chosen_mode: None,
             worktree: None,

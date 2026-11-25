@@ -1043,12 +1043,12 @@ pub fn make_worktree(
     dir: PathBuf,
     about: String,
     home: PathBuf,
-    prefix: String,
+    (prefix, from): (String, String),
     key: u64,
     tx: Sender,
 ) {
     acp::runtime().spawn_blocking(move || {
-        let result = git::worktree(&dir, &about, &home, &prefix);
+        let result = git::worktree(&dir, &about, &home, &prefix, &from);
         let _ = tx.send(Msg::Worktree { key, result });
     });
 }
