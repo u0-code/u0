@@ -78,9 +78,12 @@ impl Desk {
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
         );
 
+        // A search begins with its first letter: until then the sidebar is
+        // as it was.
         let query = self
             .searching
-            .then(|| self.search.read(cx).text().to_lowercase());
+            .then(|| self.search.read(cx).text().to_lowercase())
+            .filter(|q| !q.is_empty());
         let mut projects = div().flex().flex_col().gap(px(2.)).px(px(8.));
         for folder in self.projects() {
             let now = crate::store::secs(SystemTime::now());
