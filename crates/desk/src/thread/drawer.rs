@@ -138,8 +138,8 @@ impl Desk {
                     .mr(px(2.)),
             );
         }
-        for (n, script) in scripts.into_iter().enumerate() {
-            let command = script.command.clone();
+        for (n, script) in scripts.iter().enumerate() {
+            let name = script.name.clone();
             bar = bar.child(
                 ui::led_button(
                     SharedString::from(format!("script-{n}")),
@@ -155,7 +155,7 @@ impl Desk {
                 .px(px(8.))
                 .tooltip(format!("{}  ·  right-click to change it", script.command))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_terminal(Some(&command), window, cx);
+                    this.run_script(&name, window, cx);
                 }))
                 .on_mouse_down(
                     gpui::MouseButton::Right,
@@ -173,7 +173,14 @@ impl Desk {
             );
         }
         let shown = on.and_then(|id| terms.iter().find(|t| t.id == id).copied());
-        let preview = shown.and_then(|t| runs::address(&t.text()));
+        // A script's own preview address, else the last one it printed.
+        let preview = shown.and_then(|t| {
+            scripts
+                .iter()
+                .find(|x| t.script.as_ref() == Some(&x.name))
+                .and_then(|x| x.preview.clone())
+                .or_else(|| runs::address(&t.text()))
+        });
         // A rule between what the repository gives and the drawer's own.
         let ruled = !scripts_none || preview.is_some();
         if let Some(url) = preview {
@@ -328,6 +335,7 @@ impl Desk {
             .border_color(theme::border())
             .child(field(&self.drawer.name, 120.))
             .child(field(&self.drawer.command, 280.))
+            .child(field(&self.drawer.preview, 220.))
             .child(flag(
                 "script-worktree",
                 "In each new worktree",
@@ -346,6 +354,22 @@ impl Desk {
                     },
                 ))
             })
+            .child(flag(
+                "script-settle",
+                "As its session settles",
+                w.settle,
+                |w| {
+                    w.settle = !w.settle;
+                },
+            ))
+            .child(flag(
+                "script-stop",
+                "Stop it as its session settles",
+                w.stop,
+                |w| {
+                    w.stop = !w.stop;
+                },
+            ))
             .child(div().flex_1())
             .child(
                 ui::button("script-save", "Save", Weight::Primary)

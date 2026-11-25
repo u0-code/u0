@@ -34,6 +34,8 @@ impl Desk {
                     self.sessions.all.push(Session::stored(key, meta));
                     self.subagents_back(key);
                 }
+                // What was settled while Ghost was away has no scripts
+                // read yet to run.
                 self.settle_idle();
             }
             Err(why) => self.store_refused = Some(why),

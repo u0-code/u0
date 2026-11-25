@@ -385,7 +385,10 @@ impl Desk {
                 self.install_due(cx);
             }
             Event::Opened { key, result } => self.opened(key, result),
-            Event::Listed { agent, result } => self.listed(&agent, result),
+            Event::Listed { agent, result } => {
+                let settled = self.listed(&agent, result);
+                self.on_settle(&settled, cx);
+            }
             Event::Probed { agent, result } => self.probed(&agent, result),
             Event::CliVersion { cli, version } => {
                 self.cli_versions.insert(cli, version);
@@ -636,7 +639,8 @@ impl Desk {
     }
 
     /// What `agent` listed: each session not on the desk yet is put there,
-    /// closed; one closed already takes the agent's title and time.
+    /// closed; one closed already takes the agent's title and time. Those
+    /// it settled for being left come back.
     pub(super) fn listed(
         &mut self,
         agent: &str,
@@ -647,17 +651,18 @@ impl Desk {
             )>,
             String,
         >,
-    ) {
+    ) -> Vec<u64> {
         let found = match result {
             Ok(found) => found,
             Err(why) => {
                 tracing::warn!("{agent} could not list its sessions: {why}");
-                return;
+                return Vec::new();
             }
         };
         self.sessions.listed(agent, found, &self.gone);
-        self.settle_idle();
+        let settled = self.settle_idle();
         self.save_index();
+        settled
     }
 
     pub(super) fn probed(

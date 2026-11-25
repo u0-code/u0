@@ -220,8 +220,17 @@ pub struct Binding {
     when: Option<String>,
 }
 
-/// The action named `name` in `ACTIONS`.
+/// Run the script named so of the repository on screen: bound as
+/// `"action": "script:<name>"`, as t3code's `script.{id}.run`.
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = desk, no_json)]
+pub struct RunScript(pub String);
+
+/// The action named `name` in `ACTIONS`, or a script's (`script:<name>`).
 pub fn action(name: &str) -> Option<Box<dyn Action>> {
+    if let Some(script) = name.strip_prefix("script:") {
+        return Some(Box::new(RunScript(script.to_owned())));
+    }
     let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
     Some(make())
 }
@@ -455,6 +464,13 @@ pub fn handle(cx: &mut App, shown: &Shown) {
             if quit.unwrap_or(true) {
                 cx.quit();
             }
+        });
+    });
+    let scripts = shown.clone();
+    cx.on_action(move |run: &RunScript, cx| {
+        let (shown, name) = (scripts.clone(), run.0.clone());
+        cx.defer(move |cx| {
+            shown.update(cx, |d, window, cx| d.run_script(&name, window, cx));
         });
     });
     cx.on_action(|_: &Hide, cx| cx.hide());

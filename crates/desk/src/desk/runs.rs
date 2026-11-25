@@ -73,6 +73,7 @@ pub struct Drawer {
     pub writing: Option<Writing>,
     pub name: Entity<InputState>,
     pub command: Entity<InputState>,
+    pub preview: Entity<InputState>,
 }
 
 impl Drawer {
@@ -88,6 +89,9 @@ impl Drawer {
             writing: None,
             name: cx.new(|cx| InputState::new(window, cx).placeholder("dev")),
             command: cx.new(|cx| InputState::new(window, cx).placeholder("npm run dev")),
+            preview: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Preview: http://localhost:3000")
+            }),
         }
     }
 }
@@ -95,10 +99,16 @@ impl Drawer {
 /// The script being written in the drawer: the one at `at` changed, or a
 /// new one; its name and command are in the drawer's two fields.
 #[derive(Debug, Clone, Copy, Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the script's own switches, as it is written"
+)]
 pub struct Writing {
     pub at: Option<usize>,
     pub worktree: bool,
     pub wait: bool,
+    pub settle: bool,
+    pub stop: bool,
 }
 
 impl Desk {
@@ -369,6 +379,7 @@ impl Desk {
             };
             self.open_terminal_in(key, dir, Some(&command), cx);
             let term = self.drawer.on;
+            self.ran(&script.name);
             if let Some(s) = self.sessions.at_mut(key) {
                 s.setup.push(script.name);
                 if script.wait {
@@ -396,6 +407,65 @@ impl Desk {
             let (agent, key) = (s.meta.agent.clone(), s.key);
             self.open_when_running(&agent, key);
         }
+    }
+
+    /// Run the repository's script `name` beside the session on screen,
+    /// in a terminal of its own: the drawer's button, or a key bound to
+    /// `script:<name>`.
+    pub fn run_script(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(command) = self
+            .session()
+            .and_then(|s| s.scripts.iter().find(|x| x.name == name))
+            .map(|x| x.command.clone())
+        else {
+            return;
+        };
+        self.open_terminal(Some(&command), window, cx);
+        self.ran(name);
+    }
+
+    /// The terminal just opened runs the script `name`.
+    fn ran(&mut self, name: &str) {
+        let on = self.drawer.on;
+        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| Some(t.id) == on) {
+            t.script = Some(name.to_owned());
+        }
+    }
+
+    /// The sessions `keys` settled: the scripts marked to stop then are
+    /// stopped, and those marked to run then run in each one's own
+    /// worktree, the drawer left as it was.
+    pub(crate) fn on_settle(&mut self, keys: &[u64], cx: &mut Context<Self>) {
+        let open = self.drawer.open;
+        for &key in keys {
+            let Some(s) = self.sessions.at(key) else {
+                continue;
+            };
+            let (scripts, worktree) = (s.scripts.clone(), s.meta.worktree.clone());
+            let stopped: Vec<u64> = self
+                .drawer
+                .terminals
+                .iter()
+                .filter(|t| t.session == key)
+                .filter(|t| {
+                    scripts
+                        .iter()
+                        .any(|x| x.stop && t.script.as_ref() == Some(&x.name))
+                })
+                .map(|t| t.id)
+                .collect();
+            for id in stopped {
+                self.transport.send(Call::TermClose { id, force: true });
+            }
+            for script in scripts.iter().filter(|x| x.settle) {
+                if let Some(wt) = &worktree {
+                    let command = format!("{}; exit", script.command);
+                    self.open_terminal_in(key, &wt.path, Some(&command), cx);
+                    self.ran(&script.name);
+                }
+            }
+        }
+        self.drawer.open = open;
     }
 
     /// Stop the scripts the session `key`'s first message waits for, put
@@ -427,10 +497,16 @@ impl Desk {
         self.drawer
             .command
             .update(cx, |i, cx| i.set_value(&script.command, window, cx));
+        let preview = script.preview.clone().unwrap_or_default();
+        self.drawer
+            .preview
+            .update(cx, |i, cx| i.set_value(&preview, window, cx));
         self.drawer.writing = Some(Writing {
             at,
             worktree: script.worktree,
             wait: script.wait,
+            settle: script.settle,
+            stop: script.stop,
         });
         window.focus(&self.drawer.name.focus_handle(cx), cx);
         cx.notify();
@@ -445,11 +521,15 @@ impl Desk {
         ) else {
             return;
         };
+        let preview = self.drawer.preview.read(cx).value().trim().to_owned();
         let script = keep.then(|| Script {
             name: self.drawer.name.read(cx).value().trim().to_owned(),
             command: self.drawer.command.read(cx).value().trim().to_owned(),
             worktree: w.worktree,
             wait: w.worktree && w.wait,
+            settle: w.settle,
+            stop: w.stop,
+            preview: (!preview.is_empty()).then_some(preview),
         });
         if script
             .as_ref()

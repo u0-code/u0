@@ -25,6 +25,8 @@ pub struct Terminal {
     /// What it is called in its tab: the shell, or the script it was
     /// opened for; nothing until it has opened.
     pub title: String,
+    /// The name of the repository's script it runs, if it runs one.
+    pub script: Option<String>,
     screen: vt100::Parser,
     /// How it ended, once it has.
     pub ended: Option<String>,
@@ -54,6 +56,7 @@ impl Terminal {
             id,
             session,
             title: String::new(),
+            script: None,
             screen: vt100::Parser::new(
                 NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
                 NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),

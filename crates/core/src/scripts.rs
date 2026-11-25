@@ -8,7 +8,11 @@
 //! Each shows as a button in the drawer and runs in a terminal of its own;
 //! one marked `worktree` runs in each new worktree made for a session, as
 //! it is made, and one marked `wait` as well holds the session's first
-//! message until it has run. The drawer adds, changes and takes away
+//! message until it has run; one marked `settle` runs in a session's
+//! worktree as the session settles, one marked `stop` is stopped then,
+//! and `preview` is the address its preview opens. A key runs one, as
+//! `"action": "script:dev"` in keybindings.json. The drawer adds, changes
+//! and takes away
 //! scripts, written back to the file.
 //!
 //! It may also name, as `"sparse": ".sparse"`, a file of git's
@@ -32,6 +36,10 @@ pub struct Config {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a moment it runs or stops at, a choice of its own"
+)]
 pub struct Script {
     pub name: String,
     pub command: String,
@@ -42,6 +50,16 @@ pub struct Script {
     /// it has run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait: bool,
+    /// Run in its session's own worktree each time the session settles
+    /// (to take away what a build left); one with no worktree skips it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub settle: bool,
+    /// Stopped, its terminal closed, as its session settles.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop: bool,
+    /// The address its preview opens, rather than the last one it prints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 /// Put `script` at `at` in `ghost.json` of the repository at `dir` (a new
@@ -94,6 +112,7 @@ mod tests {
             command: "npm i".into(),
             worktree: true,
             wait: true,
+            ..Script::default()
         };
         write_script(dir, None, Some(script("setup"))).expect("written");
         write_script(dir, None, Some(script("dev"))).expect("written");
