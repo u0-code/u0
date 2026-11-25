@@ -236,31 +236,29 @@ impl Desk {
         sec = sec.child(rows);
         let idle = !matches!(s.state, State::Working | State::Opening);
         let first = files.first().map(|f| std::path::PathBuf::from(&f.path));
-        sec = sec.child(
-            div()
-                .flex()
-                .gap(px(6.))
-                .children(first.map(|first| {
-                    ui::button(
-                        faces,
-                        "review",
-                        "Review diff",
-                        if idle {
-                            Weight::Primary
-                        } else {
-                            Weight::Secondary
-                        },
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_aside(Aside::File(first.clone()), cx);
+        sec =
+            sec.child(
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .children(first.map(|first| {
+                        ui::button(
+                            "review",
+                            "Review diff",
+                            if idle {
+                                Weight::Primary
+                            } else {
+                                Weight::Secondary
+                            },
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.show_aside(Aside::File(first.clone()), cx);
+                        }))
                     }))
-                }))
-                .child(
-                    ui::button(faces, "commit", "Commit…", Weight::Secondary).on_click(
+                    .child(ui::button("commit", "Commit…", Weight::Secondary).on_click(
                         cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
-                    ),
-                ),
-        );
+                    )),
+            );
         if self.review.committing {
             sec = sec.child(self.commit_form(faces, s, cx));
         }
@@ -284,7 +282,6 @@ impl Desk {
         let key = s.key;
         let name = self.name_of(&s.meta.agent);
         let write = ui::led_button(
-            faces,
             "ask-message",
             Some(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.)),
             "Write it",
@@ -292,9 +289,9 @@ impl Desk {
         )
         .h(px(24.))
         .px(px(7.))
-        .tooltip(ui::tip(format!(
+        .tooltip(format!(
             "{name} writes the message: a turn of its own, spent as any turn is"
-        )))
+        ))
         .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
         let what = format!(
             "Everything in {} on {}, as you, with this message or the session's title",
@@ -341,30 +338,25 @@ impl Desk {
                     .gap(px(6.))
                     .child(
                         git_button(
-                            faces,
                             "do-commit",
                             "Commit",
                             Weight::Primary,
                             cx,
                             crate::repo::GitAction::Commit,
                         )
-                        .tooltip(ui::tip(what)),
+                        .tooltip(what),
                     )
                     .child(
                         git_button(
-                            faces,
                             "do-push",
                             "Commit & push",
                             Weight::Secondary,
                             cx,
                             crate::repo::GitAction::CommitPush,
                         )
-                        .tooltip(ui::tip(
-                            "On the main branch, a branch of its own is made first",
-                        )),
+                        .tooltip("On the main branch, a branch of its own is made first"),
                     )
                     .child(git_button(
-                        faces,
                         "do-pr",
                         "Create PR",
                         Weight::Secondary,
@@ -427,7 +419,7 @@ impl Desk {
                 .mt(px(6.))
                 .child(fine(faces, text).flex_1())
                 .child(
-                    ui::button(faces, id, label, Weight::Quiet)
+                    ui::button(id, label, Weight::Quiet)
                         .h(px(24.))
                         .on_click(cx.listener(move |this, _, _, cx| this.git_action(action(), cx))),
                 )
@@ -498,11 +490,11 @@ impl Desk {
                         .flex()
                         .gap(px(6.))
                         .child(
-                            ui::button(faces, "open-pr", "Open", Weight::Secondary)
+                            ui::button("open-pr", "Open", Weight::Secondary)
                                 .on_click(move |_, _, cx| cx.open_url(&url)),
                         )
                         .child(
-                            ui::button(faces, "refresh-pr", "Check again", Weight::Quiet)
+                            ui::button("refresh-pr", "Check again", Weight::Quiet)
                                 .on_click(cx.listener(move |this, _, _, _| this.refresh_git(key))),
                         ),
                 )
@@ -514,19 +506,19 @@ impl Desk {
                         .flex_wrap()
                         .gap(px(6.))
                         .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
-                            d.child(ui::button(faces, "merge-pr", "Merge", Weight::Secondary).on_click(
+                            d.child(ui::button("merge-pr", "Merge", Weight::Secondary).on_click(
                                 cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Merge, cx)),
                             ))
                         })
                         .when(open && pr.failed > 0, |d| {
-                            d.child(ui::button(faces, "fix-checks", "Have it fix the checks", Weight::Quiet).on_click(
+                            d.child(ui::button("fix-checks", "Have it fix the checks", Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.say("The pull request's checks failed. Look at them (gh pr checks, and the failed runs' logs), fix what broke, commit and push.", cx);
                                 }),
                             ))
                         })
                         .when(open && pr.conflicts, |d| {
-                            d.child(ui::button(faces, "fix-conflicts", "Have it resolve the conflicts", Weight::Quiet).on_click(
+                            d.child(ui::button("fix-conflicts", "Have it resolve the conflicts", Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.say("The pull request conflicts with its base branch. Bring the base in, resolve the conflicts, run the tests, commit and push.", cx);
                                 }),

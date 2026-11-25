@@ -100,7 +100,6 @@ impl Desk {
             let command = script.command.clone();
             bar = bar.child(
                 ui::led_button(
-                    faces,
                     SharedString::from(format!("script-{n}")),
                     Some(
                         ui::icon("play", 10.)
@@ -112,10 +111,7 @@ impl Desk {
                 )
                 .h(px(24.))
                 .px(px(8.))
-                .tooltip(ui::tip(format!(
-                    "{}  ·  right-click to change it",
-                    script.command
-                )))
+                .tooltip(format!("{}  ·  right-click to change it", script.command))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.open_terminal(Some(&command), window, cx);
                 }))
@@ -140,8 +136,8 @@ impl Desk {
         let ruled = !scripts_none || preview.is_some();
         if let Some(url) = preview {
             bar = bar.child(
-                ui::button(faces, "open-preview", "Open preview", Weight::Quiet)
-                    .tooltip(ui::tip(url.clone()))
+                ui::button("open-preview", "Open preview", Weight::Quiet)
+                    .tooltip(url.clone())
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             );
         }
@@ -281,17 +277,17 @@ impl Desk {
             })
             .child(div().flex_1())
             .child(
-                ui::button(faces, "script-save", "Save", Weight::Primary)
+                ui::button("script-save", "Save", Weight::Primary)
                     .on_click(cx.listener(|this, _, _, cx| this.save_script(true, cx))),
             );
         if w.at.is_some() {
             form = form.child(
-                ui::button(faces, "script-delete", "Delete", Weight::Quiet)
+                ui::button("script-delete", "Delete", Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, cx| this.save_script(false, cx))),
             );
         }
         Some(form.child(
-            ui::button(faces, "script-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
+            ui::button("script-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
                 |this, _, _, cx| {
                     this.drawer.writing = None;
                     cx.notify();
@@ -583,7 +579,6 @@ impl Desk {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .children(name.map(|(agent, name)| {
                     ui::led_button(
-                        faces,
                         "ask-chosen",
                         Some(ui::mark(faces, &self.mark_of(&agent), 12.)),
                         format!("Ask {name} about this"),
@@ -596,7 +591,7 @@ impl Desk {
                     }))
                 }))
                 .child(
-                    ui::button(faces, "copy-chosen", "Copy", Weight::Quiet)
+                    ui::button("copy-chosen", "Copy", Weight::Quiet)
                         .h(px(24.))
                         .px(px(8.))
                         .on_click(cx.listener(move |this, _, _, cx| {

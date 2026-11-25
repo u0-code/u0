@@ -493,15 +493,11 @@ impl Desk {
             );
         }
         let path = self.home.join("keybindings.json");
-        let open = ui::button(
-            faces,
-            "open-keys",
-            "Open keybindings.json",
-            Weight::Secondary,
-        )
-        .on_click(cx.listener(move |this, _, _, _| {
-            this.edit(path.clone(), Some(b"[]\n"));
-        }));
+        let open = ui::button("open-keys", "Open keybindings.json", Weight::Secondary).on_click(
+            cx.listener(move |this, _, _, _| {
+                this.edit(path.clone(), Some(b"[]\n"));
+            }),
+        );
         if n == 0 {
             return None;
         }
@@ -587,7 +583,6 @@ impl Desk {
                     &self.name_of(agent),
                     &format!("process {pid} · {} MB", kb / 1024),
                     ui::button(
-                        faces,
                         SharedString::from(format!("let-go-{n}")),
                         "Let it go",
                         Weight::Quiet,
@@ -642,9 +637,9 @@ impl Desk {
     /// What Ghost is, and where it keeps what it keeps.
     fn about_ghost(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.home.clone();
-        let show = ui::button(faces, "show-home", "Show", Weight::Quiet)
+        let show = ui::button("show-home", "Show", Weight::Quiet)
             .on_click(move |_, _, cx| cx.open_with_system(&home));
-        let registry = ui::button(faces, "open-registry", "Open", Weight::Quiet).on_click(
+        let registry = ui::button("open-registry", "Open", Weight::Quiet).on_click(
             cx.listener(|_, _, _, cx| cx.open_url("https://agentclientprotocol.com/registry")),
         );
         let rows: Vec<Div> = [

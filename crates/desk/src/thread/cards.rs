@@ -83,7 +83,6 @@ impl Desk {
             };
             let (request, chosen) = (asked.id, option.clone());
             let button = ui::button(
-                faces,
                 SharedString::from(format!("{key}-opt-{n}")),
                 option.name.clone(),
                 weight,
@@ -121,7 +120,7 @@ impl Desk {
     /// What can be done with a turn whose files were checkpointed: see its
     /// diff, put the files back as they were before it, or after undoing,
     /// put it back again.
-    fn turn_tools(faces: &Faces, s: &Session, i: usize, cx: &mut Context<Self>) -> Option<Div> {
+    fn turn_tools(s: &Session, i: usize, cx: &mut Context<Self>) -> Option<Div> {
         let turn = s.turn_of(i)?;
         let marks = s.turns.get(turn)?;
         marks.before.as_ref()?;
@@ -142,7 +141,6 @@ impl Desk {
         if marks.diff.as_ref().is_some_and(|d| !d.is_empty()) {
             tools = tools.child(
                 ui::button(
-                    faces,
                     SharedString::from(format!("diff-{i}")),
                     "Diff",
                     Weight::Quiet,
@@ -155,16 +153,15 @@ impl Desk {
         if idle {
             tools = tools.child(
                 ui::button(
-                    faces,
                     SharedString::from(format!("undo-{i}")),
                     label,
                     Weight::Quiet,
                 )
-                .tooltip(ui::tip(if undone {
+                .tooltip(if undone {
                     "Put this turn's changes back in the files"
                 } else {
                     "Put the files back as they were before this turn"
-                }))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| this.undo(turn, cx))),
             );
         }
@@ -221,7 +218,7 @@ impl Desk {
                     .px(px(10.))
                     .when(ready, |d| {
                         d.flex().items_center().gap(px(10.)).child(
-                            ui::button(faces, "run-plan", "Carry out the plan", Weight::Secondary)
+                            ui::button("run-plan", "Carry out the plan", Weight::Secondary)
                                 .on_click(
                                     cx.listener(move |this, _, _, cx| this.run_plan(key, cx)),
                                 ),
@@ -244,7 +241,6 @@ impl Desk {
                 step().child(icon("alert")).child(verb(faces, words)).child(
                     div().flex().flex_1().justify_end().child(
                         ui::button(
-                            faces,
                             SharedString::from(format!("continue-{i}")),
                             "Continue",
                             Weight::Quiet,
@@ -258,7 +254,7 @@ impl Desk {
             .flex()
             .items_center()
             .child(div().flex_1().min_w(px(0.)).child(body))
-            .children(Self::turn_tools(faces, s, i, cx))
+            .children(Self::turn_tools(s, i, cx))
     }
 
     /// The agent stopped, or the session could not be opened.
@@ -296,7 +292,7 @@ impl Desk {
             )
             .child(
                 div().flex().gap(px(6.)).child(
-                    ui::button(faces, "restart", "Restart session", Weight::Secondary)
+                    ui::button("restart", "Restart session", Weight::Secondary)
                         .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                 ),
             )
@@ -328,13 +324,8 @@ impl Desk {
                     Weight::Secondary
                 };
                 buttons = buttons.child(
-                    ui::button(
-                        faces,
-                        SharedString::from(format!("auth-{n}")),
-                        label,
-                        weight,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.sign_in(&agent, &id, cx))),
+                    ui::button(SharedString::from(format!("auth-{n}")), label, weight)
+                        .on_click(cx.listener(move |this, _, _, cx| this.sign_in(&agent, &id, cx))),
                 );
             }
         }
@@ -375,7 +366,7 @@ impl Desk {
                     .child(buttons)
                     .child(div().flex_1())
                     .child(
-                        ui::button(faces, "auth-retry", "I have signed in", Weight::Quiet).on_click(
+                        ui::button("auth-retry", "I have signed in", Weight::Quiet).on_click(
                             cx.listener(move |this, _, _, cx| this.retry_open(&agent, cx)),
                         ),
                     ),

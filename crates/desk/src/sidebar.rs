@@ -810,7 +810,7 @@ impl Desk {
             return None;
         }
         let act = |id: &'static str, label: &'static str| {
-            ui::button(faces, id, label, ui::Weight::Quiet)
+            ui::button(id, label, ui::Weight::Quiet)
                 .h(px(24.))
                 .px(px(7.))
         };

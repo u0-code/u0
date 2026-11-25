@@ -31,7 +31,6 @@ impl Desk {
             let name = self.name_of(&id);
             agents = agents.child(
                 ui::led_button(
-                    faces,
                     SharedString::from(format!("start-{id}")),
                     Some(ui::mark(faces, &self.mark_of(&id), 16.)),
                     name,
@@ -47,7 +46,7 @@ impl Desk {
             );
         }
         agents = agents.child(
-            ui::button(faces, "start-more", "+ More agents", ui::Weight::Quiet)
+            ui::button("start-more", "+ More agents", ui::Weight::Quiet)
                 .h(px(34.))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.open_tab(crate::pages::Tab::Agents, window, cx);

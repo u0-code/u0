@@ -881,7 +881,6 @@ fn table(faces: &Faces, key: &str, t: &Table, all: bool, cx: &mut Context<Desk>)
     let (as_md, as_csv) = (table_text(t, false), table_text(t, true));
     let copy = |what: &str, label: &'static str, text: String| {
         crate::ui::button(
-            faces,
             SharedString::from(format!("{key}-{what}")),
             label,
             crate::ui::Weight::Quiet,

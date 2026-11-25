@@ -122,7 +122,6 @@ impl Desk {
                 any = true;
                 ways = ways.child(
                     ui::button(
-                        faces,
                         SharedString::from(format!("way-{id}")),
                         "Open",
                         Weight::Secondary,
@@ -134,7 +133,6 @@ impl Desk {
                 any = true;
                 ways = ways.child(
                     ui::button(
-                        faces,
                         SharedString::from(format!("way-{id}")),
                         "Open the agent",
                         Weight::Secondary,
@@ -149,7 +147,6 @@ impl Desk {
                 let id = n.id;
                 ways = ways.child(
                     ui::button(
-                        faces,
                         SharedString::from(format!("way-{id}")),
                         "Show",
                         Weight::Secondary,
@@ -170,7 +167,6 @@ impl Desk {
             };
             ways = ways.child(
                 ui::button(
-                    faces,
                     SharedString::from(format!("copy-{id}")),
                     "Copy details",
                     Weight::Quiet,

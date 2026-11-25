@@ -50,7 +50,6 @@ impl Desk {
                 ))
                 .child(
                     ui::button(
-                        faces,
                         gpui::SharedString::from(format!("adopt-{n}")),
                         "Add",
                         Weight::Secondary,
@@ -139,7 +138,7 @@ impl Desk {
                 .child(ui::fine(faces, c.what.clone()))
                 .child(
                     div().flex().child(
-                        ui::button(faces, "cancel-clone", "Cancel", Weight::Secondary)
+                        ui::button("cancel-clone", "Cancel", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_clone(cx))),
                     ),
                 );
@@ -150,7 +149,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "do-clone", "Clone", Weight::Secondary)
+                        ui::button("do-clone", "Clone", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_clone(cx))),
                     )
                     .child(ui::fine(
@@ -175,7 +174,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "do-create", "Create", Weight::Secondary)
+                        ui::button("do-create", "Create", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.create_project(cx))),
                     )
                     .child(ui::fine(
@@ -232,7 +231,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "do-remote", "Add", Weight::Secondary)
+                        ui::button("do-remote", "Add", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.add_remote(cx))),
                     )
                     .child(ui::fine(
@@ -252,11 +251,11 @@ impl Desk {
                     .flex()
                     .gap(px(8.))
                     .child(
-                        ui::button(faces, "open-folder", "Open a folder…", Weight::Primary)
+                        ui::button("open-folder", "Open a folder…", Weight::Primary)
                             .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
                     )
                     .child(
-                        ui::button(faces, "scratch", "Scratch session", Weight::Quiet).on_click(
+                        ui::button("scratch", "Scratch session", Weight::Quiet).on_click(
                             cx.listener(|this, _, window, cx| this.new_scratch(window, cx)),
                         ),
                     ),

@@ -9,6 +9,7 @@ mod repo;
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
+use gpui::component::button::Button;
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
@@ -187,7 +188,7 @@ impl Desk {
                         .py(px(12.))
                         .child(fine(faces, "Not a git repository: turns are not checkpointed, nothing is committed.").flex_1())
                         .child(
-                            ui::button(faces, "git-init", "Make it one", ui::Weight::Quiet)
+                            ui::button("git-init", "Make it one", ui::Weight::Quiet)
                                 .h(px(24.))
                                 .on_click(cx.listener(|this, _, _, cx| this.git_action(crate::repo::GitAction::Init, cx))),
                         ),
@@ -358,7 +359,7 @@ impl Desk {
     }
 
     /// Widen the column over the thread, or give the thread back.
-    fn whole_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    fn whole_button(&self, cx: &mut Context<Self>) -> Button {
         let what = if self.panes.whole {
             "Back beside the thread"
         } else {
@@ -546,7 +547,6 @@ impl Desk {
                 .collect();
             ways = ways.child(
                 ui::button(
-                    faces,
                     "fold-all",
                     if all_folded { "Unfold all" } else { "Fold all" },
                     Weight::Quiet,
@@ -564,7 +564,6 @@ impl Desk {
         if tests > 0 {
             ways = ways.child(
                 ui::button(
-                    faces,
                     "no-tests",
                     if self.review.no_tests {
                         format!(
@@ -786,7 +785,6 @@ impl Desk {
                 .gap(px(6.))
                 .child(
                     ui::button(
-                        faces,
                         "review",
                         "Review diff",
                         if s.state == State::Working {
@@ -800,7 +798,7 @@ impl Desk {
                     })),
                 )
                 .child(
-                    ui::button(faces, "open-folder", "Open in Finder", Weight::Quiet)
+                    ui::button("open-folder", "Open in Finder", Weight::Quiet)
                         .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 ),
         );
@@ -847,7 +845,6 @@ impl Desk {
                     .child(ui::one_line(fine_mono(faces, address.clone())).flex_1())
                     .child(match host {
                         Some(host) => ui::button(
-                            faces,
                             SharedString::from(format!("forward-{n}")),
                             "Forward",
                             Weight::Quiet,
@@ -857,7 +854,6 @@ impl Desk {
                             cx.listener(move |this, _, _, cx| this.forward(&host, &forward, cx)),
                         ),
                         None => ui::button(
-                            faces,
                             SharedString::from(format!("serve-open-{n}")),
                             "Open",
                             Weight::Quiet,
@@ -867,7 +863,6 @@ impl Desk {
                     })
                     .child(
                         ui::button(
-                            faces,
                             SharedString::from(format!("serve-stop-{n}")),
                             "Stop",
                             Weight::Quiet,
@@ -1376,7 +1371,6 @@ impl Desk {
             let n = self.review.comments.len();
             sec = sec.child(
                 ui::button(
-                    faces,
                     "send-comments",
                     format!(
                         "Put {n} comment{} to {name} in the line",
@@ -1472,14 +1466,13 @@ impl Desk {
 
 /// A button that does a git action with the commit message typed.
 fn git_button(
-    faces: &Faces,
     id: &'static str,
     label: &'static str,
     weight: Weight,
     cx: &mut Context<Desk>,
     make: fn(String) -> crate::repo::GitAction,
-) -> gpui::Stateful<Div> {
-    ui::button(faces, id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
+) -> Button {
+    ui::button(id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
         let message = this.commit_message(cx);
         this.review.committing = false;
         this.git_action(make(message), cx);

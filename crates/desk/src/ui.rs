@@ -3,6 +3,10 @@
 
 use std::path::Path;
 
+use gpui::component::{
+    Icon, Sizable as _,
+    button::{Button, ButtonVariants as _},
+};
 use gpui::{
     AnyElement, AnyView, App, Context, Div, Hsla, Render, SharedString, Svg, Window, div,
     prelude::*, px, svg,
@@ -13,7 +17,7 @@ use unicode_width::UnicodeWidthStr as _;
 use crate::fonts::Weighted as _;
 use crate::{
     fonts::Faces,
-    style::{BODY, CAPTION, META},
+    style::{BODY, CAPTION},
     theme,
 };
 
@@ -113,52 +117,36 @@ pub enum Weight {
     Quiet,
 }
 
-/// A button, the same everywhere in the desk: 28 high, corners of 8, its
-/// weight said by its fill, its edge or neither.
+/// A button, the same everywhere in the desk: gpui-kit's, small, its
+/// weight said by its variant.
 pub fn button(
-    faces: &Faces,
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
     weight: Weight,
-) -> gpui::Stateful<Div> {
-    led_button(faces, id, None, label, weight)
+) -> Button {
+    led_button(id, None, label, weight)
 }
 
 /// A button with something before its word: an agent's mark, an icon.
 pub fn led_button(
-    faces: &Faces,
     id: impl Into<gpui::ElementId>,
     lead: Option<AnyElement>,
     label: impl Into<SharedString>,
     weight: Weight,
-) -> gpui::Stateful<Div> {
-    let word = text(faces, label)
-        .text_size(px(META))
-        .weight(gpui::FontWeight::MEDIUM);
-    let base = div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .h(px(28.))
-        .px(px(11.))
-        .rounded(px(8.))
-        .cursor_pointer()
-        .children(lead);
+) -> Button {
+    let label = label.into();
+    let button = Button::new(id).small();
+    let button = match lead {
+        Some(lead) => button
+            .accessibility_label(label.clone())
+            .child(lead)
+            .child(label),
+        None => button.label(label),
+    };
     match weight {
-        Weight::Primary => base
-            .bg(theme::text())
-            .hover(|s| s.bg(theme::text2()))
-            .child(word.text_color(theme::bg())),
-        Weight::Secondary => base
-            .border_1()
-            .border_color(theme::border2())
-            .hover(|s| s.bg(theme::hover()))
-            .child(word.text_color(theme::text())),
-        Weight::Quiet => base
-            .hover(|s| s.bg(theme::hover()))
-            .child(word.text_color(theme::text2())),
+        Weight::Primary => button.primary(),
+        Weight::Secondary => button,
+        Weight::Quiet => button.ghost(),
     }
 }
 
@@ -286,24 +274,17 @@ pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div>
         .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
 }
 
-/// An icon button: a 28-point square that lights on hover.
+/// An icon button: gpui-kit's, quiet until hovered, its tip said on
+/// hover.
 pub fn icon_button(
     id: impl Into<gpui::ElementId>,
     icon_name: &str,
     tip_text: impl Into<SharedString>,
-) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(28.))
-        .rounded(px(7.))
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(icon(icon_name, 16.))
-        .tooltip(tip(tip_text))
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .icon(Icon::empty().path(format!("icons/{icon_name}.svg")))
+        .tooltip(tip_text)
 }
 
 /// A short note shown on hover, for `.tooltip`.

@@ -96,7 +96,7 @@ impl Desk {
             (
                 "archive",
                 "Archived. Restore it to write in it again.".to_owned(),
-                ui::button(faces, "restore", "Restore", ui::Weight::Secondary)
+                ui::button("restore", "Restore", ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
             )
         } else {
@@ -109,7 +109,7 @@ impl Desk {
             (
                 "user",
                 format!("A subagent of “{parent}”: it answers to it."),
-                ui::button(faces, "to-parent", "Back to it", ui::Weight::Secondary)
+                ui::button("to-parent", "Back to it", ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, window, cx| this.show(up, window, cx))),
             )
         };
@@ -412,14 +412,14 @@ impl Desk {
                         )),
                 )
                 .child(
-                    ui::button(faces, "sign-in-now", "Sign in", ui::Weight::Primary).on_click(
+                    ui::button("sign-in-now", "Sign in", ui::Weight::Primary).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.sign_in_agent(&a, cx);
                         }),
                     ),
                 )
                 .child(
-                    ui::button(faces, "signed-in", "I've signed in", ui::Weight::Quiet).on_click(
+                    ui::button("signed-in", "I've signed in", ui::Weight::Quiet).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.recheck_auth(&b, cx);
                         }),
@@ -562,7 +562,6 @@ impl Desk {
                         })
                         .child(
                             ui::button(
-                                faces,
                                 SharedString::from(format!("steer-{n}")),
                                 "Send now",
                                 ui::Weight::Quiet,
@@ -611,7 +610,6 @@ impl Desk {
                 let (request, chosen) = (asked.id, option.clone());
                 buttons = buttons.child(
                     ui::button(
-                        faces,
                         SharedString::from(format!("bar-ask-{n}")),
                         option.name.clone(),
                         weight,
@@ -694,21 +692,14 @@ impl Desk {
                 )
                 .when(answered, |d| {
                     d.child(
-                        ui::button(
-                            faces,
-                            "answer-back",
-                            "Add the answer to it",
-                            ui::Weight::Secondary,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
+                        ui::button("answer-back", "Add the answer to it", ui::Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.answer_back(key, window, cx);
-                            },
-                        )),
+                            })),
                     )
                 })
                 .child(
-                    ui::button(faces, "beside-back", "Back to it", ui::Weight::Quiet).on_click(
+                    ui::button("beside-back", "Back to it", ui::Weight::Quiet).on_click(
                         cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
                     ),
                 )

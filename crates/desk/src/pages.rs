@@ -349,14 +349,14 @@ impl Desk {
         match &stage {
             Stage::Installing(_) => {
                 actions = actions.child(
-                    ui::button(faces, "cancel-install", "Cancel", Weight::Secondary).on_click(
+                    ui::button("cancel-install", "Cancel", Weight::Secondary).on_click(
                         cx.listener(move |this, _, _, cx| this.cancel_install(&cancel_id, cx)),
                     ),
                 );
             }
             Stage::Missing(Missing::Download) => {
                 actions = actions.child(
-                    ui::button(faces, "install", format!("Install {name}"), Weight::Primary)
+                    ui::button("install", format!("Install {name}"), Weight::Primary)
                         .on_click(cx.listener(move |this, _, _, cx| this.install(&install_id, cx))),
                 );
             }
@@ -369,30 +369,30 @@ impl Desk {
                 let label = url.trim_start_matches("https://").trim_end_matches('/');
                 actions = actions
                     .child(
-                        ui::button(faces, "recheck", "Try again", Weight::Secondary).on_click(
+                        ui::button("recheck", "Try again", Weight::Secondary).on_click(
                             cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx)),
                         ),
                     )
                     .child(
-                        ui::button(faces, "get-runner", label, Weight::Quiet)
+                        ui::button("get-runner", label, Weight::Quiet)
                             .on_click(cx.listener(move |_, _, _, cx| cx.open_url(url))),
                     );
             }
             Stage::Failed(_) => {
                 actions = actions.child(
-                    ui::button(faces, "recheck", "Try again", Weight::Secondary)
+                    ui::button("recheck", "Try again", Weight::Secondary)
                         .on_click(cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx))),
                 );
             }
             _ if enabled => {
                 actions = actions.child(
-                    ui::button(faces, "start", "New session", Weight::Primary).on_click(
-                        cx.listener(move |this, _, window, cx| {
+                    ui::button("start", "New session", Weight::Primary).on_click(cx.listener(
+                        move |this, _, window, cx| {
                             if let Some(project) = this.project() {
                                 this.new_session(&start_id, project, window, cx);
                             }
-                        }),
-                    ),
+                        },
+                    )),
                 );
             }
             _ => {}
@@ -400,7 +400,6 @@ impl Desk {
         if update.is_some() && enabled && !busy && !matches!(stage, Stage::Installing(_)) {
             actions = actions.child(
                 ui::button(
-                    faces,
                     "update",
                     format!("Update to {}", entry.version),
                     Weight::Secondary,
@@ -412,23 +411,23 @@ impl Desk {
             let (a, b) = (id.to_owned(), id.to_owned());
             actions = actions
                 .child(
-                    ui::button(faces, "page-sign-in", "Sign in", Weight::Primary)
+                    ui::button("page-sign-in", "Sign in", Weight::Primary)
                         .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(&a, cx))),
                 )
                 .child(
-                    ui::button(faces, "page-signed-in", "I've signed in", Weight::Quiet)
+                    ui::button("page-signed-in", "I've signed in", Weight::Quiet)
                         .on_click(cx.listener(move |this, _, _, cx| this.recheck_auth(&b, cx))),
                 );
         } else if can_log_out && auth == crate::hub::Auth::Ready && !busy {
             let a = id.to_owned();
             actions = actions.child(
-                ui::button(faces, "log-out", "Log out", Weight::Quiet)
+                ui::button("log-out", "Log out", Weight::Quiet)
                     .on_click(cx.listener(move |this, _, _, cx| this.log_out(&a, cx))),
             );
         }
         if installed.is_some() && !busy && !matches!(stage, Stage::Installing(_)) {
             actions = actions.child(
-                ui::button(faces, "uninstall", "Uninstall", Weight::Quiet).on_click(cx.listener(
+                ui::button("uninstall", "Uninstall", Weight::Quiet).on_click(cx.listener(
                     move |this, _, window, cx| this.uninstall(&uninstall_id, window, cx),
                 )),
             );
@@ -440,7 +439,6 @@ impl Desk {
         };
         actions = actions.child(div().flex_1()).child(
             ui::button(
-                faces,
                 "toggle",
                 if enabled { "Turn off" } else { "Turn on" },
                 toggle_weight,
@@ -521,7 +519,7 @@ impl Desk {
                     .gap(px(8.))
                     .child(field(self.pages.command.clone()))
                     .child(
-                        ui::button(faces, "save-command", "Use this command", Weight::Secondary)
+                        ui::button("save-command", "Use this command", Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
                     ),
             )
@@ -539,7 +537,7 @@ impl Desk {
                     .gap(px(8.))
                     .child(field(self.pages.model.clone()))
                     .child(
-                        ui::button(faces, "add-model", "Add a model", Weight::Secondary)
+                        ui::button("add-model", "Add a model", Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.add_model(&b, cx))),
                     ),
             );

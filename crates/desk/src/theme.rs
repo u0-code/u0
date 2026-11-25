@@ -241,7 +241,15 @@ pub fn kit(cx: &mut App) {
         c.secondary = hover();
         c.secondary_hover = hover();
         c.secondary_active = panel2();
-        c.secondary_foreground = text();
+        c.secondary_foreground = text2();
+        c.button = gpui::transparent_black();
+        c.button_hover = hover();
+        c.button_active = panel2();
+        c.button_foreground = text();
+        c.button_primary = text();
+        c.button_primary_hover = text2();
+        c.button_primary_active = text2();
+        c.button_primary_foreground = bg();
         c.switch = ghost_line();
         c.switch_thumb = bg();
         c.danger = coral();

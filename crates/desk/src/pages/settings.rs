@@ -295,7 +295,6 @@ impl Desk {
                     .into_any_element()
             } else {
                 ui::button(
-                    faces,
                     SharedString::from(format!("get-{id}")),
                     "Install",
                     Weight::Secondary,
@@ -433,7 +432,7 @@ impl Desk {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        ui::button(faces, "refresh", "Read the registry again", Weight::Secondary)
+                        ui::button("refresh", "Read the registry again", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
                     )
                     .child(div().flex_1())
@@ -465,7 +464,7 @@ impl Desk {
             );
         }
         let button = |id: &'static str, label: &'static str, what: Tidy| {
-            ui::button(faces, id, label, Weight::Secondary)
+            ui::button(id, label, Weight::Secondary)
                 .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
         };
         div()
@@ -537,7 +536,6 @@ impl Desk {
                     )
                     .child(
                         ui::button(
-                            faces,
                             SharedString::from(format!("restore-p-{n}")),
                             "Restore",
                             Weight::Secondary,
@@ -607,7 +605,6 @@ impl Desk {
                     )
                     .child(
                         ui::button(
-                            faces,
                             SharedString::from(format!("restore-{key}")),
                             "Restore",
                             Weight::Secondary,
@@ -616,7 +613,6 @@ impl Desk {
                     )
                     .child(
                         ui::button(
-                            faces,
                             SharedString::from(format!("delete-{key}")),
                             "Delete",
                             Weight::Quiet,

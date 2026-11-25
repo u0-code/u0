@@ -27,6 +27,7 @@ use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
+use gpui::component::button::Button;
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -476,11 +477,12 @@ impl Desk {
                     .text_color(theme::text2()),
                 )
                 .child(
-                    ui::button(faces, "setup-show", "Show the terminals", ui::Weight::Quiet)
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    ui::button("setup-show", "Show the terminals", ui::Weight::Quiet).on_click(
+                        cx.listener(|this, _, _, cx| {
                             this.drawer.open = true;
                             cx.notify();
-                        })),
+                        }),
+                    ),
                 )
                 .child(
                     ui::icon_button("setup-done", "x", "Put this away").on_click(cx.listener(
@@ -1340,7 +1342,6 @@ impl Desk {
                                 )
                                 .child(
                                     ui::button(
-                                        faces,
                                         "reading-quote",
                                         "Quote in your reply",
                                         ui::Weight::Secondary,
@@ -1375,7 +1376,7 @@ impl Desk {
     }
 
     /// A small button under a message.
-    fn under(key: &str, what: &str, icon: &str, tip: &'static str) -> gpui::Stateful<Div> {
+    fn under(key: &str, what: &str, icon: &str, tip: &'static str) -> Button {
         ui::icon_button(SharedString::from(format!("{key}-{what}")), icon, tip)
             .size(px(24.))
             .text_color(theme::faint())
@@ -1579,7 +1580,6 @@ impl Desk {
         });
         let open_diff = diff_of.clone().filter(|_| !running).map(|path| {
             ui::button(
-                faces,
                 SharedString::from(format!("{key}-open-diff")),
                 "Open diff",
                 ui::Weight::Quiet,

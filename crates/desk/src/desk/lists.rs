@@ -9,8 +9,7 @@ use std::{
 };
 
 use gpui::{
-    AppContext as _, Context, Entity, Focusable as _, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, Window, px,
+    AppContext as _, Context, Entity, Focusable as _, ParentElement as _, Styled as _, Window, px,
 };
 
 use agent_client_protocol::v1::schema::MessageId;
@@ -481,7 +480,7 @@ impl Desk {
                     .min_w(px(0.)),
                 )
                 .child(
-                    crate::ui::button(faces, "undo", "Undo", crate::ui::Weight::Secondary)
+                    crate::ui::button("undo", "Undo", crate::ui::Weight::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.take_back(cx))),
                 ),
         )
