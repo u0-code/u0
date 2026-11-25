@@ -1046,16 +1046,6 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 .text_color(color.opacity(0.85))
                 .child(end)
         }))
-        .when(matches!(row.act, Act::Sub(_)), |d| {
-            d.child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .h(px(20.))
-                    .items_center()
-                    .child(ui::icon("chevron-right", 14.)),
-            )
-        })
         .when(!row.keys.is_empty(), |d| {
             d.child(
                 div()
@@ -1066,6 +1056,16 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                     .text_size(px(12.))
                     .text_color(theme::faint())
                     .child(SharedString::from(crate::keys::written(&row.keys))),
+            )
+        })
+        .when(matches!(row.act, Act::Sub(_)), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .h(px(20.))
+                    .items_center()
+                    .child(ui::icon("chevron-right", 14.)),
             )
         })
 }
