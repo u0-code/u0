@@ -226,14 +226,8 @@ impl Desk {
                 self.elsewhere.insert(agent, folders);
             }
             Msg::Forked { from, at, result } => self.forked(from, at, result, cx),
-            Msg::Captured(Some(bytes)) => self.add_picture(
-                super::mention::Picture {
-                    mime: "image/png".into(),
-                    bytes,
-                },
-                cx,
-            ),
-            Msg::Captured(None) => {}
+            Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
+            Msg::Picture(None) => {}
             Msg::Grepped { words, found } => {
                 // Only what answers what is typed now.
                 if self.palette_input.read(cx).text().trim() == words {

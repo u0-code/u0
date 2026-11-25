@@ -130,9 +130,9 @@ pub enum Msg {
         at: Option<usize>,
         result: Result<Box<ForkSessionResponse>, Error>,
     },
-    /// A window you chose was captured, to go with what you write: the
-    /// picture's bytes, or nothing if you let it be.
-    Captured(Option<Vec<u8>>),
+    /// A picture to go with what you write: a window you chose, captured,
+    /// or a file dropped in, read; nothing if you let it be.
+    Picture(Option<crate::desk::mention::Picture>),
     /// What git grep found for `words`.
     Grepped {
         words: String,
@@ -749,7 +749,37 @@ pub fn capture_window(tx: Sender) {
             .filter(std::process::ExitStatus::success)
             .and_then(|_| std::fs::read(&path).ok());
         let _ = std::fs::remove_file(&path);
-        Msg::Captured(bytes)
+        Msg::Picture(bytes.map(|bytes| crate::desk::mention::Picture {
+            mime: "image/png".into(),
+            bytes,
+        }))
+    });
+}
+
+/// Read the picture at `path`, of the type `mime`, for what you write.
+pub fn read_picture(path: PathBuf, mime: &'static str, tx: Sender) {
+    off(tx, move || {
+        Msg::Picture(
+            std::fs::read(&path)
+                .ok()
+                .map(|bytes| crate::desk::mention::Picture {
+                    mime: mime.into(),
+                    bytes,
+                }),
+        )
+    });
+}
+
+/// Drop the checkpoints of the session `uid` in the repository at `dir`.
+pub fn drop_checkpoints(dir: PathBuf, uid: String) {
+    acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
+}
+
+/// Read what `gh` says of the pull request `number` of the project `dir`.
+pub fn pr_text(dir: PathBuf, number: u64, tx: Sender) {
+    off(tx, move || Msg::PrText {
+        text: git::pull_request_text(&dir, number),
+        number,
     });
 }
 

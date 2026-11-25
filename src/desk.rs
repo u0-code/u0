@@ -1348,7 +1348,7 @@ impl Desk {
                     .map_or_else(|| s.project.clone(), |w| w.repo.clone()),
                 s.uid(),
             );
-            crate::acp::runtime().spawn_blocking(move || crate::git::drop_checkpoints(&dir, &uid));
+            hub::drop_checkpoints(dir, uid);
         }
         // Its worktree goes too, unless another session works in it (a
         // fork, or a new session begun there).

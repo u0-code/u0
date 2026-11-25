@@ -231,12 +231,7 @@ impl Desk {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
             {
-                let dir = s.project.clone();
-                let (n, tx) = (*number, self.tx.clone());
-                crate::acp::runtime().spawn_blocking(move || {
-                    let text = crate::git::pull_request_text(&dir, n);
-                    let _ = tx.send(hub::Msg::PrText { number: n, text });
-                });
+                hub::pr_text(s.project.clone(), *number, self.tx.clone());
             }
             self.mentions.push(Mention {
                 token,
@@ -308,15 +303,7 @@ impl Desk {
                     continue;
                 }
             };
-            if let Ok(bytes) = std::fs::read(p) {
-                self.add_picture(
-                    Picture {
-                        mime: mime.into(),
-                        bytes,
-                    },
-                    cx,
-                );
-            }
+            hub::read_picture(p.clone(), mime, self.tx.clone());
         }
     }
 
