@@ -150,9 +150,9 @@ impl Desk {
                     tree(&self.side, move |_, entry, _, _, cx| {
                         desk.read(cx).side_row(entry, &desk, cx)
                     })
-                    .context_menu(move |_, entry, menu, _, cx| {
+                    .context_menu(move |_, entry, menu, window, cx| {
                         let id = entry.item().id.clone();
-                        menu_desk.read(cx).side_menu(&id, menu, &menu_desk)
+                        Desk::side_menu(&menu_desk, &id, menu, window, cx)
                     }),
                 )
         };

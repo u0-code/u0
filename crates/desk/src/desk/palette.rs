@@ -173,17 +173,17 @@ impl Desk {
     }
 
     /// Keys to the next part of the window (F6): the line you write in,
-    /// the terminals when their drawer is open, and back.
+    /// the sidebar's list (where ↑ ↓ move and Shift+F10 opens a row's
+    /// menu), the terminals when their drawer is open, and back.
     pub fn next_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let in_line =
-            gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
-        if in_line && self.drawer.open {
+        let line = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
+        let in_drawer = self.drawer.focus.is_focused(window);
+        if line.is_focused(window) && self.panes.left {
+            self.side.update(cx, |tree, cx| tree.focus(window, cx));
+        } else if !line.is_focused(window) && !in_drawer && self.drawer.open {
             window.focus(&self.drawer.focus, cx);
         } else {
-            window.focus(
-                &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
-                cx,
-            );
+            window.focus(&line, cx);
         }
         cx.notify();
     }

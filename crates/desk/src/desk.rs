@@ -1380,6 +1380,12 @@ impl Render for Desk {
         self.sync_lines();
         self.read_projects();
         self.sync_side(cx);
+        // ⌘ let go where the desk did not hear it (over a dialog): the
+        // sessions' numbers go.
+        if self.numbers_shown && !window.modifiers().platform {
+            self.numbers_shown = false;
+            self.command_down = None;
+        }
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let left = self

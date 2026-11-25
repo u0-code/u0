@@ -760,233 +760,323 @@ impl Desk {
         cx.notify();
     }
 
-    /// The menu of the row `id`, on a right click: a session's, or with
-    /// others chosen theirs together; a project's.
-    pub(crate) fn side_menu(&self, id: &str, menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        match Row::of(id) {
-            Some(Row::Session(key)) if self.chosen.len() > 1 && self.chosen.contains(&key) => {
-                self.chosen_menu(menu, desk)
+    /// The menu of the row `id`, on a right click or Shift+F10: a
+    /// session's, or with others chosen theirs together; a project's. What
+    /// it says is read from the desk first, then built with the menu's own
+    /// context, which its submenus need.
+    pub(crate) fn side_menu(
+        desk: &Entity<Self>,
+        id: &str,
+        menu: PopupMenu,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
+    ) -> PopupMenu {
+        let plan = {
+            let d = desk.read(cx);
+            match Row::of(id) {
+                Some(Row::Session(key)) if d.chosen.len() > 1 && d.chosen.contains(&key) => {
+                    Plan::Chosen(d.chosen.iter().copied().collect())
+                }
+                Some(Row::Session(key)) => match d.sessions.at(key) {
+                    Some(s) => Plan::Session(d.facts(s)),
+                    None => return menu,
+                },
+                Some(Row::Project(folder)) => {
+                    let pinned = d.prefs(&folder).pinned;
+                    Plan::Project(folder, pinned)
+                }
+                _ => return menu,
             }
-            Some(Row::Session(key)) => match self.sessions.at(key) {
-                Some(s) => self.session_menu(menu, s, desk),
-                None => menu,
-            },
-            Some(Row::Project(folder)) => self.project_menu(menu, &folder, desk),
-            _ => menu,
+        };
+        match plan {
+            Plan::Session(f) => session_menu(menu, &f, desk, window, cx),
+            Plan::Chosen(keys) => chosen_menu(menu, &keys, desk, window, cx),
+            Plan::Project(folder, pinned) => project_menu(menu, &folder, pinned, desk),
         }
     }
 
-    /// What can be done with a session, as t3code's menu has it.
-    fn session_menu(&self, menu: PopupMenu, s: &Session, desk: &Entity<Self>) -> PopupMenu {
-        let key = s.key;
-        let busy = matches!(s.state, State::Working | State::Opening);
+    /// What a session's menu says of it.
+    fn facts(&self, s: &Session) -> Facts {
         let now = store::secs(SystemTime::now());
-        let item =
-            |label: String, icon: &str, f: fn(&mut Desk, u64, &mut Window, &mut Context<Desk>)| {
-                let desk = desk.clone();
-                PopupMenuItem::new(label)
-                    .icon(Icon::empty().path(format!("icons/{icon}.svg")))
-                    .on_click(move |_, window, cx| desk.update(cx, |d, cx| f(d, key, window, cx)))
-            };
-        let copy = |label: &str, text: String| {
-            PopupMenuItem::new(label.to_owned())
-                .icon(Icon::empty().path("icons/copy.svg"))
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-                })
-        };
-        let mut menu = menu
-            .item(item("Rename".into(), "pencil", |d, key, window, cx| {
-                d.begin_rename(Renaming::Session { key, here: false }, window, cx);
-            }))
-            .item(item(
-                if s.meta.flags.pinned.is_some() {
-                    "Unpin"
-                } else {
-                    "Pin"
-                }
-                .into(),
-                "pin",
-                |d, key, _, cx| d.toggle_pin(key, cx),
-            ))
-            .item(item(
-                if s.meta.flags.settled.is_some() {
-                    "Un-settle"
-                } else {
-                    "Settle"
-                }
-                .into(),
-                "check",
-                |d, key, _, cx| d.toggle_settled(key, cx),
-            ));
-        menu = if s.meta.flags.snoozed.is_some_and(|t| t > now) {
-            menu.item(item("Wake".into(), "clock", |d, key, _, cx| {
-                d.wake(key, cx);
-            }))
-        } else {
-            snooze_items(menu.separator(), desk, &[key]).separator()
-        };
-        if !s.meta.flags.unread {
-            menu = menu.item(item("Mark unread".into(), "bell", |d, key, _, cx| {
-                d.mark_unread(key, cx);
-            }));
+        let busy = matches!(s.state, State::Working | State::Opening);
+        Facts {
+            key: s.key,
+            pinned: s.meta.flags.pinned.is_some(),
+            settled: s.meta.flags.settled.is_some(),
+            snoozed: s.meta.flags.snoozed.is_some_and(|t| t > now),
+            unread: s.meta.flags.unread,
+            kept: s.meta.flags.kept,
+            busy,
+            fork: self.can_fork(s) && !busy,
+            new_on: s
+                .meta
+                .worktree
+                .is_some()
+                .then(|| s.branch.clone().unwrap_or_else(|| "its worktree".into())),
+            folder: s.meta.folder.display().to_string(),
+            branch: s.branch.clone(),
+            id: s.meta.id.as_ref().map(|id| id.0.to_string()),
         }
-        menu = menu.item(item(
-            "Filter by project".into(),
-            "folder",
-            |d, key, _, cx| {
-                if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
-                    d.filter = vec![p];
-                    cx.notify();
-                }
-            },
-        ));
-        if s.meta.worktree.is_some() {
-            let on = s.branch.clone().unwrap_or_else(|| "its worktree".into());
-            menu = menu.item(item(
-                format!("New session on {}", ui::fit(&on, 22)),
-                "square-pen",
-                Desk::new_in_worktree,
-            ));
-        }
-        if self.can_fork(s) && !busy {
-            menu = menu.item(item(
-                "Branch off a copy".into(),
-                "branch",
-                |d, key, _, cx| {
-                    d.fork(key, cx);
-                },
-            ));
-        }
-        menu = menu
-            .separator()
-            .item(item(
-                "Copy the conversation".into(),
-                "copy",
-                |d, key, _, cx| {
-                    d.copy_thread(key, cx);
-                },
-            ))
-            .item(copy("Copy path", s.meta.folder.display().to_string()));
-        if let Some(b) = &s.branch {
-            menu = menu.item(copy("Copy branch", b.clone()));
-        }
-        if let Some(id) = &s.meta.id {
-            menu = menu.item(copy("Copy session ID", id.0.to_string()));
-        }
-        menu = menu.separator().item(item(
-            if s.meta.flags.kept {
-                "Let it settle on its own"
-            } else {
-                "Never settle on its own"
-            }
-            .into(),
-            "pin",
-            |d, key, _, cx| d.mark(key, cx, |f| f.kept = !f.kept),
-        ));
-        if !busy {
-            menu = menu
-                .item(item("Archive".into(), "archive", |d, key, _, cx| {
-                    d.archive(key, cx);
-                }))
-                .item(item("Delete".into(), "trash", |d, key, window, cx| {
-                    d.ask_delete(vec![key], window, cx);
-                }));
-        }
-        menu
     }
+}
 
-    /// What can be done with the sessions chosen, all at once.
-    fn chosen_menu(&self, menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        let n = self.chosen.len();
-        let keys: Vec<u64> = self.chosen.iter().copied().collect();
-        let each = |label: &str, icon: &str, f: fn(&mut store::Flags)| {
-            let desk = desk.clone();
-            PopupMenuItem::new(format!("{label} ({n})"))
-                .icon(Icon::empty().path(format!("icons/{icon}.svg")))
-                .on_click(move |_, _, cx| desk.update(cx, |d, cx| d.for_chosen(cx, f)))
-        };
-        let gone = desk.clone();
-        snooze_items(
-            menu.item(each("Unpin", "pin", |f| f.pinned = None))
-                .item(each("Settle", "check", |f| {
-                    f.settled = Some(store::secs(SystemTime::now()));
+/// What a row's menu is of.
+enum Plan {
+    Session(Facts),
+    Chosen(Vec<u64>),
+    Project(PathBuf, bool),
+}
+
+/// What a session's menu says of it, read from the desk before it is built.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a fact of its own about the session, not a state among several"
+)]
+struct Facts {
+    key: u64,
+    pinned: bool,
+    settled: bool,
+    snoozed: bool,
+    unread: bool,
+    kept: bool,
+    busy: bool,
+    fork: bool,
+    /// The branch a new session on its worktree would work on.
+    new_on: Option<String>,
+    folder: String,
+    branch: Option<String>,
+    id: Option<String>,
+}
+
+/// An item of a menu: its label, its icon, and what it does.
+fn item(
+    label: impl Into<gpui::SharedString>,
+    icon: &str,
+    f: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    PopupMenuItem::new(label)
+        .icon(Icon::empty().path(format!("icons/{icon}.svg")))
+        .on_click(move |_, window, cx| f(window, cx))
+}
+
+/// An item that copies `text`.
+fn copy_item(label: &str, text: String) -> PopupMenuItem {
+    item(label.to_owned(), "copy", move |_, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+    })
+}
+
+/// What can be done with a session, as t3code's menu has it.
+fn session_menu(
+    menu: PopupMenu,
+    f: &Facts,
+    desk: &Entity<Desk>,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let key = f.key;
+    let on = |g: fn(&mut Desk, u64, &mut Window, &mut Context<Desk>)| {
+        let desk = desk.clone();
+        move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| g(d, key, window, cx))
+    };
+    let mut menu = menu
+        .item(item(
+            "Rename",
+            "pencil",
+            on(|d, key, window, cx| {
+                d.begin_rename(Renaming::Session { key, here: false }, window, cx);
+            }),
+        ))
+        .item(item(
+            if f.pinned { "Unpin" } else { "Pin" },
+            "pin",
+            on(|d, key, _, cx| d.toggle_pin(key, cx)),
+        ))
+        .item(item(
+            if f.settled { "Un-settle" } else { "Settle" },
+            "check",
+            on(|d, key, _, cx| d.toggle_settled(key, cx)),
+        ));
+    menu = if f.snoozed {
+        menu.item(item("Wake", "clock", on(|d, key, _, cx| d.wake(key, cx))))
+    } else {
+        let desk = desk.clone();
+        menu.submenu_with_icon(
+            Some(Icon::empty().path("icons/clock.svg")),
+            "Snooze",
+            window,
+            cx,
+            move |menu, _, _| snooze_items(menu, &desk, &[key]),
+        )
+    };
+    if !f.unread {
+        menu = menu.item(item(
+            "Mark unread",
+            "bell",
+            on(|d, key, _, cx| d.mark_unread(key, cx)),
+        ));
+    }
+    menu = menu.item(item(
+        "Filter by project",
+        "folder",
+        on(|d, key, _, cx| {
+            if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
+                d.filter = vec![p];
+                cx.notify();
+            }
+        }),
+    ));
+    if let Some(branch) = &f.new_on {
+        menu = menu.item(item(
+            format!("New session on {}", ui::fit(branch, 22)),
+            "square-pen",
+            on(Desk::new_in_worktree),
+        ));
+    }
+    if f.fork {
+        menu = menu.item(item(
+            "Branch off a copy",
+            "branch",
+            on(|d, key, _, cx| d.fork(key, cx)),
+        ));
+    }
+    let (copy_desk, folder, branch, id) = (
+        desk.clone(),
+        f.folder.clone(),
+        f.branch.clone(),
+        f.id.clone(),
+    );
+    menu = menu.separator().submenu_with_icon(
+        Some(Icon::empty().path("icons/copy.svg")),
+        "Copy",
+        window,
+        cx,
+        move |menu, _, _| {
+            let desk = copy_desk.clone();
+            let menu = menu
+                .item(item("The conversation", "copy", move |_, cx| {
+                    desk.update(cx, |d, cx| d.copy_thread(key, cx));
                 }))
-                .item(each("Mark unread", "bell", |f| f.unread = true))
-                .separator(),
-            desk,
-            &keys,
+                .item(copy_item("Path", folder.clone()));
+            let menu = match &branch {
+                Some(b) => menu.item(copy_item("Branch", b.clone())),
+                None => menu,
+            };
+            match &id {
+                Some(id) => menu.item(copy_item("Session ID", id.clone())),
+                None => menu,
+            }
+        },
+    );
+    menu = menu.separator().item(item(
+        if f.kept {
+            "Let it settle on its own"
+        } else {
+            "Never settle on its own"
+        },
+        "pin",
+        on(|d, key, _, cx| d.mark(key, cx, |f| f.kept = !f.kept)),
+    ));
+    if !f.busy {
+        menu = menu
+            .item(item(
+                "Archive",
+                "archive",
+                on(|d, key, _, cx| d.archive(key, cx)),
+            ))
+            .item(item(
+                "Delete",
+                "trash",
+                on(|d, key, window, cx| d.ask_delete(vec![key], window, cx)),
+            ));
+    }
+    menu
+}
+
+/// What can be done with the sessions chosen, all at once.
+fn chosen_menu(
+    menu: PopupMenu,
+    keys: &[u64],
+    desk: &Entity<Desk>,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let n = keys.len();
+    let each = |label: &str, icon: &str, f: fn(&mut store::Flags)| {
+        let desk = desk.clone();
+        item(format!("{label} ({n})"), icon, move |_, cx| {
+            desk.update(cx, |d, cx| d.for_chosen(cx, f));
+        })
+    };
+    let (snooze, gone, keys) = (desk.clone(), desk.clone(), keys.to_vec());
+    menu.item(each("Unpin", "pin", |f| f.pinned = None))
+        .item(each("Settle", "check", |f| {
+            f.settled = Some(store::secs(SystemTime::now()));
+        }))
+        .item(each("Mark unread", "bell", |f| f.unread = true))
+        .submenu_with_icon(
+            Some(Icon::empty().path("icons/clock.svg")),
+            format!("Snooze ({n})"),
+            window,
+            cx,
+            move |menu, _, _| snooze_items(menu, &snooze, &keys),
         )
         .separator()
-        .item(
-            PopupMenuItem::new(format!("Delete ({n})"))
-                .icon(Icon::empty().path("icons/trash.svg"))
-                .on_click(move |_, window, cx| {
-                    gone.update(cx, |d, cx| {
-                        let keys = std::mem::take(&mut d.chosen).into_iter().collect();
-                        d.ask_delete(keys, window, cx);
-                    });
-                }),
-        )
-    }
-
-    /// What can be done with a project, as t3code's menu has it: begin a
-    /// session in it, copy its path, pin it, and its settings.
-    fn project_menu(&self, menu: PopupMenu, folder: &Path, desk: &Entity<Self>) -> PopupMenu {
-        let item = |label: &str,
-                    icon: &str,
-                    f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
-            let (desk, folder) = (desk.clone(), folder.to_path_buf());
-            PopupMenuItem::new(label.to_owned())
-                .icon(Icon::empty().path(format!("icons/{icon}.svg")))
-                .on_click(move |_, window, cx| desk.update(cx, |d, cx| f(d, &folder, window, cx)))
-        };
-        let path = folder.display().to_string();
-        menu.item(item("New session", "square-pen", |d, f, window, cx| {
-            d.new_in(f.to_path_buf(), window, cx);
+        .item(item(format!("Delete ({n})"), "trash", move |window, cx| {
+            gone.update(cx, |d, cx| {
+                let keys = std::mem::take(&mut d.chosen).into_iter().collect();
+                d.ask_delete(keys, window, cx);
+            });
         }))
-        .item(
-            PopupMenuItem::new("Copy path")
-                .icon(Icon::empty().path("icons/copy.svg"))
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
-                }),
-        )
-        .item(item(
-            if self.prefs(folder).pinned {
-                "Unpin project"
-            } else {
-                "Pin project"
-            },
-            "pin",
-            |d, f, _, cx| d.toggle_project_pin(f, cx),
-        ))
-        .item(item("Project settings", "settings", Desk::project_settings))
-    }
+}
+
+/// What can be done with a project, as t3code's menu has it: begin a
+/// session in it, copy its path, pin it, and its settings.
+fn project_menu(menu: PopupMenu, folder: &Path, pinned: bool, desk: &Entity<Desk>) -> PopupMenu {
+    let on = |f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
+        let (desk, folder) = (desk.clone(), folder.to_path_buf());
+        move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| f(d, &folder, window, cx))
+    };
+    menu.item(item(
+        "New session",
+        "square-pen",
+        on(|d, f, window, cx| d.new_in(f.to_path_buf(), window, cx)),
+    ))
+    .item(copy_item("Copy path", folder.display().to_string()))
+    .item(item(
+        if pinned {
+            "Unpin project"
+        } else {
+            "Pin project"
+        },
+        "pin",
+        on(|d, f, _, cx| d.toggle_project_pin(f, cx)),
+    ))
+    .item(item(
+        "Project settings",
+        "settings",
+        on(Desk::project_settings),
+    ))
 }
 
 /// The ways to snooze the sessions `keys`, as menu items.
 fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64]) -> PopupMenu {
     [
-        ("Snooze for an hour", Later::In(60)),
-        ("Snooze until tomorrow", Later::Tomorrow),
-        ("Snooze until next week", Later::NextWeek),
+        ("For an hour", Later::In(60)),
+        ("Until tomorrow", Later::Tomorrow),
+        ("Until next week", Later::NextWeek),
     ]
     .into_iter()
     .fold(menu, |menu, (label, later)| {
         let (desk, keys) = (desk.clone(), keys.to_vec());
-        menu.item(
-            PopupMenuItem::new(label)
-                .icon(Icon::empty().path("icons/clock.svg"))
-                .on_click(move |_, _, cx| {
-                    desk.update(cx, |d, cx| {
-                        for key in &keys {
-                            d.snooze(*key, later, cx);
-                        }
-                        d.chosen.clear();
-                    });
-                }),
-        )
+        menu.item(item(label, "clock", move |_, cx| {
+            desk.update(cx, |d, cx| {
+                for key in &keys {
+                    d.snooze(*key, later, cx);
+                }
+                d.chosen.clear();
+            });
+        }))
     })
 }
 
