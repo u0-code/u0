@@ -226,7 +226,7 @@ impl Desk {
             .border_color(theme::border());
         for (n, f) in files.iter().enumerate() {
             let at = std::path::PathBuf::from(&f.path);
-            let on = at == path;
+            let on = same_file(&f.path, path, &s.folder);
             let name = at
                 .file_name()
                 .map_or_else(|| f.path.clone(), |n| n.to_string_lossy().into_owned());
@@ -773,7 +773,7 @@ impl Desk {
             .to_string();
         let from_git = self
             .scoped(s)
-            .and_then(|files| files.iter().find(|f| std::path::Path::new(&f.path) == path));
+            .and_then(|files| files.iter().find(|f| same_file(&f.path, path, &s.folder)));
         let total = s
             .changed()
             .into_iter()
@@ -1032,4 +1032,31 @@ fn git_button(
         this.committing = false;
         this.git_action(make(message), cx);
     }))
+}
+
+/// Whether git's `named` (from the repository's top) is the file at
+/// `path`, which the agent often gives whole, in a session working in
+/// `folder`.
+fn same_file(named: &str, path: &std::path::Path, folder: &std::path::Path) -> bool {
+    std::path::Path::new(named) == path || (path.starts_with(folder) && path.ends_with(named))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::same_file;
+
+    #[test]
+    fn a_file_git_names_from_the_top_is_the_one_the_agent_names_whole() {
+        let folder = Path::new("/repo");
+        assert!(same_file("src/a.rs", Path::new("src/a.rs"), folder));
+        assert!(same_file("src/a.rs", Path::new("/repo/src/a.rs"), folder));
+        assert!(!same_file(
+            "src/a.rs",
+            Path::new("/elsewhere/src/a.rs"),
+            folder
+        ));
+        assert!(!same_file("src/a.rs", Path::new("/repo/src/b.rs"), folder));
+    }
 }

@@ -191,9 +191,13 @@ impl TextInput {
     }
 
     /// A new paragraph, where the line wraps (⇧Return).
+    /// A new line, where lines wrap; on one line, ⇧Return hands it over
+    /// the other way (Find goes back).
     fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
         if self.most > 1 {
             self.replace_text_in_range(None, "\n", window, cx);
+        } else {
+            cx.emit(SubmittedAside(self.text()));
         }
     }
 

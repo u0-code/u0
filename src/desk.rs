@@ -324,9 +324,9 @@ impl Desk {
             );
         })
         .detach();
-        let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
+        let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
         let prefix = cx.new(|cx| {
-            let mut i = TextInput::new(cx, "ghost/").padded(4.);
+            let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
             i.set_text(&settings.branch_prefix, cx);
             i
         });
@@ -335,8 +335,13 @@ impl Desk {
             this.save_settings();
         })
         .detach();
-        let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
-        let rename = cx.new(|cx| TextInput::new(cx, "Name").sized(13.5, 20.).padded(0.));
+        let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.).keeping());
+        let rename = cx.new(|cx| {
+            TextInput::new(cx, "Name")
+                .sized(13.5, 20.)
+                .padded(0.)
+                .submitting_empty()
+        });
         let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
         cx.subscribe(&comment, |this, _, Submitted(text), cx| {
             this.add_comment(text, cx);
@@ -413,6 +418,10 @@ impl Desk {
         });
         cx.subscribe(&find, |this, _, Submitted(_), cx| this.find_next(false, cx))
             .detach();
+        cx.subscribe(&find, |this, _, SubmittedAside(_), cx| {
+            this.find_next(true, cx);
+        })
+        .detach();
         cx.subscribe(&find, |this, _, _: &crate::input::Changed, cx| {
             this.found_at = usize::MAX;
             cx.notify();
