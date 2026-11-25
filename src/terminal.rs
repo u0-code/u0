@@ -277,14 +277,11 @@ impl Terminal {
     }
 
     /// Whether something runs in it besides its shell: a command not yet
-    /// done.
+    /// done holds the terminal's foreground, which the shell holds
+    /// otherwise.
     pub fn busy(&self) -> bool {
-        self.child.process_id().is_some_and(|pid| {
-            std::process::Command::new("pgrep")
-                .args(["-P", &pid.to_string()])
-                .output()
-                .is_ok_and(|o| o.status.success())
-        })
+        let shell = self.child.process_id();
+        (self.master.process_group_leader()).is_some_and(|front| u32::try_from(front).ok() != shell)
     }
 
     /// The text of the cells chosen.
@@ -539,6 +536,7 @@ mod tests {
         )
         .expect("a terminal opens");
         std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(t.busy(), "sleep holds the terminal");
         let began = std::time::Instant::now();
         t.send(&vec![b'x'; 1 << 20]);
         assert!(began.elapsed() < std::time::Duration::from_secs(1));
@@ -562,6 +560,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(seen, "{}", t.text());
+        assert!(!t.busy(), "the shell waits again");
         // The answer's own line, chosen with the mouse, is its text.
         let row = t
             .rows()
