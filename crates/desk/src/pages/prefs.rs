@@ -811,6 +811,9 @@ impl Desk {
         let home = self.home.clone();
         let show = ui::button("show-home", "Show", Weight::Quiet)
             .on_click(move |_, _, cx| cx.open_with_system(&home));
+        let logs = self.home.join("logs");
+        let show_logs = ui::button("show-logs", "Show", Weight::Quiet)
+            .on_click(move |_, _, cx| cx.open_with_system(&logs));
         let registry = ui::button("open-registry", "Open", Weight::Quiet).on_click(
             cx.listener(|_, _, _, cx| cx.open_url("https://agentclientprotocol.com/registry")),
         );
@@ -830,6 +833,26 @@ impl Desk {
                 "Where Ghost keeps its files",
                 &Desk::shown(&self.home),
                 show,
+            ),
+            row(
+                faces,
+                q,
+                "Ghost's log",
+                "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
+                show_logs,
+            ),
+            row(
+                faces,
+                q,
+                "Keep logs",
+                "The days of log kept; older files go as Ghost starts.",
+                Self::pick(
+                    "log-days",
+                    [("3 days", 3), ("14 days", 14), ("30 days", 30)],
+                    self.settings.log_days,
+                    |s, v| s.log_days = v,
+                    cx,
+                ),
             ),
             row(
                 faces,

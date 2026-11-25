@@ -161,6 +161,9 @@ pub struct Settings {
     /// How a pull request is merged from the column beside.
     #[serde(default)]
     pub merge: crate::git::Method,
+    /// How many days of Ghost's log are kept in its home (`logs/`).
+    #[serde(default = "fortnight")]
+    pub log_days: u16,
     /// Ghost looks for an update as it starts and every four hours.
     #[serde(default = "yes")]
     pub check_updates: bool,
@@ -560,6 +563,10 @@ fn left() -> u32 {
 /// and ⌘− step through them.
 pub const SCALES: [u16; 8] = [80, 90, 100, 110, 125, 150, 175, 200];
 
+fn fortnight() -> u16 {
+    14
+}
+
 fn natural() -> u16 {
     100
 }
@@ -652,6 +659,7 @@ impl Default for Settings {
             voice: Voice::default(),
             channel: crate::update::Channel::default(),
             merge: crate::git::Method::default(),
+            log_days: fortnight(),
             check_updates: yes(),
             frame: None,
         }

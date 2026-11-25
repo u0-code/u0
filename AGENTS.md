@@ -182,7 +182,8 @@ assets/         fonts and the desk's own icons, built into the app
   `deny_unknown_fields`; a file that does not read is left alone and
   nothing is saved over it.
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
-  registry.
+  registry. `logs/` is Ghost's own log, a file a day, the last
+  `log_days` kept.
 - Sessions belong to each agent, which lists them (`session/list`, by
   project). Ghost keeps an index of those it has seen (`sessions.json`:
   title, pins, archive, worktree) and a record of each

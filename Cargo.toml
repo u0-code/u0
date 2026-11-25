@@ -28,6 +28,8 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "
 tokio-util = { version = "0.7.20", features = ["compat"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# The log Ghost keeps in its home, a file a day.
+tracing-appender = "0.2"
 unicode-segmentation = "1"
 portable-pty = "0.9"
 vt100 = "0.18"

@@ -42,16 +42,33 @@ use gpui::{
     TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
-fn main() {
-    // Before any thread starts, since it changes the environment.
-    path::widen();
-    tracing_subscriber::fmt()
-        .with_env_filter(
+/// What Ghost logs goes to stderr and to a file a day in its home's
+/// `logs/`, of which the last `days` are kept.
+fn log(days: u16) {
+    use tracing_subscriber::{fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _};
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("ghost")
+        .filename_suffix("log")
+        .max_log_files(usize::from(days.max(1)))
+        .build(settings::home().join("logs"))
+        .map_err(|e| eprintln!("Ghost keeps no log file: {e}"))
+        .ok();
+    tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "ghost_desk=info,ghost_core=info".into()),
         )
-        .with_writer(std::io::stderr)
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(file.map(|file| fmt::layer().with_ansi(false).with_writer(file)))
         .init();
+}
+
+fn main() {
+    // Before any thread starts, since it changes the environment.
+    path::widen();
+    let kept = settings::Settings::load(&settings::home()).0;
+    log(kept.log_days);
 
     // The links and folders macOS opens Ghost with (`ghost://`, `ghost
     // <folder>`), held until the window is up to take them.
@@ -60,7 +77,7 @@ fn main() {
     app.on_open_urls(move |urls| {
         let _ = to_desk.send(urls);
     });
-    app.run(|cx: &mut App| {
+    app.run(move |cx: &mut App| {
         gpui::init(cx);
         fonts::load(cx);
         macos::set();
@@ -130,8 +147,7 @@ fn main() {
 
         // Where the window was as Ghost last quit, while that is on a
         // display; else in the middle of the main one.
-        let kept = settings::Settings::load(&settings::home()).0.frame;
-        let bounds = kept
+        let bounds = (kept.frame)
             .map(|[x, y, w, h]| {
                 Bounds::new(
                     point(px(x as f32), px(y as f32)),
