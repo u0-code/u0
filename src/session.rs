@@ -153,6 +153,59 @@ pub struct Turn {
     pub diff: Option<Vec<git::FileDiff>>,
 }
 
+/// What a subagent is doing, as its parent's agent says (ACP's
+/// subagent state): at work since when, how long its last work took,
+/// whether it waits on you, and whether its work can be stopped.
+#[derive(Debug, Clone, Default)]
+pub struct Sub {
+    pub since: Option<SystemTime>,
+    pub took: Option<std::time::Duration>,
+    pub needs_you: bool,
+    pub stoppable: bool,
+}
+
+impl Sub {
+    /// Take in what the parent's agent says of it now.
+    pub fn take(&mut self, u: &agent_client_protocol_schema::v1::SubagentUpdate) {
+        use agent_client_protocol_schema::{MaybeUndefined, v1::StateUpdate};
+        match &u.state {
+            MaybeUndefined::Value(StateUpdate::Running(_)) => {
+                self.since.get_or_insert_with(SystemTime::now);
+                self.needs_you = false;
+            }
+            MaybeUndefined::Value(StateUpdate::RequiresAction(_)) => {
+                self.since.get_or_insert_with(SystemTime::now);
+                self.needs_you = true;
+            }
+            MaybeUndefined::Value(StateUpdate::Idle(_)) | MaybeUndefined::Null => {
+                if let Some(t) = self.since.take() {
+                    self.took = t.elapsed().ok();
+                }
+                self.needs_you = false;
+            }
+            _ => {}
+        }
+        match &u.capabilities {
+            MaybeUndefined::Value(c) => self.stoppable = c.cancel.is_some(),
+            MaybeUndefined::Null => self.stoppable = false,
+            MaybeUndefined::Undefined => {}
+        }
+    }
+
+    /// At work now.
+    pub fn working(&self) -> bool {
+        self.since.is_some()
+    }
+
+    /// How long it has worked, or worked last: "1m 2s".
+    pub fn time(&self) -> Option<String> {
+        self.since
+            .and_then(|t| t.elapsed().ok())
+            .or(self.took)
+            .map(crate::when::took)
+    }
+}
+
 /// What a draft's worktree begins from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Begin {
@@ -225,6 +278,8 @@ pub struct Session {
     /// The session whose agent set this one to work as its subagent: shown,
     /// not listed, not kept, not written in.
     pub parent: Option<u64>,
+    /// A subagent's work, as its parent's agent tells it.
+    pub sub: Sub,
     /// The session this one asks a side question of: branched off it
     /// whole, not listed, its answer taken back to it if you want.
     pub beside: Option<u64>,
@@ -622,6 +677,7 @@ impl Session {
             marks: Vec::new(),
             from: None,
             parent: None,
+            sub: Sub::default(),
             beside: None,
             also: Vec::new(),
             setup: Vec::new(),
@@ -1143,6 +1199,25 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_subagent_is_at_work_waits_on_you_and_is_done_as_its_parent_says() {
+        let sub = |json: &str| match update(json) {
+            SessionUpdate::SubagentUpdate(u) => u,
+            other => panic!("{other:?}"),
+        };
+        let mut s = Sub::default();
+        s.take(&sub(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"running"},"capabilities":{"cancel":{}}}"#,
+        ));
+        assert!(s.working() && s.stoppable && !s.needs_you);
+        s.take(&sub(r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"requires_action"}}"#));
+        assert!(s.working() && s.needs_you);
+        s.take(&sub(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"idle"}}"#,
+        ));
+        assert!(!s.working() && !s.needs_you && s.took.is_some());
     }
 
     #[test]

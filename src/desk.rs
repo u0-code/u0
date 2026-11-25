@@ -1757,6 +1757,19 @@ impl Desk {
         cx.notify();
     }
 
+    /// Stop the work of the subagent `key`, where its agent lets it be.
+    pub fn stop_sub(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(c) = self.sessions.iter().find(|c| c.key == key) else {
+            return;
+        };
+        if let (Some(running), Some(id)) =
+            (self.slot(&c.agent).and_then(Slot::running), c.id.clone())
+        {
+            hub::cancel(running, id);
+        }
+        cx.notify();
+    }
+
     /// Stop by force the agent of the session `key`, which would not stop
     /// its turn: its process is ended, and started again when wanted.
     pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {

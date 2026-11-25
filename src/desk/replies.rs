@@ -744,6 +744,15 @@ impl Desk {
                     child.state = State::Idle;
                     self.sessions.push(child);
                 }
+                // What it is doing now, for its row, the column and its tab.
+                if let SessionUpdate::SubagentUpdate(u) = &n.update
+                    && let Some(child) = self
+                        .sessions
+                        .iter_mut()
+                        .find(|s| s.agent == agent && s.id.as_ref() == Some(&u.session_id))
+                {
+                    child.sub.take(u);
+                }
                 let Some(s) = self
                     .sessions
                     .iter_mut()

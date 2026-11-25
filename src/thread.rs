@@ -204,6 +204,24 @@ fn icon(name: &str) -> gpui::Svg {
     ui::icon(name, 16.).text_color(theme::faint())
 }
 
+/// A subagent's mark: the live dot while it works, coral while it waits
+/// on you, else the person.
+pub(crate) fn sub_mark(sub: &crate::session::Sub) -> Div {
+    let place = div()
+        .size(px(16.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center();
+    if sub.needs_you {
+        place.child(ui::dot(theme::coral()))
+    } else if sub.working() {
+        place.child(ui::live_dot())
+    } else {
+        place.child(icon("user"))
+    }
+}
+
 fn verb(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text).flex_none().text_color(theme::muted())
 }
@@ -1079,20 +1097,31 @@ impl Desk {
             }
             // A subagent set to work: its own session, a click away.
             Item::Child { id, title } => {
+                let sub = self
+                    .sessions
+                    .iter()
+                    .find(|c| c.id.as_ref() == Some(id) && c.parent.is_some())
+                    .map(|c| c.sub.clone())
+                    .unwrap_or_default();
                 let id = id.clone();
                 step()
                     .id(SharedString::from(format!("{key}-child")))
                     .rounded(px(8.))
                     .cursor_pointer()
                     .hover(|st| st.bg(theme::hover()))
-                    .child(icon("user"))
+                    .child(sub_mark(&sub))
                     .child(verb(faces, "Subagent"))
                     .child(
                         ui::one_line(ui::text(faces, ui::fit(title, 64)))
                             .w_auto()
                             .min_w(px(0.)),
                     )
-                    .child(right(faces, "Open"))
+                    .child(match (sub.needs_you, sub.working(), sub.time()) {
+                        (true, _, _) => right_in(faces, "Needs you", theme::coral()),
+                        (_, true, t) => right_in(faces, t.unwrap_or_default(), theme::accent()),
+                        (_, false, Some(t)) => right(faces, format!("Done · {t}")),
+                        _ => right(faces, "Open"),
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(key) = this
                             .sessions

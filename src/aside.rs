@@ -214,12 +214,115 @@ impl Desk {
                         ),
                 )
             })
+            .children(self.subagents(faces, s, cx))
             .child(Self::plan(faces, s))
             .children(self.servers(faces, s, cx))
             .child(Self::terminals(faces, s, cx))
             .child(self.context(faces, s, cx))
         };
         frame(head).child(body)
+    }
+
+    /// The subagents of the session (or of its parent, on a subagent's
+    /// own page): those at work or waiting on you first, with how long and
+    /// a stop where their work can be stopped; those done folded in one
+    /// line, "N finished", a click away.
+    fn subagents(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        let family = s.parent.unwrap_or(s.key);
+        let mut kids: Vec<&Session> = self
+            .sessions
+            .iter()
+            .filter(|c| c.parent == Some(family))
+            .collect();
+        if kids.is_empty() {
+            return None;
+        }
+        kids.sort_by_key(|c| (!c.sub.needs_you, !c.sub.working()));
+        let busy = kids.iter().filter(|c| c.sub.working()).count();
+        let done = kids
+            .iter()
+            .filter(|c| !c.sub.working() && !c.sub.needs_you)
+            .count();
+        let open = self.expanded.contains(&format!("subs-{family}"));
+        let mut sec = section(
+            faces,
+            "Subagents",
+            (busy > 0).then(|| fine(faces, format!("{busy} running")).text_color(theme::accent())),
+        );
+        let row = |c: &Session, cx: &mut Context<Self>| {
+            let (key, on) = (c.key, c.key == s.key);
+            frow()
+                .id(SharedString::from(format!("sub-{key}")))
+                .px(px(6.))
+                .mx(px(-6.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::hover()))
+                .hover(|st| st.bg(theme::hover()))
+                .child(crate::thread::sub_mark(&c.sub))
+                .child(
+                    ui::one_line(ui::text(faces, ui::fit(&c.title, 40)).text_size(px(13.)))
+                        .flex_1()
+                        .min_w(px(0.)),
+                )
+                .children(c.sub.time().map(|t| fine(faces, t)))
+                .when(c.sub.working() && c.sub.stoppable, |d| {
+                    d.child(
+                        ui::icon_button(
+                            SharedString::from(format!("sub-stop-{key}")),
+                            "square",
+                            "Stop it",
+                        )
+                        .size(px(20.))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.stop_sub(key, cx);
+                        })),
+                    )
+                })
+                .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
+        };
+        let mut list = div().flex().flex_col();
+        for c in kids.iter().filter(|c| c.sub.working() || c.sub.needs_you) {
+            list = list.child(row(c, cx));
+        }
+        if done > 0 {
+            let fold = format!("subs-{family}");
+            list = list.child(
+                frow()
+                    .id(SharedString::from(format!("subs-done-{family}")))
+                    .px(px(6.))
+                    .mx(px(-6.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(
+                        ui::icon(
+                            if open {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            },
+                            12.,
+                        )
+                        .text_color(theme::faint()),
+                    )
+                    .child(fine(faces, format!("{done} finished")))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.expanded.remove(&fold) {
+                            this.expanded.insert(fold.clone());
+                        }
+                        cx.notify();
+                    })),
+            );
+            if open {
+                for c in kids.iter().filter(|c| !c.sub.working() && !c.sub.needs_you) {
+                    list = list.child(row(c, cx));
+                }
+            }
+        }
+        sec = sec.child(list);
+        Some(sec)
     }
 
     /// Widen the column over the thread (⇧⌘B), or give the thread back.

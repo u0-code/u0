@@ -191,6 +191,7 @@ impl Desk {
             .flex_1()
             .min_h(px(0.))
             .w_full()
+            .children(self.family_tabs(&faces, cx))
             .children(self.finding.then(|| self.find_bar(&faces, cx)))
             // Words are chosen by pressing on them and dragging.
             .child(
@@ -242,6 +243,67 @@ impl Desk {
                 )
             })
             .children(self.session().map(|s| Self::turn_map(s, cx)))
+    }
+
+    /// A tab for the session and one for each of its subagents, over the
+    /// thread, on the session's page and on each of theirs: where you are
+    /// lit, each with its state, a click going to it. None for a session
+    /// without subagents.
+    fn family_tabs(&self, faces: &crate::fonts::Faces, cx: &mut Context<Self>) -> Option<Div> {
+        let s = self.session()?;
+        let family = s.parent.unwrap_or(s.key);
+        let parent = self.sessions.iter().find(|p| p.key == family)?;
+        let kids: Vec<&crate::session::Session> = self
+            .sessions
+            .iter()
+            .filter(|c| c.parent == Some(family))
+            .collect();
+        if kids.is_empty() {
+            return None;
+        }
+        let tab = |key: u64, mark: Div, title: &str, cx: &mut Context<Self>| {
+            let on = key == s.key;
+            div()
+                .id(SharedString::from(format!("family-{key}")))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .h(px(26.))
+                .px(px(8.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::panel2()))
+                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                .child(mark)
+                .child(
+                    ui::text(faces, ui::fit(title, 28))
+                        .text_size(px(12.5))
+                        .text_color(if on { theme::text() } else { theme::text2() }),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
+        };
+        let mut bar = div()
+            .id("family-tabs")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(2.))
+            .px(px(12.))
+            .py(px(6.))
+            .overflow_x_scroll()
+            .border_b_1()
+            .border_color(theme::border());
+        bar = bar.child(tab(
+            parent.key,
+            div().child(ui::icon("list", 13.).text_color(theme::faint())),
+            &parent.title,
+            cx,
+        ));
+        for c in kids {
+            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.title, cx));
+        }
+        Some(div().flex().child(bar))
     }
 
     /// The line `ix` of the list, in the reading column.
