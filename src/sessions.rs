@@ -300,3 +300,204 @@ pub enum Read {
     /// It was opened meanwhile, or is gone: left as it is.
     Left,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use agent_client_protocol::v1::schema::{RequestPermissionRequest, StopReason};
+
+    use super::*;
+    use crate::hub::{Slot, Stage};
+
+    /// Sessions of the agents `a` and `b`, each open as `s1`, under keys
+    /// 1 and 2.
+    fn two() -> Sessions {
+        let mut sessions = Sessions::default();
+        for agent in ["a", "b"] {
+            let key = sessions.take_key();
+            let mut s = Session::new(key, agent, "/p".into());
+            s.meta.id = Some(SessionId::new("s1"));
+            s.state = State::Idle;
+            sessions.all.push(s);
+        }
+        sessions
+    }
+
+    fn said(session: &str, update: &str) -> SessionNotification {
+        serde_json::from_str(&format!(r#"{{"sessionId":"{session}","update":{update}}}"#)).unwrap()
+    }
+
+    fn chunk(text: &str) -> String {
+        format!(
+            r#"{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"{text}"}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_turns_chunks_go_to_the_session_of_their_agent_and_ended_closes_the_turn() {
+        let mut sessions = two();
+        sessions.at_mut(2).unwrap().said("go");
+        assert_eq!(
+            sessions.update("b", said("s1", &chunk("Do"))),
+            Ok((2, false))
+        );
+        assert_eq!(
+            sessions.update("b", said("s1", &chunk("ne."))),
+            Ok((2, false))
+        );
+        // The same id under another agent is another session.
+        assert!(sessions.at(1).unwrap().items.is_empty());
+        let s = sessions.at_mut(2).unwrap();
+        s.ended(Ok(StopReason::EndTurn));
+        assert!(matches!(&s.items[1], Item::Agent(t) if t == "Done."));
+        assert!(matches!(
+            s.items[2],
+            Item::Ended {
+                reason: StopReason::EndTurn,
+                ..
+            }
+        ));
+        assert_eq!(s.state, State::Idle);
+        // One for no session on the desk (the probe's) is handed back.
+        assert!(sessions.update("b", said("probe", &chunk("x"))).is_err());
+    }
+
+    #[test]
+    fn a_permission_asked_waits_in_its_session_until_answered() {
+        let mut sessions = two();
+        let request: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s1","toolCall":{"toolCallId":"t","title":"rm -rf build"},"options":[{"optionId":"ok","name":"Allow","kind":"allow_once"}]}"#,
+        )
+        .unwrap();
+        let option = request.options[0].clone();
+        let id = request.session_id.clone();
+        let s = sessions.by_id("a", &id).unwrap();
+        s.asked(7, request);
+        assert_eq!(s.waiting().unwrap().title, "rm -rf build");
+        s.answered(7, &option);
+        assert!(s.waiting().is_none());
+        assert!(sessions.at(2).unwrap().waiting().is_none());
+    }
+
+    #[test]
+    fn an_agent_stopping_closes_its_open_sessions_but_one_let_go_before_does_not() {
+        let home = tempfile::tempdir().unwrap();
+        let entry =
+            serde_json::from_str(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#)
+                .unwrap();
+        let mut slot = Slot::new(entry, home.path(), Some("/bin/sh -c 'sleep 30'".into()));
+        let launch = slot.launch(home.path()).unwrap();
+        let agent = acp::runtime()
+            .block_on(acp::Agent::start(&launch, |_| {}))
+            .unwrap();
+        let pid = agent.pid();
+        slot.stage = Stage::Running {
+            agent: Arc::new(agent),
+        };
+        assert!(slot.runs(pid));
+        assert!(!slot.runs(pid.map(|p| p + 1)));
+        assert!(!slot.runs(None));
+
+        let mut sessions = two();
+        let key = sessions.take_key();
+        let mut opening = Session::new(key, "a", "/p".into());
+        opening.state = State::Opening;
+        sessions.all.push(opening);
+        sessions.exited("a", "killed");
+        let a = sessions.at(1).unwrap();
+        assert_eq!(a.state, State::Closed);
+        assert!(matches!(&a.items[..], [Item::Note { trouble: true, .. }]));
+        assert_eq!(
+            sessions.at(key).unwrap().state,
+            State::Broken("The agent stopped: killed".into())
+        );
+        assert_eq!(sessions.at(2).unwrap().state, State::Idle);
+    }
+
+    #[test]
+    fn a_session_its_agent_will_not_resume_is_loaded_without_its_record() {
+        let home = tempfile::tempdir().unwrap();
+        let mut sessions = two();
+        let record = store::record_path(home.path(), "a", "s1");
+        store::queue(Job::Append(
+            record.clone(),
+            vec![store::Event::You("go".into())],
+        ));
+        let s = sessions.at_mut(1).unwrap();
+        s.recorded = true;
+        s.said("go");
+        let refused = Err(acp::Error::internal_error());
+        assert_eq!(
+            sessions.loaded(1, true, refused, home.path()),
+            Loaded::Refused
+        );
+        store::settle();
+        let s = sessions.at(1).unwrap();
+        // Opened again, it is loaded, not resumed, and written afresh.
+        assert!(!s.recorded && s.log.is_empty() && s.items.is_empty());
+        assert!(!record.exists());
+        // A load refused is the end of it.
+        let refused = Err(acp::Error::internal_error());
+        assert_eq!(
+            sessions.loaded(2, false, refused, home.path()),
+            Loaded::Stays
+        );
+        assert!(matches!(sessions.at(2).unwrap().state, State::Broken(_)));
+    }
+
+    #[test]
+    fn a_subagent_set_to_work_appears_once_under_its_parent() {
+        let mut sessions = two();
+        let sub =
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Read the papers"}"#;
+        assert_eq!(sessions.update("a", said("s1", sub)), Ok((1, false)));
+        assert_eq!(sessions.update("a", said("s1", sub)), Ok((1, false)));
+        let children: Vec<&Session> = (sessions.all.iter())
+            .filter(|s| s.parent == Some(1))
+            .collect();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].meta.title, "Read the papers");
+        assert_eq!(children[0].meta.agent, "a");
+        // Its own updates go to it.
+        let child = children[0].key;
+        assert_eq!(
+            sessions.update("a", said("c1", &chunk("Reading"))),
+            Ok((child, false))
+        );
+    }
+
+    #[test]
+    fn a_record_cut_short_is_loaded_from_its_agent_not_resumed() {
+        let home = tempfile::tempdir().unwrap();
+        let mut sessions = two();
+        let update = || store::Event::Update(Box::new(serde_json::from_str(&chunk("Do")).unwrap()));
+        let cut = || vec![store::Event::You("go".into()), update()];
+        for key in [1, 2] {
+            sessions.at_mut(key).unwrap().state = State::Closed;
+        }
+        let read = sessions.read_back(1, Some(cut()), None, home.path());
+        assert_eq!(read, Read::Unrecorded);
+        assert!(!sessions.at(1).unwrap().recorded);
+        let whole = vec![
+            store::Event::You("go".into()),
+            update(),
+            store::Event::Ended {
+                reason: StopReason::EndTurn,
+                secs: 1,
+            },
+        ];
+        let read = sessions.read_back(2, Some(whole), None, home.path());
+        assert_eq!(read, Read::Replayed);
+        let s = sessions.at(2).unwrap();
+        assert!(s.recorded && s.items.len() == 3);
+        // A subagent has no other copy: what there is of it is read.
+        sessions.at_mut(2).unwrap().parent = Some(1);
+        let read = sessions.read_back(2, Some(cut()), None, home.path());
+        assert_eq!(read, Read::Replayed);
+        // One opened meanwhile is left as it is.
+        sessions.at_mut(1).unwrap().state = State::Idle;
+        let read = sessions.read_back(1, Some(cut()), None, home.path());
+        assert_eq!(read, Read::Left);
+    }
+}
