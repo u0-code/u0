@@ -114,6 +114,12 @@ pub enum Item {
         /// It went with what you said, not came from the agent.
         yours: bool,
     },
+    /// A subagent the agent set to work: its session's id, and what the
+    /// agent calls it.
+    Child {
+        id: SessionId,
+        title: String,
+    },
     /// A turn ended, why, and after how long.
     Ended {
         reason: StopReason,
@@ -191,6 +197,9 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// The session whose agent set this one to work as its subagent: shown,
+    /// not listed, not kept, not written in.
+    pub parent: Option<u64>,
     /// When each message (yours, the agent's) began, by its item; and the
     /// time read from the record for the next one.
     pub times: Vec<(usize, SystemTime)>,
@@ -367,6 +376,9 @@ impl Session {
 
     /// What the desk keeps of it; `None` until its agent has it.
     pub fn meta(&self) -> Option<store::Meta> {
+        if self.parent.is_some() {
+            return None;
+        }
         Some(store::Meta {
             agent: self.agent.clone(),
             id: self.id.as_ref()?.0.to_string(),
@@ -542,6 +554,7 @@ impl Session {
             items: Vec::new(),
             marks: Vec::new(),
             from: None,
+            parent: None,
             times: Vec::new(),
             stamp: None,
             plan: None,
@@ -770,6 +783,27 @@ impl Session {
                 }
             }
             SessionUpdate::UsageUpdate(u) => self.usage = Some(u),
+            SessionUpdate::SubagentUpdate(u) => {
+                let id = u.session_id.clone();
+                let named = match u.title {
+                    agent_client_protocol_schema::MaybeUndefined::Value(t) => Some(t),
+                    _ => None,
+                };
+                if let Some(Item::Child { title, .. }) = self
+                    .items
+                    .iter_mut()
+                    .find(|i| matches!(i, Item::Child { id: c, .. } if *c == id))
+                {
+                    if let Some(t) = named {
+                        *title = t;
+                    }
+                } else {
+                    self.items.push(Item::Child {
+                        id,
+                        title: named.unwrap_or_else(|| "A subagent".into()),
+                    });
+                }
+            }
             SessionUpdate::AvailableCommandsUpdate(c) => self.commands = c.available_commands,
             SessionUpdate::Notice(n) => self.items.push(Item::Note {
                 text: match n.description {
@@ -1229,6 +1263,19 @@ mod tests {
         assert_eq!(
             again.time_of(1).map(store::secs),
             s.time_of(1).map(store::secs)
+        );
+    }
+
+    #[test]
+    fn a_subagent_set_to_work_is_one_row_named_as_the_agent_names_it() {
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.apply(update(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c1"}"#,
+        ));
+        s.apply(update(r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Explore the uploader"}"#));
+        assert_eq!(s.items.len(), 1);
+        assert!(
+            matches!(&s.items[0], Item::Child { title, .. } if title == "Explore the uploader")
         );
     }
 }

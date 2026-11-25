@@ -664,7 +664,8 @@ impl Desk {
     /// deleted, not snoozed until later.
     pub fn listed_now(&self, s: &Session) -> bool {
         let now = store::secs(SystemTime::now());
-        !s.flags.archived
+        s.parent.is_none()
+            && !s.flags.archived
             && !self.deleting(s.key)
             && s.flags.snoozed.is_none_or(|t| t <= now)
             && !self.prefs(&s.project).archived

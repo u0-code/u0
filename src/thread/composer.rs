@@ -54,6 +54,43 @@ impl Desk {
                     ),
             );
         }
+        // A subagent's session answers to its parent, not to you.
+        if let Some(up) = s.parent {
+            let parent = self
+                .sessions
+                .iter()
+                .find(|p| p.key == up)
+                .map(|p| ui::fit(&p.title, 40))
+                .unwrap_or_default();
+            return div().flex().flex_none().justify_center().pb(px(18.)).child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .w(px(column))
+                    .px(px(14.))
+                    .py(px(10.))
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(ui::icon("user", 16.).text_color(theme::faint()))
+                    .child(
+                        ui::text(
+                            faces,
+                            format!("A subagent of “{parent}”: it answers to it."),
+                        )
+                        .flex_1()
+                        .text_size(px(13.))
+                        .text_color(theme::text2()),
+                    )
+                    .child(
+                        ui::button(faces, "to-parent", "Back to it", ui::Weight::Secondary)
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
+                            ),
+                    ),
+            );
+        }
         self.input.update(cx, |i, cx| {
             i.set_placeholder(
                 &if s.items.is_empty() {

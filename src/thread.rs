@@ -829,6 +829,34 @@ impl Desk {
                     )
                     .into_any_element()
             }
+            // A subagent set to work: its own session, a click away.
+            Item::Child { id, title } => {
+                let id = id.clone();
+                step()
+                    .id(SharedString::from(format!("{key}-child")))
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(icon("user"))
+                    .child(verb(faces, "Subagent"))
+                    .child(
+                        ui::one_line(ui::text(faces, ui::fit(title, 64)))
+                            .w_auto()
+                            .min_w(px(0.)),
+                    )
+                    .child(right(faces, "Open"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some(key) = this
+                            .sessions
+                            .iter()
+                            .find(|c| c.id.as_ref() == Some(&id) && c.parent.is_some())
+                            .map(|c| c.key)
+                        {
+                            this.show(key, window, cx);
+                        }
+                    }))
+                    .into_any_element()
+            }
             // What went wrong in the session is a row of its own; anything
             // else it notes reads as a quiet line.
             Item::Note {

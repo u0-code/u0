@@ -456,7 +456,10 @@ pub fn start(slot: &Slot, home: &std::path::Path, tx: Sender) {
     };
     acp::runtime().spawn(async move {
         let hello = InitializeRequest::new(ProtocolVersion::V1)
-            .client_capabilities(ClientCapabilities::new())
+            .client_capabilities(
+                ClientCapabilities::new()
+                    .subagents(agent_client_protocol_schema::v1::SubagentCapabilities::new()),
+            )
             .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
         let result = running
             .request::<_, InitializeResponse>("initialize", hello)

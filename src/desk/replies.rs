@@ -651,6 +651,34 @@ impl Desk {
         }
         match event {
             Event::Update(n) => {
+                // A subagent set to work: a session of its own, under its
+                // parent, that its updates go to.
+                if let SessionUpdate::SubagentUpdate(u) = &n.update
+                    && !self
+                        .sessions
+                        .iter()
+                        .any(|s| s.agent == agent && s.id.as_ref() == Some(&u.session_id))
+                    && let Some(parent) = self
+                        .sessions
+                        .iter()
+                        .find(|s| s.agent == agent && s.id.as_ref() == Some(&n.session_id))
+                {
+                    let (folder, project, up) =
+                        (parent.folder.clone(), parent.project.clone(), parent.key);
+                    let title = match &u.title {
+                        agent_client_protocol_schema::MaybeUndefined::Value(t) => t.clone(),
+                        _ => "A subagent".into(),
+                    };
+                    let key = self.take_key();
+                    let mut child = Session::new(key, agent, folder);
+                    child.project = project;
+                    child.id = Some(u.session_id.clone());
+                    child.parent = Some(up);
+                    child.title = title;
+                    child.renamed = true;
+                    child.state = State::Idle;
+                    self.sessions.push(child);
+                }
                 let Some(s) = self
                     .sessions
                     .iter_mut()
@@ -671,7 +699,10 @@ impl Desk {
                 if long {
                     self.flush(key);
                 }
-                if !title {}
+                // A title come from the agent names the worktree's branch.
+                if title {
+                    self.name_branch(key);
+                }
             }
             Event::Permission { id, request } => {
                 if let Some(s) = self
