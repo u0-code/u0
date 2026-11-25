@@ -68,6 +68,7 @@ impl Desk {
         };
         let mut child = Session::new(key, &p.agent, p.folder.clone());
         child.project.clone_from(&p.project);
+        (child.branch, child.repo) = (p.branch.clone(), p.repo);
         child.id = Some(id);
         child.parent = Some(parent);
         child.title = title;
@@ -84,6 +85,7 @@ impl Desk {
         let mut s = Session::new(key, &o.agent, o.folder.clone());
         s.project.clone_from(&o.project);
         s.worktree.clone_from(&o.worktree);
+        (s.branch, s.repo) = (o.branch.clone(), o.repo);
         if let Some(slot) = self.slot(&s.agent) {
             slot.seed(&mut s);
         }
@@ -186,11 +188,6 @@ impl Desk {
         s.forget();
         s.replay(events);
         s.recorded = true;
-        // In a repository, what it shows beside is what is not committed.
-        s.look();
-        if s.repo {
-            crate::hub::uncommitted(s.folder.clone(), key, self.tx.clone());
-        }
         if s.options.is_empty()
             && let Some(p) = slot.and_then(|x| x.probe.as_ref())
         {

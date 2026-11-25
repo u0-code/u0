@@ -511,7 +511,6 @@ impl Desk {
                 if let Some(key) = self.current
                     && let Some(s) = self.session_mut(key)
                     && s.state == State::Draft
-                    && s.repo
                 {
                     s.wants_worktree = true;
                     s.begin = Some(crate::session::Begin::Pr(n, title));

@@ -34,6 +34,54 @@ impl Desk {
         }
     }
 
+    /// Ask git about the folder the session `key` works in: not on another
+    /// machine, whose git the desk does not read.
+    pub(crate) fn look(&self, key: u64) {
+        if let Some(s) = self.session_at(key)
+            && crate::remote::parse(&s.project).is_none()
+        {
+            hub::look(s.folder.clone(), key, self.tx.clone());
+        }
+    }
+
+    /// What git said of `folder`, where the session `key` works: kept on
+    /// it, and in a repository what is not committed there is read.
+    pub(crate) fn looked(
+        &mut self,
+        key: u64,
+        folder: &std::path::Path,
+        branch: Option<String>,
+        repo: bool,
+    ) {
+        let under = self.home.join("worktrees");
+        let Some(s) = self.session_mut(key).filter(|s| s.folder == folder) else {
+            return;
+        };
+        s.branch = branch;
+        s.repo = repo;
+        if s.state == State::Draft {
+            return;
+        }
+        // A session in one of Ghost's worktrees works there again.
+        if s.worktree.is_none()
+            && s.folder.starts_with(&under)
+            && let Some(branch) = s.branch.clone()
+        {
+            s.worktree = Some(crate::git::Worktree {
+                repo: s.project.clone(),
+                path: s.folder.clone(),
+                branch,
+            });
+            self.save_index();
+        }
+        if repo {
+            self.refresh_diffs(key);
+            if self.current == Some(key) {
+                self.refresh_git(key);
+            }
+        }
+    }
+
     /// Read again what the session `key` shows changed, as git says it now.
     pub(crate) fn refresh_diffs(&self, key: u64) {
         let Some(s) = self.session_at(key) else {

@@ -292,8 +292,9 @@ pub struct Session {
     /// Whether the folder is in a git repository: then each turn is
     /// checkpointed, and can be undone.
     pub repo: bool,
-    /// For a draft: whether it is to work in a worktree of its own, and
-    /// what it is to begin from (where the folder is, if nothing).
+    /// For a draft: whether it is to work in a worktree of its own, where
+    /// it is in a repository, and what it is to begin from (where the
+    /// folder is, if nothing).
     pub wants_worktree: bool,
     pub begin: Option<Begin>,
     /// Options and a mode chosen before the agent opened it, set on it
@@ -456,15 +457,9 @@ fn line_of(file: &Path, text: &str) -> Option<usize> {
 }
 
 impl Session {
-    pub fn new(key: u64, agent: &str, folder: PathBuf) -> Self {
-        let mut s = Self::blank(key, agent, folder);
-        s.look();
-        s
-    }
-
     /// A session its agent listed, in `project`: closed until opened.
     pub fn listed(key: u64, agent: &str, info: SessionInfo, project: PathBuf) -> Self {
-        let mut s = Self::blank(key, agent, info.cwd);
+        let mut s = Self::new(key, agent, info.cwd);
         s.project = project;
         s.id = Some(info.session_id);
         if let Some(title) = info.title.filter(|t| !t.trim().is_empty()) {
@@ -504,15 +499,14 @@ impl Session {
         self.chosen_mode = Some(mode.to_owned());
     }
 
-    /// Whether it can be opened where it is: not while the worktree it is
-    /// to work in is being made.
-    pub fn worktree_ready(&self) -> bool {
-        !(self.wants_worktree && self.worktree.is_none())
+    /// Whether a worktree is to be made for it before it is opened.
+    pub fn needs_worktree(&self) -> bool {
+        self.repo && self.wants_worktree && self.worktree.is_none()
     }
 
     /// A session the desk kept from an earlier run: closed until opened.
     pub fn stored(key: u64, meta: store::Meta) -> Self {
-        let mut s = Self::blank(key, &meta.agent, meta.folder);
+        let mut s = Self::new(key, &meta.agent, meta.folder);
         s.project = meta.project;
         s.id = Some(SessionId::new(meta.id));
         s.title = meta.title;
@@ -659,7 +653,7 @@ impl Session {
     /// The events of a record up to the one that begins your message
     /// after the first `yours`: the record of a fork made before it.
     pub fn record_before(events: Vec<store::Event>, yours: usize) -> Vec<store::Event> {
-        let mut thread = Self::blank(0, "", PathBuf::new());
+        let mut thread = Self::new(0, "", PathBuf::new());
         thread.replaying = true;
         let mut kept = Vec::new();
         for e in events {
@@ -712,13 +706,9 @@ impl Session {
         }
     }
 
-    /// Read the folder's branch, and whether it is in a repository.
-    pub fn look(&mut self) {
-        self.branch = git::branch(&self.folder);
-        self.repo = git::root(&self.folder).is_some();
-    }
-
-    fn blank(key: u64, agent: &str, folder: PathBuf) -> Self {
+    /// A new session in `folder`; what git says of it comes later (see
+    /// `hub::look`).
+    pub fn new(key: u64, agent: &str, folder: PathBuf) -> Self {
         let title = folder.file_name().map_or_else(
             || folder.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
@@ -1403,6 +1393,15 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn a_worktree_is_made_only_once_git_has_said_the_folder_is_a_repository() {
+        let mut s = Session::new(1, "x", "/r".into());
+        s.wants_worktree = true;
+        assert!(!s.needs_worktree());
+        s.repo = true;
+        assert!(s.needs_worktree());
     }
 
     #[test]

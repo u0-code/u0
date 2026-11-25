@@ -69,6 +69,14 @@ pub enum Msg {
         resumed: bool,
         result: Result<Opened, Error>,
     },
+    /// What git says of `folder`, where the session `key` works: its
+    /// branch, and whether it is in a repository.
+    Looked {
+        key: u64,
+        folder: PathBuf,
+        branch: Option<String>,
+        repo: bool,
+    },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
         key: u64,
@@ -835,6 +843,17 @@ pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
             .map(|(k, _)| k)
             .collect();
         Msg::Found { query, keys }
+    });
+}
+
+/// Read the branch of `folder`, where the session `key` works, and
+/// whether it is in a repository.
+pub fn look(folder: PathBuf, key: u64, tx: Sender) {
+    off(tx, move || Msg::Looked {
+        key,
+        branch: git::branch(&folder),
+        repo: git::root(&folder).is_some(),
+        folder,
     });
 }
 

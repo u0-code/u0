@@ -305,17 +305,22 @@ impl Desk {
                 return;
             }
             (hub::GitAction::RenameBranch(_), Err(_)) => return,
+            _ => {}
+        }
+        let looks = matches!(
+            (action, &result),
             (
                 hub::GitAction::Switch(_) | hub::GitAction::Init | hub::GitAction::NewBranch(_),
                 Ok(_),
-            ) => s.look(),
-            _ => {}
-        }
-        let s = self.session_mut(key).expect("found above");
+            )
+        );
         let removed = matches!(action, hub::GitAction::RemoveWorktree(_)) && result.is_ok();
         // With no turn of its own taken here, what it shows is what is
-        // not committed: read again after a commit.
-        if s.turns.is_empty() && s.repo && !removed {
+        // not committed: read again after a commit, and after another
+        // branch is checked out once git has said which.
+        if looks {
+            hub::look(s.folder.clone(), key, tx);
+        } else if s.turns.is_empty() && s.repo && !removed {
             hub::uncommitted(s.folder.clone(), key, tx);
         }
         if removed {

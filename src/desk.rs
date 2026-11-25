@@ -1117,12 +1117,12 @@ impl Desk {
             .unwrap_or(self.settings.worktree);
         let there = crate::remote::parse(&folder);
         let mut s = Session::new(key, agent, folder);
+        s.wants_worktree = worktree;
         if let Some((_, path)) = there {
             s.folder = path;
-            s.repo = false;
-            s.branch = None;
+        } else {
+            hub::look(s.folder.clone(), key, self.tx.clone());
         }
-        s.wants_worktree = s.repo && worktree;
         if let Some(slot) = self.slot(agent) {
             slot.seed(&mut s);
         }
@@ -1180,6 +1180,9 @@ impl Desk {
         // A session with a record reads from it at once, and its agent is
         // asked only when you write; one without comes from its agent.
         // A subagent opens from its record only: its agent does not load it.
+        if closed {
+            self.look(key);
+        }
         if closed
             && !self.read_record(key)
             && let Some(s) = self.session_mut(key)
@@ -1256,9 +1259,12 @@ impl Desk {
             && let Some(s) = self.session_mut(key)
             && s.state == State::Draft
         {
-            let wants = s.wants_worktree;
-            *s = Session::new(key, agent, s.folder.clone());
-            s.wants_worktree = wants && s.repo;
+            // Where it works stays, and what git said of it.
+            let mut new = Session::new(key, agent, s.folder.clone());
+            new.project = std::mem::take(&mut s.project);
+            (new.branch, new.repo) = (s.branch.take(), s.repo);
+            new.wants_worktree = s.wants_worktree;
+            *s = new;
         }
         if let Some(key) = self.current {
             let slot = self.slots.iter().find(|x| x.entry.id == agent);
@@ -1456,7 +1462,8 @@ impl Desk {
                     {
                         let wants = s.wants_worktree;
                         *s = Session::new(key, &s.agent.clone(), folder.clone());
-                        s.wants_worktree = wants && s.repo;
+                        s.wants_worktree = wants;
+                        this.look(key);
                     }
                     this.settings.used(&folder);
                     this.save_settings();
@@ -1672,7 +1679,7 @@ impl Desk {
             let session = self.session_mut(key).expect("on screen");
             session.state = State::Opening;
             session.pending = Some(text.clone());
-            let worktree = session.wants_worktree && session.worktree.is_none();
+            let worktree = session.needs_worktree();
             self.settings.used(&folder);
             self.save_settings();
             if worktree {

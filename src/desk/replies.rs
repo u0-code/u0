@@ -324,6 +324,12 @@ impl Desk {
                 resumed,
                 result,
             } => self.loaded(key, resumed, result),
+            Msg::Looked {
+                key,
+                folder,
+                branch,
+                repo,
+            } => self.looked(key, &folder, branch, repo),
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.session_mut(key)
                     && s.turns.is_empty()
@@ -455,7 +461,7 @@ impl Desk {
         let waiting: Vec<u64> = self
             .sessions
             .iter()
-            .filter(|s| s.agent == agent && s.state == State::Opening && s.worktree_ready())
+            .filter(|s| s.agent == agent && s.state == State::Opening && !s.needs_worktree())
             .map(|s| s.key)
             .collect();
         match result {
@@ -651,8 +657,6 @@ impl Desk {
         resumed: bool,
         result: Result<hub::Opened, crate::acp::Error>,
     ) {
-        let under = self.home.join("worktrees");
-        let tx = self.tx.clone();
         let Some(s) = self.session_mut(key) else {
             return;
         };
@@ -661,21 +665,6 @@ impl Desk {
                 s.modes = r.modes;
                 s.options = r.options.unwrap_or_default();
                 s.state = State::Idle;
-                s.look();
-                // A session in one of Ghost's worktrees works there again.
-                if s.worktree.is_none()
-                    && s.folder.starts_with(&under)
-                    && let Some(branch) = s.branch.clone()
-                {
-                    s.worktree = Some(crate::git::Worktree {
-                        repo: s.project.clone(),
-                        path: s.folder.clone(),
-                        branch,
-                    });
-                }
-                if s.repo {
-                    hub::uncommitted(s.folder.clone(), key, tx);
-                }
                 if let Some(text) = s.pending.take() {
                     s.said(&text);
                     self.begin_turn(key, text);
