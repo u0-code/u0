@@ -64,8 +64,20 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   `gpui-kit-material`, `ely-gpui-component`. Use a component for what it
   means (a button is a button, a dialog a dialog), not for how it happens to
   look.
+- Nothing is drawn by hand that one of them can draw: a hand-made widget in
+  Ghost is replaced by the library's when one exists.
 - Where none of them has what is needed, or one gets it wrong, the component
-  is written once in its own crate and repository, not inside Ghost.
+  is written once in `gpui-kit-material` (the owner's repository,
+  `mizorewww/gpui-kit-material`), not inside Ghost:
+  - it follows Material 3; what Ghost needs beyond M3 is added as a variant
+    of the M3 component, not as a component of its own;
+  - the change goes in as a pull request (`gh pr create`), merged at once
+    (`gh pr merge`); Ghost uses it from git until a release is cut;
+  - releases are published to crates.io by that repository's GitHub
+    Actions, when its components have settled; Ghost then moves back to
+    the crates.io version.
+  - A component that is not Material at all goes in a crate and repository
+    of its own, the same way.
 - Anything else a crate already does (a PDF view, a parser, a format) comes
   from that crate.
 
