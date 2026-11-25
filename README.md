@@ -76,10 +76,17 @@ src/
 ## Installing it
 
 Ghost.app for Apple silicon, macOS 13 or later, with Homebrew, from the
-casks in this repository. The latest build of `main`, replaced on each push:
+casks in this repository. The latest release, which `brew upgrade` keeps
+current:
 
 ```bash
 brew tap u0-code/ghost https://github.com/u0-code/u0
+brew install --cask u0-code/ghost/ghost
+```
+
+Or the latest build of `main`, replaced on each push, in its place:
+
+```bash
 brew install --cask u0-code/ghost/ghost@nightly
 brew reinstall --cask u0-code/ghost/ghost@nightly   # the newest build
 ```

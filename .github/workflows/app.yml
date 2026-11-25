@@ -1,12 +1,14 @@
 # Ghost.app, built with bundle.sh and published: each push to main replaces
-# the rolling `nightly` prerelease. Casks/ installs it with Homebrew.
+# the rolling `nightly` prerelease, and each tag v* is released, with the
+# cask for it committed to main. Casks/ installs either with Homebrew.
 name: app
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
 
-# A newer push replaces a build still running for an older one.
+# A newer push to main replaces a build still running for an older one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -38,3 +40,22 @@ jobs:
           gh release create nightly Ghost-macos-arm64.zip --prerelease --target "$GITHUB_SHA" \
             --title "Ghost nightly ${GITHUB_SHA::7}" \
             --notes "Built from $GITHUB_SHA on main. Not a release: what main is now."
+
+      # A push made with this workflow's token starts no workflow, so the
+      # cask's commit builds no nightly.
+      - name: release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          grep -qx "version = \"$version\"" Cargo.toml || { echo "Cargo.toml is not at $version"; exit 1; }
+          zip=Ghost-$version-macos-arm64.zip
+          ditto -c -k --keepParent target/release/Ghost.app "$zip"
+          case $version in *-*) pre=true ;; *) pre=false ;; esac
+          gh release create "$GITHUB_REF_NAME" "$zip" --prerelease="$pre" --title "Ghost $version" --generate-notes
+          git fetch --depth 1 origin main
+          git checkout -B main FETCH_HEAD
+          sed -i '' -e "s/^  version \".*\"/  version \"$version\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$(shasum -a 256 "$zip" | cut -d ' ' -f 1)\"/" Casks/ghost.rb
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qam "build: the cask installs Ghost $version"
+          git push origin main

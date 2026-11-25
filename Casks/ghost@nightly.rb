@@ -9,6 +9,7 @@ cask "ghost@nightly" do
   desc "Desktop app for the coding agents you already use"
   homepage "https://github.com/u0-code/u0"
 
+  conflicts_with cask: "ghost"
   depends_on arch: :arm64
   depends_on macos: :ventura
 
