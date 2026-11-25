@@ -1734,12 +1734,17 @@ impl Desk {
                 {
                     hub::resume(agent.clone(), key, id, dirs, tx);
                 }
-                Some(id) => {
+                Some(id) if init.agent_capabilities.load_session => {
                     let agent = agent.clone();
                     if recorded {
                         self.drop_record(key);
                     }
                     hub::load(agent, key, id, dirs, tx);
+                }
+                Some(_) => {
+                    if let Some(s) = self.session_mut(key) {
+                        s.state = State::Broken("The agent cannot open a session again".into());
+                    }
                 }
                 None => hub::open(agent.clone(), key, dirs, tx),
             },
