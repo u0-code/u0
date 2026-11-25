@@ -332,6 +332,9 @@ impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
         let (settings, settings_refused) = Settings::load(&home);
+        // The system's look changed: drawn again, for a look that follows it.
+        cx.observe_window_appearance(window, |_, _, cx| cx.notify())
+            .detach();
         // Keys pressed while one is being recorded are its, not done.
         let me = cx.entity().downgrade();
         cx.intercept_keystrokes(move |e, _, cx| {
@@ -2027,6 +2030,15 @@ impl Desk {
 
 impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The look, as chosen or as the system is now.
+        theme::set_light(match self.settings.look {
+            settings::Look::Dark => false,
+            settings::Look::Light => true,
+            settings::Look::System => matches!(
+                window.appearance(),
+                gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+            ),
+        });
         self.sync_lines();
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);

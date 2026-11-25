@@ -70,6 +70,9 @@ pub struct Settings {
     /// The days a session is left before it is done; none, never.
     #[serde(default = "week")]
     pub settle_days: Option<u32>,
+    /// Dark, light, or as the system is.
+    #[serde(default)]
+    pub look: Look,
     /// How wide the thread and the composer read.
     #[serde(default)]
     pub width: Width,
@@ -123,6 +126,16 @@ pub enum Calls {
     #[default]
     Folded,
     Hidden,
+}
+
+/// The look: dark, light, or as the system is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Look {
+    #[default]
+    Dark,
+    Light,
+    System,
 }
 
 /// How wide the thread reads.
@@ -202,6 +215,7 @@ impl Default for Settings {
             awake: yes(),
             settle_days: week(),
             width: Width::default(),
+            look: Look::default(),
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),

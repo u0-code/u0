@@ -51,6 +51,10 @@ impl Desk {
                 ])),
             Tab::Appearance => page(faces, "Appearance", "How the thread and what is beside it read.")
                 .child(group(faces, "Reading", vec![
+                    row(faces, "Look", "Light and dark keep the same amber for what is going on now.",
+                        Self::pick(faces, "look", [
+                            ("Dark", crate::settings::Look::Dark), ("Light", crate::settings::Look::Light), ("As the system", crate::settings::Look::System),
+                        ], self.settings.look, |s, v| s.look = v, cx)),
                     row(faces, "Reading width", "How wide the thread and the composer are.",
                         Self::pick(faces, "width", [
                             ("Comfortable", Width::Comfortable), ("Wide", Width::Wide), ("Full", Width::Full),
