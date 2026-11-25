@@ -254,6 +254,8 @@ pub struct Desk {
     pub tidied: Option<String>,
     /// The search over the registry's agents, in the settings.
     pub agent_search: Entity<TextInput>,
+    /// What is looked for among the settings.
+    pub settings_search: Entity<TextInput>,
     /// What worktree branches begin with, as you write it in settings.
     pub prefix_input: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
@@ -507,6 +509,12 @@ impl Desk {
             cx.notify();
         })
         .detach();
+        let settings_search =
+            cx.new(|cx| TextInput::new(cx, "Search settings").padded(4.).keeping());
+        cx.subscribe(&settings_search, |_, _, _: &crate::input::Changed, cx| {
+            cx.notify();
+        })
+        .detach();
         let clone_url = cx.new(|cx| {
             TextInput::new(cx, "https://github.com/owner/repo.git")
                 .padded(6.)
@@ -677,6 +685,7 @@ impl Desk {
             agent_command,
             agent_model,
             agent_search,
+            settings_search,
             prefix_input: prefix,
             sizes: Vec::new(),
             palette: false,

@@ -33,6 +33,28 @@ pub enum Tab {
 }
 
 impl Desk {
+    /// Every setting and key in which `q` is said, under its tab's title.
+    fn found(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> gpui::Div {
+        let pages: Vec<_> = [
+            Tab::General,
+            Tab::Appearance,
+            Tab::Chat,
+            Tab::NewSessions,
+            Tab::Keyboard,
+            Tab::About,
+        ]
+        .into_iter()
+        .filter_map(|tab| self.own_tab(faces, tab, q, cx))
+        .collect();
+        if pages.is_empty() {
+            return div()
+                .px(px(40.))
+                .py(px(28.))
+                .child(fine(faces, format!("No setting says “{q}”.")));
+        }
+        div().flex().flex_col().children(pages)
+    }
+
     pub(crate) fn settings_page(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::AnyElement {
         let mut nav = div()
             .flex()
@@ -42,7 +64,28 @@ impl Desk {
             .gap(px(2.))
             .p(px(8.))
             .border_r_1()
-            .border_color(theme::border());
+            .border_color(theme::border())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(30.))
+                    .px(px(8.))
+                    .mb(px(6.))
+                    .gap(px(6.))
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(ui::icon("search", 13.).text_color(theme::faint()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(13.))
+                            .child(self.settings_search.clone()),
+                    ),
+            );
+        let q = self.settings_search.read(cx).text().trim().to_lowercase();
         for (tab, label) in [
             (Tab::General, "General"),
             (Tab::Appearance, "Appearance"),
@@ -54,7 +97,7 @@ impl Desk {
             (Tab::Usage, "Usage"),
             (Tab::About, "About"),
         ] {
-            let on = self.settings_tab == tab;
+            let on = q.is_empty() && self.settings_tab == tab;
             nav = nav.child(
                 div()
                     .id(SharedString::from(format!("tab-{label}")))
@@ -68,6 +111,7 @@ impl Desk {
                     .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
                     .child(ui::text(faces, label).text_size(px(13.5)))
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings_search.update(cx, |i, cx| i.set_text("", cx));
                         this.settings_tab = tab;
                         if tab == Tab::Sessions {
                             this.measure();
@@ -79,7 +123,11 @@ impl Desk {
                     })),
             );
         }
-        let own = self.own_tab(faces, self.settings_tab, cx);
+        let own = if q.is_empty() {
+            self.own_tab(faces, self.settings_tab, "", cx)
+        } else {
+            Some(self.found(faces, &q, cx))
+        };
         if self.settings_tab == Tab::Sessions || own.is_some() {
             let tab = match own {
                 Some(page) => page,

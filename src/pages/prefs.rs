@@ -21,101 +21,319 @@ impl Desk {
         &self,
         faces: &Faces,
         tab: super::Tab,
+        q: &str,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
         use super::Tab;
-        Some(match tab {
-            Tab::General => page(faces, "General", "How Ghost tells you things, and what it does while you are away.")
-                .child(group(faces, "While you are away", vec![
-                    row(faces, "When a session ends a turn or needs you", "A notification from macOS, only while Ghost is not in front.",
-                        Self::pick(faces, "notify", [
-                            ("Off", Notify::Off), ("Notify", Notify::Banner), ("Notify and sound", Notify::BannerAndSound),
-                        ], self.settings.notify, |s, v| s.notify = v, cx)),
-                    row(faces, "Keep the Mac awake while an agent works", "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
-                        ui::switch("awake", self.settings.awake).on_click(cx.listener(|this, _, _, cx| {
-                            this.settings.awake = !this.settings.awake;
-                            this.save_settings();
-                            this.stay_awake();
-                            cx.notify();
-                        }))),
-                ]))
-                .child(group(faces, "Files", vec![
-                    row(faces, "Files open in", "A file the agent named, an edit, or keybindings.json.",
-                        self.editor_pick(faces, cx)),
-                ]))
-                .child(group(faces, "Done for now", vec![
-                    row(faces, "A session is done after it is left for", "It moves to Done in the sidebar; anything said to it brings it back.",
-                        Self::pick(faces, "settle", [
-                            ("3 days", Some(3)), ("7 days", Some(7)), ("14 days", Some(14)), ("30 days", Some(30)), ("Never", None),
-                        ], self.settings.settle_days, |s, v| s.settle_days = v, cx)),
-                ])),
-            Tab::Appearance => page(faces, "Appearance", "How the thread and what is beside it read.")
-                .child(group(faces, "Reading", vec![
-                    row(faces, "Look", "Light and dark keep the same amber for what is going on now.",
-                        Self::pick(faces, "look", [
-                            ("Dark", crate::settings::Look::Dark), ("Light", crate::settings::Look::Light), ("As the system", crate::settings::Look::System),
-                        ], self.settings.look, |s, v| s.look = v, cx)),
-                    row(faces, "Reading width", "How wide the thread and the composer are.",
-                        Self::pick(faces, "width", [
-                            ("Comfortable", Width::Comfortable), ("Wide", Width::Wide), ("Full", Width::Full),
-                        ], self.settings.width, |s, v| s.width = v, cx)),
-                    row(faces, "What a change added and took away", "Blue and orange tell them apart without green and red.",
-                        Self::pick(faces, "diff-colours", [("Green and red", false), ("Blue and orange", true)],
-                            self.settings.blue_orange, |s, v| s.blue_orange = v, cx)),
-                    row(faces, "Times", "When a message was said, and what Ghost says of times.",
-                        Self::pick(faces, "clock", [("24-hour", false), ("12-hour", true)],
-                            self.settings.twelve, |s, v| s.twelve = v, cx)),
-                    row(faces, "A diff's long lines", "Wrapped, they show whole; kept to a line, they are cut at the edge.",
-                        Self::pick(faces, "diff-wrap", [("Wrap", true), ("Cut", false)],
-                            self.settings.diff_wrap, |s, v| s.diff_wrap = v, cx)),
-                    row(faces, "Changes only in spacing", "Left out, a diff shows what changed in the words alone.",
-                        Self::pick(faces, "spacing", [("Shown", false), ("Left out", true)],
-                            self.settings.no_spacing, |s, v| s.no_spacing = v, cx)),
-                    row(faces, "A file's diff opens", "Side by side widens the column beside the thread.",
-                        Self::pick(faces, "diff", [("Stacked", false), ("Side by side", true)],
-                            self.settings.side_by_side, |s, v| s.side_by_side = v, cx)),
-                ])),
-            Tab::Chat => page(faces, "Chat", "What you write, and what the agent did.")
-                .child(group(faces, "While a turn goes on", vec![
-                    row(faces, "What you send waits, or steers", "Steer stops the turn and says it now; waiting says it once the turn ends.",
-                        Self::pick(faces, "steer", [("Wait its turn", false), ("Steer", true)],
-                            self.settings.steer, |s, v| s.steer = v, cx)),
-                ]))
-                .child(group(faces, "Sending", vec![
-                    row(faces, "What sends what you write", "With ⌘Return, Return breaks the line and ⇧⌘Return sends and begins another beside it.",
-                        Self::pick(faces, "send", [("Return", false), ("⌘Return", true)],
-                            self.settings.cmd_sends, |s, v| s.cmd_sends = v, cx)),
-                ]))
-                .child(group(faces, "The agent's work", vec![
-                    row(faces, "Its calls and thinking in the thread", "Folded keeps a finished turn's work in one line, a click away; hidden shows only what was said.",
-                        Self::pick(faces, "calls", [
-                            ("Shown", crate::settings::Calls::Shown), ("Folded", crate::settings::Calls::Folded), ("Hidden", crate::settings::Calls::Hidden),
-                        ], self.settings.calls, |s, v| s.calls = v, cx)),
-                ])),
-            Tab::NewSessions => page(faces, "New sessions", "How a session begins in a repository.")
-                .child(group(faces, "In a repository", vec![
-                    row(faces, "A new session works", "A project can choose otherwise from its menu.",
-                        Self::pick(faces, "where", [("In the folder", false), ("In a new worktree", true)],
-                            self.settings.worktree, |s, v| s.worktree = v, cx)),
-                    row(faces, "Worktree branches begin with", "Then the session's title, as in ghost/retry-s3-uploads.",
-                        div()
-                            .w(px(160.))
-                            .h(px(30.))
-                            .flex()
-                            .items_center()
-                            .rounded(px(8.))
-                            .bg(theme::well())
-                            .border_1()
-                            .border_color(theme::border2())
-                            .font_family(faces.mono.clone())
-                            .text_size(px(12.5))
-                            .child(self.prefix_input.clone())),
-                ])),
-            Tab::Keyboard => self.keyboard(faces, cx),
-            Tab::Usage => self.usage(faces, cx),
-            Tab::About => self.about_ghost(faces, cx),
+        let (title, lede, groups) = match tab {
+            Tab::General => (
+                "General",
+                "How Ghost tells you things, and what it does while you are away.",
+                vec![
+                    group(
+                        faces,
+                        "While you are away",
+                        vec![
+                            row(
+                                faces,
+                                q,
+                                "When a session ends a turn or needs you",
+                                "A notification from macOS, only while Ghost is not in front.",
+                                Self::pick(
+                                    faces,
+                                    "notify",
+                                    [
+                                        ("Off", Notify::Off),
+                                        ("Notify", Notify::Banner),
+                                        ("Notify and sound", Notify::BannerAndSound),
+                                    ],
+                                    self.settings.notify,
+                                    |s, v| s.notify = v,
+                                    cx,
+                                ),
+                            ),
+                            row(
+                                faces,
+                                q,
+                                "Keep the Mac awake while an agent works",
+                                "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
+                                ui::switch("awake", self.settings.awake).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.settings.awake = !this.settings.awake;
+                                        this.save_settings();
+                                        this.stay_awake();
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                        ],
+                    ),
+                    group(
+                        faces,
+                        "Files",
+                        vec![row(
+                            faces,
+                            q,
+                            "Files open in",
+                            "A file the agent named, an edit, or keybindings.json.",
+                            self.editor_pick(faces, cx),
+                        )],
+                    ),
+                    group(
+                        faces,
+                        "Done for now",
+                        vec![row(
+                            faces,
+                            q,
+                            "A session is done after it is left for",
+                            "It moves to Done in the sidebar; anything said to it brings it back.",
+                            Self::pick(
+                                faces,
+                                "settle",
+                                [
+                                    ("3 days", Some(3)),
+                                    ("7 days", Some(7)),
+                                    ("14 days", Some(14)),
+                                    ("30 days", Some(30)),
+                                    ("Never", None),
+                                ],
+                                self.settings.settle_days,
+                                |s, v| s.settle_days = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                ],
+            ),
+            Tab::Appearance => (
+                "Appearance",
+                "How the thread and what is beside it read.",
+                vec![group(
+                    faces,
+                    "Reading",
+                    vec![
+                        row(
+                            faces,
+                            q,
+                            "Look",
+                            "Light and dark keep the same amber for what is going on now.",
+                            Self::pick(
+                                faces,
+                                "look",
+                                [
+                                    ("Dark", crate::settings::Look::Dark),
+                                    ("Light", crate::settings::Look::Light),
+                                    ("As the system", crate::settings::Look::System),
+                                ],
+                                self.settings.look,
+                                |s, v| s.look = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Reading width",
+                            "How wide the thread and the composer are.",
+                            Self::pick(
+                                faces,
+                                "width",
+                                [
+                                    ("Comfortable", Width::Comfortable),
+                                    ("Wide", Width::Wide),
+                                    ("Full", Width::Full),
+                                ],
+                                self.settings.width,
+                                |s, v| s.width = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "What a change added and took away",
+                            "Blue and orange tell them apart without green and red.",
+                            Self::pick(
+                                faces,
+                                "diff-colours",
+                                [("Green and red", false), ("Blue and orange", true)],
+                                self.settings.blue_orange,
+                                |s, v| s.blue_orange = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Times",
+                            "When a message was said, and what Ghost says of times.",
+                            Self::pick(
+                                faces,
+                                "clock",
+                                [("24-hour", false), ("12-hour", true)],
+                                self.settings.twelve,
+                                |s, v| s.twelve = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "A diff's long lines",
+                            "Wrapped, they show whole; kept to a line, they are cut at the edge.",
+                            Self::pick(
+                                faces,
+                                "diff-wrap",
+                                [("Wrap", true), ("Cut", false)],
+                                self.settings.diff_wrap,
+                                |s, v| s.diff_wrap = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Changes only in spacing",
+                            "Left out, a diff shows what changed in the words alone.",
+                            Self::pick(
+                                faces,
+                                "spacing",
+                                [("Shown", false), ("Left out", true)],
+                                self.settings.no_spacing,
+                                |s, v| s.no_spacing = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "A file's diff opens",
+                            "Side by side widens the column beside the thread.",
+                            Self::pick(
+                                faces,
+                                "diff",
+                                [("Stacked", false), ("Side by side", true)],
+                                self.settings.side_by_side,
+                                |s, v| s.side_by_side = v,
+                                cx,
+                            ),
+                        ),
+                    ],
+                )],
+            ),
+            Tab::Chat => (
+                "Chat",
+                "What you write, and what the agent did.",
+                vec![
+                    group(
+                        faces,
+                        "While a turn goes on",
+                        vec![row(
+                            faces,
+                            q,
+                            "What you send waits, or steers",
+                            "Steer stops the turn and says it now; waiting says it once the turn ends.",
+                            Self::pick(
+                                faces,
+                                "steer",
+                                [("Wait its turn", false), ("Steer", true)],
+                                self.settings.steer,
+                                |s, v| s.steer = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                    group(
+                        faces,
+                        "Sending",
+                        vec![row(
+                            faces,
+                            q,
+                            "What sends what you write",
+                            "With ⌘Return, Return breaks the line and ⇧⌘Return sends and begins another beside it.",
+                            Self::pick(
+                                faces,
+                                "send",
+                                [("Return", false), ("⌘Return", true)],
+                                self.settings.cmd_sends,
+                                |s, v| s.cmd_sends = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                    group(
+                        faces,
+                        "The agent's work",
+                        vec![row(
+                            faces,
+                            q,
+                            "Its calls and thinking in the thread",
+                            "Folded keeps a finished turn's work in one line, a click away; hidden shows only what was said.",
+                            Self::pick(
+                                faces,
+                                "calls",
+                                [
+                                    ("Shown", crate::settings::Calls::Shown),
+                                    ("Folded", crate::settings::Calls::Folded),
+                                    ("Hidden", crate::settings::Calls::Hidden),
+                                ],
+                                self.settings.calls,
+                                |s, v| s.calls = v,
+                                cx,
+                            ),
+                        )],
+                    ),
+                ],
+            ),
+            Tab::NewSessions => (
+                "New sessions",
+                "How a session begins in a repository.",
+                vec![group(
+                    faces,
+                    "In a repository",
+                    vec![
+                        row(
+                            faces,
+                            q,
+                            "A new session works",
+                            "A project can choose otherwise from its menu.",
+                            Self::pick(
+                                faces,
+                                "where",
+                                [("In the folder", false), ("In a new worktree", true)],
+                                self.settings.worktree,
+                                |s, v| s.worktree = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Worktree branches begin with",
+                            "Then the session's title, as in ghost/retry-s3-uploads.",
+                            div()
+                                .w(px(160.))
+                                .h(px(30.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(8.))
+                                .bg(theme::well())
+                                .border_1()
+                                .border_color(theme::border2())
+                                .font_family(faces.mono.clone())
+                                .text_size(px(12.5))
+                                .child(self.prefix_input.clone()),
+                        ),
+                    ],
+                )],
+            ),
+            Tab::Keyboard => return self.keyboard(faces, q, cx),
+            Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
+            Tab::About => return self.about_ghost(faces, q, cx),
             Tab::Agents | Tab::Sessions => return None,
-        })
+        };
+        let groups: Vec<Div> = groups.into_iter().flatten().collect();
+        (!groups.is_empty()).then(|| page(faces, title, lede).children(groups))
     }
 
     /// A choice among `choices`, the one equal to `now` lit; picking one
@@ -174,15 +392,17 @@ impl Desk {
 
     /// The keys as they are now, yours over the window's, and the file
     /// yours are kept in.
-    fn keyboard(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn keyboard(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
         let mut list = card().overflow_hidden();
-        for (n, (name, does, _)) in keys::ACTIONS.into_iter().enumerate() {
+        let mut n = 0;
+        for (name, does, _) in keys::ACTIONS {
+            let bound = keys::keys_of(cx, name).unwrap_or_default();
+            if !said(q, &[does, &bound]) {
+                continue;
+            }
+            n += 1;
             let mut keys = div().flex().gap(px(4.));
-            for k in keys::keys_of(cx, name)
-                .unwrap_or_default()
-                .split(' ')
-                .filter(|k| !k.is_empty())
-            {
+            for k in bound.split(' ').filter(|k| !k.is_empty()) {
                 keys = keys.child(
                     div()
                         .px(px(6.))
@@ -203,7 +423,7 @@ impl Desk {
                     .items_center()
                     .h(px(36.))
                     .px(px(16.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                    .when(n > 1, |d| d.border_t_1().border_color(theme::border()))
                     .child(ui::text(faces, does).flex_1().text_size(px(13.)))
                     // A click records new keys for it; the arrow gives it
                     // back Ghost's.
@@ -258,13 +478,24 @@ impl Desk {
             }
             crate::desk::open_in_editor(&path);
         });
-        page(faces, "Keyboard", "The keys as they are now, yours over Ghost's.")
-            .child(list)
+        if n == 0 {
+            return None;
+        }
+        let page = page(
+            faces,
+            "Keyboard",
+            "The keys as they are now, yours over Ghost's.",
+        )
+        .child(list);
+        if !q.is_empty() {
+            return Some(page);
+        }
+        Some(page
             .child(fine(
                 faces,
                 "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }. Ghost reads the file as it starts.",
             ))
-            .child(div().flex().child(open))
+            .child(div().flex().child(open)))
     }
 
     /// What the sessions spent, as their agents said it (the context each
@@ -296,7 +527,7 @@ impl Desk {
                 format!("{:.2} {}", c.amount, c.currency)
             });
             spent = spent.child(
-                row(
+                setting(
                     faces,
                     &ui::fit(&s.title, 48),
                     &format!(
@@ -329,7 +560,7 @@ impl Desk {
         for (n, (agent, pid, kb)) in self.weights.iter().enumerate() {
             let agent_id = agent.clone();
             running = running.child(
-                row(
+                setting(
                     faces,
                     &self.name_of(agent),
                     &format!("process {pid} · {} MB", kb / 1024),
@@ -387,7 +618,7 @@ impl Desk {
     }
 
     /// What Ghost is, and where it keeps what it keeps.
-    fn about_ghost(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn about_ghost(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.home.clone();
         let show =
             ui::button(faces, "show-home", "Show", Weight::Quiet).on_click(move |_, _, _| {
@@ -396,27 +627,33 @@ impl Desk {
         let registry = ui::button(faces, "open-registry", "Open", Weight::Quiet).on_click(
             cx.listener(|_, _, _, cx| cx.open_url("https://agentclientprotocol.com/registry")),
         );
-        page(
-            faces,
-            &format!("Ghost {}", env!("CARGO_PKG_VERSION")),
-            "Agent Client Protocol v1 · macOS",
-        )
-        .child(
-            card()
-                .overflow_hidden()
-                .child(row(
-                    faces,
-                    "Where Ghost keeps its files",
-                    &Desk::shown(&self.home),
-                    show,
-                ))
-                .child(row(
-                    faces,
-                    "The agents come from",
-                    "The ACP registry, read again every six hours.",
-                    registry,
-                )),
-        )
+        let rows: Vec<Div> = [
+            row(
+                faces,
+                q,
+                "Where Ghost keeps its files",
+                &Desk::shown(&self.home),
+                show,
+            ),
+            row(
+                faces,
+                q,
+                "The agents come from",
+                "The ACP registry, read again every six hours.",
+                registry,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (!rows.is_empty()).then(|| {
+            page(
+                faces,
+                &format!("Ghost {}", env!("CARGO_PKG_VERSION")),
+                "Agent Client Protocol v1 · macOS",
+            )
+            .child(group_of(rows))
+        })
     }
 }
 
@@ -448,22 +685,43 @@ fn page(faces: &Faces, title: &str, lede: &str) -> Div {
         )
 }
 
-/// Rows under a caption, in one frame.
-fn group(faces: &Faces, caption: &str, rows: Vec<Div>) -> Div {
+/// The rows left by the search under a caption, in one frame; none when
+/// the search left none.
+fn group(faces: &Faces, caption: &str, rows: Vec<Option<Div>>) -> Option<Div> {
+    let rows: Vec<Div> = rows.into_iter().flatten().collect();
+    (!rows.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(ui::label(faces, caption))
+            .child(group_of(rows))
+    })
+}
+
+/// Rows in one frame, a line between each.
+fn group_of(rows: Vec<Div>) -> Div {
     let mut frame = card().overflow_hidden();
     for (n, r) in rows.into_iter().enumerate() {
         frame = frame.child(r.when(n > 0, |d| d.border_t_1().border_color(theme::border())));
     }
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .child(ui::label(faces, caption))
-        .child(frame)
+    frame
 }
 
-/// A setting: what happens, said plainly, and its control.
-fn row(faces: &Faces, name: &str, about: &str, control: impl IntoElement) -> Div {
+/// Whether what is looked for, `q` (lower case), is in any of `words`;
+/// nothing looked for is in all.
+fn said(q: &str, words: &[&str]) -> bool {
+    q.is_empty() || words.iter().any(|w| w.to_lowercase().contains(q))
+}
+
+/// A setting: what happens, said plainly, and its control; none when
+/// what is looked for, `q`, is in neither.
+fn row(faces: &Faces, q: &str, name: &str, about: &str, control: impl IntoElement) -> Option<Div> {
+    said(q, &[name, about]).then(|| setting(faces, name, about, control))
+}
+
+/// A row: what it is, said plainly, and its control.
+fn setting(faces: &Faces, name: &str, about: &str, control: impl IntoElement) -> Div {
     div()
         .flex()
         .items_center()
