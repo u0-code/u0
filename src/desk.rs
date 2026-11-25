@@ -1258,9 +1258,16 @@ impl Desk {
             if !session.recorded {
                 session.forget();
             }
-            session.pending = Some(text);
+            session.pending = Some(text.clone());
             session.state = State::Opening;
             let agent = session.agent.clone();
+            // What goes with it (images, files named) goes with it.
+            if on_screen {
+                let attached = self.attach(key, &text);
+                if let Some(s) = self.session_mut(key) {
+                    s.attached.extend(attached);
+                }
+            }
             self.open_when_running(&agent, key);
             cx.notify();
             return;

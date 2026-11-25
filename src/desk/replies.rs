@@ -402,6 +402,7 @@ impl Desk {
         match result {
             Ok((running, init)) => {
                 if let Some(slot) = self.slot_mut(agent) {
+                    slot.images = Some(init.agent_capabilities.prompt_capabilities.image);
                     slot.stage = Stage::Running {
                         agent: running,
                         init,

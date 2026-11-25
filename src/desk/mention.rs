@@ -178,16 +178,14 @@ impl Desk {
         cx.notify();
     }
 
-    /// An image pasted or dropped in, if the agent takes images.
+    /// An image pasted or dropped in, unless the agent said, when it last
+    /// started, that it takes none.
     pub fn add_picture(&mut self, picture: Picture, cx: &mut Context<Self>) {
-        let takes = self
+        let refused = self
             .session()
             .and_then(|s| self.slot(&s.agent))
-            .is_some_and(|slot| {
-                matches!(&slot.stage, hub::Stage::Running { init, .. }
-                if init.agent_capabilities.prompt_capabilities.image)
-            });
-        if takes {
+            .is_some_and(|slot| slot.images == Some(false));
+        if !refused {
             self.pictures.push(picture);
         } else if let Some(key) = self.current
             && let Some(s) = self.session_mut(key)
