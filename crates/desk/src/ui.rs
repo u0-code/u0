@@ -4,8 +4,8 @@
 use std::path::Path;
 
 use gpui::component::{
-    Icon, Sizable as _,
-    button::{Button, ButtonVariants as _},
+    Icon, Selectable as _, Sizable as _,
+    button::{Button, ButtonGroup, ButtonVariants as _},
     tooltip::Tooltip,
 };
 use gpui::{
@@ -189,41 +189,25 @@ pub fn trouble(faces: &Faces, words: impl Into<SharedString>) -> Div {
         )
 }
 
-/// What a choice of a [`segmented`] control does when clicked.
-pub type Pick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+/// What a choice of a [`segmented`] control does when picked.
+pub type Pick = Box<dyn Fn(&Vec<usize>, &mut Window, &mut App)>;
 
 /// A few choices side by side in one frame, each a word, the one chosen
-/// lit.
-pub fn segmented(faces: &Faces, id: &str, choices: Vec<(&'static str, bool, Pick)>) -> Div {
-    let mut row = div()
-        .flex()
-        .flex_none()
-        .gap(px(2.))
-        .p(px(2.))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(theme::tag_line());
-    for (n, (label, on, pick)) in choices.into_iter().enumerate() {
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("{id}-{n}")))
-                .flex()
-                .items_center()
-                .h(px(24.))
-                .px(px(10.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::panel2()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(text(faces, label).text_size(px(12.5)).text_color(if on {
-                    theme::text()
-                } else {
-                    theme::muted()
-                }))
-                .on_click(move |e, w, cx| pick(e, w, cx)),
-        );
-    }
-    row
+/// lit: gpui-kit's button group, a button to each choice.
+pub fn segmented(id: &str, choices: Vec<(&'static str, bool, Pick)>) -> ButtonGroup {
+    let (buttons, picks): (Vec<Button>, Vec<Pick>) = choices
+        .into_iter()
+        .enumerate()
+        .map(|(n, (label, on, pick))| (Button::new(n).label(label).selected(on), pick))
+        .unzip();
+    ButtonGroup::new(SharedString::from(id.to_owned()))
+        .small()
+        .children(buttons)
+        .on_click(move |chosen, window, cx| {
+            for &n in chosen {
+                picks[n](chosen, window, cx);
+            }
+        })
 }
 
 /// Small print: a count, a time, a word beside a name.

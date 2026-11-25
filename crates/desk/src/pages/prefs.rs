@@ -3,6 +3,7 @@
 //! write while a turn goes on; how new sessions begin; the keys; and what
 //! Ghost is. Each row says what happens, and its control says the choice.
 
+use gpui::component::button::ButtonGroup;
 use gpui::component::{Sizable as _, switch::Switch};
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
@@ -40,7 +41,6 @@ impl Desk {
                                 "When a session ends a turn or needs you",
                                 "A notification from macOS, only while Ghost is not in front.",
                                 Self::pick(
-                                    faces,
                                     "notify",
                                     [
                                         ("Off", Notify::Off),
@@ -77,7 +77,7 @@ impl Desk {
                             q,
                             "Files open in",
                             "A file the agent named, an edit, or keybindings.json.",
-                            self.editor_pick(faces, cx),
+                            self.editor_pick(cx),
                         )],
                     ),
                     group(
@@ -89,7 +89,6 @@ impl Desk {
                             "A session is done after it is left for",
                             "It moves to Done in the sidebar; anything said to it brings it back.",
                             Self::pick(
-                                faces,
                                 "settle",
                                 [
                                     ("3 days", Some(3)),
@@ -118,7 +117,6 @@ impl Desk {
                             "Look",
                             "Light and dark keep the same amber for what is going on now.",
                             Self::pick(
-                                faces,
                                 "look",
                                 [
                                     ("Dark", crate::settings::Look::Dark),
@@ -136,7 +134,6 @@ impl Desk {
                             "Contrast",
                             "More draws the greys of what matters less, and the edges, stronger.",
                             Self::pick(
-                                faces,
                                 "contrast",
                                 [("As designed", false), ("More", true)],
                                 self.settings.contrast,
@@ -150,7 +147,6 @@ impl Desk {
                             "Code font",
                             "What code, commands and numbers are set in.",
                             Self::pick(
-                                faces,
                                 "mono",
                                 [
                                     ("JetBrains Mono", crate::settings::CodeFont::JetBrains),
@@ -168,7 +164,6 @@ impl Desk {
                             "Reading width",
                             "How wide the thread and the composer are.",
                             Self::pick(
-                                faces,
                                 "width",
                                 [
                                     ("Comfortable", Width::Comfortable),
@@ -186,7 +181,6 @@ impl Desk {
                             "What a change added and took away",
                             "Blue and orange tell them apart without green and red.",
                             Self::pick(
-                                faces,
                                 "diff-colours",
                                 [("Green and red", false), ("Blue and orange", true)],
                                 self.settings.blue_orange,
@@ -200,7 +194,6 @@ impl Desk {
                             "Times",
                             "When a message was said, and what Ghost says of times.",
                             Self::pick(
-                                faces,
                                 "clock",
                                 [("24-hour", false), ("12-hour", true)],
                                 self.settings.twelve,
@@ -214,7 +207,6 @@ impl Desk {
                             "A diff's long lines",
                             "Wrapped, they show whole; kept to a line, they are cut at the edge.",
                             Self::pick(
-                                faces,
                                 "diff-wrap",
                                 [("Wrap", true), ("Cut", false)],
                                 self.settings.diff_wrap,
@@ -228,7 +220,6 @@ impl Desk {
                             "Changes only in spacing",
                             "Left out, a diff shows what changed in the words alone.",
                             Self::pick(
-                                faces,
                                 "spacing",
                                 [("Shown", false), ("Left out", true)],
                                 self.settings.no_spacing,
@@ -242,7 +233,6 @@ impl Desk {
                             "A file's diff opens",
                             "Side by side widens the column beside the thread.",
                             Self::pick(
-                                faces,
                                 "diff",
                                 [("Stacked", false), ("Side by side", true)],
                                 self.settings.side_by_side,
@@ -265,7 +255,6 @@ impl Desk {
                             "What you send waits, or steers",
                             "Steer stops the turn and says it now; waiting says it once the turn ends.",
                             Self::pick(
-                                faces,
                                 "steer",
                                 [("Wait its turn", false), ("Steer", true)],
                                 self.settings.steer,
@@ -283,7 +272,6 @@ impl Desk {
                             "What sends what you write",
                             "With ⌘Return, Return breaks the line and ⇧⌘Return sends and begins another beside it.",
                             Self::pick(
-                                faces,
                                 "send",
                                 [("Return", false), ("⌘Return", true)],
                                 self.settings.cmd_sends,
@@ -301,7 +289,6 @@ impl Desk {
                             "Its calls and thinking in the thread",
                             "Folded keeps a finished turn's work in one line, a click away; hidden shows only what was said.",
                             Self::pick(
-                                faces,
                                 "calls",
                                 [
                                     ("Shown", crate::settings::Calls::Shown),
@@ -328,7 +315,6 @@ impl Desk {
                             "A new session works",
                             "A project can choose otherwise from its menu.",
                             Self::pick(
-                                faces,
                                 "where",
                                 [("In the folder", false), ("In a new worktree", true)],
                                 self.settings.worktree,
@@ -370,13 +356,12 @@ impl Desk {
     /// A choice among `choices`, the one equal to `now` lit; picking one
     /// sets it with `set` and keeps the settings.
     fn pick<T: Copy + PartialEq + 'static, const N: usize>(
-        faces: &Faces,
         id: &str,
         choices: [(&'static str, T); N],
         now: T,
         set: fn(&mut crate::settings::Settings, T),
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> ButtonGroup {
         let choices = choices
             .into_iter()
             .map(|(label, value)| {
@@ -389,11 +374,11 @@ impl Desk {
                 (label, value == now, pick)
             })
             .collect();
-        ui::segmented(faces, id, choices)
+        ui::segmented(id, choices)
     }
 
     /// The editors here to open files in, and macOS's own choice.
-    fn editor_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn editor_pick(&self, cx: &mut Context<Self>) -> ButtonGroup {
         let mut choices: Vec<(&'static str, bool, Pick)> = vec![(
             "First found",
             self.settings.editor.is_none(),
@@ -418,7 +403,7 @@ impl Desk {
                 ));
             }
         }
-        ui::segmented(faces, "editor", choices)
+        ui::segmented("editor", choices)
     }
 
     /// The keys as they are now, yours over the window's, and the file

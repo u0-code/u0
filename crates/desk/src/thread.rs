@@ -765,9 +765,7 @@ impl Desk {
             .flex_col()
             .items_center()
             .gap(px(8.))
-            .child(ui::segmented(
-                faces,
-                "where",
+            .child(ui::segmented("where",
                 vec![
                     ("In this folder", !worktree, to(false)),
                     ("New worktree", worktree, to(true)),
