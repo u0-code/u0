@@ -11,12 +11,13 @@ version = "0.1.0-pre.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/u0-code/u0"
-rust-version = "1.94"
+rust-version = "1.98"
 publish = false
 
 [workspace.dependencies]
 ghost-core = { path = "crates/core" }
-gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
+gpui = { package = "gpui-pre", version = "=0.3.14", default-features = false }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", default-features = false, features = ["font-kit"] }
 # The protocol: its connection and its types (the schema it pins). What goes
 # over the wire to an agent is defined there, never again here.
 agent-client-protocol = { version = "=5.6.0", features = ["unstable_session_fork"] }

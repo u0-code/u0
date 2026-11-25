@@ -94,16 +94,14 @@ pub fn fallbacks(weight: FontWeight) -> FontFallbacks {
 
 /// `el`, with the fallbacks for everything set in it.
 pub fn with_fallbacks<E: Styled>(mut el: E) -> E {
-    el.text_style()
-        .get_or_insert_with(Default::default)
-        .font_fallbacks = Some(fallbacks(FontWeight::NORMAL));
+    el.text_style().font_fallbacks = Some(fallbacks(FontWeight::NORMAL));
     el
 }
 
 /// Setting text's weight sets its Chinese's weight with it.
 pub trait Weighted: Styled + Sized {
     fn weight(mut self, weight: FontWeight) -> Self {
-        let style = self.text_style().get_or_insert_with(Default::default);
+        let style = self.text_style();
         style.font_weight = Some(weight);
         style.font_fallbacks = Some(fallbacks(weight));
         self

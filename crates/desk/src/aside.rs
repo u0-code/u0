@@ -720,7 +720,7 @@ impl Desk {
             );
             chip = chip.child(gpui::deferred(
                 gpui::anchored()
-                    .anchor(gpui::Corner::TopRight)
+                    .anchor(gpui::Anchor::TopRight)
                     .child(div().mt(px(24.)).child(ui::menu("branch-menu").child(menu))),
             ));
         }

@@ -233,7 +233,7 @@ impl Desk {
     /// sessions: its sessions close (their records are written) and it is
     /// started again, and they resumed, when one is written in.
     pub(crate) fn release_idle(&mut self, cx: &mut Context<Self>) {
-        const IDLE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+        const IDLE: std::time::Duration = std::time::Duration::from_mins(10);
         let idle: Vec<String> = self
             .slots
             .iter()

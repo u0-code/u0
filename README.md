@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b3b3b?style=flat-square"></a>
-  <img alt="Rust 1.94+" src="https://img.shields.io/badge/rust-1.94%2B-3b3b3b?style=flat-square">
+  <img alt="Rust 1.98+" src="https://img.shields.io/badge/rust-1.98%2B-3b3b3b?style=flat-square">
   <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-3b3b3b?style=flat-square">
 </p>
 

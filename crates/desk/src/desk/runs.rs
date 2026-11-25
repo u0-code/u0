@@ -147,7 +147,7 @@ impl Desk {
             return;
         };
         self.open_terminal_in(key, &dir, first, cx);
-        window.focus(&self.drawer.focus);
+        window.focus(&self.drawer.focus, cx);
     }
 
     /// The terminals beside the session on screen.
@@ -201,10 +201,10 @@ impl Desk {
             if self.session_terminals().is_empty() {
                 self.open_terminal(None, window, cx);
             } else {
-                window.focus(&self.drawer.focus);
+                window.focus(&self.drawer.focus, cx);
             }
         } else {
-            window.focus(&self.composer.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx), cx);
         }
         cx.notify();
     }
@@ -266,7 +266,7 @@ impl Desk {
         self.composer
             .input
             .update(cx, |i, cx| i.set_text(text.trim_start(), cx));
-        window.focus(&self.composer.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -347,7 +347,7 @@ impl Desk {
             worktree: script.worktree,
             wait: script.wait,
         });
-        window.focus(&self.drawer.name.focus_handle(cx));
+        window.focus(&self.drawer.name.focus_handle(cx), cx);
         cx.notify();
     }
 

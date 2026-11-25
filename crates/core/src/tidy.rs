@@ -49,9 +49,7 @@ fn size(path: &Path) -> u64 {
         return 0;
     };
     if meta.is_dir() {
-        std::fs::read_dir(path)
-            .map(|all| all.flatten().map(|e| size(&e.path())).sum())
-            .unwrap_or(0)
+        std::fs::read_dir(path).map_or(0, |all| all.flatten().map(|e| size(&e.path())).sum())
     } else {
         meta.len()
     }

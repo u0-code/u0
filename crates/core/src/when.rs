@@ -116,9 +116,9 @@ mod tests {
 
     #[test]
     fn a_while_said_shortly_is_read() {
-        assert_eq!(span("45m"), Some(Duration::from_secs(2700)));
+        assert_eq!(span("45m"), Some(Duration::from_mins(45)));
         assert_eq!(span("3h"), Some(Duration::from_secs(10_800)));
-        assert_eq!(span("2 days"), Some(Duration::from_secs(172_800)));
+        assert_eq!(span("2 days"), Some(Duration::from_hours(48)));
         assert_eq!(span("soon"), None);
         assert_eq!(span("0h"), None);
     }
@@ -154,7 +154,7 @@ mod tests {
     fn a_duration_reads_in_seconds_then_minutes_then_hours() {
         assert_eq!(took(Duration::from_secs(14)), "14s");
         assert_eq!(took(Duration::from_secs(134)), "2m 14s");
-        assert_eq!(took(Duration::from_secs(3900)), "1h 05m");
+        assert_eq!(took(Duration::from_mins(65)), "1h 05m");
         assert_eq!(took_short(Duration::from_millis(3200)), "3.2s");
     }
 
@@ -162,10 +162,10 @@ mod tests {
     fn ago_is_now_then_minutes_hours_and_a_weekday() {
         let now = SystemTime::now();
         assert_eq!(ago(now, now), "now");
-        assert_eq!(ago(now - Duration::from_secs(720), now), "12m");
+        assert_eq!(ago(now - Duration::from_mins(12), now), "12m");
         assert_eq!(ago(now - Duration::from_secs(7300), now), "2h");
-        assert_eq!(ago(now - Duration::from_secs(2 * 86_400), now).len(), 3);
-        let long = ago(now - Duration::from_secs(40 * 86_400), now);
+        assert_eq!(ago(now - Duration::from_hours(2 * 24), now).len(), 3);
+        let long = ago(now - Duration::from_hours(40 * 24), now);
         let (month, day) = long.split_once(' ').unwrap();
         assert!(month.len() == 3 && !day.starts_with('0'), "{long}");
     }

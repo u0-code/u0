@@ -1283,7 +1283,7 @@ impl Desk {
         let text = text.clone();
         self.reader.update(cx, |i, cx| i.set_text(&text, cx));
         self.reading = Some((key, item));
-        window.focus(&gpui::Focusable::focus_handle(self.reader.read(cx), cx));
+        window.focus(&gpui::Focusable::focus_handle(self.reader.read(cx), cx), cx);
         cx.notify();
     }
 

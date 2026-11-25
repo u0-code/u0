@@ -250,14 +250,6 @@ impl Selectable {
     }
 }
 
-impl IntoElement for Selectable {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for Selectable {
     type RequestLayoutState = ();
     type PrepaintState = ();

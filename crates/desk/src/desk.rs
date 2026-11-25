@@ -639,7 +639,7 @@ impl Desk {
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         self.bring(key, cx);
-        window.focus(&self.composer.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx), cx);
     }
 
     /// Put the session `key` on screen, opening it if it is closed.
@@ -1075,7 +1075,7 @@ impl Desk {
         self.popup = Popup::Closed;
         self.menu_search.update(cx, |i, cx| i.set_text("", cx));
         if self.menu_search.focus_handle(cx).is_focused(window) {
-            window.focus(&self.composer.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx), cx);
         }
         cx.notify();
     }
@@ -1124,7 +1124,7 @@ impl Desk {
             cx.notify();
             return true;
         }
-        let key = k.unparse();
+        let key = k.unparse(cx.platform_info().os);
         if let Some(other) = crate::keys::taken(cx, name, &key) {
             self.trouble(
                 format!("Those keys were “{other}”'s too"),
@@ -1155,7 +1155,7 @@ impl Desk {
         }
         self.pages.open = true;
         self.popup = Popup::Closed;
-        window.focus(&self.pages.search.focus_handle(cx));
+        window.focus(&self.pages.search.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -1163,7 +1163,7 @@ impl Desk {
     pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages.open = false;
         self.pages.recording = None;
-        window.focus(&self.composer.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx), cx);
         cx.notify();
     }
 

@@ -6,21 +6,7 @@ all-features = true
 [advisories]
 # A known vulnerability or an unmaintained crate anywhere in the tree fails
 # the check. Exceptions go here by id, with the reason.
-ignore = [
-    # Unmaintained crates with no known vulnerability, all inside GPUI 0.2.2,
-    # which the app pins: they go when GPUI moves off them, not before.
-    { id = "RUSTSEC-2025-0052", reason = "async-std is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2024-0384", reason = "instant is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0441", reason = "pin-utils is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0371", reason = "zbus_names is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0370", reason = "zvariant is unmaintained, in GPUI's tree; no vulnerability" },
-    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is unmaintained, in GPUI's tree; no vulnerability" },
-]
+ignore = []
 
 [licenses]
 # Licences that can be combined with Apache-2.0 without asking more of
@@ -34,12 +20,10 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
-    "CDLA-Permissive-2.0",
     # In GPUI's tree. MPL-2.0 is copyleft only for its own files, which are
-    # used unchanged; CC0 and NCSA ask less than Apache-2.0.
+    # used unchanged; CC0 asks less than Apache-2.0.
     "MPL-2.0",
     "CC0-1.0",
-    "NCSA",
 ]
 confidence-threshold = 0.9
 

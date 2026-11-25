@@ -410,7 +410,7 @@ impl Desk {
             i.set_text(&name, cx);
             i.select_everything(cx);
         });
-        window.focus(&self.rename.focus_handle(cx));
+        window.focus(&self.rename.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -776,7 +776,7 @@ impl Desk {
     pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search.open = !self.search.open;
         if self.search.open {
-            window.focus(&self.search.input.focus_handle(cx));
+            window.focus(&self.search.input.focus_handle(cx), cx);
         } else {
             self.search.input.update(cx, |s, cx| s.set_text("", cx));
         }
@@ -873,8 +873,8 @@ mod tests {
         ] {
             assert!(later.at(now) > now, "{later:?}");
         }
-        let day = Duration::from_secs(86_400 + 3600);
+        let day = Duration::from_hours(25);
         assert!(Later::Daily.at(now) <= now + day);
-        assert_eq!(Later::In(30).at(now), now + Duration::from_secs(1800));
+        assert_eq!(Later::In(30).at(now), now + Duration::from_mins(30));
     }
 }

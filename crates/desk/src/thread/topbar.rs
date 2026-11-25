@@ -48,7 +48,7 @@ impl Desk {
                     .weight(gpui::FontWeight::MEDIUM),
             )
             .w_auto()
-            .flex_shrink()
+            .flex_shrink_1()
         };
         if self.page != Page::Thread {
             bar = bar.child(
@@ -131,7 +131,7 @@ impl Desk {
                             ui::one_line(meta(faces, place))
                                 .w_auto()
                                 .min_w(px(0.))
-                                .flex_shrink(),
+                                .flex_shrink_1(),
                         )
                         .child(div().flex_1());
                     if let (State::Working, Some(since)) = (&s.state, s.since) {

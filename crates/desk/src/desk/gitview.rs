@@ -313,10 +313,10 @@ impl Desk {
     ) {
         self.review.commenting = Some((path, line));
         self.review.comment.update(cx, |i, cx| i.set_text("", cx));
-        window.focus(&gpui::Focusable::focus_handle(
-            self.review.comment.read(cx),
+        window.focus(
+            &gpui::Focusable::focus_handle(self.review.comment.read(cx), cx),
             cx,
-        ));
+        );
         cx.notify();
     }
 
@@ -358,10 +358,10 @@ impl Desk {
         self.composer
             .input
             .update(cx, |i, cx| i.set_text(text.trim_end(), cx));
-        window.focus(&gpui::Focusable::focus_handle(
-            self.composer.input.read(cx),
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
-        ));
+        );
         cx.notify();
     }
 

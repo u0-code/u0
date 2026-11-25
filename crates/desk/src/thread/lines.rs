@@ -166,8 +166,8 @@ impl Desk {
 
     /// Whether the thread is read at its foot, within a line of it.
     fn at_foot(&self) -> bool {
-        let below = self.list.max_offset_for_scrollbar().height
-            + self.list.scroll_px_offset_for_scrollbar().y;
+        let below =
+            self.list.max_offset_for_scrollbar().y + self.list.scroll_px_offset_for_scrollbar().y;
         below <= px(24.)
     }
 
@@ -320,7 +320,7 @@ impl Desk {
                 .id(group.clone())
                 .group(group.clone())
                 .flex()
-                .flex_shrink()
+                .flex_shrink_1()
                 .min_w(px(96.))
                 .max_w(px(220.))
                 .items_center()
@@ -546,12 +546,15 @@ impl Desk {
     pub fn toggle_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find.open = !self.find.open;
         if self.find.open {
-            window.focus(&gpui::Focusable::focus_handle(self.find.input.read(cx), cx));
-        } else {
-            window.focus(&gpui::Focusable::focus_handle(
-                self.composer.input.read(cx),
+            window.focus(
+                &gpui::Focusable::focus_handle(self.find.input.read(cx), cx),
                 cx,
-            ));
+            );
+        } else {
+            window.focus(
+                &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+                cx,
+            );
         }
         cx.notify();
     }

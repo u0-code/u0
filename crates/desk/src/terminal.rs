@@ -358,7 +358,7 @@ fn rgb(r: u8, g: u8, b: u8) -> Hsla {
 mod tests {
     use super::*;
 
-    fn key(text: &str) -> Keystroke {
+    fn key(text: &'static str) -> Keystroke {
         Keystroke::parse(text).unwrap()
     }
 

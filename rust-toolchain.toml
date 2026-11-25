@@ -3,5 +3,5 @@
 # compiler the code is promised to build with is `rust-version` in
 # Cargo.toml.
 [toolchain]
-channel = "1.94.1"
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]

@@ -38,8 +38,8 @@ use keys::{
 };
 
 use gpui::{
-    App, AppContext as _, Application, Bounds, Focusable as _, Menu, MenuItem, OsAction,
-    TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
+    App, AppContext as _, Bounds, Focusable as _, Menu, MenuItem, OsAction, TitlebarOptions,
+    WindowBounds, WindowOptions, point, px, size,
 };
 
 fn main() {
@@ -53,7 +53,7 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    Application::new()
+    gpui_platform::application()
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
             fonts::load(cx);
@@ -64,44 +64,29 @@ fn main() {
             // Exit Full Screen to the View menu, and the window list to
             // the Window menu, by itself.
             cx.set_menus(vec![
-                Menu {
-                    name: "Ghost".into(),
-                    items: vec![
-                        MenuItem::action("About Ghost", About),
-                        MenuItem::separator(),
-                        MenuItem::action("Settings…", OpenSettings),
-                        MenuItem::separator(),
-                        MenuItem::action("Hide Ghost", Hide),
-                        MenuItem::action("Hide Others", HideOthers),
-                        MenuItem::action("Show All", ShowAll),
-                        MenuItem::separator(),
-                        MenuItem::action("Quit Ghost", Quit),
-                    ],
-                },
-                Menu {
-                    name: "File".into(),
-                    items: vec![
-                        MenuItem::action("New Session", NewSession),
-                        MenuItem::action("Stop", Stop),
-                    ],
-                },
-                Menu {
-                    name: "Edit".into(),
-                    items: vec![
-                        MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
-                        MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
-                        MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
-                        MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
-                    ],
-                },
-                Menu {
-                    name: "View".into(),
-                    items: vec![MenuItem::action("Toggle Sidebar", ToggleSidebar)],
-                },
-                Menu {
-                    name: "Window".into(),
-                    items: vec![MenuItem::action("Minimize", Minimize)],
-                },
+                Menu::new("Ghost").items(vec![
+                    MenuItem::action("About Ghost", About),
+                    MenuItem::separator(),
+                    MenuItem::action("Settings…", OpenSettings),
+                    MenuItem::separator(),
+                    MenuItem::action("Hide Ghost", Hide),
+                    MenuItem::action("Hide Others", HideOthers),
+                    MenuItem::action("Show All", ShowAll),
+                    MenuItem::separator(),
+                    MenuItem::action("Quit Ghost", Quit),
+                ]),
+                Menu::new("File").items(vec![
+                    MenuItem::action("New Session", NewSession),
+                    MenuItem::action("Stop", Stop),
+                ]),
+                Menu::new("Edit").items(vec![
+                    MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
+                    MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
+                    MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
+                    MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+                ]),
+                Menu::new("View").items(vec![MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
+                Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),
             ]);
 
             let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
@@ -124,7 +109,7 @@ fn main() {
                 .expect("open the window");
             window
                 .update(cx, |desk, window, cx| {
-                    window.focus(&desk.composer.input.focus_handle(cx));
+                    window.focus(&desk.composer.input.focus_handle(cx), cx);
                 })
                 .expect("the desk");
             keys::handle(cx, window);

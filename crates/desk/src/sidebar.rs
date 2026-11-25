@@ -524,7 +524,7 @@ impl Desk {
         if menu_open {
             wrap = wrap.child(gpui::deferred(
                 gpui::anchored()
-                    .anchor(gpui::Corner::TopRight)
+                    .anchor(gpui::Anchor::TopRight)
                     .child(self.project_menu(faces, folder, cx)),
             ));
         }
@@ -796,7 +796,7 @@ impl Desk {
         if menu_open {
             wrap = wrap.child(gpui::deferred(
                 gpui::anchored()
-                    .anchor(gpui::Corner::TopRight)
+                    .anchor(gpui::Anchor::TopRight)
                     .child(self.session_menu(faces, s, cx)),
             ));
         }

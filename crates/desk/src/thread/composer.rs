@@ -290,7 +290,7 @@ impl Desk {
             ui::icon_button("dictate", "mic", "Dictate")
                 .text_color(theme::faint())
                 .on_click(move |_, window, cx| {
-                    window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx));
+                    window.focus(&gpui::Focusable::focus_handle(input.read(cx), cx), cx);
                     crate::macos::dictate();
                 }),
         );
@@ -783,10 +783,10 @@ impl Desk {
                     this.toggle_popup(for_click.clone(), cx);
                     // What is typed then narrows the list.
                     if long && this.popup == for_click {
-                        window.focus(&gpui::Focusable::focus_handle(
-                            this.menu_search.read(cx),
+                        window.focus(
+                            &gpui::Focusable::focus_handle(this.menu_search.read(cx), cx),
                             cx,
-                        ));
+                        );
                     }
                 }));
         }
@@ -1222,10 +1222,10 @@ impl Desk {
         self.composer
             .input
             .update(cx, |i, cx| i.set_text(&line, cx));
-        window.focus(&gpui::Focusable::focus_handle(
-            self.composer.input.read(cx),
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
-        ));
+        );
         cx.notify();
     }
 }

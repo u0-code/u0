@@ -5,8 +5,7 @@
 
 use gpui::{
     Context, Div, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ScrollWheelEvent, SharedString, StyledText, TextRun, Window, div, prelude::*,
-    px,
+    MouseMoveEvent, ScrollEvent, SharedString, StyledText, TextRun, Window, div, prelude::*, px,
 };
 
 use crate::{
@@ -354,7 +353,7 @@ impl Desk {
             )
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.drawer.on = Some(id);
-                window.focus(&this.drawer.focus);
+                window.focus(&this.drawer.focus, cx);
                 cx.notify();
             }))
     }
@@ -481,7 +480,7 @@ impl Desk {
             .cursor_text()
             .child(screen)
             .children(pop)
-            .on_scroll_wheel(cx.listener(move |this, e: &ScrollWheelEvent, _, cx| {
+            .on_scroll(cx.listener(move |this, e: &ScrollEvent, _, cx| {
                 let dy = f32::from(e.delta.pixel_delta(px(LINE)).y);
                 let lines = (dy / LINE).round() as isize;
                 if lines != 0
@@ -495,7 +494,7 @@ impl Desk {
                 MouseButton::Left,
                 cx.listener(move |this, e: &MouseDownEvent, window, cx| {
                     this.drawer.on = Some(id);
-                    window.focus(&this.drawer.focus);
+                    window.focus(&this.drawer.focus, cx);
                     if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id) {
                         let at = Self::cell_at(t, e.position, cell);
                         // ⌘ and a click opens an address; two clicks choose

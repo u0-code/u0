@@ -200,7 +200,7 @@ impl Desk {
             }
         }
         let mut found: Vec<_> = found.into_iter().map(|(f, (n, a))| (f, n, a)).collect();
-        found.sort_by(|a, b| b.1.cmp(&a.1));
+        found.sort_by_key(|f| std::cmp::Reverse(f.1));
         found
     }
 
@@ -209,7 +209,7 @@ impl Desk {
         self.adding
             .remote
             .update(cx, |i, cx| i.set_text(&format!("{host}:/"), cx));
-        window.focus(&self.adding.remote.focus_handle(cx));
+        window.focus(&self.adding.remote.focus_handle(cx), cx);
     }
 
     /// Ask for the folder new and cloned projects go in.

@@ -153,16 +153,8 @@ pub fn action(name: &str) -> Option<Box<dyn Action>> {
 }
 
 /// A binding of `key` to the action named `name`.
-fn binding(key: &str, name: &str) -> Option<KeyBinding> {
-    KeyBinding::load(
-        key,
-        action(name)?,
-        None,
-        false,
-        None,
-        &gpui::DummyKeyboardMapper,
-    )
-    .ok()
+fn binding(cx: &App, key: &str, name: &str) -> Option<KeyBinding> {
+    KeyBinding::load(key, action(name)?, None, false, None, cx).ok()
 }
 
 /// `what`, with the keys the action named `name` is bound to now after it.
@@ -237,7 +229,7 @@ pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Bin
 
 /// The action other than `name` that `key` is bound to now, if one is.
 pub fn taken(cx: &App, name: &str, key: &str) -> Option<&'static str> {
-    let shown_key = shown_of(key)?;
+    let shown_key = shown_of(cx, key)?;
     ACTIONS
         .iter()
         .filter(|(n, _, _)| *n != name)
@@ -246,8 +238,8 @@ pub fn taken(cx: &App, name: &str, key: &str) -> Option<&'static str> {
 }
 
 /// A key as keybindings.json writes it, as a Mac shows it.
-fn shown_of(key: &str) -> Option<String> {
-    let k = gpui::Keystroke::parse(key).ok()?;
+fn shown_of(cx: &App, key: &str) -> Option<String> {
+    let k = gpui::Keystroke::parse_with_os(key, cx.platform_info().os).ok()?;
     Some(shown(k.modifiers, &k.key))
 }
 
@@ -343,17 +335,21 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-s", input::Stash, input),
         KeyBinding::new("cmd-shift-enter", input::SubmitAsideToo, input),
     ]);
-    cx.bind_keys(yours.iter().filter_map(|b| {
-        let found = binding(&b.key, &b.action);
-        if found.is_none() {
-            tracing::warn!(
-                "keybindings.json: no action is named {:?}; the names are {:?}",
-                b.action,
-                ACTIONS.map(|(n, _, _)| n)
-            );
-        }
-        found
-    }));
+    let yours: Vec<KeyBinding> = yours
+        .iter()
+        .filter_map(|b| {
+            let found = binding(cx, &b.key, &b.action);
+            if found.is_none() {
+                tracing::warn!(
+                    "keybindings.json: no action is named {:?}; the names are {:?}",
+                    b.action,
+                    ACTIONS.map(|(n, _, _)| n)
+                );
+            }
+            found
+        })
+        .collect();
+    cx.bind_keys(yours);
 }
 
 /// What each action does in the window.
@@ -443,10 +439,10 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         }
     });
     on::<Dictate>(cx, window, |d, window, cx| {
-        window.focus(&gpui::Focusable::focus_handle(
-            d.composer.input.read(cx),
+        window.focus(
+            &gpui::Focusable::focus_handle(d.composer.input.read(cx), cx),
             cx,
-        ));
+        );
         crate::macos::dictate();
     });
     on::<NewScratch>(cx, window, Desk::new_scratch);
@@ -509,9 +505,9 @@ mod tests {
     #[test]
     fn each_name_a_binding_can_take_is_an_action() {
         for (name, _, _) in ACTIONS {
-            assert!(binding("cmd-k", name).is_some(), "{name}");
+            assert!(action(name).is_some(), "{name}");
         }
         assert_eq!(shown(gpui::Modifiers::command_shift(), "m"), "⇧⌘M");
-        assert!(binding("cmd-k", "no_such_action").is_none());
+        assert!(action("no_such_action").is_none());
     }
 }

@@ -90,7 +90,7 @@ impl Shaped {
     fn paint(&self, origin: Point<Pixels>, window: &mut Window, cx: &mut App) {
         match self {
             Self::Line(l, h) => {
-                let _ = l.paint(origin, *h, window, cx);
+                let _ = l.paint(origin, *h, gpui::TextAlign::Left, None, window, cx);
             }
             Self::Wrapped(ps, h) => {
                 let mut y = origin.y;
@@ -121,14 +121,6 @@ pub(super) struct PrepaintState {
     /// The first line in view, and how many lines the text took.
     scroll: usize,
     lines: usize,
-}
-
-impl IntoElement for TextElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
 }
 
 impl Element for TextElement {

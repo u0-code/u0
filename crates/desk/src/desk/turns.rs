@@ -47,7 +47,7 @@ impl Desk {
             self.review
                 .message
                 .update(cx, |m, cx| m.set_text(&title, cx));
-            window.focus(&self.review.message.focus_handle(cx));
+            window.focus(&self.review.message.focus_handle(cx), cx);
         }
         cx.notify();
     }

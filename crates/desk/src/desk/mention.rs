@@ -369,10 +369,10 @@ impl Desk {
         self.composer
             .input
             .update(cx, |i, cx| i.set_text(&line, cx));
-        window.focus(&gpui::Focusable::focus_handle(
-            self.composer.input.read(cx),
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
-        ));
+        );
         cx.notify();
     }
 

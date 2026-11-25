@@ -196,12 +196,12 @@ impl Desk {
         let in_line =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
         if in_line && self.drawer.open {
-            window.focus(&self.drawer.focus);
+            window.focus(&self.drawer.focus, cx);
         } else {
-            window.focus(&gpui::Focusable::focus_handle(
-                self.composer.input.read(cx),
+            window.focus(
+                &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
                 cx,
-            ));
+            );
         }
         cx.notify();
     }
@@ -285,9 +285,9 @@ impl Desk {
         if self.palette.open {
             self.want_offers();
             self.palette.input.update(cx, |i, cx| i.set_text("", cx));
-            window.focus(&self.palette.input.focus_handle(cx));
+            window.focus(&self.palette.input.focus_handle(cx), cx);
         } else {
-            window.focus(&self.composer.input.focus_handle(cx));
+            window.focus(&self.composer.input.focus_handle(cx), cx);
         }
         cx.notify();
     }
@@ -495,7 +495,7 @@ impl Desk {
             return;
         };
         self.palette.open = false;
-        window.focus(&self.composer.input.focus_handle(cx));
+        window.focus(&self.composer.input.focus_handle(cx), cx);
         match line.act {
             Act::Key(name) => {
                 if let Some(action) = crate::keys::action(name) {
