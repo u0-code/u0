@@ -484,6 +484,8 @@ impl Desk {
                         },
                     )
                     .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
                     .text_size(px(13.))
                     .text_color(theme::text2()),
                 )
@@ -495,6 +497,15 @@ impl Desk {
                         }),
                     ),
                 )
+                .when(waiting, |d| {
+                    d.child(
+                        ui::button("setup-cancel", "Cancel", ui::Weight::Quiet)
+                            .tooltip("Stop setting it up, and begin")
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.cancel_setup(key, cx)),
+                            ),
+                    )
+                })
                 .child(
                     ui::icon_button("setup-done", "x", "Put this away").on_click(cx.listener(
                         move |this, _, _, cx| {

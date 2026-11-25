@@ -398,6 +398,23 @@ impl Desk {
         }
     }
 
+    /// Stop the scripts the session `key`'s first message waits for, put
+    /// their card away, and say it now, as t3code's Cancel on its setup
+    /// card.
+    pub fn cancel_setup(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.at_mut(key) else {
+            return;
+        };
+        let held = std::mem::take(&mut s.holding);
+        s.setup.clear();
+        let agent = s.meta.agent.clone();
+        for id in held {
+            self.transport.send(Call::TermClose { id, force: true });
+        }
+        self.open_when_running(&agent, key);
+        cx.notify();
+    }
+
     /// Begin writing a script in the drawer: the one at `at` of the
     /// repository on screen, or a new one.
     pub fn write_script(&mut self, at: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
