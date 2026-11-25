@@ -20,12 +20,43 @@ impl Desk {
                 for meta in index.sessions {
                     let key = self.take_key();
                     self.sessions.push(Session::stored(key, meta));
+                    self.subagents_back(key);
                 }
             }
             Err(why) => {
                 tracing::warn!("{why}");
                 self.store_refused = Some(why);
             }
+        }
+    }
+
+    /// The subagents the session `key` set to work that are not on the desk:
+    /// closed, under it, read from their records when opened.
+    fn subagents_back(&mut self, key: u64) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let missing: Vec<(String, String)> = s
+            .subagents
+            .iter()
+            .filter(|(id, _)| {
+                !self
+                    .sessions
+                    .iter()
+                    .any(|c| c.agent == s.agent && c.id.as_ref().is_some_and(|i| *i.0 == **id))
+            })
+            .cloned()
+            .collect();
+        let (agent, folder, project) = (s.agent.clone(), s.folder.clone(), s.project.clone());
+        for (id, title) in missing {
+            let mut child = Session::new(self.take_key(), &agent, folder.clone());
+            child.project.clone_from(&project);
+            child.id = Some(agent_client_protocol_schema::v1::SessionId::new(id));
+            child.parent = Some(key);
+            child.title = title;
+            child.renamed = true;
+            child.state = crate::session::State::Closed;
+            self.sessions.push(child);
         }
     }
 
@@ -118,6 +149,8 @@ impl Desk {
             s.modes.clone_from(&p.modes);
             s.options.clone_from(&p.options);
         }
+        // A record from before its index named its subagents names them.
+        self.subagents_back(key);
         true
     }
 

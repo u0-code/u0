@@ -1187,9 +1187,11 @@ impl Desk {
             .is_some_and(|s| s.state == State::Closed && !s.recorded);
         // A session with a record reads from it at once, and its agent is
         // asked only when you write; one without comes from its agent.
+        // A subagent opens from its record only: its agent does not load it.
         if closed
             && !self.read_record(key)
             && let Some(s) = self.session_mut(key)
+            && s.parent.is_none()
         {
             s.forget();
             s.plan = None;
@@ -1321,6 +1323,16 @@ impl Desk {
 
     /// Take the session `key` off the desk, and the worktree made for it.
     pub(crate) fn forget_session(&mut self, key: u64, cx: &mut Context<Self>) {
+        // Its subagents, and their records, go with it.
+        let kids: Vec<u64> = self
+            .sessions
+            .iter()
+            .filter(|c| c.parent == Some(key))
+            .map(|c| c.key)
+            .collect();
+        for kid in kids {
+            self.forget_session(kid, cx);
+        }
         let Some(at) = self.sessions.iter().position(|s| s.key == key) else {
             return;
         };

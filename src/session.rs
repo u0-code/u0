@@ -333,6 +333,9 @@ pub struct Session {
     pub sub: Sub,
     /// The tasks its agent left going in the background: commands.
     pub tasks: Vec<Task>,
+    /// The subagents it set to work, by id and title, as its index keeps
+    /// them (its thread names them too, once read).
+    pub subagents: Vec<(String, String)>,
     /// The session this one asks a side question of: branched off it
     /// whole, not listed, its answer taken back to it if you want.
     pub beside: Option<u64>,
@@ -512,6 +515,7 @@ impl Session {
         s.from = meta.from;
         s.later = meta.later;
         s.also = meta.also;
+        s.subagents = meta.subagents;
         s.state = State::Closed;
         s
     }
@@ -537,6 +541,7 @@ impl Session {
             from: self.from.clone(),
             later: self.later.clone(),
             also: self.also.clone(),
+            subagents: self.subagents.clone(),
         })
     }
 
@@ -732,6 +737,7 @@ impl Session {
             parent: None,
             sub: Sub::default(),
             tasks: Vec::new(),
+            subagents: Vec::new(),
             beside: None,
             also: Vec::new(),
             setup: Vec::new(),
@@ -1003,9 +1009,19 @@ impl Session {
                     }
                 } else {
                     self.items.push(Item::Child {
-                        id,
+                        id: id.clone(),
                         title: named.unwrap_or_else(|| "A subagent".into()),
                     });
+                }
+                // The index keeps it too, to bring it back after a restart.
+                let title = self.items.iter().rev().find_map(|i| match i {
+                    Item::Child { id: c, title } if *c == id => Some(title.clone()),
+                    _ => None,
+                });
+                let id = id.0.to_string();
+                match self.subagents.iter_mut().find(|(c, _)| *c == id) {
+                    Some((_, t)) => *t = title.unwrap_or_default(),
+                    None => self.subagents.push((id, title.unwrap_or_default())),
                 }
             }
             SessionUpdate::AvailableCommandsUpdate(c) => self.commands = c.available_commands,
@@ -1253,6 +1269,21 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_session_names_its_subagents_for_its_index() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        s.apply(update(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c1"}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Read the papers"}"#,
+        ));
+        assert_eq!(
+            s.subagents,
+            [("c1".to_owned(), "Read the papers".to_owned())]
+        );
     }
 
     #[test]

@@ -72,6 +72,10 @@ pub struct Meta {
     /// Folders it works in beside its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<PathBuf>,
+    /// The subagents it set to work, by id and title: their records are
+    /// kept with it, and they open from its thread after a restart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<(String, String)>,
 }
 
 /// A message to be said in a session at a time; each day at that time
