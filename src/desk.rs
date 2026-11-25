@@ -1236,7 +1236,7 @@ impl Render for Desk {
             (Page::Agent(id), _) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
-        crate::keys::on_desk(fonts::with_fallbacks(div()), cx)
+        fonts::with_fallbacks(div())
             .relative()
             .flex()
             .size_full()

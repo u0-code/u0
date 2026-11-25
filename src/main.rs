@@ -65,7 +65,6 @@ fn main() {
             fonts::load(cx);
             macos::set();
             keys::bind(cx, &keys::yours(&settings::home()));
-            keys::handle(cx);
             // Without a main menu macOS has no menu bar to show in full
             // screen, so there is no way out of it. AppKit adds Enter and
             // Exit Full Screen to the View menu, and the window list to
@@ -134,6 +133,7 @@ fn main() {
                     window.focus(&desk.composer.input.focus_handle(cx));
                 })
                 .expect("the desk");
+            keys::handle(cx, window);
             cx.activate(true);
         });
 }
