@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use gpui::{Context, SharedString, div, prelude::*, px};
 
-use super::{card, fine};
+use super::card;
 use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page},
@@ -50,7 +50,7 @@ impl Desk {
             return div()
                 .px(px(40.))
                 .py(px(28.))
-                .child(fine(faces, format!("No setting says “{q}”.")));
+                .child(ui::fine(faces, format!("No setting says “{q}”.")));
         }
         div().flex().flex_col().children(pages)
     }
@@ -236,7 +236,7 @@ impl Desk {
                             .min_w(px(0.))
                             .cursor_pointer()
                             .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
-                            .child(fine(faces, line))
+                            .child(ui::fine(faces, line))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_page(Page::Agent(page_id.clone()), cx);
                             })),
@@ -319,7 +319,7 @@ impl Desk {
             )
             .when(
                 self.registry.agents.is_empty() && self.registry_trouble.is_none(),
-                |d| d.child(fine(faces, "Reading the registry…")),
+                |d| d.child(ui::fine(faces, "Reading the registry…")),
             )
             .child(
                 div()
@@ -346,9 +346,9 @@ impl Desk {
                             .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
                     )
                     .child(div().flex_1())
-                    .child(fine(faces, read)),
+                    .child(ui::fine(faces, read)),
             )
-            .child(fine(
+            .child(ui::fine(
                 faces,
                 format!(
                     "Ghost keeps its settings and the agents it installs in {}.",
@@ -386,7 +386,7 @@ impl Desk {
                     .py(px(8.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .child(ui::text(faces, *label).flex_1().text_size(px(13.)))
-                    .child(fine(faces, crate::tidy::shown(*bytes))),
+                    .child(ui::fine(faces, crate::tidy::shown(*bytes))),
             );
         }
         let button = |id: &'static str, label: &'static str, what: Tidy| {
@@ -416,8 +416,8 @@ impl Desk {
                         .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
                 )
             })
-            .children(self.tidied.clone().map(|said| fine(faces, said)))
-            .child(fine(
+            .children(self.tidied.clone().map(|said| ui::fine(faces, said)))
+            .child(ui::fine(
                 faces,
                 format!(
                     "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
@@ -458,7 +458,7 @@ impl Desk {
                             .flex_1()
                             .min_w(px(0.))
                             .child(ui::text(faces, name).text_size(px(13.5)))
-                            .child(fine(faces, Desk::shown(&folder))),
+                            .child(ui::fine(faces, Desk::shown(&folder))),
                     )
                     .child(
                         ui::button(
@@ -521,7 +521,7 @@ impl Desk {
                             .child(ui::one_line(
                                 ui::text(faces, s.title.clone()).text_size(px(13.5)),
                             ))
-                            .child(fine(
+                            .child(ui::fine(
                                 faces,
                                 format!(
                                     "{} · {}",
@@ -555,7 +555,7 @@ impl Desk {
                 div()
                     .px(px(16.))
                     .py(px(14.))
-                    .child(fine(faces, "Nothing archived. A session archived from its menu waits here, read only, until it is restored.")),
+                    .child(ui::fine(faces, "Nothing archived. A session archived from its menu waits here, read only, until it is restored.")),
             );
         }
         div()

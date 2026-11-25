@@ -252,27 +252,6 @@ fn meta(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .text_color(theme::faint())
 }
 
-fn counts(faces: &Faces, added: usize, gone: usize) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(8.))
-        .when(added > 0 || gone == 0, |d| {
-            d.child(
-                ui::mono(faces, format!("+{added}"))
-                    .text_size(px(12.5))
-                    .text_color(theme::added()),
-            )
-        })
-        .when(gone > 0, |d| {
-            d.child(
-                ui::mono(faces, format!("−{gone}"))
-                    .text_size(px(12.5))
-                    .text_color(theme::gone()),
-            )
-        })
-}
-
 /// The framed box an opened step sits in.
 fn boxed() -> Div {
     div()
@@ -1613,7 +1592,7 @@ impl Desk {
             .child(verb(faces, row.verb).when(running, |d| d.text_color(theme::accent())))
             .child(object)
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
-                d.child(counts(faces, added, gone))
+                d.child(ui::counts(faces, added, gone, crate::style::META).gap(px(8.)))
             })
             .children(tail)
             .child(div().flex_1())

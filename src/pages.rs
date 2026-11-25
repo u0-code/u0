@@ -56,13 +56,6 @@ fn step_number(faces: &Faces, n: u8, step: Step) -> Div {
         )
 }
 
-pub(crate) fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::text(faces, text)
-        .text_size(px(11.5))
-        .line_height(px(16.))
-        .text_color(theme::faint())
-}
-
 pub(crate) fn card() -> Div {
     div()
         .flex()
@@ -179,7 +172,7 @@ impl Desk {
                             theme::text2()
                         }),
                 )
-                .child(fine(
+                .child(ui::fine(
                     faces,
                     format!("{} · from the ACP registry", crate::registry::platform()),
                 )),
@@ -196,7 +189,7 @@ impl Desk {
                         .overflow_hidden()
                         .child(div().h_full().w(gpui::relative(share)).bg(theme::accent()))
                 }))
-                .child(fine(faces, install.what.clone()));
+                .child(ui::fine(faces, install.what.clone()));
         } else if let Stage::Missing(m) = &stage
             && !matches!(m, Missing::Download)
         {
@@ -211,7 +204,7 @@ impl Desk {
         // The CLI it drives: yours, as your terminal has it.
         if let Some((_, cli)) = entry.your_cli() {
             let version = self.cli_versions.get(&cli).cloned().unwrap_or_default();
-            download = download.child(fine(
+            download = download.child(ui::fine(
                 faces,
                 format!(
                     "Runs your {} {version} · {}",
@@ -248,7 +241,7 @@ impl Desk {
                             theme::text()
                         }),
                 )
-                .child(fine(faces, text))
+                .child(ui::fine(faces, text))
         };
         let steps = card()
             .child(step_row(1, one, download))
@@ -464,7 +457,7 @@ impl Desk {
                             .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
                     ),
             )
-            .child(fine(
+            .child(ui::fine(
                 faces,
                 match self.settings.commands.get(id) {
                     Some(c) => format!("Started with `{c}`; clear it to go back to the registry's way."),
@@ -517,7 +510,7 @@ impl Desk {
                     ),
             );
         }
-        own = own.child(models).child(fine(
+        own = own.child(models).child(ui::fine(
             faces,
             "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
         ));

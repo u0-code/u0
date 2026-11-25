@@ -69,20 +69,13 @@ fn section(faces: &Faces, head: &str, note: Option<Div>) -> Div {
         )
 }
 
+/// Small print that keeps its width in a row.
 fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::text(faces, text)
-        .flex_none()
-        .text_size(px(11.5))
-        .line_height(px(16.))
-        .text_color(theme::faint())
+    ui::fine(faces, text).flex_none()
 }
 
 fn fine_mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
-    ui::mono(faces, text)
-        .flex_none()
-        .text_size(px(11.5))
-        .line_height(px(16.))
-        .text_color(theme::faint())
+    ui::fine_mono(faces, text).flex_none()
 }
 
 /// A row in a section: 26 high.
@@ -120,19 +113,6 @@ fn key_value(faces: &Faces, key: &str, value: impl IntoElement) -> Div {
                 .text_color(theme::muted()),
         )
         .child(value)
-}
-
-fn added_gone(faces: &Faces, added: usize, gone: usize) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(4.))
-        .when(added > 0 || gone == 0, |d| {
-            d.child(fine_mono(faces, format!("+{added}")).text_color(theme::added()))
-        })
-        .when(gone > 0, |d| {
-            d.child(fine_mono(faces, format!("−{gone}")).text_color(theme::gone()))
-        })
 }
 
 impl Desk {
@@ -543,7 +523,7 @@ impl Desk {
                         crate::git::Status::Deleted => {
                             fine(faces, "deleted").text_color(theme::coral())
                         }
-                        _ => added_gone(faces, f.added, 0),
+                        _ => ui::counts(faces, f.added, 0, 11.5),
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.show_aside(Aside::File(at.clone()), cx);
@@ -753,7 +733,7 @@ impl Desk {
         let mut sec = section(
             faces,
             "Changes",
-            (!files.is_empty()).then(|| added_gone(faces, added, gone)),
+            (!files.is_empty()).then(|| ui::counts(faces, added, gone, 11.5)),
         );
         if files.is_empty() {
             return sec.child(empty(
@@ -779,7 +759,7 @@ impl Desk {
             let tail = match f.change {
                 Change::New => fine(faces, "new"),
                 Change::Deleted => fine(faces, "deleted").text_color(theme::coral()),
-                Change::Edited => added_gone(faces, f.added, f.gone),
+                Change::Edited => ui::counts(faces, f.added, f.gone, 11.5),
             };
             list = list.child(
                 frow()
@@ -1163,7 +1143,7 @@ impl Desk {
                 |c| match c.change {
                     Change::New => fine(faces, "new"),
                     Change::Deleted => fine(faces, "deleted").text_color(theme::coral()),
-                    Change::Edited => added_gone(faces, c.added, c.gone),
+                    Change::Edited => ui::counts(faces, c.added, c.gone, 11.5),
                 },
             );
             let openable = change.is_some();
@@ -1233,7 +1213,7 @@ impl Desk {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
                     })
             })
-            .children(total.map(|(a, g)| added_gone(faces, a, g)))
+            .children(total.map(|(a, g)| ui::counts(faces, a, g, 11.5)))
             .child(div().flex_1())
             .when(s.repo, |d| d.child(self.scope_tabs(faces, s, cx)))
             .when(from_git.is_some(), |d| {

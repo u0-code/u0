@@ -6,7 +6,7 @@
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{added_gone, empty, fine, frow, git_button, path_text, section};
+use super::{empty, fine, frow, git_button, path_text, section};
 use crate::{
     desk::{Aside, Desk, Scope},
     fonts::Faces,
@@ -198,7 +198,7 @@ impl Desk {
         let mut sec = section(
             faces,
             "Changes",
-            (!files.is_empty()).then(|| added_gone(faces, added, gone)),
+            (!files.is_empty()).then(|| ui::counts(faces, added, gone, 11.5)),
         )
         .child(self.scope_tabs(faces, s, cx).ml(px(-7.)));
         if reading {
@@ -212,7 +212,7 @@ impl Desk {
                 git::Status::Added => fine(faces, "new"),
                 git::Status::Deleted => fine(faces, "deleted").text_color(theme::coral()),
                 git::Status::Renamed if f.added + f.gone == 0 => fine(faces, "renamed"),
-                _ => added_gone(faces, f.added, f.gone),
+                _ => ui::counts(faces, f.added, f.gone, 11.5),
             };
             let path = std::path::PathBuf::from(&f.path);
             rows = rows.child(

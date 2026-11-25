@@ -531,16 +531,7 @@ impl Desk {
         let prefs = self.prefs(folder);
         let id = folder.display().to_string();
         let item = |n: usize, icon: &'static str, label: String| {
-            div()
-                .id(SharedString::from(format!("pmenu-{id}-{n}")))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(8.))
-                .h(px(30.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
+            ui::menu_row(SharedString::from(format!("pmenu-{id}-{n}")), false)
                 .child(ui::icon(icon, 14.).text_color(theme::faint()))
                 .child(ui::text(faces, label).flex_1().text_size(px(13.)))
         };
@@ -896,16 +887,7 @@ impl Desk {
                     label: String,
                     part: Option<&'static str>,
                     cx: &mut Context<Self>| {
-            div()
-                .id(SharedString::from(format!("smenu-{key}-{n}")))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(8.))
-                .h(px(30.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
+            ui::menu_row(SharedString::from(format!("smenu-{key}-{n}")), false)
                 .when(part.is_some() && self.submenu == part, |d| {
                     d.bg(theme::hover())
                 })
@@ -1179,16 +1161,7 @@ impl Desk {
                     .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
                 let on = self.settings.only == p;
                 menu = menu.child(
-                    div()
-                        .id(SharedString::from(format!("only-{n}")))
-                        .flex()
-                        .items_center()
-                        .px(px(8.))
-                        .h(px(30.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .when(on, |d| d.bg(theme::panel2()))
-                        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                    ui::menu_row(SharedString::from(format!("only-{n}")), on)
                         .child(ui::text(faces, label).text_size(px(13.)))
                         .on_click(cx.listener(move |this, _, _, cx| this.show_only(p.clone(), cx))),
                 );

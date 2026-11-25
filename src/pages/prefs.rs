@@ -5,7 +5,7 @@
 
 use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
 
-use super::{card, fine};
+use super::card;
 use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
@@ -524,7 +524,7 @@ impl Desk {
             return Some(page);
         }
         Some(page
-            .child(fine(
+            .child(ui::fine(
                 faces,
                 "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }. Ghost reads the file as it starts.",
             ))
@@ -576,12 +576,10 @@ impl Desk {
             );
         }
         if !any {
-            spent = spent.child(
-                div()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .child(fine(faces, "No agent has said what a session spent yet.")),
-            );
+            spent = spent.child(div().px(px(16.)).py(px(14.)).child(ui::fine(
+                faces,
+                "No agent has said what a session spent yet.",
+            )));
         }
         let total = totals
             .iter()
@@ -616,7 +614,7 @@ impl Desk {
                 div()
                     .px(px(16.))
                     .py(px(14.))
-                    .child(fine(faces, "No agent is running.")),
+                    .child(ui::fine(faces, "No agent is running.")),
             );
         }
         page(
@@ -634,7 +632,7 @@ impl Desk {
                         .flex()
                         .child(ui::label(faces, "Sessions").flex_1())
                         .when(!total.is_empty(), |d| {
-                            d.child(fine(faces, format!("in all {total}")))
+                            d.child(ui::fine(faces, format!("in all {total}")))
                         }),
                 )
                 .child(spent),

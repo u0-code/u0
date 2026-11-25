@@ -282,6 +282,54 @@ pub fn segmented(faces: &Faces, id: &str, choices: Vec<(&'static str, bool, Pick
     row
 }
 
+/// Small print: a count, a time, a word beside a name.
+pub fn fine(faces: &Faces, words: impl Into<SharedString>) -> Div {
+    small(text(faces, words))
+}
+
+/// Small print in mono: a hash, a count.
+pub fn fine_mono(faces: &Faces, words: impl Into<SharedString>) -> Div {
+    small(mono(faces, words))
+}
+
+fn small(d: Div) -> Div {
+    d.text_size(px(11.5))
+        .line_height(px(16.))
+        .text_color(theme::faint())
+}
+
+/// Lines added and lines gone, `+3 −1`, in their colours, at `size`.
+pub fn counts(faces: &Faces, added: usize, gone: usize, size: f32) -> Div {
+    let count =
+        |words: String, color: Hsla| mono(faces, words).text_size(px(size)).text_color(color);
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(4.))
+        .when(added > 0 || gone == 0, |d| {
+            d.child(count(format!("+{added}"), theme::added()))
+        })
+        .when(gone > 0, |d| {
+            d.child(count(format!("−{gone}"), theme::gone()))
+        })
+}
+
+/// A line of a menu: 30 high, corners of 7, lit on hover; the one chosen
+/// on the lifted ground.
+pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .px(px(8.))
+        .h(px(30.))
+        .rounded(px(7.))
+        .cursor_pointer()
+        .when(on, |d| d.bg(theme::panel2()))
+        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+}
+
 /// An icon button: a 28-point square that lights on hover.
 pub fn icon_button(
     id: impl Into<gpui::ElementId>,

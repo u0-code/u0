@@ -5,7 +5,7 @@
 
 use gpui::{Context, Div, div, prelude::*, px};
 
-use super::{card, fine};
+use super::card;
 use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
@@ -48,7 +48,7 @@ impl Desk {
                 ));
             }
             row = row
-                .child(fine(
+                .child(ui::fine(
                     faces,
                     format!("{count} session{}", if count == 1 { "" } else { "s" }),
                 ))
@@ -76,7 +76,7 @@ impl Desk {
                         .flex()
                         .items_center()
                         .child(ui::label(faces, "Agents already worked here").flex_1())
-                        .child(fine(faces, "from their own session lists")),
+                        .child(ui::fine(faces, "from their own session lists")),
                 )
                 .child(rows),
         )
@@ -140,7 +140,7 @@ impl Desk {
                         .overflow_hidden()
                         .child(div().h_full().w(gpui::relative(share)).bg(theme::accent()))
                 }))
-                .child(fine(faces, c.what.clone()))
+                .child(ui::fine(faces, c.what.clone()))
                 .child(
                     div().flex().child(
                         ui::button(faces, "cancel-clone", "Cancel", Weight::Secondary)
@@ -157,7 +157,7 @@ impl Desk {
                         ui::button(faces, "do-clone", "Clone", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_clone(cx))),
                     )
-                    .child(fine(
+                    .child(ui::fine(
                         faces,
                         "into a folder of its name, in the folder above",
                     )),
@@ -182,7 +182,7 @@ impl Desk {
                         ui::button(faces, "do-create", "Create", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.create_project(cx))),
                     )
-                    .child(fine(
+                    .child(ui::fine(
                         faces,
                         "a repository with a README, in the folder above",
                     )),
@@ -203,7 +203,7 @@ impl Desk {
                     .flex_wrap()
                     .items_center()
                     .gap(px(6.))
-                    .child(fine(faces, "From ~/.ssh/config"));
+                    .child(ui::fine(faces, "From ~/.ssh/config"));
                 for (n, host) in self.hosts.iter().take(8).enumerate() {
                     let host = host.clone();
                     chips = chips.child(
@@ -239,7 +239,7 @@ impl Desk {
                         ui::button(faces, "do-remote", "Add", Weight::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.add_remote(cx))),
                     )
-                    .child(fine(
+                    .child(ui::fine(
                         faces,
                         "over SSH with your key; the agent runs there by npx or uvx",
                     )),
@@ -293,7 +293,7 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(fine(faces, "New and cloned projects go in"))
+                            .child(ui::fine(faces, "New and cloned projects go in"))
                             .child(parent),
                     )
                     .children(

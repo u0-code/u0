@@ -160,17 +160,7 @@ impl Desk {
             for (n, p) in self.projects().into_iter().enumerate() {
                 let on = here.as_ref() == Some(&p);
                 menu = menu.child(
-                    div()
-                        .id(SharedString::from(format!("start-in-{n}")))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .px(px(8.))
-                        .h(px(30.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .when(on, |d| d.bg(theme::panel2()))
-                        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                    ui::menu_row(SharedString::from(format!("start-in-{n}")), on)
                         .child(ui::icon("folder", 13.).text_color(theme::faint()))
                         .child(
                             ui::text(faces, ui::fit(&self.project_name(&p), 28)).text_size(px(13.)),
@@ -184,16 +174,7 @@ impl Desk {
             }
             // Or a folder not listed yet.
             menu = menu.child(
-                div()
-                    .id("start-in-open")
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
-                    .h(px(30.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
+                ui::menu_row("start-in-open", false)
                     .child(ui::icon("plus", 13.).text_color(theme::faint()))
                     .child(ui::text(faces, "Open a folder…").text_size(px(13.)))
                     .on_click(cx.listener(|this, _, _, cx| {

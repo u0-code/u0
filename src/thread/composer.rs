@@ -401,17 +401,7 @@ impl Desk {
                         ),
                     };
                     menu = menu.child(
-                        div()
-                            .id(SharedString::from(format!("offer-{n}")))
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .px(px(8.))
-                            .h(px(30.))
-                            .rounded(px(7.))
-                            .cursor_pointer()
-                            .when(n == chosen, |d| d.bg(theme::panel2()))
-                            .hover(|st| st.bg(theme::hover()))
+                        ui::menu_row(SharedString::from(format!("offer-{n}")), n == chosen)
                             .child(ui::icon(icon, 14.).text_color(theme::faint()))
                             .child(
                                 ui::one_line(
@@ -775,7 +765,7 @@ impl Desk {
                 .flex_col()
                 .w(px(260.))
                 .p(px(6.))
-                .child(ui::label(faces, head).px(px(10.)).pt(px(6.)).pb(px(4.)));
+                .child(ui::label(faces, head).px(px(8.)).pt(px(6.)).pb(px(4.)));
             let query = self.menu_search.read(cx).text().to_lowercase();
             if long {
                 menu = menu.child(
@@ -807,7 +797,7 @@ impl Desk {
                 let popup = popup.clone();
                 let agent_mark = (popup == Popup::Agent).then(|| Mark::of(&value, &label));
                 scroll = scroll.child(
-                    row(SharedString::from(format!("{id}-{n}")), on)
+                    ui::menu_row(SharedString::from(format!("{id}-{n}")), on)
                         .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))
                         .child(ui::text(faces, label).flex_1().text_size(px(13.)))
                         .when(on, |d| {
@@ -839,7 +829,7 @@ impl Desk {
                 menu = menu
                     .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
                     .child(
-                        row("fanout".into(), on)
+                        ui::menu_row("fanout", on)
                             .child(ui::icon("plus", 14.).text_color(theme::muted()))
                             .child(
                                 ui::text(faces, format!("Send to all {usable} agents"))
@@ -907,13 +897,13 @@ impl Desk {
             .flex_col()
             .w(px(280.))
             .p(px(6.))
-            .child(ui::label(faces, name).px(px(10.)).pt(px(6.)).pb(px(4.)));
+            .child(ui::label(faces, name).px(px(8.)).pt(px(6.)).pb(px(4.)));
         let mut beside = None;
         for (n, m) in more.into_iter().enumerate() {
             let on = open_one == Some(n);
             let id = m.id.clone();
             list = list.child(
-                row(SharedString::from(format!("more-{n}")), on)
+                ui::menu_row(SharedString::from(format!("more-{n}")), on)
                     .child(ui::text(faces, m.name).flex_1().text_size(px(13.)))
                     .child(
                         ui::text(faces, ui::fit(&m.current, 18))
@@ -931,7 +921,7 @@ impl Desk {
                 for (k, (value, label, chosen)) in m.choices.into_iter().enumerate() {
                     let config = m.id.clone();
                     choices = choices.child(
-                        row(SharedString::from(format!("more-{n}-{k}")), chosen)
+                        ui::menu_row(SharedString::from(format!("more-{n}-{k}")), chosen)
                             .child(ui::text(faces, label).flex_1().text_size(px(13.)))
                             .when(chosen, |d| {
                                 d.child(ui::icon("check", 13.).text_color(theme::muted()))
@@ -967,38 +957,59 @@ impl Desk {
 const LIFT: f32 = 28. + 6. + 22. + 10. + 8.;
 
 impl Desk {
+    /// The mark that opens `popup`: its icon, and how many it holds when
+    /// it holds any.
+    fn popup_chip(
+        &self,
+        faces: &Faces,
+        popup: Popup,
+        icon: &'static str,
+        count: usize,
+        tip: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        div()
+            .id(SharedString::from(format!("chip-{icon}")))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .h(px(26.))
+            .px(px(7.))
+            .rounded(px(7.))
+            .cursor_pointer()
+            .text_color(theme::faint())
+            .hover(|st| st.bg(theme::hover()))
+            .when(self.popup == popup, |d| d.bg(theme::hover()))
+            .child(ui::icon(icon, 14.))
+            .when(count > 0, |d| {
+                d.child(ui::text(faces, count.to_string()).text_size(px(12.)))
+            })
+            .tooltip(ui::tip(tip))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_popup(popup.clone(), cx)))
+    }
+
     /// What you put aside (⌘S): a mark with how many, and under it each,
     /// the latest first, to take back into the line or let go.
     fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let open = self.popup == Popup::Stash;
-        let mut wrap = div().relative().flex().flex_none().child(
-            div()
-                .id("chip-stash")
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(26.))
-                .px(px(7.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .text_color(theme::faint())
-                .hover(|st| st.bg(theme::hover()))
-                .when(open, |d| d.bg(theme::hover()))
-                .child(ui::icon("archive", 14.))
-                .child(ui::text(faces, self.stashed.len().to_string()).text_size(px(12.)))
-                .tooltip(ui::tip("Put aside (⌘S), to take back"))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Stash, cx))),
-        );
+        let mut wrap = div().relative().flex().flex_none().child(self.popup_chip(
+            faces,
+            Popup::Stash,
+            "archive",
+            self.stashed.len(),
+            "Put aside (⌘S), to take back",
+            cx,
+        ));
         if open {
             let mut list = div().flex().flex_col().w(px(360.)).p(px(6.)).child(
                 ui::label(faces, "Put aside")
-                    .px(px(10.))
+                    .px(px(8.))
                     .pt(px(6.))
                     .pb(px(4.)),
             );
             for (n, text) in self.stashed.iter().enumerate().rev() {
                 list = list.child(
-                    row(SharedString::from(format!("stash-{n}")), false)
+                    ui::menu_row(SharedString::from(format!("stash-{n}")), false)
                         .child(
                             ui::one_line(
                                 ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
@@ -1052,26 +1063,14 @@ impl Desk {
         use crate::desk::Later;
         let open = self.popup == Popup::Later;
         let waiting = s.later.len();
-        let mut wrap = div().relative().flex().flex_none().child(
-            div()
-                .id("chip-later")
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(26.))
-                .px(px(7.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .text_color(theme::faint())
-                .hover(|st| st.bg(theme::hover()))
-                .when(open, |d| d.bg(theme::hover()))
-                .child(ui::icon("clock", 14.))
-                .when(waiting > 0, |d| {
-                    d.child(ui::text(faces, waiting.to_string()).text_size(px(12.)))
-                })
-                .tooltip(ui::tip("Say it later"))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Later, cx))),
-        );
+        let mut wrap = div().relative().flex().flex_none().child(self.popup_chip(
+            faces,
+            Popup::Later,
+            "clock",
+            waiting,
+            "Say it later",
+            cx,
+        ));
         if open {
             let written = !self.input.read(cx).text().trim().is_empty();
             let mut list = div().flex().flex_col().w(px(320.)).p(px(6.)).child(
@@ -1083,7 +1082,7 @@ impl Desk {
                         "Write it first, then say when"
                     },
                 )
-                .px(px(10.))
+                .px(px(8.))
                 .pt(px(6.))
                 .pb(px(4.)),
             );
@@ -1099,7 +1098,7 @@ impl Desk {
                 .enumerate()
                 {
                     list = list.child(
-                        row(SharedString::from(format!("later-{n}")), false)
+                        ui::menu_row(SharedString::from(format!("later-{n}")), false)
                             .child(ui::text(faces, label).flex_1().text_size(px(13.)))
                             .on_click(cx.listener(move |this, _, _, cx| this.send_later(when, cx))),
                     );
@@ -1109,7 +1108,7 @@ impl Desk {
                 let now = std::time::SystemTime::now();
                 list = list.child(
                     ui::label(faces, "Waiting to be said")
-                        .px(px(10.))
+                        .px(px(8.))
                         .pt(px(10.))
                         .pb(px(4.)),
                 );
@@ -1122,7 +1121,7 @@ impl Desk {
                         crate::when::said_at(at, now)
                     };
                     list = list.child(
-                        row(SharedString::from(format!("waiting-{n}")), false)
+                        ui::menu_row(SharedString::from(format!("waiting-{n}")), false)
                             .child(
                                 ui::text(faces, when)
                                     .flex_none()
@@ -1201,21 +1200,6 @@ struct More {
     name: String,
     current: String,
     choices: Choices,
-}
-
-/// A row of a menu, marked when it is the one chosen.
-fn row(id: SharedString, on: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .px(px(10.))
-        .h(px(32.))
-        .rounded(px(7.))
-        .cursor_pointer()
-        .when(on, |d| d.bg(theme::hover()))
-        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
 }
 
 /// Whether a menu's choice stands when `query` (lower case) is typed.
